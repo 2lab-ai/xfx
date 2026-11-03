@@ -1,0 +1,55 @@
+# Phase 5 panels: what the open `/status` panel does with keys it does not
+# name (Shift-Tab, Tab, PgDn, a paste, Ctrl-C), and an approval that arrives
+# while it is open in a running turn.
+# The tools are each product's own: fx's `shell` is xfx's `terminal`, so each
+# binary gets its own turn and its own `ask`.
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+fx: gateway p5-panels-keys-turn.json
+xfx: gateway p5-panels-keys-turn-xfx.json
+wait 2
+type /status
+key Enter
+wait 1
+key BTab
+wait 0.5
+snap btab
+key Tab
+wait 0.4
+key PageDown
+wait 0.4
+snap tab-pgdn
+paste pasted words
+wait 0.5
+snap paste
+key C-c
+wait 0.6
+snap ctrl-c
+key Escape
+wait 0.5
+snap after-ctrl-c-esc
+key C-u
+type /permissions
+key Enter
+wait 1
+key BTab
+wait 0.6
+snap perm-btab
+key Escape
+wait 0.5
+key C-u
+type run it
+key Enter
+wait 0.8
+type /status
+key Enter
+wait 0.8
+snap open-before-approval
+wait 3
+snap approval-arrives
+key Escape
+wait 1
+snap approval-esc
+wait 1
+snap end

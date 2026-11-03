@@ -1,0 +1,14 @@
+  sandbox=none
+  workspace=<tmp>/fxcap.L09HCN/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=25
+
+┃ /status
+
+auto · model-a
+
+
+
+
+

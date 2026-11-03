@@ -1,0 +1,40 @@
+  workspace=<tmp>/fxcap.aHHpOJ/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=25
+
+* permission-mode: saved to user settings (scope=user); fresh sessions here use higher-precedence
+  permission_mode=process_override
+
+* permissions: mode=auto
+  configured rules: (none)
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules: none
+
+* permission-mode: saved to user settings (scope=user); fresh sessions here use higher-precedence
+  permission_mode=process_override
+
+┃ run it
+
+* status: model=fake/model-a
+  provider=gateway
+  build_channel=debug
+  build_revision=e0d97bd5c59c
+  auth=AI_GATEWAY_API_KEY
+  auth_refreshable=false
+  permission_mode=yolo
+  sandbox=none
+  workspace=<tmp>/fxcap.aHHpOJ/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=25
+
+  Generating (1s) (↑2 ↓4)
+
+┃
+
+full access · model-a                                                Full access enabled: xfx permission checks disabled

@@ -98,6 +98,7 @@ use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
 use super::image_paths;
+use super::info_panel::{self, MenuAction as InfoAction};
 use super::inline_completion;
 use super::input::{Action, Decoder, Delivery, Input};
 use super::layout::{self, Geometry};
@@ -1136,6 +1137,14 @@ pub(crate) struct Shell {
     /// focus like the `/statusline` picker, the composer row hidden while it
     /// is.
     workspace_menu: Option<workspace_menu::Menu>,
+    /// A read-only panel -- what `/status` and a bare `/permissions` open
+    /// upstream -- while it is up ([`super::info_panel`]): a focus like the
+    /// `/workspace` picker, the composer row hidden while it is, with the
+    /// composer still taking a paste behind it. A question, a model's question
+    /// batch and a rule change outrank it in [`Self::slot`] and in
+    /// [`Self::consume`] alike, so one arriving while it is up takes the keys
+    /// and the rows, and the panel is in front again once it is answered.
+    info_panel: Option<info_panel::Panel>,
     /// The skills menu, while it is open ([`super::skills_menu`]): opened by
     /// `/skills` or by a `$` the user typed or pasted, a view of the composer
     /// like the catalog -- in the slot only while it has something to show
@@ -1982,6 +1991,8 @@ enum Slot<'a> {
     Rule(&'a RuleConfirm),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// A read-only panel: the focus and the composer's rows, as the picker's.
+    Info(&'a info_panel::Panel),
     /// The `/settings` menu. Rows, and the composer as its search; it binds
     /// more keys than the catalog does, and owns nothing else.
     Settings(&'a SettingsMenu),
@@ -2231,6 +2242,7 @@ impl Shell {
                 &config.additional_directories,
             ),
             workspace_menu: None,
+            info_panel: None,
             skills_menu: None,
             skills: HeldSkills::new(
                 &config.workspace_root,
@@ -2480,6 +2492,11 @@ impl Shell {
                     self.statusline,
                     self.palette,
                 ),
+                // In the rows the geometry gave it, scrolled
+                // (`composeRow` is handed `footerRows`' answer).
+                Some(Slot::Info(panel)) => {
+                    panel.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for (`composeUsageRow` is handed them).
                 Some(Slot::Usage(dashboard)) => {
@@ -2612,6 +2629,15 @@ impl Shell {
             Some(Slot::Statusline(_)) => self.painted(
                 self.palette.dim(),
                 statusline::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the panel's: `↑↓ scroll` only while its lines overflow the
+            // rows it was given (`composeCompactCommandMenuHintRow`, the
+            // `.info_panel` variants).
+            Some(Slot::Info(panel)) => self.painted(
+                self.palette.dim(),
+                panel
+                    .key_help(self.geometry.panel, self.geometry.cols)
+                    .to_string(),
             ),
             // And the dashboard's (`composeCompactCommandMenuHintRow`, the
             // `.usage` variants).
@@ -2926,6 +2952,14 @@ impl Shell {
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
+        // After the three that hold a turn or a rule change, so it never covers
+        // one -- and in upstream's order among the compact menus, which share
+        // the slot only one at a time (`activeCompactCommandMenu`,
+        // `app_input_runtime.zig:1840-1846`). [`Self::consume`] offers it the
+        // keys in the same place.
+        if let Some(panel) = self.info_panel.as_ref() {
+            return Some(Slot::Info(panel));
+        }
         if let Some(dashboard) = self.usage_menu.as_ref() {
             return Some(Slot::Usage(dashboard));
         }
@@ -3037,6 +3071,14 @@ impl Shell {
             if let Some(menu) = self.statusline_menu.as_ref() {
                 let row = menu.marked_row(self.geometry.panel);
                 return (self.geometry.panel_first().saturating_add(row), 0);
+            }
+            // The panel has the focus with nothing marked: the start of its
+            // first row. Upstream hides the caret under every compact menu
+            // (`cursor_target.visible = input_visible`, `paint_plan.zig:463`);
+            // this band keeps it on the surface that has the keys, as it does
+            // for the pickers beside it.
+            if self.info_panel.is_some() {
+                return (self.geometry.panel_first(), 0);
             }
             // The dashboard has the focus the same way: the start of the
             // marked model's row, which Enter and the arrows act on, or of the
@@ -6327,6 +6369,88 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
         }
+    }
+
+    /// One input while the read-only panel is up, and whether the panel took
+    /// it.
+    ///
+    /// The arrows and Ctrl-J/Ctrl-K scroll, clamped at both ends; Escape and
+    /// Enter close it, and an Escape while a turn runs closes it **before** the
+    /// interrupt could be armed (`cancelCompactCommandMenu` ahead of the
+    /// interrupt, `app_input_runtime.zig:2718-2722`). Every other key -- a
+    /// letter, Tab, Shift-Tab, Page Up or Down, a Ctrl-C, a Ctrl-D -- is
+    /// swallowed, as upstream's compact menus swallow them
+    /// (`app_input_runtime.zig:979-982`, `:1187-1215`): Shift-Tab changes no
+    /// mode and a Ctrl-C arms no exit under it.
+    ///
+    /// **A paste is not a key, and it is not taken**: its frame and its bytes
+    /// go on to the composer behind the panel, which is where upstream's paste
+    /// lands (`paste_start` closes only the sign-in, fork and effort menus,
+    /// `:932-943`, `:1984-1990`; `cap/panels/new/fx-p5-panels-keys-40x120-paste`
+    /// and `-after-ctrl-c-esc`). The composer stays hidden until the panel
+    /// closes, and the panel outranks any completion menu the pasted text
+    /// opens ([`Self::slot`]).
+    fn offer_to_info_panel(&mut self, event: &Input) -> bool {
+        let action = match event {
+            Input::Action(Action::PasteStart | Action::PasteEnd) | Input::PasteByte(_) => {
+                return false;
+            }
+            Input::Action(action) => *action,
+            Input::Text(_) | Input::Report(_) => return true,
+        };
+        let Some(request) = InfoAction::of(action) else {
+            return true;
+        };
+        let (visible, cols) = (self.geometry.panel, self.geometry.cols);
+        let Some(panel) = self.info_panel.as_mut() else {
+            return true;
+        };
+        match request {
+            InfoAction::Up | InfoAction::Down => {
+                if panel.scroll_by(request == InfoAction::Down, visible, cols) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            InfoAction::Close => {
+                self.info_panel = None;
+                // The composer's row comes back with the panel's going.
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+        true
+    }
+
+    /// Opens `panel` in the band in place of the composer, with every other
+    /// menu that shares the slot closed and one panel at a time
+    /// (`openInfoPanel`, `app_commands.zig:527-536`, which closes the skills
+    /// and model menus, the catalog, the settings menu and the inline command
+    /// menus). Nothing is written to the document.
+    ///
+    /// A question, a model's question batch and a rule change are not closed:
+    /// they hold a turn or a decision, and they outrank the panel wherever the
+    /// two meet ([`Self::slot`], [`Self::consume`]).
+    ///
+    /// The fact-list API `/status` and a bare `/permissions` fill
+    /// ([`info_panel::Row`], [`info_panel::Facts`]); until they do, the tests
+    /// are its only caller.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn open_info_panel(&mut self, panel: info_panel::Panel) {
+        self.picker = None;
+        self.file_picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.provider_picker = None;
+        self.skills_menu = None;
+        self.settings_menu = None;
+        self.statusline_menu = None;
+        self.usage_menu = None;
+        self.workspace_menu = None;
+        self.mcp_menu = None;
+        self.info_panel = Some(panel);
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// One keystroke, while `/usage`'s dashboard has the focus
@@ -9664,6 +9788,7 @@ impl Shell {
                 | Input::Report(_) => false,
                 Input::Action(Action::Escape) => {
                     self.ask.is_some()
+                        || self.info_panel.is_some()
                         || self.mcp_menu.is_some()
                         || self.mcp_prompt.is_some()
                         || self.asking()
@@ -9724,6 +9849,11 @@ impl Shell {
             }
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
+                continue;
+            }
+            // The read-only panel the same way -- except that a paste is no
+            // key of its, and goes on to the composer hidden behind it.
+            if self.info_panel.is_some() && self.offer_to_info_panel(&event) {
                 continue;
             }
             // `/usage`'s dashboard, the same way.
@@ -11471,6 +11601,7 @@ impl CommandHandlers for Shell {
         self.provider_picker = None;
         self.statusline_menu = None;
         self.workspace_menu = None;
+        self.info_panel = None;
         let scope = crate::usage::Scope::Days30;
         let cached = self
             .usage_read
@@ -11591,6 +11722,7 @@ impl CommandHandlers for Shell {
                     self.statusline_menu = None;
                     self.settings_menu = None;
                     self.usage_menu = None;
+                    self.info_panel = None;
                     self.rule_confirm = Some(RuleConfirm::new(confirmation));
                     self.refit();
                     self.render.request(Reason::Modal);
@@ -11662,6 +11794,7 @@ impl CommandHandlers for Shell {
             self.file_picker = None;
             self.help_menu = None;
             self.workspace_menu = None;
+            self.info_panel = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -11740,6 +11873,7 @@ impl CommandHandlers for Shell {
                 self.statusline_menu = None;
                 self.usage_menu = None;
                 self.settings_menu = None;
+                self.info_panel = None;
                 self.workspace_menu = Some(workspace_menu::Menu::open());
                 self.refit();
                 self.render.request(Reason::Modal);
@@ -11781,6 +11915,7 @@ impl CommandHandlers for Shell {
             self.usage_menu = None;
             self.settings_menu = None;
             self.workspace_menu = None;
+            self.info_panel = None;
             self.mcp_menu = Some(super::mcp_menu::McpMenu::open());
             self.refit();
             self.render.request(Reason::Modal);
@@ -11863,6 +11998,7 @@ impl CommandHandlers for Shell {
         self.provider_picker = None;
         self.file_picker = None;
         self.workspace_menu = None;
+        self.info_panel = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
         // The effort and speed rows are the catalog's answer for the model in
         // force, which upstream's menu reads from a cache filled at launch
@@ -13290,6 +13426,7 @@ impl Shell {
             }
             Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
+            Some(Slot::Info(panel)) => panel.height(rows, cols),
             Some(Slot::Catalog(_))
             | Some(Slot::Mcp(_))
             | Some(Slot::Settings(_))
@@ -13358,12 +13495,16 @@ impl Shell {
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
         //
-        // `/usage`'s dashboard and the `/workspace` picker are the same kind
-        // of occupant, and give up rows the same way
-        // (`composeConstrainedUsageRow`, `composeWorkspaceRow`).
+        // `/usage`'s dashboard, the `/workspace` picker and the read-only
+        // panel are the same kind of occupant, and give up rows the same way
+        // (`composeConstrainedUsageRow`, `composeWorkspaceRow`; the panel
+        // scrolls in what it is given).
         if matches!(
             slot,
-            Some(Slot::Statusline(_)) | Some(Slot::Usage(_)) | Some(Slot::Workspace(_))
+            Some(Slot::Statusline(_))
+                | Some(Slot::Info(_))
+                | Some(Slot::Usage(_))
+                | Some(Slot::Workspace(_))
         ) {
             return (1..=fixed)
                 .rev()
@@ -37533,6 +37674,446 @@ mod tests {
         assert!(
             late.picker.is_some(),
             "the popup did not open for the skill that landed"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the read-only panel
+    // -----------------------------------------------------------------------
+
+    /// The rows fx's `/status` panel shows in
+    /// `cap/panels/new/fx-p5-panels-status-short-*` and `-keys-*`, in fx's
+    /// words: a filler for the occupant, not xfx's own facts -- `/status` is
+    /// the unit that maps those.
+    fn fx_status_panel() -> info_panel::Panel {
+        use info_panel::{Facts, Panel, Row};
+        Panel::open(
+            vec![
+                Row::new("Session", "qGmBFM89lH8M \u{b7} not saved yet"),
+                Row::new("Model", "fake/model-a"),
+                Row::new("Auth", "AI_GATEWAY_API_KEY"),
+                Row::new("Permissions", "ask"),
+                Row::new("Workspace", "/scratch/workdir/claude/fxcap.0b3z9I/work"),
+                Row::new("Turns", "0"),
+                Row::new("Session grants", "0"),
+                Row::new("Step limit", "unlimited"),
+                Row::new("Ultrafast", "not requested"),
+                Row::new("Updates", "stable"),
+                Row::new("Build", "stable \u{b7} 481104fdbc24"),
+            ],
+            Facts::Status {
+                turns: 0,
+                saved: Some(false),
+                grants: 0,
+            },
+        )
+    }
+
+    /// One of the panel's lines as fx paints it at the value column 20.
+    fn status_line(label: &str, value: &str) -> String {
+        format!("  {label}{}{value}", " ".repeat(18 - label.len()))
+    }
+
+    /// The band's rows from the panel's top rule down: what the panel owns,
+    /// without the turn's row above it, whose clock and token count move on
+    /// their own.
+    fn from_the_rule(rows: &[String]) -> Vec<String> {
+        let rule = rows
+            .iter()
+            .position(|row| uncoloured(row).starts_with('\u{2500}'))
+            .expect("a rule");
+        rows[rule..].to_vec()
+    }
+
+    /// The hint row's text in the dim grey, as the band paints it.
+    fn dim_hint(text: &str) -> String {
+        format!("{}{text}{}", PALETTE.dim(), PALETTE.reset())
+    }
+
+    #[test]
+    fn the_panel_takes_the_composers_rows_and_scrolls_as_the_short_status_capture() {
+        // `cap/panels/new/fx-p5-panels-status-short-14x120-{open,down1,
+        // down-end,up1,ctrl-k,esc}`, rows 3-9: a rule, `Status`, a blank, two
+        // lines, a rule, `↑↓ scroll     esc close` -- the composer and the mode
+        // hint gone -- and after Escape the composer and hint back with
+        // nothing written.
+        let mut shell = shell(14, 120);
+        shell.open_info_panel(fx_status_panel());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.panel, 4, "14 - 10 rows");
+        let window = |shell: &Fixture| uncoloured_rows(&shell.band_rows()[3..5]);
+        let rows = shell.band_rows();
+        assert_eq!(rows.len(), 7);
+        assert_eq!(rows.len(), usize::from(shell.geometry.band_rows()));
+        assert_eq!(rows[0], divider(120));
+        assert_eq!(uncoloured_rows(&rows[1..3]), ["Status", ""]);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Session", "qGmBFM89lH8M \u{b7} not saved yet"),
+                status_line("Model", "fake/model-a"),
+            ]
+        );
+        assert_eq!(rows[5], divider(120));
+        assert_eq!(rows[6], dim_hint("\u{2191}\u{2193} scroll     esc close"));
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first(), 0));
+
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Model", "fake/model-a"),
+                status_line("Auth", "AI_GATEWAY_API_KEY"),
+            ]
+        );
+        for _ in 0..14 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Updates", "stable"),
+                status_line("Build", "stable \u{b7} 481104fdbc24"),
+            ],
+            "the end clamps, with no wrap"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Ultrafast", "not requested"),
+                status_line("Updates", "stable"),
+            ]
+        );
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Step limit", "unlimited"),
+                status_line("Ultrafast", "not requested"),
+            ]
+        );
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            window(&shell)[0],
+            status_line("Ultrafast", "not requested"),
+            "Ctrl-J scrolls down"
+        );
+
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert_eq!(shell.band_rows()[0], composer_row(""));
+        assert!(
+            shell.document().is_empty(),
+            "the panel wrote to the document"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the panel reached the runtime"
+        );
+    }
+
+    #[test]
+    fn the_panel_fits_whole_at_24_by_50_and_its_hint_offers_no_arrows() {
+        // `cap/panels/new/fx-p5-panels-status-short-24x50-{open,down1,
+        // down-end}`: fourteen rows, the workspace broken after its last
+        // fitting `/`, `esc close`, and the arrows move nothing.
+        let mut shell = shell(24, 50);
+        shell.open_info_panel(fx_status_panel());
+        assert_eq!(shell.geometry.panel, 14);
+        let rows = shell.band_rows();
+        let plain = uncoloured_rows(&rows);
+        assert_eq!(rows[0], divider(50));
+        assert_eq!(plain[1], "Status");
+        assert_eq!(
+            plain[7],
+            format!("  Workspace{}/scratch/workdir/claude/", " ".repeat(9))
+        );
+        assert_eq!(plain[8], format!("{}fxcap.0b3z9I/work", " ".repeat(20)));
+        assert_eq!(
+            plain[14],
+            status_line("Build", "stable \u{b7} 481104fdbc24")
+        );
+        assert_eq!(rows[15], divider(50));
+        assert_eq!(rows[16], dim_hint("esc close"));
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B");
+        assert_eq!(shell.band_rows(), rows, "a panel that fits scrolled");
+    }
+
+    #[test]
+    fn the_panel_swallows_every_key_it_does_not_bind_and_a_paste_reaches_the_composer() {
+        // `cap/panels/new/fx-p5-panels-keys-40x120-{btab,tab-pgdn,paste,
+        // ctrl-c,after-ctrl-c-esc}`: Shift-Tab changes no mode, Tab and Page
+        // Down change nothing, a paste leaves the panel as it was and lands in
+        // the hidden composer, a Ctrl-C neither arms the exit nor clears that
+        // draft, and Escape shows it.
+        let mut shell = shell(40, 120);
+        let mode = shell.mode;
+        shell.open_info_panel(fx_status_panel());
+        let open = shell.band_rows();
+        assert_eq!(open.len(), 1 + 13 + 1 + 1);
+        assert_eq!(open[15], dim_hint("esc close"));
+
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(shell.mode, mode, "Shift-Tab moved the mode under the panel");
+        shell.route_bytes(b"\t\x1b[6~\x1b[5~x/");
+        assert_eq!(shell.band_rows(), open, "a key it does not bind moved it");
+        assert!(shell.editor.is_empty(), "a typed key reached the composer");
+
+        pasted(&mut shell, "pasted words");
+        assert_eq!(shell.band_rows(), open, "the paste moved the panel");
+        assert!(shell.info_panel.is_some());
+        assert_eq!(shell.editor.text(), "pasted words");
+
+        shell.route_bytes(&[0x03]);
+        assert!(
+            !shell.gestures.exit_armed(Instant::now()),
+            "a Ctrl-C under the panel armed the exit"
+        );
+        assert_eq!(shell.band_rows(), open);
+        assert_eq!(
+            shell.editor.text(),
+            "pasted words",
+            "a Ctrl-C cleared the draft"
+        );
+
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.band_rows()[0], composer_row("pasted words"));
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_closes_the_panel_and_submits_nothing() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-enter-closed`: Enter is
+        // Escape's twin on a panel that only shows.
+        let mut shell = shell(40, 120);
+        shell.open_info_panel(fx_status_panel());
+        shell.route_bytes(b"\r");
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err(), "Enter submitted something");
+    }
+
+    #[test]
+    fn escape_while_a_turn_runs_closes_the_panel_and_arms_no_interrupt() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-closed-final`: the panel
+        // takes the Escape ahead of the interrupt gesture
+        // (`app_input_runtime.zig:2718-2722`); the next one is the gesture's.
+        let mut shell = shell(40, 120);
+        let started = turn_running(&mut shell, b"run it\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        let rows = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shell.geometry.activity.is_some(),
+            "the turn's row left the band: {rows:?}"
+        );
+        assert!(rows.iter().any(|row| row == "Status"));
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(!shell.gestures.interrupt_armed(Instant::now()));
+        assert_eq!(shell.controlled(), None, "the Escape reached the turn");
+        escape(&mut shell);
+        assert!(
+            shell.gestures.interrupt_armed(Instant::now()),
+            "this case proves nothing: an Escape at the composer arms nothing either"
+        );
+    }
+
+    #[test]
+    fn an_approval_arriving_under_the_panel_takes_the_keys_and_the_screen_and_gives_them_back() {
+        // `cap/panels/new/fx-p5-panels-keys-40x120-{open-before-approval,
+        // approval-arrives,approval-esc}`: the question replaces the panel;
+        // its keys are the question's -- a Down moves its choice, not the
+        // panel's lines; Escape cancels it rather than closing the panel --
+        // and once it is answered the panel is back where it was scrolled.
+        // Twenty rows, so the panel overflows (ten of its thirteen) and a
+        // scroll it kept is a scroll that shows.
+        let mut shell = shell(20, 120);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        shell.route_bytes(b"\x1b[B");
+        let before = from_the_rule(&shell.band_rows());
+        assert!(
+            !uncoloured_rows(&before)
+                .contains(&status_line("Session", "qGmBFM89lH8M \u{b7} not saved yet")),
+            "this case proves nothing: the panel is not scrolled"
+        );
+
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        let asking = uncoloured_rows(&shell.band_rows());
+        assert!(
+            asking.iter().any(|row| row.contains("Permission needed")),
+            "the question is not in front: {asking:?}"
+        );
+        assert!(
+            !asking.iter().any(|row| row == "Status"),
+            "the panel covers the question: {asking:?}"
+        );
+        assert!(shell.info_panel.is_some(), "the question closed the panel");
+        let marked = shell.marked();
+        shell.route_bytes(b"\x1b[B");
+        assert_ne!(
+            shell.marked(),
+            marked,
+            "the Down did not reach the question"
+        );
+        escape(&mut shell);
+        assert!(
+            shell.controlled().is_some(),
+            "the Escape did not reach the question"
+        );
+        assert!(!shell.asking(), "the question is still up");
+        assert!(shell.info_panel.is_some(), "the Escape closed the panel");
+        shell.settle_band(started);
+        assert_eq!(
+            from_the_rule(&shell.band_rows()),
+            before,
+            "the panel did not come back as it was"
+        );
+    }
+
+    #[test]
+    fn an_approval_on_the_review_plane_takes_the_keys_and_the_band_keeps_the_panel_for_its_return()
+    {
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        let before = from_the_rule(&shell.band_rows());
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        delivered(&mut shell);
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "the key went to the panel rather than to the question"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(shell.info_panel.is_some());
+        shell.settle_band(started);
+        assert_eq!(from_the_rule(&shell.band_rows()), before);
+    }
+
+    #[test]
+    fn a_model_question_under_the_panel_takes_the_keys_and_the_screen_and_gives_them_back() {
+        let mut shell = shell(40, 120);
+        let started = turn_running(&mut shell, b"ask me\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        let before = from_the_rule(&shell.band_rows());
+        shell.apply(UiEvent::Question(a_batch()));
+        shell.settle_band(started);
+        let asking = uncoloured_rows(&shell.band_rows());
+        assert!(
+            asking.iter().any(|row| row.contains("Which depth?")),
+            "{asking:?}"
+        );
+        assert!(!asking.iter().any(|row| row == "Status"), "{asking:?}");
+        shell.route_bytes(b"1");
+        shell.route_bytes(b"1");
+        shell.settle_band(started);
+        assert!(
+            shell.ask.is_none(),
+            "the batch was not answered by its keys"
+        );
+        assert_eq!(from_the_rule(&shell.band_rows()), before);
+    }
+
+    #[test]
+    fn a_rule_change_waiting_to_be_confirmed_outranks_the_panel() {
+        // Not reachable from the keyboard -- the panel swallows the line that
+        // would open one -- so this is the ranking itself: the slot and the
+        // focus agree that the confirmation is in front.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some());
+        shell.open_info_panel(fx_status_panel());
+        let band = uncoloured_rows(&shell.band_rows());
+        assert!(
+            band.iter().any(|row| row.contains("Permission needed")),
+            "{band:?}"
+        );
+        assert!(!band.iter().any(|row| row == "Status"), "{band:?}");
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none(), "the Escape went to the panel");
+        assert!(shell.info_panel.is_some());
+        assert!(uncoloured_rows(&shell.band_rows())
+            .iter()
+            .any(|row| row == "Status"));
+    }
+
+    #[test]
+    fn opening_the_panel_closes_the_menus_that_share_its_slot_and_theirs_close_it() {
+        // `openInfoPanel` and `closeInlineCommandMenusIfPresent`
+        // (`app_commands.zig:527-536`, `:1174-1182`): one occupant at a time.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.workspace_menu.is_some());
+        shell.open_info_panel(fx_status_panel());
+        assert!(shell.workspace_menu.is_none());
+        assert!(shell.info_panel.is_some());
+        shell.route_bytes(b"/help");
+        assert!(shell.editor.is_empty(), "the panel let the line be typed");
+
+        type Opener = fn(&mut Fixture);
+        let openers: [(&str, Opener); 5] = [
+            ("/usage", |shell| shell.usage()),
+            ("/statusline", |shell| shell.statusline("")),
+            ("/workspace", |shell| shell.workspace("")),
+            ("/mcp", |shell| shell.mcp("")),
+            ("/settings", |shell| shell.settings("")),
+        ];
+        for (name, open) in openers {
+            shell.open_info_panel(fx_status_panel());
+            open(&mut shell);
+            assert!(shell.info_panel.is_none(), "{name} left the panel up");
+        }
+    }
+
+    #[test]
+    fn the_panels_values_reach_the_terminal_spelled_rather_than_obeyed() {
+        // **S.** A value that would clear the screen is shown as the code
+        // point it is (`safeText`, `output_contracts.zig:575-578`), whoever
+        // built the row.
+        use info_panel::{Facts, Panel, Row};
+        let mut shell = shell(40, 120);
+        shell.open_info_panel(Panel::open(
+            vec![Row::new("Workspace", "/w/\u{1b}[2J\u{1b}]0;owned\u{7}")],
+            Facts::Status {
+                turns: 0,
+                saved: None,
+                grants: 0,
+            },
+        ));
+        let rows = shell.band_rows();
+        let line = rows
+            .iter()
+            .find(|row| row.contains("Workspace"))
+            .expect("the row is painted");
+        assert!(!line.contains("\u{1b}[2J"), "{line:?}");
+        assert!(!line.contains("\u{1b}]0;"), "{line:?}");
+        assert!(!line.contains('\u{7}'), "{line:?}");
+        assert!(
+            line.contains("/w/\\u{001B}[2J\\u{001B}]0;owned\\u{0007}"),
+            "{line:?}"
         );
     }
 }
