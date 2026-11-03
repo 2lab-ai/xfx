@@ -1294,12 +1294,31 @@ impl McpRuntime {
                 .collect(),
             _ => Vec::new(),
         };
+        // And the ones pending now that the list did not have at all.
+        let added: Vec<String> = match &action {
+            TrustAction::ApproveListed(listed) => loaded
+                .pending
+                .iter()
+                .filter(|(name, _)| !listed.iter().any(|(listed, _)| listed == name))
+                .map(|(name, _)| name.clone())
+                .collect(),
+            _ => Vec::new(),
+        };
         let say_changed = |runtime: &Self| {
             for name in &changed {
                 runtime.notice(
                     true,
                     format!(
                         "Project MCP server '{}' changed since it was listed; it is still waiting for approval.",
+                        super::terminal_safe(name)
+                    ),
+                );
+            }
+            for name in &added {
+                runtime.notice(
+                    true,
+                    format!(
+                        "Project MCP server '{}' was added since the list was drawn; it is still waiting for approval.",
                         super::terminal_safe(name)
                     ),
                 );

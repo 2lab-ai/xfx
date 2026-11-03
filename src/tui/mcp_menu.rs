@@ -152,9 +152,13 @@ pub(crate) struct McpMenu {
     /// once it has been shown whole. Set while drawing, which takes `&self`;
     /// a key reads it against the entry as it is now.
     drawn: std::cell::RefCell<Option<Drawn>>,
-    /// The pending servers the approve-all confirmation was drawn over, each
-    /// with its digest: what its Enter approves. Set while drawing.
-    listed: std::cell::RefCell<Option<Vec<(String, String)>>>,
+    /// The pending servers the approve-all confirmation was opened over,
+    /// each with its digest: what its Enter approves. Fixed when it opens --
+    /// a redraw only compares against it.
+    listed: Option<Vec<(String, String)>>,
+    /// A frame of the confirmation found the pending servers other than
+    /// `listed`: it said so, and Enter approves nothing.
+    listed_changed: std::cell::Cell<bool>,
 }
 
 /// A project entry the details screen drew.
@@ -178,6 +182,9 @@ impl Drawn {
 /// What the details screen says when `a` meets an entry other than the one
 /// it drew: nothing is approved, and the next frame shows the new one.
 const ENTRY_CHANGED: &str = "This entry changed since it was drawn; check it and press a again.";
+/// What the approve-all confirmation says once the pending servers differ
+/// from the ones it was opened over: Enter then approves nothing.
+const PENDING_CHANGED: &str = "The pending servers changed. Press Esc to review them again.";
 /// What it says when `a` meets an entry the screen did not show whole.
 const ENTRY_NOT_SHOWN: &str = "This entry is not shown whole: press v to see all of it, then a.";
 
@@ -199,7 +206,8 @@ impl McpMenu {
             feedback: None,
             filter: None,
             drawn: std::cell::RefCell::new(None),
-            listed: std::cell::RefCell::new(None),
+            listed: None,
+            listed_changed: std::cell::Cell::new(false),
         }
     }
 
@@ -367,20 +375,17 @@ impl McpMenu {
             Screen::Details => rows.extend(self.details_rows(servers, width, body, palette)),
             Screen::Info => rows.extend(info_rows(width, palette)),
             Screen::Confirm(confirm) => {
-                if confirm == Confirm::ApproveAll {
-                    *self.listed.borrow_mut() = Some(
-                        servers
-                            .iter()
-                            .filter(|server| server.admission == Some(Admission::Pending))
-                            .filter_map(|server| {
-                                let entry = server.entry.as_ref()?;
-                                Some((server.name.clone(), entry.digest.clone()))
-                            })
-                            .collect(),
-                    );
+                let changed = confirm == Confirm::ApproveAll
+                    && self.listed.as_ref() != Some(&pending_of(servers));
+                if changed {
+                    self.listed_changed.set(true);
                 }
                 rows.push(text_row(
-                    confirm.text(),
+                    if changed || (confirm == Confirm::ApproveAll && self.listed_changed.get()) {
+                        PENDING_CHANGED
+                    } else {
+                        confirm.text()
+                    },
                     width,
                     palette.notice_label(),
                     0,
@@ -646,11 +651,18 @@ impl McpMenu {
         match (self.screen, action) {
             // The servers the confirmation was drawn over, as they were drawn:
             // one a reload read after the frame is not in it.
+            // What the confirmation was opened over -- unless a frame of it,
+            // or the servers as they are now, found the pending set changed:
+            // then it approves nothing and goes back to the list.
             (Screen::Confirm(Confirm::ApproveAll), KeyAction::Enter) => {
-                let Some(listed) = self.listed.borrow_mut().take() else {
-                    return Effect::Ignored;
-                };
                 self.screen = Screen::Browse;
+                let changed = self.listed_changed.replace(false);
+                let Some(listed) = self.listed.take() else {
+                    return Effect::Repaint;
+                };
+                if changed || listed != pending_of(servers) {
+                    return Effect::Repaint;
+                }
                 Effect::Trust {
                     action: crate::mcp::config::TrustAction::ApproveListed(listed),
                     body: "Approving all project MCP servers for this workspace.".to_string(),
@@ -736,12 +748,12 @@ impl McpMenu {
                     }
                     return Effect::Repaint;
                 }
-                self.browse_key(character)
+                self.browse_key(character, servers)
             }
         }
     }
 
-    fn browse_key(&mut self, character: char) -> Effect {
+    fn browse_key(&mut self, character: char, servers: &[ServerView]) -> Effect {
         match (self.section, character) {
             (Section::Servers, 's') => {
                 self.feedback = Some(crate::mcp::command::AUTH_UNAVAILABLE.to_string());
@@ -758,7 +770,8 @@ impl McpMenu {
                 Effect::Repaint
             }
             (Section::Servers, 'p') => {
-                *self.listed.borrow_mut() = None;
+                self.listed = Some(pending_of(servers));
+                self.listed_changed.set(false);
                 self.screen = Screen::Confirm(Confirm::ApproveAll);
                 Effect::Repaint
             }
@@ -1183,6 +1196,19 @@ fn info_rows(width: usize, palette: Palette) -> Vec<String> {
             palette,
         ),
     ]
+}
+
+/// Every pending project server in `servers`, with the digest of its entry:
+/// what an approve-all is over.
+fn pending_of(servers: &[ServerView]) -> Vec<(String, String)> {
+    servers
+        .iter()
+        .filter(|server| server.admission == Some(Admission::Pending))
+        .filter_map(|server| {
+            let entry = server.entry.as_ref()?;
+            Some((server.name.clone(), entry.digest.clone()))
+        })
+        .collect()
 }
 
 /// A project server's entry ([`crate::mcp::runtime::ShownEntry`]) as the
@@ -1785,21 +1811,33 @@ mod tests {
                 rewrite();
             }
             let effect = menu.key(KeyAction::Enter, &workspace.runtime.views(), 5);
-            if between == "enter and execution" {
+            if between == "draw and enter" {
+                // The pending servers are not the ones it was opened over:
+                // Enter approves nothing and goes back to the list.
+                assert_eq!(effect, Effect::Repaint, "{between}");
+                assert_eq!(menu.screen(), Screen::Browse, "{between}");
+            } else {
                 rewrite();
+                let _ = workspace.notices();
+                workspace.apply(effect);
+                // The job runs on what the runtime reads then: neither the
+                // rewritten nor the added server was listed, and both are
+                // named as still waiting.
+                let said = workspace.notices();
+                for expected in [
+                    "'a' changed since it was listed",
+                    "'b' was added since the list was drawn",
+                ] {
+                    assert!(
+                        said.iter().any(|body| body.contains(expected)),
+                        "{between}: {expected}: {said:?}"
+                    );
+                }
             }
-            let _ = workspace.notices();
-            workspace.apply(effect);
             assert_eq!(
                 workspace.approved(),
                 serde_json::Value::Null,
                 "{between}: approved what the confirmation never drew"
-            );
-            let said = workspace.notices();
-            assert!(
-                said.iter()
-                    .any(|body| body.contains("'a' changed since it was listed")),
-                "{between}: {said:?}"
             );
             // Drawn as it is now, it approves what it drew.
             let drawn = workspace.runtime.views();
@@ -1878,5 +1916,40 @@ mod tests {
             .map(|row| plain(row))
             .collect();
         assert_eq!(rows[1], format!("  {ENTRY_CHANGED}"), "{rows:#?}");
+    }
+
+    #[test]
+    fn approve_all_is_frozen_when_its_confirmation_opens_and_a_change_refuses_it() {
+        // The confirmation is one sentence; a redraw after a reload looks the
+        // same. So what Enter approves is fixed when it opens, and a frame
+        // that finds the pending servers changed says so and approves nothing.
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"a": quiet("a1")}));
+        let mut menu = McpMenu::open();
+        let opened = workspace.runtime.views();
+        assert_eq!(menu.key(KeyAction::Char('p'), &opened, 5), Effect::Repaint);
+        menu.rows(&opened, &[], 120, 12, PALETTE);
+        workspace.write(serde_json::json!({"a": quiet("a2")}));
+        let now = workspace.runtime.views();
+        let rows: Vec<String> = menu
+            .rows(&now, &[], 120, 12, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        let effect = menu.key(KeyAction::Enter, &now, 5);
+        if matches!(effect, Effect::Trust { .. } | Effect::Command(_)) {
+            workspace.apply(effect);
+        }
+        assert_eq!(
+            workspace.approved(),
+            serde_json::Value::Null,
+            "approved a digest the confirmation was not opened over"
+        );
+        assert!(
+            rows.iter().any(|row| row.contains(PENDING_CHANGED)),
+            "{rows:#?}"
+        );
+        assert_eq!(menu.screen(), Screen::Browse, "Enter goes back to the list");
+        workspace.runtime.shutdown();
     }
 }
