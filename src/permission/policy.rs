@@ -116,6 +116,64 @@ enum RuleVerdict {
 // what is being judged
 // ---------------------------------------------------------------------------
 
+/// A read a configured rule may be about, as its tool resolved it before
+/// opening anything.
+///
+/// Reading is free unless the table says otherwise, so a read is put to policy
+/// for one reason: the table may deny it, or ask about it, and a rule that asks
+/// is put to the person as upstream puts it (`requestPermissionOutcomeResolved`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:1389-1442`).
+/// Everything here was resolved by the tool -- the file a path names now, links
+/// followed -- so the question, the grant and the rule are all about the file
+/// that would be read, never about the spelling the model used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadPlan {
+    tool: &'static str,
+    target: std::path::PathBuf,
+    display: String,
+    candidate: Vec<u8>,
+    argument: String,
+    binding: Vec<u8>,
+}
+
+impl ReadPlan {
+    /// `tool`'s read of `target` -- canonical and absolute -- which the person
+    /// is shown as `display` and the table judges as `candidate`
+    /// ([`super::rules::rule_path`]). `argument` is the call's own label
+    /// argument as the model wrote it -- a path, or a search's pattern -- which
+    /// upstream's question quotes after the tool's name
+    /// (`formatPermissionLabel`, `tool_presentation.zig:683-718`); `binding`
+    /// is the call's typed input, field by field, for a saved-session rule's
+    /// key ([`ProposedAction::state_key`]).
+    pub fn new(
+        tool: &'static str,
+        target: std::path::PathBuf,
+        display: String,
+        candidate: Vec<u8>,
+        argument: String,
+        binding: Vec<u8>,
+    ) -> Self {
+        Self {
+            tool,
+            target,
+            display,
+            candidate,
+            argument,
+            binding,
+        }
+    }
+
+    pub fn tool(&self) -> &'static str {
+        self.tool
+    }
+
+    /// Whether this read lists or searches a directory rather than reading a
+    /// file: what the question and the grant say it is about.
+    fn searches(&self) -> bool {
+        matches!(self.tool, "glob_files" | "grep_files")
+    }
+}
+
 /// A prepared action, offered to policy for judgement.
 ///
 /// It borrows the plan rather than owning it, so the same plan is what gets
@@ -125,8 +183,56 @@ enum RuleVerdict {
 pub enum ProposedAction<'a> {
     Mutation(&'a MutationPlan),
     Command(&'a CommandPlan),
+    /// A read, which mints nothing: an allowed read reads, at once, the file
+    /// its tool resolved.
+    Read(&'a ReadPlan),
     /// A call of an MCP server's tool ([`McpCallPlan`]).
     Mcp(&'a McpCallPlan),
+    /// A call of a tool that names no file and runs no command -- the
+    /// model's question to the user, the three MCP meta-tools
+    /// ([`ToolCallPlan`]).
+    Tool(&'a ToolCallPlan),
+}
+
+/// A call of a registered tool with no target of its own, as policy judges
+/// it: under its own name, with that name as its one target.
+///
+/// Upstream judges every tool it registers against the table
+/// (`toolHasPermissionContract`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:101-103`), and a tool whose target
+/// kind is `none` is matched at its own name (`permissions.zig:226`): so
+/// `*: deny` refuses `ask_user_question` at admission, and an ask rule puts
+/// it to the person first, in auto too (`:1389-1442`). No rule: it needs no
+/// approval of its own and runs, in every mode (`toolRequiresApproval`,
+/// `:1123-1125`; `.requires_approval = false`, `src/builtins/tools.zig`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCallPlan {
+    /// The tool, as the model called it.
+    pub tool: &'static str,
+    /// Where a rule judges it: its own name, or -- for `skill` -- the skill
+    /// it loads (`permissionTargetForCall`, `permissions.zig:181-185`). The
+    /// first is the one an exact grant is about; a deny at any refuses.
+    pub targets: Vec<String>,
+    /// The argument upstream's question shows after the tool -- a search's
+    /// query, a selection's name, a feature's action -- or empty for a tool
+    /// that shows none (`formatPermissionLabel`, `tool_presentation.zig:
+    /// 683-718`; `labelValueForKind`, `tool_dispatch.zig:597-614`).
+    pub label: String,
+    /// The call's arguments, whole, as compact JSON: what a saved-session
+    /// rule about exactly this call is keyed by (`permissionStateKeyForCall`,
+    /// `tool_admission.zig:2219-2231`, keys the call's own arguments).
+    pub arguments: String,
+}
+
+impl ToolCallPlan {
+    /// `tool label`, or the tool alone when it shows no argument.
+    pub fn label_line(&self) -> String {
+        if self.label.is_empty() {
+            self.tool.to_string()
+        } else {
+            format!("{} {}", self.tool, self.label)
+        }
+    }
 }
 
 /// One MCP tool call, as policy judges it: the tool by the name the model
@@ -144,6 +250,10 @@ pub struct McpCallPlan {
     pub server: String,
     /// The arguments as compact JSON, bounded for a person to read.
     pub arguments: String,
+    /// The arguments as compact JSON, whole: what a saved-session rule about
+    /// exactly this call is keyed by. Never the bounded line above, which two
+    /// calls that differ past its bound would share.
+    pub key: String,
 }
 
 impl<'a> ProposedAction<'a> {
@@ -155,7 +265,9 @@ impl<'a> ProposedAction<'a> {
         match self {
             Self::Mutation(plan) => plan.kind().tool(),
             Self::Command(_) => "terminal",
+            Self::Read(plan) => plan.tool,
             Self::Mcp(_) => "mcp",
+            Self::Tool(plan) => plan.tool,
         }
     }
 
@@ -190,6 +302,26 @@ impl<'a> ProposedAction<'a> {
                 super::rules::COMMAND_TOOL,
                 Some(vec![plan.command().as_bytes().to_vec()]),
             ),
+            // One target: the path the tool resolved, a search's being the
+            // directory it searches below (`path_optional_existing`,
+            // `permissions.zig:205-211`).
+            Self::Read(plan) => (
+                super::rules::permission_name_for_tool(plan.tool),
+                plan.tool,
+                Some(vec![plan.candidate.clone()]),
+            ),
+            // Its own name is its category, and its own name its one target
+            // (`permissions.zig:226`) -- a skill's, the skill (`:181-185`).
+            Self::Tool(plan) => (
+                super::rules::permission_name_for_tool(plan.tool),
+                plan.tool,
+                Some(
+                    plan.targets
+                        .iter()
+                        .map(|target| target.as_bytes().to_vec())
+                        .collect(),
+                ),
+            ),
         }
     }
 
@@ -203,18 +335,40 @@ impl<'a> ProposedAction<'a> {
     /// identity of the directory it is made in (the executor's binding), the
     /// canonical target, the kind, the preimage -- absent, or its device,
     /// inode and digest -- the digest of what it would leave, and every path
-    /// a configured rule judges it at. Nothing in it is a pattern: a rule made
-    /// from one action matches that action and no other.
+    /// a configured rule judges it at. A read: the tool, the call's typed
+    /// input, and the file or directory it resolved -- upstream's structured
+    /// key of the call's name, its arguments and its targets
+    /// (`permissionStateKeyForCall`, `:2219-2235`), in xfx's encoding of the
+    /// same facts. Nothing in it is a pattern: a rule made from one action
+    /// matches that action and no other.
     pub fn state_key(&self) -> Option<super::session_rules::RuleKey> {
         use super::session_rules::{field, os_bytes, target_os, KeyKind, RuleKey};
         match self {
             Self::Command(plan) => RuleKey::command(plan.command(), plan.cwd(), target_os()),
+            Self::Read(plan) => {
+                let mut canonical = Vec::new();
+                field(&mut canonical, b"xfx-permission-state-read-v1");
+                field(&mut canonical, plan.tool.as_bytes());
+                field(&mut canonical, &plan.binding);
+                field(&mut canonical, &os_bytes(plan.target.as_os_str()));
+                RuleKey::new(KeyKind::StructuredTool, canonical)
+            }
             Self::Mcp(plan) => {
                 let mut canonical = Vec::new();
                 field(&mut canonical, b"xfx-permission-state-mcp-v1");
                 field(&mut canonical, plan.server.as_bytes());
                 field(&mut canonical, plan.alias.as_bytes());
+                field(&mut canonical, plan.key.as_bytes());
+                RuleKey::new(KeyKind::StructuredTool, canonical)
+            }
+            Self::Tool(plan) => {
+                let mut canonical = Vec::new();
+                field(&mut canonical, b"xfx-permission-state-tool-v1");
+                field(&mut canonical, plan.tool.as_bytes());
                 field(&mut canonical, plan.arguments.as_bytes());
+                for target in &plan.targets {
+                    field(&mut canonical, target.as_bytes());
+                }
                 RuleKey::new(KeyKind::StructuredTool, canonical)
             }
             Self::Mutation(plan) => {
@@ -253,7 +407,11 @@ impl<'a> ProposedAction<'a> {
             Self::Command(plan) => {
                 format!("terminal.exec {} in {}", plan.command(), plan.display_cwd())
             }
+            // Upstream's display for a structured call is its question's
+            // label (`preparePermissionStateAction`, `:2261-2267`).
+            Self::Read(plan) => format!("{} {}", plan.tool, plan.argument),
             Self::Mcp(plan) => format!("{} {}", plan.alias, plan.arguments),
+            Self::Tool(plan) => plan.label_line(),
             Self::Mutation(plan) => {
                 let after = &plan.after_hash().hex()[..16];
                 match plan.preimage() {
@@ -299,7 +457,17 @@ impl<'a> ProposedAction<'a> {
         match self {
             Self::Mutation(plan) => plan.target().to_string_lossy().into_owned(),
             Self::Command(plan) => format!("{} in {}", plan.command(), plan.cwd().display()),
+            // The file it resolved, for the reason a mutation's is.
+            Self::Read(plan) => plan.target.to_string_lossy().into_owned(),
             Self::Mcp(plan) => plan.alias.clone(),
+            // Its own target -- its name, or the skill it loads: an "always"
+            // is for every later call of the tool at it, as the always-scope
+            // says.
+            Self::Tool(plan) => plan
+                .targets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| plan.tool.to_string()),
         }
     }
 
@@ -348,10 +516,23 @@ impl<'a> ProposedAction<'a> {
                 }
             }
             Self::Command(plan) => format!("run `{}` in {}", plan.command(), plan.display_cwd()),
+            Self::Read(plan) => match plan.tool {
+                "list_files" => format!("list the entries of `{}`", plan.display),
+                "glob_files" => format!(
+                    "search below `{}` for files named like `{}`",
+                    plan.display, plan.argument
+                ),
+                "grep_files" => format!(
+                    "search the files below `{}` for `{}`",
+                    plan.display, plan.argument
+                ),
+                _ => format!("read `{}`", plan.display),
+            },
             Self::Mcp(plan) => format!(
                 "call the MCP tool `{}` on server `{}` with {}",
                 plan.alias, plan.server, plan.arguments
             ),
+            Self::Tool(plan) => format!("call `{}`", plan.label_line()),
         }
     }
 
@@ -365,8 +546,9 @@ impl<'a> ProposedAction<'a> {
         match self {
             Self::Mutation(plan) => plan.diff().cloned(),
             // A command has no before and after. What it would do is the command
-            // itself, and [`Self::summary`] quotes that whole.
-            Self::Command(_) | Self::Mcp(_) => None,
+            // itself, and [`Self::summary`] quotes that whole. A read changes
+            // nothing, and an MCP call's effect is the server's, not a file's.
+            Self::Command(_) | Self::Read(_) | Self::Mcp(_) | Self::Tool(_) => None,
         }
     }
 
@@ -388,10 +570,31 @@ impl<'a> ProposedAction<'a> {
                 plan.command(),
                 plan.display_cwd()
             ),
+            // The grant is this tool at this path, whatever else the call
+            // asks: a later `start_line`, another pattern below the same
+            // directory.
+            Self::Read(plan) if plan.searches() => format!(
+                "allow every future {} below `{}` for the rest of this session, whatever it searches for",
+                plan.tool, plan.display
+            ),
+            Self::Read(plan) => format!(
+                "allow every future {} of `{}` for the rest of this session",
+                plan.tool, plan.display
+            ),
             Self::Mcp(plan) => format!(
                 "allow every future call of the MCP tool `{}` for the rest of this session, whatever its arguments",
                 plan.alias
             ),
+            Self::Tool(plan) => match plan.targets.first() {
+                Some(target) if target != plan.tool => format!(
+                    "allow every future call of `{}` for `{target}` for the rest of this session, whatever its arguments",
+                    plan.tool
+                ),
+                _ => format!(
+                    "allow every future call of `{}` for the rest of this session, whatever its arguments",
+                    plan.tool
+                ),
+            },
         }
     }
 
@@ -405,9 +608,13 @@ impl<'a> ProposedAction<'a> {
                 command: plan.command().to_string(),
                 cwd: plan.display_cwd().to_string(),
             },
+            Self::Read(plan) => ApprovalSubject::Call(plan.argument.clone()),
             // The generic review (`Would you like to allow this action?`,
             // then `mcp <tool> <arguments>`): what is asked is the call.
             Self::Mcp(plan) => ApprovalSubject::Path(format!("{} {}", plan.alias, plan.arguments)),
+            // Upstream's generic question shows the tool and its label
+            // argument (`formatPermissionLabel`), as a read's does.
+            Self::Tool(plan) => ApprovalSubject::Call(plan.label.clone()),
         }
     }
 
@@ -436,6 +643,10 @@ impl<'a> ProposedAction<'a> {
                     effect.describe()
                 )),
             },
+            // Never consulted: a read, or a tool with no approval of its own,
+            // that no rule decides is admitted before the mode is
+            // ([`PermissionSession::evaluate_with`]).
+            Self::Read(_) | Self::Tool(_) => Ok(()),
             // Upstream sends an unresolved MCP call in auto mode to its
             // safety reviewer, and an unavailable reviewer holds the action
             // (`resolveOrdinaryPermissionOutcome`, `tool_admission.zig:
@@ -469,6 +680,11 @@ pub enum AllowSource {
     InteractiveAlways,
     /// The structure of the action satisfied `auto`.
     AutoMode,
+    /// A read no rule decided: reading is free, in every mode.
+    FreeRead,
+    /// A call of a tool with no approval requirement of its own -- the
+    /// model's question, an MCP meta-tool -- that no rule decided.
+    NoApprovalNeeded,
     /// No check ran.
     Yolo,
 }
@@ -551,6 +767,12 @@ pub enum ApprovalSubject {
     /// A command exactly as it would run, and the directory it would run in,
     /// named the way the always-scope names it ([`CommandPlan::display_cwd`]).
     Command { command: String, cwd: String },
+    /// A call as upstream's question names one that is neither a change nor
+    /// a command: its one label argument -- a read's path, a search's
+    /// pattern -- as the model wrote it, shown after the request's tool
+    /// (`formatPermissionLabel`, `tool_presentation.zig:683-718`). What the
+    /// call resolved to is the summary's and the always-scope's.
+    Call(String),
 }
 
 /// What the user answered.
@@ -1100,6 +1322,22 @@ impl PermissionSession {
                 source: AllowSource::SessionGrant,
             };
         }
+        // Reading is free unless a rule says otherwise, in every mode: a read
+        // has no approval requirement of its own (`resolveOrdinaryPermissionOutcome`,
+        // `tool_admission.zig:1123-1125`).
+        if let ProposedAction::Read(_) = action {
+            return PolicyDecision::Allow {
+                source: AllowSource::FreeRead,
+            };
+        }
+        // So is a tool that names no file and runs no command, for the same
+        // reason (`.requires_approval = false`): the table above is all that
+        // stands between the model and it.
+        if let ProposedAction::Tool(_) = action {
+            return PolicyDecision::Allow {
+                source: AllowSource::NoApprovalNeeded,
+            };
+        }
 
         match mode {
             PermissionMode::Yolo => PolicyDecision::Allow {
@@ -1155,34 +1393,6 @@ impl PermissionSession {
             RuleVerdict::Allowed { by_grant }
         } else {
             RuleVerdict::Undecided
-        }
-    }
-
-    /// Whether a read-only tool may read `candidate` -- the canonical path it
-    /// resolved, as [`super::rules::rule_path`] names it -- by the configured
-    /// table (`requestPermissionOutcomeResolved` for a tool with a permission
-    /// contract and no approval requirement, `tool_admission.zig:1386-1500`).
-    ///
-    /// Reading is free unless a rule says otherwise: a deny refuses, as
-    /// upstream's does. A rule that **asks** refuses too, with a reason that
-    /// names it, where upstream would put the question to the person: xfx has
-    /// no review for a read, and refusing is the side of that difference that
-    /// grants nothing upstream would not. `yolo` reads everything, as it
-    /// skips every other check.
-    pub fn judge_read(&self, tool: &str, candidate: &[u8]) -> Result<(), String> {
-        if self.mode() == PermissionMode::Yolo {
-            return Ok(());
-        }
-        let permission = super::rules::permission_name_for_tool(tool);
-        let shown = String::from_utf8_lossy(candidate);
-        match self.rules.current().decide(permission, Some(tool), candidate) {
-            Some(RuleAction::Deny) => Err(format!(
-                "a configured permission rule denies `{tool}` for `{shown}`"
-            )),
-            Some(RuleAction::Ask) => Err(format!(
-                "a configured permission rule asks before `{tool}` reads `{shown}`, and xfx does not ask about reads; change the rule to allow it"
-            )),
-            Some(RuleAction::Allow) | None => Ok(()),
         }
     }
 
@@ -1915,33 +2125,305 @@ mod tests {
         );
     }
 
+    /// `tool`'s read of `/w/<path>`, judged at `path`.
+    fn read(tool: &'static str, path: &str) -> ReadPlan {
+        ReadPlan::new(
+            tool,
+            PathBuf::from(format!("/w/{path}")),
+            path.to_string(),
+            path.as_bytes().to_vec(),
+            path.to_string(),
+            Vec::new(),
+        )
+    }
+
     #[test]
-    fn a_read_is_free_unless_a_rule_denies_or_asks_and_yolo_reads_everything() {
-        let session = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[
+    fn a_read_is_free_unless_a_rule_denies_or_asks_in_every_mode_but_full_access() {
+        let rows = [
             ("read", "secrets/*", RuleAction::Deny),
             ("grep", "*", RuleAction::Ask),
             ("read", "secrets/ok", RuleAction::Allow),
-        ]));
-        assert_eq!(session.judge_read("read_file", b"notes.md"), Ok(()));
-        assert_eq!(
-            session.judge_read("read_file", b"secrets/key"),
-            Err("a configured permission rule denies `read_file` for `secrets/key`".to_string())
-        );
-        // The last match wins for reads too.
-        assert_eq!(session.judge_read("read_file", b"secrets/ok"), Ok(()));
-        let asked = session.judge_read("grep_files", b".").unwrap_err();
-        assert!(
-            asked.contains("asks before `grep_files` reads `.`"),
-            "{asked}"
-        );
-        // A read rule is not a glob rule: `list_files` is judged as `glob`.
-        assert_eq!(session.judge_read("list_files", b"secrets"), Ok(()));
+        ];
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            let session = PermissionSession::new(mode).with_rules(table(&rows));
+            let decide = |plan: &ReadPlan| session.evaluate(ProposedAction::Read(plan));
+            assert_eq!(
+                decide(&read("read_file", "notes.md")),
+                PolicyDecision::Allow {
+                    source: AllowSource::FreeRead
+                },
+                "{mode:?}"
+            );
+            assert_eq!(
+                decide(&read("read_file", "secrets/key")),
+                PolicyDecision::Deny {
+                    cause: DenyCause::ConfiguredRule,
+                    reason: "a configured permission rule denies `read_file` for `secrets/key`"
+                        .to_string()
+                }
+            );
+            // The last match wins for reads too.
+            assert_eq!(
+                decide(&read("read_file", "secrets/ok")),
+                PolicyDecision::Allow {
+                    source: AllowSource::ConfiguredRule
+                }
+            );
+            // A rule that asks is put to the person in `auto` too
+            // (`configured_ask`, `tool_admission.zig:1426-1442`).
+            assert_eq!(
+                decide(&read("grep_files", ".")),
+                PolicyDecision::Prompt,
+                "{mode:?}"
+            );
+            // A read rule is not a glob rule: `list_files` is judged as `glob`.
+            assert_eq!(
+                decide(&read("list_files", "secrets")),
+                PolicyDecision::Allow {
+                    source: AllowSource::FreeRead
+                }
+            );
+        }
         let yolo = PermissionSession::new(PermissionMode::Yolo).with_rules(table(&[(
             "*",
             "*",
             RuleAction::Deny,
         )]));
-        assert_eq!(yolo.judge_read("read_file", b"secrets/key"), Ok(()));
+        assert_eq!(
+            yolo.evaluate(ProposedAction::Read(&read("read_file", "secrets/key"))),
+            PolicyDecision::Allow {
+                source: AllowSource::Yolo
+            }
+        );
+    }
+
+    fn tool_call(tool: &'static str, label: &str, arguments: &str) -> ToolCallPlan {
+        ToolCallPlan {
+            tool,
+            targets: vec![tool.to_string()],
+            label: label.to_string(),
+            arguments: arguments.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_tool_with_no_target_is_judged_at_its_own_name_and_free_unless_a_rule_decides() {
+        // `toolHasPermissionContract` (`tool_admission.zig:101-103`), its
+        // name as its one target (`permissions.zig:226`), and no approval of
+        // its own (`:1123-1125`).
+        let question = tool_call("ask_user_question", "", r#"{"questions":[]}"#);
+        let action = ProposedAction::Tool(&question);
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            assert_eq!(
+                PermissionSession::new(mode).evaluate(action),
+                PolicyDecision::Allow {
+                    source: AllowSource::NoApprovalNeeded
+                },
+                "{mode:?}"
+            );
+            for rows in [
+                &[("*", "*", RuleAction::Deny)][..],
+                &[("ask_user_question", "*", RuleAction::Deny)][..],
+                &[("ask_user_question", "ask_user_question", RuleAction::Deny)][..],
+                &[("ask_*", "*", RuleAction::Deny)][..],
+            ] {
+                assert!(
+                    matches!(
+                        PermissionSession::new(mode)
+                            .with_rules(table(rows))
+                            .evaluate(action),
+                        PolicyDecision::Deny {
+                            cause: DenyCause::ConfiguredRule,
+                            ..
+                        }
+                    ),
+                    "{mode:?} {rows:?}"
+                );
+            }
+            // A rule that asks is put to the person, in auto too.
+            assert_eq!(
+                PermissionSession::new(mode)
+                    .with_rules(table(&[("ask_user_question", "*", RuleAction::Ask)]))
+                    .evaluate(action),
+                PolicyDecision::Prompt,
+                "{mode:?}"
+            );
+            // A rule about another tool, or another target, decides nothing.
+            assert!(matches!(
+                PermissionSession::new(mode)
+                    .with_rules(table(&[
+                        ("edit", "*", RuleAction::Deny),
+                        ("ask_user_question", "other", RuleAction::Deny),
+                    ]))
+                    .evaluate(action),
+                PolicyDecision::Allow { .. }
+            ));
+        }
+        assert_eq!(
+            PermissionSession::new(PermissionMode::Yolo)
+                .with_rules(table(&[("*", "*", RuleAction::Deny)]))
+                .evaluate(action),
+            PolicyDecision::Allow {
+                source: AllowSource::Yolo
+            }
+        );
+        // What a question about it says, and what "always" buys: every later
+        // call of the tool, whatever it asks.
+        let search = tool_call(
+            "capability_search",
+            "github issues",
+            r#"{"query":"github issues"}"#,
+        );
+        let action = ProposedAction::Tool(&search);
+        assert_eq!(action.target(), "capability_search");
+        assert_eq!(
+            action.subject(),
+            ApprovalSubject::Call("github issues".to_string())
+        );
+        assert_eq!(action.state_display(), "capability_search github issues");
+        assert_eq!(question.label_line(), "ask_user_question");
+        assert_eq!(
+            action.always_scope(),
+            "allow every future call of `capability_search` for the rest of this session, whatever its arguments"
+        );
+    }
+
+    #[test]
+    fn a_saved_rule_about_a_call_is_keyed_by_its_whole_arguments() {
+        // A saved-session rule is about exactly one call (`permissionStateKeyForCall`
+        // keys its arguments whole, `tool_admission.zig:2219-2231`): two calls
+        // that differ anywhere are two keys -- for a tool judged by its name,
+        // and for a server's tool past the bound its question shows.
+        let one = tool_call("capability_search", "a", r#"{"query":"a"}"#);
+        let two = tool_call("capability_search", "a", r#"{"query":"a","server":"s"}"#);
+        assert_ne!(
+            ProposedAction::Tool(&one).state_key(),
+            ProposedAction::Tool(&two).state_key()
+        );
+        // Past the shown bound, inside the bound a key may have
+        // (`session_rules::MAX_IDENTITY_BYTES`).
+        let long = "x".repeat(3000);
+        let mcp = |tail: &str| McpCallPlan {
+            alias: "mcp_s_t".to_string(),
+            server: "s".to_string(),
+            arguments: crate::output::safe_one_line(&format!(r#"{{"a":"{long}{tail}"}}"#), 2048),
+            key: format!(r#"{{"a":"{long}{tail}"}}"#),
+        };
+        let (first, second) = (mcp("1"), mcp("2"));
+        assert_eq!(
+            first.arguments, second.arguments,
+            "the shown line is the same"
+        );
+        let (first, second) = (
+            ProposedAction::Mcp(&first).state_key(),
+            ProposedAction::Mcp(&second).state_key(),
+        );
+        assert!(first.is_some() && second.is_some());
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn an_exact_grant_answers_a_read_rule_that_asks_and_never_a_deny() {
+        let mut session = PermissionSession::new(PermissionMode::Ask).with_rules(table(&[
+            ("read", "*", RuleAction::Ask),
+            ("read", "keys/*", RuleAction::Deny),
+        ]));
+        session.grant(Grant::new("read_file", "/w/a.txt"));
+        session.grant(Grant::new("read_file", "/w/keys/k"));
+        assert_eq!(
+            session.evaluate(ProposedAction::Read(&read("read_file", "a.txt"))),
+            PolicyDecision::Allow {
+                source: AllowSource::SessionGrant
+            }
+        );
+        // Another file, and the same file by another tool, are asked again.
+        assert_eq!(
+            session.evaluate(ProposedAction::Read(&read("read_file", "b.txt"))),
+            PolicyDecision::Prompt
+        );
+        assert_eq!(
+            session.evaluate(ProposedAction::Read(&read("grep_files", "a.txt"))),
+            PolicyDecision::Allow {
+                source: AllowSource::FreeRead
+            },
+            "no grep rule asks"
+        );
+        assert!(matches!(
+            session.evaluate(ProposedAction::Read(&read("read_file", "keys/k"))),
+            PolicyDecision::Deny {
+                cause: DenyCause::ConfiguredRule,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_read_question_names_the_resolved_file_and_quotes_the_call() {
+        let mut plan = read("read_file", "docs/a.md");
+        plan.argument = "./docs/../docs/a.md".to_string();
+        let action = ProposedAction::Read(&plan);
+        assert_eq!(action.tool(), "read_file");
+        assert_eq!(action.target(), "/w/docs/a.md");
+        assert_eq!(action.summary(), "read `docs/a.md`");
+        assert_eq!(
+            action.always_scope(),
+            "allow every future read_file of `docs/a.md` for the rest of this session"
+        );
+        assert_eq!(
+            action.subject(),
+            ApprovalSubject::Call("./docs/../docs/a.md".to_string())
+        );
+        assert_eq!(action.state_display(), "read_file ./docs/../docs/a.md");
+        assert!(action.diff().is_none());
+        let search = ReadPlan::new(
+            "grep_files",
+            PathBuf::from("/w/src"),
+            "src".to_string(),
+            b"src".to_vec(),
+            "needle".to_string(),
+            Vec::new(),
+        );
+        let action = ProposedAction::Read(&search);
+        assert_eq!(
+            action.summary(),
+            "search the files below `src` for `needle`"
+        );
+        assert!(
+            action
+                .always_scope()
+                .starts_with("allow every future grep_files below `src`"),
+            "{}",
+            action.always_scope()
+        );
+        // The key is the tool, the typed input and the resolved target.
+        let key = |tool: &'static str, binding: &[u8], target: &str| {
+            ProposedAction::Read(&ReadPlan::new(
+                tool,
+                PathBuf::from(target),
+                String::new(),
+                Vec::new(),
+                String::new(),
+                binding.to_vec(),
+            ))
+            .state_key()
+            .expect("a key")
+        };
+        assert_eq!(
+            key("read_file", b"a", "/w/a"),
+            key("read_file", b"a", "/w/a")
+        );
+        assert_ne!(
+            key("read_file", b"a", "/w/a"),
+            key("read_file", b"b", "/w/a")
+        );
+        assert_ne!(
+            key("read_file", b"a", "/w/a"),
+            key("read_file", b"a", "/w/b")
+        );
+        assert_ne!(
+            key("read_file", b"a", "/w/a"),
+            key("grep_files", b"a", "/w/a")
+        );
     }
 
     #[test]

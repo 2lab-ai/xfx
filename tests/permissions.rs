@@ -3289,6 +3289,233 @@ fn kinds(sink: &RecordingSink) -> Vec<&'static str> {
         .collect()
 }
 
+/// The names a request offered the model.
+fn offered(request: &CompletionRequest) -> Vec<String> {
+    request
+        .tools
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a named tool").to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_tool_a_global_deny_covers_is_not_offered_and_a_call_to_it_anyway_is_refused_by_the_rule()
+{
+    // Leaving the tool out is upstream's projection
+    // (`tool_projection.zig:563-566`); it is not what keeps the tool from
+    // running. A model that calls it anyway is judged by the same table, and
+    // the turn goes on with the refusal rather than ending on an unsupported
+    // tool.
+    let tree = Tree::new();
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("edit", "*", RuleAction::Deny)],
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![ToolCall {
+            id: "c1".to_string(),
+            name: "write_file".to_string(),
+            input: json!({ "path": "a.txt", "content": "x" }),
+        }]),
+        answer_step("refused"),
+    ]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("write it", context), &provider, &mut sink)
+        .await
+        .expect("a refused call is a result, not the end of the turn");
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        let names = offered(request);
+        for hidden in ["write_file", "edit_file", "create_folder"] {
+            assert!(!names.contains(&hidden.to_string()), "{names:?}");
+        }
+        assert!(names.contains(&"read_file".to_string()), "{names:?}");
+    }
+    let refusal = sink
+        .events()
+        .iter()
+        .find_map(|event| match event {
+            Event::ToolResult { detail, .. } => Some(detail.clone()),
+            _ => None,
+        })
+        .expect("the call was answered");
+    assert!(
+        refusal.contains("a configured permission rule denies `write_file`"),
+        "{refusal}"
+    );
+    assert!(!tree.root().join("a.txt").exists());
+}
+
+#[tokio::test]
+async fn full_access_offers_every_tool_whatever_the_table_says() {
+    let tree = Tree::new();
+    let context = ruled(&tree, PermissionMode::Yolo, &[("*", "*", RuleAction::Deny)]);
+    let provider = ScriptedProvider::new(vec![answer_step("hi")]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("hello", context), &provider, &mut sink)
+        .await
+        .expect("a turn");
+    // Everything but the MCP meta-tools, which no MCP client here offers.
+    let everything: Vec<&str> = ADVERTISED_TOOLS
+        .iter()
+        .copied()
+        .filter(|name| !xfx::tools::mcp::META_TOOLS.contains(name))
+        .collect();
+    assert_eq!(offered(&provider.requests()[0]), everything);
+}
+
+/// One well-formed `ask_user_question` call's arguments.
+fn one_question() -> Value {
+    json!({ "questions": [{ "question": "Which one?", "options": [{ "label": "A" }, { "label": "B" }] }] })
+}
+
+#[tokio::test]
+async fn a_question_a_rule_covers_is_refused_at_admission_and_never_put_to_the_user() {
+    // Upstream judges every tool it registers against the table, under its
+    // own name with that name as its one target (`toolHasPermissionContract`,
+    // `tool_admission.zig:101-103`; `permissions.zig:226`): the model's
+    // question too. `*: deny` leaves it out of the request and refuses a
+    // call to it anyway, before anybody is asked anything.
+    for rows in [
+        &[("*", "*", RuleAction::Deny)][..],
+        &[("ask_user_question", "*", RuleAction::Deny)][..],
+    ] {
+        let tree = Tree::new();
+        let context = ruled(&tree, PermissionMode::Auto, rows);
+        let provider = ScriptedProvider::new(vec![
+            calls_step(vec![ToolCall {
+                id: "q1".to_string(),
+                name: "ask_user_question".to_string(),
+                input: one_question(),
+            }]),
+            answer_step("refused"),
+        ]);
+        let mut sink = RecordingSink::new();
+        run_turn(turn("ask me", context), &provider, &mut sink)
+            .await
+            .expect("a refused call is a result, not the end of the turn");
+        assert!(
+            !offered(&provider.requests()[0]).contains(&"ask_user_question".to_string()),
+            "{rows:?}"
+        );
+        let (outcome, detail) = sink
+            .events()
+            .iter()
+            .find_map(|event| match event {
+                Event::ToolResult {
+                    outcome, detail, ..
+                } => Some((*outcome, detail.clone())),
+                _ => None,
+            })
+            .expect("the call was answered");
+        assert_eq!(outcome, Outcome::Denied, "{rows:?}: {detail}");
+        assert!(
+            detail.contains("a configured permission rule denies `ask_user_question`"),
+            "{rows:?}: {detail}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_rule_that_asks_before_a_question_asks_in_auto_and_with_nobody_to_ask_refuses_it() {
+    // An ask rule comes before the mode (`configured_ask`,
+    // `tool_admission.zig:1426-1442`), so `auto` puts the call to the person
+    // too; with nobody to ask, the refusal names the rule (`:1426-1431`).
+    let tree = Tree::new();
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("ask_user_question", "*", RuleAction::Ask)],
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            ToolCall {
+                id: "q1".to_string(),
+                name: "capability_search".to_string(),
+                input: json!({ "query": "anything" }),
+            },
+            ToolCall {
+                id: "q2".to_string(),
+                name: "ask_user_question".to_string(),
+                input: one_question(),
+            },
+        ]),
+        answer_step("refused"),
+    ]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("ask me", context), &provider, &mut sink)
+        .await
+        .expect("a turn");
+    let results: Vec<(Outcome, String)> = sink
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            Event::ToolResult {
+                outcome, detail, ..
+            } => Some((*outcome, detail.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 2, "{results:?}");
+    // No rule covers the search, which needs no approval of its own: it
+    // runs, in auto, and answers that no MCP client runs here.
+    assert_ne!(results[0].0, Outcome::Denied, "{results:?}");
+    assert_eq!(results[1].0, Outcome::Denied, "{results:?}");
+    assert!(
+        results[1]
+            .1
+            .contains("a configured permission rule asks before `ask_user_question`"),
+        "{results:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_terminal_hidden_by_a_shell_deny_and_called_anyway_is_judged_as_a_command_and_never_runs_unasked(
+) {
+    // `shell: deny` leaves the terminal out of the request, as upstream's
+    // `shell` is left out (`permissionNameForTool` maps `shell` to nothing,
+    // `permissions.zig:1455-1464`). A call to it anyway is judged as every
+    // command is, `bash`/`run_command`, which the rule does not name: in
+    // `ask`, with nobody to ask, it is refused -- not run because it was
+    // hidden, and not run because no rule matched it.
+    let tree = Tree::new();
+    let context = ruled(
+        &tree,
+        PermissionMode::Ask,
+        &[("shell", "*", RuleAction::Deny)],
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![ToolCall {
+            id: "c1".to_string(),
+            name: "terminal".to_string(),
+            input: json!({ "action": "exec", "command": "touch made" }),
+        }]),
+        answer_step("refused"),
+    ]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("run it", context), &provider, &mut sink)
+        .await
+        .expect("a refused call is a result");
+    assert!(!offered(&provider.requests()[0]).contains(&"terminal".to_string()));
+    let refusal = sink
+        .events()
+        .iter()
+        .find_map(|event| match event {
+            Event::ToolResult { ok, detail, .. } => Some((*ok, detail.clone())),
+            _ => None,
+        })
+        .expect("the call was answered");
+    assert!(!refusal.0, "{}", refusal.1);
+    assert!(
+        refusal.1.contains("needs an interactive approval"),
+        "{}",
+        refusal.1
+    );
+    assert!(!tree.root().join("made").exists());
+}
+
 #[tokio::test]
 async fn a_mutation_that_loses_its_authority_ends_the_turn_without_continuing() {
     let tree = Tree::new();
@@ -3978,7 +4205,8 @@ fn a_read_deny_is_not_walked_around_through_a_link_or_a_capital_letter() {
 }
 
 #[test]
-fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_refuses_it() {
+fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_with_nobody_to_ask_refuses_it(
+) {
     let tree = Tree::new();
     tree.write("src/a.rs", "needle");
     let context = ruled(
@@ -3989,14 +4217,18 @@ fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_refuses_it
             ("glob", "src", RuleAction::Deny),
         ],
     );
+    // Asked at the directory it searches below; with no approval channel the
+    // refusal names the rule, as upstream refuses a `configured_rule_ask` it
+    // cannot put to anybody (`tool_admission.zig:1426-1431`).
     let grep = call(&context, "grep_files", json!({ "pattern": "needle" }));
     assert!(!grep.ok);
-    assert!(
-        grep.output.starts_with(
-            "grep_files was not permitted: a configured permission rule asks before `grep_files` reads `.`"
+    assert_eq!(grep.outcome, Outcome::Denied);
+    assert_eq!(
+        grep.output,
+        format!(
+            "grep_files was not permitted: a configured permission rule asks before `grep_files` on `{}`, and this run has no approval channel; rerun in a terminal, or change the rule",
+            tree.root().display()
         ),
-        "{}",
-        grep.output
     );
     let glob = call(
         &context,
@@ -4011,6 +4243,339 @@ fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_refuses_it
         listed.output
     );
     assert!(call(&context, "glob_files", json!({ "pattern": "**/*.rs" })).ok);
+}
+
+// ---------------------------------------------------------------------------
+// a rule that asks before a read
+// ---------------------------------------------------------------------------
+
+/// A context over `tree` in `mode`, deciding with `rows` and asking
+/// `prompter`.
+fn asking(
+    tree: &Tree,
+    mode: PermissionMode,
+    rows: &[(&str, &str, RuleAction)],
+    prompter: ScriptedPrompter,
+) -> ToolContext {
+    ToolContext::new(AccessScope::primary_only(tree.root()).expect("a usable primary root"))
+        .with_permissions(
+            session(mode)
+                .with_rules(table(rows))
+                .with_prompter(Box::new(prompter)),
+        )
+}
+
+#[test]
+fn a_rule_that_asks_before_a_read_puts_the_question_in_ask_and_in_auto_and_a_yes_reads_it() {
+    // Upstream asks (`configured_ask`, `tool_admission.zig:1389-1442`) in
+    // every mode but full access: the rule is the person saying they want to
+    // be asked, and auto's structural admission does not outrank it.
+    let tree = Tree::new();
+    tree.write("secret.txt", "the secret line\n");
+    for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+        let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Once]);
+        let context = asking(
+            &tree,
+            mode,
+            &[("read", "secret*", RuleAction::Ask)],
+            prompter.clone(),
+        );
+        let read = call(&context, "read_file", json!({ "path": "secret.txt" }));
+        assert!(read.ok, "{mode:?}: {}", read.output);
+        assert!(read.output.contains("the secret line"), "{}", read.output);
+        let asked = prompter.last().expect("the read was put to the person");
+        assert_eq!(asked.tool, "read_file");
+        assert_eq!(
+            asked.target,
+            tree.root().join("secret.txt").display().to_string(),
+            "a read's grant is keyed by the file it resolved"
+        );
+        assert_eq!(
+            asked.subject,
+            xfx::permission::ApprovalSubject::Call("secret.txt".to_string()),
+            "the band quotes the call as upstream's label does: the tool and its path"
+        );
+        assert!(asked.diff.is_none());
+        // A read once is not a grant.
+        assert!(context.permissions().grants().is_empty());
+    }
+}
+
+#[test]
+fn a_read_no_rule_asks_about_is_never_put_to_anybody_in_any_mode() {
+    // Reading is free unless a rule says otherwise (`resolveOrdinaryPermissionOutcome`,
+    // `tool_admission.zig:1123-1125`: no approval requirement, `.once`).
+    let tree = Tree::new();
+    tree.write("notes.md", "fine\n");
+    tree.write("secret.txt", "x\n");
+    for mode in [
+        PermissionMode::Ask,
+        PermissionMode::Auto,
+        PermissionMode::Yolo,
+    ] {
+        let prompter = ScriptedPrompter::new(Vec::new());
+        let context = asking(
+            &tree,
+            mode,
+            &[("read", "secret*", RuleAction::Ask)],
+            prompter.clone(),
+        );
+        assert!(call(&context, "read_file", json!({ "path": "notes.md" })).ok);
+        assert!(call(&context, "grep_files", json!({ "pattern": "fine" })).ok);
+        assert!(call(&context, "glob_files", json!({ "pattern": "*.md" })).ok);
+        assert!(call(&context, "list_files", json!({})).ok);
+        assert!(
+            prompter.asked().is_empty(),
+            "{mode:?}: {:?}",
+            prompter.asked()
+        );
+    }
+}
+
+#[test]
+fn full_access_reads_past_an_asking_rule_and_a_denying_one_without_a_question() {
+    // `permission_mode == .yolo` returns before any rule is matched
+    // (`tool_admission.zig:1369-1376`).
+    let tree = Tree::new();
+    tree.write("secret.txt", "x\n");
+    let prompter = ScriptedPrompter::new(Vec::new());
+    let context = asking(
+        &tree,
+        PermissionMode::Yolo,
+        &[
+            ("read", "*", RuleAction::Ask),
+            ("grep", "*", RuleAction::Deny),
+        ],
+        prompter.clone(),
+    );
+    assert!(call(&context, "read_file", json!({ "path": "secret.txt" })).ok);
+    assert!(call(&context, "grep_files", json!({ "pattern": "x" })).ok);
+    assert!(prompter.asked().is_empty());
+}
+
+#[test]
+fn a_read_answered_no_is_refused_without_reading_and_says_so_to_the_model() {
+    let tree = Tree::new();
+    tree.write("secret.txt", "hunter2\n");
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
+    let context = asking(
+        &tree,
+        PermissionMode::Ask,
+        &[("read", "secret*", RuleAction::Ask)],
+        prompter,
+    );
+    let refused = call(&context, "read_file", json!({ "path": "secret.txt" }));
+    assert!(!refused.ok);
+    // A refusal, so the wire says `execution-denied` (`vercel_protocol.zig:742-744`).
+    assert_eq!(refused.outcome, Outcome::Denied);
+    assert_eq!(
+        refused.output,
+        format!(
+            "read_file was not permitted: you declined `read_file` for `{}`",
+            tree.root().join("secret.txt").display()
+        )
+    );
+    assert!(!refused.output.contains("hunter2"));
+}
+
+#[test]
+fn a_deny_on_a_read_wins_over_an_ask_and_a_grant_and_nobody_is_asked() {
+    let tree = Tree::new();
+    tree.write("secret.txt", "hunter2\n");
+    let prompter = ScriptedPrompter::new(Vec::new());
+    let context = asking(
+        &tree,
+        PermissionMode::Ask,
+        &[
+            ("read", "*", RuleAction::Ask),
+            ("read", "secret*", RuleAction::Deny),
+        ],
+        prompter.clone(),
+    );
+    context.permissions().grant(Grant::new(
+        "read_file",
+        tree.root().join("secret.txt").display().to_string(),
+    ));
+    let refused = call(&context, "read_file", json!({ "path": "secret.txt" }));
+    assert_eq!(
+        refused.output,
+        "read_file was not permitted: a configured permission rule denies `read_file` for `secret.txt`"
+    );
+    assert!(prompter.asked().is_empty());
+}
+
+#[test]
+fn an_always_for_a_read_covers_that_read_and_nothing_wider() {
+    // Narrower than upstream on purpose: upstream's "always" for a read in the
+    // workspace grants edit, read, glob and grep on the whole tree
+    // (`suggestedSessionGrants`, `permissions.zig:1202-1225`); xfx's grants
+    // keep the shape they have everywhere -- this tool at this file.
+    let tree = Tree::new();
+    tree.write("secret.txt", "x\n");
+    tree.write("secret2.txt", "y\n");
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Always, ApprovalAnswer::Deny]);
+    let context = asking(
+        &tree,
+        PermissionMode::Ask,
+        &[
+            ("read", "secret*", RuleAction::Ask),
+            ("grep", "*", RuleAction::Ask),
+        ],
+        prompter.clone(),
+    );
+    assert!(call(&context, "read_file", json!({ "path": "secret.txt" })).ok);
+    let target = tree.root().join("secret.txt").display().to_string();
+    assert_eq!(
+        context.permissions().grants(),
+        &[Grant::new("read_file", target.clone())]
+    );
+    // The same read again: no question (the script has only a deny left).
+    assert!(call(&context, "read_file", json!({ "path": "secret.txt" })).ok);
+    assert_eq!(prompter.asked(), vec![format!("read_file:{target}")]);
+    // Another file the rule asks about is asked again, and refused here.
+    assert!(!call(&context, "read_file", json!({ "path": "secret2.txt" })).ok);
+    assert_eq!(prompter.asked().len(), 2);
+}
+
+#[test]
+fn a_read_rule_with_nobody_to_ask_is_refused_in_ask_mode_naming_the_rule() {
+    let tree = Tree::new();
+    tree.write("secret.txt", "x\n");
+    let context = ruled(
+        &tree,
+        PermissionMode::Ask,
+        &[("read", "secret*", RuleAction::Ask)],
+    );
+    let refused = call(&context, "read_file", json!({ "path": "secret.txt" }));
+    assert!(!refused.ok);
+    assert!(
+        refused
+            .output
+            .contains("a configured permission rule asks before `read_file`"),
+        "{}",
+        refused.output
+    );
+}
+
+#[test]
+fn a_remembered_read_decides_before_the_question_and_a_broken_store_refuses_a_read() {
+    // Upstream keys a remembered read as a structured call
+    // (`permissionStateKeyForCall`, `tool_admission.zig:2189-2232`) and
+    // consults it after a configured deny and before an ask
+    // (`:1405-1424`); a copy of its rules that cannot be taken fails the
+    // call (`requestPermissionOutcome`, `:1279-1309`). xfx reads the file at
+    // every decision, so a file that does not read is that failure here.
+    let tree = Tree::new();
+    tree.write("secret.txt", "x\n");
+    tree.write("other.txt", "y\n");
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    remember(
+        &tree,
+        &rules,
+        Decision::Allow,
+        "read_file",
+        json!({"path": "secret.txt"}),
+    );
+    let prompter = ScriptedPrompter::new(Vec::new());
+    let remembered = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Ask)
+                .with_rules(table(&[("read", "*", RuleAction::Ask)]))
+                .with_prompter(Box::new(prompter.clone()))
+                .with_session_rules(&rules),
+        );
+    assert!(call(&remembered, "read_file", json!({"path": "secret.txt"})).ok);
+    assert!(prompter.asked().is_empty());
+    // Other arguments are another action: asked, and the script refuses.
+    assert!(!call(&remembered, "read_file", json!({"path": "other.txt"})).ok);
+    assert_eq!(prompter.asked().len(), 1);
+
+    // A remembered deny beats a configured allow.
+    let denied = TempDir::new().unwrap();
+    let deny_rules = denied.path().join("permissions.json");
+    remember(
+        &tree,
+        &deny_rules,
+        Decision::Deny,
+        "read_file",
+        json!({"path": "secret.txt"}),
+    );
+    let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Auto)
+                .with_rules(table(&[("read", "*", RuleAction::Allow)]))
+                .with_session_rules(&deny_rules),
+        );
+    let refused = call(&context, "read_file", json!({"path": "secret.txt"}));
+    assert!(
+        refused
+            .output
+            .contains("a saved-session permission rule denies `read_file secret.txt`"),
+        "{}",
+        refused.output
+    );
+
+    // A store that does not read refuses a read too, rule or none.
+    let broken = TempDir::new().unwrap();
+    let broken_rules = broken.path().join("permissions.json");
+    fs::write(&broken_rules, "{broken").unwrap();
+    let context = remembering(&tree, PermissionMode::Auto, &broken_rules);
+    let refused = call(&context, "read_file", json!({"path": "other.txt"}));
+    assert!(!refused.ok);
+    assert!(
+        refused
+            .output
+            .contains("saved-session permission rules are invalid"),
+        "{}",
+        refused.output
+    );
+}
+
+#[test]
+fn a_remembered_rule_decides_exactly_one_call_of_a_tool_judged_by_its_name() {
+    // The saved state is consulted for every registered tool, after a
+    // configured deny and before an ask (`tool_admission.zig:1405-1424`).
+    let tree = Tree::new();
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    remember(
+        &tree,
+        &rules,
+        Decision::Deny,
+        "capability_search",
+        json!({"query": "issues"}),
+    );
+    let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Auto)
+                .with_rules(table(&[("capability_search", "*", RuleAction::Allow)]))
+                .with_session_rules(&rules),
+        );
+    let refused = call(&context, "capability_search", json!({"query": "issues"}));
+    assert_eq!(refused.outcome, Outcome::Denied);
+    assert!(
+        refused
+            .output
+            .contains("a saved-session permission rule denies `capability_search issues`"),
+        "{}",
+        refused.output
+    );
+    // Another query is another call: the rule does not reach it.
+    let other = call(
+        &context,
+        "capability_search",
+        json!({"query": "pull requests"}),
+    );
+    assert_ne!(other.outcome, Outcome::Denied, "{}", other.output);
+
+    // A store that does not read refuses it too, as it refuses everything.
+    let broken = TempDir::new().unwrap();
+    let broken_rules = broken.path().join("permissions.json");
+    fs::write(&broken_rules, "{broken").unwrap();
+    let context = remembering(&tree, PermissionMode::Auto, &broken_rules);
+    let refused = call(&context, "ask_user_question", one_question());
+    assert_eq!(refused.outcome, Outcome::Denied, "{}", refused.output);
 }
 
 /// A context over `tree` plus the added root `added`, in `mode`, deciding
@@ -4389,7 +4954,8 @@ fn a_store_that_cannot_be_read_refuses_the_call_rather_than_letting_a_deny_lapse
 }
 
 #[test]
-fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_that_asks_nothing() {
+fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_and_a_question_is_prepared_by_its_label(
+) {
     let tree = Tree::new();
     let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
         .with_permissions(session(PermissionMode::Ask).with_rules(table(&[(
@@ -4406,18 +4972,69 @@ fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_tha
         .unwrap_err()
         .starts_with("a configured permission rule denies"));
     for (tool, arguments) in [
-        ("read_file", json!({"path": "a"})),
         ("bash", json!({"command": "ls"})),
         ("write_file", json!({"path": "../escape", "content": "x"})),
         ("terminal", json!({"action": "exec"})),
+        // A read is prepared at the file it names now, and one that is not
+        // there names nothing to keep a rule about.
+        ("read_file", json!({"path": "a"})),
     ] {
         assert!(
             xfx::tools::prepare_rule_action(tool, &arguments, &context).is_err(),
             "{tool}"
         );
     }
+    // The model's question is judged by the table under its own name, so a
+    // rule can be about exactly one call of it, as upstream's can
+    // (`preparePermissionStateAction`, `tool_admission.zig:2262-2267`): shown
+    // by its question's label, which for it is its name alone.
+    let question = xfx::tools::prepare_rule_action(
+        "ask_user_question",
+        &json!({"questions": [{"question": "q?", "options": [{"label": "a"}, {"label": "b"}]}]}),
+        &context,
+    )
+    .expect("a question is prepared");
+    assert_eq!(question.display, "ask_user_question");
+    let search =
+        xfx::tools::prepare_rule_action("capability_search", &json!({"query": "issues"}), &context)
+            .expect("a search is prepared");
+    assert_eq!(search.display, "capability_search issues");
+    assert_ne!(question.key, search.key);
     // Preparing ran nothing.
     assert!(tree.entries(".").is_empty());
+}
+
+#[test]
+fn a_read_is_prepared_as_a_rule_with_upstreams_label_and_without_consulting_the_table() {
+    // `preparePermissionStateAction` keys a structured call and shows its
+    // question's label (`tool_admission.zig:2261-2267`); no rule is consulted,
+    // so a read a table denies can still be remembered -- the configured deny
+    // is consulted first when it is called.
+    let tree = Tree::new();
+    tree.write("secret/a.txt", "x\n");
+    let context = ruled(
+        &tree,
+        PermissionMode::Ask,
+        &[("read", "secret/*", RuleAction::Deny)],
+    );
+    let read =
+        xfx::tools::prepare_rule_action("read_file", &json!({"path": "secret/a.txt"}), &context)
+            .expect("a read is prepared");
+    assert_eq!(read.display, "read_file secret/a.txt");
+    let search = xfx::tools::prepare_rule_action(
+        "grep_files",
+        &json!({"pattern": "needle", "path": "secret"}),
+        &context,
+    )
+    .expect("a search is prepared");
+    assert_eq!(search.display, "grep_files needle");
+    assert_ne!(read.key, search.key);
+    // The same read spelled through `.` resolves to the same file, but the
+    // arguments differ, and the key is the exact call's.
+    let spelled =
+        xfx::tools::prepare_rule_action("read_file", &json!({"path": "./secret/a.txt"}), &context)
+            .expect("prepared");
+    assert_ne!(read.key, spelled.key);
 }
 
 #[test]

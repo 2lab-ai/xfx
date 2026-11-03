@@ -459,6 +459,20 @@ pub struct TurnMachine {
     written: u64,
     /// Lines this turn's file changes added and removed.
     lines: LineChanges,
+    /// The `tools` array every request of this turn carries: the registry
+    /// less what the configured table refuses at every target, taken once
+    /// when the turn begins ([`Registry::advertisement_under`]).
+    ///
+    /// **Once per turn, as upstream's is**: it projects the tool set when a
+    /// prompt's job starts, from the mode and the table in force then
+    /// (`snapshotModelToolProjection`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_agent_runtime.zig:1048-1052`, under the authority
+    /// mutex, `src/main.zig:1982-1994`), and every request of that job sends
+    /// the same functions (`orchestrator.zig:7270-7278`). A rule changed
+    /// mid-turn is in force for the turn's next call at once -- the decision
+    /// reads the live table -- and in the list the model is offered from the
+    /// next turn on.
+    tools: Vec<serde_json::Value>,
     /// Asked before each step whether to compact first; `None` for a turn
     /// that never compacts.
     compactor: Option<Compactor>,
@@ -606,6 +620,14 @@ impl TurnMachine {
             .unwrap_or_default();
         let history = request.history.clone();
         let user = user_message(&request, None);
+        let tools = {
+            let permissions = request.tools.permissions();
+            Registry::builtin().advertisement_under(
+                permissions.mode(),
+                &permissions.rules(),
+                request.tools.mcp().is_some(),
+            )
+        };
         Self {
             request,
             context: ProjectContext::none(),
@@ -631,6 +653,7 @@ impl TurnMachine {
             unaccounted: false,
             written: 0,
             lines: LineChanges::default(),
+            tools,
             compactor: None,
         }
     }
@@ -1727,12 +1750,19 @@ impl TurnMachine {
             // the text in its place, as upstream projects each request
             // (`withholdOversizedAttachments`, `orchestrator.zig:7215-7226`).
             messages: crate::image::withhold(self.messages()),
-            // The registry verbatim, every step, and every MCP tool this
-            // turn has selected after it. Re-advertising is not redundant:
-            // the Gateway is stateless, so a schema omitted from step two is
-            // a tool the model no longer has.
-            tools: Registry::builtin().advertisement_for(&self.request.tools),
-            // `auto`, because every advertised tool is real and read-only.
+            // The turn's list, every step, and after it every MCP tool this
+            // turn has selected that the table in force still lets through,
+            // decided again at each step as upstream re-reads each selected
+            // definition ([`crate::tools::mcp::offered_selected`]).
+            // Re-advertising is not redundant: the Gateway is stateless, so a
+            // schema omitted from step two is a tool the model no longer has.
+            tools: {
+                let mut tools = self.tools.clone();
+                tools.extend(crate::tools::mcp::offered_selected(&self.request.tools));
+                tools
+            },
+            // `auto`, because every advertised tool is real. Upstream sends
+            // it over an empty list too (`vercel_protocol.zig:365-368`).
             tool_choice: ToolChoice::Auto,
         }
     }
@@ -2328,6 +2358,83 @@ mod tests {
             .collect();
         assert_eq!(request.tools, expected);
         assert_eq!(request.tool_choice, ToolChoice::Auto);
+    }
+
+    /// The names a request offers.
+    fn names(request: &CompletionRequest) -> Vec<String> {
+        request
+            .tools
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("a named tool").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_tool_the_table_refuses_everywhere_is_left_out_for_the_whole_turn_and_back_the_next() {
+        use crate::permission::{
+            ConfiguredRule, LiveAuthority, LiveRules, PermissionMode, PermissionSession,
+            RuleAction, RuleSet,
+        };
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        let scope = AccessScope::primary_only(dir.path()).expect("a usable root");
+        let live = LiveRules::new(RuleSet::new(vec![ConfiguredRule::new(
+            "edit",
+            "*",
+            RuleAction::Deny,
+        )]));
+        let authority = LiveAuthority::new(PermissionMode::Ask);
+        let tools = ToolContext::new(scope).with_permissions(
+            PermissionSession::new(PermissionMode::Ask)
+                .with_live(authority.clone())
+                .with_live_rules(live.clone()),
+        );
+        let turn = |tools: &ToolContext| {
+            TurnMachine::new(TurnRequest {
+                images: Vec::new(),
+                model: "m".to_string(),
+                prompt: "hi".to_string(),
+                history: Vec::new(),
+                max_steps: 1,
+                max_attempts: 1,
+                cancel: crate::gateway::CancelToken::new(),
+                tools: tools.clone(),
+            })
+        };
+        let hidden = turn(&tools);
+        let offered = names(&hidden.completion_request());
+        assert!(!offered.contains(&"write_file".to_string()), "{offered:?}");
+        assert!(!offered.contains(&"edit_file".to_string()), "{offered:?}");
+        assert!(offered.contains(&"read_file".to_string()));
+
+        // The table changes while the turn runs: this turn's requests keep
+        // the list it began with, as upstream's job does.
+        live.replace(RuleSet::new(vec![ConfiguredRule::new(
+            "edit",
+            "*",
+            RuleAction::Allow,
+        )]));
+        assert_eq!(names(&hidden.completion_request()), offered);
+        // The next turn offers them again: the whole registry but the MCP
+        // meta-tools, which a context with no MCP client does not offer.
+        let everything: Vec<serde_json::Value> = Registry::builtin()
+            .advertisement()
+            .into_iter()
+            .filter(|tool| {
+                !crate::tools::mcp::META_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
+            })
+            .collect();
+        assert_eq!(turn(&tools).completion_request().tools, everything);
+
+        // Full access consults no table: a turn begun in it offers what the
+        // table would leave out.
+        live.replace(RuleSet::new(vec![ConfiguredRule::new(
+            "*",
+            "*",
+            RuleAction::Deny,
+        )]));
+        assert!(turn(&tools).completion_request().tools.is_empty());
+        authority.set_mode(PermissionMode::Yolo);
+        assert_eq!(turn(&tools).completion_request().tools, everything);
     }
 
     #[test]

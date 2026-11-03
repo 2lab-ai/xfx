@@ -253,6 +253,53 @@ impl RuleSet {
         }
         matched
     }
+
+    /// Whether this table refuses the tool `tool` at every target it could
+    /// ever be called with -- the test upstream hides a tool from the model by
+    /// (`rulesDenyAllTargetsForTool`, `permissions.zig:1138-1141`): judged
+    /// under its category ([`permission_name_for_tool`]) and its own name, and
+    /// never for `web_fetch`, whose rules are domains and never global.
+    pub fn denies_every_target_of_tool(&self, tool: &str) -> bool {
+        if tool == WEB_FETCH {
+            return false;
+        }
+        self.denies_every_target(permission_name_for_tool(tool), Some(tool))
+    }
+
+    /// `rulesDenyAllTargetsForPermissionAndTool` (`permissions.zig:1143-1165`):
+    /// the last rule for this category whose pattern is all `*` denies, and no
+    /// later allow or ask for it survives the rules after it.
+    ///
+    /// A later rule with a narrower pattern does not undo the deny by being
+    /// there: it does only if the whole table, asked about that pattern as a
+    /// target, still allows or asks -- so `edit: {"*": "deny", "src/*":
+    /// "ask"}` advertises the edit tools and `edit: {"src/*": "allow", "*":
+    /// "deny"}` hides them.
+    pub fn denies_every_target(&self, permission: &str, tool: Option<&str>) -> bool {
+        let mut last_global_deny = None;
+        for (index, rule) in self.rules.iter().enumerate() {
+            if !rule_matches_permission(&rule.permission, permission, tool)
+                || !is_global_target_pattern(&rule.pattern)
+            {
+                continue;
+            }
+            last_global_deny = match rule.action {
+                RuleAction::Allow | RuleAction::Ask => None,
+                RuleAction::Deny => Some(index),
+            };
+        }
+        let Some(deny) = last_global_deny else {
+            return false;
+        };
+        !self.rules[deny + 1..].iter().any(|rule| {
+            rule_matches_permission(&rule.permission, permission, tool)
+                && rule.action != RuleAction::Deny
+                && matches!(
+                    self.decide(permission, tool, rule.pattern.as_bytes()),
+                    Some(RuleAction::Allow | RuleAction::Ask)
+                )
+        })
+    }
 }
 
 fn parse_action(raw: &str) -> Result<RuleAction, TableError> {
@@ -964,6 +1011,52 @@ mod tests {
         assert!(is_global_target_pattern("***"));
         assert!(!is_global_target_pattern(""));
         assert!(!is_global_target_pattern("*a"));
+    }
+
+    #[test]
+    fn a_global_deny_covers_every_target_until_a_later_rule_still_lets_one_through() {
+        // Upstream's own three cases (`permissions.zig:2500-2517`).
+        assert!(
+            !set(&[("edit", "*", Deny), ("edit", "src/*", Allow)]).denies_every_target(EDIT, None)
+        );
+        assert!(
+            set(&[("edit", "src/*", Allow), ("edit", "*", Deny)]).denies_every_target(EDIT, None)
+        );
+        assert!(!set(&[("edit", "src/*", Deny)]).denies_every_target(EDIT, None));
+        // An ask after the deny lets the asked targets through
+        // (`tool_projection.zig:725-742`), and a later global allow or ask
+        // clears it outright.
+        assert!(
+            !set(&[("edit", "*", Deny), ("edit", "src/*", Ask)]).denies_every_target(EDIT, None)
+        );
+        assert!(!set(&[("edit", "*", Deny), ("*", "*", Allow)]).denies_every_target(EDIT, None));
+        // A later rule for another category is not a way through.
+        assert!(set(&[("edit", "*", Deny), ("read", "*", Allow)]).denies_every_target(EDIT, None));
+        // One action for the whole table is `* *`.
+        assert!(RuleSet::parse(&json!("deny"))
+            .unwrap()
+            .denies_every_target(EDIT, None));
+        assert!(!RuleSet::default().denies_every_target(EDIT, None));
+    }
+
+    #[test]
+    fn a_tool_is_covered_under_its_category_or_its_own_name_and_never_web_fetch() {
+        let edit = set(&[("edit", "*", Deny)]);
+        assert!(edit.denies_every_target_of_tool("write_file"));
+        assert!(edit.denies_every_target_of_tool("edit_file"));
+        assert!(edit.denies_every_target_of_tool("create_folder"));
+        assert!(!edit.denies_every_target_of_tool("read_file"));
+        let named = set(&[("read_file", "*", Deny)]);
+        assert!(named.denies_every_target_of_tool("read_file"));
+        assert!(!named.denies_every_target_of_tool("grep_files"));
+        // `rulesDenyAllTargetsForTool` returns before matching for web_fetch
+        // (`permissions.zig:1139`).
+        assert!(!set(&[("*", "*", Deny)]).denies_every_target_of_tool(WEB_FETCH));
+        assert!(set(&[("*", "*", Deny)]).denies_every_target_of_tool("ask_user_question"));
+        // `bash` is a command's category, not the shell tool's name: upstream's
+        // `shell` is judged as `shell` here (`permissionNameForTool`, `:1455-1464`).
+        assert!(!set(&[("bash", "*", Deny)]).denies_every_target_of_tool("shell"));
+        assert!(set(&[("shell", "*", Deny)]).denies_every_target_of_tool("shell"));
     }
 
     #[test]

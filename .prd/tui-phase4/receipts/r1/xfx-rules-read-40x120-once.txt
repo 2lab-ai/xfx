@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-494f9a8 [debug] · Run /help for commands
+
+┃ read the secret
+
+● 1 tool call · 1 read · 1 denied
+└ Denied secret.txt
+
+  Refused.
+
+  5s (↑4 ↓80)
+
+┃ again
+
+● 1 tool call · 1 read
+└ Read secret.txt
+
+  Read once.
+
+  5s (↑2 ↓80)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

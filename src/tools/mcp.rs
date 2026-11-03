@@ -355,12 +355,36 @@ fn decode_features(input: &Value) -> Result<ToolInput, String> {
 /// Whether `name` is a rule's to refuse outright: a configured deny for the
 /// tool's own name keeps it out of every search and selection
 /// (`rulesDenyAllTargetsForPermission`, `tool_search.zig:91`).
+///
+/// In every mode, full access too: upstream filters its MCP catalog by the
+/// table whatever the mode (`snapshotToolDefinition` is handed the engine's
+/// rules, `vercel-labs/fx@c1db9191 src/main.zig:1957-1959`). A server's tool
+/// has one target, its own name, so a deny there is a deny at every target.
 fn denied(context: &ToolContext, alias: &str) -> bool {
     context
         .permissions()
         .rules()
         .decide(alias, Some(alias), alias.as_bytes())
         == Some(crate::permission::RuleAction::Deny)
+}
+
+/// The schemas of the MCP tools this turn has selected that the table in
+/// force now does not refuse, in the order they were selected: what a step
+/// advertises after the registry.
+///
+/// Read at every step, as upstream re-reads each selected definition before
+/// each request (`snapshotDynamicTools`, `vercel-labs/fx@c1db9191
+/// src/core/agent/runtime/gateway_step.zig`), and its snapshot is
+/// `unavailable` once a rule denies the tool (`snapshotToolDefinition`,
+/// `src/core/mcp/mcp_runtime.zig:2093`): a deny written mid-turn takes a
+/// selected tool out of the turn's next request.
+pub fn offered_selected(context: &ToolContext) -> Vec<Value> {
+    context
+        .mcp_selected()
+        .into_iter()
+        .filter(|selected| !denied(context, &selected.alias))
+        .map(|selected| selected.schema)
+        .collect()
 }
 
 fn execute_search(input: &ToolInput, context: &ToolContext) -> ToolResult {
@@ -523,6 +547,15 @@ pub fn shown(name: &str) -> Shown {
 /// Runs one call of a selected MCP tool: judged first, then sent.
 pub fn call(call: &ToolCall, context: &ToolContext) -> ToolResult {
     let alias = call.name.as_str();
+    // Before anything, and in full access too: a tool the table refuses is
+    // not in this step's advertisement ([`offered_selected`]), and upstream
+    // answers a call to a tool it did not advertise as an unknown one
+    // (`isAvailableDynamicTool` reads the step's advertised names, then
+    // `unknown tool: <name>`, `vercel-labs/fx@c1db9191
+    // src/core/tooling/tool_dispatch.zig:845`) -- nothing reaches the server.
+    if denied(context, alias) {
+        return ToolResult::failure(format!("unknown tool: {alias}"));
+    }
     let Some(link) = context.mcp() else {
         return ToolResult::failure("No MCP runtime is available.");
     };
@@ -540,6 +573,7 @@ pub fn call(call: &ToolCall, context: &ToolContext) -> ToolResult {
         alias: alias.to_string(),
         server: server.config.name.clone(),
         arguments: crate::output::safe_one_line(&arguments.to_string(), MAX_SHOWN_ARGUMENT_BYTES),
+        key: arguments.to_string(),
     };
     let decided = context
         .permissions()

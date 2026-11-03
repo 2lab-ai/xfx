@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-494f9a8 [debug] · Run /help for commands
+
+┃ search for it
+
+● 1 tool call · 1 read · 1 denied
+└ Denied secret
+
+┃ look in notes.txt instead
+
+  Told.
+
+  7s (↑4 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

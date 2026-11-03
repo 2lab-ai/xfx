@@ -1,0 +1,40 @@
+
+┃ look in notes.txt instead
+
+  Told.
+
+  7s (↑4 ↓80)
+
+┃ read it
+
+● 1 tool call · 1 read · 1 cancelled
+└ Cancelled secret.txt
+
+■ Cancelled secret.txt · What can xfx do differently?
+
+* permissions: saved-session permission rule updated
+
+┃ read it now
+
+● 1 tool call · 1 read
+└ Read secret.txt
+
+  Remembered.
+
+  0s (↑3 ↓80)
+
+* permissions: mode=auto
+  configured rules:
+   - ask read -> secret*
+   - ask grep -> *
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules (1):
+  1 allow read_file secret.txt
+
+┃
+
+auto · model-a
