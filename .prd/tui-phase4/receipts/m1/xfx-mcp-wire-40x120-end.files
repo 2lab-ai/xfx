@@ -1,0 +1,29 @@
+=== ~/.xfx/history.jsonl (437 bytes)
+{"schema_version":1,"timestamp_ms":1793702680247,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs"}
+{"schema_version":1,"timestamp_ms":1793702685269,"workspace_root":"<scratch>/work","text":"use the fixture echo tool"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (295 bytes)
+{"mcp":{"fixture":{"type":"local","command":["/opt/homebrew/bin/bun","<fixtures>/mcp-legacy-stdio.mjs"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}}}
+=== ~/.xfx/mcp.lock (0 bytes)
+=== ~/.xfx/sessions/1793702685269-a78cf5b29b04dbd9/events.jsonl (5539 bytes)
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":1,"event_id":"8923fa4edb5fc0e7679483608a59450c","timestamp_ms":1793702685271,"event":{"kind":"session_started","id":"1793702685269-a78cf5b29b04dbd9","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":2,"event_id":"4bf96f6938f89b054143387e1982a7a7","timestamp_ms":1793702685298,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":3,"event_id":"e920a3b1c85f31b77c52c0a6ce17da46","timestamp_ms":1793702685314,"event":{"kind":"user_message","text":"use the fixture echo tool"}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":4,"event_id":"ab41e2c49acfaf34fa9243a1a04d0510","timestamp_ms":1793702685328,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_search","name":"capability_search","input":{"query":"echo text through the fixture"}}]}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":5,"event_id":"15eece942b8f8603a3a1f69d8ba2a314","timestamp_ms":1793702685340,"event":{"kind":"tool_result","call_id":"call_search","tool":"capability_search","ok":true,"output":"{\"skills\":[],\"mcp_tools\":[{\"name\":\"mcp_fixture_echo\",\"server\":\"fixture\",\"description\":\"Echo text through the legacy MCP fixture\",\"purpose\":\"Echo text through the legacy MCP fixture\",\"usage\":[\"mcp\",\"fixture\",\"echo\"]}],\"counts\":{\"skills\":0,\"mcp_tools\":1},\"total_matches\":{\"skills\":0,\"mcp_tools\":1}}"}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":6,"event_id":"68041304241a66f25b36c2dc4dda6cc6","timestamp_ms":1793702685356,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_echo","name":"mcp_fixture_echo","input":{"text":"hi"}}]}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":7,"event_id":"d8b6a90243518817a93efb00218f7a22","timestamp_ms":1793702685369,"event":{"kind":"tool_result","call_id":"call_echo","tool":"mcp_fixture_echo","ok":true,"output":"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"LEGACY_MCP_TOOL_RESULT:hi\"}]}}"}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":8,"event_id":"1e0b347331dcb5fd1e4e7c75075bbb29","timestamp_ms":1793702685386,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_features","name":"mcp_features","input":{"action":"resource_list","server":"fixture"}}]}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":9,"event_id":"03c587ea5508ec9cf2848089ab4e9ea7","timestamp_ms":1793702685399,"event":{"kind":"tool_result","call_id":"call_features","tool":"mcp_features","ok":true,"output":"{\"trust\":\"untrusted_external\",\"authority\":\"none\",\"action\":\"resource_list\",\"server\":\"fixture\",\"unsupported\":true,\"message\":\"fixture did not advertise a resources capability, so this feature is unavailable on that server. Use its tools or pick another server.\"}"}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":10,"event_id":"0c7c0cfefa434c1e6c58d82e2ec79c24","timestamp_ms":1793702685416,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_select","name":"mcp_select_tool","input":{"name":"mcp_fixture_echo"}}]}}
+{"schema_version":1,"log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","seq":11,"event_id":"a6927b5c92abb148962471e246b83a8d","timestamp_ms":1793702685429,"event":{"kind":"tool_result","call_id":"call_select","tool":"mcp_select_tool","ok":true,"output":"Selected dynamic MCP tool `mcp_fixture_echo`. Its executable schema will be available on the next model step; call `mcp_fi
+=== ~/.xfx/sessions/1793702685269-a78cf5b29b04dbd9/session.json (636 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793702685269-a78cf5b29b04dbd9","log_generation":"ab865697802c3fee40f5cf9ae7fb94f5","created_at_ms":1793702685271,"updated_at_ms":1793702685478,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"use the fixture echo tool","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":14,"event_log_bytes":5539,"event_log_sha256":"619a98572d1848775543693873fb32155c307b939d3f6b5bb7ed06d9c55b6084"}
+
+=== ~/.xfx/settings.json (44 bytes)
+{"permission":{"mcp_fixture_echo":"allow"}}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1793702685460}
+

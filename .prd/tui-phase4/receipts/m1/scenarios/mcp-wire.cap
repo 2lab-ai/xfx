@@ -1,0 +1,21 @@
+# fx's MCP wire: the fixture logs every frame fx sends it; the gateway keeps
+# every request body. One turn walks capability_search, the MCP tool itself,
+# mcp_features and mcp_select_tool.
+gateway mcp-wire-turns.json
+fx: env FX_MCP_WIRE_LOG=<captures>/fx-mcp-wire.ndjson
+xfx: env FX_MCP_WIRE_LOG=<captures>/xfx-mcp-wire.ndjson
+# fx clears the server tool through its auto-mode reviewer; xfx has none, so
+# the same call is admitted by a configured rule naming the tool.
+xfx: seed mcp-wire-settings.json
+wait 3
+type /mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs
+key Enter
+wait 5
+snap added
+type use the fixture echo tool
+key Enter
+wait 12
+snap turn
+snapfull end
+home end
+gwlog

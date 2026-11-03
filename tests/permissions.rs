@@ -3127,7 +3127,12 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_inter
             "edit_file",
             "create_folder",
             "terminal",
+            // Read-only, but where upstream puts them: after its shell
+            // (`vercel-labs/fx@c1db9191 src/builtins/tools.zig:865-881`).
+            "capability_search",
             "skill",
+            "mcp_select_tool",
+            "mcp_features",
             "ask_user_question",
         ]
     );

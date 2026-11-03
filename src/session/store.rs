@@ -392,6 +392,13 @@ pub enum TurnStep {
         /// Which wire *and which authority* produced the state above.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         wire: Option<crate::provider::Wire>,
+        /// The model that produced the state above: the one the record names
+        /// ([`SessionEvent::AssistantMessage`]'s `model`), or for an older
+        /// record that names none, the model the log had in force when it was
+        /// written -- the session's own, which every model change is written
+        /// into before the next request. `None` beside no state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     ToolResult {
         call_id: String,
@@ -858,26 +865,27 @@ impl DurableState {
     /// ([`Self::checkpoint`]): one user message holding its text, then the
     /// turns after it as they are -- the shape upstream sends after a
     /// compaction (`receipts/w4/README.md`, "The next request").
-    pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
-        self.history_of(&self.retained_turns(), active)
+    pub fn history_messages(&self, active: Wire, model: &str) -> ReplayedHistory {
+        self.history_of(&self.retained_turns(), active, model)
     }
 
     /// The history a turn still in progress carries once a compaction in its
     /// middle has replaced what came before: the compacted form and every
     /// later turn but the open one, whose own messages the turn keeps -- and
     /// trims itself, when the compaction took its earlier steps.
-    pub fn history_messages_before_open(&self, active: Wire) -> ReplayedHistory {
+    pub fn history_messages_before_open(&self, active: Wire, model: &str) -> ReplayedHistory {
         let mut turns = self.retained_turns();
         if turns.last().is_some_and(|turn| turn.outcome.is_none()) {
             turns.pop();
         }
-        self.history_of(&turns, active)
+        self.history_of(&turns, active, model)
     }
 
     fn history_of(
         &self,
         turns: &[std::borrow::Cow<'_, HistoryTurn>],
         active: Wire,
+        model: &str,
     ) -> ReplayedHistory {
         let mut out = Vec::new();
         let mut notices = Vec::new();
@@ -887,7 +895,7 @@ impl DurableState {
             )));
         }
         for turn in turns {
-            out.extend(turn_messages(turn.as_ref(), &active, &mut notices));
+            out.extend(turn_messages(turn.as_ref(), &active, model, &mut notices));
         }
         ReplayedHistory {
             messages: out,
@@ -908,7 +916,12 @@ fn stopped_answer(ok: bool, output: &str) -> bool {
 /// One turn as the messages a request carries for it on `active`, its user
 /// message first ([`DurableState::history_messages`]). A reasoning state that
 /// does not replay on `active` is dropped with a line in `notices`.
-pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String>) -> Vec<Message> {
+pub fn turn_messages(
+    turn: &HistoryTurn,
+    active: &Wire,
+    model: &str,
+    notices: &mut Vec<String>,
+) -> Vec<Message> {
     let mut out = Vec::new();
     // Every image the prompt carried goes with it again, as upstream
     // re-sends the history's images on every request
@@ -964,6 +977,7 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 raw_content,
                 responses_state,
                 wire,
+                model: sealed_by,
             } => {
                 stopped = false;
                 if text.is_empty()
@@ -1002,19 +1016,36 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                         active.clone()
                     }
                 });
-                let state: &[serde_json::Value] = match (&recorded, active) {
+                let on_wire: &[serde_json::Value] = match (&recorded, active) {
                     (Wire::AnthropicMessages, Wire::AnthropicMessages) => raw_content,
                     (Wire::CodexResponses, Wire::CodexResponses)
                     | (Wire::GrokResponses, Wire::GrokResponses) => responses_state,
                     _ => &[],
                 };
+                // **And the model**: a state goes back only to the model that
+                // sealed it, as upstream's does (`ProviderReplay.matches`,
+                // `vercel-labs/fx@c1db9191 src/core/shared/types.zig:1512-1515`,
+                // the same authority **and** `std.mem.eql` of the model): a
+                // daemon asked by one model to verify a signature another
+                // model made can refuse the request. The step is then sent as
+                // upstream sends one whose replay it dropped
+                // (`projectProviderReplay`, `:1548-1563`) -- its text and its
+                // calls.
+                let same_model = sealed_by.as_deref().is_none_or(|sealed| sealed == model);
+                let state: &[serde_json::Value] = if same_model { on_wire } else { &[] };
                 if state.is_empty() && !(raw_content.is_empty() && responses_state.is_empty()) {
-                    notices.push(format!(
-                        "xfx: this session recorded reasoning on the {} wire and is \
-                         continuing on {}, so that reasoning was not carried over",
-                        recorded.label(),
-                        active.label()
-                    ));
+                    notices.push(match sealed_by {
+                        Some(sealed) if !on_wire.is_empty() => format!(
+                            "xfx: this session recorded reasoning from {sealed} and is \
+                             continuing with {model}, so that reasoning was not carried over"
+                        ),
+                        _ => format!(
+                            "xfx: this session recorded reasoning on the {} wire and is \
+                             continuing on {}, so that reasoning was not carried over",
+                            recorded.label(),
+                            active.label()
+                        ),
+                    });
                 }
                 pending.push(if state.is_empty() {
                     Message::assistant(Some(text), calls)
@@ -2965,7 +2996,10 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             raw_content,
             responses_state,
             wire,
+            model,
         } => {
+            let sealed = !(raw_content.is_empty() && responses_state.is_empty());
+            let model = sealed.then(|| model.clone().unwrap_or_else(|| state.model.clone()));
             open_turn(state, "an assistant step", envelope.seq)?.push_step(
                 envelope.seq,
                 TurnStep::Assistant {
@@ -2974,6 +3008,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     raw_content: raw_content.clone(),
                     responses_state: responses_state.clone(),
                     wire: wire.clone(),
+                    model,
                 },
             );
         }
@@ -3822,6 +3857,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 ending: None,
@@ -3880,6 +3916,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 ending: None,
@@ -3919,7 +3956,7 @@ mod tests {
         );
 
         // And it replays behind both results, in the group they belong to.
-        let replay = state.history_messages(crate::provider::Wire::VercelGateway);
+        let replay = state.history_messages(crate::provider::Wire::VercelGateway, &state.model);
         assert_eq!(
             replay
                 .messages
@@ -4199,6 +4236,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         }
     }
 
@@ -4218,7 +4256,7 @@ mod tests {
             interrupted(),
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::AnthropicMessages);
+        let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
         assert_eq!(
             shape(&replay.messages),
             vec![
@@ -4263,7 +4301,7 @@ mod tests {
             },
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::VercelGateway);
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
         assert_eq!(
             shape(&replay.messages),
             vec![
@@ -4292,7 +4330,7 @@ mod tests {
             interrupted(),
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::VercelGateway);
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
         assert_eq!(
             shape(&replay.messages),
             vec![
@@ -4339,7 +4377,7 @@ mod tests {
             interrupted(),
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::VercelGateway);
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
         let shown = shape(&replay.messages);
         assert_eq!(
             shown[4],
@@ -4383,7 +4421,7 @@ mod tests {
             interrupted(),
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::VercelGateway);
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
         assert_eq!(
             shape(&replay.messages),
             vec![
@@ -4419,7 +4457,11 @@ mod tests {
                 interrupted(),
             ])
             .expect("reduces");
-            let shown = shape(&state.history_messages(Wire::VercelGateway).messages);
+            let shown = shape(
+                &state
+                    .history_messages(Wire::VercelGateway, &state.model)
+                    .messages,
+            );
             assert_eq!(shown.len(), 4, "{shown:#?}");
             assert_eq!(shown[1], (Role::Assistant, "call c1".to_string()));
             assert_eq!(shown[3], (Role::User, TURN_ABORTED.to_string()));
@@ -4445,7 +4487,7 @@ mod tests {
             interrupted(),
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::VercelGateway);
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
         assert_eq!(
             shape(&replay.messages),
             vec![
@@ -4482,7 +4524,7 @@ mod tests {
             interrupted(),
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::VercelGateway);
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
         assert_eq!(
             shape(&replay.messages),
             vec![
@@ -4520,6 +4562,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 ending: None,
@@ -4540,10 +4583,11 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::AnthropicMessages);
+        let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
         assert_eq!(replay.messages.len(), 3, "{:?}", replay.messages);
         assert_eq!(replay.messages[1].text(), "first");
     }
@@ -4952,7 +4996,9 @@ mod tests {
         assert_eq!(recorder.failure(), None);
 
         // The live state sends them without reading them back.
-        let live = recorder.state().history_messages(Wire::VercelGateway);
+        let live = recorder
+            .state()
+            .history_messages(Wire::VercelGateway, &recorder.state().model);
         assert_eq!(images_of(&live.messages[0]), 2);
         assert!(live.notices.is_empty(), "{:?}", live.notices);
 
@@ -4990,7 +5036,7 @@ mod tests {
         let state = resumed.session.state();
         assert_eq!(state.turns[0].images.len(), 2);
         assert_eq!(state.turns[0].images[0].recorded.id, 3);
-        let replay = state.history_messages(Wire::AnthropicMessages);
+        let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
         assert_eq!(images_of(&replay.messages[0]), 2, "{:?}", replay.messages);
         assert!(replay.notices.is_empty(), "{:?}", replay.notices);
         assert_eq!(saved_paths(&replay.messages[0])[0], copy);
@@ -5041,7 +5087,7 @@ mod tests {
         let replay = resumed
             .session
             .state()
-            .history_messages(Wire::VercelGateway);
+            .history_messages(Wire::VercelGateway, &resumed.session.state().model);
         assert_eq!(images_of(&replay.messages[0]), 0);
         assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
         assert!(
@@ -5076,6 +5122,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         });
         recorder.commit(SessionEvent::ToolResult {
             call_id: "c1".to_string(),
@@ -5111,7 +5158,9 @@ mod tests {
                 })
                 .collect()
         };
-        let live = recorder.state().history_messages(Wire::VercelGateway);
+        let live = recorder
+            .state()
+            .history_messages(Wire::VercelGateway, &recorder.state().model);
         assert_eq!(carried(&live.messages), std::slice::from_ref(&image));
         let log = std::fs::read_to_string(store.session_dir(&id).join(EVENTS_FILE)).expect("log");
         assert!(log.contains("\"kind\":\"tool_images_attached\""), "{log}");
@@ -5126,7 +5175,7 @@ mod tests {
         let replay = resumed
             .session
             .state()
-            .history_messages(Wire::AnthropicMessages);
+            .history_messages(Wire::AnthropicMessages, &resumed.session.state().model);
         assert_eq!(carried(&replay.messages), [image]);
         assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     }
@@ -5197,7 +5246,7 @@ mod tests {
         let replay = resumed
             .session
             .state()
-            .history_messages(Wire::VercelGateway);
+            .history_messages(Wire::VercelGateway, &resumed.session.state().model);
         assert_eq!(images_of(&replay.messages[0]), 0);
         assert_eq!(replay.notices.len(), 1, "{:?}", replay.notices);
     }
@@ -5252,6 +5301,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ImagesAttached {
                 images: vec![record(1)]
@@ -5540,6 +5590,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         }
     }
 
@@ -5598,7 +5649,9 @@ mod tests {
         let checkpoint = state.checkpoint.as_ref().expect("in force");
         assert_eq!(checkpoint.covered_turns, 1);
         // The request: the compacted form, then the turn after it as it was.
-        let messages = state.history_messages(Wire::VercelGateway).messages;
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
         assert_eq!(
             messages,
             vec![
@@ -5624,7 +5677,7 @@ mod tests {
         let open = reduce(events.clone()).expect("a checkpoint inside a turn");
         // The turn in progress goes on without the turns before it.
         assert_eq!(
-            open.history_messages_before_open(Wire::VercelGateway)
+            open.history_messages_before_open(Wire::VercelGateway, &open.model)
                 .messages,
             vec![Message::user(super::super::checkpoint::render(
                 &compacted_first()
@@ -5635,7 +5688,9 @@ mod tests {
         let state = reduce(events).expect("the turn's later frames are taken");
         assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(1));
         assert_eq!(
-            state.history_messages(Wire::VercelGateway).messages,
+            state
+                .history_messages(Wire::VercelGateway, &state.model)
+                .messages,
             vec![
                 Message::user(super::super::checkpoint::render(&compacted_first())),
                 Message::user("two"),
@@ -5703,6 +5758,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         };
         // Frames: 2 the prompt; 3-4 and 5-6 two reads; 7 the reply; 8 done.
         let turn = vec![
@@ -5723,7 +5779,9 @@ mod tests {
         let state = reduce(events).expect("a cut at an exchange");
         let checkpoint = state.checkpoint.as_ref().expect("in force");
         assert_eq!((checkpoint.covered_turns, checkpoint.covered_steps), (0, 2));
-        let messages = state.history_messages(Wire::VercelGateway).messages;
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
         assert_eq!(messages.len(), 5, "{messages:#?}");
         assert_eq!(messages[1], Message::user("read twice"));
         assert!(
@@ -5763,6 +5821,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         };
         let steered = |text: &str| SessionEvent::Steered {
             text: text.to_string(),
@@ -5843,6 +5902,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         };
         let turn = |user: &str, id: u32, seq: u64| HistoryTurn {
             user: user.to_string(),
@@ -5886,7 +5946,9 @@ mod tests {
             compacted: compacted_first(),
             count: 1,
         });
-        let messages = state.history_messages(Wire::VercelGateway).messages;
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
         let images: Vec<usize> = messages
             .iter()
             .map(|message| {
@@ -5966,7 +6028,9 @@ mod tests {
         events.push(user("three"));
         let state = reduce(events).expect("a valid log");
         assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(2));
-        let messages = state.history_messages(Wire::VercelGateway).messages;
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
         assert_eq!(
             messages[0],
             Message::user(super::super::checkpoint::render(&both))

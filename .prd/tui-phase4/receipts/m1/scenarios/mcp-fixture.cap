@@ -1,0 +1,91 @@
+# /mcp with a project .mcp.json (trust prompt) and a profile server added by
+# command. Both run fx's own e2e stdio fixture (a copy), by absolute paths.
+work mcp-ws
+gateway mcp-turn.json
+wait 3
+snap startup
+key 3
+wait 1
+snap rejected
+type /mcp list
+key Enter
+wait 1.5
+snap list-rejected
+key Escape
+wait 0.3
+key C-u
+type /mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs
+key Enter
+wait 4
+snap added
+type /mcp
+key Enter
+wait 1.5
+snap menu
+key Down
+wait 0.5
+snap menu-down
+key Right
+wait 1
+snap menu-tools
+key Right
+wait 1
+snap menu-resources
+key Right
+wait 1
+snap menu-prompts
+key Escape
+wait 0.5
+wait 0.3
+key C-u
+type /mcp list
+key Enter
+wait 1.5
+snap list
+key Escape
+wait 0.3
+key C-u
+type /mcp resource list fixture
+key Enter
+wait 2
+snap resource-list
+type /mcp resource read fixture legacy://alpha
+key Enter
+wait 2
+snap resource-read
+type /mcp prompt list fixture
+key Enter
+wait 2
+snap prompt-list
+type /mcp prompt get fixture review {"tone":"brief"}
+key Enter
+wait 2
+snap prompt-get
+type /mcp auth fixture
+key Enter
+wait 1
+snap auth-stdio
+type /mcp logout fixture
+key Enter
+wait 1
+snap logout-stdio
+home after-add
+type what MCP tools do you have?
+key Enter
+wait 4
+snap turn
+type /mcp trust approve proj
+key Enter
+wait 4
+snap trust-approve
+type /mcp remove fixture
+key Enter
+wait 3
+snap removed
+type /mcp trust reset
+key Enter
+wait 3
+snap trust-reset
+snapfull end
+home end
+gwlog

@@ -77,6 +77,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/permissions",
     "/allowlist",
     "/undo",
+    "/mcp",
     "/skills",
     "/copy",
     "/trace",
@@ -304,6 +305,16 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "undo the latest tracked file operation",
         category: "Session",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Mcp,
+        name: "/mcp",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:482`): its words, its place
+        // after `/undo`, and the Extensions tab.
+        summary: "manage local and remote MCP servers, resources, prompts, and project trust",
+        category: "Extensions",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Skills,
@@ -649,6 +660,14 @@ pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes
      the full-screen shell, and this line-oriented shell has no menu; without XFX_TUI=0, xfx \
      opens the full-screen one";
 
+/// `/mcp` on the line shell. The MCP client runs in the full-screen shell's
+/// session -- its servers, its menu, its trust prompt -- and this shell starts
+/// no server, so it says where they are rather than managing a profile it
+/// would never connect to.
+pub const MCP_ON_THE_LINE_SHELL: &str = "xfx: /mcp manages MCP servers in the full-screen \
+     shell, which starts and connects them; this line-oriented shell runs none. Without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
 
@@ -761,6 +780,10 @@ pub enum Slash {
     /// Put the file the conversation's tools changed last back as it was
     /// before ([`crate::tools::undo`]).
     Undo,
+    /// The session's MCP servers: upstream's menu, its text subcommands and
+    /// its project trust (`commandHandleMcp`, `app_commands.zig:1312-1405`;
+    /// [`crate::mcp`]).
+    Mcp,
     /// The skills the session can see: a menu in the TUI, `show`, `path`,
     /// `create`, `remove` and `add` from a local directory on either surface
     /// ([`crate::skills::command`]).
@@ -1426,6 +1449,9 @@ pub async fn run(
                     Slash::Settings => {
                         writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Mcp => {
+                        writeln!(io::stderr(), "{MCP_ON_THE_LINE_SHELL}")?;
+                    }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
                     // something to keep, and a session renamed before anything
@@ -1646,7 +1672,7 @@ async fn one_turn(
     let replay = conversation
         .recorder
         .state()
-        .history_messages(config.provider.wire());
+        .history_messages(config.provider.wire(), model);
     let request = TurnRequest {
         images: Vec::new(),
         model: model.to_string(),
@@ -2630,10 +2656,10 @@ mod tests {
         // since `/settings`, twenty-four since `/image`, `/images` and
         // `/paste`, twenty-five since `/allowlist`, twenty-six since
         // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
-        // `/fast` and `/ultrafast`, and thirty since `/skills`; `/provider`
-        // took `/setup`'s place rather than adding one, and `/models` stays
-        // deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 30);
+        // `/fast` and `/ultrafast`, thirty since `/mcp`, and thirty-one since
+        // `/skills`; `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 31);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2776,7 +2802,7 @@ mod tests {
     #[test]
     fn help_advertises_no_deferred_upstream_command() {
         let help = help_text();
-        for deferred in ["/login", "/logout", "/models", "/mcp", "/background"] {
+        for deferred in ["/login", "/logout", "/models", "/background"] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
         }
     }
@@ -2942,6 +2968,7 @@ mod tests {
                     | "/images"
                     | "/settings"
                     | "/workspace"
+                    | "/mcp"
                     | "/skills"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);

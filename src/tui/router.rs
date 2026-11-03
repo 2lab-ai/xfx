@@ -124,6 +124,9 @@ pub(crate) trait CommandHandlers {
     /// when there was none, which opens the picker. What the rest may be is
     /// `crate::workspace::access::parse`'s to say, its refusal included.
     fn workspace(&mut self, argument: &str);
+    /// `/mcp`, with the rest of the line: empty or `list` opens the menu,
+    /// anything else is a subcommand for `crate::mcp::command`.
+    fn mcp(&mut self, argument: &str);
     /// `/skills`, with the rest of the line -- already trimmed, and empty when
     /// there was none, which opens the menu. What the rest may be is
     /// `crate::skills::command::parse`'s to say, its usage line included.
@@ -210,6 +213,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Permissions => handlers.permissions(argument),
         Slash::Allowlist => handlers.allowlist(argument),
         Slash::Undo => handlers.undo(),
+        Slash::Mcp => handlers.mcp(argument),
         Slash::Copy => handlers.copy(),
         Slash::Fast => handlers.fast(),
         Slash::Ultrafast => handlers.ultrafast(argument),
@@ -351,6 +355,9 @@ mod tests {
         fn workspace(&mut self, argument: &str) {
             self.calls.push(format!("workspace {argument}"));
         }
+        fn mcp(&mut self, argument: &str) {
+            self.calls.push(format!("mcp {argument}"));
+        }
         fn skills(&mut self, argument: &str) {
             self.calls.push(format!("skills {argument}"));
         }
@@ -394,12 +401,28 @@ mod tests {
             ("/settings", "settings "),
             ("/undo", "undo"),
             ("/workspace", "workspace "),
+            ("/mcp", "mcp "),
             ("/skills", "skills "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
             assert!(SLASH_COMMANDS.contains(&name), "{name} is not canonical");
             assert_eq!(routed(name), vec![call.to_string()], "{name}");
+        }
+    }
+
+    #[test]
+    fn an_mcp_line_is_a_command_and_its_words_never_reach_the_model() {
+        // Before this surface had the command, `/mcp list` went to the model
+        // as a prompt (`research/media-ext.md` section 5.4).
+        for (line, call) in [
+            ("/mcp", "mcp "),
+            ("/mcp list", "mcp list"),
+            ("/mcp resource list fixture", "mcp resource list fixture"),
+            ("/mcp add fixture /bin/x a b", "mcp add fixture /bin/x a b"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(matches!(super::classify(line), Submitted::Command { .. }));
         }
     }
 

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* mcp: <scratch>/home/.fx/mcp.json
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

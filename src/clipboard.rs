@@ -547,6 +547,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             })
         }
 

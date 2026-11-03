@@ -1,0 +1,50 @@
+# P1 round 2: the provider the session recorded has nothing to authenticate
+# with at the resume. As provider-resume, then after the exit the profile is
+# back on the Gateway **and** the switched-to provider cannot sign in: fx's
+# Codex sign-in is deleted (`rmhome`), xfx's profile names no llmux url
+# (`reseed`). fx stays on codex and says so once under the replay
+# (restoreSessionCredential's `.missing`, app_auth_runtime.zig:172-182), and
+# refuses the next prompt (missingPromptCredential, :198-214): no request.
+fx: seed provider-carry-fx.json
+xfx: seed provider-carry-xfx.json
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses
+nomodel
+gateway provider-carry-turns.json
+work provider-carry-ws
+wait 6
+type read the notes and tell me what they say
+key Enter
+wait 15
+type /provider
+key Enter
+wait 4
+key Down
+wait 1
+key Enter
+wait 10
+type what day was it again?
+key Enter
+wait 15
+snap turn2
+keep
+type /quit
+key Enter
+wait 4
+fx: reseed provider-carry-fx.json
+fx: rmhome .fx/chatgpt-auth.json
+xfx: reseed provider-resume-missing-xfx.json
+home reseeded
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 10
+snap resumed
+type and after the resume?
+key Enter
+wait 10
+snap refused
+home end
+gwlog
+type /quit
+key Enter
+wait 3

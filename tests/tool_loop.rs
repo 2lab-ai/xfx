@@ -215,6 +215,11 @@ fn assert_bounded_property(schema: &Value, name: &str, property: &Value) {
     );
     match property["type"].as_str() {
         Some("string" | "integer" | "boolean") => {}
+        // Upstream's two string maps (`tools.zig:675-676`): advertised as a
+        // bare object, as upstream does, and held to string values and a size
+        // by `mcp_features`' decoder. No other property may be one.
+        Some("object")
+            if schema["name"] == "mcp_features" && matches!(name, "arguments" | "context") => {}
         Some("array") => assert_bounded_array_of_closed_objects(schema, name, property),
         other => panic!("`{name}` in {schema} has an unbounded type: {other:?}"),
     }
@@ -352,8 +357,6 @@ fn the_advertisement_names_no_deferred_tool() {
         "install_skill",
         "subagent",
         "mcp_search_tools",
-        "mcp_select_tool",
-        "mcp_features",
         "vision",
         "read_tool_result",
     ] {
@@ -1608,7 +1611,16 @@ async fn the_first_request_advertises_the_registry_and_lets_the_model_choose() {
 
     let request = &provider.requests()[0];
     assert_eq!(request.tool_choice, ToolChoice::Auto);
-    assert_eq!(request.tools, Registry::builtin().advertisement());
+    // The registry, less the MCP meta-tools a context with no MCP client does
+    // not offer (`Registry::advertisement_for`).
+    let expected: Vec<serde_json::Value> = Registry::builtin()
+        .advertisement()
+        .into_iter()
+        .filter(|tool| {
+            !xfx::tools::mcp::META_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
+        })
+        .collect();
+    assert_eq!(request.tools, expected);
 }
 
 #[tokio::test]
@@ -2509,7 +2521,7 @@ async fn a_resumed_session_replays_the_same_order_with_no_orphan_calls() {
     let (requests, events) = amended_batch(&tree).await;
 
     let state = replayed(&events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
 
     // Message for message, the prompt the turn actually sent -- results then
     // sentences, in call order, with no orphan call and no orphan sentence.
@@ -2735,7 +2747,7 @@ async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
     // result, never between a call and its answer -- and `<turn_aborted>`
     // closes the turn.
     let state = replayed(&journal.events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert_eq!(
         replay_shape(&replay.messages),
         [
@@ -3261,7 +3273,7 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
     // that ran, the one that never did answered `aborted by user` as a
     // failure, and `<turn_aborted>`.
     let state = replayed(&journal.events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert_eq!(
         replay_shape(&replay.messages),
         [
@@ -3398,7 +3410,11 @@ async fn a_steer_cuts_a_tool_free_answer_and_the_turn_goes_on_with_it() {
     // (`fx-interrupt-steer-40x120-bodies/005-completion.json`).
     let state = replayed(&journal.events, tree.root());
     assert_eq!(
-        told(&state.history_messages(Wire::VercelGateway).messages),
+        told(
+            &state
+                .history_messages(Wire::VercelGateway, &state.model)
+                .messages
+        ),
         [
             "user: go",
             "assistant: PARTIAL ",
@@ -3517,7 +3533,7 @@ async fn a_refused_call_goes_back_as_a_refusal_live_and_on_resume() {
     );
 
     let state = replayed(&journal.events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert_eq!(
         refusal(&replay.messages),
         Some((ResultStatus::Denied, output)),
@@ -3698,7 +3714,13 @@ fn ask_advertises_the_whole_registry_in_its_first_request() {
         .iter()
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
-    assert_eq!(names, ADVERTISED_TOOLS);
+    // `ask` runs no MCP client, so the three MCP meta-tools are not offered.
+    let expected: Vec<&str> = ADVERTISED_TOOLS
+        .iter()
+        .copied()
+        .filter(|name| !xfx::tools::mcp::META_TOOLS.contains(name))
+        .collect();
+    assert_eq!(names, expected);
     assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
     run.assert_no_secret();
 }

@@ -302,6 +302,10 @@ pub(crate) struct WorkHandle {
     spend: SessionSpend,
     /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
     credits: CreditsBoard,
+    /// The session's MCP servers ([`crate::mcp::McpRuntime`]): the same
+    /// runtime the conversation's tools call, which `/mcp` reads and changes
+    /// on the UI thread without waiting on it.
+    mcp: Arc<crate::mcp::McpRuntime>,
     /// Where a fresh session's title is asked for, at submit, and the
     /// `/settings` switch that decides whether it is
     /// ([`super::titles::TitleDesk`]): shared with the runtime, which
@@ -776,6 +780,7 @@ impl WorkHandle {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::titles::TitleDesk::new(true).0,
             },
             work_rx,
@@ -788,6 +793,11 @@ impl WorkHandle {
     /// the UI thread to read and to replace ([`LiveRules`]).
     pub(crate) fn rules(&self) -> &LiveRules {
         &self.rules
+    }
+
+    /// The session's MCP servers.
+    pub(crate) fn mcp(&self) -> &Arc<crate::mcp::McpRuntime> {
+        &self.mcp
     }
 
     /// Stands in for the runtime's publication of the grants list, as of the
@@ -1143,6 +1153,18 @@ pub(crate) fn spawn(
     // first publication asks what that publication would say.
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
+    // The session's MCP servers: read and connected from now on, off this
+    // thread and off the runtime's ([`crate::mcp::McpRuntime::start`]).
+    let mcp = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+        profile: config
+            .profile_dir
+            .as_deref()
+            .map(crate::mcp::config::profile_path),
+        settings: config.user_settings_path.clone(),
+        workspace: config.workspace_root.clone(),
+    });
+    mcp.start();
+    let loops_mcp = Arc::clone(&mcp);
     // One desk for the session, the switch from the profile: the band asks
     // there at submit, the runtime publishes where to and settles answers.
     let (titles, title_answers) = super::titles::TitleDesk::new(config.session_titles);
@@ -1183,6 +1205,7 @@ pub(crate) fn spawn(
         state.rules = loops_rules;
         state.spend = publishes_spend;
         state.credits = publishes_credits;
+        state.mcp = loops_mcp;
         state.titles = loops_titles;
         state.title_answers = Some(title_answers);
         if let Some(resumed) = resumed {
@@ -1233,6 +1256,7 @@ pub(crate) fn spawn(
                 saved_rules,
                 spend,
                 credits,
+                mcp,
                 titles,
             },
             resumable: None,
@@ -1275,6 +1299,60 @@ impl Resumption {
     /// The model the session last ran under.
     pub(crate) fn model(&self) -> &str {
         &self.session.state().model
+    }
+
+    /// The provider the session last recorded (`SessionStarted` and every
+    /// `PreferencesChanged` since), when it recorded one this build has.
+    pub(crate) fn provider(&self) -> Option<ProviderId> {
+        self.session
+            .state()
+            .provider
+            .as_deref()
+            .and_then(ProviderId::parse)
+    }
+
+    /// The provider and the model this session continues on, under `config`
+    /// and with `current` the model in force now.
+    ///
+    /// **The provider it last recorded**, as upstream's resume puts back the
+    /// selection the session recorded, provider and model together
+    /// (`restoreRuntimePreferences`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_session_runtime.zig:6147`, `replaceSelection`), and
+    /// nothing but a process override outranks it -- `--provider` or
+    /// `FX_PROVIDER` there (`:6135-6146`), neither of which xfx has. Whether
+    /// that provider can authenticate does not decide it: upstream stays on
+    /// it and says what is missing (`restoreSessionCredential`,
+    /// `app_auth_runtime.zig:151-180`; [`unauthenticated`]).
+    ///
+    /// On a provider other than the configured one the model is the
+    /// session's, which only a process override outranks (`XFX_MODEL`, as
+    /// upstream's `process_model_override` does, `:6148-6150`): the profile's
+    /// model is the configured provider's, and asking another provider for it
+    /// would be asking for a model it was never chosen for. On the configured
+    /// provider -- or for a session that recorded none, written before the
+    /// provider was recorded, which goes on with the configured one -- the
+    /// launch's rule holds: the session's model when no setting chose one
+    /// (`app::run_ask`).
+    pub(crate) fn selection(&self, config: &RuntimeConfig, current: &str) -> (ProviderId, String) {
+        use crate::config::SettingSource;
+        match self.provider() {
+            Some(recorded) if recorded != config.provider => {
+                let model = if config.sources.model == SettingSource::ProcessOverride {
+                    current
+                } else {
+                    self.model()
+                };
+                (recorded, model.to_string())
+            }
+            _ => {
+                let model = if config.sources.model == SettingSource::CompiledDefault {
+                    self.model()
+                } else {
+                    current
+                };
+                (config.provider, model.to_string())
+            }
+        }
     }
 
     /// The effort and the speed switches the session last recorded, if it
@@ -1320,6 +1398,16 @@ impl Resumption {
     pub(crate) fn hydration(&self) -> super::hydration::Hydration {
         bridge::inert_hydration(super::hydration::Hydration::of(self.session.state(), None))
     }
+}
+
+/// The provider a resumed session continues on, when it has nothing to
+/// authenticate with: what upstream's resume says once its replay is written
+/// (`restoreSessionCredential`'s `.missing`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_auth_runtime.zig:151-180`), on any resume -- the provider
+/// the session recorded or the one in force. Asked without I/O
+/// ([`crate::provider::credential_ready`]), as the hint row asks it.
+pub(crate) fn unauthenticated(config: &RuntimeConfig) -> Option<ProviderId> {
+    (!crate::provider::credential_ready(config.provider, config)).then_some(config.provider)
 }
 
 /// Opens the session store this session records into.
@@ -1458,6 +1546,9 @@ struct Runtime {
     /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     credits: CreditsBoard,
+    /// The session's MCP servers, which every conversation this runtime
+    /// opens calls ([`Runtime::ready`]).
+    mcp: Arc<crate::mcp::McpRuntime>,
     /// Where the band asks for the session's title ([`super::titles::TitleDesk`]):
     /// this side publishes where to ask ([`Runtime::publish`]), moves the
     /// lineage on a resume, and settles every answer. A provider switch keeps
@@ -1552,6 +1643,7 @@ impl Runtime {
             began_ms: crate::session::event::system_now_ms(),
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
+            mcp: crate::mcp::McpRuntime::inert(),
             titles,
             title_answers: Some(title_answers),
             conversation_lineage: None,
@@ -1928,6 +2020,11 @@ impl Runtime {
             .map_err(|err| err.to_string())?;
         if let Some(conversation) = self.conversation.as_mut() {
             conversation.tools.set_scope(scope);
+            // Every conversation of this session calls its MCP servers,
+            // however it was opened -- a first prompt, a `/rename`, a resume.
+            if conversation.tools.mcp().is_none() {
+                conversation.tools = conversation.tools.clone().with_mcp(Arc::clone(&self.mcp));
+            }
         }
         Ok(())
     }
@@ -2078,8 +2175,11 @@ impl Runtime {
     /// releases its lock; xfx writes no session before its first prompt or a
     /// `/rename`, so the one dropped here is always one worth keeping.
     ///
-    /// The model follows the launch's rule ([`super::session`]): a session
-    /// continues in the model it last ran under when no setting chose one.
+    /// The provider and the model follow the launch's rule
+    /// ([`Resumption::selection`]): the session continues on the provider it
+    /// last recorded, as upstream's picker resume does (`hydrateResumedSession`
+    /// → `restoreRuntimePreferences`, `app_session_runtime.zig:2404`,
+    /// `:6147`), and in the model it last ran under when no setting chose one.
     fn resume_by_id(
         &mut self,
         id: &str,
@@ -2107,14 +2207,23 @@ impl Runtime {
         // ([`Resumption::keeps_fast_binding`]).
         let keeps_fast_binding =
             resumption.keeps_fast_binding(self.config.provider, self.model(), self.settings.fast);
-        if self.config.sources.model == crate::config::SettingSource::CompiledDefault
-            && self.model() != resumption.model()
-        {
-            self.config.model = resumption.model().to_string();
-            // The same provider, so the same catalog -- read, or on its way
-            // -- describes the session's model (`resetForProviderChange` only
-            // on another provider, `app_auth_runtime.zig:151-158`).
+        let (provider, model) = resumption.selection(&self.config, self.model());
+        let moved = provider != self.config.provider;
+        if moved || self.model() != model {
+            self.config.provider = provider;
+            self.config.model = model;
+            // On the same provider the same catalog -- read, or on its way --
+            // describes the session's model; on another one the selector is
+            // built anew, with no catalog until that provider's is read
+            // (`resetForProviderChange` only on a provider change,
+            // `app_auth_runtime.zig:151-158`), which the loop starts as soon
+            // as it is idle again ([`begin_catalog_read`]).
             self.selector.follow_model(&self.config);
+        }
+        if moved {
+            // A connection to the provider the session is leaving, as a
+            // switch drops it ([`Self::adopt`]).
+            self.provider = None;
         }
         // The effort and the switches the session recorded, as upstream's
         // resume restores them (`restoreRuntimePreferences`,
@@ -2129,6 +2238,16 @@ impl Runtime {
         );
         replay.settings = Some(self.settings.clone());
         replay.keeps_fast_binding = keeps_fast_binding;
+        // The band is on the provider it was on: told where the session
+        // continues, and whether that provider can authenticate, when the
+        // resume moved it -- and, on any resume, told to say what is missing.
+        replay.provider = moved.then(|| {
+            (
+                provider,
+                !crate::provider::credential_ready(provider, &self.config),
+            )
+        });
+        replay.unauthenticated = unauthenticated(&self.config);
         self.conversation = None;
         self.resume(resumption, mirror);
         self.publish_reply();
@@ -2261,8 +2380,10 @@ impl Runtime {
         let model_changed = recorded.model != model;
         let mode_changed = recorded.permission_mode != mode;
         // And the provider, as upstream's resume records the selection it
-        // goes on with: a session opened under the other one, or written
-        // before the provider was recorded, now says which.
+        // goes on with. A session that recorded one continues on it
+        // ([`Resumption::selection`]), so this is a session written before
+        // the provider was recorded -- or naming one this build does not
+        // have -- that now says which.
         let provider_changed = recorded.provider.as_deref() != Some(provider);
         if model_changed || mode_changed || provider_changed {
             conversation
@@ -4049,6 +4170,7 @@ impl crate::agent::StepCompactor for TurnCompactor {
         let removed_turns = plan.turn_count();
         check.journal.record(event);
         let wire = self.wire.clone();
+        let model = self.model.clone();
         let committed = check.journal.state().and_then(|state| {
             let checkpoint = state.checkpoint.as_ref()?;
             (state.last_event_seq != before).then(|| {
@@ -4056,7 +4178,7 @@ impl crate::agent::StepCompactor for TurnCompactor {
                     checkpoint.count,
                     crate::session::checkpoint::render(&checkpoint.compacted),
                     checkpoint.compacted.tool_count,
-                    state.history_messages_before_open(wire).messages,
+                    state.history_messages_before_open(wire, &model).messages,
                 )
             })
         });
@@ -5217,7 +5339,7 @@ async fn one_turn(
     let replay = conversation
         .recorder
         .state()
-        .history_messages(state.config.provider.wire());
+        .history_messages(state.config.provider.wire(), &model);
     // Once each for the conversation ([`Conversation::unsaid`]): the history
     // is rebuilt for every turn, and so are these.
     for notice in conversation.unsaid(replay.notices) {
@@ -5602,6 +5724,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
@@ -5669,6 +5792,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
@@ -5715,6 +5839,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
@@ -6084,6 +6209,7 @@ mod tests {
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
             credits: CreditsBoard::default(),
+            mcp: crate::mcp::McpRuntime::inert(),
             titles: super::super::titles::TitleDesk::new(true).0,
         };
         drop(work_rx);
@@ -7033,6 +7159,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         });
         assert_eq!(recorder.failure(), None, "the log refused the turn");
     }
@@ -7540,6 +7667,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 call_id: "r".to_string(),
@@ -7556,6 +7684,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::TurnConcluded {
                 outcome: crate::session::TurnConclusion::Final {
@@ -7971,6 +8100,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
@@ -9650,6 +9780,156 @@ mod tests {
                 .as_deref(),
             Some(config.provider.label())
         );
+    }
+
+    /// A session saved in `home`, last on `provider` (a label, as the log
+    /// holds it: `None` for a log written before the provider was recorded)
+    /// in `model`.
+    fn saved_on(config: &RuntimeConfig, provider: Option<&str>, model: &str) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let session = store
+            .create(
+                SessionId::generate(),
+                crate::session::NewSession {
+                    origin_workspace_root: config.workspace_root.clone(),
+                    workspace_root: config.workspace_root.clone(),
+                    model: model.to_string(),
+                    permission_mode: config.permission_mode,
+                    provider: None,
+                },
+            )
+            .expect("a session");
+        let mut recorder = crate::session::SessionRecorder::new(store, session);
+        recorder.commit(SessionEvent::PreferencesChanged {
+            model: None,
+            permission_mode: None,
+            provider: provider.map(str::to_string),
+            effort: None,
+            fast_mode: None,
+            ultrafast_mode: None,
+        });
+        assert_eq!(recorder.failure(), None);
+        recorder.id().clone()
+    }
+
+    #[test]
+    fn a_resume_continues_on_the_provider_the_session_recorded_and_in_its_model() {
+        // Upstream puts back the selection the session recorded, provider and
+        // model together (`restoreRuntimePreferences`,
+        // `app_session_runtime.zig:6147`), and only a process override
+        // outranks the model (`:6148-6150`). Red before: every case below
+        // continued on the configured provider, the Gateway.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        // A profile on the Gateway that chose the Gateway's model.
+        config.model = "zai/glm-5.2".to_string();
+        config.sources.model = crate::config::SettingSource::UserGlobal;
+        let opened = |config: &RuntimeConfig, id: SessionId| {
+            Resumption::open(config, &crate::session::Selector::Id(id)).expect("opens")
+        };
+
+        // On llmux in its own model: the profile's model is the Gateway's,
+        // and the daemon is not asked for it.
+        let on_llmux = saved_on(&config, Some("llmux"), "m-1");
+        let resumed = opened(&config, on_llmux.clone());
+        assert_eq!(resumed.provider(), Some(ProviderId::Llmux));
+        assert_eq!(
+            resumed.selection(&config, &config.model),
+            (ProviderId::Llmux, "m-1".to_string())
+        );
+        drop(resumed);
+        // Unless the process names one (`XFX_MODEL`).
+        let mut pinned = config.clone();
+        pinned.model = "pinned/model".to_string();
+        pinned.sources.model = crate::config::SettingSource::ProcessOverride;
+        assert_eq!(
+            opened(&pinned, on_llmux).selection(&pinned, &pinned.model),
+            (ProviderId::Llmux, "pinned/model".to_string())
+        );
+
+        // On the configured provider the launch's rule is unchanged: the
+        // session's model only when no setting chose one.
+        let on_gateway = saved_on(&config, Some("gateway"), "anthropic/claude-opus-5");
+        assert_eq!(
+            opened(&config, on_gateway.clone()).selection(&config, &config.model),
+            (ProviderId::Gateway, "zai/glm-5.2".to_string())
+        );
+        let mut unchosen = config.clone();
+        unchosen.sources.model = crate::config::SettingSource::CompiledDefault;
+        assert_eq!(
+            opened(&unchosen, on_gateway).selection(&unchosen, &unchosen.model),
+            (ProviderId::Gateway, "anthropic/claude-opus-5".to_string())
+        );
+
+        // A log that recorded no provider, or one this build does not have
+        // (upstream refuses to bind an unknown one, `model_provider.zig:53-55`;
+        // xfx goes on with the configured provider, as for an older log).
+        for recorded in [None, Some("codex")] {
+            let id = saved_on(&config, recorded, "m-1");
+            let resumed = opened(&config, id);
+            assert_eq!(resumed.provider(), None, "{recorded:?}");
+            assert_eq!(
+                resumed.selection(&config, &config.model),
+                (ProviderId::Gateway, "zai/glm-5.2".to_string()),
+                "{recorded:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_picker_resume_moves_the_runtime_to_the_recorded_provider_and_says_what_it_lacks() {
+        // `/resume` onto a session last on llmux, from a runtime on the
+        // Gateway: the runtime goes on llmux (`hydrateResumedSession` ->
+        // `restoreRuntimePreferences`, `app_session_runtime.zig:2404`,
+        // `:6147`), its catalog that provider's, and the band is told where
+        // and -- with no daemon url configured -- what it cannot authenticate
+        // with (`restoreSessionCredential`'s `.missing`,
+        // `app_auth_runtime.zig:172-182`). The log gains no provider change:
+        // it already says llmux.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let saved = saved_on(&config, Some("llmux"), "m-1");
+        let mut state = Runtime::new(
+            config.clone(),
+            open_store(&config).expect("a store"),
+            a_prompter(),
+            a_questioner(),
+        );
+        let replay = state
+            .resume_by_id(saved.as_str(), &CancelToken::new())
+            .expect("resumed");
+        assert_eq!(state.config.provider, ProviderId::Llmux);
+        assert_eq!(state.selector.provider(), ProviderId::Llmux);
+        assert_eq!(state.model(), "m-1");
+        assert_eq!(replay.model.as_deref(), Some("m-1"));
+        assert_eq!(replay.provider, Some((ProviderId::Llmux, true)));
+        assert_eq!(replay.unauthenticated, Some(ProviderId::Llmux));
+        let recorded = state.conversation.as_ref().expect("bound").recorder.state();
+        assert_eq!(recorded.provider.as_deref(), Some("llmux"));
+        assert_eq!(recorded.model, "m-1");
+        // The next turn is refused with the words the band was told.
+        assert_eq!(
+            state.ready(&CancelToken::new()).err().as_deref(),
+            Some(crate::llmux::MISSING_URL_HELP)
+        );
+    }
+
+    #[test]
+    fn a_resume_says_what_the_provider_in_force_lacks_whichever_it_is() {
+        // Upstream says it on every resume, the provider the session recorded
+        // or the one in force (`restoreSessionCredential`,
+        // `app_auth_runtime.zig:151-182`).
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        assert_eq!(config.provider, ProviderId::Gateway);
+        assert_eq!(unauthenticated(&config), Some(ProviderId::Gateway));
+        config.provider = ProviderId::Llmux;
+        assert_eq!(unauthenticated(&config), Some(ProviderId::Llmux));
+        config.llmux_url = Some("http://127.0.0.1:9".to_string());
+        assert_eq!(unauthenticated(&config), None);
     }
 
     /// Runs one tool call through the conversation's own tools, as a turn's

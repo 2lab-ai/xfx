@@ -179,6 +179,7 @@ fn evidence_events() -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::ToolResult {
             ending: None,
@@ -213,6 +214,7 @@ fn evidence_events() -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
@@ -304,7 +306,7 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
     assert_eq!(log.len() as u64, published);
 
     // History is replayed in wire order: user, assistant+calls, results, answer.
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     let roles: Vec<Role> = replay.messages.iter().map(|message| message.role).collect();
     assert_eq!(
         roles,
@@ -717,6 +719,7 @@ fn a_second_writer_is_refused_while_the_first_holds_the_session() {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         )
         .expect("the holder keeps writing");
@@ -1224,7 +1227,7 @@ fn resume_by_exact_id_restores_history_and_preferences() {
     assert_eq!(state.grants.len(), 1);
     assert_eq!(
         state
-            .history_messages(Wire::AnthropicMessages)
+            .history_messages(Wire::AnthropicMessages, &state.model)
             .messages
             .len(),
         6
@@ -2330,6 +2333,7 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 ending: None,
@@ -2631,6 +2635,7 @@ fn provenance_events(
             raw_content,
             responses_state,
             wire,
+            model: None,
         },
     ]
 }
@@ -2671,7 +2676,7 @@ fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
         provenance_events(vec![thinking_block()], Vec::new(), None),
     );
 
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     assert_eq!(
         replay.messages[1].raw_blocks().expect("blocks replayed")[0]["signature"],
@@ -2688,7 +2693,7 @@ fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
         provenance_events(vec![thinking_block()], Vec::new(), None),
     );
 
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert!(
         replay.messages[1].raw_blocks().is_none(),
         "a Gateway turn has no replay contract to satisfy"
@@ -2723,7 +2728,7 @@ fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
         Wire::AnthropicMessages,
         Wire::VercelGateway,
     ] {
-        let replay = state.history_messages(active.clone());
+        let replay = state.history_messages(active.clone(), &state.model);
         assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
         assert_eq!(replay.notices.len(), 1, "for {active:?}");
         assert!(
@@ -2747,7 +2752,7 @@ fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
         ),
     );
 
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.messages[1].raw_blocks().is_none());
     assert!(
         replay.notices[0].contains("some_future_wire"),
@@ -2769,7 +2774,7 @@ fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active()
     );
 
     // Replay on CodexResponses: wire-less responses_state must NOT replay here
-    let replay = state.history_messages(Wire::CodexResponses);
+    let replay = state.history_messages(Wire::CodexResponses, &state.model);
     assert!(
         replay.messages[1].raw_blocks().is_none(),
         "wire-less responses_state must not replay under active CodexResponses"
@@ -2797,7 +2802,7 @@ fn codex_responses_wire_replays_state_verbatim_under_codex() {
         ),
     );
 
-    let replay = state.history_messages(Wire::CodexResponses);
+    let replay = state.history_messages(Wire::CodexResponses, &state.model);
     assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
@@ -2822,7 +2827,7 @@ fn grok_responses_wire_replays_state_verbatim_under_grok() {
         ),
     );
 
-    let replay = state.history_messages(Wire::GrokResponses);
+    let replay = state.history_messages(Wire::GrokResponses, &state.model);
     assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
@@ -2847,13 +2852,15 @@ fn a_dropped_state_is_not_deleted_from_the_log() {
             Some(Wire::AnthropicMessages),
         ),
     );
-    let _ = state.history_messages(Wire::VercelGateway);
+    let _ = state.history_messages(Wire::VercelGateway, &state.model);
 
     let reread = profile
         .read_only_store()
         .detail(&Selector::Id(id("provenance")), workspace.path())
         .expect("read the session back");
-    let replay = reread.state.history_messages(Wire::AnthropicMessages);
+    let replay = reread
+        .state
+        .history_messages(Wire::AnthropicMessages, &reread.state.model);
     assert!(replay.notices.is_empty());
     assert_eq!(
         replay.messages[1].raw_blocks().expect("still on disk")[0]["signature"],
@@ -2916,6 +2923,7 @@ fn interrupted_batch_events() -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::ToolResult {
             ending: None,
@@ -2938,7 +2946,7 @@ fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let state = recorded_state(&profile, &workspace, interrupted_batch_events());
 
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
 
     // Two calls are still unanswered, so the group never flushes -- and the
     // sentence goes with it. An orphan result would be refused on the next
@@ -2987,6 +2995,7 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::ToolResult {
             ending: None,
