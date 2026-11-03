@@ -516,7 +516,10 @@ class Sweep(unittest.TestCase):
             for leak in ("/Users/", "/private/", self.d):
                 self.assertNotIn(leak, text, name)
         self.assertNotIn(self.d, r.stdout)
-        # A second scoring of the same captures, with the ledger as it is.
+        # A second scoring of the same captures, with the ledger as it is and
+        # the scenarios as they were: a .cap edited since changes nothing.
+        with open(os.path.join(self.scen, "ok.cap"), "a") as f:
+            f.write("snap later\n")
         r2, _ = self.sweep("--rescore", out=out)
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertEqual(self.board(out)["totals"], t)

@@ -171,6 +171,12 @@ Most unresolved snaps (scenario, unresolved of total, its first unresolved row):
 - fx's inventory (c1db919): 43 surfaces -- 36 commands, 7 key hints. Covered by a scenario: 38. **Uncovered: 5** -- `/login`, `/logout`, `/shell`, `/mcp`, `/feedback`.
 - fx's inventory (v0.0.16): 45 surfaces -- 38 commands, 7 key hints. Covered by a scenario: 38. **Uncovered: 7** -- `/fork`, `/login`, `/logout`, `/effort`, `/shell`, `/mcp`, `/feedback`.
 
+Both lines are over the 161 scenarios swept (`1a94cdff`'s). The merge with
+`plan/tui-phase4` at `de6618de` brought 18 more (`h1-*`, `rules-*`; 179 in
+all), not swept here; over those, `/mcp` is covered too (`h1-mcphttp`), so
+c1db919 has 4 uncovered (`/login`, `/logout`, `/shell`, `/feedback`) and
+v0.0.16 6 (those and `/fork`, `/effort`).
+
 Covered means a scenario types the command (`/model`, `/model gro`) or, for a
 key hint, opens the menu and sends that key; an alias or partial name is not
 the command. `/mcp`'s scenarios live in `receipts/m1/scenarios/` and need

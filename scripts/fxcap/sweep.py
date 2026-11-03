@@ -38,7 +38,8 @@ as failed or timeout, in the total.
 Classification is `ledger.py`'s, over `parity-ledger.toml`. --out gets
 `scoreboard.md`, `scoreboard.json` and `summary.md` (redacted: no local path,
 see redact.py), `pairs.json` and `diffs/` (raw, this machine's only), the
-captures under `runs/` and fx's inventory under `inventory-run/`.
+captures under `runs/`, fx's inventory under `inventory-run/`, and the .cap
+files as they were under `scenarios-used/` (what --rescore reads).
 
 FXCAP_SWEEP_CAPTURE names another capture script, for this sweep's own tests.
 """
@@ -805,6 +806,13 @@ def start(args, red, say):
     if os.path.exists(out) and os.listdir(out):
         raise Refusal("--out is not empty")
     os.makedirs(out, exist_ok=True)
+    # The .cap files as they are now, for scoring: a later --rescore reads the
+    # labels the captures were taken with, whatever the checkout holds by then.
+    used = os.path.join(out, "scenarios-used")
+    os.makedirs(used)
+    for name in os.listdir(args.scenarios):
+        if name.endswith(".cap"):
+            shutil.copy2(os.path.join(args.scenarios, name), used)
 
     runner = Runner(args, out, say)
     began = time.time()
@@ -830,7 +838,8 @@ def start(args, red, say):
         "only": args.only or [],
         "inventory_only": args.inventory_only,
         "units": [u.name for u in units] if not args.inventory_only else [],
-        "scenarios_dir": args.scenarios,
+        "scenarios_dir": used,
+        "scenarios_from": args.scenarios,
         "started": datetime.datetime.fromtimestamp(began).astimezone().isoformat(timespec="seconds"),
         "wall_seconds": round(wall, 1),
         "wall": fmt_wall(wall),
