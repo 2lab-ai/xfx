@@ -186,3 +186,17 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 
 - R1 round 2: every registered tool judged against the table at admission (`ask_user_question`, the MCP search tools, `skill` at the skill — S1's `skill` failed open on a per-skill deny and still refused ask rules; fixed with a RED test); a selected MCP tool re-checked against live rules each step; M1's saved-rule key built from the whole arguments, not the 2 KiB display copy; the amendment drawn as fx's prompt card (drawn on delivery, not before the step ends); the read band's scope row kept (recorded Tension, F2).
 - H1: `resize`, `jobctl`, `signal`, `rehomefile`, `clock`, `usage`, `models2`, `mcphttp`, `sockets`; `@HOME@`/`@MCPPORT@`; fakegw request log, `reset`/`refuse` turns, catalog swap, usage routes; guards moved into the EXIT trap. Found (not fixed, now rows K-*): stale row after resize, Ctrl-Z/SIGTSTP, stream-failure recovery, MCP status words.
+
+## R23 — closed 2026-11-03
+
+- result: batch 23 (S1 round 3 item 1 `414205f9`, `65f43ded`) landed; gates on `65f43ded`: lib 3513, tui 160, permissions 139; fault-injection lib 3520, tui 174; 0 failed; clippy 0 both. The last code precondition of P2 closed. · closed rows: S1-sec · commit: `65f43ded`
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| S1-sec | ✅ | skill resource identity re-check, both load modes (skills on by default) | `feat/tui-phase4-skills` | report → merge |
+
+### Round section (as it was in loop.md)
+
+- S1 round 3 item 1: the skill directory held as `O_DIRECTORY|O_NOFOLLOW`; `SKILL.md` and every resource component opened `openat` + NOFOLLOW from it; a resource read is bracketed by length+mtime and, for anything but `SKILL.md`, by re-reading the held `SKILL.md` from offset 0 and re-parsing its name (fx `revalidatePrimaryIdentity`, `skill_invocation.zig:1316-1329`; `readSkillResourceFile`, `:1371-1409`), in the whole and the named/chunked forms. Gap shared with fx: a `SKILL.md` renamed over the held one after the check (no inode comparison on either side).

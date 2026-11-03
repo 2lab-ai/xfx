@@ -19,7 +19,6 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 
 | ID | Status | Scope | Branch | Next |
 |---|---|---|---|---|
-| S1-sec | 🟡 | skill resource identity re-check, both load modes (skills on by default) | `feat/tui-phase4-skills` | report → merge |
 | SWEEP | 🟡 | local sweep + ledger + scoreboard + closed denominator | `feat/fxcap-sweep` | report → merge |
 | P2-RECEIPT | 🔴 | final-SHA gates, CI, SM1 with the behaviour list, sweep vs `c1db9191`, delta/seam/safety review, frames read, public-suitability scan, session back-compat, RED/GREEN | — | after S1-sec, SWEEP |
 | SHIP | 🚪 | PR → `main` → preview + tap → real-profile run (sessions backed up), label "Phase 4 integration preview — fx c1db919 baseline, before the 0.0.16 transition" | — | after P2-RECEIPT |
