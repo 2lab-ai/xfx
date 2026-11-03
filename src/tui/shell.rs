@@ -3026,6 +3026,22 @@ impl Shell {
         if let Some(model) = replay.model {
             self.model = model;
         }
+        // The provider the session recorded, when the resume moved the
+        // runtime there (`restoreRuntimePreferences`,
+        // `app_session_runtime.zig:6147`): what a switch puts on the band
+        // ([`UiEvent::ProviderSelected`]) but its sentence, which upstream's
+        // resume does not say. The other provider's catalog is not this
+        // one's, so the band holds none until this one's is read -- the
+        // runtime starts that read as soon as it is idle -- and a `/fast`
+        // held for it is about a model that is not in force.
+        if let Some((provider, missing_credential)) = replay.provider {
+            self.provider = provider;
+            self.missing_credential = missing_credential;
+            self.catalog.clear();
+            self.catalog_known = CatalogKnown::Unasked;
+            self.column.reset();
+            self.held_speed.clear();
+        }
         // The session's own, put back with it -- the Fast binding kept only
         // for the selection this session was configured with
         // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
@@ -3046,6 +3062,18 @@ impl Shell {
             stamp = self.replay_turn(turn, stamp);
         }
         self.full.stamp_with(None);
+        // Under the replay, as upstream's resume writes it once the history is
+        // on the screen (`restoreSessionCredential` after the replay,
+        // `app_session_runtime.zig:2457-2458`; its `.missing` warning,
+        // `app_auth_runtime.zig:172-182`): the provider the session continues
+        // on has nothing to authenticate with. The session stays on it, as
+        // upstream's does, and its next prompt is refused with the same words.
+        if let Some(provider) = replay.unauthenticated {
+            self.announce(notice::Notice::warning(
+                "auth",
+                crate::provider::missing_credential_help(provider),
+            ));
+        }
         self.render.request(Reason::Footer);
     }
 
@@ -21010,6 +21038,42 @@ mod tests {
     }
 
     #[test]
+    fn a_resume_onto_the_recorded_provider_puts_it_on_the_band_and_says_what_it_lacks() {
+        // Upstream's resume puts back the provider the session recorded
+        // (`restoreRuntimePreferences`, `app_session_runtime.zig:6147`) and
+        // says nothing of a switch; with nothing to authenticate with, it says
+        // so once, under the replay (`restoreSessionCredential`'s `.missing`,
+        // `app_auth_runtime.zig:172-182`).
+        let mut shell = shell(24, 240);
+        shell.shell.missing_credential = false;
+        assert_eq!(shell.shell.provider, ProviderId::Gateway);
+        shell.shell.catalog_known = CatalogKnown::Loaded;
+        let mut replay = replay(Some("first question alpha"), Vec::new());
+        replay.model = Some("m-1".to_string());
+        replay.provider = Some((ProviderId::Llmux, true));
+        replay.unauthenticated = Some(ProviderId::Llmux);
+        shell.apply(UiEvent::Resumed(replay));
+        assert_eq!(shell.shell.provider, ProviderId::Llmux);
+        assert!(shell.shell.missing_credential);
+        assert!(matches!(shell.shell.catalog_known, CatalogKnown::Unasked));
+        let mut expected = said(notice::Notice::neutral(
+            "session resumed",
+            "first question alpha",
+        ));
+        expected.extend(said(notice::Notice::warning(
+            "auth",
+            crate::llmux::MISSING_URL_HELP,
+        )));
+        assert_eq!(shell.document(), expected);
+        let hint = shell.hint();
+        assert!(
+            hint.starts_with(super::super::hint::MISSING_CREDENTIAL),
+            "{hint}"
+        );
+        assert!(hint.ends_with("m-1"), "{hint}");
+    }
+
+    #[test]
     fn a_resumed_session_with_no_title_is_untitled_and_keeps_the_fallback() {
         // `session_display_metadata.zig:14`; and only a real title is cached,
         // so the window stays on the workspace.
@@ -21054,6 +21118,8 @@ mod tests {
             model: None,
             settings: None,
             keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
             next_image: 1,
         }
     }
@@ -21441,6 +21507,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             crate::session::TurnStep::ToolResult {
                 call_id: "c1".into(),
@@ -21619,6 +21686,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         }];
         steps.extend([
             logged_result(
@@ -21640,6 +21708,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         ]);
         let mut resumed = shell(40, 120);
@@ -21697,6 +21766,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 images: Vec::new(),
@@ -21763,6 +21833,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             logged_result("w", false, Some(ToolEnding::Cancelled), None),
         ];

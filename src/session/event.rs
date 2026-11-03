@@ -442,6 +442,16 @@ pub enum SessionEvent {
         /// Which wire *and which authority* produced the state above.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         wire: Option<crate::provider::Wire>,
+        /// The model that produced the state above, as the request named it:
+        /// a reasoning state goes back only to the provider **and the model**
+        /// that sealed it (upstream records both with it, `ProviderReplay.
+        /// source`, and matches both, `matches`, `vercel-labs/fx@c1db9191
+        /// src/core/shared/types.zig:1507-1515`). Written only beside a
+        /// state, as `wire` is; a record that has a state and no model is an
+        /// older one, read as the model the log had in force when it was
+        /// written ([`crate::session::TurnStep::Assistant`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// The evidence one tool call produced, correlated by `call_id`.
     ///
@@ -835,6 +845,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         );
         assert_eq!(frame.encode().unwrap(), frame.encode().unwrap());
@@ -1149,6 +1160,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 ending: None,

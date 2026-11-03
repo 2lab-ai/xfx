@@ -1630,7 +1630,7 @@ async fn one_turn(
     let replay = conversation
         .recorder
         .state()
-        .history_messages(config.provider.wire());
+        .history_messages(config.provider.wire(), model);
     let request = TurnRequest {
         images: Vec::new(),
         model: model.to_string(),

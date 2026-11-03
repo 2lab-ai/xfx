@@ -103,7 +103,7 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// merged into one.
 ///
 /// Nothing at all is still not evidence, and is still not recorded.
-fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
+fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion, model: &str) {
     if completion.text.is_empty()
         && completion.tool_calls.is_empty()
         && completion.raw_content.is_empty()
@@ -130,6 +130,10 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         // recording path to discover.
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
+        // And the model the request named, beside the state as the wire is:
+        // a state replays only to the model that sealed it
+        // (`ProviderReplay.matches`, `types.zig:1512-1515`).
+        model: (!completion.raw_content.is_empty()).then(|| model.to_string()),
     });
 }
 
@@ -744,6 +748,7 @@ impl TurnMachine {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 });
             }
         }
@@ -933,6 +938,7 @@ impl TurnMachine {
                             raw_content: Vec::new(),
                             responses_state: Vec::new(),
                             wire: None,
+                            model: None,
                         });
                         self.suffix
                             .push(Message::assistant(Some(&partial), Vec::new()));
@@ -978,7 +984,7 @@ impl TurnMachine {
             if completion.tool_calls.is_empty() {
                 // The answering step's own evidence, recorded through the same
                 // guard the tool-calling step uses.
-                record_assistant(journal, &completion);
+                record_assistant(journal, &completion, &self.request.model);
                 // **The last boundary a steer can reach the turn at**: one sent
                 // while this answer arrived is told now, after it, and the turn
                 // goes on (`append_pending_steering_after_assistant`,
@@ -1154,7 +1160,7 @@ impl TurnMachine {
                 completion.tool_calls.clone(),
             )
         });
-        record_assistant(journal, completion);
+        record_assistant(journal, completion, &self.request.model);
 
         // What the user said while answering this step's approvals, in call
         // order. **Function-local, never a field**: a buffer on `self` would
