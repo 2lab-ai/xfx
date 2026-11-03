@@ -1016,6 +1016,10 @@ fn commit_counted(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
+    // The frame about to be painted is the `/model` column's redraw, which
+    // asks for a catalog that failed again, as upstream's render path does
+    // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
+    shell.settle_column(now);
     let mut counted = Counted::new(out);
     let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled)
         .and_then(|()| commit_bells(shell, &mut counted, failures, now));
@@ -6040,6 +6044,35 @@ mod tests {
             self.vectors.push(bytes.to_vec());
             Ok(())
         }
+    }
+
+    #[test]
+    fn the_model_columns_frame_asks_for_a_failed_catalog_again_and_an_idle_tick_does_not() {
+        // The column's own redraw is what asks again, as upstream's render
+        // path is (`footerContext` -> `ensureModelCache`,
+        // `app_render_runtime.zig:561-563`): through the counted commit every
+        // frame goes out by, and only on a tick that owes one.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        shell.apply(UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+            attempted: Instant::now()
+                .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+                .expect("a clock older than two seconds"),
+        });
+        shell.route_bytes(b"/model ");
+        assert!(shell._control.try_recv().is_err(), "the edit asked");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert_eq!(
+            shell._control.try_recv().ok(),
+            Some(crate::tui::bridge::TurnControl::Catalog)
+        );
+        // The tick after it owes nothing, paints nothing and asks nothing.
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert!(shell._control.try_recv().is_err(), "an idle tick asked");
     }
 
     #[test]
