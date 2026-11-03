@@ -668,6 +668,8 @@ impl LiveAuthority {
 
     /// Puts every attached session in `mode`, from its next decision on.
     pub fn set_mode(&self, mode: PermissionMode) {
+        // fetch_update is renamed try_update in Rust 1.99; kept for the 1.96 MSRV.
+        #[allow(deprecated)]
         let _ = self
             .0
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |word| {
@@ -678,6 +680,8 @@ impl LiveAuthority {
     /// `/permissions reset`: `ask`, and every grant given so far out of force,
     /// in one store. Answers the new reset count.
     pub fn reset(&self) -> u64 {
+        // fetch_update is renamed try_update in Rust 1.99; kept for the 1.96 MSRV.
+        #[allow(deprecated)]
         let previous = self
             .0
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |word| {
