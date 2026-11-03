@@ -761,6 +761,7 @@ mod copy;
 mod credits_ask;
 mod deliver;
 mod diagnostic;
+mod drawn_wider;
 mod edit_history;
 mod editor;
 mod entity;
