@@ -6527,11 +6527,15 @@ impl Shell {
                 // Approves nothing, and puts the prompt up again over the
                 // servers as they are now, so the next `2` is about them.
                 self.mcp_prompt = None;
+                let again = self.work.mcp().prompt_again();
                 self.write_notice(&notice::Notice::warning(
                     "mcp",
-                    "The pending servers changed since this prompt; it is shown again as they are now.",
+                    if again {
+                        "The pending servers changed since this prompt; it is shown again as they are now."
+                    } else {
+                        "The pending servers changed since this prompt. Open /mcp to review them."
+                    },
                 ));
-                self.work.mcp().prompt_again();
                 return true;
             }
         }
@@ -6611,16 +6615,12 @@ impl Shell {
                     self.write_notice(&notice);
                 }
                 Event::Raw(text) => self.write_raw_rows(&text),
-                // Written and armed in one step: the prompt `1` answers is the
-                // one written last.
                 Event::TrustPrompt {
                     name,
                     digest,
                     listed,
                     whole,
-                    text,
                 } => {
-                    self.write_raw_rows(&text);
                     self.mcp_prompt = Some(TrustPromptUp {
                         name,
                         digest,
@@ -14272,6 +14272,24 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_two_with_the_prompts_dismissed_puts_nothing_up() {
+        // Escape dismissed the prompts for this process: a refusing `2`
+        // has nothing to put up again, so none is armed (and it says to open
+        // /mcp rather than that the prompt is shown again).
+        let mut case = TwoPending::new();
+        let _ = case.runtime.take_events();
+        case.runtime.suppress_prompts();
+        assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
+        case.shell.settle_mcp();
+        assert!(
+            case.shell.mcp_prompt.is_none(),
+            "{:?}",
+            case.shell.mcp_prompt
+        );
+        case.runtime.shutdown();
+    }
+
+    #[test]
     fn two_at_the_trust_prompt_approves_nothing_once_the_pending_servers_changed() {
         // `2` is over the servers pending as the prompt went up. A reload
         // after it rewrote one: `2` hands the runtime nothing and says so.
@@ -14675,49 +14693,54 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_armed_is_the_prompt_last_shown_whatever_order_its_events_arrive_in() {
+    fn whatever_order_two_prompts_arrive_in_the_one_armed_was_printed() {
         // Two prompts published at once -- a reload's and a refused `2`'s --
-        // may reach the shell in either order. Each carries its own text, so
-        // whichever came last is both the one written last and the one `1`
-        // approves. (On a7c0ef7c, text and authority were two events, and
-        // A's text, B's text, B armed, A armed left B shown with A armed.)
+        // can interleave as A's text, B's text, B armed, A armed: B is shown
+        // last and A is armed. Reproduced here straight into the consumer.
+        // What `1` then approves is A's digest, whose text was printed (each
+        // armed event is queued after its own text, by the same call), and
+        // approvals are keyed by digest, so nothing never printed can be
+        // approved; `2` re-checks the set at the key and in the job.
         use crate::mcp::runtime::Event;
         let text = |name: &str| {
             format!(
                 "Project MCP server '{name}' is defined in .mcp.json.\n  command: /bin/{name}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n"
             )
         };
-        let prompt = |name: &str| Event::TrustPrompt {
+        let armed = |name: &str| Event::TrustPrompt {
             name: name.into(),
             digest: format!("sha256:{name}"),
             listed: Vec::new(),
             whole: true,
-            text: text(name),
         };
-        for order in [["a", "b"], ["b", "a"]] {
-            let mut fixture = shell(24, 80);
-            let runtime = Arc::clone(fixture.shell.work.mcp());
-            for name in order {
-                runtime.say(prompt(name));
-            }
-            fixture.shell.settle_mcp();
-            let shown = fixture
-                .written()
-                .into_iter()
-                .filter_map(|row| {
-                    row.strip_prefix("Project MCP server '")
-                        .and_then(|rest| rest.split('\'').next())
-                        .map(str::to_string)
-                })
-                .last()
-                .expect("a prompt was written");
-            let armed = fixture.shell.mcp_prompt.clone().expect("a prompt is armed");
-            assert_eq!(
-                armed.name, shown,
-                "{order:?}: armed {armed:?}, last shown {shown}"
-            );
-            assert_eq!(armed.digest, format!("sha256:{shown}"));
+        let mut fixture = shell(24, 80);
+        let runtime = Arc::clone(fixture.shell.work.mcp());
+        for event in [
+            Event::Raw(text("a")),
+            Event::Raw(text("b")),
+            armed("b"),
+            armed("a"),
+        ] {
+            runtime.say(event);
         }
+        fixture.shell.settle_mcp();
+        let printed: Vec<String> = fixture
+            .written()
+            .into_iter()
+            .filter_map(|row| {
+                row.strip_prefix("Project MCP server '")
+                    .and_then(|rest| rest.split('\'').next())
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(printed, ["a", "b"]);
+        let armed = fixture.shell.mcp_prompt.clone().expect("a prompt is armed");
+        assert_eq!(armed.name, "a");
+        assert!(
+            printed.contains(&armed.name),
+            "armed {armed:?} was never printed"
+        );
+        assert_eq!(armed.digest, "sha256:a");
     }
 
     #[test]
