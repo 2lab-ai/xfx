@@ -37,15 +37,17 @@
 //!
 //! # What the keystrokes mean here
 //!
-//! [`Shell::route_bytes`] owns the [`Decoder`], so the deferred bytes the
+//! [`Shell::route_read`] owns the [`Decoder`], so the deferred bytes the
 //! launch probe read and the bytes every later read produces go through one
-//! machine in arrival order -- which is the whole of what that decoder asks of
-//! its caller. What comes out is routed in exactly three ways: the composer's
-//! own actions go to the editor, `Submit` and `Ctrl-D` are the session's, and
-//! everything else is a keystroke this phase has no binding for. `Ctrl-D` is
-//! the one worth stating: it leaves **only** on an empty composer, and with
-//! text under the caret it is a forward delete, which is what it means in every
-//! shell that has both.
+//! machine in arrival order -- which is half of what that decoder asks of its
+//! caller. The other half is [`Shell::end_delivery`], said once the terminal
+//! has nothing more to read, which is when a paste's end is settled. What
+//! comes out is routed in exactly three ways: the composer's own actions go to
+//! the editor, `Submit` and `Ctrl-D` are the session's, and everything else is
+//! a keystroke this phase has no binding for. `Ctrl-D` is the one worth
+//! stating: it leaves **only** on an empty composer, and with text under the
+//! caret it is a forward delete, which is what it means in every shell that has
+//! both.
 //!
 //! The transcript is the one thing here that is **not** a picture of the band.
 //! Nothing above the divider belongs to xfx: a row that goes there goes into
@@ -95,7 +97,7 @@ use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
 use super::image_paths;
-use super::input::{Action, Decoder, Input};
+use super::input::{Action, Decoder, Delivery, Input};
 use super::layout::{self, Geometry};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
 use super::model_menu::{self, ModelAction, ModelMenu};
@@ -464,6 +466,13 @@ const GONE_NOTICE: &str = "the runtime is gone; that line was not sent";
 /// and for every paste, each of which begins a run of its own
 /// (`input_paste_runtime.zig:110-127`).
 const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and was not applied.";
+
+/// What a paste refused for the input behind its end marker says, under
+/// `input`, as an error in the document (`input_paste_runtime.zig:188-192`,
+/// `fx-p5-input-paste-40x120-paste-enter`) -- wherever the paste was going:
+/// the composer, an amendment, a question's answer, or a question that was
+/// taking no text at all ([`Shell::paste_refused`]).
+const PASTE_SUFFIX: &str = "Paste was not applied because extra input followed its end marker.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -7685,20 +7694,51 @@ impl Shell {
         self.leaving.get_or_insert(why);
     }
 
-    /// Decodes `bytes` -- in the order the terminal delivered them -- and does
-    /// what they mean.
+    /// Decodes one read's `bytes` -- in the order the terminal delivered
+    /// them -- and does what they mean.
     ///
     /// One [`Instant`] for the whole read rather than one per byte: the bytes
     /// of a single read arrived together, and the only thing the decoder times
     /// is how long a bare `ESC` has been alone, which a burst's own bytes must
     /// not be able to expire.
-    pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
+    ///
+    /// A paste whose end marker is in these bytes has not ended yet: that is
+    /// [`Self::end_delivery`]'s to say, once it is known whether anything
+    /// followed the marker before the terminal went quiet.
+    pub(crate) fn route_read(&mut self, bytes: &[u8]) {
         let now = Instant::now();
         let mut events = Vec::new();
         for byte in bytes {
             self.decoder.feed(*byte, now, &mut events);
         }
         self.consume(events, now);
+    }
+
+    /// The terminal has nothing more to read: the delivery the reads since the
+    /// last one were part of is over (`settleTerminalPasteDeliveryEpoch`,
+    /// `app_input_runtime.zig:813-836`).
+    ///
+    /// Said by the loop's readiness check and nowhere else
+    /// (`super::event_loop`'s `read_burst`), because only it knows. A paste
+    /// that ended in the delivery with nothing behind its marker reaches
+    /// whatever gathered it as [`Action::PasteEnd`]; one that something
+    /// followed is refused whole ([`Self::paste_refused`]).
+    pub(crate) fn end_delivery(&mut self) {
+        match self.decoder.end_delivery() {
+            Delivery::Quiet => {}
+            Delivery::Pasted => self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now()),
+            Delivery::Refused { .. } => self.paste_refused(),
+        }
+    }
+
+    /// `bytes` as one whole delivery: [`Self::route_read`], then
+    /// [`Self::end_delivery`] -- the shape every keystroke a test types has,
+    /// and the shape the loop gives one write that fits in one read. A case
+    /// about a delivery made of several reads calls the two itself.
+    #[cfg(test)]
+    pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
+        self.route_read(bytes);
+        self.end_delivery();
     }
 
     /// Resolves what only the passage of time resolves: a bare `ESC` that has
@@ -8909,6 +8949,65 @@ impl Shell {
             self.column_edit = ColumnEdit::Typed;
             self.amended(Some(delta));
         }
+    }
+
+    /// A paste whose end marker shared its delivery with more input
+    /// (`Settlement.reject`, `input_paste_runtime.zig:179-193`): nothing of it
+    /// is applied anywhere, and the sentence is fx's.
+    ///
+    /// The input behind the marker never reached here. The decoder counted it
+    /// and read none of it as keys ([`super::input::Decoder::end_delivery`]),
+    /// so a copied end marker followed by a newline is not a prompt, and a
+    /// copied `1` behind one is not an answer.
+    ///
+    /// **Settled before the focus, for every surface at once**, as fx settles
+    /// a paste whatever owns it (`settleTerminalPasteDeliveryEpochWithLimits`,
+    /// `app_input_runtime.zig:813-836`): the composer, an amendment and a
+    /// question's answer each drop what they had gathered of it, and a
+    /// question that was taking no text -- a choice marked, an approval with
+    /// no draft open, fx's `decision_prompt` -- says the same sentence
+    /// (`app_input_runtime.zig:10128-10183`). Said on the plane the user can
+    /// see: the review plane's own status row while it is up, as every
+    /// refusal at a question is ([`Self::notice_at_the_question`]).
+    ///
+    /// **A capture that had already outgrown its budget says that instead**:
+    /// fx settles an overflowed capture as finished whatever followed it
+    /// (`paste_framing.zig:165`, its test `:448-464`), and finishing it is the
+    /// input-limit refusal (`input_paste_runtime.zig:199-224`). Nothing is
+    /// applied either way; what differs is which sentence is true.
+    fn paste_refused(&mut self) {
+        let composer = self
+            .paste
+            .overflowed(self.editor.text().len(), self.editor.retained());
+        self.paste.discard();
+        let draft = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.refuse_paste(),
+            (_, Some(screen)) => screen.refuse_paste(),
+            (None, None) => false,
+        };
+        if let Some(ask) = self.ask.as_mut() {
+            ask.refuse_paste();
+        }
+        if draft {
+            self.notice_at_the_question();
+            self.render.request(Reason::Modal);
+            return;
+        }
+        if composer {
+            self.over_budget();
+            return;
+        }
+        match self.alternate.as_mut() {
+            Some(screen) => screen.set_status(PASTE_SUFFIX.to_string()),
+            None => self.announce(notice::Notice::error("input", PASTE_SUFFIX)),
+        }
+        // The surface the paste was for is the one to repaint
+        // (`input_paste_runtime.zig:181-185`).
+        self.render.request(if self.modal() {
+            Reason::Modal
+        } else {
+            Reason::Footer
+        });
     }
 
     /// The end of a paste: what the composer is given for it.
@@ -13415,6 +13514,118 @@ mod tests {
     }
 
     #[test]
+    fn a_paste_with_input_behind_its_end_marker_in_one_delivery_is_refused_whole() {
+        // `app_input_runtime.zig:9862-9873` and `:9841-9860`: an Enter in the
+        // read that carried the end marker is not a key, the paste is not
+        // applied, and fx says so once under `input`. The Enter after it, in a
+        // delivery of its own, sends the draft as it was.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+
+        shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        assert_eq!(
+            shell.editor.text(),
+            "prior",
+            "the refused paste was applied"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the Enter behind the end marker sent a prompt"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX)),
+            "the refusal was not said in fx's words"
+        );
+
+        // A second end marker and a slash command behind an empty paste: all
+        // of it is the paste's suffix, none of it a command.
+        shell.route_bytes(b"\x1b[200~\x1b[201~/version\r\x1b[201~");
+        assert_eq!(shell.editor.text(), "prior");
+        assert!(shell.sent.try_recv().is_err(), "a pasted /version ran");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        shell.route_bytes(&[0x0d]);
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "prior"),
+            "the composer was not left as it was"
+        );
+    }
+
+    #[test]
+    fn a_delivery_is_every_read_until_the_terminal_is_drained() {
+        // One write can be two reads -- a read takes at most `BURST_BYTES` --
+        // so the Enter at the head of the second read is still behind the end
+        // marker at the tail of the first. Only the readiness check that finds
+        // nothing ends the delivery (`event_loop.zig:44-72`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.route_read(b"\r");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "prior");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the second read's Enter sent"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        // The same bytes in two deliveries are a paste and then a key.
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "priornew", "a paste that stands");
+        shell.route_read(b"\r");
+        shell.end_delivery();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "priornew"),
+            "the Enter of its own did not submit"
+        );
+        assert!(shell
+            .document()
+            .iter()
+            .all(|row| !row.contains(PASTE_SUFFIX)));
+    }
+
+    #[test]
+    fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_and_sends_nothing() {
+        // fx's overflowed capture settles as finished whatever followed it
+        // (`paste_framing.zig:165`, `:448-464`): the limit's sentence, not the
+        // suffix's -- and still nothing applied and nothing sent.
+        let mut shell = shell(24, 80);
+        let typed = "x".repeat(500_000);
+        assert!(
+            shell.editor.insert(&typed).is_some(),
+            "the draft could not be set up"
+        );
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend(std::iter::repeat_n(b'y', 8_000_000));
+        bytes.extend(b"\x1b[201~\r");
+
+        shell.route_bytes(&bytes);
+        assert_eq!(
+            shell.editor.text().len(),
+            typed.len(),
+            "the paste changed the draft"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the Enter behind the marker sent"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT))
+        );
+    }
+
+    #[test]
     fn a_large_paste_is_a_summary_in_the_composer_and_the_whole_text_on_the_wire_and_the_card() {
         // 1800 codepoints painted into a band is a band that has eaten the
         // screen -- and every later keystroke re-wraps whatever the composer
@@ -16947,6 +17158,68 @@ mod tests {
         assert!(
             fixture.editor.is_empty(),
             "the paste or the keys reached the composer"
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_reaches_no_answer_and_answers_nothing() {
+        // fx's question owners (`app_input_runtime.zig:10160-10182`): a
+        // freeform answer keeps what it had, the Enter behind the marker does
+        // not take the choice, and the sentence is the composer's.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"keep");
+        let _ = fixture.document();
+
+        fixture.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        assert_eq!(
+            fixture.marked(),
+            "    3) keep ",
+            "the refused paste reached the answer"
+        );
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "the Enter behind the end marker answered"
+        );
+        assert_eq!(
+            fixture.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        // An Enter of its own takes the answer as it was.
+        fixture.route_bytes(&[0x0d]);
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer {
+                id: QuestionId(1),
+                answers: vec!["keep".to_string(), "Yes".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_says_so_at_a_choice_too() {
+        // A question taking no text -- a choice marked, fx's `decision_prompt`
+        // (`paste_rt.beginPaste`, `input_paste_runtime.zig:106-107`) -- drops a
+        // paste whole either way; one with input behind its marker says so,
+        // and a `1` behind the marker is not the first choice.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let _ = fixture.document();
+
+        fixture.route_bytes(b"\x1b[200~\x1b[201~1\r");
+        assert_eq!(fixture.controlled(), None, "a `1` behind the marker chose");
+        assert!(
+            fixture.marked().contains("1) Thorough"),
+            "{}",
+            fixture.marked()
+        );
+        assert_eq!(
+            fixture.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
         );
     }
 
@@ -30026,6 +30299,123 @@ mod tests {
             "a question that landed on the review plane could not be amended"
         );
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_reaches_no_draft_and_answers_nothing() {
+        // fx's amendment owner (`app_input_runtime.zig:10145-10158`): the draft
+        // keeps what it had, the Enter behind the marker is not the answer,
+        // and the sentence is the composer's, in the document above the panel.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        assert!(band(&shell).contains("keep"), "{:?}", band(&shell));
+
+        shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        assert!(
+            !band(&shell).contains("keepnew"),
+            "the refused paste reached the draft: {:?}",
+            band(&shell)
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the end marker answered"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        // An Enter of its own answers, with the draft as it was.
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("keep".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_says_so_at_a_panel_with_no_draft() {
+        // fx's `decision_prompt` owner (`app_input_runtime.zig:10131-10143`): an
+        // approval with no amendment open takes no text, and the `1` and the
+        // Enter behind the marker are neither an answer nor a key.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+
+        shell.route_bytes(b"\x1b[200~\x1b[201~1\r");
+        assert_eq!(shell.controlled(), None, "a `1` behind the marker answered");
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+    }
+
+    #[test]
+    fn an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit() {
+        // fx settles a capture that had already overflowed as finished whatever
+        // followed it (`paste_framing.zig:165`, its test `:448-464`), so the
+        // sentence is the limit's -- and nothing is applied or answered either
+        // way.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend(std::iter::repeat_n(
+            b'x',
+            super::super::approval_amendment::MAX_FEEDBACK_BYTES + 1,
+        ));
+        bytes.extend(b"\x1b[201~\r");
+
+        shell.route_bytes(&bytes);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "input",
+                super::super::approval_amendment::INPUT_LIMIT
+            ))
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the marker answered"
+        );
+        assert!(
+            band(&shell).contains("keep") && !band(&shell).contains("xxxxxxxxxx"),
+            "{:?}",
+            band(&shell)
+        );
+    }
+
+    #[test]
+    fn a_refused_paste_on_the_review_plane_is_said_on_the_plane() {
+        // The plane owns every row while it is up, so the sentence is on its
+        // status row rather than behind it -- the rule every refusal at a
+        // question follows here.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        shell.route_bytes(b"\tkeep");
+
+        shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(painted.contains(PASTE_SUFFIX), "{painted:?}");
+        assert!(!painted.contains("keepnew"), "{painted:?}");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the marker answered"
+        );
+        assert!(shell.document().is_empty(), "said behind the plane");
     }
 
     #[test]

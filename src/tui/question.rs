@@ -715,6 +715,15 @@ impl QuestionPanel {
         true
     }
 
+    /// Drops a paste refused for the input behind its end marker
+    /// (`super::shell::Shell::paste_refused`): nothing of it reaches the
+    /// answer. Always the shell's sentence about that input, never a limit:
+    /// this panel's paste has no capture bound, and its budget refuses
+    /// silently at the insert ([`Self::insert`]).
+    pub(crate) fn refuse_paste(&mut self) {
+        self.paste = None;
+    }
+
     /// The rows the document keeps once every question is answered: each
     /// question under its ordinal, and the answer hung beneath it in the
     /// answer grey (`writeQuestionAnswerResolution`, `question_ui.zig:465-501`).
