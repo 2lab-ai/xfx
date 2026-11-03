@@ -763,6 +763,38 @@ impl McpRuntime {
             .spawn(move || runtime.reload(Origin::Startup));
     }
 
+    /// [`Self::start`], and then its startup reload waited out: one read put
+    /// in force, and no reload running or asked for after it -- failing the
+    /// case if that takes longer than `wait`.
+    ///
+    /// A case's own job is then reloaded on the thread that runs it. Without
+    /// the wait, a job that reloads while the startup thread still is hands
+    /// its reload to that thread's next pass and returns ([`Self::reload`]),
+    /// and the case asserts on what the startup read: a server it approved
+    /// still `Disabled`. Waiting out `Connecting` is not the same thing -- a
+    /// pending server is never `Connecting`, and a ready one is published
+    /// before its reload ends.
+    #[cfg(test)]
+    pub(crate) fn start_and_wait(self: &Arc<Self>, wait: Duration) {
+        self.start();
+        let deadline = Instant::now() + wait;
+        loop {
+            {
+                // Bumped inside the pass, before `reloading` is cleared, so
+                // both are read: the first alone leaves that gap open.
+                let state = self.state();
+                if self.generation() >= 1 && !state.reloading && state.again.is_none() {
+                    return;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the startup reload did not finish within {wait:?}"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// What both files say now: the servers, the workspace file's issues, the
     /// person's choices, and each workspace entry's digest.
     #[allow(clippy::type_complexity)]

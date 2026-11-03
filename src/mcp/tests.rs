@@ -202,7 +202,7 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     )
     .unwrap();
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     let events = runtime.take_events();
     let digest = config::entry_digest(&entry);
     assert!(
@@ -326,13 +326,8 @@ fn a_change_to_a_non_first_pending_server_sends_the_prompt_again_unasked() {
     };
     write("b1");
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     settled(&runtime, "a");
-    let deadline = Instant::now() + WAIT;
-    while runtime.generation() < 1 {
-        assert!(Instant::now() < deadline, "the startup reload never ran");
-        std::thread::sleep(Duration::from_millis(10));
-    }
     let prompts = |events: Vec<Event>| -> Vec<Vec<(String, String)>> {
         events
             .into_iter()
@@ -381,7 +376,7 @@ fn approving_a_listed_set_saves_only_the_entries_still_pending_as_listed() {
         "refused": quiet("f"), "taken": quiet("t"),
     }));
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     settled(&runtime, "same");
     let listed: Vec<(String, String)> = [
         ("same", "s"),
@@ -470,7 +465,7 @@ fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_erro
     )
     .unwrap();
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     assert_eq!(settled(&runtime, "shown").state_label(), "Pending trust");
     assert_eq!(runtime.issues(), ["templated: McpConfigInvalidType"]);
     bounded_run(
@@ -513,7 +508,7 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     )
     .unwrap();
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     settled(&runtime, "proj");
     bounded_run(
         &runtime,
@@ -1169,7 +1164,7 @@ fn removing_a_server_stops_its_process_and_says_how_the_reload_went() {
     server.restart_limit = 0;
     config::add_profile_server(&home.profile(), server).expect("saved");
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
     let pid: i32 = std::fs::read_to_string(&log)
         .unwrap()

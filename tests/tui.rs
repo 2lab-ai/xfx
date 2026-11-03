@@ -10797,8 +10797,13 @@ fn slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text(
     session.wait_for(READY);
 
     session.type_bytes(b"render the trace fixture\r");
-    // The turn is over once the session is titled by its first prompt.
+    // The turn is over once the session is titled by its first prompt. Its
+    // reply is not on the screen yet: the pacer is still draining it (about a
+    // fifth of a second, `pacer::DRAIN_TARGET`), and the report holds what
+    // the screen was given at the keystroke. Red before on Linux, whose
+    // `/trace` was read inside that drain every time: no `] assistant` entry.
     session.wait_for("\u{1b}]2;render the trace fixture\u{7}");
+    session.wait_for("TRACE_RENDER_DONE");
     session.type_bytes(b"/trace\r");
     session.wait_for(if cfg!(target_os = "macos") {
         "Trace copied to clipboard. Review and redact it before sharing."

@@ -1519,7 +1519,10 @@ mod tests {
             }
         };
         write("first");
-        runtime.start();
+        // Red before on aarch64 Linux: the approval below reached a startup
+        // reload still running, which kept it for its next pass, and `proj`
+        // was read `Disabled` before that pass ran.
+        runtime.start_and_wait(std::time::Duration::from_secs(60));
         bounded_run(
             &runtime,
             Job::Trust {
