@@ -992,10 +992,11 @@ fn http_loop(target: HttpTarget, jobs: mpsc::Receiver<HttpJob>, alive: Arc<Atomi
         return;
     };
     // No redirects: an endpoint that moves is a different server than the
-    // one the person configured (`RedirectNotAllowed`).
-    let Ok(client) = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+    // one the person configured (`RedirectNotAllowed`). And no proxy from the
+    // environment unless the URL is https: the request carries the server's
+    // `headers`, `header_env` and `bearer_token_env` values, and over loopback
+    // http a proxy would read them as sent. Upstream loads no proxy at all.
+    let Ok(client) = crate::gateway::bearer_rules(reqwest::Client::builder(), &target.url).build()
     else {
         alive.store(false, Ordering::Release);
         return;
@@ -1220,6 +1221,32 @@ fn sse_answer(body: &[u8], id: u64) -> Result<Value, McpError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_http_server_on_loopback_is_asked_with_no_proxy_between() {
+        // Cleartext to loopback with the configured `Authorization`: a proxy
+        // from the environment would read it as sent
+        // (`crate::gateway::bearer_rules`). Upstream loads no proxy.
+        if let Some(origin) = crate::test_net::server_in_this_copy() {
+            let transport = HttpTransport::open(
+                &format!("{origin}/mcp"),
+                &[(
+                    "Authorization".to_string(),
+                    "Bearer fake-mcp-token-not-real".to_string(),
+                )],
+            )
+            .expect("a transport");
+            assert_eq!(
+                transport.request("tools/list", json!({}), Duration::from_secs(10), None),
+                Ok(json!({"tools": []}))
+            );
+            return;
+        }
+        crate::test_net::assert_no_proxy_is_used(
+            "mcp::transport::tests::an_http_server_on_loopback_is_asked_with_no_proxy_between",
+            crate::test_net::json_answer(r#"{"jsonrpc":"2.0","id":0,"result":{"tools":[]}}"#),
+        );
+    }
 
     #[test]
     fn a_request_frame_is_in_upstreams_key_order() {

@@ -86,6 +86,11 @@ pub fn build_info() -> BuildInfo {
 #[cfg(test)]
 mod build_meta;
 
+/// The loopback server, proxy and copied test binary that prove a client
+/// takes no proxy from the environment.
+#[cfg(test)]
+mod test_net;
+
 #[cfg(test)]
 mod tests {
     use super::*;
