@@ -462,6 +462,15 @@ impl Server {
     }
 }
 
+/// What the trust prompt last went up over: the entry asked about and the
+/// pending set `2` approves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Prompted {
+    name: String,
+    digest: String,
+    listed: Vec<(String, String)>,
+}
+
 /// Everything the lock covers.
 struct State {
     servers: Vec<Arc<Server>>,
@@ -470,9 +479,8 @@ struct State {
     /// A reload asked for while one was running, and where it is told.
     again: Option<Origin>,
     prompts_suppressed: bool,
-    /// The server the trust prompt is up for, and the digest of the entry it
-    /// showed.
-    prompting: Option<(String, String)>,
+    /// What the trust prompt is up over, while it is.
+    prompting: Option<Prompted>,
     /// The configuration the last reload read, for one that only changes
     /// trust choices to compare against.
     choices: Choices,
@@ -1231,11 +1239,18 @@ impl McpRuntime {
                 state.prompting = None;
                 return;
             };
-            if state.prompting.as_ref() == Some(&(config.name.clone(), digest.clone())) {
+            let listed = Self::pending_entries(&state);
+            // Sent again whenever the pending set changes, not only the entry
+            // asked about: `2` approves the whole set the prompt went up over.
+            let prompted = Prompted {
+                name: config.name.clone(),
+                digest: digest.clone(),
+                listed: listed.clone(),
+            };
+            if state.prompting.as_ref() == Some(&prompted) {
                 return;
             }
-            state.prompting = Some((config.name.clone(), digest.clone()));
-            let listed = Self::pending_entries(&state);
+            state.prompting = Some(prompted);
             (config, digest, listed)
         };
         let name = config.name.clone();
@@ -1259,6 +1274,13 @@ impl McpRuntime {
     /// one up again.
     pub fn prompt_answered(&self) {
         self.state().prompting = None;
+    }
+
+    /// The prompt again, from the state as it is now: for a `2` that refused
+    /// a set that no longer stands.
+    pub fn prompt_again(&self) {
+        self.prompt_answered();
+        self.present_prompt();
     }
 
     /// Esc at the prompt: no more prompts for this process.
