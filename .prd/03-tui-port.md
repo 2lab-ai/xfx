@@ -362,7 +362,7 @@ captured earlier and the handler allocates nothing and takes no lock.
 
 | Signal | Owner | Handler does |
 |---|---|---|
-| SIGINT | UI process, async-signal-safe handler | **The handler exists.** `ISIG` only suppresses *terminal-generated* SIGINT; an external `kill -INT`, a `killpg`, or a supervisor still delivers one. It does the same restore pair as TERM/HUP → `SIG_DFL` → re-raise |
+| SIGINT | UI process, async-signal-safe handler | **The handler exists.** `ISIG` only suppresses *terminal-generated* SIGINT; an external `kill -INT`, a `killpg`, or a supervisor still delivers one. It does the same restore pair as TERM/HUP → `SIG_DFL` → re-raise. **Unless the process was started ignoring SIGINT** (`nohup … &`): then it stays ignored and no handler is installed or removed, as fx c1db919 installs none (`app_lifecycle.zig:82-104`) -- an ignored SIGINT cannot reach a raw terminal, and a handler would hand every command the session runs the default instead of the launcher's ignore |
 | SIGTERM, SIGHUP | UI process, async-signal-safe handler | `write(2)` the compile-time-constant restore bytes → `tcsetattr(TCSAFLUSH)` the `termios` saved at entry → reset the signal to `SIG_DFL` → `raise` it, so the process dies with the right status and the parent sees a signal death rather than a fabricated exit code |
 | SIGTSTP | UI process | The restore pair → `SIG_DFL` → `raise(SIGSTOP)`, so the job-control stop is real. **Nothing else** |
 | SIGCONT | UI process | **Sets an atomic `resumed` flag, then writes one byte to the non-blocking self-pipe, ignoring `EAGAIN`. That is all.** The work happens on the UI thread (below) |
