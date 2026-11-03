@@ -6573,16 +6573,31 @@ impl Shell {
 
     /// Rows the MCP runtime or its menu wrote as they are, with no glyph --
     /// the trust prompt, a project entry shown whole -- made inert first, on
-    /// a block of their own.
+    /// a block of their own. A line two columns in is a row of the entry's
+    /// (or the prompt's choices): it is written behind [`Gutter::Shown`], so
+    /// the rows it wraps onto open with `↳ ` and none reads as a row of its
+    /// own. Every row the runtime writes is spelled, so a line break inside
+    /// a value never starts a line here.
     fn write_raw_rows(&mut self, text: &str) {
         let text = super::bridge::inert(text).into_owned();
+        self.close_group();
         self.close_answer();
         self.finish_document_line();
         if !self.transcript.ends_blank() {
             self.end_transcript_line();
         }
         for line in text.trim_end_matches('\n').split('\n') {
+            let (gutter, line) = match line.strip_prefix("  ") {
+                Some(row) => (Gutter::Shown, row),
+                None => (Gutter::None, line),
+            };
+            if self.transcript.queue_gutter(gutter) {
+                self.owed();
+            }
             self.write_document_line(line, Role::Plain);
+        }
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
         }
     }
 
@@ -14418,6 +14433,63 @@ mod tests {
         assert!(!settings.exists(), "a key over Ctrl-O saved a choice");
         assert!(shell.mcp_prompt.is_some(), "the prompt is still up");
         runtime.shutdown();
+    }
+
+    #[test]
+    fn a_wrapped_value_in_the_prompt_draws_no_row_that_reads_as_an_entry_of_its_own() {
+        // The prompt's rows are written into the transcript, which wraps them
+        // to the screen: a continuation drawn like a row would let `v`, a run
+        // of spaces, and `env: PATH=/usr/bin` pass for a second variable.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let forged = format!("v{}env: PATH=/usr/bin", " ".repeat(300));
+        std::fs::write(
+            workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": {"command": "node", "env": {"K": forged}}}})
+                .to_string(),
+        )
+        .expect("write .mcp.json");
+        for cols in [40u16, 80, 120] {
+            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+                profile: Some(home.path().join(".xfx").join("mcp.json")),
+                settings: Some(home.path().join(".xfx").join("settings.json")),
+                workspace: workspace.clone(),
+            });
+            runtime.start();
+            let (work, _sent, _control) = WorkHandle::detached();
+            let mut shell = Shell::new(
+                &config(home.path(), &workspace),
+                crate::tui::layout::solve(24, cols, 1).expect("a band"),
+                PALETTE,
+                false,
+                work.with_mcp(Arc::clone(&runtime)),
+            )
+            .anchored();
+            shell.settle_mcp();
+            assert!(shell.mcp_prompt.is_some(), "the prompt is up");
+            let mut rows = Vec::new();
+            while shell
+                .emit_document_front(|append| {
+                    rows.extend(append.rows.iter().map(|row| unpainted(row)));
+                    Landed::<std::convert::Infallible>::All
+                })
+                .is_some()
+            {}
+            // A row of the entry's own is two columns in; a row it wraps onto
+            // opens with `↳ `, so nothing after the first reads as one.
+            let entries: Vec<&String> = rows
+                .iter()
+                .filter(|row| row.trim_start().starts_with("env: "))
+                .collect();
+            assert_eq!(entries.len(), 1, "{cols}: {rows:#?}");
+            assert!(entries[0].starts_with("  env: K=v"), "{cols}: {rows:#?}");
+            assert!(
+                rows.iter().any(|row| row == "\u{21b3} env: PATH=/usr/bin"),
+                "{cols}: {rows:#?}"
+            );
+            runtime.shutdown();
+        }
     }
 
     #[test]
