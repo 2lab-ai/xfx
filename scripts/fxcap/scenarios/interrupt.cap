@@ -4,6 +4,9 @@
 # turn answered normally, and Escape twice over a running turn (esc1, esc2).
 # The answer streams words with no line break, so nothing of it is on the
 # screen before the keystroke.
+# The streamed turns arrive whole at once and hold their finish (`hangMs`),
+# so every keystroke and snap mid-turn meets the same text on both binaries
+# rather than whichever chunk a second's wait reached.
 gateway interrupt-words.json
 wait 2
 key C-c

@@ -2,11 +2,16 @@
 # stay, the cancelled line follows them), Ctrl-D while an answer streams (not
 # an exit), and Ctrl-C with a draft over a running turn: the first press takes
 # the draft only, the second stops the turn and arms the exit.
+# The streamed turns arrive whole at once and hold their finish (`hangMs`),
+# so every keystroke and snap mid-turn meets the same text on both binaries
+# rather than whichever chunk a second's wait reached.
 gateway interrupt-lines.json
 wait 2
 type stream lines
 key Enter
-wait 2.5
+# Both pace a burst out at a reading rate (pacer.zig; src/tui/pacer.rs):
+# six seconds lets each release all forty lines before the snap.
+wait 6
 snap mid
 key Escape
 wait 0.3

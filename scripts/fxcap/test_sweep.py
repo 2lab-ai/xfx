@@ -211,14 +211,16 @@ LEDGER_TOML = textwrap.dedent(
 
     [[divergence]]
     id = "words"
-    class = "deliberate"
+    class = "user-decision"
     pins = ["a"]
     scenarios = ["menu*"]
     snaps = ["open"]
+    fx_row = '^fx says'
     xfx_row = '^xfx says'
     reason = "r"
-    owner = "o"
-    expires = "e"
+    owner = "user decision words"
+    resolution = "the user picks"
+    expires = "pin:b"
     source = "scripts/fxcap/cells.py:1"
 
     [[divergence]]
@@ -229,9 +231,23 @@ LEDGER_TOML = textwrap.dedent(
     snaps = ["*"]
     rows = ["3-4"]
     reason = "r"
-    owner = "o"
+    owner = "P-status"
+    resolution = "the next pin's panel"
     expires = "pin:b"
     source = "scripts/fxcap/cells.py:1-2"
+
+    [[divergence]]
+    id = "extra"
+    class = "user-decision"
+    pins = ["a"]
+    scenarios = ["push"]
+    snaps = ["*"]
+    xfx_row = '^  2 = '
+    reason = "r"
+    owner = "user decision scope"
+    resolution = "the user picks"
+    expires = "date:2999-01-01"
+    source = "scripts/fxcap/cells.py:1"
     """
 ) % ("1" * 64, "2" * 64)
 
@@ -281,6 +297,59 @@ class Ledger(unittest.TestCase):
         self.assertEqual(ledgermod.active(self.led, None), [])
         self.assertEqual(self.classify("fx says", "xfx says", divs=ledgermod.active(self.led, "b"))[0], "unresolved-defect")
 
+    def test_an_xfx_row_never_vouches_for_the_fx_row_beside_it(self):
+        # `extra` names an xfx row only: the fx row at the same position is
+        # its own text, which nothing approves.
+        a, b = cells.parse("a\nimportant\nz"), cells.parse("a\n  2 = allow\nz")
+        self.assertEqual(ledgermod.classify(False, cells.differing(a, b), "push", "s", self.divs)[0], "unresolved-defect")
+        # Even fx text the xfx regex would match is fx's, and not approved.
+        a = cells.parse("a\n  2 = workspace\nz")
+        self.assertEqual(ledgermod.classify(False, cells.differing(a, b), "push", "s", self.divs)[0], "unresolved-defect")
+        self.assertIsNone(self.cascade("a\n  2 = workspace\nz", "a\n  2 = allow\nz")[0])
+        a, b = cells.parse("a\n\nz"), cells.parse("a\n  2 = allow\nz")
+        self.assertEqual(ledgermod.classify(False, cells.differing(a, b), "push", "s", self.divs)[0], "approved-divergence")
+
+    def cascade(self, fx, xfx, unit="push"):
+        return ledgermod.cascade(cells.parse(fx), cells.parse(xfx), unit, "s", self.divs, cells.text_of)
+
+    def test_a_row_the_approved_row_pushed_down_is_a_cascade(self):
+        fx = "head\nchoice\n\nfooter\n\n\n"
+        xfx = "head\nchoice\n  2 = allow this\n\nfooter\n\n"
+        a, b = cells.parse(fx), cells.parse(xfx)
+        self.assertEqual(ledgermod.classify(False, cells.differing(a, b), "push", "s", self.divs)[0], "unresolved-defect")
+        verdict, left = self.cascade(fx, xfx)
+        self.assertEqual(verdict, "approved-divergence-cascade")
+        self.assertEqual([(side, row) for _, side, row, _, _ in left], [("xfx", 3)])
+
+    def test_a_footer_pushed_off_the_screen_still_fails(self):
+        fx = "head\nchoice\nfooter"
+        xfx = "head\nchoice\n  2 = allow this"
+        verdict, left = self.cascade(fx, xfx)
+        self.assertIsNone(verdict)
+        self.assertIn(("fx", 3, "footer", []), [(s, r, t, ids) for _, s, r, t, ids in left])
+
+    def test_an_unapproved_row_beside_the_approved_one_fails(self):
+        self.assertIsNone(self.cascade("a\nb\nc", "a\n  2 = allow\nnew row\nb\nc")[0])
+
+    def test_a_blank_separator_goes_with_its_row_but_blanks_alone_do_not(self):
+        self.assertEqual(self.cascade("a\nb\nc", "a\n  2 = allow\n\nb\nc")[0], "approved-divergence-cascade")
+        self.assertIsNone(self.cascade("a\nb\nc", "a\n\n\nb\nc")[0])
+
+    def test_a_cascade_needs_a_divergence_for_this_pin(self):
+        self.assertIsNone(
+            ledgermod.cascade(
+                cells.parse("a\nb"), cells.parse("a\n  2 = allow\nb"), "push", "s", ledgermod.active(self.led, "b"), cells.text_of
+            )[0]
+        )
+
+    def test_a_date_expiry_lapses(self):
+        import datetime
+
+        ids = lambda day: [d["id"] for d in ledgermod.active(self.led, "a", today=day)]  # noqa: E731
+        self.assertIn("extra", ids(datetime.date(2998, 12, 31)))
+        self.assertNotIn("extra", ids(datetime.date(2999, 1, 2)))
+        self.assertEqual([d["id"] for d in ledgermod.expired(self.led, "a", today=datetime.date(2999, 1, 2))], ["extra"])
+
     def test_malformed_entries_are_refused(self):
         entry = textwrap.dedent(
             """
@@ -292,25 +361,64 @@ class Ledger(unittest.TestCase):
             snaps = ["*"]
             %s
             reason = "r"
-            owner = "o"
-            expires = "e"
+            owner = "%s"
+            resolution = "%s"
+            expires = "%s"
             source = "%s"
             """
         )
-        for bad in (
-            ("deliberate", "a", "", "scripts/fxcap/cells.py:1"),  # no row selector
-            ("deliberate", "a", "whole_snap = true\nrows = [1]", "scripts/fxcap/cells.py:1"),
-            ("maybe", "a", "rows = [1]", "scripts/fxcap/cells.py:1"),
-            ("deliberate", "c", "rows = [1]", "scripts/fxcap/cells.py:1"),
-            ("deliberate", "a", "rows = [1]", "scripts/fxcap/cells.py:100000"),
-            ("deliberate", "a", "rows = [1]", "no/such/file.md:1"),
-            ("deliberate", "a", "rows = [1]", "scripts/fxcap/cells.py"),
+        good = ["user-decision", "a", "rows = [1]", "user decision t", "decided", "pin:b", "scripts/fxcap/cells.py:1"]
+        ledgermod.load(ledger_file(LEDGER_TOML, entry % tuple(good)), REPO)
+        for at, value in (
+            (0, "deliberate"),  # no longer a reason
+            (0, "maybe"),
+            (1, "c"),  # no such pin
+            (2, ""),  # no row selector
+            (2, "whole_snap = true\nrows = [1]"),
+            (3, ""),  # no owner
+            (3, "someone"),  # not a unit ID or a user decision
+            (4, ""),  # no resolution
+            (5, ""),  # no expiry
+            (5, "never"),
+            (5, "pin:a"),  # expires at the pin it is approved for
+            (5, "pin:zz"),
+            (5, "date:2026-13-40"),
+            (6, "scripts/fxcap/cells.py:100000"),
+            (6, "no/such/file.md:1"),
+            (6, "scripts/fxcap/cells.py"),
         ):
+            bad = list(good)
+            bad[at] = value
             with self.assertRaises(ledgermod.LedgerError, msg=bad):
-                ledgermod.load(ledger_file(LEDGER_TOML, entry % bad), REPO)
-        ledgermod.load(
-            ledger_file(LEDGER_TOML, entry % ("deliberate", "a", "whole_snap = true", "scripts/fxcap/cells.py:1")), REPO
+                ledgermod.load(ledger_file(LEDGER_TOML, entry % tuple(bad)), REPO)
+
+    def test_causes_approve_nothing_and_a_defect_names_both_lines(self):
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "c"
+            kind = "%s"
+            owner = "unowned"
+            scenarios = ["*"]
+            snaps = ["*"]
+            fx_row = '^fx says'
+            why = "w"
+            %s
+            """
         )
+        ok = 'xfx = "scripts/fxcap/cells.py:1"\nfx = "src/ui/x.zig:3@c1db9191"'
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % ("defect", ok)), REPO)
+        self.assertEqual([c["id"] for c in led["causes"]], ["c"])
+        self.assertNotIn("c", [d["id"] for d in ledgermod.active(led, "a")])
+        for kind, extra in (
+            ("defect", ""),
+            ("defect", 'xfx = "scripts/fxcap/cells.py:1"\nfx = "src/ui/x.zig:3"'),
+            ("defect", 'xfx = "no/such.rs:1"\nfx = "src/ui/x.zig:3@c1db9191"'),
+            ("nondeterminism", ""),
+            ("guess", ""),
+        ):
+            with self.assertRaises(ledgermod.LedgerError, msg=(kind, extra)):
+                ledgermod.load(ledger_file(LEDGER_TOML, cause % (kind, extra)), REPO)
 
     def test_the_repos_ledger_loads_and_every_source_it_cites_exists(self):
         led = ledgermod.load(LEDGER, REPO)
@@ -319,6 +427,8 @@ class Ledger(unittest.TestCase):
         for d in led["divergences"]:
             self.assertTrue(d["source"], d["id"])
             self.assertTrue(set(d["pins"]) <= set(names), d["id"])
+            self.assertIn(d["class"], ledgermod.CLASSES, d["id"])
+            self.assertTrue(d["owner"] and d["resolution"] and d["expires"], d["id"])
 
 
 class Redaction(unittest.TestCase):

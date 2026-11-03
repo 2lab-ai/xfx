@@ -1,14 +1,14 @@
 # /settings' Permission mode row: Right is `/permissions <mode>` with its
-# notices, twice round (auto -> full access -> ask). Down is counted per binary
-# so both land on the row.
+# notices, twice round (auto -> full access -> ask). Both binaries' menus
+# have fx's fourteen rows, so one Down count lands both on the row (a count
+# per binary dated from before xfx's Fast and Ultra rows).
 # fx's harness launches it with FX_SOUND=0; xfx is given the same start.
 xfx: env XFX_SOUND=off
 wait 2
 type /settings
 key Enter
 wait 1
-fx: key Down Down Down Down Down Down Down Down Down
-xfx: key Down Down Down Down Down Down Down
+key Down Down Down Down Down Down Down Down Down
 wait 0.4
 snap marked
 key Right

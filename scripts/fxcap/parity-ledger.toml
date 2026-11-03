@@ -8,9 +8,15 @@
 #   [[normalization]] a fixed, mechanical rewrite of a row's printed text,
 #                     applied before the two sides are compared, in this order.
 #                     Only harness artifacts and each product's own name.
-#   [[divergence]]    an approved difference, seeded only from what the repo
-#                     already records (`source`, a file:line the sweep checks
-#                     exists). class = "deliberate" | "replaced-in-next-pin".
+#   [[divergence]]    an approved difference, only for a reason outside xfx
+#                     (.prd/07-fx-parity-program.md:23): class =
+#                     "user-decision" | "unsafe-to-copy" |
+#                     "replaced-in-next-pin" | "platform-limit", each with an
+#                     owner, a resolution and an expiry, and a `source`
+#                     (file:line, checked to exist) that records it.
+#   [[cause]]         why an unresolved row is unresolved: it approves
+#                     nothing, it only names the owner of the fix. kind =
+#                     "decision" | "unit" | "nondeterminism" | "defect".
 #
 # Anything a normalization does not rewrite and a divergence does not cover
 # is an unresolved defect.
@@ -140,146 +146,84 @@ why = "A saved session's id is minted per run: fx's twelve characters (`--resume
 source = [".prd/tui-phase4/receipts/p1/README.md:32", "docs/parity.md:205"]
 
 # --- divergences ------------------------------------------------------------
-
-# Every entry below is scoped to the c1db919 pin: it was recorded against that
-# oracle and is approved again, or not, for the next one.
 #
-# Not seeded: ssot.md §"Deliberate xfx divergences this workstream reverses"
-# (:34-46). Each of those is a divergence the phase *removes* -- xfx moved to
-# fx's behaviour -- so none is an approval to differ.
+# Each is scoped to the c1db919 pin, expires at the v0.0.16 pin (the next
+# delta re-approves it or not) and names its owner. Re-filed 2026-11-03 under
+# the program's four reasons; what fit none of them is an unresolved defect
+# now, labelled under [[cause]] below: Sound level's `max`, the terminal
+# tool's header and deadline, the second-model image route, the retry budget,
+# the session record's skills line, and the picker's `gateway` label.
 #
-# A row one side has and the other has not moves every row under it, and the
-# comparison is by position: an entry covers the row it names, and the rows it
-# pushed stay unresolved. The diffs say how many rows differ once the two
-# sides are aligned as sequences.
+# Not seeded: ssot.md "Deliberate xfx divergences this workstream reverses"
+# (:34-46), divergences the phase removes.
 
 [[divergence]]
-id = "deferred-sign-in-and-feedback"
-class = "deliberate"
+id = "sign-in"
+class = "user-decision"
 pins = ["c1db919"]
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^\s+(?:❯ )?/(?:login|logout|feedback)\b'
-reason = "/login and /logout wait on the sign-in decision and show nothing in xfx; /feedback opens Vercel's fx form and has no xfx counterpart. The rows fx's menus give them are absent from xfx's."
-owner = "decision: zbrain open-loop #88 (Codex/Grok sign-in); P4 epic 'Sign-in and the updater'. /feedback: class X."
-expires = "#88 answered: the sign-in rows built or refused"
-source = ["docs/parity.md:118", ".prd/tui-phase4/ssot.md:62-63", ".prd/tui-phase4/ssot.md:77", ".prd/tui-phase4/ssot.md:111", ".prd/07-fx-parity-program.md:41"]
+fx_row = '^\s+(?:❯ )?/(?:login|logout)\b'
+reason = "Sign-in waits on the user: /login and /logout show nothing in xfx, so the rows fx's menus give them are absent from xfx's."
+owner = "user decision Codex/Grok sign-in (#88)"
+resolution = "#88 answered: the sign-in surfaces built, or refused for good and written so"
+expires = "pin:v0.0.16"
+source = [".prd/tui-phase4/ssot.md:62-63", "docs/parity.md:118", ".prd/07-fx-parity-program.md:55"]
 
 [[divergence]]
-id = "provider-set"
-class = "deliberate"
+id = "sign-in-providers"
+class = "user-decision"
 pins = ["c1db919"]
 scenarios = ["provider*"]
 snaps = ["*"]
-fx_row = '^\s+(?:vercel|codex|grok|oauth)(?: · current)?$|Codex subscription|Codex needs a subscription login|\bgpt-5\.6-sol\b'
-xfx_row = '^\s+(?:gateway|llmux)(?: · current)?$|\bllmux\b|llmux_url'
-reason = "xfx's providers are the Gateway and llmux, not Vercel / Codex / Grok; the scenarios switch fx to Codex where they switch xfx to llmux, so the picker rows, the switch notices, the refusal for a missing credential and the model the footer names are each product's. fx's second (sign-in) column is the sign-in decision's."
-owner = "xfx's provider set (docs/parity.md:93); the sign-in rows are G #88"
-expires = "#88 answered"
-source = ["docs/parity.md:93", ".prd/tui-phase4/ssot.md:64"]
+fx_row = '^\s+(?:codex|grok)(?: · current)?$|^\s+(?:oauth|api-key)(?: · current)?$|Codex subscription|Codex needs a subscription login|^\* auth: Switched credential to |\bgpt-5\.6-sol\b|^auto · grok-4\.7$|^┃ /provider co(?:dex)?$'
+xfx_row = '^\s+llmux(?: · current)?$|\bllmux\b|^\* provider: Already using Vercel AI Gateway\.$|^(?:run `xfx setup` · )?auto · model-a\b|^┃ /provider ll(?:mux)?$'
+reason = "fx's Codex and Grok subscription providers and the Gateway's credential column (OAuth or API key) are the gated sign-in. The provider scenarios switch fx to Codex (or start it on Grok) where they switch xfx to llmux, its stand-in, and type each product's provider: so the picker's rows after the first, the query, the switch notices, the refusal for a missing credential, the footer's model and window and the Return on the Gateway (fx's credential column, xfx's `Already using`) are each the sign-in's. The first row's label is not: see the cause `provider-label`."
+owner = "user decision Codex/Grok sign-in (#88)"
+resolution = "#88 answered: Codex and Grok providers and the credential column built, or refused for good"
+expires = "pin:v0.0.16"
+source = [".prd/tui-phase4/ssot.md:64", ".prd/04-providers.md:13-20", "docs/parity.md:93"]
 
 [[divergence]]
-id = "sound-has-no-max"
-class = "deliberate"
+id = "feedback"
+class = "user-decision"
 pins = ["c1db919"]
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^\s+Sound level\s+off  on  max$|^\* sound: max$'
-xfx_row = '^✗ usage: /sound \[on\|off\]$'
-reason = "xfx's sound is the terminal bell, with no louder level: `/settings`' Sound level offers `off  on`, and `/sound max` is a usage error."
-owner = "xfx: Sound level's max not ported (docs/parity.md:107)"
-expires = "a decision to give the bell a max level"
-source = ["docs/parity.md:107", "docs/parity.md:114"]
+fx_row = '^\s+(?:❯ )?/feedback\b'
+reason = "fx's /feedback opens Vercel's fx feedback form; xfx shows no row for it until the user says what an xfx /feedback opens, if anything."
+owner = "user decision /feedback destination"
+resolution = "the user names xfx's feedback destination, or that it stays absent"
+expires = "pin:v0.0.16"
+source = [".prd/tui-phase4/ssot.md:77", ".prd/tui-phase4/ssot.md:111"]
 
 [[divergence]]
-id = "approval-grant-scope"
-class = "deliberate"
-pins = ["c1db919"]
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '^\s+(?:❯ )?2  Apply \+ allow workspace file access for this session$'
-xfx_row = '^\s+(?:❯ )?2  Apply \+ allow future (?:edits|writes) to this file for this session$|^  2 = allow every future |^  (?:later )?`xfx ask --resume-id <session-id>` of this saved session$|^  every later `xfx ask --resume-id <session-id>` of this saved session$'
-reason = "xfx's grant is this tool on this file (or this exact command in this directory) and outlives the process into a resumed session, so choice 2 says so and a dim `2 = …` row states the scope whole."
-owner = "xfx's grant scope (ssot.md:134); the readiness gate requires the scope disclosed"
-expires = "a change to what an approval grants"
-source = [".prd/tui-phase4/ssot.md:134"]
-
-[[divergence]]
-id = "terminal-tool"
-class = "deliberate"
-pins = ["c1db919"]
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '\$ # shell\.run profile=user shell=\S+$|^\s*│?\s*(?:action: run|yield_time_ms|timeout_ms)\b'
-xfx_row = '\$ # terminal\.exec cwd=\S+$'
-reason = "fx's `shell` tool (`action: run`, per-call `timeout_ms`) is xfx's `terminal` (`action: exec`, `command`, `cwd`, one fixed ceiling): a tool-set difference, so the review header and Ctrl-O's argument rows name each product's tool."
-owner = "xfx's tool set (docs/parity.md:158)"
-expires = "a decision to port fx's shell tool schema"
-source = ["docs/parity.md:158"]
-
-[[divergence]]
-id = "terminal-tool-deadline"
-class = "deliberate"
-pins = ["c1db919"]
-scenarios = ["timeout"]
-snaps = ["*"]
-fx_row = 'echo started; sleep 5\b'
-xfx_row = 'echo started; sleep 130\b'
-reason = "The scenario runs past each tool's deadline: fx's per-call `timeout_ms` of one second against `sleep 5`, xfx's fixed two-minute ceiling against `sleep 130` (timeout.cap). The command is each product's."
-owner = "xfx's tool set (docs/parity.md:158)"
-expires = "a decision to port fx's per-call timeout"
-source = ["docs/parity.md:158"]
-
-[[divergence]]
-id = "skills-roots"
-class = "deliberate"
+id = "skill-roots"
+class = "user-decision"
 pins = ["c1db919"]
 scenarios = ["skills*"]
 snaps = ["*"]
 fx_row = '^Skills \d+  .*  Workspace  Claude  Codex  Agents  OpenCode  Claw$|^  compatibility roots are auto-discovered from workspace and home'
 xfx_row = '^Skills \d+  .*  Workspace$'
-reason = "xfx reads only its own skill roots, so the menu's tabs are All / xfx / Workspace, and `/skills path` omits fx's line about compatibility roots."
-owner = "decided default, S1 (ssot.md:142-146); the decision on other agents' skill roots (.prd/07-fx-parity-program.md:18)"
-expires = "the skill-roots decision answered"
-source = [".prd/tui-phase4/ssot.md:143", ".prd/tui-phase4/ssot.md:146", ".prd/07-fx-parity-program.md:18"]
+reason = "fx reads other agents' skill roots (.claude, .codex, .agents, .opencode, .claw) into its prompt; whether xfx reads another agent's disk is the user's, asked when its epic is dispatched. Until then the menu's tabs are xfx's families and /skills path has no compatibility-roots line."
+owner = "user decision other agents' skill roots"
+resolution = "the user decides; the roots, tabs and path line follow fx's, or the decision is written as a lasting difference"
+expires = "pin:v0.0.16"
+source = [".prd/07-fx-parity-program.md:18", ".prd/07-fx-parity-program.md:55", ".prd/tui-phase4/ssot.md:143", ".prd/tui-phase4/ssot.md:146"]
 
 [[divergence]]
-id = "image-vision-route"
-class = "deliberate"
-pins = ["c1db919"]
-scenarios = ["image*"]
-snaps = ["*"]
-fx_row = 'RequiredVisionToolCallMissing|^  It is a small red square\.$'
-xfx_row = 'request failed: SubscriptionNativeImageUnavailable'
-reason = "For a model without native image input fx forces a `vision` tool call answered by a second model; xfx ports only the inline route and refuses the other in fx's own words for it."
-owner = "ssot.md:135"
-expires = "a decision to port the vision-tool route"
-source = [".prd/tui-phase4/ssot.md:135"]
-
-[[divergence]]
-id = "retry-budget"
-class = "deliberate"
-pins = ["c1db919"]
-scenarios = ["interrupt*"]
-snaps = ["*"]
-fx_row = '· retrying request in \d+s$|attempt:? \d+/10\b'
-xfx_row = 'attempt:? \d+/3\b|^✗ system: the Gateway returned HTTP \d+'
-reason = "xfx spends three attempts on a step, 250 ms then 500 ms, where fx keeps going for up to ten and backs off about a second: the retry rows' numbers are xfx's policy, and a failure fx is still retrying is one xfx has reported."
-owner = "xfx's retry policy (ssot.md:148, docs/parity.md:231)"
-expires = "a change to gateway::DEFAULT_MAX_ATTEMPTS"
-source = [".prd/tui-phase4/ssot.md:148", "docs/parity.md:231"]
-
-[[divergence]]
-id = "session-record-lines"
-class = "deliberate"
+id = "approval-grant-scope"
+class = "user-decision"
 pins = ["c1db919"]
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^  (?:skills: |system prompt: )'
-reason = "The full transcript's `* session:` record has no `system prompt:` or `skills:` line in xfx: xfx has no system prompt of its own and reads its skill catalog as each turn starts."
-owner = "docs/parity.md:231 (narrower than upstream's)"
-expires = "a change to xfx's session record"
-source = ["docs/parity.md:231"]
+fx_row = '^\s+(?:❯ )?2  Apply \+ allow workspace file access for this session$'
+xfx_row = '^\s+(?:❯ )?2  Apply \+ allow future (?:edits|writes) to this file for this session$|^  2 = allow every future |^  .*--resume-id <session-id>` of this saved session$'
+reason = "What an `always` answer grants is a security choice: fx grants workspace file access for the session; xfx grants this tool on this file and keeps it across a resume, and discloses that scope whole (the readiness gate requires it). fx's words over xfx's grant would understate it; fx's grant is wider authority. Not yet on the program's decision list."
+owner = "user decision approval grant scope"
+resolution = "the user picks fx's session-wide workspace grant or xfx's per-file durable grant; choice 2 and its scope rows follow"
+expires = "pin:v0.0.16"
+source = [".prd/tui-phase4/ssot.md:134", "docs/parity.md:209"]
 
 [[divergence]]
 id = "status-notice"
@@ -289,7 +233,295 @@ scenarios = ["status-version-stats"]
 snaps = ["*"]
 fx_row = '^(?:\* status: |  [a-z_]+=)'
 xfx_row = '^(?:\* status: |  [a-z_]+=)'
-reason = "`/status` is one notice of xfx's `status` facts (provider, sandbox, grants; no update channel or Ultra request), and v0.0.16 moves it into the footer's info panel: no c1db919-only round on it."
-owner = "P4 epic 'Panels, /effort, /fork' (.prd/07-fx-parity-program.md:40)"
+reason = "v0.0.16 moves /status into the footer's info panel; the program stops c1db919 visual rounds on it after the Phase 4 merge. Its rows here are xfx's status facts (provider, sandbox, grants; no update channel or Ultra request)."
+owner = "P-status"
+resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
-source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:16", ".prd/07-fx-parity-program.md:24", "docs/parity.md:113"]
+source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:43", "docs/parity.md:113"]
+
+# --- causes -----------------------------------------------------------------
+#
+# Why each row that stays unresolved is unresolved, and whose fix it is. These
+# approve nothing; the first that covers a row is that row's. Read off the
+# c1db919 sweep of 2026-11-03 (xfx 1a94cdff): the README of
+# .prd/tui-phase4/receipts/sweep/ has the table.
+
+# (b) units in flight, the specific rows first.
+
+[[cause]]
+id = "R1-amendment-card"
+kind = "unit"
+owner = "R1 r2 feat/tui-phase4-rules, merged into plan/tui-phase4 at b6392eae after the swept build"
+scenarios = ["approvals*"]
+snaps = ["*"]
+fx_row = '^┃ use capitals$'
+xfx_row = '^\[you\] use capitals$'
+why = "An amended approval's words read back as `[you] …`; fx shows them as its prompt card `┃ …`. R1's 30d97731 ports the card; the sweep's xfx predates it."
+
+[[cause]]
+id = "C8-shell"
+kind = "unit"
+owner = "C8 /shell reload feat/tui-phase4-shell-reload 76ede613"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^\s+(?:❯ )?/shell\b'
+why = "fx's /shell row in /help and the popup; xfx has no /shell until C8 lands."
+
+[[cause]]
+id = "C7-help-entries"
+kind = "unit"
+owner = "C7 r2 feat/tui-phase4-alias 8d83f961"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^\s+(?:❯ )?/model\s+choose what model and reasoning effort to use'
+xfx_row = '^\s+(?:❯ )?/model\s+show the model, or `/model <id>`'
+why = "xfx's /model summary is the line shell's; C7 r2 gives every registry row fx's help entry."
+
+[[cause]]
+id = "C7-help-search"
+kind = "unit"
+owner = "C7 r2 feat/tui-phase4-alias 8d83f961"
+scenarios = ["help", "alias"]
+snaps = ["query-*", "help-query-*"]
+whole_snap = true
+why = "/help's search: fx matches a query against each command's help entry (helpCatalogSpecMatches), xfx against its summaries, so the lists, counts and name columns differ. C7 r2's receipt: query-name byte for byte, query-session short only of the gated /logout, query-command short only of C8's /shell."
+
+[[cause]]
+id = "K-recover"
+kind = "unit"
+owner = "K-recover fix/tui-stream-recovery f11a23d2"
+scenarios = ["interrupt-recover*", "interrupt-retry"]
+snaps = ["*"]
+whole_snap = true
+why = "Stream-failure recovery: fx's `⚠ Provider unavailable · … retrying request in 1s` row, its attempt numbers out of 10 and its `✓ recovered` timing, where xfx retries three times at 250/500 ms and reports. K-recover ports the recovery; the retry budget (ssot.md:149, `gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:86) is its to settle against fx's ten (model_response_recovery.zig:3)."
+
+[[cause]]
+id = "P1-carry-notice"
+kind = "unit"
+owner = "P1 r3/r4 feat/tui-phase4-provider-session 8facfb6d"
+scenarios = ["provider*"]
+snaps = ["*"]
+xfx_row = '^! session: this session recorded reasoning on |^  (?:that )?reasoning was not carried over$'
+why = "After a switch back to the Gateway xfx says once that the llmux turn's reasoning was not carried (src/session/store.rs:1044); fx drops it silently (projectProviderReplay). xfx's own rule, P1's to settle."
+
+# (a) awaiting a user decision: what the approved rows push.
+
+[[cause]]
+id = "menu-count"
+kind = ["decision", "unit"]
+owner = "user decision Codex/Grok sign-in (#88) for /login and /logout; user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613 for /shell"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^(?:Commands|Results) \d+\b'
+xfx_row = '^(?:Commands|Results) \d+\b'
+why = "The menus' count: fx 36, xfx 32 -- /login, /logout, /feedback awaiting decisions, /shell C8's."
+
+[[cause]]
+id = "menu-shift"
+kind = ["decision", "unit"]
+owner = "user decision Codex/Grok sign-in (#88); user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^\s+(?:❯ )?/[a-z]+\s{2,}\S'
+xfx_row = '^\s+(?:❯ )?/[a-z]+\s{2,}\S'
+why = "Command rows that only moved: a window without the four absent rows shows two others, and its name column is as wide as its widest visible name."
+
+[[cause]]
+id = "help-login-args"
+kind = "decision"
+owner = "user decision Codex/Grok sign-in (#88)"
+scenarios = ["help"]
+snaps = ["enter-args"]
+fx_row = '^┃ /login$|^\s+(?:codex|grok)$'
+xfx_row = '^┃ /provider$|^\s+llmux$'
+why = "Enter on the Account tab's first row opens fx's /login picker; xfx's first row there is /provider."
+
+[[cause]]
+id = "provider-credential-column"
+kind = "decision"
+owner = "user decision Codex/Grok sign-in (#88)"
+scenarios = ["provider-switch"]
+snaps = ["commit", "again"]
+whole_snap = true
+why = "`/provider vercel` opens fx's credential column (OAuth or API key, the gated sign-in) and leaves the command in the composer, so its next Return is an unknown command; xfx has no such column and switches."
+
+[[cause]]
+id = "grant-scope-push"
+kind = "decision"
+owner = "user decision approval grant scope"
+scenarios = ["cmd-wrap", "settings-collapse-open", "sound", "toolgroup", "resume-tools"]
+snaps = ["cmd-*", "after", "running", "ask", "answered", "off2", "long-*"]
+whole_snap = true
+why = "The approved scope rows make xfx's approval two or more rows taller (a long command is repeated in its `2 = allow …` row and wraps), so the document stands higher and rows leave the top of the screen -- not a row the cascade can account for."
+
+[[cause]]
+id = "vision-route"
+kind = "decision"
+owner = "user decision second-model image route (not yet on the program's decision list)"
+scenarios = ["image*"]
+snaps = ["*"]
+fx_row = 'RequiredVisionToolCallMissing|^  It is a small red square\.$'
+xfx_row = 'request failed: SubscriptionNativeImageUnavailable'
+why = "For a model without native image input fx forces a `vision` call answered by a second model (google/gemini-2.5-flash, orchestrator.zig:5970); xfx refuses (src/image.rs:95). Routing a user's image to a model they did not pick is theirs to decide; docs/parity.md:175 records it deferred, the ledger may not approve it until asked."
+
+# (d) defects with no owner yet.
+
+[[cause]]
+id = "provider-label"
+kind = "defect"
+owner = "unowned (P1's picker)"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^\s+vercel(?: · current)?$'
+xfx_row = '^\s+gateway(?: · current)?$'
+xfx = ["src/provider/mod.rs:116"]
+fx = ["src/core/auth/provider_catalog.zig:19@c1db9191"]
+why = "The picker names the Gateway `gateway`; fx's row is `vercel`."
+
+[[cause]]
+id = "tool-schema"
+kind = "defect"
+owner = "unowned (decision needed? C8 runs commands in the login shell but keeps the header)"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '\$ # shell\.run profile=user shell=\S+$|^\s*│?\s*(?:action: run|yield_time_ms: \d+)$|echo started; sleep 5\b'
+xfx_row = '\$ # terminal\.exec cwd=\S+$|echo started; sleep 130\b'
+xfx = ["src/tui/approval_view.rs:685"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
+why = "fx's command tool is `shell` (`action: run`, per-call `timeout_ms`, run in the user's shell profile), xfx's `terminal` (`action: exec`, `cwd`, one fixed ceiling): the review header, Ctrl-O's argument rows and the timeout scenario's command (docs/parity.md:158) are each tool's."
+
+[[cause]]
+id = "session-record"
+kind = "defect"
+owner = "unowned (S1 item 2 owns the skill notices, not this record)"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$'
+xfx_row = '^  tools: \d+ advertised|^  \+\d+ more\)$'
+xfx = ["src/tui/shell.rs:32298"]
+fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
+why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:231)."
+
+[[cause]]
+id = "full-transcript-shift"
+kind = "defect"
+owner = "unowned (follows session-record and tool-schema)"
+scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+snaps = ["*ctrl-o*", "full*"]
+whole_snap = true
+xfx = ["src/tui/shell.rs:32298", "src/tui/approval_view.rs:685"]
+fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
+why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
+
+[[cause]]
+id = "sound-max"
+kind = "defect"
+owner = "unowned"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^\s+Sound level\s+off  on  max$|^\* sound: max$|^✗ usage: /sound \[on\|off\|max\]$'
+xfx_row = '^\s+Sound level\s+off  on$|^✗ usage: /sound \[on\|off\]$'
+xfx = ["src/sound.rs:37", "src/tui/settings.rs:361"]
+fx = ["src/core/config/settings_catalog.zig:280@c1db9191", "src/core/app/app_commands.zig:3984@c1db9191"]
+why = "fx's sound has a third level, `max`; xfx's (the terminal bell) has none: Sound level is `off  on`, `/sound max` a usage error (docs/parity.md:107, :114). No reason outside xfx is recorded, so it is a defect, no longer an approval."
+
+[[cause]]
+id = "approval-scroll"
+kind = "defect"
+owner = "unowned"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = 'wheel scroll|^\s+\d+ \+ generated line \d+$'
+xfx_row = 'ctrl\+p/n scroll|^\s+\d+ \+ generated line \d+$'
+xfx = ["src/tui/approval_view.rs:106"]
+fx = ["src/ui/approval_screen.zig:564@c1db9191"]
+why = "A long review scrolls with the mouse wheel in fx and Ctrl-P/Ctrl-N in xfx, which asks for no mouse reports (ssot.md:133): the hint row and where a walked review stands differ."
+
+[[cause]]
+id = "stats-bytes"
+kind = "defect"
+owner = "unowned"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^\* stats: ansi_bytes=\d+,'
+xfx_row = '^\* stats: ansi_bytes=\d+,'
+xfx = ["src/tui/shell.rs:1436"]
+fx = ["src/core/app/app_commands.zig:1014@c1db9191"]
+why = "`/stats` counts each product's own bytes to the terminal (fx 3499, xfx 2675 for the same screen): equal only if the two wrote the same bytes."
+
+[[cause]]
+id = "allowlist-band"
+kind = "defect"
+owner = "unowned (not traced to the line)"
+scenarios = ["allowlist2"]
+snaps = ["after-reset", "final"]
+whole_snap = true
+xfx = ["src/tui/layout.rs:86"]
+fx = ["src/ui/render_engine/footer_layout.zig:39-60@c1db9191"]
+why = "Once /allowlist's notices fill the screen fx's band stands three rows above the bottom and xfx's on it, so the document above differs by those rows. The two placement functions are named; which input differs is not yet traced."
+
+# (c) the capture.
+
+[[cause]]
+id = "activity-row-gap"
+kind = "defect"
+owner = "unowned (not traced past the band's top)"
+scenarios = ["interrupt2"]
+snaps = ["mid", "esc1"]
+whole_snap = true
+xfx = ["src/tui/layout.rs:86"]
+fx = ["src/ui/render_engine/footer_layout.zig:50@c1db9191"]
+why = "With the whole answer delivered and the turn held open, fx leaves a blank row between the answer's last line and the activity row and xfx does not (the same in two retakes with the fixed turns file, xfx at plan de6618de); in this sweep it is mixed with the stream's timing."
+
+[[cause]]
+id = "settings-downs"
+kind = "scenario"
+owner = "scenario (fixed in this branch)"
+scenarios = ["settings-perm", "settings2"]
+snaps = ["*"]
+whole_snap = true
+fix = "one Down count for both binaries (fx's): xfx's /settings has fx's 14 rows since the speed rows landed, so `xfx: key Down` x7 and x8 mark Fast mode and Ultra mode where fx marks Permission mode and Sound level"
+why = "The per-binary Down counts predate xfx's Fast and Ultra rows: xfx's Right moved another row, so neither the notice (`! permissions: mode set to …`, `* sound: on`) nor the footer's mode follows."
+
+[[cause]]
+id = "stream-position"
+kind = "nondeterminism"
+owner = "scenario"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓\d+\)$|^  line \d+ of the streamed answer$|^  MARKER-HEAD |^  <wall> \(↑\d+ ↓\d+\)$'
+xfx_row = '^~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓\d+\)$|^  line \d+ of the streamed answer$|^  MARKER-HEAD |^  <wall> \(↑\d+ ↓\d+\)$'
+fix = "the turns file delivers its chunks with no delay and holds the finish (`hangMs`), and a snap that shows streamed lines waits out both pacers, so a snap or a keystroke mid-turn meets the same text on both; or a capture.sh `waitfor <text>` verb (not a scenario file). Applied to interrupt (interrupt-words.json) and interrupt2 (interrupt-lines.json, its mid snap at 6 s): two retakes each give the same verdicts. Not applied to interrupt-steer, provider, rename-midturn, resume-empty (slow-line-turn.json), which time a keystroke against the stream on purpose and need their own check"
+why = "The fake gateway streams a chunk every `delayMs`; a snap or an Escape at a fixed second lands at a different chunk on each binary (`↑4 ↓31` / `↑4 ↓43`, line 18 or 17 at the cancel, word 13 or 11 at the steer)."
+
+[[cause]]
+id = "session-age"
+kind = "nondeterminism"
+owner = "scenario"
+scenarios = ["resume-paging"]
+snaps = ["*"]
+fx_row = 'work · (?: 1m|now) · 1 turn$'
+xfx_row = 'work · (?: 1m|now) · 1 turn$'
+fix = "seed the saved sessions with fixed timestamps (homefile), or take the picker snaps well clear of a minute after the first prompts"
+why = "The picker's age column reads the run's clock; the snaps fall about a minute after the sessions were made, so one run says ` 1m` and the other `now`."
+
+[[cause]]
+id = "catalog-window"
+kind = "nondeterminism"
+owner = "scenario + fakegw"
+scenarios = ["model-reask"]
+snaps = ["menu-failed"]
+whole_snap = true
+fix = "an outage counted in catalog requests rather than milliseconds since the gateway started (`modelsdown`, a fakegw/capture.sh change, not a scenario file)"
+why = "`modelsdown 6000` is wall-clock from the gateway's start: under load fx's /model asked after the window closed and listed the catalog; xfx asked inside it."
+
+[[cause]]
+id = "idle-connection"
+kind = "nondeterminism"
+owner = "fakegw"
+scenarios = ["titles-idle"]
+snaps = ["*"]
+fx_row = '^auto · model-a · fix the renderer loop, it redraw'
+xfx_row = '^auto · model-a · Fix the renderer loop$'
+fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
+why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."

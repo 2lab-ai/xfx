@@ -79,6 +79,7 @@ COLUMNS = (
     "identical",
     "normalized-identical",
     "approved-divergence",
+    "approved-divergence-cascade",
     "replaced-in-next-pin",
     "unresolved-defect",
     "failed",
@@ -414,7 +415,7 @@ def pass_rate(c):
     return (c["identical"] + c["normalized-identical"]) / c["total"] if c["total"] else 0.0
 
 
-def score(units, out, size, led, pin):
+def score(units, out, size, led, pin):  # noqa: C901
     rules = {side: ledgermod.rules_for(led, side) for side in ("fx", "xfx")}
     divs = ledgermod.active(led, pin["name"] if pin else None)
     usage = {d["id"]: {"rows": 0, "snaps": set()} for d in divs}
@@ -443,6 +444,25 @@ def score(units, out, size, led, pin):
                     readings = [cells.normalize(a, rules["fx"], absorb=way) for way in ("after", "before")]
                     diff = cells.differing(na, nb, readings)
                     verdict, matched = ledgermod.classify(a == b, diff, u.name, label, divs)
+                    left = None
+                    if verdict == "unresolved-defect":
+                        promoted, left = ledgermod.cascade(
+                            aligned_fx(na, readings, nb), nb, u.name, label, divs, cells.text_of
+                        )
+                        if promoted:
+                            verdict = promoted
+                            pair["positional"] = "unresolved-defect"
+                        pair["aligned"] = [
+                            {"block": blk, "side": side, "row": row, "text": text, "matched": ids}
+                            for blk, side, row, text, ids in left
+                        ]
+                        if promoted:
+                            for *_, ids in left:
+                                for e in ids:
+                                    usage[e]["rows"] += 1
+                                    usage[e]["snaps"].add("%s/%s" % (u.name, label))
+                        else:
+                            pair["causes"], pair["unattributed"] = attribute(left, u.name, label, led["causes"])
                     pair["verdict"] = verdict
                     if diff:
                         pair["unaligned"] = cells.unaligned(na, nb)
@@ -455,9 +475,9 @@ def score(units, out, size, led, pin):
                             usage[e]["rows"] += 1
                             usage[e]["snaps"].add("%s/%s" % (u.name, label))
                     if diff:
-                        write_diff(diffdir, u.name, label, verdict, diff, na, nb, matched, pair["unaligned"])
+                        write_diff(diffdir, u.name, label, verdict, diff, na, nb, matched, pair["unaligned"], left)
                     if verdict == "unresolved-defect" and first is None:
-                        row = next(r for r in pair["rows"] if not r["matched"])
+                        row = next((r for r in pair["rows"] if not r["matched"]), pair["rows"][0])
                         above = [r for r in pair["rows"] if r["matched"] and r["row"] < row["row"]]
                         first = dict(row, label=label, unaligned=pair["unaligned"])
                         if above:
@@ -480,7 +500,57 @@ def score(units, out, size, led, pin):
     return scen, pairs, usage
 
 
-def write_diff(diffdir, unit, label, verdict, diff, na, nb, matched, unaligned):
+def attribute(left, unit, label, causes):
+    """The causes of an unresolved pair's rows: each row left without a match
+    and not accounted for by an approved divergence goes to the first cause
+    that covers its side's text; a blank row to its block's cause, or to a
+    cause that covers it by row number or whole snap. Returns ([cause ids],
+    [(side, row, text)] no cause covers)."""
+    todo = [(blk, side, row, text) for blk, side, row, text, ids in left if not ids]
+    if not left:
+        return [], [("both", 0, "(aligned, the rows are the same: the screen is shifted)")]
+    found, block_cause, unattributed = [], {}, []
+
+    def take(cid):
+        if cid not in found:
+            found.append(cid)
+
+    for blk, side, row, text in todo:
+        if text.strip():
+            hit = ledgermod.covering(causes, unit, label, row, side, text)
+            if hit:
+                take(hit[0]["id"])
+                block_cause.setdefault(blk, hit[0]["id"])
+            else:
+                unattributed.append((side, row, text))
+    for blk, side, row, text in todo:
+        if text.strip() or blk in block_cause:
+            continue
+        hit = [c for c in ledgermod.covering(causes, unit, label, row, side, text) if c["whole_snap"] or c["rows"]]
+        if hit:
+            take(hit[0]["id"])
+        else:
+            unattributed.append((side, row, "(blank)"))
+    return found, unattributed
+
+
+def aligned_fx(na, readings, nb):
+    """fx's rows for the aligned reading: each row in whichever of its
+    readings (positional, or the padding absorbed after or before) xfx shows
+    somewhere, else the positional one."""
+    shown = {tuple(r) for r in nb}
+    out = []
+    for i, row in enumerate(na):
+        pick = row
+        for r in [row] + [rd[i] for rd in readings if i < len(rd)]:
+            if tuple(r) in shown:
+                pick = r
+                break
+        out.append(pick)
+    return out
+
+
+def write_diff(diffdir, unit, label, verdict, diff, na, nb, matched, unaligned, left=None):
     d = os.path.join(diffdir, unit)
     os.makedirs(d, exist_ok=True)
     lines = [
@@ -488,6 +558,11 @@ def write_diff(diffdir, unit, label, verdict, diff, na, nb, matched, unaligned):
         "# %d rows differ by position; aligned as sequences, %d fx rows and %d xfx rows have no match"
         % ((len(diff),) + tuple(unaligned)),
     ]
+    if left is not None:
+        lines.append("# aligned: every row left without a match, and what accounts for it")
+        for blk, side, row, text, ids in left:
+            lines.append("#   [%d] %-3s %2d: %s -> %s" % (blk, side, row, text, ", ".join(ids) or "UNCOVERED"))
+        lines.append("# positional rows:")
     for (i, ft, xt, at, same), (_, ids) in zip(diff, matched):
         a = na[i] if i < len(na) else []
         b = nb[i] if i < len(nb) else []
@@ -594,7 +669,9 @@ def header_lines(meta):
 UNIT_NOTE = (
     "The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a "
     "scenario that failed or timed out counts every snap it would have taken. "
-    "pass = (identical + normalized-identical) / total."
+    "pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by "
+    "position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two "
+    "sides aligned as sequences, is approved; the positional diff stays in the raw output."
 )
 GROUP_NOTE = (
     "Groups are the leading letters of a scenario's name (`model-anchor`, `model2` and `model` are `model`). "
@@ -610,6 +687,7 @@ def write_reports(out, meta, scen, pairs, usage, inv_block, led, red, say):
     groups = aggregate(scen, "group")
     status = {k: sum(1 for s in scen if s["status"] == k) for k in ("ran", "failed", "timeout")}
     unused = sorted(i for i, v in usage.items() if v["rows"] == 0)
+    causes, cause_lines = cause_table(pairs, led)
 
     md = ["# fx parity sweep", ""] + header_lines(meta) + [""]
     md += ["## Coverage", ""]
@@ -659,13 +737,20 @@ def write_reports(out, meta, scen, pairs, usage, inv_block, led, red, say):
             ("scenario", "status") + COLUMNS + ("pass", "first unresolved row (fx / xfx)"),
         )
     )
+    md += ["", "## Causes of the unresolved snaps", ""] + cause_lines
     md += ["", "## Ledger", ""]
     md.append(
         table(
-            [[d["id"], d["class"], usage[d["id"]]["rows"], usage[d["id"]]["snaps"]] for d in ledgermod.active(led, meta["pin_name"])],
-            ("divergence", "class", "rows it covers", "snaps"),
+            [
+                [d["id"], d["class"], cell(d["owner"], 60), cell(d["expires"], 30), usage[d["id"]]["rows"], usage[d["id"]]["snaps"]]
+                for d in ledgermod.active(led, meta["pin_name"])
+            ],
+            ("divergence", "class", "owner", "expires", "rows it covers", "snaps"),
         )
     )
+    lapsed = ledgermod.expired(led, meta["pin_name"])
+    if lapsed:
+        md += ["", "Past their date, applied to nothing: %s." % ", ".join("`%s`" % d["id"] for d in lapsed)]
     if unused:
         md += ["", "Approved for this pin but covering no row here: %s." % ", ".join("`%s`" % i for i in unused)]
     red.write(os.path.join(out, "scoreboard.md"), "\n".join(md) + "\n")
@@ -680,6 +765,7 @@ def write_reports(out, meta, scen, pairs, usage, inv_block, led, red, say):
         "surfaces": inv_block["surfaces"] if inv_block else None,
         "coverage": inv_block["coverage"] if inv_block else None,
         "ledger": {"usage": usage, "unused": unused},
+        "causes": causes,
     }
     red.write(os.path.join(out, "scoreboard.json"), json.dumps(board, indent=1, ensure_ascii=False) + "\n")
     with open(os.path.join(out, "pairs.json"), "w", encoding="utf-8") as f:
@@ -713,6 +799,10 @@ def write_reports(out, meta, scen, pairs, usage, inv_block, led, red, say):
             ("group", "scenarios") + COLUMNS + ("pass",),
         ),
         "",
+        "Causes of the unresolved snaps:",
+        "",
+    ] + cause_lines + [
+        "",
         "Most unresolved snaps (scenario, unresolved of total, its first unresolved row):",
         "",
     ]
@@ -737,6 +827,45 @@ def write_reports(out, meta, scen, pairs, usage, inv_block, led, red, say):
         )
     )
     say("wrote %s" % os.path.join(out, "scoreboard.md"))
+
+
+KIND_LABEL = {"decision": "a", "unit": "b", "nondeterminism": "c", "scenario": "c", "defect": "d"}
+
+
+def cause_table(pairs, led):
+    """Per cause: the unresolved snaps it is a cause of, and of the only
+    cause of; and the snaps a row of which no cause covers."""
+    unresolved = [p for p in pairs if p["verdict"] == "unresolved-defect" and "causes" in p]
+    rows, out = [], []
+    for c in led["causes"]:
+        snaps = [p for p in unresolved if c["id"] in p["causes"]]
+        if not snaps:
+            continue
+        sole = sum(1 for p in snaps if p["causes"] == [c["id"]] and not p["unattributed"])
+        where = c["owner"]
+        if "defect" in c["kind"]:
+            xfx = c["xfx"] if isinstance(c["xfx"], str) else "; ".join(c["xfx"])
+            fx = c["fx"] if isinstance(c["fx"], str) else "; ".join(c["fx"])
+            where = "%s -- xfx %s / fx %s" % (where, xfx, fx)
+        if "nondeterminism" in c["kind"] or "scenario" in c["kind"]:
+            where = "%s -- fix: %s" % (where, c["fix"])
+        kind = "+".join(KIND_LABEL[k] for k in c["kind"])
+        out.append({"cause": c["id"], "kind": c["kind"], "snaps": len(snaps), "sole": sole, "owner": c["owner"]})
+        rows.append([c["id"], kind, len(snaps), sole, cell(c["why"], 90), cell(where, 140)])
+    loose = [p for p in unresolved if p["unattributed"]]
+    rows.sort(key=lambda r: -r[2])
+    lines = [
+        "%d unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone)." % len(unresolved),
+        "Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nondeterminism, or the scenario script), d = a defect.",
+        "",
+        table(rows, ("cause", "kind", "snaps", "only", "what", "owner")),
+    ]
+    if loose:
+        lines += ["", "Rows no cause covers (%d snaps):" % len(loose)]
+        for p in loose[:20]:
+            side, row, text = p["unattributed"][0]
+            lines.append("- `%s/%s` %s row %d: %s" % (p["scenario"], p["label"], side, row, cell(text, 80)))
+    return {"by_cause": out, "unattributed": [(p["scenario"], p["label"]) for p in loose]}, lines
 
 
 def first_cell(first):
