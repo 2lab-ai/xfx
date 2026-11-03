@@ -18,6 +18,10 @@
 //!   `src/core/workspace/pathing.zig:228-385`): relative to the workspace, `~`
 //!   for the home directory, absolute as written -- and a path that is spelled
 //!   relative to the workspace may not leave it through a symlink.
+//! - **Whether it may be read** is the configured read table's to say, asked
+//!   about the file the path resolved to before it is opened ([`load`]):
+//!   upstream's attach asks no rule, and xfx's does, so a path the table keeps
+//!   from `read_file` is not sent by being named in a paste.
 //! - **The bytes sent are the bytes attached.** The file is read once, at the
 //!   moment it is attached, and its SHA-256 recorded with it
 //!   (`captureImageAttachmentForAdmission`): replacing the file afterwards
@@ -35,6 +39,8 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
+
+use crate::permission::{RuleAction, RuleSet};
 
 /// The most bytes one attached image may hold (`max_image_bytes`,
 /// `image_attachments.zig:14`). llmux takes the same ceiling for a decoded
@@ -275,6 +281,10 @@ pub enum AttachError {
     /// what its notice prints (`failed to attach image: {s}`,
     /// `image_commands.zig:39`).
     Other(&'static str),
+    /// A configured rule of the read table denies reading the file
+    /// ([`load`]): the path the rule judged, made safe to paint. Upstream has
+    /// no such refusal, because its attach asks no rule.
+    Denied(String),
 }
 
 impl AttachError {
@@ -287,6 +297,7 @@ impl AttachError {
             Self::Unsupported => "UnsupportedImageType",
             Self::TooLarge => "ImageTooLarge",
             Self::Other(name) => name,
+            Self::Denied(_) => "AccessDenied",
         }
     }
 
@@ -305,6 +316,10 @@ impl fmt::Display for AttachError {
             Self::Unsupported => f.write_str(UNSUPPORTED),
             Self::TooLarge => f.write_str(TOO_LARGE),
             Self::Other(name) => write!(f, "failed to attach image: {name}"),
+            Self::Denied(path) => write!(
+                f,
+                "failed to attach image: a configured permission rule denies reading `{path}`"
+            ),
         }
     }
 }
@@ -395,16 +410,50 @@ pub fn resolve(workspace: &Path, home: Option<&Path>, path: &str) -> Result<Path
         .canonicalize()
         .map_err(|err| AttachError::from_io(&err))?;
     if !external {
-        // The workspace as the filesystem names it, so a root reached through
-        // a symlink of its own (`/tmp` on macOS) still contains its files.
-        let root = workspace
-            .canonicalize()
-            .unwrap_or_else(|_| workspace.to_path_buf());
+        let root = canonical_root(workspace);
         if !real.starts_with(&root) {
             return Err(AttachError::Other("PathOutsideWorkspace"));
         }
     }
     Ok(real)
+}
+
+/// The workspace as the filesystem names it, so a root reached through a
+/// symlink of its own (`/tmp` on macOS) still contains its files.
+fn canonical_root(workspace: &Path) -> PathBuf {
+    workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf())
+}
+
+/// Whether the configured read table lets `real` -- a resolved, real path --
+/// be read for an attachment. Asked before the file is opened.
+///
+/// It is judged as `read_file` is judged reading the same file
+/// (`crate::tools::read`'s `admitted`): under the `read` category and the
+/// `read_file` name, at the path a rule names it by -- relative inside the
+/// workspace, absolute outside it ([`rule_path`]). Only a deny refuses:
+///
+/// - an `ask` asks nobody, because the attach is the person's own act and
+///   they are who would be asked;
+/// - in every permission mode, `yolo` too: a deny is a rule the person wrote,
+///   and failing closed costs only the attachment.
+///
+/// Upstream's attach consults no rule (`load_inline_image_attachment`,
+/// `image_attachments.zig:1880-1885`, into `readImageHeaderBytes`,
+/// `:1825-1834`); copying that would let a path named in a paste send a file
+/// the table keeps from the model.
+///
+/// [`rule_path`]: crate::permission::rules::rule_path
+fn admitted(rules: &RuleSet, workspace: &Path, real: &Path) -> Result<(), AttachError> {
+    use crate::permission::rules::{rule_path, READ};
+    let candidate = rule_path(&canonical_root(workspace), real);
+    match rules.decide(READ, Some("read_file"), &candidate) {
+        Some(RuleAction::Deny) => Err(AttachError::Denied(
+            crate::workspace::access::terminal_safe(&String::from_utf8_lossy(&candidate)),
+        )),
+        Some(RuleAction::Allow | RuleAction::Ask) | None => Ok(()),
+    }
 }
 
 /// `path` with `.` and `..` taken out by spelling alone (`std.fs.path.resolve`),
@@ -426,19 +475,28 @@ fn lexical(path: &Path) -> PathBuf {
 /// Reads the image at `path` -- a resolved, real path -- whole, or says why
 /// it cannot be attached.
 ///
-/// The size comes from `stat` and is judged before anything is read, so a file
-/// over [`MAX_IMAGE_BYTES`] is refused without being opened for its bytes; the
-/// read itself is bounded as well, so a file that grew between the two is
-/// refused rather than read past the ceiling.
+/// The file is judged by `stat` before it is opened: anything but a regular
+/// file is refused (`NotRegularFile`), and so is a file over
+/// [`MAX_IMAGE_BYTES`], without being opened at all. Then it is opened without
+/// waiting ([`open_regular`]) and judged again by its own descriptor, so a
+/// FIFO put in its place between the two is refused as well rather than
+/// waited on -- on the thread that holds the terminal, for a paste. The read
+/// itself is bounded too, so a file that grew in the meantime is refused
+/// rather than read past the ceiling.
 pub fn read(path: &Path) -> Result<(MediaType, Vec<u8>), AttachError> {
-    let mut file = File::open(path).map_err(|err| AttachError::from_io(&err))?;
+    let judge = |metadata: &std::fs::Metadata| {
+        if !metadata.is_file() {
+            return Err(AttachError::Other("NotRegularFile"));
+        }
+        if metadata.len() > MAX_IMAGE_BYTES {
+            return Err(AttachError::TooLarge);
+        }
+        Ok(())
+    };
+    judge(&std::fs::metadata(path).map_err(|err| AttachError::from_io(&err))?)?;
+    let mut file = open_regular(path)?;
     let metadata = file.metadata().map_err(|err| AttachError::from_io(&err))?;
-    if !metadata.is_file() {
-        return Err(AttachError::Other("NotRegularFile"));
-    }
-    if metadata.len() > MAX_IMAGE_BYTES {
-        return Err(AttachError::TooLarge);
-    }
+    judge(&metadata)?;
     let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
     (&mut file)
         .take(MAX_IMAGE_BYTES + 1)
@@ -451,16 +509,51 @@ pub fn read(path: &Path) -> Result<(MediaType, Vec<u8>), AttachError> {
     Ok((media_type, bytes))
 }
 
+/// `path` opened for reading without waiting on it: `O_NONBLOCK`, so a FIFO
+/// with no writer opens at once instead of holding the thread, then judged by
+/// its own `fstat` -- refused unless it is a regular file -- and made blocking
+/// again, as upstream opens a vision source (`openVisionRegularFile`,
+/// `image_attachments.zig:408-469`). A socket, which cannot be opened at all
+/// -- `ENXIO` on Linux, `EOPNOTSUPP` on macOS -- is `NotRegularFile`, as
+/// upstream names its `NoDevice` (`:453`).
+#[cfg(unix)]
+fn open_regular(path: &Path) -> Result<File, AttachError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let refused = |err: io::Error| match err.raw_os_error() {
+        Some(libc::ENXIO | libc::EOPNOTSUPP) => AttachError::Other("NotRegularFile"),
+        _ => AttachError::from_io(&err),
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .map_err(refused)?;
+    if !file.metadata().map_err(refused)?.is_file() {
+        return Err(AttachError::Other("NotRegularFile"));
+    }
+    let flags = rustix::fs::fcntl_getfl(&file).map_err(|err| refused(err.into()))?;
+    rustix::fs::fcntl_setfl(&file, flags & !rustix::fs::OFlags::NONBLOCK)
+        .map_err(|err| refused(err.into()))?;
+    Ok(file)
+}
+
+/// Without `O_NONBLOCK`, the `stat` [`read`] judged the path by before this
+/// open is what keeps a special file from being opened.
+#[cfg(not(unix))]
+fn open_regular(path: &Path) -> Result<File, AttachError> {
+    File::open(path).map_err(|err| AttachError::from_io(&err))
+}
+
 /// `/image <path>`'s whole question: the path typed, as the file it names and
-/// the bytes in it.
+/// the bytes in it -- unless the configured read table `rules` denies reading
+/// that file ([`AttachError::Denied`]), which is asked before it is opened.
 pub fn load(
     workspace: &Path,
     home: Option<&Path>,
+    rules: &RuleSet,
     input: &str,
 ) -> Result<(PathBuf, MediaType, Vec<u8>), AttachError> {
-    let path = resolve(workspace, home, &normalize(input))?;
-    let (media_type, bytes) = read(&path)?;
-    Ok((path, media_type, bytes))
+    load_literal(workspace, home, rules, &normalize(input))
 }
 
 /// [`load`] for a path that is already the file's name, quotes and escapes
@@ -470,9 +563,11 @@ pub fn load(
 pub fn load_literal(
     workspace: &Path,
     home: Option<&Path>,
+    rules: &RuleSet,
     path: &str,
 ) -> Result<(PathBuf, MediaType, Vec<u8>), AttachError> {
     let path = resolve(workspace, home, path)?;
+    admitted(rules, workspace, &path)?;
     let (media_type, bytes) = read(&path)?;
     Ok((path, media_type, bytes))
 }
@@ -1347,6 +1442,126 @@ mod tests {
         outside: PathBuf,
     }
 
+    /// [`super::load`] under an empty read table: every test of where a path
+    /// leads and what is read there. The table's own are
+    /// [`a_path_the_read_table_denies_is_refused_before_it_is_opened`] and
+    /// the one after it.
+    fn load(
+        workspace: &Path,
+        home: Option<&Path>,
+        input: &str,
+    ) -> Result<(PathBuf, MediaType, Vec<u8>), AttachError> {
+        super::load(workspace, home, &RuleSet::default(), input)
+    }
+
+    /// A table of `read`-category rules, or of `category` rules: each pattern
+    /// with its action, in order.
+    fn table(category: &str, patterns: &[(&str, RuleAction)]) -> RuleSet {
+        RuleSet::new(
+            patterns
+                .iter()
+                .map(|(pattern, action)| {
+                    crate::permission::ConfiguredRule::new(category, *pattern, *action)
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_path_the_read_table_denies_is_refused_before_it_is_opened() {
+        // Judged where it resolves, by the path a rule names it by: relative
+        // inside the workspace -- a `..` that comes back in included --
+        // absolute outside it, `~` under the home directory.
+        let tree = tree();
+        let secret = tree.outside.join("secret.png");
+        let home = tree.home.join("home.png");
+        let rules = table(
+            "read",
+            &[
+                ("shot.png", RuleAction::Deny),
+                (secret.to_str().expect("utf-8"), RuleAction::Deny),
+                (home.to_str().expect("utf-8"), RuleAction::Deny),
+            ],
+        );
+        let load = |input: &str| super::load(&tree.workspace, Some(&tree.home), &rules, input);
+        let denied = |shown: &str| Err(AttachError::Denied(shown.to_string()));
+        assert_eq!(load("shot.png"), denied("shot.png"));
+        assert_eq!(load("sub/../shot.png"), denied("shot.png"));
+        assert_eq!(
+            load("../outside/secret.png"),
+            denied(secret.to_str().expect("utf-8"))
+        );
+        assert_eq!(load("~/home.png"), denied(home.to_str().expect("utf-8")));
+        assert_eq!(
+            load_literal(&tree.workspace, Some(&tree.home), &rules, "shot.png"),
+            denied("shot.png")
+        );
+        // A file the table does not name still loads beside them.
+        assert!(load("sub/deep.png").is_ok());
+        // Asked before the file is opened: one nobody may read is the rule's
+        // refusal, not the open's `AccessDenied`.
+        let locked = tree.workspace.join("locked.png");
+        std::fs::write(&locked, SHOT_PNG).expect("locked");
+        std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o000))
+            .expect("chmod");
+        assert_eq!(
+            super::load(
+                &tree.workspace,
+                None,
+                &table("read", &[("locked.png", RuleAction::Deny)]),
+                "locked.png"
+            ),
+            denied("locked.png")
+        );
+        assert_eq!(
+            AttachError::Denied("shot.png".to_string()).to_string(),
+            "failed to attach image: a configured permission rule denies reading `shot.png`"
+        );
+    }
+
+    #[test]
+    fn the_table_is_asked_as_read_file_would_be_and_only_a_deny_refuses() {
+        let tree = tree();
+        let load = |rules: &RuleSet| {
+            super::load(&tree.workspace, None, rules, "shot.png").map(|(path, ..)| path)
+        };
+        let shot = Ok(tree.workspace.join("shot.png"));
+        // The tool's own name decides as its category does; another tool's
+        // category does not.
+        assert!(matches!(
+            load(&table("read_file", &[("shot.png", RuleAction::Deny)])),
+            Err(AttachError::Denied(_))
+        ));
+        assert!(matches!(
+            load(&table("*", &[("*", RuleAction::Deny)])),
+            Err(AttachError::Denied(_))
+        ));
+        assert_eq!(load(&table("edit", &[("*", RuleAction::Deny)])), shot);
+        // An ask is no refusal: the person attaching is who it would ask.
+        assert_eq!(load(&table("read", &[("*", RuleAction::Ask)])), shot);
+        // The last rule that matches decides, as for every call.
+        assert_eq!(
+            load(&table(
+                "read",
+                &[("*", RuleAction::Deny), ("shot.png", RuleAction::Allow)]
+            )),
+            shot
+        );
+        // A path is painted as the filesystem spells it, minus what a
+        // terminal would obey.
+        let odd = "odd\u{1b}[2J.png";
+        std::fs::write(tree.workspace.join(odd), SHOT_PNG).expect("odd");
+        assert_eq!(
+            super::load(
+                &tree.workspace,
+                None,
+                &table("read", &[(odd, RuleAction::Deny)]),
+                odd
+            ),
+            Err(AttachError::Denied("odd\\u{001B}[2J.png".to_string()))
+        );
+    }
+
     fn tree() -> Tree {
         let root = tempfile::tempdir().expect("a root");
         let base = root.path().canonicalize().expect("canonical");
@@ -1469,6 +1684,64 @@ mod tests {
         // And exactly at it, accepted.
         file.set_len(MAX_IMAGE_BYTES).expect("sparse");
         assert!(load(&tree.workspace, Some(&tree.home), "huge.png").is_ok());
+    }
+
+    /// `open` of the FIFO at `fifo`, on another thread, with ten seconds to
+    /// answer in: `None` when it did not, after the FIFO has been given a
+    /// writer so the open that was waiting for one can return and its thread
+    /// end.
+    #[cfg(unix)]
+    fn answered<T: Send + 'static>(
+        fifo: &Path,
+        open: impl FnOnce(&Path) -> T + Send + 'static,
+    ) -> Option<T> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let target = fifo.to_path_buf();
+        std::thread::spawn(move || {
+            let _ = tx.send(open(&target));
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(outcome) => Some(outcome),
+            Err(_) => {
+                drop(std::fs::OpenOptions::new().write(true).open(fifo));
+                None
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_named_like_an_image_is_refused_without_waiting_for_a_writer() {
+        // A pasted `x.png` that is a FIFO: an open that waits for a writer
+        // would hold the thread that holds the terminal for as long as none
+        // comes. `mkfifo(1)`, as `tests/tool_loop.rs` makes one.
+        let tree = tree();
+        let fifo = tree.workspace.join("x.png");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+        let outcome =
+            answered(&fifo, read).expect("reading a FIFO named x.png waited for a writer");
+        assert_eq!(outcome, Err(AttachError::Other("NotRegularFile")));
+        // The open itself, for a FIFO put in a file's place after that `stat`:
+        // it does not wait, and the descriptor's own `fstat` refuses it.
+        let opened = answered(&fifo, |path| open_regular(path).map(|_| ()))
+            .expect("opening a FIFO waited for a writer");
+        assert_eq!(opened, Err(AttachError::Other("NotRegularFile")));
+        // A socket cannot be opened at all, and is no file either.
+        let socket = tree.workspace.join("s.png");
+        let _listener = std::os::unix::net::UnixListener::bind(&socket).expect("a socket");
+        assert_eq!(
+            open_regular(&socket).map(|_| ()),
+            Err(AttachError::Other("NotRegularFile"))
+        );
+        assert_eq!(read(&socket), Err(AttachError::Other("NotRegularFile")));
+        // A regular file opened this way reads as one: blocking again.
+        let file = open_regular(&tree.workspace.join("shot.png")).expect("a file");
+        let flags = rustix::fs::fcntl_getfl(&file).expect("flags");
+        assert!(!flags.contains(rustix::fs::OFlags::NONBLOCK));
     }
 
     #[test]
