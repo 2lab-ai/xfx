@@ -1,0 +1,25 @@
+# H1 `mcphttp`, ready on cue: a profile HTTP MCP server on the run's own
+# loopback fixture, which holds every request at launch (the server is
+# connecting) and then, on cue, answers the held initialize (ready, its one
+# tool listed). `/mcp list` is fx c1db919's and xfx's menu and fx v0.0.16's
+# table; Escape leaves either. The fixture's log has every frame each binary
+# sent it.
+mcphttp hang
+fx: homefile .fx/mcp.json h1-mcp.json
+xfx: homefile .xfx/mcp.json h1-mcp.json
+wait 4
+type /mcp list
+key Enter
+wait 1.5
+snap hanging
+key Escape
+wait 0.5
+mcphttp ready
+wait 3
+type /mcp list
+key Enter
+wait 1.5
+snap ready
+key Escape
+wait 0.5
+gwlog

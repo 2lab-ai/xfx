@@ -1,0 +1,30 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 1  [Servers]  Tools  Resources  Prompts
+
+  remote                Ready                 HTTP · Profile
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

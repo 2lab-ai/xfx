@@ -1,0 +1,30 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ say something
+
+⚠ Connection lost · waiting for connection · 1s · esc to pause
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

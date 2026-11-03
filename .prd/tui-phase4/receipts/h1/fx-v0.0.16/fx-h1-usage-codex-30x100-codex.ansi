@@ -1,0 +1,30 @@
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[39musage:[0m codex (ChatGPT), samdoe                                                      [38;5;245mupdated just now
+[39m
+[1mperiod[0m        [38;5;245mtokens[39m
+today          40.0K
+7d            100.0K
+month         100.0K
+lifetime        9.0M
+
+[1mmodel (month)[0m  [38;5;245mspeed[39m     [38;5;245mshare[39m
+gpt-e2e-large  fast      70.0%
+gpt-e2e-small  standard  30.0%
+
+[1mwhere (month)[0m        [38;5;245mcli[39m   [38;5;245mdesktop app[39m
+                   60.0%         40.0%
+
+[1mrecord[0m         [38;5;245mpeak day[39m   [38;5;245mlongest chat[39m   [38;5;245mstreak[39m   [38;5;245mbest streak[39m     [38;5;245mchats[39m
+                 700.0K         1h 30m       4d            9d       120
+
+[1mhabits[0m         [38;5;245mfast mode[39m   [38;5;245mreasoning[39m
+                     25%    high 60%
+
+[1mplan[0m          [38;5;245mcredits[39m   [38;5;245mspend limit[39m
+pro             12.40   not reached
+
+[1mlimit[0m  [38;5;245mwindow[39m   [38;5;245mused[39m  [38;5;245mresets[39m
+codex      5h    42%  in 2h 0m
+codex      7d    18%  in 3d 0h
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mtab period     r refresh     esc close[39m

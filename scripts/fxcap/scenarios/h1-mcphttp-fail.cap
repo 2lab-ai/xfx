@@ -1,0 +1,36 @@
+# H1 `mcphttp`, failing on cue: the same profile server answers every
+# request 500 from launch, then JSON-RPC errors, then is ready -- each a cue
+# -- with `/mcp reload` after each (fx c1db919 and xfx reload; fx v0.0.16 has
+# no reload and retries on its own). The fixture's log has every request and
+# the mode it was answered in.
+mcphttp fail
+fx: homefile .fx/mcp.json h1-mcp.json
+xfx: homefile .xfx/mcp.json h1-mcp.json
+wait 5
+type /mcp list
+key Enter
+wait 1.5
+snap failed
+key Escape
+wait 0.5
+mcphttp rpcerror
+type /mcp reload
+key Enter
+wait 4
+type /mcp list
+key Enter
+wait 1.5
+snap rpcerror
+key Escape
+wait 0.5
+mcphttp ready
+type /mcp reload
+key Enter
+wait 6
+type /mcp list
+key Enter
+wait 1.5
+snap ready
+key Escape
+wait 0.5
+gwlog

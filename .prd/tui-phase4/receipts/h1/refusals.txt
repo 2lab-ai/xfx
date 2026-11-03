@@ -1,0 +1,26 @@
+2  resize 0x80                              resize takes <rows>x<cols>, not 0x80
+2  resize 24                                resize takes <rows>x<cols>, not 24
+2  resize 24x80x2                           resize takes <rows>x<cols>, not 24x80x2
+2  resize                                   resize takes an argument: see the verbs at the top of capture.sh
+2  signal SIGKILL                           signal takes SIGTSTP, SIGCONT, SIGTERM or SIGHUP, not SIGKILL
+2  signal INT                               signal takes SIGTSTP, SIGCONT, SIGTERM or SIGHUP, not INT
+2  signal                                   signal takes an argument: see the verbs at the top of capture.sh
+2  rehomefile /etc/x ok.json                rehomefile takes a relative path inside HOME, not /etc/x
+2  rehomefile ../x ok.json                  rehomefile takes a relative path inside HOME, not ../x
+2  rehomefile .fx/a/../../x ok.json         rehomefile takes a relative path inside HOME, not .fx/a/../../x
+2  rehomefile .fx/settings.json missing.json rehomefile takes <path> <file in <dir>>, not .fx/settings.json missing.json
+2  rehomefile .fx/settings.json             rehomefile takes <path> <file in <dir>>, not .fx/settings.json
+2  clock soon                               clock takes milliseconds since the epoch, not soon
+2  clock                                    clock takes an argument: see the verbs at the top of capture.sh
+2  usage missing.json                       usage takes a file in <dir> or off, not missing.json
+2  usage                                    usage takes an argument: see the verbs at the top of capture.sh
+2  mcphttp sleepy                           mcphttp takes ready, hang, fail or rpcerror, not sleepy
+2  mcphttp                                  mcphttp takes an argument: see the verbs at the top of capture.sh
+2  models2 ok.json                          models2 takes <catalog.json> <ms>, not ok.json
+2  models2 missing.json 100                 models2 takes <catalog.json> <ms>, not missing.json 100
+2  models2 ok.json soon                     models2 takes <catalog.json> <ms>, not ok.json soon
+2  modelsdelay soon                         modelsdelay takes milliseconds, not soon
+2  jobctl now                               jobctl takes no argument, not now
+2  sockets                                  sockets takes an argument: see the verbs at the top of capture.sh
+2  env X=@MCPPORT@                          an env value names @MCPPORT@, and the scenario starts no mcphttp server
+2  homefile .xfx/m.json mcpport.json        <run>/home/.xfx/m.json names @MCPPORT@, and the scenario starts no mcphttp server

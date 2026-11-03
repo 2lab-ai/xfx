@@ -1,0 +1,20 @@
+# H1 `models2`: a model released while the binary runs. The catalog has one
+# model until 9 s after the gateway started and two after; `/model` is opened
+# before and after, and the gateway log says which ask got which catalog, and
+# when.
+models h1-models-one.json
+models2 h1-models-two.json 9000
+wait 4
+type /model
+key Enter
+wait 2
+snap before
+key Escape
+wait 6
+type /model
+key Enter
+wait 3
+snap after
+key Escape
+wait 0.5
+gwlog

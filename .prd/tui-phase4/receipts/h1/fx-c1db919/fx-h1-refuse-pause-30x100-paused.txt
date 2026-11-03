@@ -1,0 +1,30 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ say something
+
+⚠ Connection lost · connection refused · recovery paused after 3 attempts · send a new message when
+  you're ready
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

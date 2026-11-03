@@ -1,0 +1,30 @@
+𝒇x v0.0.16 · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+usage: grok (xAI)                                                                   updated just now
+
+limit  window   used  resets
+grok       7d    63%  in 2d 5h
+
+product        used
+grok build    41.2%
+chat          15.8%
+
+plan                 credits   pay as you go
+SuperGrok Heavy       $12.50   $3.00 of $100.00
+────────────────────────────────────────────────────────────────────────────────────────────────────
+r refresh     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -22,10 +22,13 @@
 #                          (`.fx/chatgpt-auth.json`); <path> is relative and
 #                          has no `..`
 #
-# `@PORT@` in a seeded file (`seed`, `homefile`) and in an `env` value is the
-# fake gateway's port, written in once it listens: the same port also answers
-# as a llmux daemon and as a Codex endpoint (fakegw.ts), so a profile can name
-# `"llmux_url":"http://127.0.0.1:@PORT@"` and a provider switch reaches it.
+# `@PORT@` in a seeded file (`seed`, `homefile`, `reseed`, `rehomefile`) and in
+# an `env` value is the fake gateway's port, written in once it listens: the
+# same port also answers as a llmux daemon and as a Codex endpoint (fakegw.ts),
+# so a profile can name `"llmux_url":"http://127.0.0.1:@PORT@"` and a provider
+# switch reaches it. `@HOME@` there is the run's HOME, and `@MCPPORT@` the
+# port of the run's HTTP MCP server (`mcphttp`; a scenario that names it
+# without one is refused).
 #   models <catalog.json>  what the fake gateway answers for
 #                          GET /coding-agent/v1/models (default: one model)
 #   modelsdown <ms>        that path answers 503 for the first <ms> after the
@@ -37,6 +40,12 @@
 #                          read can still be on its way when the model asks
 #                          its question; with it (`0` too) the gateway log's
 #                          catalog lines say when, in ms since it started
+#   models2 <catalog.json> <ms>
+#                          that path answers <catalog.json> instead once <ms>
+#                          have passed since the gateway started, by the time
+#                          it answers (after any `modelsdelay`): a model
+#                          released while the binary runs (fakegw logs each
+#                          ask that got it as `-> second catalog`)
 #   credits <credits.json> what it answers for GET /coding-agent/v1/credits
 #                          (default: 404 `not found`)
 #   titled <title.json>    what it answers a session-title request with
@@ -130,6 +139,70 @@
 #                          what a screen capture cannot show: which writes a
 #                          synchronized update brackets, and where a scroll
 #                          lands among them
+#   resize <rows>x<cols>   resizes the window now (tmux's resize-window, which
+#                          sets the window's `window-size` to `manual`, so no
+#                          client can size it back), and fails the run unless
+#                          the pane is then that size; the kernel sends the
+#                          terminal's foreground group SIGWINCH. A later
+#                          `snap` keeps the launch size in its file name.
+#   jobctl                 runs the binary under jobctl.pl, as a job-control
+#                          shell runs a foreground job: in a process group of
+#                          its own that owns the terminal, with a parent in its
+#                          session. Without it the binary is the pane's session
+#                          leader, its group is orphaned, and the kernel
+#                          discards a stop signal: SIGTSTP (fx's own Ctrl-Z
+#                          `raise` too) does not stop it. With it, SIGTSTP
+#                          stops it and SIGCONT continues it.
+#   signal <SIG>           sends SIGTSTP, SIGCONT, SIGTERM or SIGHUP (`SIG` may
+#                          be left off) to the binary's own pid and nothing
+#                          else: the pane's pid -- the binary, `exec`'d -- or,
+#                          under `jobctl`, the pid its child wrote before it
+#                          exec'd, checked to be that child of the pane's.
+#                          Refused unless that pid's executable (lsof's `txt`)
+#                          is the binary. Waits up to 3 s for the signal to
+#                          show (stopped, running again, gone) and prints the
+#                          pid's state, and the pane's dead status when it has
+#                          one. Put `keep` first for SIGTERM/SIGHUP: without it
+#                          the pane closes with the binary and so does the run.
+#   rehomefile <path> <file>
+#                          `homefile` now: writes scenarios/<file> over
+#                          HOME/<path>, placeholders written in, owner-only
+#                          (the file 0600, every directory made for it 0700;
+#                          an existing file is written in place), and prints
+#                          the mode and size -- a settings file made malformed
+#                          after launch; the same <path> rules as `homefile`
+#   clock <ms>             pins fx's usage clock (FX_E2E_USAGE_CLOCK_FILE,
+#                          vercel-labs/fx@481104fd src/core/app/usage_host.zig:
+#                          20-22, :205-219) to <ms> since the epoch, through
+#                          HOME/.fxcap-usage-clock (owner-only): with any
+#                          `clock` line, fx is launched with that variable set
+#                          and the file holding the first one's <ms>; each
+#                          `clock` line writes its <ms> there when the script
+#                          reaches it. fx's own e2e time is 1791819000000
+#                          (2026-10-12 15:30 UTC, usage-fakes.ts:10). xfx reads
+#                          no usage and is given nothing.
+#   usage <usage.json>|off what the fake gateway answers fx v0.0.16's usage
+#                          reads with (/v1/report, /ai-gateway/usage-report,
+#                          the three /backend-api/wham paths, /billing,
+#                          /settings; the file's shape is in fakegw.ts): the
+#                          first `usage` line is in place before launch, and
+#                          each one swaps it when the script reaches it; `off`
+#                          (and no `usage` line at all) leaves those paths
+#                          unknown, 404
+#   mcphttp <mode>         starts the run's HTTP MCP server (mcphttp.ts) before
+#                          launch, on a loopback port the OS picks, in <mode>
+#                          -- `ready`, `hang`, `fail` or `rpcerror` -- and
+#                          writes its port where `@MCPPORT@` is, so a
+#                          `homefile .fx/mcp.json` naming
+#                          `http://127.0.0.1:@MCPPORT@/mcp` reaches it; each
+#                          `mcphttp` line sets the mode when the script reaches
+#                          it (a held request answers in the new one). Its log
+#                          is copied by `gwlog`, as
+#                          <bin>-<scenario>-<size>-mcphttp.log.
+#   sockets <label>        writes the binary's internet sockets (lsof -i on its
+#                          pid) to <bin>-<scenario>-<size>-<label>.sockets, and
+#                          fails the run loudly if one is connected to any
+#                          address but 127.0.0.1 or ::1
 #
 # fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
 # the PATH shims below do not reach, and FX_SOUND=0 only sets the level at
@@ -149,6 +222,9 @@
 # no longer the reference, and the run reaches the network. Every fx run is
 # launched with FX_AUTO_UPGRADE=0, last in its environment so no scenario `env`
 # can lift it, and the run fails loudly if the binary's bytes changed under it.
+# Both checks run on every way out of a run that launched fx -- a refused verb,
+# a failed `resize`, a `signal` that found no binary -- once the tmux server
+# is gone, and a run that passes them says so in one `guards:` line.
 # (2026-10-06 23:09 and 23:14: a research copy of this script, without the
 # guard, let fx write /tmp/fx-toggle.m4a and /tmp/fx-bloom.m4a and play them.)
 #
@@ -175,6 +251,88 @@ for_this() {
   return 0
 }
 
+# Globals, not locals: the EXIT trap runs after main has returned. The guard_*
+# three are set once fx's chime names are made, so a run that never launched fx
+# is not checked for what it could not have done.
+gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
+
+# fx's sound and upgrade guards (above), every one checked and every breach
+# named; the one line that says they held.
+guards() {
+  local chime breached=0
+  # The chime names only: fx writes other files here too (`/trace`'s
+  # fx-trace-*.md), and those are not sound.
+  for chime in success error bloom press release toggle; do
+    [[ -d $guard_run/fxtmp/fx-$chime.m4a ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-$chime.m4a" >&2; breached=1; }
+  done
+  [[ -d $guard_run/fxtmp/fx-click.caf ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-click.caf" >&2; breached=1; }
+  [[ $(shasum -a 256 "$guard_bin" | cut -d' ' -f1) == "$guard_sha" ]] || { echo "UPGRADE GUARD BREACHED: $guard_bin changed during the run" >&2; breached=1; }
+  (( breached == 0 )) || return 1
+  echo "guards: $guard_bin sha256 ${guard_sha:0:12} unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories"
+}
+
+# Every process the run started, by the pid it started, and then the guards.
+cleanup() {
+  local code=$?
+  [[ -z $sock ]] || tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
+  [[ -z $gateway ]] || kill "$gateway" 2>/dev/null || true
+  [[ -z $mcphttp ]] || kill "$mcphttp" 2>/dev/null || true
+  if [[ -n $guard_run ]]; then guards || code=3; fi
+  exit "$code"
+}
+
+# `@PORT@`, `@HOME@` and `@MCPPORT@`, written in: stdin to stdout.
+fill() {
+  local port=$1 home=$2 mcpport=$3
+  sed -e "s/@PORT@/$port/g" -e "s#@HOME@#$home#g" -e "s/@MCPPORT@/$mcpport/g"
+}
+
+# Refuses a file that names `@MCPPORT@` in a run with no HTTP MCP server.
+needs_mcp() {
+  local mcpport=$1 file
+  shift
+  [[ -n $mcpport ]] && return 0
+  for file in "$@"; do
+    if grep -q '@MCPPORT@' "$file" 2>/dev/null; then
+      echo "$file names @MCPPORT@, and the scenario starts no mcphttp server" >&2
+      exit 2
+    fi
+  done
+}
+
+# The binary's own pid, or a failure that says why not: the pane's pid when
+# the binary is `exec`'d into it, the pid jobctl.pl's child wrote under
+# `jobctl` (that child of the pane's, and no other) -- and in either case one
+# whose executable is the binary. Asked again for a moment, so a pid read
+# between jobctl.pl's fork and its exec is not taken for an answer.
+binary_pid() {
+  local sock=$1 run=$2 jobctl=$3 want=$4 pane pid exe tries=0
+  local lsof=/usr/sbin/lsof
+  [[ -x $lsof ]] || lsof=lsof
+  while :; do
+    if [[ $(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_dead}') == 1 ]]; then
+      echo "the binary is not running: its pane is dead" >&2
+      return 1
+    fi
+    pane=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}')
+    pid=$pane exe=''
+    if [[ -n $jobctl ]]; then
+      pid=$(cat "$run/binpid" 2>/dev/null || true)
+      [[ -n $pid && $(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') == "$pane" ]] || pid=''
+    fi
+    [[ -z $pid ]] || exe=$("$lsof" -nP -a -p "$pid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+    if [[ -n $pid && $exe == "$want" ]]; then
+      echo "$pid"
+      return 0
+    fi
+    if (( ++tries >= 20 )); then
+      echo "no pid runs $want: pane ${pane:-?}, pid ${pid:-none}, executable ${exe:-none}" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
 main() {
   local which=${1:?fx or xfx} scenario=${2:?scenario} size=${3:?rowsxcols}
   local here root out
@@ -198,10 +356,13 @@ main() {
     *) echo "fx or xfx, not $which" >&2; exit 2 ;;
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
-  local bin_sha=''
+  local bin_sha='' bin_real
   [[ $which == fx ]] && bin_sha=$(shasum -a 256 "$bin" | cut -d' ' -f1)
+  # What lsof names as the executable of the binary's pid, for `signal`.
+  bin_real=$(realpath "$bin")
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
+  local models2='' models2ms='' jobctl='' clock='' usage='' mcpmode=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -251,15 +412,50 @@ main() {
       mkdir -p "$run/$name"
       [[ -n $from ]] && cp -R "$scenarios/$from/." "$run/$name/"
     fi
+    # Checked here, before anything is launched: a verb used later in the
+    # script is refused now rather than halfway through a run. For `clock`,
+    # `usage` and `mcphttp` the first line is the one in place at launch.
+    case $line in
+      models2\ *)
+        read -r models2 models2ms <<< "${line#models2 }"
+        [[ -f $scenarios/$models2 && $models2ms =~ ^[0-9]+$ ]] || { echo "models2 takes <catalog.json> <ms>, not ${line#models2 }" >&2; exit 2; }
+        models2=$scenarios/$models2 ;;
+      jobctl) jobctl=1 ;;
+      modelsdelay\ *)
+        [[ ${line#modelsdelay } =~ ^[0-9]+$ ]] || { echo "modelsdelay takes milliseconds, not ${line#modelsdelay }" >&2; exit 2; } ;;
+      clock\ *)
+        [[ ${line#clock } =~ ^[0-9]+$ ]] || { echo "clock takes milliseconds since the epoch, not ${line#clock }" >&2; exit 2; }
+        [[ -n $clock ]] || clock=${line#clock } ;;
+      usage\ *)
+        [[ ${line#usage } == off || -f $scenarios/${line#usage } ]] || { echo "usage takes a file in $scenarios or off, not ${line#usage }" >&2; exit 2; }
+        [[ -n $usage ]] || usage=${line#usage } ;;
+      mcphttp\ *)
+        case ${line#mcphttp } in ready|hang|fail|rpcerror) ;; *) echo "mcphttp takes ready, hang, fail or rpcerror, not ${line#mcphttp }" >&2; exit 2 ;; esac
+        [[ -n $mcpmode ]] || mcpmode=${line#mcphttp } ;;
+      resize\ *)
+        [[ ${line#resize } =~ ^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$ ]] || { echo "resize takes <rows>x<cols>, not ${line#resize }" >&2; exit 2; } ;;
+      signal\ *)
+        case ${line#signal } in SIGTSTP|SIGCONT|SIGTERM|SIGHUP|TSTP|CONT|TERM|HUP) ;; *) echo "signal takes SIGTSTP, SIGCONT, SIGTERM or SIGHUP, not ${line#signal }" >&2; exit 2 ;; esac ;;
+      rehomefile\ *)
+        local dest from
+        read -r dest from <<< "${line#rehomefile }"
+        case $dest in ''|/*|..|../*|*/..|*/../*) echo "rehomefile takes a relative path inside HOME, not $dest" >&2; exit 2 ;; esac
+        [[ -n $from && -f $scenarios/$from ]] || { echo "rehomefile takes <path> <file in $scenarios>, not ${line#rehomefile }" >&2; exit 2; } ;;
+      jobctl\ *) echo "jobctl takes no argument, not ${line#jobctl }" >&2; exit 2 ;;
+      modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets)
+        echo "$line takes an argument: see the verbs at the top of capture.sh" >&2; exit 2 ;;
+    esac
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
-  # Globals, not locals: the EXIT trap runs after main has returned.
+  # The usage answers are a file fakegw reads on every request, so a `usage`
+  # line later in the script swaps them; absent, those paths are unknown there.
+  [[ -n $usage && $usage != off ]] && cp "$scenarios/$usage" "$run/usage.json"
+  FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$models2 FAKEGW_MODELS2_MS=$models2ms FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   gateway=$!
   sock=$run/s
-  trap 'tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true; kill "$gateway" 2>/dev/null || true' EXIT
+  trap cleanup EXIT
   local tries=0
   until grep -q listening "$run/gateway.log" 2>/dev/null; do
     kill -0 "$gateway" 2>/dev/null || { cat "$run/gateway.log" >&2; exit 1; }
@@ -267,16 +463,41 @@ main() {
     sleep 0.1
   done
   port=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/gateway.log" | head -1)
-  # The port, into every seeded file that names it and every `env` value. The
-  # rewrite goes through `cat >` so a file keeps the owner-only mode it was
-  # seeded with.
+  # The HTTP MCP server, when the scenario has one: loopback, its own port, its
+  # mode a file it reads on every request.
+  local mcpport=''
+  if [[ -n $mcpmode ]]; then
+    printf '%s\n' "$mcpmode" > "$run/mcphttp.mode"
+    bun "$here/mcphttp.ts" 0 "$run/mcphttp.mode" > "$run/mcphttp.log" 2>&1 &
+    mcphttp=$!
+    tries=0
+    until grep -q listening "$run/mcphttp.log" 2>/dev/null; do
+      kill -0 "$mcphttp" 2>/dev/null || { cat "$run/mcphttp.log" >&2; exit 1; }
+      (( ++tries < 100 )) || { echo "the HTTP MCP server never listened" >&2; exit 1; }
+      sleep 0.1
+    done
+    mcpport=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/mcphttp.log" | head -1)
+  fi
+  # The ports and HOME, into every seeded file that names them and every `env`
+  # value. The rewrite goes through `cat >` so a file keeps the owner-only mode
+  # it was seeded with.
   local seeded
   while IFS= read -r seeded; do
-    sed "s/@PORT@/$port/g" "$seeded" > "$run/seed.tmp"
+    needs_mcp "$mcpport" "$seeded"
+    fill "$port" "$run/home" "$mcpport" < "$seeded" > "$run/seed.tmp"
     cat "$run/seed.tmp" > "$seeded"
     rm -f "$run/seed.tmp"
-  done < <(grep -rl '@PORT@' "$run/home" 2>/dev/null || true)
+  done < <(grep -rlE '@(PORT|HOME|MCPPORT)@' "$run/home" 2>/dev/null || true)
+  [[ -n $mcpport || $extra_env != *@MCPPORT@* ]] || { echo "an env value names @MCPPORT@, and the scenario starts no mcphttp server" >&2; exit 2; }
   extra_env=${extra_env//@PORT@/$port}
+  extra_env=${extra_env//@HOME@/$run/home}
+  extra_env=${extra_env//@MCPPORT@/$mcpport}
+  # fx's usage clock, owner-only in HOME, holding the first `clock` line's time.
+  local clockfile=''
+  if [[ -n $clock ]]; then
+    clockfile=$run/home/.fxcap-usage-clock
+    (umask 077 && printf '%s\n' "$clock" > "$clockfile")
+  fi
 
   # Nothing a binary does under capture may reach the user's desktop: a shim
   # directory ahead of the system PATH answers `open` (browser sign-in),
@@ -323,20 +544,26 @@ SHIM
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
   local launch fx_model=FX_MODEL=fake/model-a xfx_model=XFX_MODEL=fake/model-a
   [[ -n $nomodel ]] && { fx_model=''; xfx_model=''; }
+  # What env runs last: the binary, or under `jobctl` the wrapper that runs it.
+  # After FX_AUTO_UPGRADE=0 either way, which stays the last word of the
+  # environment.
+  local runner=$bin
+  [[ -n $jobctl ]] && runner="/usr/bin/perl $here/jobctl.pl $run/binpid $bin"
   if [[ $which == fx ]]; then
     mkdir -p "$run/fxtmp"
     local cue
     for cue in success error bloom press release toggle; do mkdir -p "$run/fxtmp/fx-$cue.m4a"; done
     mkdir -p "$run/fxtmp/fx-click.caf"
+    guard_run=$run guard_bin=$bin guard_sha=$bin_sha
     launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 TMPDIR=$run/fxtmp \
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
-$fx_model $extra_env FX_AUTO_UPGRADE=0 $bin"
+$fx_model ${clockfile:+FX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env FX_AUTO_UPGRADE=0 $runner"
   else
     mkdir -p "$run/xfxtmp"
     launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
-$xfx_model $extra_env $bin"
+$xfx_model $extra_env $runner"
   fi
   # Every bell the pane rings, one line each, for `bells`. The hook is set on a
   # server started for it, **before** the session that runs the binary: fx
@@ -356,7 +583,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|models2|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -379,7 +606,9 @@ $xfx_model $extra_env $bin"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.ansi"
         echo "$name.txt"
         ;;
-      gwlog) cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies" ;;
+      gwlog)
+        cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies"
+        [[ ! -f $run/mcphttp.log ]] || cp "$run/mcphttp.log" "$out/$which-$scenario-$size-mcphttp.log" ;;
       # One name per line rather than a word-split `$(find)`, so a file
       # with a space in its name is listed whole.
       workls)
@@ -449,8 +678,68 @@ $xfx_model $extra_env $bin"
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
         ;;
       reseed)
-        (umask 077 && mkdir -p "$run/home/.$which" && sed "s/@PORT@/$port/g" "$scenarios/$rest" > "$run/home/.$which/settings.json")
+        needs_mcp "$mcpport" "$scenarios/$rest"
+        (umask 077 && mkdir -p "$run/home/.$which" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$rest" > "$run/home/.$which/settings.json")
         chmod 600 "$run/home/.$which/settings.json"
+        ;;
+      rehomefile)
+        local dest from
+        read -r dest from <<< "$rest"
+        needs_mcp "$mcpport" "$scenarios/$from"
+        (umask 077 && mkdir -p "$run/home/$(dirname "$dest")" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$from" > "$run/home/$dest")
+        chmod 600 "$run/home/$dest"
+        echo "rehomefile ~/$dest: mode $(stat -f %Lp "$run/home/$dest" 2>/dev/null || stat -c %a "$run/home/$dest"), $(wc -c < "$run/home/$dest" | tr -d ' ') bytes"
+        ;;
+      resize)
+        local got
+        tmux -f /dev/null -S "$sock" resize-window -t cap -x "${rest#*x}" -y "${rest%x*}"
+        got=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_height}x#{pane_width}')
+        [[ $got == "$rest" ]] || { echo "resize $rest: the pane is $got" >&2; exit 1; }
+        echo "resize: the pane is now $got"
+        ;;
+      signal)
+        local sig=${rest#SIG} pid state='' tries=0 dead=''
+        pid=$(binary_pid "$sock" "$run" "$jobctl" "$bin_real") || exit 1
+        kill -s "$sig" "$pid"
+        while (( tries++ < 30 )); do
+          state=$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ') || state=gone
+          case $sig in
+            TSTP) [[ $state == T* ]] && break ;;
+            CONT) [[ $state != T* ]] && break ;;
+            *) [[ $state == gone || $state == Z* ]] && dead=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_dead}' 2>/dev/null || echo closed)
+               [[ $dead == 1 || $dead == closed ]] && break ;;
+          esac
+          sleep 0.1
+        done
+        case $dead in
+          1) dead="; $(tmux -f /dev/null -S "$sock" display-message -p -t cap 'pane dead, #{?pane_dead_signal,signal #{pane_dead_signal},status #{pane_dead_status}}')" ;;
+          closed) dead='; pane closed' ;;
+        esac
+        echo "signal SIG$sig -> pid $pid: ${state}$dead"
+        ;;
+      clock) (umask 077 && printf '%s\n' "$rest" > "$run/home/.fxcap-usage-clock") ;;
+      usage)
+        # Renamed into place, so fakegw never reads a file half written.
+        case $rest in
+          off) rm -f "$run/usage.json" ;;
+          *) cp "$scenarios/$rest" "$run/usage.tmp"; mv -f "$run/usage.tmp" "$run/usage.json" ;;
+        esac
+        ;;
+      mcphttp) printf '%s\n' "$rest" > "$run/mcphttp.tmp"; mv -f "$run/mcphttp.tmp" "$run/mcphttp.mode" ;;
+      sockets)
+        local name=$out/$which-$scenario-$size-$rest.sockets pid lsof=/usr/sbin/lsof
+        [[ -x $lsof ]] || lsof=lsof
+        pid=$(binary_pid "$sock" "$run" "$jobctl" "$bin_real") || exit 1
+        # lsof exits 1 when the pid has no internet socket at all.
+        { echo "pid $pid"; "$lsof" -nP -a -p "$pid" -i 2>/dev/null | awk 'NR > 1 { print $5, $8, $9, $10 }' || true; } > "$name"
+        echo "$name: $(( $(wc -l < "$name") - 1 )) socket(s)"
+        # Every address on every line, the local and the remote: 127.0.0.1,
+        # [::1], or `*` (a port listening on nothing yet).
+        if awk 'NR > 1 { n = split($3, ends, "->"); for (i = 1; i <= n; i++) { a = ends[i]; sub(/:[0-9*]+$/, "", a); if (a != "127.0.0.1" && a != "[::1]" && a != "*") bad = 1 } } END { exit !bad }' "$name"; then
+          echo "NETWORK GUARD BREACHED: the binary has a socket off loopback:" >&2
+          cat "$name" >&2
+          exit 3
+        fi
         ;;
       rmhome)
         case $rest in ''|/*|..|../*|*/..|*/../*) echo "rmhome takes a relative path inside HOME, not $rest" >&2; exit 2 ;; esac
@@ -494,16 +783,7 @@ $xfx_model $extra_env $bin"
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"
-  if [[ $which == fx ]]; then
-    # The chime names only: fx writes other files here too (`/trace`'s
-    # fx-trace-*.md), and those are not sound.
-    local chime
-    for chime in success error bloom press release toggle; do
-      [[ -d $run/fxtmp/fx-$chime.m4a ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-$chime.m4a" >&2; exit 3; }
-    done
-    [[ -d $run/fxtmp/fx-click.caf ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-click.caf" >&2; exit 3; }
-    [[ $(shasum -a 256 "$bin" | cut -d' ' -f1) == "$bin_sha" ]] || { echo "UPGRADE GUARD BREACHED: $bin changed during the run" >&2; exit 3; }
-  fi
+  # fx's guards run in the EXIT trap (cleanup), after the tmux server is gone.
 }
 
 main "$@"

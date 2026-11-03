@@ -1,0 +1,30 @@
+𝒇x v0.0.16 · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                                                 updated just now
+
+period        spent  requests  tokens
+today       $0.5000         2      15
+7d          $0.7500         3      20
+month         $2.50         6      63
+
+  model (month)       spent   share  requests  tokens
+❯ provider/month      $2.00   80.0%         4      48
+  provider/today    $0.5000   20.0%         2      15
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ model     enter detail     tab period     r refresh     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

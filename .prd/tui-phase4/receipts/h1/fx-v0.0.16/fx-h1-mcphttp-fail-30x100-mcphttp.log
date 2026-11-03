@@ -1,0 +1,14 @@
+[mcphttp] listening 51129
+[mcphttp] +1400ms POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mode=fail -> 500 +1400ms
+[mcphttp] +1401ms POST /mcp rpc=initialize id=2 session=no version=- mode=fail -> 500 +1401ms
+[mcphttp] +2402ms POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mode=fail -> 500 +2402ms
+[mcphttp] +2403ms POST /mcp rpc=initialize id=4 session=no version=- mode=fail -> 500 +2403ms
+[mcphttp] +4403ms POST /mcp rpc=server/discover id=5 session=no version=2026-07-28 mode=fail -> 500 +4404ms
+[mcphttp] +4417ms POST /mcp rpc=initialize id=6 session=no version=- mode=fail -> 500 +4417ms
+[mcphttp] +8429ms POST /mcp rpc=server/discover id=7 session=no version=2026-07-28 mode=fail -> 500 +8429ms
+[mcphttp] +8429ms POST /mcp rpc=initialize id=8 session=no version=- mode=fail -> 500 +8429ms
+[mcphttp] +16430ms POST /mcp rpc=server/discover id=9 session=no version=2026-07-28 mode=ready -> 404 +16430ms
+[mcphttp] +16437ms POST /mcp rpc=initialize id=10 session=no version=- mode=ready -> 200 +16437ms
+[mcphttp] +16445ms POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mode=ready -> 202 +16445ms
+[mcphttp] +16454ms GET /mcp rpc=- session=yes version=2025-11-25 mode=ready -> 405 +16454ms
+[mcphttp] +16460ms POST /mcp rpc=tools/list id=11 session=yes version=2025-11-25 mode=ready -> 200 +16460ms

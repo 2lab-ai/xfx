@@ -1,0 +1,91 @@
+{
+ "/backend-api/wham/usage": {
+  "json": {
+   "plan_type": "pro",
+   "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+     "used_percent": 42,
+     "limit_window_seconds": 18000,
+     "reset_after_seconds": 7200,
+     "reset_at": 1791826200
+    },
+    "secondary_window": {
+     "used_percent": 18,
+     "limit_window_seconds": 604800,
+     "reset_after_seconds": 259200,
+     "reset_at": 1792078200
+    }
+   },
+   "credits": {
+    "has_credits": true,
+    "unlimited": false,
+    "balance": "12.40"
+   },
+   "spend_control": {
+    "reached": false,
+    "individual_limit": null
+   }
+  }
+ },
+ "/backend-api/wham/profiles/me": {
+  "json": {
+   "profile": {
+    "username": "samdoe12345",
+    "display_name": "samdoe"
+   },
+   "stats": {
+    "lifetime_tokens": 9000000,
+    "peak_daily_tokens": 700000,
+    "current_streak_days": 4,
+    "longest_streak_days": 9,
+    "total_threads": 120,
+    "longest_running_turn_sec": 5400,
+    "fast_mode_usage_percentage": 25,
+    "most_used_reasoning_effort": "high",
+    "most_used_reasoning_effort_percentage": 60,
+    "daily_usage_buckets": [
+     {
+      "start_date": "2026-10-12",
+      "tokens": 40000
+     },
+     {
+      "start_date": "2026-10-11",
+      "tokens": 60000
+     }
+    ]
+   },
+   "metadata": {
+    "stats_as_of": "2026-10-12"
+   }
+  }
+ },
+ "/backend-api/wham/usage/daily-token-usage-breakdown": {
+  "json": {
+   "data": [
+    {
+     "date": "2026-10-12",
+     "product_surface_usage_values": {
+      "cli": 6,
+      "desktop_app": 4
+     },
+     "models": [
+      {
+       "model": "gpt-e2e-large",
+       "speed": "fast",
+       "credits": 7
+      },
+      {
+       "model": "gpt-e2e-small",
+       "speed": "standard",
+       "credits": 3
+      }
+     ]
+    }
+   ],
+   "units": "percent",
+   "group_by": "day"
+  }
+ }
+}
