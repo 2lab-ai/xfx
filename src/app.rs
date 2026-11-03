@@ -482,9 +482,19 @@ async fn run_ask(
     // such a call with `NOT_AVAILABLE_SENTINEL` rather than reaching for a UI
     // that isn't there.
     // The skills this workspace has, and those the prompt names, read now as
-    // the project instructions are (`crate::skills`).
-    let skills =
-        crate::skills::TurnSkills::prepare(scope.primary(), config.home(), &request.prompt, &[]);
+    // the project instructions are (`crate::skills`). `ask` reads no catalog,
+    // so the catalog's budget is sized by the window the Gateway is known to
+    // give the model, and by none elsewhere.
+    let window = (config.provider == ProviderId::Gateway)
+        .then(|| crate::provider::model::gateway_context_window(&model))
+        .flatten();
+    let skills = crate::skills::TurnSkills::prepare(
+        scope.primary(),
+        config.home(),
+        &request.prompt,
+        &[],
+        window,
+    );
     let tools = ToolContext::new(scope)
         .with_permissions(permissions)
         .with_cancel(cancel.clone())
@@ -785,6 +795,13 @@ fn load_config_with_env() -> Result<(Environment, RuntimeConfig), AppError> {
     let workspace = std::env::current_dir().map_err(ConfigError::Workspace)?;
     let env = Environment::from_process();
     let config = RuntimeConfig::load_with(&env, &workspace)?;
+    // Where a link in a workspace skill root may resolve, for every discovery
+    // this process makes from now on, as upstream configures it once at
+    // launch (`setConfiguredSymlinkAuthorities`, `app_lifecycle.zig:709`).
+    crate::skills::discovery::set_authorities(crate::skills::discovery::Authorities::new(
+        &config.skill_symlink_authorities,
+        &config.skill_symlink_authorities_env,
+    ));
     Ok((env, config))
 }
 

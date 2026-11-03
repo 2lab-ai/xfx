@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-2294e0b [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m /re
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mResults 6[39m
+
+[1m[38;5;255m  /reset          [38;5;245mreset the current session context                                                   Session[0m
+[38;5;245m  /resume         resume a saved session                                                              Session[39m
+[38;5;245m  /rename         rename the current session                                                          Session[39m
+[38;5;245m  /credits        show gateway credits balance                                                        Account[39m
+[38;5;245m  release-notes   Write release notes from the git log                                                workspace skills/[39m
+[38;5;245m  demo            Demo workspace skill for the capture                                                workspace .xfx[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

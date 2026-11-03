@@ -6,22 +6,27 @@
 //! a skill's own content named it by -- and an optional `resource` inside it.
 //! The answer is the resource whole in a `<skill_content … complete="true">`
 //! element, or upstream's sentence for why not
-//! ([`crate::skills::invocation::tool_load`]).
+//! ([`crate::skills::invocation::tool_call`]).
 //!
 //! Read-only, as upstream's is: it reads files under a skill directory the
 //! user put there and changes nothing. A configured rule over the `skill`
 //! category still decides it ([`crate::permission::rules::SKILL`]), judged on
 //! the skill directory's name, as upstream keys a skill grant by name.
 //!
-//! **Not here**: upstream's legacy `name`/`offset` form, which pages a skill in
-//! chunks. The advertised schema is closed and names neither field, so a model
-//! cannot send them; xfx decodes exactly what it advertised.
+//! The decoder also takes upstream's **legacy named form** (`decode`,
+//! `skill.zig:28-84`), which the advertised schema does not name: `name`, with
+//! or without a `location`, and an `offset` to page from. Such a call loads
+//! the resource a chunk at a time -- 20 KiB cut back to a line break, in a
+//! `<skill_content … offset="…" next_offset="…">` element that says where the
+//! next one takes up ([`crate::skills::invocation::load_chunk`]) -- and a name
+//! with no location is looked up among the skills discovered afresh. The
+//! refusals are upstream's sentences.
 
 use serde_json::Value;
 
 use super::spec::{
-    object, optional_string, required_string, Activity, InputSchema, PermissionKind, Presentation,
-    Property, PropertyKind, ToolContext, ToolInput, ToolResult, ToolSpec,
+    Activity, InputSchema, PermissionKind, Presentation, Property, PropertyKind, ToolContext,
+    ToolInput, ToolResult, ToolSpec,
 };
 
 /// Unreachable through [`ToolSpec::run`], which pairs each decoder with its
@@ -75,14 +80,18 @@ pub const SKILL: ToolSpec = ToolSpec::new(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillInput {
-    pub location: String,
+    /// The legacy form's skill name.
+    pub name: Option<String>,
+    pub location: Option<String>,
     pub resource: Option<String>,
+    /// Where the legacy form's chunk starts; 0 otherwise.
+    pub offset: usize,
 }
 
 impl SkillInput {
     /// What the row names: the resource when it is not the skill's own file,
-    /// otherwise the skill's directory -- the leaf of its location, which is
-    /// its name unless the directory was renamed.
+    /// otherwise the skill -- by the name the call gave, or the leaf of its
+    /// location, which is its name unless the directory was renamed.
     pub fn target(&self) -> &str {
         if let Some(resource) = self
             .resource
@@ -91,19 +100,28 @@ impl SkillInput {
         {
             return resource;
         }
-        self.location
+        if self.offset > 0 {
+            return "SKILL.md";
+        }
+        if let Some(name) = self.name.as_deref() {
+            return name;
+        }
+        let location = self.location.as_deref().unwrap_or_default();
+        location
             .rsplit('/')
             .next()
             .filter(|leaf| !leaf.is_empty())
-            .unwrap_or(&self.location)
+            .unwrap_or(location)
     }
 
-    /// The row's verbs when the call reads another resource.
+    /// The row's verbs when the call reads another resource, or pages its
+    /// own file past its start (`presentation`, `skill.zig:96-111`).
     pub fn presentation(&self) -> Option<Presentation> {
-        self.resource
+        let other = self
+            .resource
             .as_deref()
-            .filter(|resource| !reads_skill_file(resource))
-            .map(|_| RESOURCE_PRESENTATION)
+            .is_some_and(|resource| !reads_skill_file(resource));
+        (other || self.offset > 0).then_some(RESOURCE_PRESENTATION)
     }
 }
 
@@ -112,11 +130,41 @@ fn reads_skill_file(resource: &str) -> bool {
     resource.is_empty() || resource == "SKILL.md"
 }
 
+/// Upstream's decoder, sentence for sentence (`decode`, `skill.zig:28-84`):
+/// the advertised `location` form, or the legacy `name` form, which alone
+/// takes an `offset`.
 fn decode_skill(input: &Value) -> Result<ToolInput, String> {
-    let object = object("skill", input)?;
+    let object = input
+        .as_object()
+        .ok_or_else(|| "skill arguments must be an object".to_string())?;
+    let string = |key: &str| -> Result<Option<String>, String> {
+        match object.get(key) {
+            None => Ok(None),
+            Some(Value::String(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(format!("skill field \"{key}\" must be a string")),
+        }
+    };
+    let name = string("name")?;
+    if name.is_none() && !object.contains_key("location") {
+        return Err("skill requires an advertised location".to_string());
+    }
+    let location = string("location")?;
+    let resource = string("resource")?;
+    let offset = match object.get("offset") {
+        None => 0,
+        Some(_) if name.is_none() => {
+            return Err("skill offset requires the legacy named resource form".to_string())
+        }
+        Some(value) => value
+            .as_u64()
+            .and_then(|offset| usize::try_from(offset).ok())
+            .ok_or_else(|| "skill field \"offset\" must be a non-negative integer".to_string())?,
+    };
     Ok(ToolInput::Skill(SkillInput {
-        location: required_string("skill", object, "location")?,
-        resource: optional_string("skill", object, "resource")?,
+        name,
+        location,
+        resource,
+        offset,
     }))
 }
 
@@ -135,12 +183,16 @@ fn execute_skill(input: &ToolInput, context: &ToolContext) -> ToolResult {
     if let Err(reason) = context.permissions().judge_read("skill", target.as_bytes()) {
         return ToolResult::refused("skill", &reason);
     }
-    let loaded = crate::skills::invocation::tool_load(
+    let loaded = crate::skills::invocation::tool_call(
         context.skills(),
         context.scope().primary(),
         context.home(),
-        &input.location,
-        input.resource.as_deref(),
+        &crate::skills::invocation::Call {
+            name: input.name.as_deref(),
+            location: input.location.as_deref(),
+            resource: input.resource.as_deref(),
+            offset: input.offset,
+        },
         context.limits().max_output_bytes,
     );
     if loaded.ok {
@@ -174,7 +226,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("SKILL.md"), "---\nname: demo\n---\nSay DEMO.\n").unwrap();
         let found = crate::skills::discovery::discover(&work, None);
-        let catalog = crate::skills::catalog::build(&found.skills, &found.diagnostics);
+        let catalog = crate::skills::catalog::build(&found.skills, &found.diagnostics, None);
         let location = catalog.locations.of(&found.skills[0]).unwrap();
         let context = ToolContext::new(AccessScope::primary_only(&work).unwrap())
             .with_skills(Some(Arc::new(catalog.locations.clone())), None);
@@ -192,5 +244,140 @@ mod tests {
         let missing = SKILL.run(&resource, &context);
         assert!(!missing.ok);
         assert_eq!(missing.output, "skill failed: FileNotFound");
+    }
+
+    #[test]
+    fn the_decoder_refuses_in_upstreams_sentences() {
+        // `expectDecodeFailure`'s cases (`skill.zig:398-404`) and the offset
+        // rules (`:58-66`).
+        for (arguments, refusal) in [
+            (json!([1]), "skill arguments must be an object"),
+            (json!({}), "skill requires an advertised location"),
+            (json!({"name": 1}), "skill field \"name\" must be a string"),
+            (
+                json!({"name": "workflow", "location": 1}),
+                "skill field \"location\" must be a string",
+            ),
+            (
+                json!({"location": "x", "resource": 2}),
+                "skill field \"resource\" must be a string",
+            ),
+            (
+                json!({"location": "x", "offset": 4}),
+                "skill offset requires the legacy named resource form",
+            ),
+            (
+                json!({"name": "workflow", "offset": -1}),
+                "skill field \"offset\" must be a non-negative integer",
+            ),
+            (
+                json!({"name": "workflow", "offset": "4"}),
+                "skill field \"offset\" must be a non-negative integer",
+            ),
+        ] {
+            assert_eq!(
+                decode_skill(&arguments),
+                Err(refusal.to_string()),
+                "{arguments}"
+            );
+        }
+        assert_eq!(
+            decode_skill(&json!({"name": "workflow", "location": "/tmp/skills/workflow"})),
+            Ok(ToolInput::Skill(SkillInput {
+                name: Some("workflow".to_string()),
+                location: Some("/tmp/skills/workflow".to_string()),
+                resource: None,
+                offset: 0,
+            }))
+        );
+    }
+
+    #[test]
+    fn the_legacy_named_form_pages_a_resource_and_says_where_the_next_chunk_starts() {
+        // `presentation`'s cases (`skill.zig:450-470`).
+        let shown = |arguments: Value| SKILL.shown(&arguments);
+        assert_eq!(
+            shown(json!({"name": "demo"})).presentation.running,
+            "Loading skill"
+        );
+        assert_eq!(
+            shown(json!({"name": "demo"})).target.as_deref(),
+            Some("demo")
+        );
+        assert_eq!(
+            shown(json!({"name": "demo", "resource": "SKILL.md", "offset": 0}))
+                .presentation
+                .running,
+            "Loading skill"
+        );
+        assert_eq!(
+            shown(json!({"name": "demo", "offset": 128})).presentation,
+            RESOURCE_PRESENTATION
+        );
+        assert_eq!(
+            shown(json!({"name": "demo", "offset": 128}))
+                .target
+                .as_deref(),
+            Some("SKILL.md")
+        );
+
+        let base = tempfile::tempdir().unwrap();
+        let work = std::fs::canonicalize(base.path()).unwrap();
+        let dir = work.join(".xfx/skills/demo");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), "---\nname: demo\n---\nSay DEMO.\n").unwrap();
+        // A resource past one chunk: lines of 100 bytes.
+        let line = format!("{}\n", "x".repeat(99));
+        let big = line.repeat(300);
+        std::fs::write(dir.join("big.md"), &big).unwrap();
+        // No location: the skills are discovered afresh, by name.
+        let context = ToolContext::new(AccessScope::primary_only(&work).unwrap());
+        let whole = SKILL.run(&json!({"name": "demo"}), &context);
+        assert!(whole.ok, "{whole:?}");
+        let skill_file = "---\nname: demo\n---\nSay DEMO.\n";
+        assert_eq!(
+            whole.output,
+            format!(
+                "<skill_content name=\"demo\" resource=\"SKILL.md\" offset=\"0\" next_offset=\"{}\">\n{skill_file}\n</skill_content>",
+                skill_file.len()
+            )
+        );
+        let first = SKILL.run(&json!({"name": "demo", "resource": "big.md"}), &context);
+        assert!(first.ok, "{first:?}");
+        let chunk = crate::skills::invocation::CHUNK_LIMIT / 100 * 100;
+        assert!(first.output.starts_with(&format!(
+            "<skill_content name=\"demo\" resource=\"big.md\" offset=\"0\" next_offset=\"{chunk}\">\n"
+        )));
+        assert!(first.output.ends_with(&format!(
+            "\n<context_limit name=\"skill_chunk_bytes\" action=\"truncated\" observed_bytes=\"{}\" effective_bytes=\"20480\" source=\"compiled default\" next_offset=\"{chunk}\" override=\"--context-limit skill_chunk_bytes=BYTES|off\" />\n</skill_content>",
+            big.len()
+        )));
+        let rest = SKILL.run(
+            &json!({"name": "demo", "resource": "big.md", "offset": chunk}),
+            &context,
+        );
+        assert!(rest.ok, "{rest:?}");
+        assert!(rest.output.contains(&format!(
+            "offset=\"{chunk}\" next_offset=\"{}\">",
+            (2 * chunk).min(big.len())
+        )));
+        // An offset inside a character, or past the end, is refused.
+        std::fs::write(dir.join("wide.md"), "\u{e9}\n").unwrap();
+        let inside = SKILL.run(
+            &json!({"name": "demo", "resource": "wide.md", "offset": 1}),
+            &context,
+        );
+        assert!(!inside.ok);
+        assert_eq!(
+            inside.output,
+            "skill offset must be at a valid UTF-8 boundary within the selected resource"
+        );
+        // A name nobody has, in upstream's words.
+        let missing = SKILL.run(&json!({"name": "nobody"}), &context);
+        assert!(!missing.ok);
+        assert_eq!(
+            missing.output,
+            "Skill \"nobody\" not found. Refresh available skills and retry with an advertised name."
+        );
     }
 }

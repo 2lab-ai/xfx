@@ -114,19 +114,29 @@ impl TurnSkills {
     /// another window is in the next prompt's catalog -- and builds both
     /// blocks for `prompt` (`prepareSkillCatalog` and
     /// `buildExplicitPromptSection`, `orchestrator.zig:5440-5458`, `:5616-5657`).
+    ///
+    /// `window` is the context window of the model the turn talks to, when
+    /// one is known: the catalog's budget is sized by it
+    /// ([`catalog::Budget::for_window`]).
     pub fn prepare(
         workspace: &Path,
         home: Option<&Path>,
         prompt: &str,
         bindings: &[Binding],
+        window: Option<u64>,
     ) -> Self {
         let found = discovery::discover(workspace, home);
-        Self::over(&found, prompt, bindings)
+        Self::over(&found, prompt, bindings, window)
     }
 
     /// The same, over skills already discovered.
-    pub fn over(found: &Discovery, prompt: &str, bindings: &[Binding]) -> Self {
-        let catalog = catalog::build(&found.skills, &found.diagnostics);
+    pub fn over(
+        found: &Discovery,
+        prompt: &str,
+        bindings: &[Binding],
+        window: Option<u64>,
+    ) -> Self {
+        let catalog = catalog::build(&found.skills, &found.diagnostics, window);
         // Upstream builds the explicit block only when there is a catalog or a
         // binding (`orchestrator.zig:5621`).
         let explicit = if !catalog.text.is_empty() || !bindings.is_empty() {

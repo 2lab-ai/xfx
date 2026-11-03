@@ -22,6 +22,15 @@
 //! followed only where the root has an authority to contain it, the same
 //! directory reached twice counted once, and every candidate that could not be
 //! read kept as a diagnostic rather than dropped in silence.
+//!
+//! **Where a link may go.** A link in a workspace root -- the root itself, a
+//! candidate, or its `SKILL.md` -- is followed only when it resolves inside
+//! the workspace ancestor the root hangs off, or inside a directory the user
+//! named for it: the profile's `skill_symlink_authorities` or
+//! `XFX_SKILL_SYMLINK_AUTHORITIES` ([`Authorities`]; upstream's
+//! `canonicalPathHasReadAuthority`, `skill_runtime.zig:586-650`). None is
+//! named by default, so a link that leaves its workspace is refused, and a
+//! link in the managed root is never followed at all.
 
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -160,6 +169,76 @@ struct Root {
     authority: Option<PathBuf>,
 }
 
+/// The directories outside its workspace a link in a workspace root may
+/// resolve into: the profile's list, canonical where it resolves and as
+/// written where it does not yet (`setConfiguredSymlinkAuthorities`,
+/// `skill_runtime.zig:607-638`), and the environment's, as written
+/// (`externalSymlinkAuthorities`, `:652-681`). An entry that is relative or
+/// has a `..` in it is no authority.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Authorities {
+    configured: Vec<PathBuf>,
+    environment: Vec<PathBuf>,
+}
+
+impl Authorities {
+    pub fn new(configured: &[String], environment: &[String]) -> Self {
+        let valid = |path: &&String| {
+            let path = Path::new(path.as_str());
+            path.is_absolute()
+                && !path
+                    .components()
+                    .any(|component| component == std::path::Component::ParentDir)
+        };
+        Self {
+            configured: configured
+                .iter()
+                .filter(valid)
+                .map(|path| fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path)))
+                .collect(),
+            environment: environment
+                .iter()
+                .filter(valid)
+                .map(PathBuf::from)
+                .collect(),
+        }
+    }
+
+    /// Whether `canonical` is inside one of them (`pathInside`).
+    fn admit(&self, canonical: &Path) -> bool {
+        self.configured
+            .iter()
+            .chain(&self.environment)
+            .any(|authority| canonical.starts_with(authority))
+    }
+}
+
+/// The process's authorities, set once the configuration is read: as
+/// upstream's, they apply to every discovery in the process -- the band's
+/// worker, the turn's, the `skill` tool's -- rather than being threaded
+/// through each (`configured_symlink_authorities`, `skill_runtime.zig:598-605`).
+static AUTHORITIES: std::sync::RwLock<Authorities> = std::sync::RwLock::new(Authorities {
+    configured: Vec::new(),
+    environment: Vec::new(),
+});
+
+/// Makes `authorities` the process's.
+pub fn set_authorities(authorities: Authorities) {
+    match AUTHORITIES.write() {
+        Ok(mut held) => *held = authorities,
+        Err(poisoned) => *poisoned.into_inner() = authorities,
+    }
+}
+
+/// The process's authorities now. A lock a panic poisoned still holds the
+/// last list written, which is the one a reader is owed.
+fn authorities() -> Authorities {
+    match AUTHORITIES.read() {
+        Ok(held) => held.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    }
+}
+
 /// The managed install root for `home`.
 pub fn managed_root(home: &Path) -> PathBuf {
     home.join(MANAGED_ROOT)
@@ -209,18 +288,23 @@ fn roots(workspace: &Path, home: Option<&Path>) -> Vec<Root> {
 /// `home` is the home directory the managed root is under; without one there
 /// is no managed root and the ancestor walk goes to `/`.
 pub fn discover(workspace: &Path, home: Option<&Path>) -> Discovery {
+    discover_with(workspace, home, &authorities())
+}
+
+/// [`discover`], with the authorities a link may resolve into named.
+pub fn discover_with(workspace: &Path, home: Option<&Path>, extra: &Authorities) -> Discovery {
     let mut found = Discovery::default();
     let mut seen: HashSet<PathBuf> = HashSet::new();
     for root in roots(workspace, home) {
-        read_root(&root, &mut found, &mut seen);
+        read_root(&root, &mut found, &mut seen, extra);
     }
     found
 }
 
 /// Every candidate of one root, in byte order (`appendSkillsFromDir`,
 /// `:703-728`).
-fn read_root(root: &Root, found: &mut Discovery, seen: &mut HashSet<PathBuf>) {
-    let entries = match root_entries(root) {
+fn read_root(root: &Root, found: &mut Discovery, seen: &mut HashSet<PathBuf>, extra: &Authorities) {
+    let entries = match root_entries(root, extra) {
         Ok(entries) => entries,
         Err(_) if root_is_missing(&root.path) => return,
         Err(_) => {
@@ -234,15 +318,15 @@ fn read_root(root: &Root, found: &mut Discovery, seen: &mut HashSet<PathBuf>) {
         }
     };
     for (name, linked) in entries {
-        read_candidate(root, &name, linked, found, seen);
+        read_candidate(root, &name, linked, found, seen, extra);
     }
 }
 
 /// The root's directory entries and links -- links only where the root can
 /// contain them -- sorted by name (`collectSkillEntries`, `:283-311`).
-fn root_entries(root: &Root) -> io::Result<Vec<(std::ffi::OsString, bool)>> {
+fn root_entries(root: &Root, extra: &Authorities) -> io::Result<Vec<(std::ffi::OsString, bool)>> {
     let dir = match &root.authority {
-        Some(authority) => contained(&root.path, authority)?,
+        Some(authority) => contained(&root.path, authority, extra)?,
         None => {
             let meta = fs::symlink_metadata(&root.path)?;
             if !meta.is_dir() {
@@ -268,12 +352,14 @@ fn root_entries(root: &Root) -> io::Result<Vec<(std::ffi::OsString, bool)>> {
     Ok(entries)
 }
 
-/// `path` resolved, when it resolves inside `authority`
-/// (`openContainedDir`, `:560-572`).
-fn contained(path: &Path, authority: &Path) -> io::Result<PathBuf> {
+/// `path` resolved, when it resolves inside `authority` or one of `extra`
+/// (`openContainedDir`, `:560-572`; `canonicalPathHasReadAuthority`,
+/// `:586-596`).
+fn contained(path: &Path, authority: &Path, extra: &Authorities) -> io::Result<PathBuf> {
     let canonical = fs::canonicalize(path)?;
     let inside = canonical.starts_with(authority)
-        || fs::canonicalize(authority).is_ok_and(|resolved| canonical.starts_with(resolved));
+        || fs::canonicalize(authority).is_ok_and(|resolved| canonical.starts_with(resolved))
+        || extra.admit(&canonical);
     if !inside {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -311,6 +397,7 @@ fn read_candidate(
     linked: bool,
     found: &mut Discovery,
     seen: &mut HashSet<PathBuf>,
+    extra: &Authorities,
 ) {
     let path = root.path.join(name);
     let diagnose = |found: &mut Discovery, cause: Cause| {
@@ -325,7 +412,7 @@ fn read_candidate(
         let Some(authority) = &root.authority else {
             return;
         };
-        match contained(&path, authority) {
+        match contained(&path, authority, extra) {
             Ok(dir) if fs::metadata(&dir).is_ok_and(|meta| meta.is_dir()) => dir,
             _ => return diagnose(found, Cause::LinkedCandidateUnavailable),
         }
@@ -336,7 +423,7 @@ fn read_candidate(
             _ => return diagnose(found, Cause::Unreadable),
         }
     };
-    let mut file = match open_skill_file(&dir, root.authority.as_deref()) {
+    let mut file = match open_skill_file(&dir, root.authority.as_deref(), extra) {
         Opened::File(file) => file,
         Opened::Missing => return,
         Opened::Rejected => return diagnose(found, Cause::Unreadable),
@@ -369,7 +456,7 @@ pub(crate) enum Opened {
 
 /// The candidate's `SKILL.md`: a regular file, or a link to one inside the
 /// root's authority (`openPrimarySkillFile`, `:779-842`).
-pub(crate) fn open_skill_file(dir: &Path, authority: Option<&Path>) -> Opened {
+pub(crate) fn open_skill_file(dir: &Path, authority: Option<&Path>, extra: &Authorities) -> Opened {
     let path = dir.join("SKILL.md");
     let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
@@ -380,7 +467,7 @@ pub(crate) fn open_skill_file(dir: &Path, authority: Option<&Path>) -> Opened {
         let Some(authority) = authority else {
             return Opened::Rejected;
         };
-        let Ok(target) = contained(&path, authority) else {
+        let Ok(target) = contained(&path, authority, extra) else {
             return Opened::Rejected;
         };
         if !fs::symlink_metadata(&target).is_ok_and(|meta| meta.is_file()) {
@@ -444,17 +531,20 @@ fn inspect(file: &mut File, fallback: &str) -> Inspected {
 /// was advertised: its file a regular `SKILL.md` and its name unchanged
 /// (`openValidatedSkillCandidate`, `:989-1046`).
 pub(crate) fn reopen(skill: &Skill, authority: Option<&Path>) -> Result<File, Reopened> {
+    let extra = authorities();
     let dir = match fs::symlink_metadata(&skill.path) {
         Ok(meta) if meta.is_dir() => skill.path.clone(),
         Ok(meta) if meta.file_type().is_symlink() => match authority {
-            Some(authority) => contained(&skill.path, authority).map_err(|_| Reopened::Skipped)?,
+            Some(authority) => {
+                contained(&skill.path, authority, &extra).map_err(|_| Reopened::Skipped)?
+            }
             None => return Err(Reopened::Skipped),
         },
         Ok(_) => return Err(Reopened::Skipped),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(Reopened::Missing),
         Err(_) => return Err(Reopened::Skipped),
     };
-    let mut file = match open_skill_file(&dir, authority) {
+    let mut file = match open_skill_file(&dir, authority, &extra) {
         Opened::File(file) => file,
         Opened::Missing => return Err(Reopened::Missing),
         Opened::Rejected => return Err(Reopened::Skipped),
@@ -636,6 +726,77 @@ mod tests {
                 cause: Cause::LinkedCandidateUnavailable,
             }]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_out_of_the_workspace_is_followed_only_into_a_named_authority() {
+        // `skill_symlink_authorities` / `FX_SKILL_SYMLINK_AUTHORITIES`
+        // (`skill_runtime.zig:586-681`, cases `:5841-6005`): none by default.
+        let base = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(base.path()).unwrap();
+        let work = base.join("work");
+        let home = base.join("home");
+        let store = base.join("store");
+        skill(&store, "stored", "kept in a store");
+        skill(&base.join("other"), "other", "somewhere not named");
+        fs::create_dir_all(work.join(".xfx/skills")).unwrap();
+        for (target, link) in [
+            (store.join("stored"), "stored"),
+            (base.join("other/other"), "other"),
+        ] {
+            std::os::unix::fs::symlink(target, work.join(".xfx/skills").join(link)).unwrap();
+        }
+        // A whole root that is a link into the store.
+        fs::create_dir_all(store.join("shared")).unwrap();
+        skill(
+            &store.join("shared"),
+            "shared-one",
+            "a root kept in the store",
+        );
+        std::os::unix::fs::symlink(store.join("shared"), work.join("skills")).unwrap();
+        // And a link in the managed root, which no authority opens.
+        fs::create_dir_all(home.join(".xfx/skills")).unwrap();
+        std::os::unix::fs::symlink(store.join("stored"), home.join(".xfx/skills/managed")).unwrap();
+        let names = |found: &Discovery| -> Vec<String> {
+            found
+                .skills
+                .iter()
+                .map(|skill| skill.name.clone())
+                .collect()
+        };
+
+        let denied = discover_with(&work, Some(&home), &Authorities::default());
+        assert!(names(&denied).is_empty(), "{:?}", names(&denied));
+        assert!(denied.diagnostics.iter().any(|diagnostic| {
+            diagnostic.path == work.join(".xfx/skills/stored")
+                && diagnostic.cause == Cause::LinkedCandidateUnavailable
+        }));
+
+        let store_text = store.to_string_lossy().into_owned();
+        let configured = Authorities::new(std::slice::from_ref(&store_text), &[]);
+        let allowed = discover_with(&work, Some(&home), &configured);
+        assert_eq!(names(&allowed), ["stored", "shared-one"]);
+        // The link the store does not hold is still refused.
+        assert!(allowed.diagnostics.iter().any(|diagnostic| {
+            diagnostic.path == work.join(".xfx/skills/other")
+                && diagnostic.cause == Cause::LinkedCandidateUnavailable
+        }));
+        // The environment's list is read the same way.
+        let environment = Authorities::new(&[], std::slice::from_ref(&store_text));
+        assert_eq!(
+            names(&discover_with(&work, Some(&home), &environment)),
+            ["stored", "shared-one"]
+        );
+        // A relative entry or one with `..` is no authority at all.
+        let relative = Authorities::new(
+            &["store".to_string(), format!("{}/x/..", store_text)],
+            &["store".to_string()],
+        );
+        assert_eq!(relative, Authorities::default());
+        // A prefix that is not a directory boundary is not inside it.
+        let prefix = Authorities::new(&[format!("{}/stor", base.display())], &[]);
+        assert!(names(&discover_with(&work, Some(&home), &prefix)).is_empty());
     }
 
     #[cfg(unix)]

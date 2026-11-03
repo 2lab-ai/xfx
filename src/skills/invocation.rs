@@ -677,6 +677,63 @@ pub fn load_by_identity(
     resource: Option<&str>,
     budget: Option<usize>,
 ) -> Loaded {
+    load(
+        skills,
+        diagnostics,
+        name,
+        location,
+        resource,
+        budget,
+        Mode::Whole,
+    )
+}
+
+/// The most of a resource one call of the tool's legacy named form returns
+/// (`skill_chunk_bytes`' compiled default, `context_limits.zig:22`).
+pub const CHUNK_LIMIT: usize = 20 * 1024;
+
+/// How much of a resource a load returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// All of it in one `complete="true"` element, or nothing.
+    Whole,
+    /// The tool's legacy named form: [`CHUNK_LIMIT`] of it from this byte on,
+    /// cut at a line break, and where the next call takes up.
+    Chunk { offset: usize },
+}
+
+/// The tool's legacy named form, `name` with an optional `location`,
+/// `resource` and `offset`: the resource a chunk at a time
+/// (`loadByIdentityWithOptions` in `.chunk` mode, `:920-998`).
+pub fn load_chunk(
+    skills: &[Skill],
+    diagnostics: &[Diagnostic],
+    name: &str,
+    location: Option<&Path>,
+    resource: Option<&str>,
+    offset: usize,
+    budget: Option<usize>,
+) -> Loaded {
+    load(
+        skills,
+        diagnostics,
+        name,
+        location,
+        resource,
+        budget,
+        Mode::Chunk { offset },
+    )
+}
+
+fn load(
+    skills: &[Skill],
+    diagnostics: &[Diagnostic],
+    name: &str,
+    location: Option<&Path>,
+    resource: Option<&str>,
+    budget: Option<usize>,
+    mode: Mode,
+) -> Loaded {
     let resource = match resource {
         Some(resource) if !resource.is_empty() => resource,
         _ => "SKILL.md",
@@ -746,6 +803,13 @@ pub fn load_by_identity(
             )
         }
     };
+    if let Mode::Chunk { offset } = mode {
+        return attach(
+            chunk(skill, resource, &read, offset),
+            &mut discovery_notice,
+            budget,
+        );
+    }
     if read.observed > read.bytes.len() {
         let blocked = file_blocked(resource, read.observed);
         let mut failure = Loaded::failure(blocked.clone());
@@ -813,6 +877,89 @@ pub fn load_by_identity(
         &mut discovery_notice,
         budget,
     )
+}
+
+/// One chunk of `read` from `offset` (`loadByIdentityWithOptions`' chunk arm,
+/// `:920-998`): up to [`CHUNK_LIMIT`] bytes cut back to a line break, in a
+/// `<skill_content … offset="…" next_offset="…">` element, with a marker and
+/// a notice saying where the next call takes up -- or that the rest of the
+/// file is past the file limit.
+fn chunk(skill: &Skill, resource: &str, read: &Read_, offset: usize) -> Loaded {
+    let bytes = &read.bytes;
+    if offset > bytes.len() || std::str::from_utf8(&bytes[..offset]).is_err() {
+        return Loaded::failure(
+            "skill offset must be at a valid UTF-8 boundary within the selected resource"
+                .to_string(),
+        );
+    }
+    let blocked = read.observed > bytes.len();
+    if offset == bytes.len() && blocked {
+        let marker = file_blocked(resource, read.observed);
+        let mut failure = Loaded::failure(marker.clone());
+        failure.notice = Some(marker);
+        return failure;
+    }
+    let remaining = &bytes[offset..];
+    let length = line_safe_prefix(remaining, CHUNK_LIMIT);
+    if !remaining.is_empty() && length == 0 {
+        let mut marker =
+            String::from("<context_limit name=\"skill_chunk_bytes\" action=\"blocked\" skill=\"");
+        write_scalar(&mut marker, &skill.name);
+        marker.push_str("\" resource=\"");
+        write_scalar(&mut marker, resource);
+        marker.push_str(&format!(
+            "\" observed_bytes=\"{}\" effective_bytes=\"{CHUNK_LIMIT}\" source=\"compiled default\" offset=\"{offset}\" override=\"--context-limit skill_chunk_bytes=BYTES|off\" />",
+            remaining.len()
+        ));
+        let mut failure = Loaded::failure(marker.clone());
+        failure.notice = Some(marker);
+        return failure;
+    }
+    let next = offset + length;
+    let truncated = next < bytes.len();
+    let file_ended = next == bytes.len() && blocked;
+    let mut output = String::from("<skill_content name=\"");
+    write_scalar(&mut output, &skill.name);
+    output.push_str("\" resource=\"");
+    write_scalar(&mut output, resource);
+    output.push_str(&format!("\" offset=\"{offset}\" next_offset=\"{next}\">\n"));
+    // Checked to be UTF-8 on the way in ([`read_resource`]), and cut at a
+    // character ([`line_safe_prefix`]).
+    output.push_str(&String::from_utf8_lossy(&remaining[..length]));
+    if truncated {
+        output.push_str(&format!(
+            "\n<context_limit name=\"skill_chunk_bytes\" action=\"truncated\" observed_bytes=\"{}\" effective_bytes=\"{CHUNK_LIMIT}\" source=\"compiled default\" next_offset=\"{next}\" override=\"--context-limit skill_chunk_bytes=BYTES|off\" />",
+            remaining.len()
+        ));
+    } else if file_ended {
+        output.push('\n');
+        output.push_str(&file_blocked(resource, read.observed));
+    }
+    output.push_str("\n</skill_content>");
+    let mut named = String::new();
+    write_scalar(&mut named, &skill.name);
+    named.push('/');
+    write_scalar(&mut named, resource);
+    let notice = if truncated {
+        Some(format!(
+            "[context] skill resource \"{named}\" truncated: observed={} bytes effective={CHUNK_LIMIT} bytes source=compiled default; continue with offset={next} or override with --context-limit skill_chunk_bytes=BYTES|off",
+            remaining.len()
+        ))
+    } else if file_ended {
+        Some(format!(
+            "[context] skill resource \"{named}\" remainder blocked: observed={} bytes effective={FILE_LIMIT} bytes source=compiled default; override with --context-limit skill_file_bytes=BYTES|off",
+            read.observed
+        ))
+    } else {
+        None
+    };
+    Loaded {
+        ok: true,
+        output,
+        complete: false,
+        notice,
+        diagnostic_notice: None,
+    }
 }
 
 /// A result with the discovery warning put in front of it, for the model, and
@@ -1167,28 +1314,85 @@ pub fn tool_load(
     resource: Option<&str>,
     budget: usize,
 ) -> Loaded {
+    tool_call(
+        locations,
+        workspace,
+        home,
+        &Call {
+            name: None,
+            location: Some(location),
+            resource,
+            offset: 0,
+        },
+        budget,
+    )
+}
+
+/// What one call of the `skill` tool names (`Input`, `skill.zig:14-26`): the
+/// advertised `location`, or the legacy form's `name` with an optional
+/// location and an `offset` to page from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Call<'a> {
+    pub name: Option<&'a str>,
+    pub location: Option<&'a str>,
+    pub resource: Option<&'a str>,
+    pub offset: usize,
+}
+
+/// The `skill` tool's answer to a call (`prepareInput` and `loadSelected`,
+/// `skill.zig:129-183`): a location resolved against the turn's catalog --
+/// the skills discovered afresh when the catalog does not have it, or when
+/// the call names only a skill -- and the skill it names loaded whole, or by
+/// the legacy named form a chunk at a time.
+pub fn tool_call(
+    locations: Option<&Locations>,
+    workspace: &Path,
+    home: Option<&Path>,
+    call: &Call,
+    budget: usize,
+) -> Loaded {
     let empty = Locations::default();
     let catalog = locations.unwrap_or(&empty);
-    let path = match catalog.resolve(location) {
-        Ok(path) => path,
-        Err(error) => {
+    let path = match call.location.map(|location| catalog.resolve(location)) {
+        Some(Ok(path)) => Some(path),
+        Some(Err(error)) => {
             return Loaded::failure(format!(
                 "skill failed: {}. Refresh available skills and retry with an exact advertised location.",
                 error.name()
             ))
         }
+        None => None,
     };
-    if catalog.skills.iter().any(|skill| skill.path == path) || location.starts_with("skill:") {
-        return load_at(
-            &catalog.skills,
-            &catalog.diagnostics,
-            &path,
-            resource,
-            budget,
-        );
+    let advertised = path.as_ref().is_some_and(|path| {
+        catalog.skills.iter().any(|skill| skill.path == *path)
+            || call
+                .location
+                .is_some_and(|location| location.starts_with("skill:"))
+    });
+    let found;
+    let (skills, diagnostics) = if advertised {
+        (&catalog.skills, &catalog.diagnostics)
+    } else {
+        found = discovery::discover(workspace, home);
+        (&found.skills, &found.diagnostics)
+    };
+    match call.name {
+        // The legacy named form, chunk by chunk (`loadByIdentity`).
+        Some(name) => load_chunk(
+            skills,
+            diagnostics,
+            name,
+            path.as_deref(),
+            call.resource,
+            call.offset,
+            Some(budget),
+        ),
+        None => match path {
+            Some(path) => load_at(skills, diagnostics, &path, call.resource, budget),
+            // The decoder refuses a call with neither.
+            None => Loaded::failure("skill requires an advertised location".to_string()),
+        },
     }
-    let found = discovery::discover(workspace, home);
-    load_at(&found.skills, &found.diagnostics, &path, resource, budget)
 }
 
 /// The skill at exactly `path`, loaded whole (`loadWholeByLocation`, `:640-658`).
@@ -1390,7 +1594,7 @@ If a skill cannot be followed, state the blocker instead of silently substitutin
         let skills = vec![workspace_skill(&root, "demo", "body\n")];
         fs::create_dir_all(skills[0].path.join("refs")).unwrap();
         fs::write(skills[0].path.join("refs/a.md"), "reference\n").unwrap();
-        let catalog = super::super::catalog::build(&skills, &[]);
+        let catalog = super::super::catalog::build(&skills, &[], None);
         let location = catalog.locations.of(&skills[0]).unwrap();
         let workspace = base.path().join("work");
         fs::create_dir_all(&workspace).unwrap();

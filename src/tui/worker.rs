@@ -5140,7 +5140,9 @@ async fn one_turn(
     await_catalog_for_window(state, events, turn).await;
     // The skills this workspace has now -- one added in another window is in
     // this prompt's catalog -- and the ones the prompt or its `$` tokens name,
-    // loaded whole for this turn (`crate::skills`).
+    // loaded whole for this turn (`crate::skills`). The catalog's budget is
+    // sized by the model's window, as the catalog read at launch gives it
+    // (`prepareSkillCatalog`'s `request_capabilities.context_window`).
     let skills = crate::skills::TurnSkills::prepare(
         state
             .conversation
@@ -5152,6 +5154,7 @@ async fn one_turn(
         state.config.home(),
         &prompt,
         &bindings,
+        state.context_window(),
     );
     say_skills(&skills, events, turn).await;
     let options = match state.request_options() {

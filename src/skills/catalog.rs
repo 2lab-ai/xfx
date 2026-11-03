@@ -35,13 +35,63 @@ const FOOTER: &str = "</available_skills>\n";
 /// `:3175-3178`).
 const DESCRIPTION_CHARACTERS: usize = 1024;
 
-/// The block's budget, in characters: upstream's when it is not told the
-/// model's context window (`SkillPromptBudget.resolve`, `:3062-3074`). xfx
-/// does not size it by the window, so this is the budget it always has.
+/// The block's budget when the model's context window is not known, in
+/// characters (`SkillPromptBudget.resolve`, `:3061-3074`).
 const BUDGET_CHARACTERS: usize = 8000;
 
-/// What upstream calls the budget's source in its notices.
+/// The most a budget sized by the window may be, in bytes
+/// (`context_limits.emergency_ceiling_bytes`,
+/// `src/core/config/context_limits.zig:3`).
+const CEILING_BYTES: u64 = 64 * 1024 * 1024;
+
+/// What upstream calls the budget's source in its notices: xfx has no
+/// `--context-limit` override, so the budget is always the compiled default's.
 const BUDGET_SOURCE: &str = "compiled default";
+
+/// How big the block may be (`SkillPromptBudget`, `skill_runtime.zig:3061-3083`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Budget {
+    pub limit: usize,
+    /// Counted in characters rather than bytes.
+    pub characters: bool,
+}
+
+impl Budget {
+    /// Two percent of the model's context window, four bytes a token, under
+    /// the ceiling; 8000 characters when the window is not known
+    /// (`SkillPromptBudget.resolve`). A window of `200_000` is `16_000` bytes.
+    pub fn for_window(window: Option<u64>) -> Self {
+        match window.filter(|window| *window > 0) {
+            Some(window) => Self {
+                limit: usize::try_from(CEILING_BYTES.min((window * 2 / 100).max(1) * 4))
+                    .unwrap_or(usize::MAX),
+                characters: false,
+            },
+            None => Self {
+                limit: BUDGET_CHARACTERS,
+                characters: true,
+            },
+        }
+    }
+
+    /// What `text` costs against it.
+    fn cost(self, text: &str) -> usize {
+        if self.characters {
+            text.chars().count()
+        } else {
+            text.len()
+        }
+    }
+
+    /// The unit a notice names it in.
+    fn unit(self) -> &'static str {
+        if self.characters {
+            "characters"
+        } else {
+            "bytes"
+        }
+    }
+}
 
 /// What a catalog build produced: the block, the notices about what it had to
 /// leave out, and the locations it handed out.
@@ -128,9 +178,11 @@ impl Locations {
     }
 }
 
-/// The catalog for `skills`, and the warning about what discovery skipped
-/// (`buildSkillPrompt`, `:3023-3059`).
-pub fn build(skills: &[Skill], diagnostics: &[Diagnostic]) -> Catalog {
+/// The catalog for `skills`, sized by the context window of the model the
+/// turn talks to when one is known, and the warning about what discovery
+/// skipped (`buildSkillPrompt`, `:3023-3059`; the window is the request's,
+/// `prepareSkillCatalog`, `orchestrator.zig:5440-5458`, `:5617`).
+pub fn build(skills: &[Skill], diagnostics: &[Diagnostic], window: Option<u64>) -> Catalog {
     // A name or a path a model cannot be shown as it is -- not UTF-8, or with
     // a NUL in it -- would be advertised as something else, so it is not
     // advertised at all (`modelProjectionPreservesText`).
@@ -139,7 +191,7 @@ pub fn build(skills: &[Skill], diagnostics: &[Diagnostic]) -> Catalog {
         .filter(|skill| model_safe(&skill.name) && skill.path.to_str().is_some_and(model_safe))
         .collect();
     let namespace = namespace(visible.iter().copied());
-    let mut catalog = render(&visible, namespace);
+    let mut catalog = render(&visible, namespace, Budget::for_window(window));
     catalog.locations.skills = skills.to_vec();
     catalog.locations.diagnostics = diagnostics.to_vec();
     if visible.len() < skills.len() {
@@ -203,7 +255,7 @@ struct Entry {
     limited: bool,
 }
 
-fn render(skills: &[&Skill], namespace: u64) -> Catalog {
+fn render(skills: &[&Skill], namespace: u64, budget: Budget) -> Catalog {
     if skills.is_empty() {
         return Catalog::default();
     }
@@ -248,7 +300,8 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
         });
     }
 
-    let cost = |text: &str| text.chars().count();
+    let cost = |text: &str| budget.cost(text);
+    let limit = budget.limit;
     let base = cost(HEADER) + cost(FOOTER);
     let mut minimum = base
         + root_lines.iter().map(|line| cost(line)).sum::<usize>()
@@ -259,7 +312,7 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
     let mut retained = entries.len();
     let mut retained_roots = roots.len();
     let mut marker = String::new();
-    if minimum > BUDGET_CHARACTERS {
+    if minimum > limit {
         retained = 0;
         retained_roots = 0;
         minimum = base;
@@ -272,7 +325,7 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
             candidate_roots = entry.root_count;
             candidate += cost(&entry.prefix) + cost(&entry.suffix);
             let omitted = format!("Omitted skills: {}.\n", entries.len() - index - 1);
-            if candidate + cost(&omitted) > BUDGET_CHARACTERS {
+            if candidate + cost(&omitted) > limit {
                 break;
             }
             retained = index + 1;
@@ -286,7 +339,7 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
     // The descriptions get what is left, one scalar per entry per round, so a
     // tight budget shortens every description a little rather than dropping
     // the last ones whole.
-    let mut available = BUDGET_CHARACTERS.saturating_sub(minimum);
+    let mut available = limit.saturating_sub(minimum);
     let mut progress = true;
     while progress && available > 0 {
         progress = false;
@@ -307,7 +360,7 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
     }
 
     let mut text = String::new();
-    if minimum <= BUDGET_CHARACTERS {
+    if minimum <= limit {
         text.push_str(HEADER);
         for line in &root_lines[..retained_roots] {
             text.push_str(line);
@@ -340,7 +393,8 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
         .count();
     if shortened > 0 {
         notices.push_str(&format!(
-            "[context] skill catalog shortened {shortened} descriptions: effective={BUDGET_CHARACTERS} characters source={BUDGET_SOURCE}\n"
+            "[context] skill catalog shortened {shortened} descriptions: effective={limit} {} source={BUDGET_SOURCE}\n",
+            budget.unit()
         ));
     }
     if retained < skills.len() {
@@ -356,9 +410,10 @@ fn render(skills: &[&Skill], namespace: u64) -> Catalog {
             String::new()
         };
         notices.push_str(&format!(
-            "[context] skill catalog omitted {} entries ({}{more}): effective={BUDGET_CHARACTERS} characters source={BUDGET_SOURCE}\n",
+            "[context] skill catalog omitted {} entries ({}{more}): effective={limit} {} source={BUDGET_SOURCE}\n",
             omitted.len(),
-            shown.join(", ")
+            shown.join(", "),
+            budget.unit()
         ));
     }
     Catalog {
@@ -525,7 +580,7 @@ mod tests {
 
     #[test]
     fn the_block_is_upstreams_byte_for_byte() {
-        let catalog = build(&captured(), &[]);
+        let catalog = build(&captured(), &[], None);
         assert_eq!(
             catalog.text,
             "Skills provide task instructions. Use named skills and clearly matching skills before substantive work.\n\
@@ -545,7 +600,7 @@ Root 2: /private/tmp/claude-501/fxcap.BElQiS/home/.fx/skills\n\
 
     #[test]
     fn no_skill_is_no_block() {
-        assert_eq!(build(&[], &[]).text, "");
+        assert_eq!(build(&[], &[], None).text, "");
     }
 
     #[test]
@@ -600,7 +655,7 @@ Root 2: /private/tmp/claude-501/fxcap.BElQiS/home/.fx/skills\n\
     #[test]
     fn a_long_description_is_cut_at_1024_characters_and_said_so() {
         let long = "é".repeat(1100);
-        let catalog = build(&[skill("x", &long, "/r/x", Source::Managed)], &[]);
+        let catalog = build(&[skill("x", &long, "/r/x", Source::Managed)], &[], None);
         let line = catalog
             .text
             .lines()
@@ -625,7 +680,7 @@ Root 2: /private/tmp/claude-501/fxcap.BElQiS/home/.fx/skills\n\
                 )
             })
             .collect();
-        let catalog = build(&skills, &[]);
+        let catalog = build(&skills, &[], None);
         assert!(catalog.text.chars().count() <= BUDGET_CHARACTERS);
         let marker = catalog
             .text
@@ -639,5 +694,57 @@ Root 2: /private/tmp/claude-501/fxcap.BElQiS/home/.fx/skills\n\
             .count();
         assert_eq!(marker, format!("Omitted skills: {}.", 200 - listed));
         assert!(catalog.notice.unwrap().contains("skill catalog omitted"));
+    }
+
+    #[test]
+    fn the_budget_is_two_percent_of_the_models_window_in_bytes_and_8000_characters_without_one() {
+        // `skill catalog uses model capacity and preserves explicit byte
+        // overrides` (`skill_runtime.zig:4479-4500`).
+        assert_eq!(
+            Budget::for_window(None),
+            Budget {
+                limit: 8000,
+                characters: true
+            }
+        );
+        assert_eq!(Budget::for_window(Some(0)), Budget::for_window(None));
+        assert_eq!(
+            Budget::for_window(Some(200_000)),
+            Budget {
+                limit: 16_000,
+                characters: false
+            }
+        );
+        // At least one token, and never past the ceiling.
+        assert_eq!(Budget::for_window(Some(10)).limit, 4);
+        assert_eq!(
+            Budget::for_window(Some(u64::MAX / 4)).limit,
+            64 * 1024 * 1024
+        );
+        let skills: Vec<Skill> = (0..16)
+            .map(|index| {
+                skill(
+                    &format!("entry-{index}"),
+                    &"useful instructions ".repeat(80),
+                    &format!("/r/entry-{index}"),
+                    Source::Managed,
+                )
+            })
+            .collect();
+        let unknown = build(&skills, &[], None);
+        let large = build(&skills, &[], Some(200_000));
+        assert!(unknown.text.chars().count() <= 8000);
+        assert!(large.text.len() > unknown.text.len());
+        assert!(large.text.len() <= 16_000);
+        assert!(
+            large.notice.as_deref().is_some_and(
+                |notice| notice.contains("effective=16000 bytes source=compiled default")
+            ),
+            "{:?}",
+            large.notice
+        );
+        assert!(unknown.notice.as_deref().is_some_and(
+            |notice| notice.contains("effective=8000 characters source=compiled default")
+        ));
     }
 }

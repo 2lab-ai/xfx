@@ -1624,12 +1624,18 @@ async fn one_turn(
         });
 
     // The skills this workspace has, and those the prompt names, read now as
-    // the project instructions are (`crate::skills`).
+    // the project instructions are (`crate::skills`). This shell reads no
+    // catalog for a turn, so the catalog's budget is sized by the window the
+    // Gateway is known to give the model, and by none elsewhere.
+    let window = (config.provider == ProviderId::Gateway)
+        .then(|| crate::provider::model::gateway_context_window(model))
+        .flatten();
     let skills = crate::skills::TurnSkills::prepare(
         conversation.tools.scope().primary(),
         config.home(),
         &prompt,
         &[],
+        window,
     );
     let mut tools = conversation.tools.clone();
     tools.set_skills(

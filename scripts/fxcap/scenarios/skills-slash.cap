@@ -1,0 +1,36 @@
+# The slash popup lists the skills a query finds after its commands
+# (prepareSlashMenu, picker_presentation.zig:1100-1124; slashMenuRowContent,
+# :1240-1266): name, description, short source, under `Results N`. Tab and
+# Enter on a skill row bind its token (bindSelectedSlashSkill,
+# app_input_runtime.zig:2895-2919).
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+wait 3
+type /
+wait 0.8
+snap slash-all
+key Up
+wait 0.5
+snap slash-all-up
+key C-u
+wait 0.3
+type /de
+wait 0.8
+snap slash-de
+type m
+wait 0.8
+snap slash-dem
+key Tab
+wait 0.5
+snap slash-dem-tab
+key C-u
+wait 0.3
+type /re
+wait 0.8
+snap slash-re
+type l
+wait 0.8
+snap slash-rel
+key Enter
+wait 0.8
+snap rel-enter

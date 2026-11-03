@@ -12105,22 +12105,20 @@ fn slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network
         &["* skills: Failed to install. Check the source path or URL and try again."],
         &[],
     );
-    // The installed skill is in the next search, first: a name match ranks
-    // above `demo`, which `fo` finds only in its description
-    // (`skillMatchRank`, `skill_runtime.zig:1378-1395`).
-    session.type_bytes(b"$fo");
+    // The installed skill is in the next search. By its whole name: a search
+    // also reads each skill's path (`skillMatchRank`,
+    // `skill_runtime.zig:1378-1395`), and a sandbox under `/var/folders`
+    // would answer a shorter one with every skill -- the ranking itself is
+    // `skills_menu`'s own case.
+    session.type_bytes(b"$foo");
     on_screen(
         &session,
         (40, 120),
-        &[
-            "Skills 2",
-            "  foo     xfx \u{b7} Global",
-            "  demo    xfx \u{b7} Workspace",
-        ],
-        &[],
+        &["Skills 1", "  foo    xfx \u{b7} Global"],
+        &["  demo "],
     );
-    session.type_bytes(&[0x1b, 0x7f, 0x7f, 0x7f]);
-    on_screen(&session, (40, 120), &[], &["Skills 2", "$fo"]);
+    session.type_bytes(&[0x1b, 0x7f, 0x7f, 0x7f, 0x7f]);
+    on_screen(&session, (40, 120), &[], &["Skills 1", "$foo"]);
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 }
