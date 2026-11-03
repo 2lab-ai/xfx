@@ -24,6 +24,7 @@ use rustix::process::{Pid, Signal};
 use rustix::termios::{ControlModes, InputModes, LocalModes, OutputModes};
 use serde_json::{json, Value};
 
+use support::fake_clipboard::FakeClipboard;
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
@@ -38,6 +39,21 @@ fn start(sandbox: &Sandbox, pty: &Pty, command: Command) -> Session {
     session.wait_for(PROMPT);
     let _ = sandbox;
     session
+}
+
+/// Types `line` and waits for the answer `reply`, received **once more than
+/// it had been** before the line went.
+///
+/// Not `wait_for(reply)`: the banner prints the workspace, whose temporary
+/// directory has a random name (`.tmp48fOS3` holds `ok`) under whatever
+/// `TMPDIR` is, so a short reply can be on the terminal before anything was
+/// asked, and a test that then reads the Gateway's requests reads none --
+/// `slash_model_reports_the_active_model_and_changes_it_for_later_turns`
+/// failed so, every run, with `ok` in `TMPDIR`.
+fn type_and_wait(session: &Session, line: &str, reply: &str) -> String {
+    let seen = session.text().matches(reply).count();
+    session.type_line(line);
+    session.wait_for_count(reply, seen + 1)
 }
 
 /// The JSON body of the request the Gateway received at `index`.
@@ -132,6 +148,51 @@ fn a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation
     assert_eq!(session.wait_exit().code(), Some(1));
 }
 
+#[test]
+fn the_shell_opens_saying_what_the_configuration_could_not_use_and_what_it_means() {
+    // `xfx ask`'s lines with the shell's prefix, and a table that did not read
+    // with the way back -- in full access, which consults no table, that it is
+    // not applied rather than that every tool is refused.
+    let reason = "a permission table did not read (user config diagnostic: invalid_value \
+                  key=permission `sure` is not a permission action; use allow, ask or deny); \
+                  fix it, then /allowlist reads it again";
+    for (profile, said) in [
+        (
+            r#"{"permission":{"bash":"sure"}}"#,
+            format!("xfx: permissions: every tool is refused: {reason}"),
+        ),
+        (
+            r#"{"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
+            format!(
+                "xfx: permissions: full access consults no table, so it is not applied; \
+                 every other mode refuses every tool: {reason}"
+            ),
+        ),
+    ] {
+        let sandbox = Sandbox::new();
+        let profile_dir = sandbox.settings_path().parent().unwrap().to_path_buf();
+        fs::create_dir_all(&profile_dir).unwrap();
+        // Owner-only, as a session store must be.
+        fs::set_permissions(
+            &profile_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        fs::write(sandbox.settings_path(), profile).unwrap();
+        let pty = Pty::open();
+        let mut session = start(&sandbox, &pty, sandbox.command());
+        let text = session.text();
+        assert!(
+            text.contains(
+                "xfx: config user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny\r\n"
+            ),
+            "{profile}: {text}"
+        );
+        assert!(text.contains(&format!("{said}\r\n")), "{profile}: {text}");
+        assert_eq!(session.quit().code(), Some(0), "{profile}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // the prompt loop
 // ---------------------------------------------------------------------------
@@ -219,10 +280,8 @@ fn a_second_prompt_continues_the_same_conversation() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("one");
-    session.wait_for("first");
-    session.type_line("two");
-    session.wait_for("second");
+    type_and_wait(&session, "one", "first");
+    type_and_wait(&session, "two", "second");
 
     let body = request_body(&gateway, 1);
     assert_eq!(
@@ -244,10 +303,8 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("first");
-    session.wait_for("401");
-    session.type_line("second");
-    session.wait_for("recovered");
+    type_and_wait(&session, "first", "401");
+    type_and_wait(&session, "second", "recovered");
 
     assert_eq!(session.quit().code(), Some(0));
 }
@@ -255,6 +312,82 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
 // ---------------------------------------------------------------------------
 // the canonical slash commands
 // ---------------------------------------------------------------------------
+
+#[test]
+fn slash_permissions_says_the_mode_changes_it_and_records_it() {
+    // The line shell's half of `/permissions`: upstream's `[permissions] …`
+    // text lines, the same words as the TUI's notices, and the same profile
+    // key written.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/permissions");
+    let text = session.wait_for("[permissions] /permissions revoke <rule-id>");
+    for row in [
+        "[permissions] mode=auto",
+        "[permissions] configured rules: (none)",
+        "[permissions] session grants: (none)",
+        "[permissions] saved-session permission rules: none",
+        "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+        "[permissions] /permissions remember <allow|deny> <tool-name> <arguments-json>",
+    ] {
+        assert!(text.contains(row), "{row} missing: {text}");
+    }
+
+    session.type_line("/permissions Full-Access");
+    let text = session.wait_for("mode set to full access");
+    assert!(
+        text.contains("[permissions] mode set to full access"),
+        "{text}"
+    );
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "yolo"}));
+
+    session.type_line("/permissions");
+    session.wait_for("[permissions] mode=full access");
+
+    session.type_line("/permissions reset");
+    session.wait_for("[permissions] permissions reset to ask, session grants cleared");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "ask"}));
+
+    session.type_line("/permissions bogus");
+    session.wait_for("xfx: usage: /permissions [ask|auto|full-access|reset]");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_permissions_says_when_a_higher_layer_still_decides_a_fresh_session() {
+    // Upstream's shadow suffix (`appendShadowedUserSource`,
+    // `session_commands.zig:225-236`): the write happened, and the environment
+    // still decides what the next launch starts in.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command();
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/permissions auto");
+    let text = session.wait_for("higher-precedence permission_mode=process_override");
+    assert!(
+        text.contains(
+            "xfx: permission-mode: saved to user settings (scope=user); fresh sessions \
+             here use higher-precedence permission_mode=process_override"
+        ),
+        "{text}"
+    );
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "auto"}));
+
+    assert_eq!(session.quit().code(), Some(0));
+}
 
 #[test]
 fn slash_help_lists_exactly_the_canonical_commands() {
@@ -272,29 +405,119 @@ fn slash_help_lists_exactly_the_canonical_commands() {
         assert!(text.contains(command), "help omits {command}: {text}");
     }
     assert!(
-        text.contains("/setup"),
-        "the seventh canonical command is not advertised: {text}"
+        text.contains("/provider") && text.contains("(also /setup)"),
+        "the provider command and its alias are not advertised: {text}"
     );
     // Advertisement is a promise here too: no deferred upstream slash command
-    // may appear. `/setup` left this list when it stopped being deferred;
-    // `/models` and `/provider` did not, because the catalog browser is reached
-    // by a bare `/model` rather than by a command of its own.
-    for absent in [
-        "/resume",
-        "/status",
-        "/login",
-        "/permissions",
-        "/models",
-        "/provider",
-        "/mcp",
-        "/undo",
-        "/stats",
-        "/usage",
-        "/image",
-    ] {
+    // may appear. `/setup` left this list when it stopped being deferred, and
+    // `/stats`, `/status` and `/permissions` after it, `/provider` when it
+    // became the canonical name of the same command with `/setup` as its
+    // alias, `/resume` and `/rename` after those, `/undo` after them, and
+    // `/image`, `/images` and `/paste` after that, and `/usage` with its
+    // dashboard, and `/mcp` with its client, and `/alias`; `/models` did not,
+    // because the catalog browser is reached by a bare `/model` rather than by
+    // a command of its own.
+    assert!(
+        text.contains("(also /img)"),
+        "the image command's alias is not advertised: {text}"
+    );
+    for absent in ["/login", "/models"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_usage_on_the_line_shell_says_where_the_dashboard_is() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    session.type_line("/usage");
+    session.wait_for("xfx: /usage shows its dashboard in the full-screen shell");
+    // `/cost` is the same command.
+    session.type_line("/cost");
+    session.wait_for_count("xfx: /usage shows its dashboard", 2);
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_alias_on_the_line_shell_says_upstreams_sentence_for_every_form() {
+    // fx c1db919 answers `/alias`, `/alias <name>` and `/alias <name> <command>`
+    // alike (`commandHandleAlias`, `app_commands.zig:2043-2050`): each is the
+    // command, with the rest of the line dropped, and none of them a prompt.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    let said = "[shell] aliases: Aliases are not yet configurable.";
+    for (times, line) in [
+        (1, "/alias"),
+        (2, "/alias build"),
+        (3, "/alias build zig build"),
+    ] {
+        session.type_line(line);
+        session.wait_for_count(said, times);
+    }
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_asks_the_gateway_the_turn_would_use_with_the_turns_bearer() {
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string()),
+        Reply::Status(404, "not found".to_string()),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/credits");
+    let text = session.wait_for("[credits] plan=pro");
+    assert!(
+        text.contains("[credits] balance=42.17\r\n[credits] used=7.83\r\n[credits] plan=pro"),
+        "{text}"
+    );
+    let asked = gateway.only_request();
+    assert_eq!(
+        (asked.method.as_str(), asked.path.as_str()),
+        ("GET", "/coding-agent/v1/credits")
+    );
+    assert_eq!(
+        asked.header("authorization"),
+        Some(format!("Bearer {TEST_KEY}").as_str())
+    );
+
+    // `/balance` is the same command, and a refusal is upstream's wording.
+    session.type_line("/balance");
+    let text = session.wait_for("[credits] error: HTTP 404: not found");
+    assert_eq!(gateway.request_count(), 2);
+    assert!(
+        !text.contains(TEST_KEY),
+        "the credential reached the terminal"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_with_no_credential_or_on_llmux_asks_nobody() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    session.type_line("/credits");
+    session.wait_for(
+        "[credits] error: xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.",
+    );
+    assert_eq!(session.quit().code(), Some(0));
+
+    // llmux keeps no balance (`gateway_provider.zig:89-101`'s sentence), and
+    // the daemon is not asked for one.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+    session.type_line("/credits");
+    session.wait_for("[credits] error: Credits are unavailable for the selected provider.");
+    assert!(daemon.requests().is_empty(), "{:?}", daemon.requests());
     assert_eq!(session.quit().code(), Some(0));
 }
 
@@ -312,6 +535,123 @@ fn slash_version_prints_the_same_version_the_command_line_does() {
 }
 
 #[test]
+fn slash_status_reports_this_shells_own_model_and_conversation() {
+    // The `status` command's lines, about the model `/model` chose and the
+    // conversation this shell is holding rather than the store's last session.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/status");
+    let text = session.wait_for("agent_step_limit=");
+    assert!(text.contains("[status] history_turns=0"), "{text}");
+    assert!(text.contains("[status] model=zai/glm-5.2"), "{text}");
+
+    session.type_line("/model acme/model-9");
+    session.wait_for("model=acme/model-9");
+    type_and_wait(&session, "hello", "ok");
+    session.type_line("/status");
+    let text = session.wait_for("[status] history_turns=1");
+    assert!(text.contains("[status] model=acme/model-9"), "{text}");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/stats");
+    let text = session.wait_for("draws none");
+    assert!(!text.contains("ansi_bytes="), "{text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_compact_says_where_compaction_runs_and_asks_nobody() {
+    // Upstream's compaction shows on the full-screen shell's activity row and
+    // nowhere else; this shell has no row, so it says where it is.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/compact");
+    let text = session.wait_for("shows its progress");
+    assert!(
+        text.contains("xfx: /compact runs in the full-screen shell"),
+        "{text}"
+    );
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
+    // The same switch, saved to the same file the full-screen shell reads; and
+    // the line that says so, because this shell's question is the shared stdin
+    // prompter's and rings nothing.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command();
+    command.env("XFX_SOUND", "off");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/sound");
+    let text = session.wait_for("rings none");
+    assert!(text.contains("[shell] sound: on;"), "{text}");
+    assert_eq!(
+        sandbox.settings(),
+        Some(json!({"notifications": {"turn_end": true, "attention_required": true}}))
+    );
+    session.type_line("/sound max");
+    session.wait_for("usage: /sound [on|off]");
+    session.type_line("/sound off");
+    session.wait_for("[shell] sound: off;");
+    assert_eq!(
+        sandbox.settings(),
+        Some(json!({"notifications": {"turn_end": false, "attention_required": false}}))
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_rename_titles_a_session_before_any_prompt_and_slash_resume_says_where_the_picker_is() {
+    // The line shell has no picker; it says where one is rather than resuming
+    // something nobody picked.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/resume");
+    session.wait_for("has no picker");
+    session.type_line("/rename");
+    session.wait_for("usage: /rename <title>");
+    session.type_line("/rename   My Title  ");
+    session.wait_for("[shell] session renamed to \"My Title\"");
+    assert_eq!(session.quit().code(), Some(0));
+
+    // Opened for the rename, and kept with it though nothing was asked.
+    let sessions: Vec<_> = std::fs::read_dir(sandbox.sessions_dir())
+        .expect("the store was created")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    let manifest = std::fs::read_to_string(sessions[0].join("session.json")).expect("a manifest");
+    assert!(manifest.contains("\"title\":\"My Title\""), "{manifest}");
+    let log = std::fs::read_to_string(sessions[0].join("events.jsonl")).expect("a log");
+    assert!(
+        log.contains(r#""event":{"kind":"session_renamed","title":"My Title"}"#),
+        "{log}"
+    );
+}
+
+#[test]
 fn slash_model_reports_the_active_model_and_changes_it_for_later_turns() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
     let sandbox = Sandbox::new();
@@ -324,8 +664,7 @@ fn slash_model_reports_the_active_model_and_changes_it_for_later_turns() {
 
     session.type_line("/model acme/model-9");
     session.wait_for("model=acme/model-9");
-    session.type_line("hello");
-    session.wait_for("ok");
+    type_and_wait(&session, "hello", "ok");
 
     // The model travels as the Gateway's own header, exactly as `ask` sends it.
     let requests = gateway.requests();
@@ -393,25 +732,60 @@ fn slash_model_browses_the_catalog_the_daemon_publishes() {
 }
 
 #[test]
-fn slash_model_refuses_an_id_the_daemon_does_not_publish() {
+fn slash_model_lists_a_hostile_catalog_without_its_control_characters() {
+    // The catalog is the daemon's document and its parser takes any
+    // non-empty string, so what `/model` lists is foreign text on this
+    // shell's terminal: an OSC title, a clear, an OSC 8 link, a bell and a C1
+    // CSI in an id, an alias and an effort reach stdout as spaces. Red before:
+    // each went out as written.
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "id\u{1b}]0;pwned\u{7}x", "efforts": ["lo\u{1b}[2Jw", "hi\u{9b}31mgh"]},
+        {"id": "m-2", "aliases": ["al\u{1b}]8;;mailto:a@b\u{1b}\\ias"]}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    session.type_line("/model");
+    session.wait_for("catalog=2 models");
+    // The prompt after the listing: every line of it is on the terminal.
+    let text = session.wait_for_count(PROMPT, 2);
+    assert!(text.contains("id ]0;pwned x"), "{text:?}");
+    assert!(text.contains("efforts=lo [2Jw,hi 31mgh"), "{text:?}");
+    assert!(text.contains("al ]8;;mailto:a@b \\ias"), "{text:?}");
+    let obeyed: Vec<char> = text
+        .chars()
+        .filter(|c| c.is_control() && !matches!(c, '\n' | '\r'))
+        .collect();
+    assert_eq!(obeyed, Vec::<char>::new(), "{text:?}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_applies_an_id_the_daemon_does_not_list_and_resolves_one_it_does() {
+    // Upstream's rule (`fx-model-fuzzy-40x120-unknown`): an id the catalog does
+    // not list is applied as typed, not refused -- a catalog is what a provider
+    // lists, not everything it will run. A query that names a listed id is
+    // resolved to it (`resolveModelQuery`).
     let daemon = FakeLlmux::start(Vec::new())
         .with_catalog(json!({"models": [{"id": "m-1", "aliases": ["fable"]}]}));
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
 
-    // Load the catalog first, the way a user does: the refusal is only possible
-    // against a catalog xfx actually read.
+    // Load the catalog first, the way a user does: resolution is against a
+    // catalog xfx actually read.
     session.type_line("/model");
     session.wait_for("catalog=1 models");
-    session.type_line("/model not-published");
-    let text = session.wait_for("does not publish");
-    assert!(text.contains("not-published"), "{text}");
-    assert!(text.contains("llmux"), "{text}");
+    session.type_line("/model unlisted-xyz");
+    let text = session.wait_for("[shell] model=unlisted-xyz");
+    assert!(!text.contains("does not publish"), "{text}");
+    // Checked against a catalog that was read, so no caveat.
+    assert!(!text.contains("not checked"), "{text}");
 
-    session.type_line("/model");
-    let text = session.wait_for("model=");
-    assert!(text.contains("m-1"), "a refusal changes nothing: {text}");
+    session.type_line("/model m");
+    session.wait_for("[shell] model=m-1");
 
     assert_eq!(session.quit().code(), Some(0));
 }
@@ -466,35 +840,147 @@ fn slash_model_accepts_a_direct_selection_before_browsing_with_a_warning() {
 }
 
 #[test]
-fn slash_clear_erases_the_screen_and_keeps_the_conversation() {
-    let gateway = FakeGateway::start(vec![
-        Reply::Sse(content_only(&["before"])),
-        Reply::Sse(content_only(&["after"])),
-    ]);
+fn slash_clear_and_slash_reset_are_slash_new_and_erase_nothing() {
+    // Upstream's three names for one operation (`app_commands.zig:667-680`):
+    // each drops the conversation, and the next prompt opens a new identity
+    // that remembers nothing. None of them erases what the shell printed --
+    // upstream hands the visible transcript to the terminal's scrollback
+    // rather than taking it away, and on a line shell that is simply leaving
+    // it where it is.
+    for command in ["/clear", "/reset"] {
+        let gateway = FakeGateway::start(vec![
+            Reply::Sse(content_only(&["before"])),
+            Reply::Sse(content_only(&["after"])),
+        ]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+        type_and_wait(&session, "remember this", "before");
+        let ids_before = sandbox.session_ids();
+        assert_eq!(ids_before.len(), 1);
+
+        session.type_line(command);
+        let text = session.wait_for_count(PROMPT, 3);
+        assert!(
+            !text.contains("\u{1b}[2J") && !text.contains("\u{1b}[3J"),
+            "{command} erased the screen or the scrollback: {text:?}"
+        );
+        assert!(
+            text.contains("the next prompt starts a fresh conversation"),
+            "{command} did not say what it did: {text:?}"
+        );
+
+        type_and_wait(&session, "and now", "after");
+
+        let ids_after = sandbox.session_ids();
+        assert_eq!(ids_after.len(), 2, "{command} kept the old identity");
+        assert_eq!(
+            user_messages(&request_body(&gateway, 1)),
+            vec!["and now".to_string()],
+            "{command} kept the conversation"
+        );
+
+        assert_eq!(session.quit().code(), Some(0));
+    }
+}
+
+#[test]
+fn slash_setup_passes_over_a_catalog_model_with_a_control_character() {
+    // `/setup llmux` adopts a model from the daemon's catalog when the
+    // configured one is not in it, writes it into the profile, and says it on
+    // this terminal: a first entry whose id carries an OSC title and a C1 CSI
+    // is passed over for the next one. Red before: it was adopted, said and
+    // written as the daemon sent it.
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "e\u{1b}]0;pwned\u{7}v\u{9b}31mil"},
+        {"id": "m-2"}
+    ]}));
     let sandbox = Sandbox::new();
     let pty = Pty::open();
-    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
 
-    session.type_line("remember this");
-    session.wait_for("before");
-    let ids_before = sandbox.session_ids();
-
-    session.type_line("/clear");
-    let text = session.wait_for("\u{1b}[2J");
-    assert!(text.contains("\u{1b}[3J"), "the scrollback was not erased");
-
-    session.type_line("and now");
-    session.wait_for("after");
-
-    // Same session, and the cleared turn is still in the conversation.
-    assert_eq!(sandbox.session_ids(), ids_before, "/clear changed identity");
-    assert_eq!(
-        user_messages(&request_body(&gateway, 1)),
-        vec!["remember this".to_string(), "and now".to_string()],
-        "/clear forgot the conversation"
-    );
-
+    session.type_line("/setup llmux");
+    session.wait_for("[shell] provider=llmux");
+    let text = session.wait_for_count(PROMPT, 2);
+    let obeyed: Vec<char> = text
+        .chars()
+        .filter(|c| c.is_control() && !matches!(c, '\n' | '\r'))
+        .collect();
+    assert_eq!(obeyed, Vec::<char>::new(), "{text:?}");
+    assert!(!text.contains("pwned"), "{text:?}");
     assert_eq!(session.quit().code(), Some(0));
+    let settings = sandbox.settings().expect("a profile");
+    assert_eq!(settings["models"]["llmux"], "m-2", "{settings}");
+}
+
+#[test]
+fn slash_setup_switches_provider_and_the_next_prompt_carries_the_conversation() {
+    // The line shell's `/setup llmux` keeps the conversation as the TUI's
+    // switch does, as upstream's `/provider` keeps its session
+    // (`app_auth_runtime.zig:1377-1381`): one session, and the daemon's first
+    // request carries the Gateway's turn in Anthropic's shape.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["GATEWAY-SAID-IT"]))]);
+    let daemon = FakeLlmux::start(vec![Reply::Sse(support::fake_llmux::anthropic_answer(&[
+        "DAEMON-SAID-IT",
+    ]))]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_both(&gateway, &daemon));
+
+    session.type_line("remember the gateway");
+    session.wait_for("GATEWAY-SAID-IT");
+    session.type_line("/setup llmux");
+    let text = session.wait_for("[shell] provider=llmux");
+    session.wait_for_count(PROMPT, 3);
+    assert!(
+        !text.contains("fresh conversation"),
+        "the switch said it dropped the conversation: {text}"
+    );
+    session.type_line("and the daemon?");
+    session.wait_for("DAEMON-SAID-IT");
+    assert_eq!(session.quit().code(), Some(0));
+
+    assert_eq!(
+        sandbox.session_ids().len(),
+        1,
+        "the switch opened a session"
+    );
+    let body: Value =
+        serde_json::from_str(&daemon.only_message_request().body).expect("a json body");
+    let messages = body["messages"].as_array().expect("messages");
+    let said: Vec<(&str, &str)> = messages
+        .iter()
+        .map(|message| {
+            (
+                message["role"].as_str().expect("a role"),
+                message["content"][0]["text"]
+                    .as_str()
+                    .expect("a text block"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("user", "remember the gateway"),
+            ("assistant", "GATEWAY-SAID-IT"),
+            ("user", "and the daemon?"),
+        ]
+    );
+    let log = fs::read_to_string(
+        sandbox
+            .sessions_dir()
+            .join(&sandbox.session_ids()[0])
+            .join("events.jsonl"),
+    )
+    .expect("the log");
+    assert!(
+        log.lines()
+            .any(|line| line.contains("\"kind\":\"preferences_changed\"")
+                && line.contains("\"provider\":\"llmux\"")),
+        "the switch was not recorded: {log}"
+    );
 }
 
 #[test]
@@ -507,15 +993,13 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("one");
-    session.wait_for("first");
+    type_and_wait(&session, "one", "first");
     let ids_before = sandbox.session_ids();
     assert_eq!(ids_before.len(), 1);
 
     session.type_line("/new");
     session.wait_for_count(PROMPT, 3);
-    session.type_line("two");
-    session.wait_for("second");
+    type_and_wait(&session, "two", "second");
 
     let ids_after = sandbox.session_ids();
     assert_eq!(ids_after.len(), 2, "a new identity was not created");
@@ -527,6 +1011,128 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
     );
 
     assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1974-2001`: nothing to copy,
+    // the reply's exact bytes, and a tool that refused -- each said once.
+    let answer = "ALPHA answer line one.\n\nSecond paragraph with `code`.";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[
+        "ALPHA answer line one.\n\n",
+        "Second paragraph with `code`.",
+    ]))]);
+    let clipboard = FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    clipboard.first_on_path(&mut command);
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/copy");
+    session.wait_for("[shell] No assistant reply to copy.");
+    assert_eq!(clipboard.copied(), None, "a copy ran with nothing to copy");
+
+    session.type_line("one");
+    session.wait_for("`code`.");
+    session.type_line("/copy");
+    session.wait_for("[shell] Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        answer.as_bytes(),
+        "not the reply as the model wrote it"
+    );
+
+    clipboard.fail();
+    session.type_line("/copy");
+    session.wait_for("xfx: Failed to copy to clipboard.");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_undo_puts_the_changed_file_back_and_tells_the_model_nothing() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1242-1290`: nothing to undo
+    // before anything changed, the edit taken back with upstream's sentence,
+    // and nothing left after it. The model is not told: no request follows.
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/undo");
+    session.wait_for("[shell] undo: Nothing to undo.");
+    session.type_line("edit the notes");
+    session.wait_for("the edit is done");
+    assert_eq!(fs::read_to_string(&notes).expect("read back"), "beta\n");
+
+    session.type_line("/undo");
+    let canonical = fs::canonicalize(&notes).expect("canonicalize");
+    session.wait_for(&format!("[shell] undo: Restored {}", canonical.display()));
+    assert_eq!(fs::read_to_string(&notes).expect("read back"), "alpha\n");
+    session.type_line("/undo");
+    session.wait_for_count("[shell] undo: Nothing to undo.", 2);
+
+    assert_eq!(session.quit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        3,
+        "an undo was sent to the model, or the turn did not run"
+    );
+}
+
+#[test]
+fn slash_trace_writes_a_private_report_about_this_shells_conversation() {
+    // `/trace` on the line shell: the same report, built from this shell's own
+    // conversation, written under `$TMPDIR` and copied as a file, and one line
+    // saying so (`app_commands.zig:75-90`).
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["TRACE_LINE_DONE"]))]);
+    let clipboard = FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("one");
+    session.wait_for("TRACE_LINE_DONE");
+    session.type_line("/trace");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "[shell] Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "[shell] Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&reports[0]).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "the report is readable by others: {mode:o}"
+        );
+    }
+    if cfg!(target_os = "macos") {
+        assert_eq!(clipboard.copied_file().as_deref(), reports[0].to_str());
+    }
+    let report = fs::read_to_string(&reports[0]).expect("the report");
+    for needle in [
+        "\n    one\n",
+        "\n    TRACE_LINE_DONE\n",
+        "\nhistory_turns: 1\n",
+    ] {
+        assert!(report.contains(needle), "{needle:?} is not in:\n{report}");
+    }
+    assert!(
+        !report.contains(support::sandbox::TEST_KEY),
+        "the credential reached the report"
+    );
+
+    assert_eq!(session.quit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 1, "/trace sent a request");
 }
 
 /// Every line xfx wrote that begins with `xfx: `, without the terminal's echo
@@ -624,8 +1230,7 @@ fn a_prompt_that_merely_mentions_a_slash_is_still_a_prompt() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("what does a/b /help mean");
-    session.wait_for("answered");
+    type_and_wait(&session, "what does a/b /help mean", "answered");
     assert_eq!(
         user_messages(&request_body(&gateway, 0)),
         vec!["what does a/b /help mean".to_string()]
@@ -657,8 +1262,7 @@ fn ctrl_c_stops_a_running_turn_and_the_shell_survives_it() {
     assert!(text.contains("stopping the turn"), "{text}");
 
     // Still alive, and still able to run a turn.
-    session.type_line("again");
-    session.wait_for("done");
+    type_and_wait(&session, "again", "done");
     assert_eq!(session.quit().code(), Some(0));
 }
 
@@ -834,8 +1438,7 @@ fn the_shell_runs_tools_under_the_configured_permission_mode() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("read notes.txt");
-    session.wait_for("read it");
+    type_and_wait(&session, "read notes.txt", "read it");
 
     let body = request_body(&gateway, 1);
     let text = serde_json::to_string(&body).expect("serialize");
@@ -851,8 +1454,7 @@ fn the_shell_records_a_session_the_command_line_can_read() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("remember me");
-    session.wait_for("recorded");
+    type_and_wait(&session, "remember me", "recorded");
     assert_eq!(session.quit().code(), Some(0));
 
     let listed = sandbox
@@ -880,8 +1482,7 @@ fn the_shell_reads_its_own_workspace_instructions() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("hello");
-    session.wait_for("noted");
+    type_and_wait(&session, "hello", "noted");
 
     let body = serde_json::to_string(&request_body(&gateway, 0)).expect("serialize");
     assert!(body.contains("Always answer in haiku."), "{body}");
@@ -958,8 +1559,7 @@ fn a_model_chosen_in_the_shell_is_what_the_session_records() {
 
     session.type_line("/model acme/model-9");
     session.wait_for("model=acme/model-9");
-    session.type_line("hello");
-    session.wait_for("ok");
+    type_and_wait(&session, "hello", "ok");
     assert_eq!(session.quit().code(), Some(0));
 
     // The durable record agrees with what the terminal was told, so a later
@@ -1015,6 +1615,423 @@ fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {
     session.type_line("/version");
     session.wait_for(env!("CARGO_PKG_VERSION"));
     assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn a_rule_that_asks_before_a_read_asks_on_the_terminal_and_a_no_reads_nothing() {
+    // The line shell's prompt for a read a configured rule asks about: the
+    // same question the band puts (`tool_admission.zig:1426-1442`), in the
+    // shell's `y/a/n` words, and a `n` is a refusal the model is told of.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "read-0",
+                "read_file",
+                serde_json::json!({ "path": "secret.txt" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    fs::write(sandbox.workspace.join("secret.txt"), "hunter2\n").expect("the secret");
+    let profile = sandbox.settings_path();
+    let dir = profile.parent().expect("a profile dir");
+    fs::create_dir_all(dir).expect("the profile dir");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).expect("tighten");
+    }
+    fs::write(&profile, r#"{"permission":{"read":{"secret*":"ask"}}}"#).expect("the profile");
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "auto");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("read the secret");
+    let asked = session.wait_for("[n] no");
+    assert!(asked.contains("xfx wants to read `secret.txt`"), "{asked}");
+    assert!(
+        asked.contains("[a] always -- allow every future read_file of `secret.txt`"),
+        "{asked}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    let body = request_body(&gateway, 1);
+    assert!(body.to_string().contains("execution-denied"), "{body}");
+    assert!(!body.to_string().contains("hunter2"), "the file was read");
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+/// What a hostile model puts where a question quotes it: a carriage return
+/// and an erase-line to wipe what was printed, a cursor-up, the one-scalar C1
+/// `CSI` a terminal that decodes eight-bit controls obeys as `ESC [`, a
+/// right-to-left override that reverses what follows it, and a line break
+/// that forges a choice of xfx's own.
+const HOSTILE: &str = "todo\r\u{1b}[2K\u{1b}[1A\u{9b}2J\u{202e}terces\n  [y] yes, once";
+
+/// The last approval question on the terminal: from its opening words through
+/// its last choice.
+fn last_question(text: &str) -> &str {
+    let start = text.rfind("xfx wants to").expect("a question was asked");
+    let end = text[start..]
+        .find("[n] no")
+        .map(|at| start + at + "[n] no".len())
+        .expect("the question's last choice");
+    &text[start..end]
+}
+
+/// `question` carries the hostile text as data a reader sees -- every control
+/// and reordering character spelled the way the TUI approval spells a
+/// command -- and nothing in it a terminal would obey or reorder.
+///
+/// The pty's own `ONLCR` writes each of the question's line breaks as `CR LF`,
+/// so a carriage return is allowed exactly there and nowhere else; and the
+/// question is exactly its template's four lines, so the payload's break
+/// forged none.
+fn assert_spelled(question: &str) {
+    for (character, name) in [
+        ('\u{1b}', "an ESC"),
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{202e}', "a right-to-left override"),
+    ] {
+        assert!(
+            !question.contains(character),
+            "{name} reached the terminal inside the approval question: {question:?}"
+        );
+    }
+    assert!(
+        !question.replace("\r\n", "\n").contains('\r'),
+        "a carriage return reached the terminal inside the approval question: {question:?}"
+    );
+    assert_eq!(
+        question.matches('\n').count(),
+        3,
+        "the payload changed the question's lines: {question:?}"
+    );
+    for spelled in [
+        "\\x0d",
+        "\\x1b[2K",
+        "\\x1b[1A",
+        "\\u{009b}2J",
+        "\\u{202e}",
+        "\\x0a",
+    ] {
+        assert!(
+            question.contains(spelled),
+            "{spelled} is not shown in the approval question: {question:?}"
+        );
+    }
+}
+
+#[test]
+fn a_search_pattern_cannot_paint_on_the_terminal_through_the_approval_question() {
+    // The read a configured rule asks about quotes the model's pattern as the
+    // model wrote it (`search the files below `src` for `...``). Spelled, the
+    // reader sees what the model sent; raw, the pattern erases the line it
+    // stands on and forges a choice under the real target.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "grep-0",
+                "grep_files",
+                serde_json::json!({ "pattern": HOSTILE, "path": "src" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    fs::create_dir_all(sandbox.workspace.join("src")).expect("the searched folder");
+    fs::write(sandbox.workspace.join("src/secret.txt"), "hunter2\n").expect("the secret");
+    let profile = sandbox.settings_path();
+    let dir = profile.parent().expect("a profile dir");
+    fs::create_dir_all(dir).expect("the profile dir");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).expect("tighten");
+    }
+    fs::write(&profile, r#"{"permission":{"grep":{"src*":"ask"}}}"#).expect("the profile");
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "auto");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("search the sources");
+    let asked = session.wait_for("[n] no");
+    let question = last_question(&asked);
+    assert!(
+        question.contains("xfx wants to search the files below `src` for `todo"),
+        "{question:?}"
+    );
+    assert_spelled(question);
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !request_body(&gateway, 1).to_string().contains("hunter2"),
+        "the folder was searched"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn a_command_cannot_paint_on_the_terminal_through_the_approval_question() {
+    // A command is quoted twice by the question: in what xfx wants to do and
+    // in what "always" would allow. Both are spelled.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({
+                    "action": "exec",
+                    "command": format!("touch marker; echo {HOSTILE}"),
+                }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("run it");
+    let asked = session.wait_for("[n] no");
+    let question = last_question(&asked);
+    assert!(
+        question.contains("xfx wants to run `touch marker"),
+        "{question:?}"
+    );
+    assert!(
+        question.contains("[a] always -- allow every future run of exactly `touch marker"),
+        "{question:?}"
+    );
+    assert_spelled(question);
+    for spelled in ["\\x1b[2K", "\\u{202e}"] {
+        assert_eq!(
+            question.matches(spelled).count(),
+            2,
+            "{spelled} is not spelled in both the summary and the always-scope: {question:?}"
+        );
+    }
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+/// What xfx writes immediately before every line-mode question: attributes
+/// off, then the scroll region reset with the cursor saved and restored
+/// around it (`DECSTBM` homes the cursor). Whatever another writer left in
+/// force -- a relay, a JSONL stream, an earlier turn -- is cleared there.
+const QUESTION_RESET: &str = "\u{1b}[0m\u{1b}7\u{1b}[r\u{1b}8";
+
+/// No control reached the terminal in `text` but xfx's own reset before each
+/// question, and that reset sits right before the question.
+fn assert_no_foreign_control(text: &str) {
+    let foreign = text.replace(QUESTION_RESET, "");
+    for (character, name) in [
+        ('\u{1b}', "an ESC"),
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{7}', "a BEL"),
+    ] {
+        assert!(
+            !foreign.contains(character),
+            "{name} xfx did not write reached the terminal before the question: {text:?}"
+        );
+    }
+    assert!(
+        text.contains(&format!("{QUESTION_RESET}\r\nxfx wants to")),
+        "the question was not preceded by its reset: {text:?}"
+    );
+}
+
+/// A turn whose answer, written before it asks to run a command, carries the
+/// state a terminal keeps: conceal (SGR 8), black on black, a scroll region
+/// pinned to two rows, a window title with its BEL, and the one-scalar C1
+/// `CSI` -- and a line drawn to look like one of xfx's choices.
+fn an_answer_then_a_command() -> FakeGateway {
+    let answer = "Running the check now.\n  [y] yes, once\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\
+                  \u{1b}]0;xfx\u{7}\u{9b}8m";
+    FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", answer),
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ])
+}
+
+/// Everything the terminal received up to the question's last choice: no
+/// control the model wrote reached it, so none is in force when the question
+/// is drawn -- and the answer still arrived, as text, a blank where each
+/// control was.
+fn assert_nothing_left_in_force(asked: &str) {
+    assert_no_foreign_control(asked);
+    assert!(asked.contains("Running the check now."), "{asked:?}");
+    assert!(asked.contains(" [8m [30;40m [2;3r ]0;xfx  8m"), "{asked:?}");
+    assert!(
+        last_question(asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+}
+
+#[test]
+fn an_answer_cannot_leave_terminal_state_that_hides_the_next_approval_question() {
+    // The question's own bytes are spelled, but the model writes its answer
+    // *before* it asks for the tool, to the same terminal. Raw, that state is
+    // still in force when xfx prints the question, so a person answers a
+    // question they cannot see, under one the model drew above it.
+    let gateway = an_answer_then_a_command();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("run it");
+    assert_nothing_left_in_force(&session.wait_for("[n] no"));
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn an_ask_answer_on_a_terminal_cannot_hide_its_approval_question_either() {
+    // `xfx ask` on a terminal asks on it too (`TtyPrompter`), after the answer.
+    let gateway = an_answer_then_a_command();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "--no-save", "run it"]);
+    let mut session = Session::spawn(&pty, command);
+
+    assert_nothing_left_in_force(&session.wait_for("[n] no"));
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+}
+
+#[test]
+fn a_failed_turn_cannot_leave_terminal_state_for_the_next_turns_question() {
+    // A turn that fails on a tool xfx did not offer quotes the tool's name in
+    // its refusal -- and the name is the model's. Raw, a conceal and a scroll
+    // region in it stay in force into the next turn, which asks.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "bad-0",
+                "x\u{1b}[8m\u{1b}[1;2r\u{9b}8m",
+                serde_json::json!({}),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    type_and_wait(&session, "first", "does not advertise");
+    session.type_line("second");
+    let asked = session.wait_for("[n] no");
+    assert_no_foreign_control(&asked);
+    assert!(
+        asked.contains("the model asked to run the `x [8m [1;2r 8m` tool"),
+        "the refusal does not show the name as text: {asked:?}"
+    );
+    assert!(
+        last_question(&asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn an_ask_json_answer_on_a_terminal_carries_no_c1_or_invisible_code_point_raw() {
+    // `ask --json` on a terminal still asks on it (`TtyPrompter`, stderr), after
+    // the JSONL stream has been written to the same terminal. JSON's own
+    // escaping covers C0 only: a C1 `CSI` (`U+009B`), a bidirectional override
+    // and a default-ignorable would otherwise reach the terminal as raw UTF-8.
+    // Escaped as `\uXXXX` they are the same JSON string to any reader.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", "go\u{9b}8m\u{202e}gone\u{ad}\u{e0041}"),
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "--json", "--no-save", "run it"]);
+    let mut session = Session::spawn(&pty, command);
+
+    let asked = session.wait_for("[n] no");
+    for (character, name) in [
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{202e}', "a right-to-left override"),
+        ('\u{ad}', "a soft hyphen"),
+        ('\u{e0041}', "a tag character"),
+    ] {
+        assert!(
+            !asked.contains(character),
+            "{name} reached the terminal raw through the JSONL stream: {asked:?}"
+        );
+    }
+    assert!(
+        asked.contains(r#""text":"go\u009b8m\u202egone\u00ad\udb40\udc41""#),
+        "{asked:?}"
+    );
+    assert!(
+        last_question(&asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
@@ -1516,9 +2533,8 @@ fn a_stop_a_resume_and_an_exit_are_three_states_the_harness_keeps_apart() {
         "a live child before any signal"
     );
 
-    session.signal(Signal::STOP);
     assert_eq!(
-        session.wait_state("the stop", |state| matches!(state, Wait::Stopped(_))),
+        session.stop_with(Signal::STOP, "the stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     // Read it again. The child has not moved, so the answer must not either.

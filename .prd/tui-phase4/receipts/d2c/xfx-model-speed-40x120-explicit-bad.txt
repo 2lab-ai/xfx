@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-06def9e [debug] · Run /help for commands
+
+* Switched to openai/gpt-6-astra (effort: high, speed: ultrafast)
+
+┃ say something
+
+  MARKER-ULTRA-TURN
+
+  0s (↑4 ↓40)
+
+* fast: on
+
+┃ say more
+
+  MARKER-FAST-TURN
+
+  0s (↑2 ↓40)
+
+✗ usage: /model <id> <effort> [normal|fast|ultrafast]
+
+┃ /model anthropic/claude-opus-5 high ultrafast
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+         no matching models
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · gpt-6-astra · high · ⚡︎
+
+
+
+
+
+
+
+
+
+

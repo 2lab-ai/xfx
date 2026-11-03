@@ -1,0 +1,33 @@
+=== ~/.xfx/history.jsonl (1059 bytes)
+{"schema_version":1,"timestamp_ms":1791326626833,"workspace_root":"<scratch>/work","text":"/allowlist add tool read"}
+{"schema_version":1,"timestamp_ms":1791326627811,"workspace_root":"<scratch>/work","text":"/allowlist add tool write_file"}
+{"schema_version":1,"timestamp_ms":1791326628587,"workspace_root":"<scratch>/work","text":"/allowlist add tool nonsense"}
+{"schema_version":1,"timestamp_ms":1791326629688,"workspace_root":"<scratch>/work","text":"/allowlist add web-fetch-domain Example.COM"}
+{"schema_version":1,"timestamp_ms":1791326630705,"workspace_root":"<scratch>/work","text":"/allowlist add command \"git *\""}
+{"schema_version":1,"timestamp_ms":1791326633129,"workspace_root":"<scratch>/work","text":"/allowlist remove command \"nope\""}
+{"schema_version":1,"timestamp_ms":1791326634172,"workspace_root":"<scratch>/work","text":"/allowlist view local"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (346 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "permission": {
+        "read": {
+          "*": "allow"
+        },
+        "edit": {
+          "*": "allow"
+        },
+        "web_fetch": {
+          "domain:example.com": "allow"
+        },
+        "bash": {
+          "git *": "allow"
+        }
+      }
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

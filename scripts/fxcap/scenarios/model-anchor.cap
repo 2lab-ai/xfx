@@ -1,0 +1,14 @@
+# The inline column over a `/model` line the caret has left: an Alt-Enter
+# after the id puts the caret on a second row, and the column hangs from the
+# caret row's start (`projectedAnchorColumn`, visual_layout.zig:704-712).
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model xai/grok-4.7
+wait 0.5
+snap typed
+key M-Enter
+wait 0.5
+snap alt-enter

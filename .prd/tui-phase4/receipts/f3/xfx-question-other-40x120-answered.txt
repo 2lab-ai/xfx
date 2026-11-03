@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ ask me
+
+  1) Which database should I use?
+     MariaDB please
+
+  Got it.
+
+  3s (↑2 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

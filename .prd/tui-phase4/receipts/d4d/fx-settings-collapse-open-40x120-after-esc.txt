@@ -1,0 +1,40 @@
+  Read both.
+
+  0s (↑1 ↓80)
+
+┃ again
+
+● 1 tool call · 1 read
+
+  Again.
+
+  0s (↑2 ↓80)
+
+┃ run it
+
+● 1 tool call · 1 command
+
+* collapse tool calls: saved to user settings (scope=user)
+
+  Running (3s) (↑2 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

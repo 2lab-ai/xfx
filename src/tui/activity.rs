@@ -58,19 +58,25 @@ const MARKER: char = '\u{2022}';
 /// beside it does not step left and right twice a second.
 const DARK: char = ' ';
 
-/// What the row says while the model itself is working.
+/// What the row says before the model has written anything (`TurnPhase`,
+/// `activity_status.zig:105-111`).
 const THINKING: &str = "Thinking";
 
-/// What separates the row's segments.
-const GAP: &str = "  ";
+/// What it says once the answer is streaming.
+const GENERATING: &str = "Generating";
+
+/// What it says while a tool runs.
+const RUNNING: &str = "Running";
 
 /// What a turn is doing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Work {
     /// Nothing. There is no row.
     Idle,
-    /// The model has the turn.
+    /// The model has the turn and has written nothing yet.
     Thinking,
+    /// The model is writing its answer.
+    Generating,
     /// A tool call is running, and the row says which.
     Tool { name: String },
 }
@@ -91,7 +97,6 @@ pub(crate) struct Activity {
     /// the user rather than for the model, and is therefore not this turn's.
     stolen: Duration,
     work: Work,
-    tokens: u64,
 }
 
 impl Activity {
@@ -101,7 +106,6 @@ impl Activity {
             frozen_at: None,
             stolen: Duration::ZERO,
             work: Work::Idle,
-            tokens: 0,
         }
     }
 
@@ -114,33 +118,11 @@ impl Activity {
         self.started = Some(now);
         self.frozen_at = None;
         self.stolen = Duration::ZERO;
-        self.tokens = 0;
     }
 
     /// Says what the work now is.
     pub(crate) fn set(&mut self, work: Work) {
         self.work = work;
-    }
-
-    /// Records how many tokens the turn has spent so far.
-    // Still staged, and the reason has changed. A usage number now exists
-    // ([`super::bridge::UiEvent::Usage`]) -- what it is not is a number about a
-    // turn that is *running*: the provider publishes one total, once, for a turn
-    // that has **completed** (`agent::TurnOutcome::usage`), and it arrives
-    // immediately before the conclusion that takes this row off the screen. So
-    // the number it would put here would be visible for less than a frame and
-    // would be about a turn that had just ended, which is not what a row headed
-    // `Thinking` says. Where it does belong is the hint row's context meter,
-    // which is about the session rather than about one turn
-    // (`super::shell::Shell::context_meter`), and that is where it is used.
-    //
-    // What is kept here is the *per-step* meaning this row would want: a running
-    // total published while the turn is still going. Nothing produces one today.
-    // The formatting and its absence are both tested, so the day a provider
-    // streams incremental usage this is a call site rather than a feature.
-    #[allow(dead_code)]
-    pub(crate) fn tokens(&mut self, count: u64) {
-        self.tokens = count;
     }
 
     /// Stops the clock, because the session is waiting for the user.
@@ -209,30 +191,102 @@ impl Activity {
             .saturating_sub(self.stolen)
     }
 
-    /// The row itself, or `None` when there is no work.
+    /// The row itself, painted, or `None` when there is no work.
     ///
-    /// Clipped by [`super::frame::clip`] -- the painter's own cut, not a second
-    /// one -- so a tool with a very long name loses its tail rather than the
-    /// row losing its shape, and the row is never wider than the screen it was
-    /// measured for.
-    pub(crate) fn row(&self, now: Instant, phase: u8, cols: u16) -> Option<String> {
+    /// Upstream's label (`buildTurnLabel`, `activity_status.zig:113-121`):
+    /// `• Generating (2s) (↑4 ↓61)` -- the marker in the activity grey while
+    /// it is lit and a blank cell while it is dark, the phase and the clock in
+    /// the activity grey, and the token suffix receding into the dim grey
+    /// (`writeThinkingBlinkText`, `shimmer_runtime.zig:262-291`). `tokens` is
+    /// the turn's (in, out) estimate, and is left off while both are zero.
+    pub(crate) fn row(
+        &self,
+        now: Instant,
+        phase: u8,
+        cols: u16,
+        tokens: (u64, u64),
+        colours: Colours,
+    ) -> Option<String> {
         let label = match &self.work {
             Work::Idle => return None,
             Work::Thinking => THINKING,
-            Work::Tool { name } => name.as_str(),
+            Work::Generating => GENERATING,
+            Work::Tool { .. } => RUNNING,
         };
-        let mut row = String::with_capacity(label.len() + 24);
-        row.push(if lit(phase) { MARKER } else { DARK });
-        row.push(' ');
-        row.push_str(label);
-        row.push_str(GAP);
-        row.push_str(&spoken(self.elapsed(now)));
-        if self.tokens > 0 {
-            // `write!` into a `String` cannot fail, and the result is discarded
-            // rather than unwrapped for that reason.
-            let _ = write!(row, "{GAP}{} tokens", self.tokens);
-        }
-        Some(super::frame::clip(&row, cols).to_string())
+        Some(marked_row(
+            label,
+            self.elapsed(now),
+            phase,
+            cols,
+            tokens,
+            colours,
+        ))
+    }
+}
+
+/// A row with the blinking marker: `• <label> (<elapsed>)`, and the token
+/// suffix when `tokens` is not nought (`writeThinkingBlinkText`,
+/// `shimmer_runtime.zig:262-291`). The turn's row, and a compaction's in
+/// progress (`compactionProjection`, `activity_status.zig:16-41`), which has
+/// no tokens to say.
+pub(crate) fn marked_row(
+    label: &str,
+    elapsed: Duration,
+    phase: u8,
+    cols: u16,
+    tokens: (u64, u64),
+    colours: Colours,
+) -> String {
+    let mut text = format!(" {label} ({})", spoken(elapsed));
+    let mut suffix = String::new();
+    if tokens != (0, 0) {
+        let _ = write!(
+            suffix,
+            " (\u{2191}{} \u{2193}{})",
+            compact_tokens(tokens.0),
+            compact_tokens(tokens.1)
+        );
+    }
+    // Measured as the painter measures, then cut: the marker cell, the
+    // label, and as much of the suffix as is left.
+    let width = usize::from(cols);
+    let label_room = width.saturating_sub(1);
+    text = super::frame::clip(&text, u16::try_from(label_room).unwrap_or(u16::MAX)).to_string();
+    let suffix_room = label_room.saturating_sub(usize::from(super::wrap::width(&text)));
+    let suffix =
+        super::frame::clip(&suffix, u16::try_from(suffix_room).unwrap_or(u16::MAX)).to_string();
+    let marker = if lit(phase) {
+        format!("{}{MARKER}{}", colours.label, colours.reset)
+    } else {
+        DARK.to_string()
+    };
+    let mut row = format!("{marker}{}{text}", colours.label);
+    if !suffix.is_empty() {
+        row.push_str(colours.dim);
+        row.push_str(&suffix);
+    }
+    row.push_str(colours.reset);
+    row
+}
+
+/// The three sequences the row is painted with.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Colours {
+    pub(crate) label: &'static str,
+    pub(crate) dim: &'static str,
+    pub(crate) reset: &'static str,
+}
+
+/// `formatTokenCountCompact` (`activity_status.zig:259-268`).
+pub(crate) fn compact_tokens(tokens: u64) -> String {
+    if tokens < 1000 {
+        return tokens.to_string();
+    }
+    let (whole, tenths) = (tokens / 1000, (tokens % 1000) / 100);
+    if whole < 10 && tenths > 0 {
+        format!("{whole}.{tenths}k")
+    } else {
+        format!("{whole}k")
     }
 }
 
@@ -244,46 +298,90 @@ fn lit(phase: u8) -> bool {
     ((phase % PHASES) / BLINK_PHASES).is_multiple_of(2)
 }
 
-/// How a duration is said on one row: `7s`, and `2m07s` once there are minutes
-/// to say.
+/// How a duration is said on the row: `5s`, `18m0s`, `1h2m3s` -- leading units
+/// that are zero dropped (`writeElapsed`, `activity_status.zig:144-158`).
 ///
 /// Whole seconds. The phase this row is drawn from moves on every 50 ms, and a
-/// row is repainted whenever its **text** changes -- so a tenth of a second
-/// here would be five repaints of the whole band a second, for a digit nobody
-/// reads at that speed. Seconds cost one repaint each and are the number the
-/// question is really about.
+/// row is repainted whenever its **text** changes, so a finer clock would be a
+/// repaint of the band for a digit nobody reads at that speed.
 fn spoken(elapsed: Duration) -> String {
     let seconds = elapsed.as_secs();
-    if seconds < 60 {
-        return format!("{seconds}s");
+    let (hours, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
+    if hours > 0 {
+        format!("{hours}h{minutes}m{seconds}s")
+    } else if minutes > 0 {
+        format!("{minutes}m{seconds}s")
+    } else {
+        format!("{seconds}s")
     }
-    format!("{}m{:02}s", seconds / 60, seconds % 60)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Upstream's dark activity greys, spelled out.
+    const PLAIN: Colours = Colours {
+        label: "\u{1b}[38;5;252m",
+        dim: "\u{1b}[38;5;245m",
+        reset: "\u{1b}[0m",
+    };
+
+    /// The row's text with its colours taken out.
+    fn text(row: &str) -> String {
+        row.replace(PLAIN.label, "")
+            .replace(PLAIN.dim, "")
+            .replace(PLAIN.reset, "")
+    }
+
+    fn row(activity: &Activity, now: Instant, phase: u8, cols: u16) -> Option<String> {
+        activity
+            .row(now, phase, cols, (0, 0), PLAIN)
+            .map(|row| text(&row))
+    }
+
     #[test]
     fn an_idle_shell_has_no_activity_row_at_all() {
         let activity = Activity::new();
-        assert_eq!(activity.row(Instant::now(), 0, 80), None);
+        assert_eq!(row(&activity, Instant::now(), 0, 80), None);
     }
 
     #[test]
     fn thinking_shows_the_elapsed_time_and_the_tokens_so_far() {
-        // activity_status.zig:26-33
+        // activity_status.zig:113-121, and the colours shimmer_runtime.zig:262-291
+        // gives it: the marker and the label in the activity grey, the token
+        // suffix in the dim one.
         let mut activity = Activity::new();
         let start = Instant::now();
         activity.begin(start);
         activity.set(Work::Thinking);
-        activity.tokens(1234);
-        let row = activity
-            .row(start + Duration::from_secs(7), 0, 80)
+        let painted = activity
+            .row(start + Duration::from_secs(7), 0, 80, (1234, 61), PLAIN)
             .expect("a row while thinking");
-        assert!(row.contains("Thinking"), "{row:?}");
-        assert!(row.contains("7s"), "{row:?}");
-        assert!(row.contains("1234"), "{row:?}");
+        assert_eq!(
+            painted,
+            "\u{1b}[38;5;252m\u{2022}\u{1b}[0m\u{1b}[38;5;252m Thinking (7s)\
+             \u{1b}[38;5;245m (\u{2191}1.2k \u{2193}61)\u{1b}[0m"
+        );
+    }
+
+    #[test]
+    fn the_phase_says_generating_once_the_answer_streams_and_running_for_a_tool() {
+        let mut activity = Activity::new();
+        let start = Instant::now();
+        activity.begin(start);
+        activity.set(Work::Generating);
+        assert_eq!(
+            row(&activity, start, 0, 80).as_deref(),
+            Some("\u{2022} Generating (0s)")
+        );
+        activity.set(Work::Tool {
+            name: "read_file".into(),
+        });
+        assert_eq!(
+            row(&activity, start, 0, 80).as_deref(),
+            Some("\u{2022} Running (0s)")
+        );
     }
 
     #[test]
@@ -307,15 +405,15 @@ mod tests {
     }
 
     #[test]
-    fn a_running_tool_names_itself_instead_of_saying_thinking() {
+    fn a_running_tool_says_running_instead_of_thinking() {
         let mut activity = Activity::new();
         let start = Instant::now();
         activity.begin(start);
         activity.set(Work::Tool {
             name: "read_file".into(),
         });
-        let row = activity.row(start, 0, 80).expect("a row while a tool runs");
-        assert!(row.contains("read_file"), "{row:?}");
+        let row = row(&activity, start, 0, 80).expect("a row while a tool runs");
+        assert!(row.contains("Running"), "{row:?}");
         assert!(!row.contains("Thinking"), "{row:?}");
     }
 
@@ -330,14 +428,20 @@ mod tests {
         let mut activity = Activity::new();
         let start = Instant::now();
         activity.begin(start);
-        activity.set(Work::Tool {
-            name: "a".repeat(200),
-        });
-        let row = activity.row(start, 0, 40).expect("a row");
-        assert!(
-            crate::tui::wrap::width(&row) <= 40,
-            "the activity row overflowed: {row:?}"
-        );
+        activity.set(Work::Thinking);
+        for cols in [1u16, 5, 12, 20, 40] {
+            let row = row(&activity, start, 0, cols).expect("a row");
+            let wide = activity
+                .row(start, 0, cols, (123_456, 7_890), PLAIN)
+                .map(|row| text(&row))
+                .expect("a row");
+            for row in [row, wide] {
+                assert!(
+                    usize::from(crate::tui::wrap::width(&row)) <= usize::from(cols),
+                    "the activity row overflowed {cols}: {row:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -349,8 +453,8 @@ mod tests {
         let mut activity = Activity::new();
         activity.set(Work::Thinking);
         assert_eq!(activity.elapsed(Instant::now()), Duration::ZERO);
-        let row = activity.row(Instant::now(), 0, 80).expect("a row");
-        assert!(row.contains("0s"), "{row:?}");
+        let row = row(&activity, Instant::now(), 0, 80).expect("a row");
+        assert!(row.contains("(0s)"), "{row:?}");
     }
 
     #[test]
@@ -375,10 +479,8 @@ mod tests {
         let start = Instant::now();
         activity.begin(start);
         activity.set(Work::Thinking);
-        let bright = activity.row(start, 0, 80).expect("a lit row");
-        let dark = activity
-            .row(start, BLINK_PHASES, 80)
-            .expect("a row between blinks");
+        let bright = row(&activity, start, 0, 80).expect("a lit row");
+        let dark = row(&activity, start, BLINK_PHASES, 80).expect("a row between blinks");
         assert!(bright.starts_with(MARKER), "{bright:?}");
         assert!(dark.starts_with(DARK), "{dark:?}");
         assert_eq!(
@@ -390,27 +492,26 @@ mod tests {
 
     #[test]
     fn a_turn_that_says_nothing_about_tokens_does_not_report_zero_of_them() {
-        // Phase 1 has no usage event, so every real row takes this path: a row
-        // that said `0 tokens` for the whole of a turn would be reporting a
-        // measurement nobody made.
+        // appendTokenProgressSuffix (`activity_status.zig:279-283`): nothing
+        // when both counts are zero, rather than a measurement nobody made.
         let mut activity = Activity::new();
         let start = Instant::now();
         activity.begin(start);
         activity.set(Work::Thinking);
-        let row = activity.row(start, 0, 80).expect("a row");
-        assert!(!row.contains("tokens"), "{row:?}");
+        let row = row(&activity, start, 0, 80).expect("a row");
+        assert!(!row.contains('\u{2191}'), "{row:?}");
     }
 
     #[test]
     fn a_new_piece_of_work_starts_from_nothing() {
-        // The freeze, the stolen time and the token count are the last turn's,
-        // and a turn that kept any of them would report a number that belongs
-        // to work the user has already been told about.
+        // The freeze and the stolen time are the last turn's, and a turn that
+        // kept either would report a number that belongs to work the user has
+        // already been told about. (The tokens are the shell's tally, begun
+        // again with each turn.)
         let mut activity = Activity::new();
         let first = Instant::now();
         activity.begin(first);
         activity.set(Work::Thinking);
-        activity.tokens(99);
         activity.freeze(first + Duration::from_secs(1));
         activity.thaw(first + Duration::from_secs(5));
 
@@ -420,8 +521,8 @@ mod tests {
             activity.elapsed(second + Duration::from_secs(3)),
             Duration::from_secs(3)
         );
-        let row = activity.row(second, 0, 80).expect("a row");
-        assert!(!row.contains("99"), "{row:?}");
+        let row = row(&activity, second, 0, 80).expect("a row");
+        assert!(row.contains("(0s)"), "{row:?}");
     }
 
     #[test]
@@ -452,7 +553,7 @@ mod tests {
         activity.freeze(start + Duration::from_secs(1));
         activity.end();
         assert!(!activity.working());
-        assert_eq!(activity.row(start + Duration::from_secs(9), 0, 80), None);
+        assert_eq!(row(&activity, start + Duration::from_secs(9), 0, 80), None);
 
         // And the next turn's clock runs from the moment it began rather than
         // standing still at a freeze the last one never came out of -- which
@@ -467,10 +568,20 @@ mod tests {
     }
 
     #[test]
-    fn minutes_are_said_once_there_are_minutes_to_say() {
+    fn minutes_and_hours_are_said_once_there_are_any_to_say() {
+        // writeElapsed, activity_status.zig:144-158.
         assert_eq!(spoken(Duration::from_secs(0)), "0s");
         assert_eq!(spoken(Duration::from_secs(59)), "59s");
-        assert_eq!(spoken(Duration::from_secs(60)), "1m00s");
+        assert_eq!(spoken(Duration::from_secs(60)), "1m0s");
         assert_eq!(spoken(Duration::from_secs(671)), "11m11s");
+        assert_eq!(spoken(Duration::from_secs(3723)), "1h2m3s");
+    }
+
+    #[test]
+    fn token_counts_are_compact_as_upstream_writes_them() {
+        assert_eq!(compact_tokens(999), "999");
+        assert_eq!(compact_tokens(1_000), "1k");
+        assert_eq!(compact_tokens(1_234), "1.2k");
+        assert_eq!(compact_tokens(50_000), "50k");
     }
 }

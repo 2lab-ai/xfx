@@ -1,0 +1,25 @@
+=== ~/.xfx/history.jsonl (398 bytes)
+{"schema_version":1,"timestamp_ms":1791328175641,"workspace_root":"<scratch>/work","text":"first question"}
+{"schema_version":1,"timestamp_ms":1791328179669,"workspace_root":"<scratch>/work","text":"second question"}
+{"schema_version":1,"timestamp_ms":1791328183716,"workspace_root":"<scratch>/work","text":"/usage"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1791328175642-f7e70a6ba6ae32ba/events.jsonl (3233 bytes)
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":1,"event_id":"334341a8091940778ac3b218f8765a2e","timestamp_ms":1791328175645,"event":{"kind":"session_started","id":"1791328175642-f7e70a6ba6ae32ba","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":2,"event_id":"1e219416baacb3bcffbb37cdea0a9ef4","timestamp_ms":1791328175665,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":3,"event_id":"c165df3473ccf3fd8c6d39c87e57fdc1","timestamp_ms":1791328175678,"event":{"kind":"user_message","text":"first question"}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":4,"event_id":"51b6d76c69b943b35412bca26fe35077","timestamp_ms":1791328175696,"event":{"kind":"assistant_message","text":"First billed answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":5,"event_id":"1b8440c309e4acc0dd5e2d27cd00c799","timestamp_ms":1791328175708,"event":{"kind":"usage_recorded","input_tokens":12000,"output_tokens":800,"requests":[{"at_ms":1791328175693,"duration_ms":5,"model":"fake/model-a","input_tokens":12000,"output_tokens":800,"cache_read_tokens":4000,"cache_write_tokens":0,"reasoning_tokens":0,"cost":0.0125,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ0"}]}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":6,"event_id":"ad308b0cdb73624e206d93637e799dc1","timestamp_ms":1791328175726,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":7,"event_id":"fcfa3a63e6463067ba89ec2b7a175cac","timestamp_ms":1791328179669,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":8,"event_id":"1d424be045b895f709340e22e53b494f","timestamp_ms":1791328179687,"event":{"kind":"user_message","text":"second question"}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":9,"event_id":"85bdb8ca70b7e43ffbfffa68a8defb95","timestamp_ms":1791328179707,"event":{"kind":"assistant_message","text":"Second billed answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":10,"event_id":"b8227e5fe20595efb65fc0360a80103e","timestamp_ms":1791328179719,"event":{"kind":"usage_recorded","input_tokens":52000,"output_tokens":3100,"requests":[{"at_ms":1791328179706,"duration_ms":2,"model":"anthropic/claude-opus-5","input_tokens":52000,"output_tokens":3100,"cache_read_tokens":30000,"cache_write_tokens":0,"reasoning_tokens":900,"cost":0.421,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1"}]}}
+{"schema_version":1,"log_generation":"b9473e9ad2384ac0496a035a64908e6c","seq":11,"event_id":"5a03e6131663c8c6ca2d42aaa6b997a4","timestamp_ms":1791328179733,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1791328175642-f7e70a6ba6ae32ba/session.json (628 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791328175642-f7e70a6ba6ae32ba","log_generation":"b9473e9ad2384ac0496a035a64908e6c","created_at_ms":1791328175645,"updated_at_ms":1791328179733,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"first question","history_turns":2,"permission_grants":0,"total_input_tokens":64000,"total_output_tokens":3900,"last_event_seq":11,"event_log_bytes":3233,"event_log_sha256":"d0b876d4f2eb4bdd336ffb0a3c3e4ddba9e533a3d6925350f8b52834acbffd1b"}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791328175708}
+

@@ -1,0 +1,20 @@
+# W9: the `/settings` row. The bare menu (every row), the row found by its
+# name, Right (off, saved and announced), Right again (on), and the profile
+# it wrote.
+xfx: env XFX_SOUND=off
+wait 3
+type /settings
+key Enter
+wait 1
+snap bare
+type titles
+wait 0.5
+snap filtered
+key Right
+wait 1
+snap off
+home off
+key Right
+wait 1
+snap on
+home on

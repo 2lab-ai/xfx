@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cbf8bea [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Sessions 3  Current workspace  [All workspaces]
+
+  third question gamma                                              work · now · 1 turn
+  second question beta                                              work · now · 1 turn
+  Renamed alpha session with a much longer title than the others    work · now · 1 turn
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

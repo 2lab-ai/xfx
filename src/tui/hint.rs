@@ -11,11 +11,14 @@
 //!
 //! * **The order is upstream's, and the order is a priority.** A missing
 //!   credential leads, because nothing else on the row matters on a machine
-//!   where every turn will refuse; then what is already queued, then the
-//!   permission mode, the model, and the context meter. Left is more important
+//!   where every turn will refuse; then the permission mode, the model, the session title, the context meter and the
+//!   workspace (`buildHintLine`, `render.zig:440-470`). Left is more important
 //!   than right, which is what makes "drop from the right" the right rule for a
 //!   screen too narrow to hold everything -- the segments that survive are the
-//!   ones the user needed most.
+//!   ones the user needed most. The workspace is the one exception, as it is
+//!   upstream's: it is placed last and **cut** to the room the others left
+//!   rather than dropped whole, because the end of a path still says where the
+//!   session is (`appendWorkspaceIdentity`, `render.zig:360-379`).
 //! * **A row is budgeted here rather than clipped by the painter.** The painter
 //!   cuts a row that overruns the screen (`super::frame::clip`) at the first
 //!   cell that will not fit, which on this row would leave half a number and the
@@ -37,14 +40,17 @@
 //!   warning about a destructive key that vanished on a narrow terminal would be
 //!   the one row of this band that costs the user something.
 //!
-//! # What is not here
+//! # What is opt-in, and what is not here
 //!
-//! Upstream's statusline carries three more items -- the session title, the
-//! workspace identity and the git branch -- and all three are opt-in and off by
-//! default (`settings_catalog.zig:53-55`). xfx has no settings surface to turn
-//! them on with, so they are absent rather than defaulted. The reasoning-effort
-//! and fast-mode markers (`render.zig:430-435`) belong to model capabilities xfx
-//! does not model.
+//! The session title, the context meter and the workspace with its Git branch
+//! are upstream's three optional items, each off until the profile turns it on
+//! (`settings_catalog.zig:58-60`; `/statusline`, `super::statusline`). This
+//! module draws whichever of them it is handed and decides none of that: a
+//! `None` here is an item that is off or has nothing to say yet. The
+//! reasoning effort follows the model, as upstream's does (`render.zig:390-393`):
+//! the caller decides whether the model takes it and hands it over only then.
+//! So does the speed marker `⚡︎` (`render.zig:394-402`): the caller decides
+//! whether a turn will go fast, and in which colour that is said.
 
 use crate::config::PermissionMode;
 
@@ -60,6 +66,11 @@ pub(crate) const SEPARATOR: &str = " · ";
 /// does not carry ([`Hint::missing_credential`] is a yes or a no), and a row
 /// that guessed would send a Gateway user to the daemon's setup.
 pub(crate) const MISSING_CREDENTIAL: &str = "run `xfx setup`";
+
+/// What says a turn will go fast (`render.zig:398`, `:402`): the high-voltage
+/// sign in its text presentation -- two cells, as upstream counts it
+/// (`display_width.zig:697`).
+pub(crate) const SPEED_MARKER: &str = "\u{26a1}\u{fe0e}";
 
 /// How many blank cells separate the left of the row from the right-aligned
 /// slot at its end, at the very least.
@@ -78,32 +89,65 @@ pub(crate) struct Hint<'a> {
     /// Whether the configured provider has nothing to authenticate with, in
     /// which case every turn this session runs will refuse.
     pub(crate) missing_credential: bool,
-    /// How many submissions are waiting behind the one in flight.
-    pub(crate) queued: usize,
     /// How much authority a turn will have before it has to ask.
     pub(crate) mode: PermissionMode,
     /// The model a turn will talk to, as configured -- provider prefix and all.
     /// [`compact_model`] is what shortens it.
     pub(crate) model: &'a str,
+    /// The reasoning effort a turn will ask that model for, as shown --
+    /// `None` for the default, and for a model the catalog says takes no such
+    /// level (`appendSessionStatusSegments`, `render.zig:381-393`: shown only
+    /// when the model supports effort and it is not the default).
+    pub(crate) effort: Option<&'a str>,
+    /// The speed marker [`SPEED_MARKER`], when a turn will go fast: the colour
+    /// it is said in, with the row's own resumed after it ([`Self::accent`]'s
+    /// second) -- **empty for Fast**, which is said in the row's grey, and
+    /// Ultra's yellow for Ultra (`appendSessionStatusSegments`,
+    /// `render.zig:396-403`). `None` for neither.
+    pub(crate) speed: Option<&'a str>,
+    /// The session's title, when the title segment is on and the session has
+    /// one ([`super::statusline::session_label`] is what makes it safe to
+    /// paint).
+    pub(crate) session_title: Option<&'a str>,
     /// How much of the model's context window the conversation has spent, as
-    /// `(used, total)` in tokens.
+    /// `(used, total)` in tokens, when the context segment is on.
     ///
-    /// `None` when nobody has measured it, and **both halves have to be there**
-    /// for anybody to have. The numerator is a completed turn's `input_tokens`
-    /// ([`super::bridge::UiEvent::Usage`]) and the denominator is the catalog's
-    /// `max_context` for the model in force
-    /// (`provider::model::CatalogEntry::max_context`) -- and either can
-    /// legitimately be absent: a provider need not publish usage, and the
-    /// Gateway publishes no catalog to hold a window at all. So a missing half
-    /// removes the segment rather than defaulting it: a row that filled one in
-    /// with a zero would report a measurement nobody took. `super::shell`'s
-    /// `context_meter` is where the two are put together.
-    pub(crate) context_used: Option<(u64, u64)>,
+    /// `None` when nobody has measured it. The numerator is a completed turn's
+    /// `input_tokens` ([`super::bridge::UiEvent::Usage`]) and the denominator
+    /// is the catalog's `max_context` for the model in force
+    /// (`provider::model::CatalogEntry::max_context`), and the denominator can
+    /// legitimately be absent -- no catalog has been read yet, the provider has
+    /// none to read, or the row for the model publishes no window (a Gateway
+    /// row without `context_window`). Upstream says the numerator alone then (`12k`,
+    /// `render.zig:441-452`), which reports exactly the measurement that was
+    /// taken; a row that invented the missing window as a zero would report one
+    /// nobody took. `super::shell`'s `context_meter` is where the two are put
+    /// together.
+    pub(crate) context_used: Option<(u64, Option<u64>)>,
+    /// The workspace's path and its Git branch, when the workspace segment is
+    /// on: both already terminal-safe (`super::statusline::Workspace`).
+    pub(crate) workspace: Option<(&'a str, Option<&'a str>)>,
     /// A refusal to show instead of the left-hand segments, if one has just
     /// happened.
     pub(crate) notice: Option<Notice<'a>>,
     /// What to put flush with the last column, if anything.
     pub(crate) right: Option<&'a str>,
+    /// The colour [`Self::right`] is said in, or nothing to say it in the
+    /// row's own. Upstream's full-access warning is the one that has one: its
+    /// `red_style` (`input_presentation.zig:565`), where the armed-Escape cue
+    /// is in the row's grey.
+    pub(crate) right_style: &'a str,
+    /// What ends the row's own colours before [`Self::right`]'s padding:
+    /// upstream closes the run (`reset_style`) and then moves to the slot's
+    /// column, so the cells between are the terminal's own and the slot opens
+    /// its colour afresh (`input_presentation.zig:551-567`). Empty for a
+    /// caller with no palette.
+    pub(crate) close: &'a str,
+    /// The two colours a permission mode that grants something is said in:
+    /// its own, and the row's to resume with (`render.zig:235-241`, `c1db919`:
+    /// `auto` and `full access` in `permission_auto_style`, then
+    /// `statusline_style`). Empty for a caller with no palette.
+    pub(crate) accent: (&'a str, &'a str),
 }
 
 /// A refusal, and the colours it is said in.
@@ -183,6 +227,24 @@ pub(crate) fn row(hint: &Hint<'_>, cols: u16) -> String {
     while segments.len() > 1 && cells(&segments.join(SEPARATOR)) > limit {
         segments.pop();
     }
+    // The workspace last, in whatever room the others left, and not at all
+    // when there is none (`appendWorkspaceIdentity`, `render.zig:360-379`).
+    // Never beside a refusal: that row is about the keystroke.
+    if let (None, Some((label, branch))) = (hint.notice, hint.workspace) {
+        let used = cells(&segments.join(SEPARATOR));
+        let separator = if segments.is_empty() {
+            0
+        } else {
+            cells(SEPARATOR)
+        };
+        if used + separator < limit {
+            if let Some(segment) =
+                super::statusline::workspace_segment(label, branch, limit - used - separator)
+            {
+                segments.push(segment);
+            }
+        }
+    }
     // Here is where a count becomes a terminal width, and the clamp is what
     // makes the conversion exact rather than merely infallible: `limit` is at
     // most `budget`, which came from a `u16`.
@@ -201,9 +263,14 @@ pub(crate) fn row(hint: &Hint<'_>, cols: u16) -> String {
         // Flush with the last column. The left side was budgeted against
         // `limit`, so this is at least [`GAP`] whenever anything survived on
         // it -- and zero only when a single oversized segment was cut to the
-        // screen, where the clip below is what keeps the row on it.
+        // screen, where the clip below is what keeps the row on it. The row's
+        // run ends first, so the padding is in no colour of its own.
+        row.push_str(hint.close);
         let padding = budget.saturating_sub(cells(&row) + right_cells);
         row.extend(std::iter::repeat_n(' ', padding));
+        // The last thing on the row, so its colour needs no resume: whoever
+        // paints the row ends it.
+        row.push_str(hint.right_style);
         row.push_str(right);
     }
     super::frame::clip(&row, cols).to_string()
@@ -224,17 +291,35 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
     if hint.missing_credential {
         push(&mut segments, MISSING_CREDENTIAL.to_string());
     }
-    if hint.queued > 0 {
-        // `queued 1` in upstream's own words (`render.zig:419-422`), and the
-        // whole difference between a queue and a surprise.
-        push(&mut segments, format!("queued {}", hint.queued));
-    }
     let model = compact_model(hint.model);
-    let mode = hint.mode.label();
+    // The word a person reads (`permissionModeStatusLabel`,
+    // `render.zig:235-241`): `full access`, not the `yolo` the settings file
+    // and the session log record.
+    let mode = hint.mode.display_label();
     if leading_permission_mode_fits(limit, mode, &model) {
-        push(&mut segments, mode.to_string());
+        let (accent, resume) = hint.accent;
+        let lifted = !matches!(hint.mode, PermissionMode::Ask) && !accent.is_empty();
+        if lifted {
+            push(&mut segments, format!("{accent}{mode}{resume}"));
+        } else {
+            push(&mut segments, mode.to_string());
+        }
     }
     push(&mut segments, model);
+    if let Some(effort) = hint.effort {
+        push(&mut segments, effort.to_string());
+    }
+    match hint.speed {
+        Some("") => push(&mut segments, SPEED_MARKER.to_string()),
+        Some(colour) => push(
+            &mut segments,
+            format!("{colour}{SPEED_MARKER}{}", hint.accent.1),
+        ),
+        None => {}
+    }
+    if let Some(title) = hint.session_title {
+        push(&mut segments, title.to_string());
+    }
     if let Some((used, total)) = hint.context_used {
         push(&mut segments, context(used, total));
     }
@@ -268,19 +353,24 @@ fn leading_permission_mode_fits(limit: usize, mode: &str, model: &str) -> bool {
 }
 
 /// How much of the context window the conversation has spent
-/// (`render.zig:441-452`).
+/// (`render.zig:441-452`, `c1db919`: `{used}k/{total}k {pct}%`, or `{used}k`
+/// when the window is unknown).
 ///
 /// Thousands, because the row has no room for six digits and nobody reads them:
 /// what the number is for is "how close am I to the end of it", and the
-/// percentage beside it is that question answered directly.
-fn context(used: u64, total: u64) -> String {
+/// percentage beside it is that question answered directly -- when there is a
+/// window to answer it against.
+fn context(used: u64, total: Option<u64>) -> String {
+    let Some(total) = total else {
+        return format!("{}k", used / 1000);
+    };
     // Saturating rather than wrapping: the product is only near the edge for a
     // token count no conversation can reach, and a percentage that wrapped
     // would be a small number where a large one belongs. A window of zero is a
     // number a provider can publish (`render.zig:445` guards it too), and it
     // reads as nought per cent rather than as a division.
     let percent = used.saturating_mul(100).checked_div(total).unwrap_or(0);
-    format!("Context: {}k/{}k {percent}%", used / 1000, total / 1000)
+    format!("{}k/{}k {percent}%", used / 1000, total / 1000)
 }
 
 /// How many cells `text` occupies, by the painter's own measure.
@@ -303,12 +393,18 @@ mod tests {
     fn hint() -> Hint<'static> {
         Hint {
             missing_credential: false,
-            queued: 0,
             mode: PermissionMode::Ask,
             model: "anthropic/claude-opus-4-7",
+            effort: None,
+            speed: None,
+            session_title: None,
             context_used: None,
+            workspace: None,
             notice: None,
             right: None,
+            right_style: "",
+            close: "",
+            accent: ("", ""),
         }
     }
 
@@ -332,18 +428,18 @@ mod tests {
 
     #[test]
     fn the_segments_are_in_upstreams_order() {
+        // Claim changed: no `queued N` first -- upstream's row has no queue
+        // segment (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
         let mut hint = hint();
-        hint.queued = 1;
-        hint.context_used = Some((12_000, 200_000));
+        hint.context_used = Some((12_000, Some(200_000)));
         let row = row(&hint, 200);
-        let queued = row.find("queued 1").expect("queued");
         let mode = row.find("ask").expect("the permission mode");
         let model = row.find("opus 4-7").expect("the model");
-        let context = row.find("Context:").expect("the context");
-        assert!(queued < mode && mode < model && model < context, "{row:?}");
-        assert!(row.contains("Context: 12k/200k 6%"), "{row:?}");
+        let context = row.find("12k/200k").expect("the context");
+        assert!(mode < model && model < context, "{row:?}");
+        assert!(row.contains("12k/200k 6%"), "{row:?}");
         assert_eq!(
-            row, "queued 1 · ask · opus 4-7 · Context: 12k/200k 6%",
+            row, "ask · opus 4-7 · 12k/200k 6%",
             "the segments are joined by something other than upstream's separator"
         );
     }
@@ -362,7 +458,7 @@ mod tests {
     #[test]
     fn a_narrow_terminal_drops_segments_from_the_right_and_never_overflows() {
         let mut hint = hint();
-        hint.context_used = Some((12_000, 200_000));
+        hint.context_used = Some((12_000, Some(200_000)));
         for cols in [12u16, 20, 40, 80] {
             let row = row(&hint, cols);
             assert!(
@@ -524,7 +620,7 @@ mod tests {
 
     #[test]
     fn a_session_that_has_measured_no_context_says_nothing_about_it() {
-        // A row that said `Context: 0k/0k 0%` would be reporting a measurement
+        // A row that said `0k/0k 0%` would be reporting a measurement
         // nobody took: no Phase-1 event carries a usage number, so the segment
         // is absent rather than zero. The formatting above and this absence are
         // both pinned, so the day a usage event arrives this is a call site
@@ -539,25 +635,44 @@ mod tests {
     }
 
     #[test]
-    fn every_mode_is_said_in_the_word_every_other_renderer_says_it_in() {
-        // `PermissionMode::label` is "the stable wire label used by every
-        // renderer" (`config.rs:112-119`), so the band says what `xfx status`
-        // says. Upstream spells `yolo` in capitals and colours `auto`
-        // (`render.zig:245-251`); both are styling this palette has no role
-        // for, and one grammar across the front ends is worth more here than
-        // one of them shouting.
-        for mode in [
-            PermissionMode::Ask,
-            PermissionMode::Auto,
-            PermissionMode::Yolo,
+    fn every_mode_is_said_in_the_word_upstreams_row_says_it_in() {
+        // `permissionModeStatusLabel` (`render.zig:235-241`, `c1db919`): `ask`,
+        // `auto`, and `full access` for the mode that skips every check --
+        // the word `/permissions` says too, and the one a person reads.
+        // `yolo` is the wire word (`PermissionMode::label`) the settings file
+        // and the session log keep, and it is not on the row.
+        for (mode, said) in [
+            (PermissionMode::Ask, "ask · "),
+            (PermissionMode::Auto, "auto · "),
+            (PermissionMode::Yolo, "full access · "),
         ] {
             let mut hint = hint();
             hint.mode = mode;
+            let row = row(&hint, 80);
             assert!(
-                row(&hint, 80).contains(mode.label()),
-                "the {mode:?} row does not say what mode it is"
+                row.starts_with(said),
+                "the {mode:?} row does not say what mode it is: {row:?}"
             );
+            assert!(!row.contains("yolo"), "{row:?}");
         }
+    }
+
+    #[test]
+    fn the_right_slot_is_said_in_its_own_colour_at_the_last_column() {
+        // `cap/fx-permissions-40x120-full.ansi`, row 18: the warning flush
+        // with column 120, in the warning's grey after the row's own.
+        let mut hint = hint();
+        hint.mode = PermissionMode::Yolo;
+        hint.model = "fake/model-a";
+        hint.right = Some("Full access enabled: xfx permission checks disabled");
+        hint.right_style = "\u{1b}[38;5;252m";
+        let row = row(&hint, 120);
+        assert!(row.starts_with("full access · model-a "), "{row:?}");
+        assert!(
+            row.ends_with("\u{1b}[38;5;252mFull access enabled: xfx permission checks disabled"),
+            "{row:?}"
+        );
+        assert_eq!(cells(&row), 120, "a colour costs no cells");
     }
 
     #[test]
@@ -566,8 +681,8 @@ mod tests {
         // it for the same reason: a catalog that published `0` would divide by
         // it.
         let mut hint = hint();
-        hint.context_used = Some((12_000, 0));
-        assert!(row(&hint, 80).contains("Context: 12k/0k 0%"), "{hint:?}");
+        hint.context_used = Some((12_000, Some(0)));
+        assert!(row(&hint, 80).contains("12k/0k 0%"), "{hint:?}");
     }
 
     #[test]
@@ -577,8 +692,7 @@ mod tests {
         // kept its separator would show a `·` with one side missing.
         let mut hint = hint();
         hint.model = "anthropic/";
-        hint.queued = 2;
-        assert_eq!(row(&hint, 80), "queued 2 · ask");
+        assert_eq!(row(&hint, 80), "ask");
     }
     #[test]
     fn the_meter_says_both_numbers_and_the_percentage_between_them() {
@@ -586,15 +700,15 @@ mod tests {
         // digits and nobody reads them: the question the segment answers is how
         // close the conversation is to the end of the window.
         let mut hint = hint();
-        hint.context_used = Some((12_345, 200_000));
+        hint.context_used = Some((12_345, Some(200_000)));
         let painted = row(&hint, 80);
-        assert!(painted.contains("Context: 12k/200k 6%"), "{painted}");
+        assert!(painted.contains("12k/200k 6%"), "{painted}");
 
         // A window of zero is a number a provider can publish, and it reads as
         // nought per cent rather than as a division.
-        hint.context_used = Some((10, 0));
+        hint.context_used = Some((10, Some(0)));
         let painted = row(&hint, 80);
-        assert!(painted.contains("Context: 0k/0k 0%"), "{painted}");
+        assert!(painted.contains("0k/0k 0%"), "{painted}");
     }
 
     #[test]
@@ -617,19 +731,126 @@ mod tests {
         // needed most -- the model above all, because it is what they check
         // before pressing Return.
         let mut hint = hint();
-        hint.context_used = Some((12_345, 200_000));
+        hint.context_used = Some((12_345, Some(200_000)));
         let wide = row(&hint, 80);
-        assert!(wide.contains("Context"), "{wide}");
+        assert!(wide.contains("12k/200k"), "{wide}");
         assert!(wide.contains("opus 4-7"), "{wide}");
 
         let narrow = row(&hint, 20);
         assert!(
-            !narrow.contains("Context"),
+            !narrow.contains('%'),
             "the meter outlived a segment that matters more: {narrow}"
         );
         assert!(
             narrow.contains("opus 4-7"),
             "the model was dropped before the meter: {narrow}"
         );
+    }
+
+    #[test]
+    fn the_optional_segments_follow_the_model_in_upstreams_order() {
+        // `buildHintLine` (`render.zig:440-470`): mode, model, session title,
+        // context, workspace -- and the capture after a turn with all three on
+        // (`.prd/tui-phase4/receipts/d4b/fx-statusline-turn-40x120-after-turn`):
+        // `auto · model-a · say the marker · 1k · <path>`.
+        let mut hint = hint();
+        hint.session_title = Some("say the marker");
+        hint.context_used = Some((1_200, None));
+        hint.workspace = Some(("/private/tmp/fxcap.X/work", Some("main")));
+        assert_eq!(
+            row(&hint, 120),
+            "ask \u{b7} opus 4-7 \u{b7} say the marker \u{b7} 1k \u{b7} /private/tmp/fxcap.X/work (main)"
+        );
+        // Each is its own: none of them on is the row it always was.
+        assert_eq!(row(&self::hint(), 120), "ask \u{b7} opus 4-7");
+        // The effort right after the model, before them all
+        // (`appendSessionStatusSegments`, `render.zig:390-393`;
+        // `fx-model-40x120-speed-enter`: `auto · gpt-6-astra · low · ⚡︎`).
+        let mut effort = self::hint();
+        effort.effort = Some("low");
+        effort.session_title = Some("t");
+        assert_eq!(row(&effort, 120), "ask \u{b7} opus 4-7 \u{b7} low \u{b7} t");
+        let mut only = self::hint();
+        only.workspace = Some(("/w", None));
+        assert_eq!(row(&only, 120), "ask \u{b7} opus 4-7 \u{b7} /w");
+    }
+
+    #[test]
+    fn the_speed_marker_follows_the_effort_in_the_rows_grey_or_ultras_yellow() {
+        // Two cells, as upstream counts the sign in its text presentation
+        // (`display_width.zig:697`): the budget below is measured with it.
+        assert_eq!(cells(SPEED_MARKER), 2);
+        // Fast, in the row's own grey (`fx-fast-opus-40x120-fast-on`:
+        // `auto · opus 5 · ⚡︎`).
+        let mut fast = self::hint();
+        fast.effort = Some("low");
+        fast.speed = Some("");
+        fast.session_title = Some("t");
+        assert_eq!(
+            row(&fast, 120),
+            "ask \u{b7} opus 4-7 \u{b7} low \u{b7} \u{26a1}\u{fe0e} \u{b7} t"
+        );
+        // Ultra, in its yellow and the row's colour resumed after it
+        // (`render.zig:1038-1043`).
+        let mut ultra = self::hint();
+        ultra.speed = Some("<Y>");
+        ultra.accent = ("<A>", "<S>");
+        assert_eq!(
+            row(&ultra, 120),
+            "ask \u{b7} opus 4-7 \u{b7} <Y>\u{26a1}\u{fe0e}<S>"
+        );
+    }
+
+    #[test]
+    fn a_window_nobody_published_leaves_the_numerator_on_its_own() {
+        // `render.zig:448-451`: `{used}k` when the window is unknown -- no
+        // catalog read, or a row that publishes none -- and no percentage of a
+        // window nobody stated.
+        let mut hint = hint();
+        hint.context_used = Some((12_345, None));
+        let painted = row(&hint, 80);
+        assert!(painted.ends_with(" \u{b7} 12k"), "{painted}");
+        assert!(!painted.contains('%'), "{painted}");
+    }
+
+    #[test]
+    fn the_workspace_is_cut_to_the_room_the_others_left_rather_than_dropped() {
+        let mut hint = hint();
+        hint.workspace = Some((
+            "/a/long/workspace/path/status-root",
+            Some("detached:0123456789ab"),
+        ));
+        for cols in [20u16, 24, 30, 40, 60] {
+            let painted = row(&hint, cols);
+            assert!(
+                crate::tui::wrap::width(&painted) <= cols,
+                "{cols} columns overflowed: {painted:?}"
+            );
+            assert!(
+                painted.starts_with("ask \u{b7} opus 4-7"),
+                "the workspace took room from a segment before it: {painted:?}"
+            );
+        }
+        // Thirty columns leave thirteen after the separator: six for the
+        // branch's start, three for ` ()`, four for the path's end.
+        assert_eq!(
+            row(&hint, 30),
+            "ask \u{b7} opus 4-7 \u{b7} \u{2026}oot (detac\u{2026})"
+        );
+        // No room after the separator: no segment, and no separator for it.
+        assert_eq!(row(&hint, 17), "ask \u{b7} opus 4-7");
+    }
+
+    #[test]
+    fn a_refusal_takes_the_row_without_the_workspace_beside_it() {
+        let mut hint = hint();
+        hint.workspace = Some(("/w", Some("main")));
+        hint.session_title = Some("title");
+        hint.notice = Some(Notice {
+            text: "refused",
+            style: "",
+            resume: "",
+        });
+        assert_eq!(row(&hint, 80), "refused");
     }
 }

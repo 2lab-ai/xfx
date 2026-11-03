@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e90d5dc [debug] · Run /help for commands
+
+┃ first question
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  ANSWER-ONE: the notes are read.
+
+  1s (↑4 ↓80)
+
+┃ second question
+
+  ANSWER-TWO: noted.
+
+  0s (↑4 ↓40)
+
+┃ third question
+
+  ANSWER-THREE.
+
+  3s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+

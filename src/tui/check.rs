@@ -37,6 +37,7 @@
 use std::fmt;
 use std::io;
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -240,6 +241,12 @@ enum CellState {
         grapheme: Glyph,
         width: u8,
         color: Color,
+        /// The hyperlink the cell is part of, as the sequence that opens it:
+        /// on the expected side the one the row's text carried
+        /// ([`super::pacer::SgrState::link`]), on the wire side the one
+        /// [`wire_link`] decoded and spelt again. Two cells are the same only
+        /// when a click on either goes to the same place.
+        link: Option<Arc<str>>,
     },
     Continuation,
     Foreign(u32),
@@ -259,6 +266,7 @@ impl CellState {
                 grapheme: Glyph::new(grapheme),
                 width: *width,
                 color: sgr.color()?,
+                link: sgr.link().cloned(),
             },
         })
     }
@@ -282,13 +290,20 @@ impl CellState {
                     grapheme,
                     width,
                     color,
+                    link,
                 },
                 Self::Lead {
                     grapheme: other_grapheme,
                     width: other_width,
                     color: other_color,
+                    link: other_link,
                 },
-            ) => width == other_width && color == other_color && grapheme == other_grapheme,
+            ) => {
+                width == other_width
+                    && color == other_color
+                    && grapheme == other_grapheme
+                    && link == other_link
+            }
             _ => match (self.shown(), other.shown()) {
                 (Some(shown), Some(other)) => shown == other,
                 _ => self == other,
@@ -301,18 +316,23 @@ impl CellState {
     /// the painter relies on it: [`Grid::diff`] spells an empty target cell as
     /// a space. The text is given as its bytes, which compare exactly as the
     /// text does.
-    fn shown(&self) -> Option<(&[u8], u8, Color)> {
+    fn shown(&self) -> Option<Shown<'_>> {
         match self {
-            Self::Empty => Some((b" ", 1, Color::Default)),
+            Self::Empty => Some((b" ", 1, Color::Default, None)),
             Self::Lead {
                 grapheme,
                 width,
                 color,
-            } => Some((grapheme.as_bytes(), *width, *color)),
+                link,
+            } => Some((grapheme.as_bytes(), *width, *color, link.as_deref())),
             Self::Continuation | Self::Foreign(_) => None,
         }
     }
 }
+
+/// What a terminal shows in one cell: the text, the columns it takes, its
+/// colour, and the link a click on it follows.
+type Shown<'a> = (&'a [u8], u8, Color, Option<&'a str>);
 
 /// One screen's cells.
 ///
@@ -596,6 +616,16 @@ pub(crate) struct TerminalModel {
     cursor_visible: Option<bool>,
     /// `?2026` is DECSET/DECRST -- set or reset, with no depth to it.
     sync_open: bool,
+    /// How many times this vector set `?2026`, and how many times it reset
+    /// it: an update a vector opens once and closes once is the shape
+    /// [`preflight_update`] holds a multi-part frame to, and a mode with no
+    /// depth cannot say how often it was toggled on its own.
+    sync_sets: u16,
+    sync_resets: u16,
+    /// Whether this vector showed the cursor (`?25h`) while synchronized output
+    /// was set: a caret shown inside an update is shown before the update is
+    /// presented, where upstream shows it after (`terminal_diff.zig:643-644`).
+    shown_in_update: bool,
     shown_title: Option<String>,
     /// `CSI 22 ; 2 t` pushes and `CSI 23 ; 2 t` pops.
     title_stack: u8,
@@ -603,9 +633,16 @@ pub(crate) struct TerminalModel {
     /// `ED 3`, which no grid models further.
     scrollback_erased: bool,
     queries: Vec<QueryId>,
+    /// `BEL`s rung outside an `OSC` -- where the same byte is a terminator and
+    /// rings nothing. A bell moves no cell and no caret, so without a count of
+    /// its own it would be the one byte a frame could carry unnoticed.
+    bells: u16,
     /// What the last SGR left switched on, and therefore what the next cell is
     /// painted in.
     pen: Color,
+    /// The hyperlink the next cell is painted into, as [`wire_link`] spelt it
+    /// -- `None` outside one. An SGR reset leaves it, as a terminal does.
+    link: Option<Arc<str>>,
     /// What this vector did, in order.
     effects: Vec<Effect>,
     /// Which buffer each `?1049` in this vector moved the terminal **to**, in
@@ -633,12 +670,17 @@ impl TerminalModel {
             caret: Caret::Unknown,
             cursor_visible: None,
             sync_open: false,
+            sync_sets: 0,
+            sync_resets: 0,
+            shown_in_update: false,
             shown_title: None,
             title_stack,
             modes,
             scrollback_erased: false,
             queries: Vec::new(),
+            bells: 0,
             pen: Color::Default,
+            link: None,
             effects: Vec::new(),
             moves: Vec::new(),
         }
@@ -702,6 +744,16 @@ impl TerminalModel {
         );
         model.caret = caret.map_or(Caret::Unknown, Caret::Known);
         model
+    }
+
+    /// The same seed on a terminal that may be holding an update open -- a
+    /// frame the terminal took part of, and a cleanup it refused -- which is
+    /// the terminal every restore has to be ready for: the metadata check
+    /// refuses a vector that leaves synchronized output open, so a restore
+    /// seeded this way that does not close it is refused.
+    pub(crate) fn update_open(mut self) -> Self {
+        self.sync_open = true;
+        self
     }
 
     /// A seed for the vectors that carry no cells: the mode set and the exit's
@@ -897,9 +949,14 @@ pub(crate) enum Intent<'a> {
         cursor_visible: Option<bool>,
         title: Option<&'a str>,
     },
-    /// `/clear`: a blank screen, a caret at its origin, and the scrollback
-    /// erased.
-    Cleared,
+    /// A resume's terminal reset: a blank screen, a caret at its origin, and
+    /// the scrollback erased (`super::frame::Band::wipe`).
+    ///
+    /// **The only declaration in this crate that admits a scrollback erase**,
+    /// and it has one emitter: `/resume` replaces the conversation on the
+    /// screen with another one, as upstream's terminal reset does
+    /// (`finishLiveSessionResume`, `app_session_runtime.zig:1926-1929`).
+    Wiped,
     /// The mode set, or the exit's restore of it.
     ///
     /// `cursor_visible` is an `Option` because the mode set says nothing about
@@ -915,6 +972,10 @@ pub(crate) enum Intent<'a> {
     /// The launch queries, **in order**: the fence only works if the terminal
     /// parses them in the order they were written.
     Queries(&'a [QueryId]),
+    /// `/sound`'s terminal bells, exactly this many and nothing else: no cell,
+    /// no caret, no mode -- the byte a multiplexer marks a pane for, and the
+    /// one every other intent declares none of.
+    Bell { rings: u16 },
     /// A scroll of a screen this process did not author, checked at the caret
     /// and the count and nothing else -- there is nothing else it can honestly
     /// be checked at.
@@ -1062,6 +1123,7 @@ impl<'a> Expected<'a> {
                     grapheme: Glyph::new(cluster),
                     width: u8::try_from(width).unwrap_or(u8::MAX),
                     color,
+                    link: sgr.link().cloned(),
                 };
                 for offset in 1..width {
                     cells[column + offset] = CellState::Continuation;
@@ -1193,6 +1255,15 @@ pub(crate) fn preflight(
         _ => None,
     };
     apply(&mut model, bytes, expected.as_mut())?;
+    // A link this vector opened and did not close would take in whatever the
+    // next vector paints first -- another emitter's row, or the user's shell
+    // after the exit.
+    if model.link.is_some() {
+        return Err(Reject::new(
+            "a vector that left a hyperlink open",
+            bytes.len(),
+        ));
+    }
     if let Some(expected) = &mut expected {
         expected.finish(model.plane_of(declared.footprint.plane), bytes.len())?;
     }
@@ -1207,6 +1278,141 @@ pub(crate) fn preflight(
         bytes.len(),
     )?;
     Ok(model)
+}
+
+/// Where one synchronized update that carries **more than one part** begins
+/// and ends -- the document's growth and the band under it, written in one
+/// vector (`super::event_loop`'s `commit_primary`).
+///
+/// Offsets into that vector, from the composer that built it: the window
+/// title, when the update carries one, is `bytes[..lead]`, ahead of the update
+/// as upstream writes it; the opener is `bytes[lead..opener]`, the parts are
+/// `bytes[opener..closer]`, the closer is `bytes[closer..]`. They are claims
+/// about the vector, and [`preflight_update`] decodes each slice to hold the
+/// vector to them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Update<'a> {
+    pub(crate) lead: usize,
+    /// The title the lead leaves the window with -- the title it writes, or
+    /// the one the window had when there is no lead.
+    pub(crate) title: Option<&'a str>,
+    pub(crate) opener: usize,
+    pub(crate) closer: usize,
+    /// Whether the update ends with the caret shown: a band frame's caret, or
+    /// none when the band frame was not written and the caret is wherever the
+    /// document's last row left it.
+    pub(crate) cursor_visible: bool,
+}
+
+/// Holds a multi-part update to the **shape** upstream's frame has
+/// (`composeWireFrame`, `render_engine/terminal_diff.zig:604-645`): `?2026h`
+/// and `?25l` before anything is written, every part inside the one update,
+/// `?2026l` once at the end, and the caret shown -- if at all -- only after
+/// it.
+///
+/// **What it does not check is what each part does to the cells**, and that is
+/// not a gap: every part was checked by its own emitter against its own
+/// declaration before it was put in this vector ([`preflight`]), on the seed
+/// the parts before it leave, exactly as when each was a vector of its own. A
+/// cell comparison of the whole would need a seed for the whole, and the
+/// band's own frame inside it may begin by forgetting its screen
+/// (`Band::invalidate`) -- so this asks only what no single part can be asked:
+/// whether the update brackets all of them.
+///
+/// Decoded in three slices on one model, so a sequence that straddles a
+/// boundary is unterminated where it is cut and is refused there.
+pub(crate) fn preflight_update(
+    seed: &TerminalModel,
+    bytes: &[u8],
+    update: Update<'_>,
+) -> Result<(), Reject> {
+    if update.lead > update.opener || update.opener > update.closer || update.closer > bytes.len() {
+        return Err(Reject::new("an update whose parts are out of order", 0));
+    }
+    let mut model = seed.clone();
+    model.sync_open = false;
+    model.sync_sets = 0;
+    model.sync_resets = 0;
+    model.shown_in_update = false;
+    // The lead: a title and nothing else, outside the update -- no cell, no
+    // caret, no cursor, no mode -- as upstream's title is a write between two
+    // frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`).
+    let caret = model.caret;
+    let cursor = model.cursor_visible;
+    apply(&mut model, &bytes[..update.lead], None)?;
+    if !model.effects.is_empty()
+        || model.sync_sets != 0
+        || model.sync_resets != 0
+        || model.caret != caret
+        || model.cursor_visible != cursor
+        || model.bells != 0
+        || !model.queries.is_empty()
+    {
+        return Err(Reject::new(
+            "an update led by something other than its title",
+            update.lead,
+        ));
+    }
+    if update.lead > 0 && model.shown_title.as_deref() != update.title {
+        return Err(Reject::new(
+            "a title that is not the one asked for",
+            update.lead,
+        ));
+    }
+    apply(&mut model, &bytes[update.lead..update.opener], None)?;
+    if !(model.sync_open && model.sync_sets == 1)
+        || model.cursor_visible != Some(false)
+        || !model.effects.is_empty()
+    {
+        return Err(Reject::new(
+            "an update that does not open synchronized output and hide the caret first",
+            update.opener,
+        ));
+    }
+    apply(&mut model, &bytes[update.opener..update.closer], None)?;
+    if model.sync_resets != 0 {
+        return Err(Reject::new(
+            "an update that ends before its last part",
+            update.closer,
+        ));
+    }
+    if model.sync_sets != 1 {
+        return Err(Reject::new("an update opened twice", update.closer));
+    }
+    let written = model.effects.len();
+    let caret = model.caret;
+    apply(&mut model, &bytes[update.closer..], None)?;
+    if model.sync_open || model.sync_resets != 1 {
+        return Err(Reject::new(
+            "a vector that left synchronized output open",
+            bytes.len(),
+        ));
+    }
+    if model.effects.len() != written || model.caret != caret {
+        return Err(Reject::new(
+            "an update that writes after it ends",
+            update.closer,
+        ));
+    }
+    if model.shown_in_update {
+        return Err(Reject::new(
+            "a caret shown before the update ends",
+            bytes.len(),
+        ));
+    }
+    if model.cursor_visible != Some(update.cursor_visible) {
+        return Err(Reject::new(
+            "a cursor visibility nobody asked for",
+            bytes.len(),
+        ));
+    }
+    if model.link.is_some() {
+        return Err(Reject::new(
+            "a vector that left a hyperlink open",
+            bytes.len(),
+        ));
+    }
+    Ok(())
 }
 
 /// The fixed vector [`preflight_recovery_cleanup`] accepts, and the only one
@@ -1234,8 +1440,10 @@ pub(crate) const RECOVERY_CLEANUP: &str = "\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1
 /// question that state still admits an answer to -- is the vector the one
 /// fixed reset this crate has chosen to try, byte for byte -- and licenses
 /// nothing else, including any of the sequences `RECOVERY_CLEANUP` itself is
-/// built from: [`apply`]'s own alphabet already refuses a bare `CAN` or an
-/// `OSC 8` outside this path, and nothing here loosens that.
+/// built from: [`apply`]'s own alphabet already refuses a bare `CAN`, and the
+/// `BEL`-terminated `OSC 8` close outside this path -- it admits upstream's
+/// `ST`-terminated hyperlinks and only those -- and nothing here loosens
+/// that.
 ///
 /// The confidence this buys is bounded and stated where it is spent
 /// ([`super::frame::Band::recover_primary`]): an independent terminal
@@ -1340,6 +1548,7 @@ struct Metadata {
     scrollback_erased: bool,
     queries: Vec<QueryId>,
     saved_cursor: Option<(u16, u16)>,
+    bells: u16,
 }
 
 impl Metadata {
@@ -1354,6 +1563,7 @@ impl Metadata {
             scrollback_erased: model.scrollback_erased,
             queries: model.queries.clone(),
             saved_cursor: model.saved_cursor,
+            bells: model.bells,
         }
     }
 
@@ -1387,6 +1597,13 @@ impl Metadata {
         if self.saved_cursor != other.saved_cursor {
             return Some("a saved cursor this vector did not declare");
         }
+        if self.bells != other.bells {
+            return Some(if other.bells == 0 {
+                "a bell this vector did not declare"
+            } else {
+                "a number of bells the vector did not declare"
+            });
+        }
         None
     }
 }
@@ -1410,6 +1627,7 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
         scrollback_erased: seed.scrollback_erased,
         queries: Vec::new(),
         saved_cursor,
+        bells: 0,
     };
     match &declared.intent {
         Intent::Primary {
@@ -1426,9 +1644,7 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
             ..unchanged(*cursor_visible)
         },
         Intent::Alternate { cursor_visible, .. } => unchanged(*cursor_visible),
-        Intent::Cleared => Metadata {
-            // The one emitter in the TUI that erases a terminal's scrollback,
-            // and the only declaration that admits it.
+        Intent::Wiped => Metadata {
             scrollback_erased: true,
             ..unchanged(None)
         },
@@ -1458,6 +1674,10 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
         },
         Intent::ScrollOnly { .. } => unchanged(None),
         Intent::Cleanup { cursor_visible, .. } => unchanged(Some(*cursor_visible)),
+        Intent::Bell { rings } => Metadata {
+            bells: *rings,
+            ..unchanged(None)
+        },
     }
 }
 
@@ -1501,11 +1721,11 @@ fn check_cells(
         // Its cells were compared as the vector ran, row by row, including the
         // ones that had left the screen before it ended.
         Intent::Document { caret, .. } => expect_declared_caret(model, *caret, at),
-        Intent::Cleared => {
+        Intent::Wiped => {
             expect_blank(model.screen_ref(), 1, at)?;
             expect_caret(model, (1, 1), at)
         }
-        Intent::Modes { .. } | Intent::Queries(_) => {
+        Intent::Modes { .. } | Intent::Queries(_) | Intent::Bell { .. } => {
             if !model.effects.is_empty() {
                 return Err(Reject::new(
                     "a vector that moved a cell it did not declare",
@@ -1742,7 +1962,7 @@ fn agree(found: &CellState, wanted: &Cell, at: usize, row: u16, column: u16) -> 
         // A space and an untouched cell are the same thing on a screen, and the
         // painter spells one as the other -- [`Grid::diff`] writes a space
         // where the target cell is empty.
-        Cell::Empty => Some((&b" "[..], 1u8, Color::Default)),
+        Cell::Empty => Some((&b" "[..], 1u8, Color::Default, None)),
         Cell::Continuation => None,
         Cell::Lead {
             grapheme,
@@ -1759,6 +1979,7 @@ fn agree(found: &CellState, wanted: &Cell, at: usize, row: u16, column: u16) -> 
                     column,
                 )
             })?,
+            sgr.link().map(|link| &**link),
         )),
     };
     let agreed = match wanted {
@@ -1821,6 +2042,14 @@ fn apply(
                 linefeed(model, expected.as_deref_mut(), at)?;
                 at += 1;
             }
+            // Counted rather than refused, and refused by the comparison
+            // instead: a bell is in the alphabet for the one intent that
+            // declares it ([`Intent::Bell`]), and every other intent declares
+            // none.
+            0x07 => {
+                model.bells = model.bells.saturating_add(1);
+                at += 1;
+            }
             byte if byte < 0x20 || byte == 0x7f => {
                 return Err(Reject::new("a control byte outside the alphabet", at))
             }
@@ -1854,6 +2083,9 @@ fn linefeed(
     let Caret::Known((row, column)) = model.caret else {
         return Err(Reject::new("a linefeed from a caret nothing can place", at));
     };
+    if model.link.is_some() {
+        return Err(Reject::new("a hyperlink left open across a row", at));
+    }
     if row >= model.screen_ref().rows {
         // **Before the screen moves.** The row at the top is about to be in the
         // terminal's own scrollback, where nothing in this phase reaches it
@@ -1892,6 +2124,7 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             continue;
         }
         let color = model.pen;
+        let link = model.link.clone();
         let plane = model.screen();
         if usize::from(column) + usize::from(width) - 1 > usize::from(plane.cols) {
             return Err(Reject::at_cell(
@@ -1948,6 +2181,7 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             grapheme: Glyph::new(cluster),
             width: u8::try_from(width).unwrap_or(u8::MAX),
             color,
+            link,
         };
         for offset in 1..width {
             if let Some(tail) = plane.index(row, column + offset) {
@@ -2012,6 +2246,9 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
     let length = end + 1 - at;
     match (prefix, final_byte) {
         (b' ', b'H') => {
+            if model.link.is_some() {
+                return Err(Reject::new("a hyperlink left open across a caret move", at));
+            }
             let (row, column) = position(params, at)?;
             let plane = model.screen_ref();
             if row == 0 || column == 0 || row > plane.rows || column > plane.cols {
@@ -2024,6 +2261,9 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
             }
             model.caret = Caret::Known((row, column));
         }
+        (b' ', b'J' | b'K') if model.link.is_some() => {
+            return Err(Reject::new("an erase under an open hyperlink", at));
+        }
         (b' ', b'J') => match params {
             "" | "0" => erase_below(model, at)?,
             "2" => erase_screen(model),
@@ -2035,12 +2275,17 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
                 let Caret::Known((row, column)) = model.caret else {
                     return Err(Reject::new("an erase from a caret nothing can place", at));
                 };
+                let column = erased_from(model, column);
                 model.screen().erase_from(row, column);
                 model.record(Did::Erase, row);
             }
             _ => return Err(Reject::new("a line erase this crate does not write", at)),
         },
-        (b' ', b'm') => model.pen = wire_color(params, at)?,
+        (b' ', b'm') => {
+            if let Some(color) = wire_color(params, at)? {
+                model.pen = color;
+            }
+        }
         (b' ', b'n') => match params {
             "6" => model.queries.push(QueryId::CursorPosition),
             _ => return Err(Reject::new("a report this crate does not ask for", at)),
@@ -2119,12 +2364,31 @@ fn position(params: &str, at: usize) -> Result<(u16, u16), Reject> {
     Ok((row, column))
 }
 
+/// The column an erase really starts at, for a caret the model holds at
+/// `column`.
+///
+/// The model moves the caret one column past every cluster it writes, so a row
+/// written up to the last column leaves it at `cols + 1` -- a column no
+/// terminal has. With autowrap off (`super::term::MODE_SET`'s `?7l`) a
+/// terminal leaves it **on** the last column, because it cannot advance past
+/// it, so an `EL` or an `ED` sent from there erases the cell that was just
+/// written. That is how a document row exactly as wide as the screen lost its
+/// last character (`word32` painted as `word3` at 120 columns) while this
+/// model, erasing from a column past the end, said nothing was erased. (With
+/// autowrap on, terminals differ -- xterm erases the cell as well, tmux does
+/// not -- and an erase there is a defect on either, so the stricter reading is
+/// the one modelled.)
+fn erased_from(model: &TerminalModel, column: u16) -> u16 {
+    column.min(model.screen_ref().cols)
+}
+
 /// `ED 0`: the rest of this row, and every row below it.
 fn erase_below(model: &mut TerminalModel, at: usize) -> Result<(), Reject> {
     let Caret::Known((row, column)) = model.caret else {
         return Err(Reject::new("an erase from a caret nothing can place", at));
     };
     let rows = model.screen_ref().rows;
+    let column = erased_from(model, column);
     model.screen().erase_from(row, column);
     model.record(Did::Erase, row);
     for line in row + 1..=rows {
@@ -2151,11 +2415,37 @@ fn private_mode(
     at: usize,
 ) -> Result<(), Reject> {
     match params {
-        "2026" => model.sync_open = set,
-        "25" => model.cursor_visible = Some(set),
+        // A link open when an update ends is open across the moment the
+        // terminal presents it: whatever the next update paints first is part
+        // of the link, as surely as across a row ([`linefeed`]) or a buffer
+        // change below.
+        "2026" if !set && model.link.is_some() => {
+            return Err(Reject::new(
+                "a hyperlink left open across the block end",
+                at,
+            ));
+        }
+        "2026" => {
+            if set {
+                model.sync_sets = model.sync_sets.saturating_add(1);
+            } else {
+                model.sync_resets = model.sync_resets.saturating_add(1);
+            }
+            model.sync_open = set;
+        }
+        "25" => {
+            model.shown_in_update |= set && model.sync_open;
+            model.cursor_visible = Some(set);
+        }
         "2004" => model.modes.bracketed_paste = Some(set),
         "7" => model.modes.autowrap = Some(set),
         "2031" => model.modes.theme_notifications = Some(set),
+        "1049" if model.link.is_some() => {
+            return Err(Reject::new(
+                "a hyperlink left open across a buffer change",
+                at,
+            ));
+        }
         "1049" => {
             if set {
                 model.saved_cursor = match model.caret {
@@ -2184,7 +2474,7 @@ fn private_mode(
     Ok(())
 }
 
-/// `OSC 2` and the background query, and nothing else.
+/// `OSC 2`, the background query and an `OSC 8` hyperlink, and nothing else.
 fn operating_system_command(
     model: &mut TerminalModel,
     bytes: &[u8],
@@ -2227,50 +2517,143 @@ fn operating_system_command(
             ));
         }
         model.queries.push(QueryId::Background);
+    } else if let Some(link) = body.strip_prefix("8;") {
+        // Upstream's spelling only (`engine.zig:3262-3272`): the `BEL` form
+        // is the recovery cleanup's, which has an entry point of its own and
+        // licenses nothing here ([`preflight_recovery_cleanup`]).
+        if terminator != 2 {
+            return Err(Reject::new(
+                "a hyperlink this crate does not spell that way",
+                at,
+            ));
+        }
+        model.link = wire_link(link, at)?;
     } else {
         return Err(Reject::new("a string sequence outside the alphabet", at));
     }
     Ok(end + terminator - at)
 }
 
-/// The colour a `CSI ... m` on the wire means.
+/// The link an `OSC 8` on the wire leaves open -- `None` for a close -- from
+/// the body after its `8;`.
+///
+/// **A parser of its own**, as [`wire_color`] is beside
+/// [`super::pacer::SgrState::color`]: the painter admits a link with
+/// [`super::hyperlink::link_at`], and an admission rule that went wrong there
+/// would agree with itself if this asked it again. So the rules are restated
+/// here and only the limits are shared -- the parameters are empty or `id=`
+/// and a short run of `[A-Za-z0-9._-]`; the target is no longer than
+/// [`super::hyperlink::MAX_URI_BYTES`], holds no control character of any kind
+/// (C0, `DEL`, C1), and begins with `http:`, `https:`, `file:` or `mailto:`
+/// in any case. A close carries no parameters.
+///
+/// The open is returned spelt as upstream spells one, which is the spelling
+/// the expected side holds; the rejection names the rule and never the target.
+fn wire_link(body: &str, at: usize) -> Result<Option<Arc<str>>, Reject> {
+    let refused = |rule: &'static str| Reject::new(rule, at);
+    let Some((params, uri)) = body.split_once(';') else {
+        return Err(refused("a hyperlink with no target field"));
+    };
+    if uri.is_empty() {
+        if !params.is_empty() {
+            return Err(refused("a hyperlink close carrying parameters"));
+        }
+        return Ok(None);
+    }
+    if !params.is_empty() {
+        let id = params
+            .strip_prefix("id=")
+            .ok_or_else(|| refused("hyperlink parameters this crate does not write"))?;
+        let well_formed = (1..=64).contains(&id.len())
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
+        if !well_formed {
+            return Err(refused("hyperlink parameters this crate does not write"));
+        }
+    }
+    if uri.len() > super::hyperlink::MAX_URI_BYTES {
+        return Err(refused("a hyperlink target longer than a link may be"));
+    }
+    if uri.chars().any(|c| c.is_control()) {
+        return Err(refused("a hyperlink target carrying a control character"));
+    }
+    let colon = uri
+        .find(':')
+        .ok_or_else(|| refused("a hyperlink target with no scheme"))?;
+    let scheme = uri[..colon].to_ascii_lowercase();
+    let starts = scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic());
+    if !starts || !matches!(scheme.as_str(), "http" | "https" | "file" | "mailto") {
+        return Err(refused(
+            "a hyperlink target in a scheme this crate does not link",
+        ));
+    }
+    Ok(Some(Arc::from(format!("\u{1b}]8;{params};{uri}\u{1b}\\"))))
+}
+
+/// The colour a `CSI ... m` on the wire leaves the pen in, or `None` for one
+/// that changes no colour.
 ///
 /// **The second of the two parsers**, and deliberately not the one
 /// [`super::pacer::SgrState::color`] is: a single shared parser would make an
 /// assembly defect cancel against itself, both sides mis-reading the same bytes
 /// and agreeing.
-fn wire_color(params: &str, at: usize) -> Result<Color, Reject> {
-    let malformed = || Reject::new("a colour outside the three shapes this crate emits", at);
-    if params.is_empty() || params == "0" {
-        return Ok(Color::Default);
+///
+/// The vocabulary is [`super::pacer`]'s allowlist: groups of a reset or the
+/// foreground default (`0`, `39`), a text attribute (`1 2 3 4 9 22 23 24 29`,
+/// which this model does not carry because no cell comparison is made about
+/// it -- nor reverse video `7`/`27`, a draft's caret cell and a composer
+/// selection), one foreground colour
+/// (`38;5;n`, `38;2;r;g;b`), or the file picker's
+/// background and its close (`48;5;n`, `48;2;r;g;b`, `49`) -- read whole and
+/// range-checked like a foreground, and carried no further than the text
+/// attributes are, because the comparison is about the pen's foreground.
+/// Anything else is a sequence this crate does not write.
+fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
+    let malformed = || Reject::new("an SGR outside the vocabulary this crate emits", at);
+    if params.is_empty() {
+        return Ok(Some(Color::Default));
     }
+    let mut pen = None;
     let mut parts = params.split(';');
-    if parts.next() != Some("38") {
-        return Err(malformed());
-    }
-    match parts.next() {
-        Some("5") => {
-            let index = parts.next().ok_or_else(malformed)?;
-            if parts.next().is_some() {
-                return Err(malformed());
+    while let Some(part) = parts.next() {
+        match part {
+            "0" | "39" => pen = Some(Color::Default),
+            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "49" => {}
+            "48" => {
+                let wanted = match parts.next() {
+                    Some("5") => 1,
+                    Some("2") => 3,
+                    _ => return Err(malformed()),
+                };
+                for _ in 0..wanted {
+                    number(parts.next().ok_or_else(malformed)?).ok_or_else(malformed)?;
+                }
             }
-            Ok(Color::Indexed(number(index).ok_or_else(malformed)?))
+            "38" => match parts.next() {
+                Some("5") => {
+                    let index = parts.next().ok_or_else(malformed)?;
+                    pen = Some(Color::Indexed(number(index).ok_or_else(malformed)?));
+                }
+                Some("2") => {
+                    let red = parts.next().ok_or_else(malformed)?;
+                    let green = parts.next().ok_or_else(malformed)?;
+                    let blue = parts.next().ok_or_else(malformed)?;
+                    pen = Some(Color::Rgb(
+                        number(red).ok_or_else(malformed)?,
+                        number(green).ok_or_else(malformed)?,
+                        number(blue).ok_or_else(malformed)?,
+                    ));
+                }
+                _ => return Err(malformed()),
+            },
+            _ => return Err(malformed()),
         }
-        Some("2") => {
-            let red = parts.next().ok_or_else(malformed)?;
-            let green = parts.next().ok_or_else(malformed)?;
-            let blue = parts.next().ok_or_else(malformed)?;
-            if parts.next().is_some() {
-                return Err(malformed());
-            }
-            Ok(Color::Rgb(
-                number(red).ok_or_else(malformed)?,
-                number(green).ok_or_else(malformed)?,
-                number(blue).ok_or_else(malformed)?,
-            ))
-        }
-        _ => Err(malformed()),
     }
+    Ok(pen)
 }
 
 /// One colour parameter: ASCII digits, and inside the range a terminal reads.
@@ -2377,6 +2760,378 @@ mod tests {
             anywhere(24, 0),
         );
         preflight(&seed(&before, None), &bytes, &declared).expect("the frame it declared");
+    }
+
+    /// Upstream's link around `docs` (`inline_render.zig:535-560`).
+    const DOCS_OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\";
+    const LINK_CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+
+    /// A frame turning a blank screen into `after`, exactly as the band
+    /// writes one, and its declaration.
+    fn framed(after: &Grid) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"\x1b[?2026h\x1b[?25l");
+        Grid::blank(24, 80).diff(after, &geometry(), &mut bytes);
+        bytes.extend_from_slice(b"\x1b[10;1H");
+        bytes.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
+        bytes
+    }
+
+    fn declared_frame(after: &Grid) -> Declared<'_> {
+        Declared::new(
+            Intent::Primary {
+                grid: after,
+                caret: Some((10, 1)),
+                cursor_visible: Some(true),
+                title: None,
+            },
+            anywhere(24, 0),
+        )
+    }
+
+    #[test]
+    fn a_frame_that_paints_a_link_it_declares_is_accepted() {
+        let after = painted(
+            10,
+            &format!("see {DOCS_OPEN}\u{1b}[4mdocs\u{1b}[24m{LINK_CLOSE} now"),
+        );
+        let bytes = framed(&after);
+        assert!(
+            String::from_utf8_lossy(&bytes).contains(DOCS_OPEN),
+            "the diff wrote no link"
+        );
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &bytes,
+            &declared_frame(&after),
+        )
+        .expect("the linked frame it declared");
+    }
+
+    /// The decoded model after `bytes`, from a caret on row 10.
+    fn decoded(bytes: &[u8]) -> Result<TerminalModel, Reject> {
+        let grid = Grid::blank(24, 80);
+        let mut model = seed(&grid, Some((10, 1)));
+        apply_for_tests(&mut model, bytes)?;
+        Ok(model)
+    }
+
+    #[test]
+    fn a_link_left_open_across_a_caret_move_a_row_or_a_buffer_change_is_refused() {
+        for (bytes, shape) in [
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[11;1Hmore"),
+                "a hyperlink left open across a caret move",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\n"),
+                "a hyperlink left open across a row",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[?1049h"),
+                "a hyperlink left open across a buffer change",
+            ),
+            (
+                format!("\u{1b}[?2026h{DOCS_OPEN}docs\u{1b}[?2026l"),
+                "a hyperlink left open across the block end",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[K"),
+                "an erase under an open hyperlink",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[J"),
+                "an erase under an open hyperlink",
+            ),
+        ] {
+            let reject = decoded(bytes.as_bytes()).expect_err(shape);
+            assert_eq!(reject.shape(), shape, "{bytes:?}");
+        }
+        // Closed first, the same moves are the ordinary alphabet.
+        decoded(format!("{DOCS_OPEN}docs{LINK_CLOSE}\u{1b}[11;1H\u{1b}[K").as_bytes())
+            .expect("a link closed on its row");
+    }
+
+    /// One update as `commit_primary` assembles it: the opener, a document
+    /// append (a scroll and a placed row), the band's rows, the caret, and the
+    /// closer -- with the offsets the composer would hand the check.
+    fn composed(document: &str, band: &str, closer: &str) -> (Vec<u8>, Update<'static>) {
+        let mut bytes = b"\x1b[?2026h\x1b[?25l".to_vec();
+        let opener = bytes.len();
+        bytes.extend_from_slice(document.as_bytes());
+        bytes.extend_from_slice(band.as_bytes());
+        let closer_at = bytes.len();
+        bytes.extend_from_slice(closer.as_bytes());
+        (
+            bytes,
+            Update {
+                lead: 0,
+                title: None,
+                opener,
+                closer: closer_at,
+                cursor_visible: closer.contains("?25h"),
+            },
+        )
+    }
+
+    const APPEND: &str = "\u{1b}[24;1H\n\u{1b}[21;1Hanswered\u{1b}[K";
+    const BAND: &str = "\u{1b}[22;1H\u{1b}[J\u{1b}[22;1H> \u{1b}[24;1Hhint\u{1b}[22;3H";
+
+    fn update_seed() -> TerminalModel {
+        TerminalModel::seed_foreign(24, 80, None)
+    }
+
+    #[test]
+    fn an_update_that_brackets_the_document_and_the_band_is_accepted() {
+        // Upstream's frame: `?2026h ?25l`, the movement bytes, the band, the
+        // caret, `?2026l`, and `?25h` for a caret it shows
+        // (`render_engine/terminal_diff.zig:604-645`) -- and the same update
+        // with no band in it, ending with the caret left hidden.
+        let (bytes, update) = composed(APPEND, BAND, "\u{1b}[?2026l\u{1b}[?25h");
+        preflight_update(&update_seed(), &bytes, update).expect("the update the composer writes");
+        let (bytes, update) = composed(APPEND, "", "\u{1b}[?2026l");
+        preflight_update(&update_seed(), &bytes, update)
+            .expect("the rows alone, the caret left for the frame still owed");
+    }
+
+    /// [`composed`], led by `lead` -- the window title, as the composer writes
+    /// it ahead of the update.
+    fn led(lead: &str, title: Option<&'static str>) -> (Vec<u8>, Update<'static>) {
+        let (update, mut shape) = composed(APPEND, BAND, "\u{1b}[?2026l\u{1b}[?25h");
+        let mut bytes = lead.as_bytes().to_vec();
+        bytes.extend_from_slice(&update);
+        shape.lead = lead.len();
+        shape.title = title;
+        shape.opener += lead.len();
+        shape.closer += lead.len();
+        (bytes, shape)
+    }
+
+    #[test]
+    fn an_update_led_by_its_title_and_nothing_else_is_accepted() {
+        // Upstream writes the window title outside any update, between one
+        // frame and the next (`syncTerminalTitleWith`,
+        // `app_session_runtime.zig:3608-3629`): the composer puts it at the
+        // head of the vector, ahead of the `?2026h`.
+        let (bytes, shape) = led("\u{1b}]2;a title\u{7}", Some("a title"));
+        preflight_update(&update_seed(), &bytes, shape).expect("a title ahead of the update");
+        for (lead, title, shape_name) in [
+            (
+                "\u{1b}]2;another\u{7}",
+                Some("a title"),
+                "a title that is not the one asked for",
+            ),
+            (
+                "\u{1b}]2;a title\u{7}\u{1b}[1;1Hx",
+                Some("a title"),
+                "an update led by something other than its title",
+            ),
+            (
+                "\u{1b}[?25h",
+                None,
+                "an update led by something other than its title",
+            ),
+        ] {
+            let (bytes, shape) = led(lead, title);
+            let reject = preflight_update(&update_seed(), &bytes, shape).expect_err(shape_name);
+            assert_eq!(reject.shape(), shape_name, "{lead:?}");
+        }
+    }
+
+    #[test]
+    fn an_update_that_does_not_bracket_all_of_its_parts_is_refused() {
+        let shown = "\u{1b}[?2026l\u{1b}[?25h";
+        for (document, band, closer, shape) in [
+            (
+                "\u{1b}[?2026l\u{1b}[24;1H\n",
+                BAND,
+                shown,
+                "an update that ends before its last part",
+            ),
+            (
+                APPEND,
+                "\u{1b}[?2026h\u{1b}[22;1H> ",
+                shown,
+                "an update opened twice",
+            ),
+            (
+                APPEND,
+                "\u{1b}[?25h\u{1b}[22;1H> ",
+                shown,
+                "a caret shown before the update ends",
+            ),
+            (
+                APPEND,
+                BAND,
+                "\u{1b}[?25h",
+                "a vector that left synchronized output open",
+            ),
+            (
+                APPEND,
+                BAND,
+                "\u{1b}[?2026l\u{1b}[1;1Hx\u{1b}[?25h",
+                "an update that writes after it ends",
+            ),
+            (
+                APPEND,
+                &format!("\u{1b}[22;1H{DOCS_OPEN}docs"),
+                shown,
+                "a hyperlink left open across the block end",
+            ),
+        ] {
+            let (bytes, update) = composed(document, band, closer);
+            let reject = preflight_update(&update_seed(), &bytes, update).expect_err(shape);
+            assert_eq!(
+                reject.shape(),
+                shape,
+                "{:?}",
+                String::from_utf8_lossy(&bytes)
+            );
+        }
+        // An update that does not open first: the rows are written before the
+        // terminal is told to hold them.
+        let mut bytes = APPEND.as_bytes().to_vec();
+        let opener = bytes.len();
+        bytes.extend_from_slice(b"\x1b[?2026h\x1b[?25l");
+        bytes.extend_from_slice(BAND.as_bytes());
+        let closer = bytes.len();
+        bytes.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
+        let reject = preflight_update(
+            &update_seed(),
+            &bytes,
+            Update {
+                lead: 0,
+                title: None,
+                opener,
+                closer,
+                cursor_visible: true,
+            },
+        )
+        .expect_err("rows ahead of the opener");
+        assert_eq!(
+            reject.shape(),
+            "an update that does not open synchronized output and hide the caret first"
+        );
+        // And a caret the declaration says is hidden, shown.
+        let (bytes, mut update) = composed(APPEND, BAND, shown);
+        update.cursor_visible = false;
+        let reject = preflight_update(&update_seed(), &bytes, update).expect_err("a shown caret");
+        assert_eq!(reject.shape(), "a cursor visibility nobody asked for");
+    }
+
+    #[test]
+    fn a_vector_that_ends_inside_a_link_is_refused() {
+        let after = painted(10, &format!("{DOCS_OPEN}docs{LINK_CLOSE}"));
+        let bytes = format!("\u{1b}[10;1H{DOCS_OPEN}docs");
+        let reject = preflight(
+            &seed(&Grid::blank(24, 80), None),
+            bytes.as_bytes(),
+            &Declared::new(
+                Intent::Primary {
+                    grid: &after,
+                    caret: None,
+                    cursor_visible: None,
+                    title: None,
+                },
+                anywhere(24, 0),
+            ),
+        )
+        .expect_err("a link the next vector would paint into");
+        assert_eq!(reject.shape(), "a vector that left a hyperlink open");
+    }
+
+    #[test]
+    fn a_cell_linked_somewhere_the_emitter_did_not_ask_for_is_refused() {
+        // Three disagreements, each one cell: a link nobody declared, a
+        // declared link that never went on the wire, and the right text under
+        // another target.
+        let linked = painted(10, &format!("{DOCS_OPEN}docs{LINK_CLOSE}"));
+        let plain = painted(10, "docs");
+        let elsewhere = painted(
+            10,
+            &format!("\u{1b}]8;id=fx-1;https://example.com/other\u{1b}\\docs{LINK_CLOSE}"),
+        );
+        for (wire, declared) in [(&linked, &plain), (&plain, &linked), (&elsewhere, &linked)] {
+            let bytes = framed(wire);
+            let reject = preflight(
+                &seed(&Grid::blank(24, 80), None),
+                &bytes,
+                &declared_frame(declared),
+            )
+            .expect_err("a link that is not the one declared");
+            assert_eq!(
+                reject.shape(),
+                "a cell the vector did not leave as intended"
+            );
+        }
+    }
+
+    #[test]
+    fn the_wire_parser_holds_every_link_to_the_painters_rules() {
+        let open =
+            |params: &str, uri: &str| format!("\u{1b}]8;{params};{uri}\u{1b}\\x{LINK_CLOSE}");
+        for (bytes, shape) in [
+            (
+                open("id=fx-1", "javascript:alert(1)"),
+                "a hyperlink target in a scheme this crate does not link",
+            ),
+            (open("", "README.md"), "a hyperlink target with no scheme"),
+            (
+                open("", "ftp://example.com"),
+                "a hyperlink target in a scheme this crate does not link",
+            ),
+            (
+                open("", "https://a\u{9c}b"),
+                "a hyperlink target carrying a control character",
+            ),
+            (
+                open("", "https://a\u{7f}b"),
+                "a hyperlink target carrying a control character",
+            ),
+            (
+                open("", &format!("https://e.x/{}", "a".repeat(2083))),
+                "a hyperlink target longer than a link may be",
+            ),
+            (
+                open("x=1", "https://example.com"),
+                "hyperlink parameters this crate does not write",
+            ),
+            (
+                open("id=a:b", "https://example.com"),
+                "hyperlink parameters this crate does not write",
+            ),
+            (
+                "\u{1b}]8;id=fx-1;\u{1b}\\".to_string(),
+                "a hyperlink close carrying parameters",
+            ),
+            (
+                "\u{1b}]8;https://example.com\u{1b}\\".to_string(),
+                "a hyperlink with no target field",
+            ),
+            (
+                "\u{1b}]8;;https://example.com\u{7}x\u{1b}]8;;\u{7}".to_string(),
+                "a hyperlink this crate does not spell that way",
+            ),
+        ] {
+            let reject = decoded(bytes.as_bytes()).expect_err(shape);
+            assert_eq!(reject.shape(), shape, "{bytes:?}");
+        }
+        // A control byte inside the target ends the string early as far as the
+        // scanner is concerned, so it is refused by whatever it leaves behind
+        // rather than admitted.
+        decoded(b"\x1b]8;;https://a\x1bb\x1b\\x\x1b]8;;\x1b\\").expect_err("an ESC in a target");
+        // And the four schemes, any case, are the ordinary alphabet.
+        for uri in ["http://x", "HTTPS://x", "file:///tmp/a.png", "mailto:a@b.c"] {
+            decoded(open("", uri).as_bytes()).expect(uri);
+        }
+    }
+
+    #[test]
+    fn a_rejected_link_carries_no_target_in_its_message() {
+        let secret = "https://example.com/?token=fake-key-not-real";
+        let reject = decoded(format!("{DOCS_OPEN}x\u{1b}]8;id=a:b;{secret}\u{1b}\\").as_bytes())
+            .expect_err("bad parameters");
+        assert!(!reject.to_string().contains("fake-key"), "{reject}");
     }
 
     #[test]
@@ -2503,17 +3258,52 @@ mod tests {
         // the rule that has to live in both decoders.
         assert!(wire_color("38;5;256", 0).is_err());
         assert!(wire_color("38;2;1;2", 0).is_err());
-        assert!(wire_color("1", 0).is_err());
-        assert!(wire_color("48;5;1", 0).is_err());
+        assert!(wire_color("48;5;256", 0).is_err());
+        assert!(wire_color("48;2;1;2", 0).is_err());
+        // The file picker's background is in the vocabulary, and moves no
+        // foreground: the pen it leaves is the one the group after it sets.
+        assert_eq!(
+            wire_color("48;5;239;38;5;255", 0).ok(),
+            Some(Some(Color::Indexed(255)))
+        );
+        assert_eq!(wire_color("49", 0).ok(), Some(None));
+        assert!(
+            wire_color("8", 0).is_err(),
+            "conceal is not in the vocabulary"
+        );
+        assert!(
+            wire_color("1;8", 0).is_err(),
+            "nor hidden behind an admitted group"
+        );
+        // Reverse video is: upstream's one-cell caret in a draft it paints
+        // (`question_ui.zig:323-399`, `approval_ui.zig:1655-1675`), and a
+        // composer selection. An attribute and not a pen, like bold, and the
+        // reset in front of it is the default pen.
+        assert_eq!(wire_color("7", 0).expect("reverse"), None);
+        assert_eq!(wire_color("27", 0).expect("its close"), None);
+        assert_eq!(
+            wire_color("0;7", 0).expect("a reset, then reverse"),
+            Some(Color::Default)
+        );
+        assert_eq!(wire_color("1", 0).expect("an attribute"), None);
+        assert_eq!(wire_color("22", 0).expect("its close"), None);
         assert_eq!(
             wire_color("38;5;250", 0).expect("a colour"),
-            Color::Indexed(250)
+            Some(Color::Indexed(250))
+        );
+        assert_eq!(
+            wire_color("1;38;5;255", 0).expect("a bold colour"),
+            Some(Color::Indexed(255))
         );
         assert_eq!(
             wire_color("38;2;1;2;3", 0).expect("a colour"),
-            Color::Rgb(1, 2, 3)
+            Some(Color::Rgb(1, 2, 3))
         );
-        assert_eq!(wire_color("", 0).expect("a reset"), Color::Default);
+        assert_eq!(wire_color("", 0).expect("a reset"), Some(Color::Default));
+        assert_eq!(
+            wire_color("39", 0).expect("the default"),
+            Some(Color::Default)
+        );
     }
 
     #[test]
@@ -2988,6 +3778,60 @@ mod tests {
                     "a {rows}x{cols} {name} preflight took {mean:?} on average ({min:?} min, {median:?} median, {max:?} max) against a {budget} ms frame budget"
                 );
             }
+            // And the pass an update that carries the document adds on top of
+            // its parts' own checks ([`preflight_update`]): the whole update
+            // decoded once more for its shape. The full screen's worth of
+            // rows, scrolled in and then painted over by the band, inside one
+            // `?2026h` -- the most a tick can hand it.
+            let mut update = b"\x1b[?2026h\x1b[?25l".to_vec();
+            let opener = update.len();
+            for line in 1..=rows {
+                update.extend_from_slice(format!("\u{1b}[{rows};1H\n").as_bytes());
+                update.extend_from_slice(
+                    format!(
+                        "\u{1b}[{};1H{}\u{1b}[K",
+                        rows - 1,
+                        "z".repeat(usize::from(line % cols))
+                    )
+                    .as_bytes(),
+                );
+            }
+            Shadow::paint(&full, &mut update);
+            let closer = update.len();
+            update.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
+            let shape = Update {
+                lead: 0,
+                title: None,
+                opener,
+                closer,
+                cursor_visible: true,
+            };
+            let seed = TerminalModel::seed_foreign(rows, cols, None);
+            let (mean, min, median, max) = timed(20, || {
+                preflight_update(&seed, &update, shape).expect("the update it declared");
+            });
+            eprintln!(
+                "preflight {rows}x{cols} update: {} bytes in {mean:?} mean, {min:?} min, {median:?} median, {max:?} max (budget {budget} ms)",
+                update.len()
+            );
+            assert!(
+                cfg!(debug_assertions) || mean.as_millis() < budget,
+                "a {rows}x{cols} update's shape check took {mean:?} on average against a {budget} ms frame budget"
+            );
+        }
+    }
+
+    /// The band's rows of `grid`, written as a whole frame would write them:
+    /// each row placed from its first column.
+    struct Shadow;
+
+    impl Shadow {
+        fn paint(grid: &Grid, bytes: &mut Vec<u8>) {
+            Grid::blank(grid.rows(), grid.cols()).diff(
+                grid,
+                &layout::solve(grid.rows(), grid.cols(), 1).expect("a band"),
+                bytes,
+            );
         }
     }
 
@@ -3378,6 +4222,45 @@ mod tests {
     }
 
     #[test]
+    fn an_erase_after_a_row_that_reached_the_last_column_takes_that_column() {
+        // Autowrap is off, so the caret that wrote column twenty is still on
+        // it: an `EL` from there clears the cell the row has just written.
+        // Read from a caret one column past the screen, the erase cleared
+        // nothing, and a placement that lost its last character -- `word32`
+        // painted as `word3` at 120 columns -- passed as the row declared.
+        let blank = Grid::blank(6, 20);
+        let seed =
+            TerminalModel::seed_primary(&blank, 6, 20, Some((1, 1)), None, PlaneKind::Primary)
+                .expect("a shadow this crate painted");
+        let geometry = geometry();
+        let full = "x".repeat(20);
+        let mut script = Script::new(&geometry);
+        script.place(3, &full);
+        let declared = Declared::new(
+            Intent::Document {
+                script: &script,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            Footprint::new(PlaneKind::Primary, vec![Seg::Place(3..=3)]),
+        );
+        preflight(&seed, format!("\u{1b}[3;1H{full}").as_bytes(), &declared)
+            .expect("a full row, and nothing after it");
+        let refused = preflight(
+            &seed,
+            format!("\u{1b}[3;1H{full}\u{1b}[K").as_bytes(),
+            &declared,
+        )
+        .expect_err("the erase took the row's last cell");
+        assert_eq!(
+            refused.shape(),
+            "a cell the vector did not leave as intended"
+        );
+        assert_eq!(refused.cell, Some((3, 20)));
+    }
+
+    #[test]
     fn a_row_leaving_the_top_is_compared_to_its_last_column() {
         // The departing row is read as one run of cells rather than cell by
         // cell through the origin, so this pins that the run reaches the end
@@ -3517,6 +4400,39 @@ mod tests {
     }
 
     #[test]
+    fn a_bell_is_in_the_alphabet_only_where_it_is_declared() {
+        // Counted by the decoder rather than refused by it, and refused by the
+        // comparison instead: every intent but `Bell` declares none, so a bell
+        // that slipped into a frame -- a row's text, an append -- is a
+        // disagreement with a name, not a byte nobody looked at.
+        let seed = TerminalModel::seed_modes(1, 1, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let bell =
+            |rings| Declared::new(Intent::Bell { rings }, Footprint::none(PlaneKind::Primary));
+        preflight(&seed, b"\x07", &bell(1)).expect("the declared bell");
+        assert_eq!(
+            preflight(&seed, b"\x07\x07", &bell(1))
+                .expect_err("one too many")
+                .shape(),
+            "a number of bells the vector did not declare"
+        );
+        let queries = Declared::new(
+            Intent::Queries(&[QueryId::ThemeMode]),
+            Footprint::none(PlaneKind::Primary),
+        );
+        assert_eq!(
+            preflight(&seed, b"\x1b[?996n\x07", &queries)
+                .expect_err("a query with a bell in it")
+                .shape(),
+            "a bell this vector did not declare"
+        );
+        // Inside an `OSC` the same byte is a terminator and rings nothing: a
+        // title vector carries one and declares no bell.
+        let mut model = seed.clone();
+        apply(&mut model, b"\x1b]2;a title\x07", None).expect("a title");
+        assert_eq!(model.bells, 0, "a title's terminator was counted as a bell");
+    }
+
+    #[test]
     fn preflight_recovery_cleanup_accepts_only_the_exact_fixed_vector() {
         preflight_recovery_cleanup(RECOVERY_CLEANUP.as_bytes())
             .expect("the fixed vector this entry point exists to license");
@@ -3539,9 +4455,10 @@ mod tests {
     #[test]
     fn the_ordinary_parser_still_refuses_the_recovery_vectors_bytes_on_their_own() {
         // The recovery-only entry point licenses this vector; the general one
-        // still refuses the `CAN` and the `OSC 8` inside it exactly as it
-        // refuses them anywhere else -- this entry point loosens nothing in
-        // `apply`'s alphabet.
+        // still refuses the `CAN` and the `BEL`-terminated `OSC 8` inside it
+        // exactly as it refuses them anywhere else -- this entry point
+        // loosens nothing in `apply`'s alphabet, and admitting upstream's
+        // `ST`-terminated hyperlinks did not admit this spelling.
         let grid = Grid::blank(24, 80);
         let declared = Declared::new(
             Intent::Primary {
@@ -3554,6 +4471,12 @@ mod tests {
         );
         preflight(&seed(&grid, None), RECOVERY_CLEANUP.as_bytes(), &declared)
             .expect_err("the ordinary alphabet accepted the recovery vector");
+        let close = preflight(&seed(&grid, None), b"\x1b]8;;\x07", &declared)
+            .expect_err("the ordinary alphabet accepted the cleanup's hyperlink close");
+        assert_eq!(
+            close.shape(),
+            "a hyperlink this crate does not spell that way"
+        );
     }
 
     #[test]
@@ -3568,8 +4491,9 @@ mod tests {
         // The entry point that licenses it is a byte comparison and knows
         // nothing about planes, so it accepts the vector whichever one is up;
         // what this asserts is the vector itself. Its head is the `CAN` and the
-        // `OSC 8` close this decoder's alphabet refuses on purpose -- a byte
-        // and a string sequence, neither of which can carry a mode -- and
+        // `BEL`-terminated `OSC 8` close this decoder's alphabet refuses on
+        // purpose -- a byte and a string sequence, neither of which can carry
+        // a mode -- and
         // everything after them is decoded here, from a terminal that is on
         // the borrowed buffer, and must end on it having made no transition.
         preflight_recovery_cleanup(RECOVERY_CLEANUP.as_bytes())

@@ -1,0 +1,40 @@
+
+┃ first question alpha
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑6 ↓40)
+
+┃ fourth question delta
+
+  DELTA answer.
+
+  0s (↑6 ↓40)
+
+
+Continue session with: fx --resume jnF1JmAVj6cd
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Oct  7 06:41:01 2026)

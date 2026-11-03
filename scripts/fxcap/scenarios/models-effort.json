@@ -1,0 +1,5 @@
+{"object":"list","data":[
+ {"id":"fake/model-a","type":"language","owned_by":"fake","released":1700000000,"tags":["tool-use"]},
+ {"id":"zai/glm-5.2","type":"language","owned_by":"zai","released":1760000000,"tags":["tool-use","reasoning"],"context_window":200000,"reasoning_options":[{"type":"effort","values":["low","high"]}],"pricing":{"input":"0.000001","output":"0.000004"}},
+ {"id":"xai/grok-4.7","type":"language","owned_by":"xai","released":1770000000,"tags":["tool-use"],"pricing":{"input":"0.000003","output":"0.000015"}}
+]}

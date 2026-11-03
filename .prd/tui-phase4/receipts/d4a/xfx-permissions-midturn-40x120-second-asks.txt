@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-8826458 [debug] · Run /help for commands
+
+┃ write two files
+
+● 1 tool call · 1 write
+└ Wrote first.txt +1
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+      1 + two
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                     Write · +1  -0
+
+  second.txt  ·  Apply this change?
+
+  ❯ 1  Apply once
+    2  Apply + allow future writes to this file for this session
+    3  Don't apply
+  2 = allow every future write_file to `second.txt` for the rest of this session, whatever its contents, and in every
+  later `xfx ask --resume-id 1791317099648-3edf4bf8653c290d` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

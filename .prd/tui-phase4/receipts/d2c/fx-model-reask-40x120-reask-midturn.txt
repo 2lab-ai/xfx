@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ say something
+
+• Generating (6s) (↑4 ↓6)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 4  [All]  Anthropic  OpenAI  xAI  Others
+
+  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra
+  anthropic/claude-opus-5  1M context · 64K output · Fast
+  fake/model-a
+  xai/grok-4.7
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

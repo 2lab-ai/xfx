@@ -1,0 +1,7 @@
+[
+ {"tool": {"name": "write_file", "id": "call_w1", "input": {"path": "a.txt", "content": "one\n"}}},
+ {"delayMs": 20, "chunks": ["wrote a.txt (one)"]},
+ {"tool": {"name": "read_file", "id": "call_r1", "input": {"path": "a.txt"}}},
+ {"tool": {"name": "write_file", "id": "call_w2", "input": {"path": "a.txt", "content": "two\n"}}},
+ {"delayMs": 20, "chunks": ["wrote a.txt (two)"]}
+]

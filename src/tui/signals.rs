@@ -419,12 +419,27 @@ pub(crate) fn wait_for_input(
 /// requirement, spelled so that a future edit cannot install a handler outside
 /// the window the mask protects without first removing an argument it would
 /// have to explain.
+///
+/// **A `SIGINT` this process was started ignoring is left ignored**, as fx
+/// c1db919 leaves it: fx installs its restore for `SIGTERM` and `SIGHUP` only
+/// (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104` -- "SIGINT is not
+/// included because raw mode disables terminal-generated SIGINT"). An ignore is
+/// the launcher's choice -- `nohup … &` from a non-interactive shell makes it,
+/// so that everything under it inherits the ignore -- and a handler here would
+/// undo it for every command the session runs, because `exec` gives a caught
+/// signal its default. An ignored signal cannot reach a raw terminal, so there
+/// is nothing for a handler to protect. `SIGHUP` and `SIGTERM` are owned
+/// whatever the launcher said, as fx's are: a hangup or a supervisor's stop
+/// still restores the terminal before the process ends.
 fn install_handlers(_blocked: &Blocked) -> io::Result<()> {
     // SAFETY: every handler installed below is `extern "C"`, allocates nothing,
     // takes no lock, and calls only `write`, `signal`, `raise`, and an atomic
     // swap -- each of which POSIX lists as async-signal-safe.
     unsafe {
         for (signal, func) in HANDLERS {
+            if signal == libc::SIGINT && launcher_ignored(signal) {
+                continue;
+            }
             handler(signal, func)?;
         }
         // The UI owns one terminal; a failed write is handled by its return
@@ -462,23 +477,119 @@ pub(crate) fn install_tstp() -> io::Result<()> {
 ///
 /// The order is the safety argument. Dispositions first, so no *new* handler
 /// invocation can begin; then the poke, so no handler can read a stale
-/// descriptor. A handler already executing cannot be in flight, because in this
-/// phase every handler runs on the UI thread and the UI thread is the one
-/// running this function -- a property a later phase that gives another thread
-/// an unblocked signal would have to re-establish.
+/// descriptor. A handler already executing cannot be in flight, because every
+/// handler runs on the UI thread and the UI thread is the one running this
+/// function: every other thread of a session is started through
+/// [`spawn_unsignalled`] -- or by a thread that was -- and so with the whole
+/// owned set blocked, and a process-directed signal is delivered only to a
+/// thread that does not block it.
 ///
 /// `SIGPIPE` is left alone on purpose: the Rust runtime sets it to `SIG_IGN`
 /// before `main`, so "restoring the default" would hand back a process more
 /// fragile than the one xfx was given.
+///
+/// A `SIGINT` the session left ignored ([`install_handlers`]) is left ignored
+/// here too: it is still the launcher's, and the default would undo the ignore
+/// for whatever the process does after the session.
 pub(crate) fn release() {
     // SAFETY: `signal` with `SIG_DFL` on a platform signal number; a failure is
     // reported by return value and there is nothing to do about one here.
     unsafe {
         for signal in OWNED {
+            if signal == libc::SIGINT && launcher_ignored(signal) {
+                continue;
+            }
             libc::signal(signal, libc::SIG_DFL);
         }
     }
     POKE.store(-1, Ordering::Release);
+}
+
+/// Whether `signal` is ignored right now -- before [`install_handlers`], the
+/// disposition this process was started with; after it, for `SIGINT`, the same
+/// one, since nothing here sets an ignore on it.
+fn launcher_ignored(signal: libc::c_int) -> bool {
+    // SAFETY: a null new action makes `sigaction` a pure query, and `current`
+    // is a valid out-parameter for the call.
+    unsafe {
+        let mut current: libc::sigaction = std::mem::zeroed();
+        libc::sigaction(signal, std::ptr::null(), &mut current) == 0
+            && current.sa_sigaction == libc::SIG_IGN
+    }
+}
+
+/// Starts a thread on which no owned signal can ever be delivered: **the way
+/// every thread of a session other than the UI thread is started**.
+///
+/// A thread is born with its creator's mask, so the whole owned set is blocked
+/// on the calling thread for the length of the spawn and put back after: the
+/// new thread -- and every thread it starts in turn, a runtime's blocking pool
+/// and a resolver's included -- never runs a handler, which is what makes
+/// [`release`]'s argument true. It is also what lets a thread be **left to
+/// finish on its own** rather than waited for before [`release`]: a socket a
+/// user stopped caring about is not a reason to hold the terminal.
+///
+/// **A child process such a thread starts would inherit the mask too**: the
+/// standard library's `Command` does not reset it (pinned by
+/// `a_child_process_inherits_the_mask_its_thread_was_started_with`), and a
+/// command born with `SIGTERM` blocked ignores a `timeout`. So every child xfx
+/// starts is made by [`crate::process::command`], which empties the mask
+/// between `fork` and `exec`.
+///
+/// A signal that arrives during the spawn stays pending on this thread and is
+/// delivered into its handler the moment the mask is put back.
+pub(crate) fn spawn_unsignalled<F, T>(name: &str, body: F) -> io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    // SAFETY: every argument is a valid, initialized `sigset_t` this function
+    // owns for the whole call, and the signal numbers are the platform's own.
+    let previous = unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for signal in OWNED {
+            libc::sigaddset(&mut set, signal);
+        }
+        let mut previous: libc::sigset_t = std::mem::zeroed();
+        let code = libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut previous);
+        if code != 0 {
+            return Err(io::Error::from_raw_os_error(code));
+        }
+        previous
+    };
+    let spawned = std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(body);
+    // SAFETY: `previous` is the set this thread's own `pthread_sigmask` wrote.
+    unsafe {
+        libc::pthread_sigmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+    }
+    spawned
+}
+
+/// Each owned signal, and whether it is blocked on the calling thread: what a
+/// case runs on a thread it wants to know the mask of.
+#[cfg(test)]
+pub(crate) fn owned_blocked_here() -> Vec<(libc::c_int, bool)> {
+    // SAFETY: a `NULL` `set` makes this a pure query, and `current` is a valid
+    // out-parameter for the whole call.
+    let current = unsafe {
+        let mut current: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut current);
+        libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut current);
+        current
+    };
+    OWNED
+        .iter()
+        // SAFETY: `current` is a set this function initialized.
+        .map(|signal| {
+            (
+                *signal,
+                unsafe { libc::sigismember(&current, *signal) } == 1,
+            )
+        })
+        .collect()
 }
 
 /// # Safety
@@ -509,7 +620,7 @@ extern "C" fn restore_and_reraise(signal: libc::c_int) {
 
 extern "C" fn stop_for_job_control(_signal: libc::c_int) {
     term::restore_pair();
-    // Those bytes led with `1049l` ([`term::abnormal_restore`]), so a session
+    // Those bytes carry `1049l` ([`term::abnormal_restore`]), so a session
     // that was reviewing a change on the alternate screen is on the normal
     // buffer now. Recorded **here**, where the restore is really written,
     // rather than inferred from the resume that follows: an uncatchable
@@ -646,6 +757,52 @@ mod tests {
     }
 
     #[test]
+    fn a_thread_started_unsignalled_can_take_no_owned_signal_and_its_creator_is_unchanged() {
+        let before: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
+        let (own, started) = spawn_unsignalled("xfx-test", || {
+            // And a thread it starts in turn, as a runtime starts its blocking
+            // pool, is born with the same mask.
+            let started = std::thread::spawn(owned_blocked_here)
+                .join()
+                .expect("joined");
+            (owned_blocked_here(), started)
+        })
+        .expect("a thread")
+        .join()
+        .expect("joined");
+        for (signal, blocked) in own.into_iter().chain(started) {
+            assert!(blocked, "signal {signal} is deliverable off the UI thread");
+        }
+        let after: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
+        assert_eq!(after, before);
+    }
+
+    /// Why [`crate::process::command`] exists: a child made by a bare
+    /// `Command` is born with its thread's mask -- so a `SIGTERM` stays
+    /// pending and the child keeps running. Pinned, so a standard library that
+    /// starts resetting the mask fails here and that module is read again.
+    #[test]
+    fn a_child_process_inherits_the_mask_its_thread_was_started_with() {
+        let mut child = spawn_unsignalled("xfx-test", || {
+            std::process::Command::new("/bin/sleep")
+                .arg("30")
+                .spawn()
+                .expect("a child")
+        })
+        .expect("a thread")
+        .join()
+        .expect("joined");
+        let pid = libc::pid_t::try_from(child.id()).expect("a pid");
+        // SAFETY: `kill` on a child this case started and has not reaped.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let running = child.try_wait().expect("a status").is_none();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(running, "the child took a SIGTERM its thread had blocked");
+    }
+
+    #[test]
     fn a_death_signal_that_arrives_while_the_terminal_changes_is_held_not_taken() {
         // The window this closes is the one between `tcsetattr` and the last
         // `sigaction`. There is no assertion that can be laundered into passing
@@ -757,7 +914,7 @@ mod tests {
         );
 
         // And the stop this session handles, which writes `term::restore_pair`
-        // -- `1049l` first -- before it raises `SIGSTOP`.
+        // -- `1049l` unconditionally -- before it raises `SIGSTOP`.
         flag_plane_restored();
         flag_resumed(libc::SIGCONT);
         assert!(take_resumed());
@@ -967,5 +1124,164 @@ mod tests {
         unsafe {
             libc::pthread_sigmask(libc::SIG_SETMASK, &entry, std::ptr::null_mut());
         }
+    }
+
+    /// What `signal` is disposed to right now: `SIG_DFL`, `SIG_IGN`, or the
+    /// address of a handler. Read only -- a null new action makes `sigaction`
+    /// a query.
+    fn disposition(signal: libc::c_int) -> libc::sighandler_t {
+        // SAFETY: `current` is a valid out-parameter for the call.
+        unsafe {
+            let mut current: libc::sigaction = std::mem::zeroed();
+            assert_eq!(
+                libc::sigaction(signal, std::ptr::null(), &mut current),
+                0,
+                "query signal {signal}'s disposition"
+            );
+            current.sa_sigaction
+        }
+    }
+
+    /// The case [`an_inherited_sigint_ignore_outlives_the_session`] runs
+    /// again in a runner started ignoring `SIGINT`, `SIGHUP` and `SIGTERM`.
+    const INHERITED_SIGINT_CASE: &str =
+        "tui::signals::tests::the_installation_keeps_an_ignored_sigint_and_owns_the_rest";
+
+    #[test]
+    fn the_installation_keeps_an_ignored_sigint_and_owns_the_rest() {
+        // A launcher's `SIGINT` ignore is kept, as fx c1db919 keeps it: fx
+        // installs its restore for `SIGTERM` and `SIGHUP` only
+        // (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104`, "SIGINT
+        // is not included because raw mode disables terminal-generated
+        // SIGINT"), so `nohup … &`'s ignore reaches every command it runs and
+        // a `kill -INT` changes nothing. Whatever this runner was started
+        // with is the case: ignoring `SIGINT`, `SIGHUP` and `SIGTERM` (the copy
+        // the next case starts) or not (the ordinary run), and both are
+        // asserted. The keep is `SIGINT`'s alone: `SIGHUP` and `SIGTERM` get the
+        // restore over an ignore too, so a skip widened past `SIGINT` fails in
+        // that copy.
+        let _serialized = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let inherited = disposition(libc::SIGINT) == libc::SIG_IGN;
+        // The copy's premise, checked rather than trusted: a runner that did
+        // not really start these ignored would make the two checks below about
+        // signals at their default.
+        for signal in told_ignored_at_entry() {
+            assert_eq!(
+                disposition(signal),
+                libc::SIG_IGN,
+                "the copy was not started ignoring signal {signal}"
+            );
+        }
+        let wakeup = Wakeup::new().expect("open the self-pipe");
+        let installed = Installed;
+        let restore: extern "C" fn(libc::c_int) = restore_and_reraise;
+        let restore = restore as libc::sighandler_t;
+        let held =
+            install(&wakeup, block_owned().expect("block")).expect("install the handler set");
+        if inherited {
+            assert_eq!(
+                disposition(libc::SIGINT),
+                libc::SIG_IGN,
+                "the installation replaced the SIGINT ignore this process was started with"
+            );
+        } else {
+            assert_eq!(
+                disposition(libc::SIGINT),
+                restore,
+                "a SIGINT at its default was not given the restore"
+            );
+        }
+        // The two fx owns whatever the launcher said, and xfx with it.
+        for signal in [libc::SIGTERM, libc::SIGHUP] {
+            assert_eq!(
+                disposition(signal),
+                restore,
+                "signal {signal} has no restore to run on a raw terminal"
+            );
+        }
+        drop(held);
+        drop(installed);
+        assert_eq!(
+            disposition(libc::SIGINT),
+            if inherited {
+                libc::SIG_IGN
+            } else {
+                libc::SIG_DFL
+            },
+            "the end of the session did not leave SIGINT as the process was started with it"
+        );
+        for signal in [libc::SIGTERM, libc::SIGHUP] {
+            assert_ne!(
+                disposition(signal),
+                restore,
+                "signal {signal} kept the session's handler after it ended"
+            );
+        }
+    }
+
+    /// The signals the copy [`an_inherited_sigint_ignore_outlives_the_session`]
+    /// starts was told it is started ignoring; none in the ordinary run.
+    fn told_ignored_at_entry() -> Vec<libc::c_int> {
+        std::env::var(IGNORED_AT_ENTRY)
+            .map(|names| {
+                names
+                    .split(',')
+                    .filter_map(|name| name.parse().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Where the copy is told which signals it was started ignoring.
+    const IGNORED_AT_ENTRY: &str = "XFX_TEST_IGNORED_AT_ENTRY";
+
+    /// The case above, in a copy of this test binary started the way `nohup …
+    /// &` starts one and further -- `SIGINT`, `SIGHUP` and `SIGTERM` ignored --
+    /// so its ignore branch is the one that runs, and the two signals xfx owns
+    /// over an ignore are asked to be owned. Counted, not only exited-zero: a
+    /// filter that matched nothing passes.
+    #[test]
+    fn an_inherited_sigint_ignore_outlives_the_session() {
+        use std::os::unix::process::CommandExt;
+
+        // SAFETY: `ignore` is a plain struct for which all-zero is valid, then
+        // given `SIG_IGN`.
+        let ignore = unsafe {
+            let mut ignore: libc::sigaction = std::mem::zeroed();
+            ignore.sa_sigaction = libc::SIG_IGN;
+            libc::sigemptyset(&mut ignore.sa_mask);
+            ignore
+        };
+        let mut runner =
+            crate::process::command(std::env::current_exe().expect("this test binary"));
+        const IGNORED: [libc::c_int; 3] = [libc::SIGINT, libc::SIGHUP, libc::SIGTERM];
+        runner.args(["--exact", "--test-threads=1", INHERITED_SIGINT_CASE]);
+        runner.env(
+            IGNORED_AT_ENTRY,
+            IGNORED.map(|signal| signal.to_string()).join(","),
+        );
+        // SAFETY: the child only calls `sigaction` on a value it owns by copy.
+        unsafe {
+            runner.pre_exec(move || {
+                for signal in IGNORED {
+                    if libc::sigaction(signal, &ignore, std::ptr::null_mut()) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+        let output = runner.output().expect("a runner");
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success() && report.contains("test result: ok. 1 passed"),
+            "{report}"
+        );
     }
 }

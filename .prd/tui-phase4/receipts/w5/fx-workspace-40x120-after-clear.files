@@ -1,0 +1,30 @@
+=== ~/.fx/backups/settings.json.backup.1791324485073-0000000000000001-e278b5b42cc369c1f9086efde5d69e50 (135 bytes)
+{"workspaces":{"<scratch>/work":{"additional_directories":["<scratch>/extra"]}}}
+
+=== ~/.fx/history.jsonl (1109 bytes)
+{"schema_version":1,"timestamp_ms":1791324469659,"workspace_root":"<scratch>/work","text":"/workspace"}
+{"schema_version":1,"timestamp_ms":1791324471363,"workspace_root":"<scratch>/work","text":"/workspace list"}
+{"schema_version":1,"timestamp_ms":1791324472427,"workspace_root":"<scratch>/work","text":"/workspace bogus"}
+{"schema_version":1,"timestamp_ms":1791324473256,"workspace_root":"<scratch>/work","text":"/workspace add ../missing"}
+{"schema_version":1,"timestamp_ms":1791324474283,"workspace_root":"<scratch>/work","text":"/workspace remove ../extra"}
+{"schema_version":1,"timestamp_ms":1791324475385,"workspace_root":"<scratch>/work","text":"/workspace add ../extra"}
+{"schema_version":1,"timestamp_ms":1791324477286,"workspace_root":"<scratch>/work","text":"/workspace"}
+{"schema_version":1,"timestamp_ms":1791324484934,"workspace_root":"<scratch>/work","text":"/workspace clear"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/9q5oR-tfsQid/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/9q5oR-tfsQid/owner.live (42 bytes)
+{"pid":4754,"opened_at_ms":1791324467966}
+
+=== ~/.fx/sessions/9q5oR-tfsQid/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/9q5oR-tfsQid/session.json (365 bytes)
+{"schema_version":4,"id":"9q5oR-tfsQid","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791324467934,"updated_at_ms":1791324467934,"conversation_language":"und","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/9q5oR-tfsQid/session.lock (0 bytes)
+=== ~/.fx/sessions/9q5oR-tfsQid/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"9q5oR-tfsQid","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (3 bytes)
+{}
+
+=== ~/.fx/settings.lock (0 bytes)

@@ -1,0 +1,29 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run the two commands
+
+● 1 tool call · 1 command
+├ Denied echo A-C1 echo the quick brown fox jumps over the lazy dog and the com…
+└ Denied echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeee…
+
+  Both refused.
+
+  40s (↑5 ↓120)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+

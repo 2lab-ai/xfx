@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* clipboard: No assistant reply to copy.
+
+* stats: ansi_bytes=3499, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0
+
+┃ /stats
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,9 @@
+[fakegw] listening 64261
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=1496ms -> 200 at=1501ms headers=authorization
+[fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
+[fakegw] request POST /v4/ai/language-model at=5482ms -> 200 at=5497ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> refuse 15000ms
+[fakegw] request POST /v4/ai/language-model at=5547ms -> cut, refusing 15000ms at=5547ms headers=authorization
+[fakegw] refusing connections for 15000ms
+[fakegw] accepting again on 64261

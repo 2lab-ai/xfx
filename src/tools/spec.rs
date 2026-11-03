@@ -19,13 +19,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde_json::{Map, Value};
 
 use crate::gateway::CancelToken;
-use crate::permission::{PermissionSession, ReadTracker};
+use crate::permission::{ApprovalDiff, PermissionSession, ReadTracker};
 use crate::workspace::AccessScope;
 
+use super::mcp::{CapabilitySearchInput, McpFeaturesInput, McpSelectToolInput};
 use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
 use super::question::{AskUserQuestionInput, QuestionRequester};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
+use super::skill::SkillInput;
 use super::terminal::TerminalInput;
+use super::undo::ChangeJournal;
 
 /// How much authority a tool needs before it may run.
 ///
@@ -72,18 +75,29 @@ impl PermissionKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKind {
     String,
+    /// A string with a length bound, as upstream's `bounds` write it
+    /// (`min_length`/`max_length`, `vercel-labs/fx@c1db9191
+    /// src/builtins/tools.zig:519-520`).
+    BoundedString {
+        min: usize,
+        max: Option<usize>,
+    },
     Integer,
     Boolean,
     Array,
+    /// A free-form object: `mcp_features`' string-valued `arguments` and
+    /// `context`, whose keys are the server's to name.
+    Object,
 }
 
 impl PropertyKind {
     fn label(self) -> &'static str {
         match self {
-            Self::String => "string",
+            Self::String | Self::BoundedString { .. } => "string",
             Self::Integer => "integer",
             Self::Boolean => "boolean",
             Self::Array => "array",
+            Self::Object => "object",
         }
     }
 }
@@ -133,6 +147,12 @@ impl InputSchema {
         for property in self.properties {
             let mut rendered = Map::new();
             rendered.insert("type".to_string(), Value::from(property.kind.label()));
+            if let PropertyKind::BoundedString { min, max } = property.kind {
+                rendered.insert("minLength".to_string(), Value::from(min));
+                if let Some(max) = max {
+                    rendered.insert("maxLength".to_string(), Value::from(max));
+                }
+            }
             rendered.insert("description".to_string(), Value::from(property.description));
             if !property.allowed.is_empty() {
                 rendered.insert("enum".to_string(), Value::from(property.allowed.to_vec()));
@@ -172,6 +192,231 @@ pub enum ToolInput {
     CreateFolder(CreateFolderInput),
     Terminal(TerminalInput),
     AskUserQuestion(AskUserQuestionInput),
+    Skill(SkillInput),
+    CapabilitySearch(CapabilitySearchInput),
+    McpSelectTool(McpSelectToolInput),
+    McpFeatures(McpFeaturesInput),
+}
+
+impl ToolInput {
+    /// The one argument a person watching the call is shown: the path, the
+    /// pattern or the command (upstream's `label_arg_kind`,
+    /// `vercel-labs/fx@c1db9191 src/builtins/tools.zig`).
+    ///
+    /// Exhaustive, so a tool added later has to say what its row names.
+    /// `None` is an answer and not an omission: a `list_files` with no path
+    /// lists the workspace root, and a question has no argument a row could
+    /// carry -- its row is never drawn ([`Activity::Ask`]).
+    pub fn target(&self) -> Option<&str> {
+        match self {
+            Self::ListFiles(input) => input.path.as_deref(),
+            Self::GlobFiles(input) => Some(&input.pattern),
+            Self::GrepFiles(input) => Some(&input.pattern),
+            Self::ReadFile(input) => Some(&input.path),
+            Self::WriteFile(input) => Some(&input.path),
+            Self::EditFile(input) => Some(&input.path),
+            Self::CreateFolder(input) => Some(&input.path),
+            Self::Terminal(input) => Some(&input.command),
+            Self::AskUserQuestion(_) => None,
+            Self::Skill(input) => Some(input.target()),
+            // Upstream's `label_arg_kind`s: the query, or the server it is
+            // scoped to (`capability_search.zig:91-101`); the name; the action.
+            Self::CapabilitySearch(input) => Some(input.server.as_deref().unwrap_or(&input.query)),
+            Self::McpSelectTool(input) => Some(&input.name),
+            Self::McpFeatures(input) => Some(&input.action),
+        }
+    }
+
+    /// The verbs this call's row is shown with, when they are not its tool's:
+    /// a `skill` call that reads a resource other than `SKILL.md` is
+    /// `Reading skill resource`, as upstream's per-call presentation says
+    /// (`vercel-labs/fx@c1db9191 src/tools/skills/skill.zig:110-127`).
+    pub fn presentation(&self) -> Option<Presentation> {
+        match self {
+            Self::Skill(input) => input.presentation(),
+            _ => None,
+        }
+    }
+}
+
+/// What kind of work a call is, as a person watching the turn counts it
+/// (upstream's `ToolActivityKind`, `vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig`).
+///
+/// Not [`PermissionKind`], and the difference is the point: a grep and a read
+/// are both `ReadOnly` and both count as a read, but a write and an edit are
+/// both `MutateFile` and are counted apart (`tool_group_projection.zig:140-150`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    Read,
+    List,
+    Write,
+    Edit,
+    Command,
+    /// A question to the user. Upstream draws no tool row for it at all
+    /// (`tool_presentation.zig` `startToolVisibleLifecycle` returns before the
+    /// lifecycle starts), and the surface that answers it is its own.
+    Ask,
+}
+
+/// What a person watching a turn is told about a call to one tool, before and
+/// after it runs.
+///
+/// The four facts upstream declares on every tool spec
+/// (`vercel-labs/fx@c1db9191 src/builtins/tools.zig`: `activity_kind`,
+/// `action_label`, `completed_action_label`, `label_arg_default`) and builds
+/// the transcript's tool rows from (`tool_group_projection.zig`). Declared on
+/// the spec for the reason the schema is: the tool that runs and the row that
+/// names it are one object and cannot drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Presentation {
+    pub activity: Activity,
+    /// The verb while the call runs: `Reading`, `Running`.
+    pub running: &'static str,
+    /// The verb once it has: `Read`, `Ran`.
+    pub done: &'static str,
+    /// What the row names when the call's own argument cannot be shown --
+    /// it did not decode, or (for a file change) it never got as far as
+    /// naming a file the user approved.
+    pub default_target: &'static str,
+}
+
+impl Presentation {
+    pub const fn new(
+        activity: Activity,
+        running: &'static str,
+        done: &'static str,
+        default_target: &'static str,
+    ) -> Self {
+        Self {
+            activity,
+            running,
+            done,
+            default_target,
+        }
+    }
+}
+
+/// One call, as a person watching the turn is shown it before it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shown {
+    pub presentation: Presentation,
+    /// The call's own argument ([`ToolInput::target`]), or `None` when it had
+    /// none or did not decode.
+    pub target: Option<String>,
+}
+
+/// How a call ended, for the person watching it -- beside [`ToolResult::ok`],
+/// which is the same question answered for the model.
+///
+/// The two differ exactly where a row has to say more than "it worked": a
+/// command that ran and exited 3 answered the model's question (`ok`) and is
+/// still a failure on the screen (upstream's `commandOutcomeDecision`,
+/// `tool_presentation.zig`), and a refusal the user gave is a denial rather
+/// than the tool's own failure. Nothing here changes what the model is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Outcome {
+    /// Whatever `ok` says: the call did what it was asked, or it refused on
+    /// its own.
+    #[default]
+    Finished,
+    /// A file change that would have left the file as it is, so nothing was
+    /// written (upstream's `resultIsNoop`, `file_mutation_contract.zig:492`).
+    Unchanged,
+    /// A permission decision refused it, so it never ran.
+    Denied,
+    /// A command ran to its end with this status.
+    Exited(i32),
+    /// A command a signal stopped.
+    Signalled(i32),
+    /// A command xfx stopped for running past its ceiling.
+    TimedOut,
+    /// A command xfx stopped because the turn was cancelled.
+    Cancelled,
+}
+
+/// How many lines a file change added and removed, counted the way upstream's
+/// review diff counts them (`vercel-labs/fx@c1db9191
+/// src/core/output/diff.zig:794-860`, `countStats`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LineChanges {
+    pub added: usize,
+    pub removed: usize,
+}
+
+/// How many cells of the longest-common-subsequence table
+/// [`LineChanges::between`] fills before it stops being exact.
+///
+/// The table is upstream's algorithm (`diff.zig:794-860`), and its cost is the
+/// product of the two sides' changed lines. A change confined to a few lines
+/// costs next to nothing -- the common head and tail are trimmed first -- but a
+/// rewrite of a large file would spend seconds of the turn on a number for a
+/// row; past this the count is the changed region's two sizes, which is an
+/// upper bound on what a real diff would say rather than a guess.
+const MAX_DIFF_CELLS: usize = 1 << 22;
+
+impl LineChanges {
+    /// The lines `after` added to `before` and the lines it took away.
+    pub fn between(before: &str, after: &str) -> Self {
+        let mut old: Vec<&str> = lines(before);
+        let mut new: Vec<&str> = lines(after);
+        // A file that gained or lost its final newline changed one line's
+        // worth, and upstream counts it as one (`appendTrailingNewlineMarker`).
+        // The marker cannot equal a real line: no line holds a NUL and a break.
+        if !before.is_empty() && !after.is_empty() {
+            match (before.ends_with('\n'), after.ends_with('\n')) {
+                (true, false) => old.push("\u{0}\n"),
+                (false, true) => new.push("\u{0}\n"),
+                _ => {}
+            }
+        }
+        let head = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let tail = old[head..]
+            .iter()
+            .rev()
+            .zip(new[head..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let old = &old[head..old.len() - tail];
+        let new = &new[head..new.len() - tail];
+        let common = if old.len().saturating_mul(new.len()) <= MAX_DIFF_CELLS {
+            common_lines(old, new)
+        } else {
+            0
+        };
+        Self {
+            added: new.len() - common,
+            removed: old.len() - common,
+        }
+    }
+}
+
+/// `text`'s lines without their breaks, and no empty line after a final one
+/// (`diff.zig` `appendLines`).
+fn lines(text: &str) -> Vec<&str> {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if text.is_empty() || text.ends_with('\n') {
+        lines.pop();
+    }
+    lines
+}
+
+/// The length of the longest common subsequence of two line lists, one table
+/// row at a time.
+fn common_lines(old: &[&str], new: &[&str]) -> usize {
+    let mut above = vec![0usize; new.len() + 1];
+    let mut row = vec![0usize; new.len() + 1];
+    for line in old {
+        for (index, other) in new.iter().enumerate() {
+            row[index + 1] = if line == other {
+                above[index] + 1
+            } else {
+                row[index].max(above[index + 1])
+            };
+        }
+        std::mem::swap(&mut above, &mut row);
+    }
+    above[new.len()]
 }
 
 /// Turns raw model JSON into a typed input, or says why it cannot.
@@ -194,7 +439,9 @@ pub struct ToolResult {
     /// The text the model sees.
     pub output: String,
     /// A one-line summary for the `tool_result` event a human watches.
-    pub detail: String,
+    /// `Box<str>`, as [`Self::feedback`] is: never grown once made, and every
+    /// byte of a result is carried through every refusal path.
+    pub detail: Box<str>,
     /// Whether this result ends the turn instead of going back to the model.
     ///
     /// Almost always false: a refusal is information the model can act on. It is
@@ -209,7 +456,49 @@ pub struct ToolResult {
     /// into [`Self::output`]: merging would let a user's sentence be read as the
     /// tool's own report of what it did. It is context, not authority -- the
     /// call that ran is the one that was judged, whatever this says.
-    pub feedback: Option<String>,
+    ///
+    /// `Box<str>` rather than `String`: it is never grown, and a result is
+    /// returned by value through every refusal path, so its size is kept down.
+    pub feedback: Option<Box<str>>,
+    /// How the call ended, for the person watching rather than for the model
+    /// ([`Outcome`]). Never part of [`Self::output`].
+    pub outcome: Outcome,
+    /// The lines a file change added and removed, when it made one.
+    pub changes: Option<LineChanges>,
+    /// The change itself, when it made one: the part of the file it touched,
+    /// before and after, as the plan that was judged carries it
+    /// (`crate::permission::ApprovalDiff::around_change`). For the person
+    /// watching -- upstream keeps one per change for its full transcript --
+    /// and never part of [`Self::output`] or of the session's log. Boxed: a
+    /// result is returned by value through every refusal path, and most
+    /// carry no change.
+    pub change: Option<Box<ApprovalDiff>>,
+    /// What the person watching is shown of the call where that is not what
+    /// the model is told: a command its turn stopped, whose model-facing
+    /// answer is only `aborted by user` while upstream's full transcript
+    /// shows the command's output and the signal it died of
+    /// (`fx-resume-tools-40x120-live-ctrl-o`: `│ signal 15`). Never part of
+    /// [`Self::output`] or of the session's log. Boxed for the reason
+    /// [`Self::change`] is.
+    pub presented: Option<Box<String>>,
+    /// The image the result carries for the model beside [`Self::output`]:
+    /// `read_file` of an image file (`read_file.zig:228-278`), and none for
+    /// any other call. Only a result that succeeded carries one. Boxed: a
+    /// result travels by value through every refusal path, and almost none
+    /// carries an image.
+    pub image: Option<Box<crate::image::ToolImage>>,
+}
+
+/// What follows the tool's name in every refusal ([`ToolResult::refused`]).
+const REFUSED: &str = " was not permitted:";
+
+/// Whether `output`, a failed result of `tool`, is a refusal
+/// ([`ToolResult::refused`]) -- read back from a session log, which keeps the
+/// result's words and not its [`Outcome`].
+pub fn is_refusal(tool: &str, output: &str) -> bool {
+    output
+        .strip_prefix(tool)
+        .is_some_and(|rest| rest.starts_with(REFUSED))
 }
 
 impl ToolResult {
@@ -219,24 +508,85 @@ impl ToolResult {
         Self {
             ok: true,
             output: output.into(),
-            detail: summarize(&detail.into()),
+            detail: summarize(&detail.into()).into_boxed_str(),
             fatal: false,
             feedback: None,
+            outcome: Outcome::Finished,
+            changes: None,
+            change: None,
+            presented: None,
+            image: None,
         }
+    }
+
+    /// The same result, ending as `outcome` for the person watching.
+    pub fn ending(mut self, outcome: Outcome) -> Self {
+        self.outcome = outcome;
+        self
+    }
+
+    /// The same result, carrying the lines its change added and removed.
+    pub fn with_changes(mut self, changes: Option<LineChanges>) -> Self {
+        self.changes = changes;
+        self
+    }
+
+    /// The same result, carrying the change it made.
+    pub fn with_change(mut self, change: Option<ApprovalDiff>) -> Self {
+        self.change = change.map(Box::new);
+        self
+    }
+
+    /// The same result, carrying an image for the model.
+    pub fn with_image(mut self, image: Option<crate::image::ToolImage>) -> Self {
+        self.image = image.map(Box::new);
+        self
     }
 
     /// A refusal. The summary is the first line of the explanation, bounded, so
     /// a long filesystem error cannot flood a human's event stream.
     pub fn failure(output: impl Into<String>) -> Self {
         let output = output.into();
-        let detail = summarize(&output);
+        let detail = summarize(&output).into_boxed_str();
         Self {
             ok: false,
             output,
             detail,
             fatal: false,
             feedback: None,
+            outcome: Outcome::Finished,
+            changes: None,
+            change: None,
+            presented: None,
+            image: None,
         }
+    }
+
+    /// The same result, showing the person watching `presented` instead of
+    /// its output ([`Self::presented`]).
+    pub fn presenting(mut self, presented: String) -> Self {
+        self.presented = Some(Box::new(presented));
+        self
+    }
+
+    /// The same failure with no summary for the row: an in-call failure of a
+    /// built-in tool, whose row upstream writes as `Failed <target>` and
+    /// nothing after it -- its status detail is set only for a preflight's
+    /// refusal and a dynamic tool's (`failureStatusDetail`,
+    /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/tool_presentation.zig:
+    /// 1253-1301`; `fx-read-failures-40x120-live`: `Failed src`).
+    pub fn unexplained(mut self) -> Self {
+        self.detail = Box::default();
+        self
+    }
+
+    /// A call the permission policy or the person refused: `{tool} was not
+    /// permitted: {reason}`, ending [`Outcome::Denied`] -- the one shape every
+    /// refusal is written in, so a replayed log can tell it from any other
+    /// failure ([`is_refusal`]) and say it as upstream says one
+    /// (`execution-denied`, `crate::gateway::protocol::ResultStatus::Denied`).
+    pub fn refused(tool: &str, reason: &str) -> Self {
+        Self::failure(format!("{tool}{REFUSED} {reason}")).ending(Outcome::Denied)
     }
 
     /// A refusal that ends the turn: the authority for this call stopped being
@@ -252,8 +602,20 @@ impl ToolResult {
     ///
     /// A draft of spaces is not a sentence, and an empty user message on the
     /// wire is worse than none: it would spend a turn saying nothing.
+    /// The same result with its output cut at `limit` bytes, saying so --
+    /// the registry's backstop ([`super::Registry::execute`]) for a result
+    /// that did not come through the registry.
+    pub fn clipped(mut self, limit: usize) -> Self {
+        if let Some(kept) = clip(&self.output, limit) {
+            self.output = format!("{kept}\n... [tool output truncated at {limit} bytes]");
+        }
+        self
+    }
+
     pub fn with_feedback(mut self, feedback: Option<String>) -> Self {
-        self.feedback = feedback.filter(|text| !text.trim().is_empty());
+        self.feedback = feedback
+            .filter(|text| !text.trim().is_empty())
+            .map(String::into_boxed_str);
         self
     }
 }
@@ -265,6 +627,172 @@ fn summarize(text: &str) -> String {
         Some(clipped) => format!("{clipped}..."),
         None => line.to_string(),
     }
+}
+
+/// Upstream's model-facing failure of a tool call that got past its
+/// preflight and then could not be done (`toolExecutionFailureJson`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_result_errors.zig:323-347`),
+/// byte for byte: `{"error":{"type":"tool_execution_failed","tool_name":…,
+/// "message":…,"details":{…},"suggestion":…}}`, the details in the order
+/// given. Upstream sends it for these failures only -- its decoders, its
+/// validations and its preflight answer in plain sentences
+/// (`read_file.zig:40-101`, `tool_admission.zig:2465-2495`) -- and so does xfx.
+/// What upstream masks in it (`writeMaskedJsonString`) is a secret's shape,
+/// which a path or an error name does not have.
+pub(crate) fn execution_failure(
+    tool: &str,
+    message: &str,
+    details: &[(&str, &str)],
+    suggestion: Option<&str>,
+) -> String {
+    let quoted = |text: &str| serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+    let mut out = format!(
+        r#"{{"error":{{"type":"tool_execution_failed","tool_name":{},"message":{}"#,
+        quoted(tool),
+        quoted(message)
+    );
+    if !details.is_empty() {
+        out.push_str(r#","details":{"#);
+        for (index, (name, value)) in details.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            out.push_str(&quoted(name));
+            out.push(':');
+            out.push_str(&quoted(value));
+        }
+        out.push('}');
+    }
+    if let Some(suggestion) = suggestion {
+        out.push_str(r#","suggestion":"#);
+        out.push_str(&quoted(suggestion));
+    }
+    out.push_str("}}");
+    out
+}
+
+/// Upstream's envelope for a filesystem tool the operating system refused
+/// (`filesystemAccessDeniedJson` and its suggestion,
+/// `tool_result_errors.zig:382-409`), `name` the refusal's error name
+/// ([`zig_error_name`]: `AccessDenied` or `PermissionDenied`).
+pub(crate) fn access_denied(tool: &str, path: &str, name: &str) -> String {
+    let suggestion = if cfg!(target_os = "macos") {
+        "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. If the path is in a protected folder such as Desktop, Documents, or Downloads, ask the user to grant the terminal app Files and Folders or Full Disk Access. Otherwise, ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
+    } else {
+        "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. Ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
+    };
+    execution_failure(
+        tool,
+        "Operating system denied filesystem access",
+        &[("path", path), ("error", name)],
+        Some(suggestion),
+    )
+}
+
+/// Whether upstream calls an error a refusal by the operating system
+/// (`isFilesystemAccessDenied`, `tool_result_errors.zig:382-384`).
+pub(crate) fn is_access_denied(name: &str) -> bool {
+    name == "AccessDenied" || name == "PermissionDenied"
+}
+
+/// The system call an I/O error came from, as upstream's runtime names the
+/// error each one fails with differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Syscall {
+    /// `fstatat` (`posixStatFile`, `std/Io/Threaded.zig:3673`).
+    Stat,
+    /// `openat` of a file (`dirOpenFilePosix`, `:4789`).
+    Open,
+    /// `openat` of a directory (`dirOpenDirPosix`, `:5237`).
+    OpenDir,
+    /// `preadv`, which a file reader reads with (`fileReadPositionalPosix`,
+    /// `:9766`).
+    PositionalRead,
+}
+
+/// The name upstream's envelope gives `err`, the Zig error its runtime
+/// returns for the same errno from the same call (Zig 0.16, upstream's
+/// `minimum_zig_version`, `build.zig.zon:28`; the switches in
+/// `lib/std/Io/Threaded.zig` cited on [`Syscall`]). An errno that switch
+/// does not name, or a Rust error that carries none, is upstream's
+/// `Unexpected` (`posix.unexpectedErrno`, `errnoBug`).
+pub(crate) fn zig_error_name(call: Syscall, err: &std::io::Error) -> &'static str {
+    let Some(errno) = err.raw_os_error() else {
+        return "Unexpected";
+    };
+    zig_errno_name(call, errno)
+}
+
+fn zig_errno_name(call: Syscall, errno: i32) -> &'static str {
+    use libc::*;
+    let table: &[(i32, &str)] = match call {
+        Syscall::Stat => &[
+            (ENOMEM, "SystemResources"),
+            (EACCES, "AccessDenied"),
+            (EPERM, "PermissionDenied"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ELOOP, "SymLinkLoop"),
+            (ENOENT, "FileNotFound"),
+            (ENOTDIR, "FileNotFound"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::Open => &[
+            (EINVAL, "BadPathName"),
+            (EACCES, "AccessDenied"),
+            (EFBIG, "FileTooBig"),
+            (EOVERFLOW, "FileTooBig"),
+            (EISDIR, "IsDir"),
+            (ELOOP, "SymLinkLoop"),
+            (EMFILE, "ProcessFdQuotaExceeded"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ENFILE, "SystemFdQuotaExceeded"),
+            (ENODEV, "NoDevice"),
+            (ENOENT, "FileNotFound"),
+            (ESRCH, "FileNotFound"),
+            (ENOMEM, "SystemResources"),
+            (ENOSPC, "NoSpaceLeft"),
+            (ENOTDIR, "NotDir"),
+            (EPERM, "PermissionDenied"),
+            (EEXIST, "PathAlreadyExists"),
+            (EBUSY, "DeviceBusy"),
+            (EOPNOTSUPP, "FileLocksUnsupported"),
+            (EAGAIN, "WouldBlock"),
+            (ETXTBSY, "FileBusy"),
+            (ENXIO, "NoDevice"),
+            (EROFS, "ReadOnlyFileSystem"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::OpenDir => &[
+            (EINVAL, "BadPathName"),
+            (EACCES, "AccessDenied"),
+            (ELOOP, "SymLinkLoop"),
+            (EMFILE, "ProcessFdQuotaExceeded"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ENFILE, "SystemFdQuotaExceeded"),
+            (ENODEV, "NoDevice"),
+            (ENOENT, "FileNotFound"),
+            (ENOMEM, "SystemResources"),
+            (ENOTDIR, "NotDir"),
+            (EPERM, "PermissionDenied"),
+            (ENXIO, "NoDevice"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::PositionalRead => &[
+            (ENXIO, "Unseekable"),
+            (ESPIPE, "Unseekable"),
+            (EOVERFLOW, "Unseekable"),
+            (ENOBUFS, "SystemResources"),
+            (ENOMEM, "SystemResources"),
+            (EAGAIN, "WouldBlock"),
+            (EIO, "InputOutput"),
+            (EISDIR, "IsDir"),
+            (EBADF, "NotOpenForReading"),
+        ],
+    };
+    table
+        .iter()
+        .find(|(known, _)| *known == errno)
+        .map_or("Unexpected", |(_, name)| name)
 }
 
 /// `text` clipped to at most `limit` bytes, or `None` when it already fits.
@@ -367,6 +895,12 @@ pub type RaceInterlude = Arc<dyn Fn() + Send + Sync>;
 pub struct ToolSession {
     permissions: Mutex<PermissionSession>,
     reads: Mutex<ReadTracker>,
+    /// What `/undo` can take back ([`super::undo`]). Here, beside the read
+    /// proofs, because it is about the same thing they are -- what this
+    /// conversation has done to files -- and so it ends where they do: a
+    /// conversation `/new` drops takes its changes with it, and a resumed one
+    /// starts with none, as upstream's does.
+    changes: Mutex<ChangeJournal>,
 }
 
 impl ToolSession {
@@ -374,6 +908,7 @@ impl ToolSession {
         Self {
             permissions: Mutex::new(permissions),
             reads: Mutex::new(ReadTracker::new()),
+            changes: Mutex::new(ChangeJournal::new()),
         }
     }
 }
@@ -403,6 +938,36 @@ pub struct ToolContext {
     /// built the context, and a context nobody set it on answers with the
     /// availability sentinel rather than reaching for a UI that isn't there.
     questioner: Option<Arc<dyn QuestionRequester>>,
+    /// The skills the turn's `<available_skills>` block advertised, which a
+    /// `skill` call's location is resolved against (`crate::skills::Locations`),
+    /// and the home directory the managed root is under. Set per turn by the
+    /// front end that built the block; a context with none resolves a location
+    /// by discovering the skills afresh, as upstream's tool does when the
+    /// turn's catalog does not hold it.
+    skills: Option<Arc<crate::skills::Locations>>,
+    home: Option<std::path::PathBuf>,
+    /// The directories besides the home directory and the roots that a
+    /// mutation looks for protected links below (`$XDG_CONFIG_HOME`,
+    /// `$ZDOTDIR`), as the front end read them.
+    link_bases: Vec<crate::permission::LinkBase>,
+    /// What the user's git is told about its configuration, as the front end
+    /// read it (`crate::permission::GitEnvironment::from_process`).
+    git_environment: crate::permission::GitEnvironment,
+    /// The session's MCP servers, and what this turn has selected of them.
+    /// Absent on a surface that runs no MCP client: the meta-tools are not
+    /// advertised there at all ([`super::Registry::advertisement_for`]).
+    mcp: Option<McpLink>,
+}
+
+/// A context's view of the session's MCP servers.
+#[derive(Clone)]
+pub struct McpLink {
+    pub runtime: Arc<crate::mcp::McpRuntime>,
+    /// The tools whose schemas this turn advertises from its next step on,
+    /// in the order they were selected. Replaced at the start of each turn
+    /// ([`ToolContext::begin_mcp_turn`]), as upstream's list belongs to one
+    /// turn (`orchestrator.zig:6785-6788`).
+    pub selected: Arc<Mutex<Vec<crate::mcp::catalog::Selected>>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -417,6 +982,8 @@ impl std::fmt::Debug for ToolContext {
             .field("cancelled", &self.cancel.is_cancelled())
             .field("has_race_interlude", &self.interlude.is_some())
             .field("has_questioner", &self.questioner.is_some())
+            .field("has_skills", &self.skills.is_some())
+            .field("has_mcp", &self.mcp.is_some())
             .finish()
     }
 }
@@ -441,6 +1008,11 @@ impl ToolContext {
             cancel: CancelToken::new(),
             interlude: None,
             questioner: None,
+            skills: None,
+            home: None,
+            link_bases: Vec::new(),
+            git_environment: crate::permission::GitEnvironment::default(),
+            mcp: None,
         }
     }
 
@@ -472,6 +1044,118 @@ impl ToolContext {
         self
     }
 
+    /// The same context, resolving `skill` locations against `skills` and
+    /// finding the managed root under `home`.
+    pub fn with_skills(
+        mut self,
+        skills: Option<Arc<crate::skills::Locations>>,
+        home: Option<std::path::PathBuf>,
+    ) -> Self {
+        self.set_skills(skills, home);
+        self
+    }
+
+    /// Puts this turn's catalog in force for its `skill` calls.
+    pub fn set_skills(
+        &mut self,
+        skills: Option<Arc<crate::skills::Locations>>,
+        home: Option<std::path::PathBuf>,
+    ) {
+        self.skills = skills;
+        self.home = home;
+    }
+
+    /// The turn's advertised skills, when a front end set them.
+    pub fn skills(&self) -> Option<&crate::skills::Locations> {
+        self.skills.as_deref()
+    }
+
+    /// The home directory the managed skill root is under, and the one the
+    /// mutating tools look for protected links below
+    /// (`crate::permission::MutationPlan::sensitive_auto_write_target`).
+    pub fn home(&self) -> Option<&std::path::Path> {
+        self.home.as_deref()
+    }
+
+    /// The same context, looking for protected links below `bases` too
+    /// ([`crate::permission::LinkBase::from_environment`]).
+    pub fn with_link_bases(mut self, bases: Vec<crate::permission::LinkBase>) -> Self {
+        self.link_bases = bases;
+        self
+    }
+
+    /// The directories besides the home directory and the roots a mutation
+    /// looks for protected links below.
+    pub fn link_bases(&self) -> &[crate::permission::LinkBase] {
+        &self.link_bases
+    }
+
+    /// The same context, telling the configuration check what the user's git
+    /// reads ([`crate::permission::GitEnvironment::from_process`]).
+    pub fn with_git_environment(mut self, git: crate::permission::GitEnvironment) -> Self {
+        self.git_environment = git;
+        self
+    }
+
+    /// What the user's git is told about its configuration.
+    pub fn git_environment(&self) -> &crate::permission::GitEnvironment {
+        &self.git_environment
+    }
+
+    /// The same context, with the session's MCP servers.
+    pub fn with_mcp(mut self, runtime: Arc<crate::mcp::McpRuntime>) -> Self {
+        self.mcp = Some(McpLink {
+            runtime,
+            selected: Arc::new(Mutex::new(Vec::new())),
+        });
+        self
+    }
+
+    /// The session's MCP servers, when this surface runs an MCP client.
+    pub fn mcp(&self) -> Option<&McpLink> {
+        self.mcp.as_ref()
+    }
+
+    /// A turn starts with nothing selected.
+    pub fn begin_mcp_turn(&mut self) {
+        if let Some(link) = &mut self.mcp {
+            link.selected = Arc::new(Mutex::new(Vec::new()));
+        }
+    }
+
+    /// The tools this turn has selected, in order.
+    pub fn mcp_selected(&self) -> Vec<crate::mcp::catalog::Selected> {
+        self.mcp
+            .as_ref()
+            .map(|link| {
+                link.selected
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Adds `tools` to what this turn advertises, each once.
+    pub fn select_mcp(&self, tools: Vec<crate::mcp::catalog::Selected>) {
+        let Some(link) = &self.mcp else {
+            return;
+        };
+        let mut selected = link
+            .selected
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for tool in tools {
+            match selected
+                .iter_mut()
+                .find(|existing| existing.alias == tool.alias)
+            {
+                Some(existing) => *existing = tool,
+                None => selected.push(tool),
+            }
+        }
+    }
+
     /// The requester `ask_user_question` may hand a batch to, if this context
     /// was built with one.
     pub fn questioner(&self) -> Option<&Arc<dyn QuestionRequester>> {
@@ -480,6 +1164,19 @@ impl ToolContext {
 
     pub fn scope(&self) -> &AccessScope {
         &self.scope
+    }
+
+    /// Puts the conversation in `scope` from its next tool call on: what a
+    /// `/workspace` change does to a conversation already open.
+    ///
+    /// Only between turns -- the caller's rule, which upstream's is too
+    /// (`tryBeginWorkspaceMutation`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:219-222`). Grants and read proofs stay:
+    /// both are keyed by a canonical path, so one for a file in a root that has
+    /// left the scope is never reached again -- the path is refused before
+    /// policy is asked -- and one for a root that comes back is the same file.
+    pub fn set_scope(&mut self, scope: AccessScope) {
+        self.scope = scope;
     }
 
     pub fn limits(&self) -> &ToolLimits {
@@ -511,6 +1208,18 @@ impl ToolContext {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// The changes this session's tools committed, locked
+    /// ([`super::undo::ChangeJournal`]).
+    ///
+    /// Recovered from a poisoned lock like the other two: a journal is a list
+    /// that a push or a pop leaves whole.
+    pub fn changes(&self) -> MutexGuard<'_, ChangeJournal> {
+        self.session
+            .changes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Runs the installed interlude, if a test installed one.
     pub(crate) fn run_race_interlude(&self) {
         if let Some(interlude) = &self.interlude {
@@ -525,6 +1234,7 @@ pub struct ToolSpec {
     name: &'static str,
     description: &'static str,
     permission: PermissionKind,
+    presentation: Presentation,
     input_schema: InputSchema,
     decode: ToolDecoder,
     validate: ToolValidator,
@@ -534,10 +1244,17 @@ pub struct ToolSpec {
 impl ToolSpec {
     /// Builds a spec. `const` so the registry is a static table rather than
     /// something assembled -- and therefore mutable -- at startup.
+    ///
+    /// Eight arguments, deliberately rather than a builder: every one of them
+    /// is part of what the tool *is*, and a builder would let a spec leave one
+    /// out and inherit a default nobody chose -- a row with no verb, or a tool
+    /// with no validator.
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         name: &'static str,
         description: &'static str,
         permission: PermissionKind,
+        presentation: Presentation,
         input_schema: InputSchema,
         decode: ToolDecoder,
         validate: ToolValidator,
@@ -547,6 +1264,7 @@ impl ToolSpec {
             name,
             description,
             permission,
+            presentation,
             input_schema,
             decode,
             validate,
@@ -566,19 +1284,59 @@ impl ToolSpec {
         self.permission
     }
 
+    pub fn presentation(&self) -> Presentation {
+        self.presentation
+    }
+
+    /// What a person watching is shown about a call with these arguments,
+    /// before it runs.
+    ///
+    /// Decoded here rather than read off the raw JSON, so the row names the
+    /// argument the executor will act on and not a field of the same name the
+    /// decoder would refuse. A decoder touches nothing (see the module
+    /// documentation), so decoding twice costs a parse and nothing else; an
+    /// input that does not decode is shown by the tool's default, and its
+    /// refusal follows in the result.
+    pub fn shown(&self, input: &Value) -> Shown {
+        let decoded = (self.decode)(input).ok();
+        Shown {
+            presentation: decoded
+                .as_ref()
+                .and_then(ToolInput::presentation)
+                .unwrap_or(self.presentation),
+            target: decoded.and_then(|decoded| decoded.target().map(str::to_string)),
+        }
+    }
+
     pub fn input_schema(&self) -> InputSchema {
         self.input_schema
     }
 
     /// The Gateway's flattened function-tool envelope
     /// (`vercel-labs/fx@580a0c5d src/core/tooling/gateway_schema.zig:82-104`).
+    ///
+    /// Keys sorted at every depth. JSON objects keep the order they were
+    /// built in (`serde_json`'s `preserve_order`, which settings need: a
+    /// permission table is read last-match-wins in document order), and the
+    /// bytes every model has been sent are the sorted ones -- a schema whose
+    /// keys moved would be a new prefix to every provider's prompt cache.
     pub fn advertisement(&self) -> Value {
         let mut envelope = Map::new();
         envelope.insert("type".to_string(), Value::from("function"));
         envelope.insert("name".to_string(), Value::from(self.name));
         envelope.insert("description".to_string(), Value::from(self.description));
         envelope.insert("inputSchema".to_string(), self.input_schema.to_json());
-        Value::Object(envelope)
+        let mut envelope = Value::Object(envelope);
+        envelope.sort_all_objects();
+        envelope
+    }
+
+    /// Decodes and validates one call's arguments, and runs nothing: the
+    /// typed input [`Self::run`] would hand the executor.
+    pub fn decode(&self, input: &Value) -> Result<ToolInput, String> {
+        let decoded = (self.decode)(input)?;
+        (self.validate)(&decoded)?;
+        Ok(decoded)
     }
 
     /// Decodes, validates, and runs one call's arguments.
@@ -737,6 +1495,21 @@ mod tests {
     };
 
     #[test]
+    fn a_refusal_is_told_from_any_other_failure_by_its_own_shape() {
+        let refused = ToolResult::refused("write_file", "you declined");
+        assert_eq!(refused.output, "write_file was not permitted: you declined");
+        assert_eq!(refused.outcome, Outcome::Denied);
+        assert!(!refused.ok);
+        assert!(is_refusal("write_file", &refused.output));
+        assert!(
+            !is_refusal("edit_file", &refused.output),
+            "another tool's refusal"
+        );
+        assert!(!is_refusal("write_file", "write_file failed: disk full"));
+        assert!(!is_refusal("terminal", "aborted by user"));
+    }
+
+    #[test]
     fn a_schema_is_always_closed() {
         let rendered = SAMPLE.to_json();
         assert_eq!(rendered["additionalProperties"], json!(false));
@@ -776,6 +1549,83 @@ mod tests {
         assert_eq!(optional_string("t", object, "missing").unwrap(), None);
         assert_eq!(optional_integer("t", object, "missing", 1).unwrap(), None);
         assert!(!optional_bool("t", object, "missing").unwrap());
+    }
+
+    /// Upstream's names for every errno each call it makes names, by call
+    /// (`std/Io/Threaded.zig`, Zig 0.16): the table this crate's envelope
+    /// text is held to.
+    #[test]
+    fn an_errno_is_named_as_upstreams_runtime_names_it_for_the_call_it_came_from() {
+        use libc::*;
+        let cases: &[(Syscall, i32, &str)] = &[
+            // `posixStatFile`, `:3673-3704`: a missing directory on the way
+            // is `FileNotFound` here, not `NotDir`.
+            (Syscall::Stat, ENOENT, "FileNotFound"),
+            (Syscall::Stat, ENOTDIR, "FileNotFound"),
+            (Syscall::Stat, EACCES, "AccessDenied"),
+            (Syscall::Stat, EPERM, "PermissionDenied"),
+            (Syscall::Stat, ELOOP, "SymLinkLoop"),
+            (Syscall::Stat, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::Stat, ENOMEM, "SystemResources"),
+            (Syscall::Stat, EILSEQ, "BadPathName"),
+            (Syscall::Stat, EIO, "Unexpected"),
+            // `dirOpenFilePosix`, `:4789-4880`.
+            (Syscall::Open, ENOENT, "FileNotFound"),
+            (Syscall::Open, ENOTDIR, "NotDir"),
+            (Syscall::Open, EISDIR, "IsDir"),
+            (Syscall::Open, EACCES, "AccessDenied"),
+            (Syscall::Open, EPERM, "PermissionDenied"),
+            (Syscall::Open, ELOOP, "SymLinkLoop"),
+            (Syscall::Open, EMFILE, "ProcessFdQuotaExceeded"),
+            (Syscall::Open, ENFILE, "SystemFdQuotaExceeded"),
+            (Syscall::Open, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::Open, ENODEV, "NoDevice"),
+            (Syscall::Open, ENXIO, "NoDevice"),
+            (Syscall::Open, ENOMEM, "SystemResources"),
+            (Syscall::Open, ENOSPC, "NoSpaceLeft"),
+            (Syscall::Open, EEXIST, "PathAlreadyExists"),
+            (Syscall::Open, EBUSY, "DeviceBusy"),
+            (Syscall::Open, EAGAIN, "WouldBlock"),
+            (Syscall::Open, ETXTBSY, "FileBusy"),
+            (Syscall::Open, EROFS, "ReadOnlyFileSystem"),
+            (Syscall::Open, EFBIG, "FileTooBig"),
+            (Syscall::Open, EOVERFLOW, "FileTooBig"),
+            (Syscall::Open, EINVAL, "BadPathName"),
+            (Syscall::Open, EOPNOTSUPP, "FileLocksUnsupported"),
+            (Syscall::Open, EIO, "Unexpected"),
+            // `dirOpenDirPosix`, `:5237-5300`.
+            (Syscall::OpenDir, ENOENT, "FileNotFound"),
+            (Syscall::OpenDir, ENOTDIR, "NotDir"),
+            (Syscall::OpenDir, EACCES, "AccessDenied"),
+            (Syscall::OpenDir, EPERM, "PermissionDenied"),
+            (Syscall::OpenDir, ELOOP, "SymLinkLoop"),
+            (Syscall::OpenDir, EMFILE, "ProcessFdQuotaExceeded"),
+            (Syscall::OpenDir, ENFILE, "SystemFdQuotaExceeded"),
+            (Syscall::OpenDir, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::OpenDir, ENOMEM, "SystemResources"),
+            (Syscall::OpenDir, EINVAL, "BadPathName"),
+            (Syscall::OpenDir, EISDIR, "Unexpected"),
+            // `fileReadPositionalPosix`, `:9766-9842`.
+            (Syscall::PositionalRead, EIO, "InputOutput"),
+            (Syscall::PositionalRead, EISDIR, "IsDir"),
+            (Syscall::PositionalRead, EAGAIN, "WouldBlock"),
+            (Syscall::PositionalRead, ESPIPE, "Unseekable"),
+            (Syscall::PositionalRead, ENOMEM, "SystemResources"),
+            (Syscall::PositionalRead, EBADF, "NotOpenForReading"),
+            (Syscall::PositionalRead, EACCES, "Unexpected"),
+        ];
+        for (call, errno, name) in cases {
+            assert_eq!(
+                zig_error_name(*call, &std::io::Error::from_raw_os_error(*errno)),
+                *name,
+                "{call:?} errno {errno}"
+            );
+        }
+        // A Rust error that carries no errno.
+        assert_eq!(
+            zig_error_name(Syscall::Open, &std::io::Error::other("x")),
+            "Unexpected"
+        );
     }
 
     #[test]
@@ -860,10 +1710,71 @@ mod tests {
     fn a_failure_summary_is_the_first_line_and_is_bounded() {
         let result = ToolResult::failure("no such path: `x`\nmore detail");
         assert!(!result.ok);
-        assert_eq!(result.detail, "no such path: `x`");
+        assert_eq!(&*result.detail, "no such path: `x`");
 
         let long = ToolResult::failure("e".repeat(400));
         assert!(long.detail.len() <= 164, "{}", long.detail.len());
         assert!(long.detail.ends_with("..."));
+    }
+
+    fn changes(before: &str, after: &str) -> (usize, usize) {
+        let counted = LineChanges::between(before, after);
+        (counted.added, counted.removed)
+    }
+
+    #[test]
+    fn a_new_file_adds_every_line_it_has_and_removes_none() {
+        // Upstream's capture of the same write: `Wrote c.txt +2`.
+        assert_eq!(changes("", "new file\nsecond line\n"), (2, 0));
+        assert_eq!(changes("", ""), (0, 0));
+    }
+
+    #[test]
+    fn a_line_replaced_in_place_is_one_added_and_one_removed() {
+        // `Edited a.txt +1 / -1` for upstream's `alpha line 2` edit.
+        assert_eq!(
+            changes(
+                "alpha line 1\nalpha line 2\nalpha line 3\n",
+                "alpha line 1\nALPHA LINE TWO\nalpha line 3\n"
+            ),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn lines_that_moved_are_counted_by_the_longest_common_run_not_by_position() {
+        // Neither the head nor the tail is common here, so only the table can
+        // see that `b` and `c` survived.
+        assert_eq!(changes("a\nb\nc\n", "b\nc\nd\n"), (1, 1));
+        assert_eq!(changes("a\nb\nc\nd\n", "a\nc\nb\nd\n"), (1, 1));
+    }
+
+    #[test]
+    fn a_final_newline_gained_or_lost_is_one_line_of_change() {
+        // `diff.zig` `appendTrailingNewlineMarker`: the marker line is the change.
+        assert_eq!(changes("a\nb", "a\nb\n"), (1, 0));
+        assert_eq!(changes("a\nb\n", "a\nb"), (0, 1));
+        assert_eq!(changes("a\nb\n", "a\nb\n"), (0, 0));
+    }
+
+    #[test]
+    fn a_change_too_large_to_tabulate_is_counted_by_its_changed_region() {
+        // Past the table's budget the answer is the two sizes of what differs,
+        // which no real diff can exceed -- an upper bound, never a guess.
+        let before: String = (0..3000).map(|i| format!("old {i}\n")).collect();
+        let after: String = (0..2000).map(|i| format!("new {i}\n")).collect();
+        assert_eq!(changes(&before, &after), (2000, 3000));
+    }
+
+    #[test]
+    fn a_row_names_the_argument_the_executor_acts_on_or_nothing() {
+        let shown = super::super::read::READ_FILE.shown(&json!({"path": "a.txt"}));
+        assert_eq!(shown.target.as_deref(), Some("a.txt"));
+        assert_eq!(shown.presentation.done, "Read");
+        // A field of the wrong type is a refusal the result will carry, so the
+        // row falls back to the tool's own word rather than quoting the model.
+        let refused = super::super::read::READ_FILE.shown(&json!({"path": 7}));
+        assert_eq!(refused.target, None);
+        assert_eq!(refused.presentation.default_target, "file");
     }
 }

@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;250m* skills: Skill 'nope' not found.[39m
+
+[38;5;250m* skills: fx workspace roots are auto-discovered from .fx/skills and skills/.[39m
+  [38;5;250mfx managed install root: /private/tmp/claude-501/fxcap.XXXXXX/home/.fx/skills[39m
+  [38;5;250mcompatibility roots are auto-discovered from workspace and home (.opencode/.codex/.claude/.agents/.claw).[39m
+
+[38;5;250m* skills: Created /private/tmp/claude-501/fxcap.XXXXXX/home/.fx/skills/made/SKILL.md[39m
+
+[38;5;250m* skills: Invalid skill name. Use a single directory name without '/' or '\'.[39m
+
+[38;5;250m* skills: Installing from ./skill-src...[39m
+
+[38;5;250m* skills: Installed: foo[39m
+
+[38;5;250m* skills: Removed skill 'made'.[39m
+
+[38;5;250m* skills: Skill 'demo' comes from workspace .fx/skills, not the fx managed install root. Remove it from /private/tmp/[39m
+  [38;5;250mclaude-501/fxcap.XXXXXX/work/.fx/skills/demo.[39m
+
+[38;5;250m* usage: /skills [list|add|install|show|create|remove|path] [name|url|path][39m
+
+[38;5;255m┃[39m $
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mSkills 3[0m  [1m[38;5;255m[All][0m  [38;5;245mfx[39m  [38;5;245mWorkspace[39m  [38;5;245mClaude[39m  [38;5;245mCodex[39m  [38;5;245mAgents[39m  [38;5;245mOpenCode[39m  [38;5;245mClaw[39m
+
+  [1m[38;5;255mfoo              fx · Global
+[0m  [38;5;245mdemo             fx · Workspace[39m
+  [38;5;245mrelease-notes    fx · Workspace[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     tab source     enter use     esc close[39m
+
+
+
+
+
+
+
+

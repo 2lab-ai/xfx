@@ -18,6 +18,7 @@
 //! the model was asked to read reaches the terminal, not whether any of it
 //! does; README's "Safety, in plain terms" says what to do about that.
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 
 use serde::Serialize;
@@ -26,6 +27,7 @@ use crate::config::{Credential, ProviderRejection, RuntimeConfig};
 use crate::provider::resolve_credential_for;
 use crate::provider::ProviderId;
 use crate::session::{SessionDetail, SessionList, TurnStep};
+use crate::tools::{LineChanges, Outcome, Shown};
 
 /// The help text shown when no credential is configured.
 ///
@@ -219,9 +221,27 @@ impl StatusSnapshot {
 
     /// One `[status] key=value` line per fact, in a fixed order.
     pub fn render_text(&self) -> String {
+        self.lines("[status] ")
+    }
+
+    /// The same facts in the same order, one bare `key=value` row each.
+    ///
+    /// The body of the TUI's `* status:` notice, which is upstream's shape for
+    /// the same report (`StatusSnapshot.renderInteractiveBody`,
+    /// `vercel-labs/fx@c1db9191 src/core/output/output_contracts.zig:554-584`):
+    /// the notice's glyph and topic say what `[status] ` says on a line of its
+    /// own, so the rows carry no prefix. One list with two readers, so the
+    /// command line and the band cannot disagree about which facts there are
+    /// or what order they come in.
+    pub fn notice_body(&self) -> String {
+        self.lines("")
+    }
+
+    /// Every fact as `<prefix>key=value`, one per line.
+    fn lines(&self, prefix: &str) -> String {
         let mut out = String::new();
         let mut line = |key: &str, value: &str| {
-            out.push_str("[status] ");
+            out.push_str(prefix);
             out.push_str(key);
             out.push('=');
             out.push_str(value);
@@ -711,6 +731,12 @@ pub enum SessionStepRow {
         /// would hide the half of the exchange the user wrote.
         text: String,
     },
+    /// A prompt the person sent into the turn while it ran, which the turn
+    /// took (`crate::agent::steering`).
+    Steer {
+        /// What they typed, clipped like every other recorded text.
+        text: String,
+    },
 }
 
 /// One recorded turn, bounded for display.
@@ -798,6 +824,7 @@ impl SessionDetailSnapshot {
                             tool,
                             ok,
                             output,
+                            ..
                         } => SessionStepRow::Tool {
                             call_id: clip_text(&one_line(call_id)),
                             tool: clip_text(&one_line(tool)),
@@ -811,6 +838,9 @@ impl SessionDetailSnapshot {
                         // the next one. Neither changes what was stored.
                         TurnStep::ToolFeedback { call_id, text } => SessionStepRow::Feedback {
                             call_id: clip_text(&one_line(call_id)),
+                            text: clip_text(text),
+                        },
+                        TurnStep::Steered { text } => SessionStepRow::Steer {
                             text: clip_text(text),
                         },
                     })
@@ -913,6 +943,11 @@ impl SessionDetailSnapshot {
                         "[turn] index={index} role=feedback call_id={call_id} text={}\n",
                         one_line(text)
                     )),
+                    // The person's own row, as a prompt is.
+                    SessionStepRow::Steer { text } => out.push_str(&format!(
+                        "[turn] index={index} role=steer text={}\n",
+                        one_line(text)
+                    )),
                 }
             }
             let outcome = match &turn.outcome {
@@ -920,7 +955,7 @@ impl SessionDetailSnapshot {
                     finish_reason,
                     steps,
                 }) => format!("final finish_reason={finish_reason} steps={steps}"),
-                Some(crate::session::TurnConclusion::Interrupted { reason }) => {
+                Some(crate::session::TurnConclusion::Interrupted { reason, .. }) => {
                     format!("interrupted reason={}", one_line(reason))
                 }
                 None => "unfinished".to_string(),
@@ -959,8 +994,14 @@ fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::sessio
             finish_reason: clip_text(&one_line(finish_reason)),
             steps: *steps,
         },
-        TurnConclusion::Interrupted { reason } => TurnConclusion::Interrupted {
+        TurnConclusion::Interrupted {
+            reason,
+            terminal_reason,
+            cancellation_origin,
+        } => TurnConclusion::Interrupted {
             reason: clip_text(&one_line(reason)),
+            terminal_reason: *terminal_reason,
+            cancellation_origin: *cancellation_origin,
         },
     }
 }
@@ -1019,13 +1060,32 @@ pub enum Event {
     /// A fragment of assistant text, in arrival order.
     AssistantDelta { text: String },
     /// A tool call was admitted and is about to run.
-    ToolStart { call_id: String, tool: String },
+    ToolStart {
+        call_id: String,
+        tool: String,
+        /// What the terminal's transcript names the call by.
+        ///
+        /// **Not serialized**, and that is a decision about the `--json`
+        /// contract rather than an oversight: the closed set above is what a
+        /// consumer of `ask --json` was promised, and a field added to it is a
+        /// change to that promise. The interactive surface is the one that
+        /// draws rows, and it reads this in-process (`crate::tui::bridge`).
+        #[serde(skip)]
+        shown: Shown,
+    },
     /// A tool call finished, correlated to its start by `call_id`.
     ToolResult {
         call_id: String,
         tool: String,
         ok: bool,
         detail: String,
+        /// How it ended, for a row ([`Outcome`]). Not serialized, for the
+        /// reason `ToolStart`'s `shown` is not.
+        #[serde(skip)]
+        outcome: Outcome,
+        /// The lines a file change added and removed. Not serialized either.
+        #[serde(skip)]
+        changes: Option<LineChanges>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -1054,16 +1114,84 @@ pub trait EventSink {
     /// Writes one event. Implementations flush whatever a consumer needs to see
     /// the event now, because a stream that arrives after the turn is useless.
     fn emit(&mut self, event: &Event) -> io::Result<()>;
+
+    /// A model step's transport attempt failed in a way the turn will replay,
+    /// and the turn is about to wait `delay` before attempt `attempt + 1` of at
+    /// most `limit`.
+    ///
+    /// **A hook, not an [`Event`]**, and that is the whole of why it is a
+    /// method with a body: the event set is a published wire (`xfx ask --json`
+    /// writes every one of them), and a retry the turn recovered from is not
+    /// part of what the turn produced. The full-screen session is the one
+    /// consumer that shows it -- as the row that counts down to the next
+    /// attempt (`crate::tui::retry`) -- and every other sink says nothing, as
+    /// they always have. What it reports changes nothing: the turn decided to
+    /// retry before it called this, and waits the same whatever this returns.
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        attempt: u32,
+        limit: u32,
+        delay: std::time::Duration,
+    ) {
+        let _ = (error, attempt, limit, delay);
+    }
+
+    /// Attempt `attempt` of at most `limit` is starting, after the wait
+    /// [`Self::retrying`] announced. A hook for the same reason, and with the
+    /// same promise: what it reports changes nothing.
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        let _ = (attempt, limit);
+    }
+
+    /// Attempt `attempt` of at most `limit` got through after at least one
+    /// retry. A hook for the same reason, and with the same promise.
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        let _ = (attempt, limit);
+    }
+
+    /// The turn took these prompts the person sent into it while it ran
+    /// (`crate::agent::steering`), and the model is about to be told them. A
+    /// hook rather than an [`Event`] for the reason [`Self::retrying`] is: only
+    /// the full-screen session can send a prompt into a running turn, and only
+    /// it shows one arriving.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = steers;
+    }
+
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]). A hook for the same reason as the
+    /// others: the full-screen session's row is the one consumer, and what
+    /// the turn produced is unchanged by whether anybody counted it.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = progress;
+    }
 }
 
 /// Emits one newline-terminated JSON object per event.
 pub struct JsonlSink<W: Write> {
     writer: W,
+    /// Whether the stream is written to a terminal, and so carries no code
+    /// point raw that a terminal hides or obeys ([`json_for_a_terminal`]).
+    terminal: bool,
 }
 
 impl<W: Write> JsonlSink<W> {
     pub fn new(writer: W) -> Self {
-        Self { writer }
+        Self {
+            writer,
+            terminal: false,
+        }
+    }
+
+    /// The same sink, told whether its stream is a terminal.
+    ///
+    /// `ask --json` on a terminal still asks on it, after the stream: on one,
+    /// every line is [`json_for_a_terminal`]; anywhere else it is exactly what
+    /// serde_json wrote.
+    pub fn on_terminal(mut self, terminal: bool) -> Self {
+        self.terminal = terminal;
+        self
     }
 
     pub fn into_inner(self) -> W {
@@ -1071,9 +1199,72 @@ impl<W: Write> JsonlSink<W> {
     }
 }
 
+/// Whether a terminal would obey `character`, reorder text around it, or draw
+/// nothing for it: `DEL`, the C1 controls (a single `U+009B` is a `CSI` to a
+/// terminal that decodes it), the line and paragraph separators, and every
+/// default-ignorable code point -- the bidirectional controls among them.
+fn hidden_from_a_reader(character: char) -> bool {
+    matches!(
+        u32::from(character),
+        0x7f..=0x9f
+            | 0xad
+            | 0x34f
+            | 0x61c
+            | 0x115f..=0x1160
+            | 0x17b4..=0x17b5
+            | 0x180b..=0x180f
+            | 0x200b..=0x200f
+            | 0x2028..=0x202e
+            | 0x2060..=0x206f
+            | 0x3164
+            | 0xfe00..=0xfe0f
+            | 0xfeff
+            | 0xffa0
+            | 0xfff0..=0xfff8
+            | 0x1bca0..=0x1bca3
+            | 0x1d173..=0x1d17a
+            | 0xe0000..=0xe0fff
+    )
+}
+
+/// A serialized JSON line with every [`hidden_from_a_reader`] code point
+/// written as its JSON escape, `\u009b` for `U+009B` (a surrogate pair past
+/// the BMP).
+///
+/// **The same JSON**: those code points can only stand inside a string, and an
+/// escape there decodes to the very character it replaces, so every reader
+/// parses the line it would have parsed. serde_json already escapes C0; this
+/// is the rest of what a terminal would act on or hide, which serde_json
+/// writes as raw UTF-8 -- and on a terminal the stream comes before the
+/// approval question, so none of it may be left in force there. Nothing in
+/// the set is part of JSON's own syntax or of an escape serde_json wrote, so
+/// nothing it wrote is rewritten.
+fn json_for_a_terminal(line: &str) -> Cow<'_, str> {
+    if !line.chars().any(hidden_from_a_reader) {
+        return Cow::Borrowed(line);
+    }
+    let mut safe = String::with_capacity(line.len() + 16);
+    for character in line.chars() {
+        if hidden_from_a_reader(character) {
+            let mut units = [0u16; 2];
+            for unit in character.encode_utf16(&mut units) {
+                safe.push_str(&format!("\\u{unit:04x}"));
+            }
+        } else {
+            safe.push(character);
+        }
+    }
+    Cow::Owned(safe)
+}
+
 impl<W: Write> EventSink for JsonlSink<W> {
     fn emit(&mut self, event: &Event) -> io::Result<()> {
         let line = serde_json::to_string(event).expect("events are always serializable");
+        let line = if self.terminal {
+            json_for_a_terminal(&line)
+        } else {
+            Cow::Borrowed(line.as_str())
+        };
         self.writer.write_all(line.as_bytes())?;
         self.writer.write_all(b"\n")?;
         self.writer.flush()
@@ -1094,6 +1285,42 @@ pub struct TextSink<W: Write, D: Write> {
     pending_newline: bool,
     /// Whether tool activity is announced on the diagnostic stream.
     tool_notices: bool,
+    /// Whether the answer is written to a terminal, and so reaches it inert
+    /// ([`inert_answer`]) rather than byte for byte.
+    terminal: bool,
+}
+
+/// An answer as a terminal may receive it: every control character blanked to
+/// a space but the three a reader's text is made of -- the line break, the
+/// carriage return of a `CRLF`, and the tab of an indented code block.
+///
+/// **Why the answer at all.** On the line surfaces (`xfx ask` on a terminal,
+/// the interactive shell) the answer and the approval question share one
+/// terminal, and the answer is written first. A control sequence in it is not
+/// text but state, and it is still in force when the question is printed: a
+/// conceal (`SGR 8`) or a black-on-black colour hides the question, a scroll
+/// region pins it out of view, and the person answers a question they cannot
+/// see under one the model drew above it. Spelling the question's own bytes
+/// cannot reach state set before it was written.
+///
+/// The TUI channel's rule (`crate::tui::bridge`'s `inert`: the whole control
+/// class becomes a space, `\n` and `\r` survive), with the tab kept too: a tab
+/// moves the cursor across cells without drawing on them, so it can neither
+/// hide nor forge anything, and blanking it would flatten every indented code
+/// block an answer carries. A space rather than a deletion, so the reader is
+/// shown where a control was; the C1 range is in the class, so the one-scalar
+/// `CSI` goes with `ESC`.
+fn inert_answer(text: &str) -> Cow<'_, str> {
+    let obeyed =
+        |character: char| character.is_control() && !matches!(character, '\n' | '\r' | '\t');
+    if !text.chars().any(obeyed) {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(
+        text.chars()
+            .map(|character| if obeyed(character) { ' ' } else { character })
+            .collect(),
+    )
 }
 
 /// How much of a failed tool's report is echoed beside its notice.
@@ -1119,7 +1346,19 @@ impl<W: Write, D: Write> TextSink<W, D> {
             diagnostics,
             pending_newline: false,
             tool_notices: false,
+            terminal: false,
         }
+    }
+
+    /// The same sink, told whether its answer stream is a terminal.
+    ///
+    /// On one, the answer arrives inert ([`inert_answer`]); anywhere else --
+    /// a pipe, a file -- it is a program's input and arrives exactly as the
+    /// model wrote it. Off by default, so a sink that was not told writes
+    /// bytes, which is what every in-memory writer wants.
+    pub fn on_terminal(mut self, terminal: bool) -> Self {
+        self.terminal = terminal;
+        self
     }
 
     /// The same sink, announcing each tool call as it starts and finishes.
@@ -1193,7 +1432,11 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                 if text.is_empty() {
                     return Ok(());
                 }
-                self.writer.write_all(text.as_bytes())?;
+                if self.terminal {
+                    self.writer.write_all(inert_answer(text).as_bytes())?;
+                } else {
+                    self.writer.write_all(text.as_bytes())?;
+                }
                 self.pending_newline = !text.ends_with('\n');
                 self.writer.flush()
             }
@@ -1241,9 +1484,16 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                     ))
                 }
             }
+            // **Flattened, on any stream.** A failure quotes what it failed
+            // on, and that is often the model's -- a tool name it invented, a
+            // call id it reused -- or a server's. Raw, a conceal or a scroll
+            // region in it would outlive the turn and be in force when the
+            // next one asks a question; a line break would forge a line of
+            // xfx's own. xfx's own sentences carry no control, so blanking the
+            // class ([`one_line`]) changes nothing a person was meant to read.
             Event::Error { message } => {
                 self.end_line()?;
-                self.diagnostics.write_all(message.as_bytes())?;
+                self.diagnostics.write_all(one_line(message).as_bytes())?;
                 self.diagnostics.write_all(b"\n")?;
                 self.diagnostics.flush()
             }
@@ -1380,11 +1630,14 @@ mod tests {
     fn turn(user: &str, steps: Vec<crate::session::TurnStep>) -> crate::session::HistoryTurn {
         crate::session::HistoryTurn {
             user: user.to_string(),
+            images: Vec::new(),
             steps,
             outcome: Some(crate::session::TurnConclusion::Final {
                 finish_reason: "stop".to_string(),
                 steps: 1,
             }),
+            timing: crate::session::TurnTiming::default(),
+            seqs: crate::session::TurnSeqs::default(),
         }
     }
 
@@ -1396,6 +1649,7 @@ mod tests {
             origin_workspace_root: "/w".to_string(),
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
+            provider: None,
             permission_mode: crate::config::PermissionMode::Auto,
             last_event_seq: 1,
             total_input_tokens: 3,
@@ -1403,6 +1657,10 @@ mod tests {
             grants: Vec::new(),
             context_sources: vec!["/w/AGENTS.md".to_string()],
             turns,
+            renamed: None,
+            turn_settings: None,
+            usage: crate::session::RecordedUsage::default(),
+            checkpoint: None,
         }
     }
 
@@ -1447,10 +1705,14 @@ mod tests {
         let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
             &long,
             vec![crate::session::TurnStep::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 output: long.clone(),
+                images: Vec::new(),
             }],
         )])));
         assert!(snapshot.turns[0].user.ends_with("bytes]"), "the user text");
@@ -1626,12 +1888,15 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::ToolResult {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 detail: "12 lines".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             Event::Final {
                 output: "hi".to_string(),
@@ -1684,6 +1949,60 @@ mod tests {
     }
 
     #[test]
+    fn a_json_stream_on_a_terminal_spells_what_a_terminal_would_hide_as_the_same_json() {
+        // DEL, the C1 CSI, a right-to-left override, a soft hyphen, a variation
+        // selector and a tag past the BMP -- all raw UTF-8 from serde_json --
+        // beside the C0 it already escapes and a payload backslash.
+        let text = "a\u{7f}\u{9b}8m\u{202e}b\u{ad}\u{fe0f}\u{e0041}\u{1b}\\u0041 \u{d55c}";
+        let delta = Event::AssistantDelta {
+            text: text.to_string(),
+        };
+
+        let mut terminal = JsonlSink::new(Vec::new()).on_terminal(true);
+        terminal.emit(&delta).unwrap();
+        let shown = String::from_utf8(terminal.into_inner()).unwrap();
+        assert_eq!(
+            shown,
+            "{\"kind\":\"assistant_delta\",\"text\":\"a\\u007f\\u009b8m\\u202eb\\u00ad\\ufe0f\\udb40\\udc41\\u001b\\\\u0041 \u{d55c}\"}\n"
+        );
+        let decoded: serde_json::Value = serde_json::from_str(&shown).unwrap();
+        assert_eq!(decoded["text"], text, "the escapes changed the string");
+
+        let mut piped = JsonlSink::new(Vec::new());
+        piped.emit(&delta).unwrap();
+        assert_eq!(
+            String::from_utf8(piped.into_inner()).unwrap(),
+            format!("{}\n", serde_json::to_string(&delta).unwrap()),
+            "a stream off a terminal was changed"
+        );
+    }
+
+    #[test]
+    fn an_answer_reaches_a_terminal_inert_and_anything_else_byte_for_byte() {
+        // Conceal, a colour, a scroll region, a title with its BEL, the C1
+        // CSI, a DEL, shift-out (G1), and the C1 DCS and OSC with their ST:
+        // state a terminal would keep. A list of known sequences would miss
+        // the next one; the whole class goes. The line break, the CRLF's
+        // carriage return and the tab are a reader's text and stay.
+        let answer = "a\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\u{1b}]0;t\u{7}\u{9b}8m\u{7f}\
+                      \u{e}\u{90}q\u{9c}\u{9d}2;t\u{9c}\n\tb\r\n";
+        let delta = Event::AssistantDelta {
+            text: answer.to_string(),
+        };
+
+        let mut terminal = TextSink::new(Vec::new(), Vec::new()).on_terminal(true);
+        terminal.emit(&delta).unwrap();
+        let (shown, _) = terminal.into_inner();
+        assert_eq!(
+            String::from_utf8(shown).unwrap(),
+            "a [8m [30;40m [2;3r ]0;t  8m   q  2;t \n\tb\r\n"
+        );
+
+        let (piped, _) = text_sink_output(&[delta]);
+        assert_eq!(piped, answer, "an answer off a terminal was changed");
+    }
+
+    #[test]
     fn the_text_sink_streams_only_assistant_text() {
         let (stdout, stderr) = text_sink_output(&[
             Event::AssistantDelta {
@@ -1692,6 +2011,7 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::AssistantDelta {
                 text: "two".to_string(),
@@ -1718,6 +2038,8 @@ mod tests {
                 tool: "write_file".to_string(),
                 ok: true,
                 detail: "wrote notes.md".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             Event::ToolFeedback {
                 call_id: "c1".to_string(),
@@ -1780,12 +2102,15 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::ToolResult {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 detail: "12 lines".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             Event::AssistantDelta {
                 text: " done".to_string(),
@@ -1807,6 +2132,8 @@ mod tests {
             tool: "terminal".to_string(),
             ok: false,
             detail: "denied\n[tool] terminal ok".to_string(),
+            outcome: Outcome::Finished,
+            changes: None,
         }]);
         assert_eq!(
             stderr,
@@ -1823,6 +2150,8 @@ mod tests {
             tool: "grep_files".to_string(),
             ok: false,
             detail,
+            outcome: Outcome::Finished,
+            changes: None,
         }]);
         assert!(
             stderr.len() < MAX_TOOL_NOTICE_DETAIL + 64,
@@ -1838,12 +2167,15 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::ToolResult {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: false,
                 detail: "no such file".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
         ]);
         assert_eq!(stdout, "");

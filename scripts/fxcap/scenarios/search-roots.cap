@@ -1,0 +1,16 @@
+# The search tools pointed at a file rather than a directory (D1 round 6):
+# a glob whose pattern names it, one that does not, and a grep of it. The
+# rows, Ctrl-O, and what the model was sent.
+gateway search-roots-turns.json
+work toolgroup-ws
+wait 4
+type search the file
+key Enter
+wait 4
+snap live
+key C-o
+wait 1.5
+snap live-ctrl-o
+key Escape
+wait 1
+gwlog

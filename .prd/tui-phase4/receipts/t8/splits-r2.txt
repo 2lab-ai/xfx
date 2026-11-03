@@ -1,0 +1,46 @@
+## fx-resume-wire-24x80-resumed.wire, from byte 3346 (the end of fx-resume-wire-24x80-new.wire)
+# fx-resume-wire-24x80-resumed.wire: 3202 bytes, 7 sync blocks, 5 outside segments, 0 outside segments that write cells or scroll
+sync         36 bytes @3346   ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync        796 bytes @3382   ?2026h ?25l CUP(3,3) "/resume" CUP(4,1) "─────────────────────.." CUP(5,1) "Commands 1" "    " CUP(7,1) "  /resume   " "resume a saved sessio.." CUP(13,1) "─────────────────────.." CUP(14,1) "↑↓ navigate     enter.." CUP(3,10) ?2026l
+outside       6 bytes @4178   ?25h
+sync       1136 bytes @4184   ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(4,1) "─────────────────────.." CUP(5,1) "Sessions 0" "  " "[Current workspace]" "  " "All workspaces" CUP(7,3) "Loading sessions…" CUP(8,1) "─────────────────────.." CUP(9,1) "↑↓ navigate     tab s.." CUP(3,3) ?2026l
+outside       6 bytes @5320   ?25h
+sync        133 bytes @5326   ?2026h ?25l CUP(5,10) "1" CUP(7,3) "first question alpha" "    " "work · now · 1 turn" CUP(3,3) ?2026l
+outside       6 bytes @5459   ?25h
+sync         36 bytes @5465   ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         39 bytes @5501   ?2026h ?25l CUP(3,3) "alpha" CUP(3,8) ?2026l
+outside      53 bytes @5540   ?25h OSC2"fx v0.0.13 | work" OSC2"first question alpha"
+sync        949 bytes @5593   ?2026h ?25l 2J 3J CUP(1,1) CUP(1,1) 0J ?7h "* session resumed:" " first question alpha" CR CR LF 2K CR CR LF "┃" " " "first question alpha" CR CR LF 2K CR CR LF "  ALPHA answer line one." CR CR LF 2K CR CR LF "  Second paragraph with " "code" "." CR CR LF 2K CR CR LF "  0s (↑6 ↓40)" CR CR LF CR CR LF CR CR LF CR CR LF CR CR LF CR CR LF CR CR LF CR CR LF CR CR LF CR CR ...
+outside       6 bytes @6542   ?25h
+
+## xfx-r1-resume-wire-24x80-resumed.wire, from byte 2525 (the end of xfx-r1-resume-wire-24x80-new.wire)
+# xfx-r1-resume-wire-24x80-resumed.wire: 2088 bytes, 5 sync blocks, 5 outside segments, 0 outside segments that write cells or scroll
+sync        787 bytes @2525   ?2026h ?25l CUP(3,3) "/resume" CUP(4,1) "─────────────────────.." CUP(5,1) "Commands 1" EL CUP(7,1) "  /resume   " "resume a saved sessio.." CUP(13,1) "─────────────────────.." CUP(14,1) "↑↓ navigate     enter.." CUP(3,10) ?2026l
+outside       6 bytes @3312   ?25h
+sync        550 bytes @3318   ?2026h ?25l CUP(3,3) EL CUP(5,1) "Sessions 0" "  " "[Current workspace]" "  " "All workspaces" CUP(7,1) "  " "Loading sessions…" EL CUP(8,1) "─────────────────────.." CUP(9,1) "↑↓ navigate     tab s.." [CUP+EL x2] CUP(3,3) ?2026l
+outside       6 bytes @3868   ?25h
+sync        125 bytes @3874   ?2026h ?25l CUP(5,10) "1" CUP(7,3) "first question alpha" "    " "work · now · 1 turn" CUP(3,3) ?2026l
+outside       6 bytes @3999   ?25h
+sync         39 bytes @4005   ?2026h ?25l CUP(3,3) "alpha" CUP(3,8) ?2026l
+outside      17 bytes @4044   ?25h CUP(1,1) 2J 3J
+sync        546 bytes @4061   ?2026h ?25l CUP(1,1) "* " "session resumed:" " first question alpha" EL [CUP+EL x3] CUP(3,1) "┃" " " "first question alpha" EL [CUP+EL x3] CUP(5,1) "  ALPHA answer line one." EL [CUP+EL x4] CUP(7,1) "  Second paragraph with " "code" "." EL [CUP+EL x3] CUP(9,1) "  0s (↑6 ↓40)" EL [CUP+EL x2] OSC2"first question alpha" CUP(11,1) "┃" " " CUP(13,1) "auto" " · model-a" CUP ...
+outside       6 bytes @4607   ?25h
+
+## xfx-r2-resume-wire-24x80-resumed.wire, from byte 2525 (the end of xfx-r2-resume-wire-24x80-new.wire)
+# xfx-r2-resume-wire-24x80-resumed.wire: 2088 bytes, 5 sync blocks, 5 outside segments, 0 outside segments that write cells or scroll
+sync        787 bytes @2525   ?2026h ?25l CUP(3,3) "/resume" CUP(4,1) "─────────────────────.." CUP(5,1) "Commands 1" EL CUP(7,1) "  /resume   " "resume a saved sessio.." CUP(13,1) "─────────────────────.." CUP(14,1) "↑↓ navigate     enter.." CUP(3,10) ?2026l
+outside       6 bytes @3312   ?25h
+sync        550 bytes @3318   ?2026h ?25l CUP(3,3) EL CUP(5,1) "Sessions 0" "  " "[Current workspace]" "  " "All workspaces" CUP(7,1) "  " "Loading sessions…" EL CUP(8,1) "─────────────────────.." CUP(9,1) "↑↓ navigate     tab s.." [CUP+EL x2] CUP(3,3) ?2026l
+outside       6 bytes @3868   ?25h
+sync        125 bytes @3874   ?2026h ?25l CUP(5,10) "1" CUP(7,3) "first question alpha" "    " "work · now · 1 turn" CUP(3,3) ?2026l
+outside       6 bytes @3999   ?25h
+sync         39 bytes @4005   ?2026h ?25l CUP(3,3) "alpha" CUP(3,8) ?2026l
+outside      31 bytes @4044   ?25h OSC2"first question alpha"
+sync        532 bytes @4075   ?2026h ?25l CUP(1,1) 2J 3J CUP(1,1) "* " "session resumed:" " first question alpha" EL [CUP+EL x3] CUP(3,1) "┃" " " "first question alpha" EL [CUP+EL x3] CUP(5,1) "  ALPHA answer line one." EL [CUP+EL x4] CUP(7,1) "  Second paragraph with " "code" "." EL [CUP+EL x3] CUP(9,1) "  0s (↑6 ↓40)" EL [CUP+EL x2] CUP(11,1) "┃" " " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026 ...
+outside       6 bytes @4607   ?25h
+
+## xfx-r2-torn-exit-24x80-exit.wire, whole
+# xfx-r2-torn-exit-24x80-exit.wire: 338 bytes, 1 sync blocks, 2 outside segments, 1 outside segments that write cells or scroll
+outside      81 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n OSC2"xfx v0.1.0 | work"
+sync         71 bytes @81     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 �" ?2026l
+outside     186 bytes @152    OSC2"" CSI 23;2t CSI <u ?2004l ?2031l ?7h ?25h "xfx: the terminal acc.." CR LF

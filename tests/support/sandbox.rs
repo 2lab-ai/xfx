@@ -23,6 +23,9 @@ pub const CONTROLLED_VARS: &[&str] = &[
     "XFX_PERMISSION_MODE",
     "XFX_MAX_AGENT_STEPS",
     "XFX_GATEWAY_URL",
+    // Where `/sound` starts: a developer who silenced their own shell must not
+    // silence the cases that are about the bell.
+    "XFX_SOUND",
 ];
 
 /// A test secret that must never appear on the terminal.
@@ -70,6 +73,10 @@ impl Sandbox {
         for key in CONTROLLED_VARS {
             command.env_remove(key);
         }
+        // A bare `xfx` on a terminal is the TUI. The controlled environment
+        // pins the line shell, because that is what every suite but
+        // `tests/tui.rs` drives through its pty; the TUI suite opts back in.
+        command.env("XFX_TUI", "0");
     }
 
     /// A command wired to a scripted local Gateway.

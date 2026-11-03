@@ -1,0 +1,5 @@
+[
+ {"chunks": ["I will look at the files first.\n"], "tools": [{"name": "read_file", "input": {"path": "a.txt"}}, {"name": "read_file", "input": {"path": "b.txt"}}]},
+ {"tools": [{"name": "glob_files", "input": {"pattern": "**/*.txt"}}, {"name": "grep_files", "input": {"pattern": "alpha"}}]},
+ {"delayMs": 150, "chunks": ["Both ", "files ", "were read. ", "GROUP-TAIL"]}
+]

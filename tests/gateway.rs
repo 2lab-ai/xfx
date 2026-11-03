@@ -43,6 +43,16 @@ const CONTROLLED_VARS: &[&str] = &[
     "XFX_PERMISSION_MODE",
     "XFX_MAX_AGENT_STEPS",
     "XFX_GATEWAY_URL",
+    // A proxy, or an exemption from one, in the developer's shell would decide
+    // where a request goes; the proxy test sets these itself.
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
 ];
 
 /// A test secret that must never appear on stdout or stderr.
@@ -818,11 +828,12 @@ fn a_cancelled_decode_stops_at_the_next_frame() {
 
 #[test]
 fn the_default_endpoint_is_the_upstream_gateway_over_https() {
-    // `vercel-labs/fx@580a0c5d src/builtins/gateway.zig:41`.
+    // `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:47`: the v4 route,
+    // which applies a reasoning effort the v3 one dropped (upstream `09ec38c2`).
     let endpoint = Endpoint::resolve(None).expect("the default endpoint always resolves");
     assert_eq!(
         endpoint.url(),
-        "https://ai-gateway.vercel.sh/v3/ai/language-model"
+        "https://ai-gateway.vercel.sh/v4/ai/language-model"
     );
 }
 
@@ -988,11 +999,14 @@ fn stopped(text: &str) -> Completion {
         provider_detail: None,
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
+        service_tier: None,
     }
 }
 
 fn turn(prompt: &str) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),
@@ -1300,6 +1314,8 @@ async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simula
         provider_detail: None,
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
+        service_tier: None,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
@@ -1324,6 +1340,8 @@ async fn a_provider_error_finish_fails_the_turn_with_its_detail() {
         provider_detail: Some("model overloaded".to_string()),
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
+        service_tier: None,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(
         vec!["half".to_string()],
@@ -1350,6 +1368,8 @@ async fn a_tool_call_finish_that_names_no_tool_is_rejected() {
         provider_detail: None,
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
+        service_tier: None,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
@@ -1570,6 +1590,33 @@ fn ask_json_streams_deltas_then_exactly_one_final() {
 }
 
 #[test]
+fn ask_json_to_a_pipe_is_serde_json_byte_for_byte() {
+    // Only a terminal gets C1, bidirectional and default-ignorable code points
+    // spelled as `\uXXXX`. A pipe gets the stream as serde_json writes it --
+    // those code points as raw UTF-8 -- and either way a reader decodes the
+    // same string.
+    let text = "go\u{9b}8m\u{202e}gone\u{ad}\u{e0041}";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[text]))]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "hello"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    let first = run.stdout.lines().next().expect("a delta line");
+    assert_eq!(
+        first,
+        format!(r#"{{"kind":"assistant_delta","text":"{text}"}}"#),
+        "stdout={:?}",
+        run.stdout
+    );
+    assert_eq!(run.events()[0]["text"], text);
+}
+
+#[test]
 fn ask_sends_the_bearer_credential_and_the_xfx_source_headers() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
     let sandbox = Sandbox::new();
@@ -1660,9 +1707,18 @@ fn ask_sends_exactly_the_documented_request_body() {
     // `tests/tool_loop.rs`; here the point is that `tools` is what the registry
     // produced and that the model is allowed to use it.
     assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
+    // `ask` runs no MCP client, so the three MCP meta-tools are not offered
+    // (`xfx::tools::Registry::advertisement_for`).
     assert_eq!(
         body["tools"],
-        Value::Array(xfx::tools::Registry::builtin().advertisement())
+        Value::Array(
+            xfx::tools::Registry::builtin()
+                .advertisement()
+                .into_iter()
+                .filter(|tool| !xfx::tools::mcp::META_TOOLS
+                    .contains(&tool["name"].as_str().unwrap_or_default()))
+                .collect()
+        )
     );
     assert_eq!(
         body.as_object().expect("an object").keys().len(),
@@ -1685,6 +1741,28 @@ fn ask_streams_plain_text_for_a_human() {
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
     assert_eq!(run.stdout, "Hello, world\n");
+    assert_eq!(run.stderr, "");
+}
+
+#[test]
+fn ask_writes_an_answer_to_a_pipe_byte_for_byte() {
+    // An answer on a terminal reaches it with its controls blanked, so it
+    // cannot leave state behind for the question that follows. An answer on a
+    // pipe or in a file is data for a program, and arrives exactly as the
+    // model wrote it -- escape sequences, a bell, a tab and a carriage return
+    // included.
+    let answer = "\u{1b}[1mbold\u{1b}[0m\tand\u{7} done\r\n";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[answer]))]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--no-save", "hello"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.stdout, answer);
     assert_eq!(run.stderr, "");
 }
 
@@ -1791,6 +1869,121 @@ fn ask_reports_a_gateway_error_status_as_one_error_event() {
     assert_eq!(gateway.request_count(), 1, "401 is not retryable");
     let message = run.error_message();
     assert!(message.contains("401"), "got {message}");
+}
+
+#[test]
+fn a_redirect_from_the_gateway_never_replays_the_prompt_elsewhere() {
+    // The endpoint rule judges the URL xfx names; it cannot see where a reply
+    // points. A client on reqwest's default policy replays a 307/308's body --
+    // the prompt and the project context -- to the `Location`, wherever it is.
+    // Upstream never follows one on a completion (`redirect_behavior =
+    // .unhandled`, `vercel-labs/fx@c1db9191 src/gateway/client.zig:1561`).
+    for status in [307, 308] {
+        let elsewhere = FakeGateway::start(vec![Reply::Sse(content_only(&["stolen"]))]);
+        let gateway = FakeGateway::start(vec![Reply::Redirect {
+            status,
+            location: elsewhere.chat_url(),
+        }]);
+        let sandbox = Sandbox::new();
+        let run = sandbox.run(
+            &["ask", "--json", "--no-save", "a secret prompt"],
+            &[
+                ("AI_GATEWAY_API_KEY", TEST_KEY),
+                ("XFX_GATEWAY_URL", &gateway.chat_url()),
+            ],
+        );
+        let replayed = elsewhere.requests();
+        assert!(
+            replayed.is_empty(),
+            "a {status} replayed the request to another port (path, bearer, prompt): {:?}",
+            replayed
+                .iter()
+                .map(|request| (
+                    &request.path,
+                    request.header("authorization").is_some(),
+                    request.body.contains("a secret prompt"),
+                ))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+        run.assert_no_secret();
+        assert_eq!(gateway.request_count(), 1, "a {status} is not retryable");
+        let message = run.error_message();
+        assert!(message.contains(&status.to_string()), "got {message}");
+    }
+}
+
+#[test]
+fn a_redirect_to_the_same_host_never_replays_the_bearer() {
+    // reqwest drops `Authorization` only when the host or port changes, so a
+    // redirect that keeps them -- another path here; `https` to `http` on the
+    // same port in the wild -- carries the credential to a URL nobody named.
+    let gateway = FakeGateway::start(vec![
+        Reply::Redirect {
+            status: 307,
+            location: "/elsewhere".to_string(),
+        },
+        Reply::Sse(content_only(&["stolen"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "a secret prompt"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    let requests = gateway.requests();
+    assert_eq!(
+        requests.len(),
+        1,
+        "the redirect was followed with the bearer: {:?}",
+        requests
+            .iter()
+            .map(|request| (&request.path, request.header("authorization").is_some()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    run.assert_no_secret();
+    assert!(run.error_message().contains("307"), "{:?}", run.stdout);
+}
+
+#[test]
+fn a_proxy_in_the_environment_never_carries_the_bearer_to_a_loopback_gateway() {
+    // A loopback Gateway is spoken to in cleartext; the only thing keeping
+    // the bearer private is that it does not leave the machine. reqwest
+    // honours `HTTP_PROXY`/`ALL_PROXY` with no loopback exemption, so either
+    // would hand the key and the prompt to the proxy in the clear. Upstream
+    // has no proxy path at all.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["direct"]))]);
+    // A listener that records whatever reaches it and answers nothing usable.
+    let proxy = FakeGateway::start(Vec::new());
+    let proxy_url = format!("http://127.0.0.1:{}", proxy.port());
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "a secret prompt"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+            ("HTTP_PROXY", &proxy_url),
+            ("http_proxy", &proxy_url),
+            ("ALL_PROXY", &proxy_url),
+            ("all_proxy", &proxy_url),
+        ],
+    );
+    let leaked = proxy.requests();
+    assert!(
+        leaked.is_empty(),
+        "the proxy received {} request(s), bearer attached: {:?}",
+        leaked.len(),
+        leaked
+            .iter()
+            .map(|request| request.header("authorization").is_some())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(run.code, Some(0), "stdout={:?}", run.stdout);
+    assert_eq!(gateway.request_count(), 1);
+    assert_eq!(run.events().last().unwrap()["output"], "direct");
 }
 
 #[test]
@@ -1928,6 +2121,114 @@ fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
     assert_eq!(run.kinds(), ["error"]);
     let message = run.error_message();
     assert!(message.contains("delete_file"), "got {message}");
+}
+
+/// What one `ask` turn with a scripted read of `secrets/key` and write of
+/// `pwned.txt` did under `profile` -- `None` for a profile that is there and
+/// cannot be read -- as (the run, every request body, the file written).
+#[cfg(unix)]
+fn a_tool_attempt_under(profile: Option<&str>) -> Option<(Run, Vec<String>, bool)> {
+    use std::os::unix::fs::PermissionsExt;
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("c1", "read_file", json!({ "path": "secrets/key" })),
+            tool_call(
+                "c2",
+                "write_file",
+                json!({ "path": "pwned.txt", "content": "x" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["done"])),
+    ]);
+    let sandbox = Sandbox::new();
+    fs::create_dir_all(sandbox.workspace.join("secrets")).unwrap();
+    fs::write(sandbox.workspace.join("secrets/key"), SECRET).unwrap();
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    let key = serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap();
+    match profile {
+        Some(text) => fs::write(&settings, text.replace("{ROOT}", &key)).unwrap(),
+        None => {
+            fs::write(&settings, r#"{"permission":{"read":"allow"}}"#).unwrap();
+            fs::set_permissions(&settings, fs::Permissions::from_mode(0o000)).unwrap();
+            // A reader the mode bits do not stop (root) cannot make this case.
+            if fs::read(&settings).is_ok() {
+                return None;
+            }
+        }
+    }
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "go"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    let bodies = gateway
+        .requests()
+        .into_iter()
+        .map(|request| request.body)
+        .collect();
+    let written = sandbox.workspace.join("pwned.txt").exists();
+    let _ = fs::set_permissions(&settings, fs::Permissions::from_mode(0o600));
+    Some((run, bodies, written))
+}
+
+/// What the scripted read would carry into the next request.
+#[cfg(unix)]
+const SECRET: &str = "xfx-test-secret-the-read-must-not-carry";
+
+#[cfg(unix)]
+#[test]
+fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
+    // The stderr line alone would pass a session built from the wrong rules,
+    // so the turn is run: each profile leaves an allow readable beside what
+    // did not read (or nothing readable, so auto alone would decide), and a
+    // session that took that for the table would read the secret into the
+    // next request and write the file. First the control: with no table, auto
+    // does both, so the probe can see them.
+    let (_, bodies, written) =
+        a_tool_attempt_under(Some(r#"{"permission_mode":"auto"}"#)).expect("readable");
+    assert!(
+        bodies.iter().any(|body| body.contains(SECRET)),
+        "{bodies:?}"
+    );
+    assert!(written, "the control's write ran");
+    for profile in [
+        Some(r#"{"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#),
+        Some(
+            r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+        ),
+        Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
+        Some("{ this is not json"),
+        // A real read error, not a parse error.
+        None,
+    ] {
+        let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
+            eprintln!("skipped the unreadable profile: the mode bits do not stop this reader");
+            continue;
+        };
+        assert!(
+            run.stderr.contains(
+                "xfx ask: permissions: every tool is refused: a permission table did not read ("
+            ),
+            "{profile:?}: {}",
+            run.stderr
+        );
+        assert!(!written, "{profile:?}: the write ran; {}", run.stdout);
+        assert!(
+            !bodies.iter().any(|body| body.contains(SECRET)),
+            "{profile:?}: the secret reached the provider"
+        );
+        // And the model was offered no tool at all.
+        let first: Value = serde_json::from_str(&bodies[0]).expect("a JSON request");
+        assert!(
+            first["tools"].as_array().is_none_or(Vec::is_empty),
+            "{profile:?}: {}",
+            first["tools"]
+        );
+    }
 }
 
 #[test]

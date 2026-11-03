@@ -143,8 +143,18 @@ pub struct AnthropicReader {
     accumulated: usize,
     finish_reason: Option<FinishReason>,
     usage: Usage,
+    /// The prompt's cached part, read and written, from the same usage object
+    /// the input total was read from: part of that total, never added to it.
+    cache: CacheTokens,
     complete: bool,
     cancel: CancelToken,
+}
+
+/// How much of a prompt the daemon said it read from, and wrote to, a cache.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheTokens {
+    pub read: Option<u64>,
+    pub write: Option<u64>,
 }
 
 impl Default for AnthropicReader {
@@ -169,9 +179,16 @@ impl AnthropicReader {
             accumulated: 0,
             finish_reason: None,
             usage: Usage::default(),
+            cache: CacheTokens::default(),
             complete: false,
             cancel,
         }
+    }
+
+    /// What the daemon said about the prompt's cache, once its input total
+    /// has been read.
+    pub fn cache_tokens(&self) -> CacheTokens {
+        self.cache
     }
 
     /// Whether `message_stop` has arrived.
@@ -245,6 +262,10 @@ impl AnthropicReader {
                 // failure to carry.
                 provider_detail: None,
                 wire: Wire::AnthropicMessages,
+                // The reader does not know which model was asked for, and a
+                // bill names one: the provider adds it ([`super::bill`]).
+                billing: None,
+                service_tier: None,
             }),
             None => Err(SseError::MissingFinish),
         }
@@ -340,6 +361,7 @@ impl AnthropicReader {
         };
         if let Some(total) = input_total(usage) {
             self.usage.input_tokens = Some(total);
+            self.cache = cache_tokens(usage);
         }
     }
 
@@ -474,9 +496,12 @@ impl AnthropicReader {
                 };
                 self.charge(fragment.len())?;
                 // A fragment for an unopened block is dropped: correlating it
-                // would invent a call the daemon never opened.
+                // would invent a call the daemon never opened. What is kept is
+                // counted toward the turn's summary, as the Gateway's is
+                // (`crate::gateway::DeltaSink::tool_input_delta`).
                 if let Some(Block::ToolUse { arguments, .. }) = self.open_at(index) {
                     arguments.push_str(fragment);
+                    deltas.tool_input_delta(fragment);
                 }
                 Ok(())
             }
@@ -489,6 +514,7 @@ impl AnthropicReader {
                 self.charge(fragment.len())?;
                 if let Some(Block::Thinking { thinking, .. }) = self.open_at(index) {
                     thinking.push_str(fragment);
+                    deltas.reasoning_delta(fragment);
                 }
                 Ok(())
             }
@@ -589,6 +615,7 @@ impl AnthropicReader {
             // back into 10.
             if self.usage.input_tokens.is_none() {
                 self.usage.input_tokens = input_total(usage);
+                self.cache = cache_tokens(usage);
             }
         }
         let Some(Value::Object(delta)) = event.get("delta") else {
@@ -697,6 +724,13 @@ fn token_total(usage: &Map<String, Value>, key: &str) -> Option<u64> {
 /// nothing rather than making the whole total absent, and the addition
 /// saturates, because a total that wrapped would be worse than one that is
 /// merely large.
+fn cache_tokens(usage: &Map<String, Value>) -> CacheTokens {
+    CacheTokens {
+        read: token_total(usage, "cache_read_input_tokens"),
+        write: token_total(usage, "cache_creation_input_tokens"),
+    }
+}
+
 fn input_total(usage: &Map<String, Value>) -> Option<u64> {
     let counted: Vec<u64> = [
         "input_tokens",
@@ -761,6 +795,42 @@ mod tests {
         let usage = decode(&body).expect("finish").usage;
         assert_eq!(usage.input_tokens, None);
         assert_eq!(usage.output_tokens, None);
+    }
+
+    #[test]
+    fn the_prompts_cached_part_is_read_beside_its_total() {
+        let body = format!(
+            "data: {}\n\ndata: {}\n\n",
+            json!({
+                "type": "message_start",
+                "message": { "usage": {
+                    "input_tokens": 10,
+                    "cache_read_input_tokens": 4000,
+                    "cache_creation_input_tokens": 25
+                } },
+            }),
+            json!({
+                "type": "message_delta",
+                "delta": { "stop_reason": "end_turn" },
+                "usage": { "output_tokens": 5, "input_tokens": 10 },
+            }),
+        );
+        let mut reader = AnthropicReader::new();
+        reader
+            .push(body.as_bytes(), &mut DiscardDeltas)
+            .expect("decodes");
+        assert_eq!(
+            reader.cache_tokens(),
+            CacheTokens {
+                read: Some(4000),
+                write: Some(25)
+            }
+        );
+        // The total the cache is part of, as the meter has always read it.
+        assert_eq!(
+            reader.finish().expect("finish").usage.input_tokens,
+            Some(4035)
+        );
     }
 
     #[test]
@@ -844,6 +914,73 @@ mod tests {
             reader.push(frames.as_bytes(), &mut Broken),
             Err(SseError::Sink(_))
         ));
+    }
+
+    #[test]
+    fn thinking_and_an_opened_calls_arguments_are_told_to_be_counted_and_nothing_else() {
+        // What the turn's summary estimates when nobody reports usage
+        // (`crate::agent::tokens`): the thinking text -- not its signature --
+        // and the arguments of a block that was opened as a call. A fragment
+        // naming no open block is dropped here as it is from the call.
+        #[derive(Default)]
+        struct Streams {
+            reasoning: Vec<String>,
+            tool_input: Vec<String>,
+        }
+        impl DeltaSink for Streams {
+            fn text_delta(&mut self, _text: &str) -> std::io::Result<()> {
+                Ok(())
+            }
+            fn reasoning_delta(&mut self, text: &str) {
+                self.reasoning.push(text.to_string());
+            }
+            fn tool_input_delta(&mut self, text: &str) {
+                self.tool_input.push(text.to_string());
+            }
+        }
+        let delta = |index: u64, delta: serde_json::Value| json!({ "type": "content_block_delta", "index": index, "delta": delta });
+        let body = [
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "thinking", "thinking": "" },
+            }),
+            delta(
+                0,
+                json!({ "type": "thinking_delta", "thinking": "let me look" }),
+            ),
+            delta(0, json!({ "type": "signature_delta", "signature": "c2ln" })),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            delta(
+                9,
+                json!({ "type": "input_json_delta", "partial_json": "{\"a\":1}" }),
+            ),
+            json!({
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": { "type": "tool_use", "id": "c1", "name": "read_file" },
+            }),
+            delta(
+                1,
+                json!({ "type": "input_json_delta", "partial_json": "{\"path\":" }),
+            ),
+            delta(
+                1,
+                json!({ "type": "input_json_delta", "partial_json": "\"a.md\"}" }),
+            ),
+            json!({ "type": "content_block_stop", "index": 1 }),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" } }),
+        ]
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect::<String>();
+        let mut streams = Streams::default();
+        let mut reader = AnthropicReader::new();
+        reader.push(body.as_bytes(), &mut streams).expect("decodes");
+        let completion = reader.finish().expect("finish");
+        assert_eq!(completion.tool_calls[0].input, json!({ "path": "a.md" }));
+        assert_eq!(streams.reasoning, ["let me look"]);
+        assert_eq!(streams.tool_input, ["{\"path\":", "\"a.md\"}"]);
     }
 
     #[test]

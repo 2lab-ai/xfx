@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ version
+────────────────────────────────────────────────────────────────────────────────
+Commands 1  [All]  General  Session  Account  Model  Appearance  Security  …
+
+  /version    show the fx version
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

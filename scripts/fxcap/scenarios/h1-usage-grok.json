@@ -1,0 +1,40 @@
+{
+ "/billing": {
+  "json": {
+   "config": {
+    "creditUsagePercent": 63.4,
+    "currentPeriod": {
+     "type": "USAGE_PERIOD_TYPE_WEEKLY",
+     "start": "2026-10-08T15:30:00.000Z",
+     "end": "2026-10-14T20:30:00.000Z"
+    },
+    "productUsage": [
+     {
+      "product": "PRODUCT_GROK_BUILD",
+      "usagePercent": 41.2
+     },
+     {
+      "product": "PRODUCT_CHAT",
+      "usagePercent": 15.8
+     }
+    ],
+    "prepaidBalance": {
+     "val": -1250
+    },
+    "onDemandUsed": {
+     "val": 300
+    },
+    "onDemandCap": {
+     "val": 10000
+    }
+   }
+  }
+ },
+ "/settings": {
+  "json": {
+   "subscription_tier": "supergrok_heavy",
+   "subscription_tier_display": "SuperGrok Heavy",
+   "on_demand_enabled": true
+  }
+ }
+}

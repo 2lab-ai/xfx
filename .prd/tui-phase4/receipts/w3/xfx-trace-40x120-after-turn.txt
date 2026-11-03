@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ea95108 [debug] · Run /help for commands
+
+* Trace copied to clipboard. Review and redact it before sharing.
+
+✗ command: Unknown command. Try /help.
+
+┃ say something
+
+  Traced answer.
+
+  0s (↑4 ↓40)
+
+* Trace copied to clipboard. Review and redact it before sharing.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

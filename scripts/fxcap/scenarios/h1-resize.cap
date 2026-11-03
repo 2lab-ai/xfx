@@ -1,0 +1,16 @@
+# H1 `resize`: the window made smaller, then larger, while the binary runs,
+# with a draft in the composer long enough to wrap. Each snap after a resize
+# is the binary's own repaint at the new size -- the draft wrapped again, the
+# band moved to the new bottom row -- which it draws only once SIGWINCH has
+# made it ask the terminal again.
+wait 4
+type one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty
+wait 1
+snap start
+resize 20x60
+wait 1.5
+snap small
+resize 40x120
+wait 1.5
+snap large
+wire end

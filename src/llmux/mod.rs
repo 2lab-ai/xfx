@@ -29,7 +29,7 @@ pub mod sse;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
-use crate::gateway::protocol::{Completion, CompletionRequest};
+use crate::gateway::protocol::{Completion, CompletionRequest, RequestOptions};
 use crate::gateway::{
     build_loopback_client, is_retryable_status, parse_retry_after, read_bounded, transport_failure,
     CancelToken, DeltaSink, Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError,
@@ -91,6 +91,9 @@ pub struct LlmuxProvider {
     /// The daemon's base URL, without a trailing slash.
     base: String,
     cancel: CancelToken,
+    /// What the session asks of every request ([`Provider::set_options`]),
+    /// held as the Gateway's provider holds it.
+    options: std::sync::Mutex<RequestOptions>,
 }
 
 impl LlmuxProvider {
@@ -99,6 +102,7 @@ impl LlmuxProvider {
             client: build_loopback_client(SUBJECT)?,
             base: trim_base(endpoint.url()),
             cancel,
+            options: std::sync::Mutex::new(RequestOptions::default()),
         })
     }
 
@@ -149,10 +153,16 @@ impl Provider for LlmuxProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = protocol::body(request).map_err(|source| ProviderError::Request {
-            subject: SUBJECT,
-            source,
-        })?;
+        let options = self
+            .options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let body =
+            protocol::body_with(request, &options).map_err(|source| ProviderError::Request {
+                subject: SUBJECT,
+                source,
+            })?;
 
         let response = self
             .client
@@ -208,8 +218,60 @@ impl Provider for LlmuxProvider {
                 break;
             }
         }
-        Ok(reader.finish()?)
+        let cache = reader.cache_tokens();
+        let mut completion = reader.finish()?;
+        completion.billing = bill(
+            &request.model,
+            &completion.usage,
+            cache,
+            crate::session::event::system_now_ms(),
+        )
+        .map(crate::gateway::protocol::Bill::Exact);
+        Ok(completion)
     }
+
+    fn set_options(&self, options: RequestOptions) {
+        *self
+            .options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = options;
+    }
+}
+
+/// What a llmux answer is billed as **through xfx**: the request, its tokens,
+/// and no spend.
+///
+/// llmux puts a turn on one of the user's subscription accounts, which is what
+/// upstream's ChatGPT and Grok sign-ins are, and upstream accounts for those
+/// at a cost of nought under `<provider>/<model>` (`buildSubscriptionBilling`,
+/// `vercel-labs/fx@c1db9191 src/gateway/responses_protocol.zig:2568-2606`):
+/// the subscription is paid elsewhere, and nothing the turn did added to a bill
+/// xfx can see. `/usage` therefore counts these requests and tokens and says
+/// `$0.00` for them, which is "not billed through xfx", not "free".
+///
+/// Only when the daemon said both totals, as upstream requires; a cache count
+/// larger than the input it is part of is dropped rather than believed
+/// (`boundedOptionalCounter`, `:2608-2620`).
+fn bill(
+    model: &str,
+    usage: &crate::gateway::protocol::Usage,
+    cache: sse::CacheTokens,
+    at_ms: i64,
+) -> Option<crate::gateway::protocol::Billing> {
+    let input_tokens = usage.input_tokens?;
+    let output_tokens = usage.output_tokens?;
+    let bounded = |count: Option<u64>| count.filter(|count| *count <= input_tokens).unwrap_or(0);
+    Some(crate::gateway::protocol::Billing {
+        at_ms,
+        model: format!("llmux/{model}"),
+        generation_id: None,
+        cost: 0.0,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens: bounded(cache.read),
+        cache_write_tokens: bounded(cache.write),
+        reasoning_tokens: None,
+    })
 }
 
 #[cfg(test)]
@@ -232,6 +294,38 @@ mod tests {
             CancelToken::new(),
         )
         .expect("build the provider")
+    }
+
+    #[test]
+    fn a_llmux_answer_is_billed_as_its_tokens_and_no_spend() {
+        use crate::gateway::protocol::Usage;
+        let usage = Usage {
+            input_tokens: Some(100),
+            output_tokens: Some(20),
+        };
+        let cache = sse::CacheTokens {
+            read: Some(60),
+            // More than the input it is part of: not believed.
+            write: Some(200),
+        };
+        let bill = bill("claude-opus-4-7", &usage, cache, 5).expect("billed");
+        assert_eq!(bill.model, "llmux/claude-opus-4-7");
+        assert_eq!(bill.cost, 0.0);
+        assert_eq!((bill.input_tokens, bill.output_tokens), (100, 20));
+        assert_eq!((bill.cache_read_tokens, bill.cache_write_tokens), (60, 0));
+        assert_eq!((bill.at_ms, bill.reasoning_tokens), (5, None));
+        // A total the daemon did not say is a bill that cannot be made.
+        let half = Usage {
+            input_tokens: Some(100),
+            output_tokens: None,
+        };
+        assert_eq!(bill_of(&half), None);
+    }
+
+    fn bill_of(
+        usage: &crate::gateway::protocol::Usage,
+    ) -> Option<crate::gateway::protocol::Billing> {
+        bill("m", usage, sse::CacheTokens::default(), 0)
     }
 
     #[test]

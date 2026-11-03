@@ -39,7 +39,10 @@ use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::gateway::protocol::{CompletionRequest, ContentPart, ProtocolError, Role, ToolChoice};
+use crate::gateway::protocol::{
+    CompletionRequest, ContentPart, ProtocolError, RequestOptions, Role, ToolChoice,
+};
+use crate::gateway::tool_call_ids::Projection;
 
 /// The output ceiling xfx asks for, in tokens.
 ///
@@ -67,6 +70,32 @@ pub const MAX_TOKENS: u32 = 8192;
 /// tool result or a duplicate call id is a client bug on either wire, and two
 /// validators would be two things to keep in step.
 pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
+    body_with(request, &RequestOptions::default())
+}
+
+/// [`body`], with what the session asks of every request.
+///
+/// The effort travels as Anthropic's `output_config.effort`, because that is
+/// the one field llmux reads an effort from, on every route it serves
+/// (`2lab-ai/llmux@4b3d4a4`): `src/provider/codex.rs:387-420`
+/// (`resolve_reasoning_effort`, the request's value at `:413-419` when the
+/// daemon has none configured), `src/provider/grok.rs:327-345` (the same
+/// precedence, read at `:333-337`), and for a Claude model the body is
+/// forwarded as written (`src/proxy/forward.rs:488-505` reads the same field
+/// for its own record). Sent as the catalog spells it: llmux clamps a value a
+/// backend does not take itself, and `max` -- which the Gateway's route
+/// refuses -- is one llmux's own catalog publishes.
+///
+/// **No speed is sent**, because llmux reads none from a request: its codex
+/// "fast" tier is the daemon's own setting (`src/config/schema.rs:545-550`,
+/// applied from the shape at `src/provider/codex.rs:422-437` and
+/// `src/provider/responses_request.rs:248`), and its catalog marks no model
+/// as offering Fast or Ultra -- so `/model`'s speed column never opens for a
+/// llmux model, and `/fast` says the model has none.
+pub fn body_with(
+    request: &CompletionRequest,
+    options: &RequestOptions,
+) -> Result<String, ProtocolError> {
     request.validate()?;
     for tool in &request.tools {
         check_tool(tool)?;
@@ -76,14 +105,22 @@ pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
     // can still render to something Anthropic refuses. Checking the *rendered*
     // shape is the only way to catch that before it costs a round trip and
     // arrives as a 400 xfx would then have to explain.
-    let messages = wire_messages(&request.messages);
+    //
+    // The ids first: Anthropic's `tool_use.id` takes only a portable id, and a
+    // call the Gateway recorded may not have one, so it goes under an alias
+    // (`Projection.init`, `vercel-labs/fx@c1db9191
+    // src/gateway/tool_call_ids.zig:14-87`). A message carrying this wire's
+    // own blocks keeps every id it names, because the blocks go back as they
+    // arrived.
+    let ids = Projection::of(&request.messages, true)?;
+    let messages = wire_messages(&request.messages, &ids);
     if messages.is_empty() {
         return Err(ProtocolError::EmptyPrompt);
     }
     if messages[0].role != "user" {
         return Err(ProtocolError::AssistantFirst);
     }
-    Ok(serde_json::to_string(&WireRequest(request))
+    Ok(serde_json::to_string(&WireRequest(request, options, &ids))
         .expect("a validated request is always serializable"))
 }
 
@@ -130,12 +167,12 @@ fn schema_of(tool: &Map<String, Value>) -> Option<&Value> {
 }
 
 /// The request body, in the key order above.
-struct WireRequest<'a>(&'a CompletionRequest);
+struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions, &'a Projection);
 
 impl Serialize for WireRequest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let system = system_text(&self.0.messages);
-        let messages = wire_messages(&self.0.messages);
+        let messages = wire_messages(&self.0.messages, self.2);
         // An empty tool list is omitted rather than written as `[]`: an empty
         // array beside a `tool_choice` asks the model to choose among nothing,
         // which is a request Anthropic can legitimately refuse.
@@ -152,6 +189,9 @@ impl Serialize for WireRequest<'_> {
         if let Some(tools) = tools {
             map.serialize_entry("tools", &WireTools(tools))?;
             map.serialize_entry("tool_choice", &ToolChoiceBody(self.0.tool_choice))?;
+        }
+        if let Some(effort) = &self.1.reasoning {
+            map.serialize_entry("output_config", &serde_json::json!({ "effort": effort }))?;
         }
         map.end()
     }
@@ -199,13 +239,16 @@ impl WireMessage {
 /// Three steps, in this order, because each one depends on the last: map every
 /// message to its blocks, drop the ones that have no blocks left, then merge the
 /// consecutive same-role runs the drop may have created.
-fn wire_messages(messages: &[crate::gateway::protocol::Message]) -> Vec<WireMessage> {
+fn wire_messages(
+    messages: &[crate::gateway::protocol::Message],
+    ids: &Projection,
+) -> Vec<WireMessage> {
     let mut merged: Vec<WireMessage> = Vec::new();
     for message in messages {
         let mapped = match message.role {
             // System content is the top-level `system` field, never a message.
             Role::System => continue,
-            Role::User | Role::Assistant | Role::Tool => map_message(message),
+            Role::User | Role::Assistant | Role::Tool => map_message(message, ids),
         };
         if mapped.is_empty() {
             continue;
@@ -222,7 +265,7 @@ fn wire_messages(messages: &[crate::gateway::protocol::Message]) -> Vec<WireMess
 }
 
 /// One xfx message's content blocks, before merging.
-fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
+fn map_message(message: &crate::gateway::protocol::Message, ids: &Projection) -> WireMessage {
     // When the provider's own blocks are present they *are* the message, tool
     // calls included; emitting the parallel `ToolCall` parts as well would send
     // every call twice.
@@ -251,7 +294,7 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
             ContentPart::ToolCall(_) if raw => {}
             ContentPart::ToolCall(call) => wire.blocks.push(json_block([
                 ("type", Value::from("tool_use")),
-                ("id", Value::from(call.id.as_str())),
+                ("id", Value::from(ids.resolve(&call.id))),
                 ("name", Value::from(call.name.as_str())),
                 ("input", call.input.clone()),
             ])),
@@ -265,14 +308,75 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 call_id,
                 tool: _,
                 output,
-            } => wire.results.push(json_block([
-                ("type", Value::from("tool_result")),
-                ("tool_use_id", Value::from(call_id.as_str())),
-                ("content", Value::from(output.as_str())),
-            ])),
+                status,
+                images,
+            } => {
+                // A result with images is Anthropic's content array -- its text,
+                // then an `image` block each -- which llmux carries on as the
+                // nested `input_image` both of its Responses backends read
+                // (`2lab-ai/llmux@4b3d4a4 src/provider/responses_request.rs:1137-1190`,
+                // `:1484-1500`). Without images it is the string it always was.
+                let content = if images.is_empty() {
+                    Value::from(output.as_str())
+                } else {
+                    let mut parts = vec![json_block([
+                        ("type", Value::from("text")),
+                        ("text", Value::from(output.as_str())),
+                    ])];
+                    parts.extend(
+                        images
+                            .iter()
+                            .map(|image| image_block(image.media_type, &image.data)),
+                    );
+                    Value::Array(parts)
+                };
+                let mut block = json_block([
+                    ("type", Value::from("tool_result")),
+                    ("tool_use_id", Value::from(ids.resolve(call_id))),
+                    ("content", content),
+                ]);
+                // Anthropic's own flag for a result that is an error
+                // (`tool_result.is_error`), written only when it is one, so
+                // every other result is the bytes it always was. A refusal is
+                // one too: the Messages tool result has no word for a denial
+                // of its own, and llmux reads exactly this boolean
+                // (`2lab-ai/llmux src/provider/responses_request.rs:1148-1151`).
+                // What it was refused for is the content.
+                if *status != crate::gateway::protocol::ResultStatus::Success {
+                    if let Value::Object(map) = &mut block {
+                        map.insert("is_error".to_string(), Value::Bool(true));
+                    }
+                }
+                wire.results.push(block);
+            }
+            // Anthropic's base64 image block, which llmux reads on a user
+            // message and nowhere else (`2lab-ai/llmux@4b3d4a4
+            // src/provider/responses_request.rs:44`, `:109-135`, `:736-830`):
+            // up to 20 MiB decoded, png/jpeg/webp/gif -- what
+            // [`crate::image`] attaches -- and never a `url` source. Whether the
+            // model behind the daemon reads images is the daemon's to say; its
+            // catalog has no field for it, so a refusal arrives as its 400.
+            ContentPart::Image {
+                media_type, data, ..
+            } => wire.blocks.push(image_block(*media_type, data)),
         }
     }
     wire
+}
+
+/// Anthropic's base64 `image` block.
+fn image_block(media_type: crate::image::MediaType, data: &[u8]) -> Value {
+    json_block([
+        ("type", Value::from("image")),
+        (
+            "source",
+            json_block([
+                ("type", Value::from("base64")),
+                ("media_type", Value::from(media_type.label())),
+                ("data", Value::from(crate::image::base64(data))),
+            ]),
+        ),
+    ])
 }
 
 fn json_block<const N: usize>(entries: [(&str, Value); N]) -> Value {
@@ -390,7 +494,39 @@ mod tests {
                 text: String::new(),
             }],
         };
-        assert!(map_message(&message).is_empty());
+        assert!(map_message(&message, &Projection::identity()).is_empty());
+    }
+
+    #[test]
+    fn a_call_that_never_produced_a_result_is_answered_as_an_error() {
+        let message =
+            crate::gateway::protocol::Message::tool_error("toolu_1", "terminal", "aborted by user");
+        let wire = map_message(&message, &Projection::identity());
+        assert_eq!(
+            wire.results,
+            vec![json!({
+                "type": "tool_result",
+                "tool_use_id": "toolu_1",
+                "content": "aborted by user",
+                "is_error": true
+            })]
+        );
+        // A refusal too: the Messages tool result has no denial of its own.
+        let refused = map_message(
+            &crate::gateway::protocol::Message::tool_ended(
+                "toolu_1",
+                "write_file",
+                "write_file was not permitted: no",
+                crate::gateway::protocol::ResultStatus::Denied,
+            ),
+            &Projection::identity(),
+        );
+        assert_eq!(refused.results[0]["is_error"], json!(true));
+        let ordinary = map_message(
+            &crate::gateway::protocol::Message::tool_result("toolu_1", "terminal", "ok"),
+            &Projection::identity(),
+        );
+        assert!(ordinary.results[0].get("is_error").is_none());
     }
 
     #[test]
@@ -409,6 +545,124 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("read_file"), "{message}");
         assert!(message.contains("inputSchema"), "{message}");
+    }
+
+    #[test]
+    fn an_effort_rides_as_output_config_effort_and_nothing_is_sent_without_one() {
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![crate::gateway::protocol::Message::user("hi")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let plain: Value = serde_json::from_str(&body(&request).expect("valid")).expect("json");
+        assert_eq!(plain.get("output_config"), None);
+        // Spelled as the catalog spells it: no `max` -> `xhigh` here, which is
+        // the Gateway route's rule and not llmux's.
+        let max: Value = serde_json::from_str(
+            &body_with(
+                &request,
+                &RequestOptions {
+                    reasoning: Some("max".to_string()),
+                    // llmux reads no per-request speed (its codex tier is the
+                    // daemon's own `fast` setting), so these are not sent.
+                    fast: true,
+                    ultrafast: true,
+                    ..RequestOptions::default()
+                },
+            )
+            .expect("valid"),
+        )
+        .expect("json");
+        assert_eq!(max["output_config"], json!({ "effort": "max" }));
+        assert_eq!(max.get("service_tier"), None);
+        assert_eq!(max.get("providerOptions"), None);
+    }
+
+    #[test]
+    fn an_image_is_anthropics_base64_block_on_the_user_message_after_its_text() {
+        let shot: std::sync::Arc<[u8]> = std::sync::Arc::from(crate::image::fixture::SHOT_PNG);
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![
+                crate::gateway::protocol::Message::user_with_images(
+                    "[Image #1] what?",
+                    [ContentPart::Image {
+                        id: 1,
+                        media_type: crate::image::MediaType::Png,
+                        data: std::sync::Arc::clone(&shot),
+                        saved: None,
+                    }],
+                ),
+                crate::gateway::protocol::Message::assistant(Some("red"), Vec::new()),
+                crate::gateway::protocol::Message::user("and now?"),
+            ],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let parsed: Value = serde_json::from_str(&body(&request).expect("valid")).expect("json");
+        assert_eq!(
+            parsed["messages"][0],
+            json!({"role": "user", "content": [
+                {"type": "text", "text": "[Image #1] what?"},
+                {"type": "image", "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": crate::image::fixture::SHOT_PNG_BASE64,
+                }},
+            ]})
+        );
+        // Never a `url` source: the bytes travel, and nothing names a place
+        // the daemon would have to fetch them from.
+        assert!(!parsed.to_string().contains("\"url\""), "{parsed}");
+    }
+
+    #[test]
+    fn a_tool_results_image_is_an_image_block_inside_its_tool_result() {
+        // Anthropic's content array, which llmux carries on as a nested
+        // `input_image` (`2lab-ai/llmux@4b3d4a4
+        // src/provider/responses_request.rs:1484-1500`); a result without an
+        // image is the string it always was.
+        let call = |id: &str| crate::gateway::protocol::ToolCall {
+            id: id.to_string(),
+            name: "read_file".to_string(),
+            input: json!({"path": "shot.png"}),
+        };
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![
+                crate::gateway::protocol::Message::user("look"),
+                crate::gateway::protocol::Message::assistant(None, vec![call("c1"), call("c2")]),
+                crate::gateway::protocol::Message::tool_result_with_images(
+                    "c1",
+                    "read_file",
+                    "attached",
+                    vec![crate::image::ToolImage {
+                        media_type: crate::image::MediaType::Png,
+                        data: std::sync::Arc::from(crate::image::fixture::SHOT_PNG),
+                        path: "shot.png".to_string(),
+                    }],
+                ),
+                crate::gateway::protocol::Message::tool_result("c2", "read_file", "labels"),
+            ],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let parsed: Value = serde_json::from_str(&body(&request).expect("valid")).expect("json");
+        assert_eq!(
+            parsed["messages"][2],
+            json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "c1", "content": [
+                    {"type": "text", "text": "attached"},
+                    {"type": "image", "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": crate::image::fixture::SHOT_PNG_BASE64,
+                    }},
+                ]},
+                {"type": "tool_result", "tool_use_id": "c2", "content": "labels"},
+            ]})
+        );
     }
 
     #[test]

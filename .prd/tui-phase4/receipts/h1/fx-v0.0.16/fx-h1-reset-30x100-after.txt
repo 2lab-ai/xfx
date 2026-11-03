@@ -1,0 +1,30 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ say something
+
+  half an answer, then
+
+  [Response interrupted. Restarting.]
+
+  the answer after the reset
+
+  0s (↑4 ↓45)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -66,6 +66,162 @@ pub struct RecordedToolCall {
     pub input: Value,
 }
 
+/// How one tool call ended for the person watching it, as its row said.
+///
+/// The screen's half of a result, kept so a resumed session's row says what
+/// the live one did (`Exited 3`, `Denied file`) rather than only the model's
+/// half, `ok` -- which is what upstream's replay reads its outcome from
+/// (`writeCompletedToolResult`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:4954-5080`: the command's recorded
+/// process presentation, the denial in the result). Nothing reads it back for
+/// the model. A kind a later build adds reads here as [`Self::Other`], which
+/// replays as the plain row, rather than refusing the log it is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToolEnding {
+    /// A file change that would have left the file as it was.
+    Unchanged,
+    /// A permission decision refused it.
+    Denied,
+    /// A command ran to its end with this status.
+    Exited { code: i32 },
+    /// A command a signal stopped.
+    Signalled { signal: i32 },
+    /// A command stopped for running past its ceiling.
+    TimedOut,
+    /// Stopped because the turn was.
+    Cancelled,
+    /// A kind this build does not know.
+    #[serde(other)]
+    Other,
+}
+
+/// How many lines a file change added and removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineCounts {
+    pub added: u64,
+    pub removed: u64,
+}
+
+/// The change a call made to a file, as the review of it showed it: the
+/// window of the file it touched, both sides escaped and bounded
+/// (`crate::permission::ApprovalDiff`, 64 KiB a side), and where that window
+/// sits.
+///
+/// Kept so a resumed session's full transcript shows the diff a live one
+/// did, where upstream persists its file presentation beside the result
+/// (`writeCommittedFilePresentation`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:4954`). Never read back for the
+/// model, which was told the result's output and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedChange {
+    pub before: String,
+    pub after: String,
+    /// The file's line number, one-based, of both sides' first line.
+    pub first_line: u64,
+    /// How many unchanged lines of the file follow both sides' last.
+    pub lines_below: u64,
+}
+
+/// One image a user message carried, as the log remembers it: which one, where
+/// it came from, and how to know its saved copy when it is read back.
+///
+/// **References, never bytes.** The bytes are in a file of the session's own
+/// -- `images/` + [`crate::image::snapshot_name`] of `id` and `sha256` -- which
+/// a frame of at most [`MAX_EVENT_FRAME_BYTES`] could not hold, and the name of
+/// that file is **derived** from these fields rather than written in them, so a
+/// log cannot point a resume at any other file. Upstream records the same
+/// facts on its user event (`images: [{id, path, media_type, snapshot_path,
+/// snapshot_sha256}]`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_store.zig:102-118`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedImage {
+    /// The number the prompt's `[Image #N]` names it by.
+    pub id: u32,
+    /// The file it was read from, or the name of its saved copy for one that
+    /// came off the clipboard.
+    pub path: String,
+    /// Its MIME type, one of [`crate::image::MediaType`]'s.
+    pub media_type: String,
+    /// The SHA-256 of its bytes, lowercase hex.
+    pub sha256: String,
+    /// How many bytes it is.
+    pub bytes: u64,
+}
+
+/// One model request a turn made, as the provider accounted for it.
+///
+/// What `/usage` adds up (`GenerationFact`, `vercel-labs/fx@c1db9191
+/// src/core/session/usage_report.zig:125-165`). **`cost` is the provider's
+/// own number**, never one xfx worked out: upstream spends exactly what the
+/// Gateway's `providerMetadata.gateway.cost` says (`src/gateway/client.zig:3352-3359`)
+/// and reads no price list to do it, so neither does this.
+///
+/// A request with no `cost` is one the provider did not account for -- a
+/// Gateway answer without its billing metadata. It is kept, because its
+/// existence is the fact that some spend is unknown, and counted nowhere:
+/// upstream's dashboard counts a generation only once its cost is known
+/// (`session_usage.zig:110-175`).
+///
+/// One with no `cost` and an `origin` is **pending**: the stream named its
+/// generation and not its bill, and the Gateway at `origin` is asked for it
+/// by id (upstream's deferred usage, `session_usage.zig:608-640`, reconciled
+/// by `reconcilePendingBlocking`, `:3322-3423`). Its answer arrives as a later
+/// frame's `settled` or `rejected` ([`SessionEvent::UsageRecorded`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RequestUsage {
+    /// When the request was billed: the Gateway's own `response-metadata`
+    /// timestamp when it sent one, else when the answer arrived here. Which
+    /// window of `/usage` the request falls in.
+    pub at_ms: i64,
+    /// How long the request took, retries included: `/usage`'s `API` time.
+    pub duration_ms: u64,
+    /// What the request was billed as: the Gateway's canonical slug when it
+    /// said one, else the model that was asked for.
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Part of `input_tokens`, never in addition to it.
+    #[serde(default)]
+    pub cache_read_tokens: u64,
+    /// Part of `input_tokens`, never in addition to it.
+    #[serde(default)]
+    pub cache_write_tokens: u64,
+    /// Part of `output_tokens`. `None` is "the provider did not say".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u64>,
+    /// What it cost, in US dollars, as the provider said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+    /// The Gateway's id for the generation (`gen_…`), which is what keeps one
+    /// request from being counted twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_id: Option<String>,
+    /// Where to ask what it cost, while that is still to be asked: the scheme
+    /// and authority of the endpoint the request went to (the `scope` of
+    /// upstream's deferred reference, `gateway.zig:668-686`). `None` once the
+    /// bill is known, or will never be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+}
+
+impl RequestUsage {
+    /// Whether its bill is still to be asked for.
+    pub fn pending(&self) -> bool {
+        self.cost.is_none() && self.origin.is_some() && self.generation_id.is_some()
+    }
+}
+
+/// For `skip_serializing_if`: a flag that is off is a flag that is not written.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// For `skip_serializing_if`: a count of nothing is not written.
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -74,7 +230,64 @@ pub enum TurnConclusion {
     Final { finish_reason: String, steps: u32 },
     /// The turn stopped before it finished: cancelled, out of budget, or
     /// refused. `reason` is the same sentence the user was shown.
-    Interrupted { reason: String },
+    Interrupted {
+        reason: String,
+        /// Whether the turn was stopped or failed, as upstream records it
+        /// beside every interruption ([`TerminalReason`]). Absent from a log
+        /// written before the field, whose turn is then told by `reason`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        terminal_reason: Option<TerminalReason>,
+        /// Whose stop it was, written only when it was not the turn's own,
+        /// as upstream writes its field (`ConversationInterruption.jsonStringify`,
+        /// `session_event.zig:138-160`) -- so a log from before the field
+        /// reads, and replays, as it always did.
+        #[serde(default, skip_serializing_if = "CancellationOrigin::is_turn")]
+        cancellation_origin: CancellationOrigin,
+    },
+}
+
+/// How an interrupted turn ended: stopped, or failed -- upstream's
+/// `InterruptedTerminalReason` (`vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig:2296-2299`). Upstream writes it on every
+/// interruption -- `failed` from `persistFailedPartialTurnOnce`
+/// (`runtime/interruption.zig:254`), `cancelled` by default -- as the event's
+/// `reason` (`session_event.zig:101`, written `:537`, read back
+/// `session_log.zig:2621`), and its replay chooses the turn's line by it
+/// alone (`app_session_runtime.zig:4796-4803`, `interruptedTurnNotice`
+/// `session.zig:45-50`). A name it does not know is refused, as upstream's
+/// reader refuses one (`session_codec.zig:820-821`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalReason {
+    /// Stopped: a Ctrl-C, a `/stop`, a compaction's cancel.
+    Cancelled,
+    /// Ended by anything else: the provider, a budget, a refusal.
+    Failed,
+}
+
+/// Which stop interrupted a turn: its own, or that of the automatic compaction
+/// that ran before its request could be sent -- upstream's `CancellationOrigin`
+/// (`vercel-labs/fx@c1db9191 src/core/shared/types.zig:2301-2304`), written by
+/// `persistCompactionInterruptedTurnOnce` (`runtime/interruption.zig:51-77`)
+/// and read by the replay (`app_session_runtime.zig:4796-4800`), which shows a
+/// turn the compaction stopped without the turn's cancellation line. As
+/// upstream's reader does (`session_event.zig:121-125`), a name it does not
+/// know is refused rather than guessed at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancellationOrigin {
+    /// The turn's own stop: a Ctrl-C, a `/stop`, a failure.
+    #[default]
+    Turn,
+    /// The stop of the automatic compaction the turn was waiting on.
+    Compaction,
+}
+
+impl CancellationOrigin {
+    /// For `skip_serializing_if`: the turn's own stop is the one not written.
+    fn is_turn(&self) -> bool {
+        *self == Self::Turn
+    }
 }
 
 impl TurnConclusion {
@@ -83,6 +296,27 @@ impl TurnConclusion {
             Self::Final { .. } => "final",
             Self::Interrupted { .. } => "interrupted",
         }
+    }
+}
+
+/// Who gave a session the title a [`SessionEvent::SessionRenamed`] records.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    /// The user, with `/rename`. Not written: a rename frame without a
+    /// source is the user's, as every one written before this field was.
+    #[default]
+    User,
+    /// A model, asked for one from the session's first prompt
+    /// (`crate::tui::titles`).
+    Generated,
+}
+
+impl TitleSource {
+    /// For `skip_serializing_if`: the user's is the frame `/rename` always
+    /// wrote, byte for byte.
+    pub fn is_user(&self) -> bool {
+        *self == Self::User
     }
 }
 
@@ -98,12 +332,24 @@ impl TurnConclusion {
 pub enum SessionEvent {
     /// The first event of every log. Establishes identity and both workspace
     /// roots (`session_event.zig:36-53`).
+    ///
+    /// `provider` is the provider the session was opened under -- what
+    /// upstream's `session_started` carries in its preferences beside the model
+    /// (`DurableSessionPreferences.provider`, `session_codec.zig:17-23`,
+    /// written by `writePreferences`, `session_event.zig:1979-1995`) and what
+    /// a resume judges a restored Fast binding by
+    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+    /// Its label (`gateway`, `llmux`), kept as written so a label a later
+    /// binary writes does not make the log unreadable. Absent from logs
+    /// written before it was recorded, and an older binary ignores it.
     SessionStarted {
         id: String,
         origin_workspace_root: String,
         workspace_root: String,
         model: String,
         permission_mode: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
     },
     /// The session was deliberately moved to a different workspace
     /// (`session_event.zig:67-76`).
@@ -112,9 +358,29 @@ pub enum SessionEvent {
         workspace_root: String,
     },
     /// A preference changed for later turns. Absent fields are unchanged.
+    ///
+    /// The last three are the session's effort and speed switches -- what
+    /// upstream's `session.json` carries beside the model (`effort`,
+    /// `fast_mode`, `ultrafast_mode`) and what its resume restores
+    /// (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`).
+    /// Written as a group, and absent from logs written before they existed.
+    ///
+    /// `provider` is the provider the session goes on under, when that has
+    /// changed since the log last said -- upstream's `preferences_changed`
+    /// carries it from the same patches as the model and the switches
+    /// (`session_event.zig:734`, `app_session_runtime.zig:3541-3552`). Absent
+    /// when unchanged and from older logs, and ignored by an older binary.
     PreferencesChanged {
         model: Option<String>,
         permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fast_mode: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ultrafast_mode: Option<bool>,
     },
     /// Which project-instruction files were in force for the turn that follows.
     ///
@@ -124,6 +390,26 @@ pub enum SessionEvent {
     ProjectContextRecorded { sources: Vec<String>, bytes: u64 },
     /// The user's message. This is what opens a turn.
     UserMessage { text: String },
+    /// The images the message just opened carries, in the order they were
+    /// attached -- written immediately after it and before anything else of
+    /// its turn, with their copies already saved beside the log.
+    ///
+    /// A frame of its own rather than a field on [`Self::UserMessage`], under
+    /// schema 1 like [`Self::ToolFeedback`] and for its reason: a new binary
+    /// reads every old log, and an older one refuses a log that holds this
+    /// frame rather than resuming the conversation without the images its
+    /// prompts name.
+    ImagesAttached { images: Vec<RecordedImage> },
+    /// The images a tool result carried for the model -- `read_file` of an
+    /// image file -- saved beside the log as a prompt's are, written right
+    /// after that [`Self::ToolResult`] so a later request and a resume send
+    /// them again, as upstream retains a result's tool images
+    /// (`retainToolImages`, `execution_memory.zig:672-688`). Each `id` is its
+    /// place in the result, from 1; `path` is the file it was read from.
+    ToolImagesAttached {
+        call_id: String,
+        images: Vec<RecordedImage>,
+    },
     /// One assistant step: its text, then the tools it asked for, in order.
     ///
     AssistantMessage {
@@ -156,6 +442,16 @@ pub enum SessionEvent {
         /// Which wire *and which authority* produced the state above.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         wire: Option<crate::provider::Wire>,
+        /// The model that produced the state above, as the request named it:
+        /// a reasoning state goes back only to the provider **and the model**
+        /// that sealed it (upstream records both with it, `ProviderReplay.
+        /// source`, and matches both, `matches`, `vercel-labs/fx@c1db9191
+        /// src/core/shared/types.zig:1507-1515`). Written only beside a
+        /// state, as `wire` is; a record that has a state and no model is an
+        /// older one, read as the model the log had in force when it was
+        /// written ([`crate::session::TurnStep::Assistant`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// The evidence one tool call produced, correlated by `call_id`.
     ///
@@ -167,6 +463,20 @@ pub enum SessionEvent {
         tool: String,
         ok: bool,
         output: String,
+        /// How the call ended for the person watching, where that is more
+        /// than `ok` says: an exit status, a denial, a stop
+        /// ([`ToolEnding`]). Absent for a call that simply did or did not do
+        /// what it was asked -- and in every log written before the field
+        /// existed, which a resume replays as it always did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending: Option<ToolEnding>,
+        /// The lines a file change added and removed, when it made one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<LineCounts>,
+        /// The change itself, as its review showed it ([`RecordedChange`]),
+        /// for the full transcript of a resumed session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<RecordedChange>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -179,16 +489,149 @@ pub enum SessionEvent {
     /// prompt puts the sentence behind the result it was about. It is context,
     /// never authority: nothing reads it to widen a grant or re-run a call.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the running turn, which the turn took at
+    /// one of its boundaries (`crate::agent::steering`).
+    ///
+    /// A step of the open turn, not a [`Self::UserMessage`], for the reason
+    /// [`Self::ToolFeedback`] is one: the turn goes on after it. The person's
+    /// words as typed -- what upstream's history keeps and replays
+    /// (`execution_memory.zig:28-43`) -- rather than the wrapper the model was
+    /// given live. Added under schema 1 for the reason given there.
+    Steered { text: String },
     /// An approval the user gave for the rest of the session.
     PermissionGrantRecorded { tool: String, target: String },
+    /// `/permissions reset`: every approval recorded before this one is
+    /// withdrawn, so a resume does not give it back.
+    ///
+    /// Upstream's reset clears its session grants (`permission_engine.clear`,
+    /// `app_permission_runtime.zig:144-159`), which upstream never persists;
+    /// xfx persists them ([`Self::PermissionGrantRecorded`]), so it persists
+    /// their withdrawal. Added under [`EVENT_SCHEMA_VERSION`] 1 like
+    /// [`Self::ToolFeedback`], for the reason given there: a new binary reads
+    /// every old log, and an older binary refuses this frame as an unknown
+    /// variant -- forward but not backward across a session that was reset.
+    PermissionGrantsCleared,
     /// Tokens the provider reported for the turn that is ending. Added to the
     /// running totals; absent is "the provider did not say", not zero.
+    ///
+    /// The two totals are the **answering step's**, as they always were, and
+    /// mean what they always meant: the context meter reads them, and so does
+    /// a replayed turn's summary row on a frame from before
+    /// `turn_output_tokens`. What `/usage` reads is beside them -- one entry
+    /// per model request the turn made ([`RequestUsage`]), and what the turn
+    /// changed on disk -- because a turn of three steps is three requests, and
+    /// upstream bills, counts and windows each one
+    /// (`vercel-labs/fx@c1db9191 src/core/session/usage_report.zig:125-165`).
+    ///
+    /// **Extended rather than joined by a new variant**, and every addition is
+    /// skipped when empty: an older binary ignores a field it does not know in
+    /// a variant it does, so a log written with these still opens there, and a
+    /// turn that has none of them encodes to exactly the bytes it always did.
+    /// A new variant would make every log with a turn in it unreadable to the
+    /// binary before this one ([`EVENT_SCHEMA_VERSION`]).
     UsageRecorded {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
+        /// Out as the turn's summary row said it: every request the turn made,
+        /// each at what the provider reported or at the estimate of what it
+        /// streamed (`crate::agent::tokens`). Kept because a replay cannot
+        /// work it out again -- a lost attempt's text and every request's
+        /// reasoning are in no other frame -- and upstream keeps its summary
+        /// with the turn for the same reason (`turn_summary`,
+        /// `vercel-labs/fx@c1db9191 src/core/session/session_event.zig:107`).
+        /// Absent on a frame written before it was.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_output_tokens: Option<u64>,
+        /// Every model request the turn completed, in order. Empty only on a
+        /// frame written before requests were recorded, or on one that says
+        /// the turn's only request was cut off (`unaccounted`): a turn that
+        /// answered has at least one, and one that failed without either
+        /// writes no frame. That is how `/usage` tells an older frame from a
+        /// turn that cost nothing.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        requests: Vec<RequestUsage>,
+        /// A request of this turn may have been billed without the provider
+        /// saying what it cost: the stream broke, or was stopped, after the
+        /// request had been sent (`DeliveryOutcome.ambiguous_delivery`,
+        /// `session_usage.zig:43-53`).
+        #[serde(default, skip_serializing_if = "is_false")]
+        unaccounted: bool,
+        /// Lines the turn's file changes added and removed, for `/usage`'s
+        /// `Code +N · -N` (`recordCommittedLines`, `session_usage.zig:1584`).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        lines_added: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        lines_removed: u64,
+        /// Bills the Gateway gave later for pending requests an earlier frame
+        /// recorded ([`RequestUsage::pending`]), each the request as it is now
+        /// known, under the same generation id (`applyGeneration`,
+        /// `session_usage.zig:1080-1126`). Written by the runtime between
+        /// turns, on a frame of its own: one with these carries nothing else.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        settled: Vec<RequestUsage>,
+        /// Generation ids of pending requests whose bill will never be known:
+        /// spend that stays missing (`rejectPendingGeneration`,
+        /// `session_usage.zig:2171-2187`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rejected: Vec<String>,
     },
     /// The turn ended. Exactly one per opened turn.
     TurnConcluded { outcome: TurnConclusion },
+    /// The session was named: by the user (`/rename <title>`), or by a model
+    /// asked for a title from its first prompt (`source`).
+    ///
+    /// A title the user chose outranks the one a listing derives from the
+    /// first prompt, and the last of these in a log is the one in force
+    /// (`renameConversation`, `vercel-labs/fx@c1db9191
+    /// src/core/session/session_log.zig:3298-3335`, which rewrites the title
+    /// in the session's metadata). An event rather than a field the manifest
+    /// alone carries, because the manifest is a projection of the log
+    /// ([`super::store::SessionManifest`]): a title only the projection held
+    /// would be the one fact a resume could not rebuild.
+    ///
+    /// Written under schema 1 for the reason [`Self::ToolFeedback`] is: a new
+    /// binary reads every old log, and an older one refuses a log that holds
+    /// this frame rather than half-reading it.
+    ///
+    /// **A generated title is this frame with a `source`, not a frame of its
+    /// own.** Upstream installs one through the same `renameConversation` a
+    /// `/rename` goes through (`installGeneratedTitle`,
+    /// `src/core/session/session_title_generation.zig:378-394`), so a session
+    /// has one title fact and the last one written is in force -- and the
+    /// runtime writes a generated one only while the log holds no title at
+    /// all, so a user's is never overwritten by one. A field rather than a
+    /// variant for [`Self::UsageRecorded`]'s reason: a binary that knows
+    /// `session_renamed` and not `source` ignores the field and shows the
+    /// title, where a new variant would make it refuse the whole log for a
+    /// cosmetic fact; and a user's rename, which carries no source, encodes
+    /// to exactly the bytes it always did.
+    SessionRenamed {
+        title: String,
+        #[serde(default, skip_serializing_if = "TitleSource::is_user")]
+        source: TitleSource,
+    },
+    /// The conversation was compacted (`/compact`, or a turn that reached the
+    /// automatic compaction point): every turn opened at or before
+    /// `covers_through_seq` is replaced, in what the model reads from here on,
+    /// by `compacted` ([`super::checkpoint::render`]).
+    ///
+    /// Upstream's `context_checkpoint { covers_through_seq, summary }`
+    /// (`vercel-labs/fx@c1db9191 src/core/session/session_event.zig:169-172`,
+    /// `:182`), with the payload typed rather than a string behind a marker --
+    /// see the module header on why there is no blob event here. The turns it
+    /// covers stay in the log and on a resumed screen; only the next request
+    /// carries the compacted form instead of them. The latest one in a log is
+    /// the one in force, and each one carries everything the one before it
+    /// kept.
+    ///
+    /// Written under schema 1 for the reason [`Self::ToolFeedback`] is: a new
+    /// binary reads every old log, and an older one refuses a log that holds
+    /// this frame rather than half-reading it -- which would be resuming with
+    /// the whole history after the user compacted it.
+    ContextCheckpoint {
+        covers_through_seq: u64,
+        compacted: super::checkpoint::Compacted,
+    },
 }
 
 impl SessionEvent {
@@ -200,12 +643,18 @@ impl SessionEvent {
             Self::PreferencesChanged { .. } => "preferences_changed",
             Self::ProjectContextRecorded { .. } => "project_context_recorded",
             Self::UserMessage { .. } => "user_message",
+            Self::ImagesAttached { .. } => "images_attached",
+            Self::ToolImagesAttached { .. } => "tool_images_attached",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",
+            Self::Steered { .. } => "steered",
             Self::PermissionGrantRecorded { .. } => "permission_grant_recorded",
+            Self::PermissionGrantsCleared => "permission_grants_cleared",
             Self::UsageRecorded { .. } => "usage_recorded",
             Self::TurnConcluded { .. } => "turn_concluded",
+            Self::SessionRenamed { .. } => "session_renamed",
+            Self::ContextCheckpoint { .. } => "context_checkpoint",
         }
     }
 }
@@ -396,6 +845,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         );
         assert_eq!(frame.encode().unwrap(), frame.encode().unwrap());
@@ -427,6 +877,54 @@ mod tests {
     fn a_frame_with_an_unknown_envelope_field_is_refused() {
         let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"user_message","text":"x"},"extra":true}"#;
         assert!(EventEnvelope::decode(line).is_err());
+    }
+
+    #[test]
+    fn the_provider_is_additive_on_both_frames_and_an_unknown_event_field_is_ignored() {
+        // Written only when known: a frame with none is byte-for-byte the
+        // frame an older binary wrote.
+        let started = |provider: Option<&str>| {
+            envelope(
+                1,
+                SessionEvent::SessionStarted {
+                    id: "s".to_string(),
+                    origin_workspace_root: "/w".to_string(),
+                    workspace_root: "/w".to_string(),
+                    model: "m".to_string(),
+                    permission_mode: "auto".to_string(),
+                    provider: provider.map(str::to_string),
+                },
+            )
+            .encode()
+            .expect("encodes")
+        };
+        assert!(!started(None).contains("provider"), "{}", started(None));
+        assert!(
+            started(Some("gateway")).contains(r#","provider":"gateway"}"#),
+            "{}",
+            started(Some("gateway"))
+        );
+        // A log written before it existed reads as one without it.
+        let older = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"session_started","id":"s","origin_workspace_root":"/w","workspace_root":"/w","model":"m","permission_mode":"auto"}}"#;
+        let SessionEvent::SessionStarted { provider, .. } =
+            EventEnvelope::decode(older).expect("an older frame").event
+        else {
+            panic!("not a start");
+        };
+        assert_eq!(provider, None);
+        let changed = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":2,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"preferences_changed","model":"m2","permission_mode":null}}"#;
+        let SessionEvent::PreferencesChanged { provider, .. } = EventEnvelope::decode(changed)
+            .expect("an older frame")
+            .event
+        else {
+            panic!("not a change");
+        };
+        assert_eq!(provider, None);
+        // And the other way: a field this binary does not know, inside an
+        // event it does, is read past -- which is what an older binary does
+        // with `provider` (`deny_unknown_fields` is the envelope's alone).
+        let newer = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"session_started","id":"s","origin_workspace_root":"/w","workspace_root":"/w","model":"m","permission_mode":"auto","a_later_field":{"x":1}}}"#;
+        assert!(EventEnvelope::decode(newer).is_ok());
     }
 
     #[test]
@@ -463,6 +961,9 @@ mod tests {
         let frame = envelope(
             1,
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -474,6 +975,156 @@ mod tests {
     }
 
     #[test]
+    fn a_result_keeps_how_its_row_ended_and_an_older_or_newer_one_still_reads() {
+        let result = SessionEvent::ToolResult {
+            call_id: "c".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            output: "boom".to_string(),
+            ending: Some(ToolEnding::Exited { code: 3 }),
+            lines: Some(LineCounts {
+                added: 2,
+                removed: 1,
+            }),
+            change: Some(RecordedChange {
+                before: "a\n".to_string(),
+                after: "b\nc\n".to_string(),
+                first_line: 4,
+                lines_below: 2,
+            }),
+        };
+        let encoded = serde_json::to_string(&result).expect("encodes");
+        assert!(
+            encoded
+                .contains(r#""ending":{"kind":"exited","code":3},"lines":{"added":2,"removed":1}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
+            result
+        );
+        // Written before the fields existed: nothing more than `ok` to say.
+        let older: SessionEvent = serde_json::from_str(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":false,"output":"o"}"#,
+        )
+        .expect("an older result still reads");
+        assert!(matches!(
+            older,
+            SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                ..
+            }
+        ));
+        // A field this build does not write -- an earlier build of this
+        // branch's `created_at_ms` -- is no reason to refuse the frame.
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","created_at_ms":1790899201000}"#,
+        )
+        .is_ok());
+        // A kind a later build adds is not a reason to refuse the log.
+        let newer: SessionEvent = serde_json::from_str(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","ending":{"kind":"paused","for":3}}"#,
+        )
+        .expect("a newer ending still reads");
+        assert!(matches!(
+            newer,
+            SessionEvent::ToolResult {
+                ending: Some(ToolEnding::Other),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn how_a_turn_ended_is_written_beside_its_sentence_and_an_older_frame_reads_without_it() {
+        // Upstream's event field, `reason: cancelled|failed`
+        // (`session_event.zig:101`), under xfx's name for it, since xfx's
+        // `reason` is the sentence.
+        let ended = |terminal_reason| SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "r".to_string(),
+                terminal_reason,
+                cancellation_origin: CancellationOrigin::Turn,
+            },
+        };
+        for (reason, name) in [
+            (TerminalReason::Cancelled, "cancelled"),
+            (TerminalReason::Failed, "failed"),
+        ] {
+            let line = serde_json::to_string(&ended(Some(reason))).expect("encodes");
+            assert_eq!(
+                line,
+                format!(
+                    r#"{{"kind":"turn_concluded","outcome":{{"kind":"interrupted","reason":"r","terminal_reason":"{name}"}}}}"#
+                )
+            );
+            assert_eq!(
+                serde_json::from_str::<SessionEvent>(&line).expect("decodes"),
+                ended(Some(reason))
+            );
+        }
+        let older = r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r"}}"#;
+        assert_eq!(
+            serde_json::to_string(&ended(None)).expect("encodes"),
+            older,
+            "a frame without it is written as before"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(older).expect("decodes"),
+            ended(None)
+        );
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","terminal_reason":"future"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_stop_the_compaction_took_says_so_and_any_other_reads_as_it_always_did() {
+        // Upstream writes the origin only when it is the compaction's
+        // (`session_event.zig:138-160`) and reads a missing one as the turn's.
+        let stopped = |cancellation_origin| SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "r".to_string(),
+                terminal_reason: None,
+                cancellation_origin,
+            },
+        };
+        let own = serde_json::to_string(&stopped(CancellationOrigin::Turn)).expect("encodes");
+        assert_eq!(
+            own,
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r"}}"#
+        );
+        let compaction =
+            serde_json::to_string(&stopped(CancellationOrigin::Compaction)).expect("encodes");
+        assert_eq!(
+            compaction,
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"compaction"}}"#
+        );
+        for (line, origin) in [
+            (own, CancellationOrigin::Turn),
+            (compaction, CancellationOrigin::Compaction),
+            (
+                r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"turn"}}"#
+                    .to_string(),
+                CancellationOrigin::Turn,
+            ),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<SessionEvent>(&line).expect("decodes"),
+                stopped(origin)
+            );
+        }
+        // A name it does not know is refused, as upstream's reader refuses it
+        // (`session_event.zig:121-125`), not read as either.
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"tool"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn every_event_kind_names_itself() {
         let events = [
             SessionEvent::SessionStarted {
@@ -482,6 +1133,7 @@ mod tests {
                 workspace_root: "/w".to_string(),
                 model: "m".to_string(),
                 permission_mode: "auto".to_string(),
+                provider: Some("gateway".to_string()),
             },
             SessionEvent::WorkspaceRebound {
                 previous_workspace_root: "/w".to_string(),
@@ -490,6 +1142,10 @@ mod tests {
             SessionEvent::PreferencesChanged {
                 model: Some("m2".to_string()),
                 permission_mode: None,
+                provider: Some("llmux".to_string()),
+                effort: Some("low".to_string()),
+                fast_mode: Some(true),
+                ultrafast_mode: Some(false),
             },
             SessionEvent::ProjectContextRecorded {
                 sources: Vec::new(),
@@ -504,8 +1160,12 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,
@@ -515,18 +1175,35 @@ mod tests {
                 call_id: "c".to_string(),
                 text: "say it differently".to_string(),
             },
+            SessionEvent::Steered {
+                text: "change tone".to_string(),
+            },
             SessionEvent::PermissionGrantRecorded {
                 tool: "t".to_string(),
                 target: "x".to_string(),
             },
+            SessionEvent::PermissionGrantsCleared,
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                turn_output_tokens: None,
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "cancelled".to_string(),
+                    terminal_reason: None,
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
+            },
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+                source: TitleSource::User,
             },
         ];
         for event in events {
@@ -576,6 +1253,194 @@ mod tests {
     }
 
     #[test]
+    fn a_rename_is_one_frame_with_the_title_and_nothing_else() {
+        // The shape `/rename` writes, byte for byte: the kind and the title.
+        let frame = envelope(
+            7,
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+                source: TitleSource::User,
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(r#""event":{"kind":"session_renamed","title":"My Title"}}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+    }
+
+    #[test]
+    fn a_generated_title_is_a_rename_that_says_where_it_came_from() {
+        let frame = envelope(
+            8,
+            SessionEvent::SessionRenamed {
+                title: "Fix the renderer".to_string(),
+                source: TitleSource::Generated,
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(
+                r#""event":{"kind":"session_renamed","title":"Fix the renderer","source":"generated"}}"#
+            ),
+            "{encoded}"
+        );
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+        // A rename frame written before the field existed is the user's.
+        let older = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":7,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"session_renamed","title":"My Title"}}"#;
+        assert_eq!(
+            EventEnvelope::decode(older)
+                .expect("an older rename decodes")
+                .event,
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+                source: TitleSource::User,
+            }
+        );
+    }
+
+    #[test]
+    fn a_rename_frame_with_a_field_this_build_does_not_know_still_opens() {
+        // What a binary from before `source` meets in a log this one wrote: a
+        // field it has no slot for, in a variant it knows. It is skipped, so
+        // that binary opens the log and shows the title -- the compatibility
+        // the generated title's shape was chosen for. Proven on this build
+        // with a field it does not know either, which is the same derive.
+        let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":7,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"session_renamed","title":"My Title","origin_of_a_later_build":"x"}}"#;
+        assert_eq!(
+            EventEnvelope::decode(line)
+                .expect("an unknown field in a known variant is skipped")
+                .event,
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+                source: TitleSource::User,
+            }
+        );
+        // And a source this build does not know is not read as the user's.
+        let unknown = line.replace(
+            r#""origin_of_a_later_build":"x""#,
+            r#""source":"somebody_else""#,
+        );
+        assert!(EventEnvelope::decode(&unknown).is_err());
+    }
+
+    #[test]
+    fn a_usage_frame_without_requests_encodes_exactly_as_it_always_did() {
+        // The shape a binary before `/usage` wrote, byte for byte: the two
+        // totals and nothing else. A turn written by this build has requests,
+        // so this is the frame only an older log holds -- and it must still
+        // decode, and say nothing new when written back.
+        let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":3,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"usage_recorded","input_tokens":11,"output_tokens":7}}"#;
+        let frame = EventEnvelope::decode(line).expect("an older usage frame decodes");
+        assert_eq!(
+            frame.event,
+            SessionEvent::UsageRecorded {
+                input_tokens: Some(11),
+                output_tokens: Some(7),
+                turn_output_tokens: None,
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
+            }
+        );
+        assert_eq!(frame.encode().expect("encodes").trim_end(), line);
+    }
+
+    #[test]
+    fn a_usage_frame_keeps_what_the_turn_summary_said_beside_the_answering_step() {
+        let frame = envelope(
+            4,
+            SessionEvent::UsageRecorded {
+                input_tokens: Some(1300),
+                output_tokens: Some(40),
+                turn_output_tokens: Some(80),
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(r#""input_tokens":1300,"output_tokens":40,"turn_output_tokens":80}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+    }
+
+    #[test]
+    fn a_usage_frame_keeps_each_request_and_what_the_turn_changed() {
+        let frame = envelope(
+            4,
+            SessionEvent::UsageRecorded {
+                input_tokens: Some(52000),
+                output_tokens: Some(3100),
+                turn_output_tokens: None,
+                requests: vec![RequestUsage {
+                    at_ms: 1_700_000_000_123,
+                    duration_ms: 812,
+                    model: "anthropic/claude-opus-5".to_string(),
+                    input_tokens: 52000,
+                    output_tokens: 3100,
+                    cache_read_tokens: 30000,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: Some(900),
+                    cost: Some(0.421),
+                    generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1".to_string()),
+                    origin: None,
+                }],
+                unaccounted: true,
+                lines_added: 3,
+                lines_removed: 1,
+                settled: Vec::new(),
+                rejected: Vec::new(),
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(
+                r#""requests":[{"at_ms":1700000000123,"duration_ms":812,"model":"anthropic/claude-opus-5","input_tokens":52000,"output_tokens":3100,"cache_read_tokens":30000,"cache_write_tokens":0,"reasoning_tokens":900,"cost":0.421,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1"}],"unaccounted":true,"lines_added":3,"lines_removed":1}"#
+            ),
+            "{encoded}"
+        );
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+
+        // A request the provider did not account for says so by having no
+        // cost, rather than a cost of nought.
+        let unbilled = RequestUsage {
+            cost: None,
+            generation_id: None,
+            origin: None,
+            reasoning_tokens: None,
+            ..match &frame.event {
+                SessionEvent::UsageRecorded { requests, .. } => requests[0].clone(),
+                _ => unreachable!(),
+            }
+        };
+        let text = serde_json::to_string(&unbilled).expect("encodes");
+        assert!(!text.contains("cost"), "{text}");
+        assert!(!text.contains("reasoning"), "{text}");
+    }
+
+    #[test]
     fn a_conclusion_labels_itself_for_a_human_reader() {
         assert_eq!(
             TurnConclusion::Final {
@@ -587,7 +1452,9 @@ mod tests {
         );
         assert_eq!(
             TurnConclusion::Interrupted {
-                reason: "cancelled".to_string()
+                reason: "cancelled".to_string(),
+                terminal_reason: None,
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
             }
             .label(),
             "interrupted"

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ pick a database
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Which database should I use?
+
+    1) Postgres                      Relational, strong consistency
+    2) SQLite                        Single file, embedded
+    3) DynamoDB
+    4)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel            Question 1 of 2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

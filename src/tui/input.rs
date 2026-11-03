@@ -16,15 +16,18 @@
 //!   most one event -- holds everywhere except two documented handbacks, and
 //!   both are paid for in advance by bytes that produced nothing: the escape
 //!   replay below, and the release of a paste-end prefix that turned out to be
-//!   content.
+//!   content. The end of a paste is not one byte's event at all: it is said
+//!   when its delivery is over ([`Decoder::end_delivery`], below), and the six
+//!   bytes of the end marker, which produced nothing, pay for it.
 //! * **A bare ESC followed by a control byte emits `Escape` *and* replays the
 //!   byte** (`terminal_action_decoder.zig:105-114`). No escape sequence carries
 //!   a C0 in that position, so the ESC was the user's Escape key and the byte
 //!   after it is its own keystroke; swallowing either loses a keystroke the
 //!   user really typed. **`ESC 0x7f`, `ESC CR` and `ESC LF` are the
 //!   exceptions**: they are how a terminal spells Alt-Backspace and Alt-Enter,
-//!   and they decode as the single [`Action::DeleteWordLeft`] the same key has
-//!   as Ctrl-W and the single [`Action::InsertNewline`] Alt-Enter has in its
+//!   and they decode as the single [`Action::DeleteWordBackward`] the same key
+//!   has in its `CSI u` spelling and the single [`Action::InsertNewline`]
+//!   Alt-Enter has in its
 //!   `CSI u` spelling (`escape_parser.zig` at `c1db919`, :515-519). Replayed,
 //!   either key would be an `Escape` as well -- so two of them would be two
 //!   Escapes inside the double-Esc window and would clear the whole composer
@@ -100,6 +103,34 @@
 //! alternative, releasing them on a timer, breaks every paste whose marker
 //! lands across two reads.
 //!
+//! # A paste ends with its delivery
+//!
+//! **Input that arrives behind a paste's end marker in the same delivery is
+//! the clipboard's, not the user's**, and it is never read as keys. A
+//! *delivery* is everything the terminal had written by the time the loop
+//! found nothing more to read -- one read or many, since a read takes at most
+//! `super::event_loop::BURST_BYTES` -- which is upstream's delivery epoch: it
+//! settles a paste only once a readiness check finds the input drained
+//! (`event_loop.zig:44-72`). A person cannot press a key inside that window;
+//! a clipboard that carries `ESC [ 201 ~` followed by a newline can, and
+//! without this rule the newline would submit the composer as if typed.
+//!
+//! So the marker does not end the paste by itself. Once it has matched, every
+//! further byte is counted and **nothing else is done with it** -- not decoded,
+//! not a key, not a second marker, not a new paste's start -- until the caller
+//! says the delivery is over ([`Decoder::end_delivery`]). Then it is one of
+//! two (`paste_framing.zig:93-108,160-167`, at `c1db919`): nothing followed
+//! the marker, and the paste stands ([`Delivery::Pasted`], which is
+//! [`Action::PasteEnd`]); or something did, and the whole paste is refused and
+//! the bytes behind the marker are dropped ([`Delivery::Refused`]). What the
+//! refusal says, and to which surface, is the caller's
+//! (`input_paste_runtime.zig:179-193`). A marker split across two reads is
+//! not input behind the marker -- it is the marker -- and a key in a later
+//! delivery is a key.
+//!
+//! This is fx c1db919's rule. Its v0.0.16 keeps the paste and drops only what
+//! followed (9e0eab41); that is a later fx, not this one.
+//!
 //! # Feeding it
 //!
 //! [`Decoder::feed`] takes the bytes in arrival order and no others. The launch
@@ -110,7 +141,8 @@
 //! -- the task that routes input into the editor owns `event_loop::run` and the
 //! decoder it lives in -- and this module's half of the obligation is that
 //! `feed` is a byte-at-a-time sink with no notion of which read a byte came
-//! off, so "in order" is the only thing the caller has to get right.
+//! off. The caller has two things to get right: the order, and **when a
+//! delivery is over**, which only the loop's readiness check knows.
 
 use std::time::{Duration, Instant};
 
@@ -128,6 +160,18 @@ pub(crate) enum Action {
     Right,
     Up,
     Down,
+    /// Up and Down with Shift held: `CSI 1;<mask> A/B` and the kitty arrow
+    /// reports with a mask that has Shift in it.
+    ///
+    /// Upstream reads them as a selection move (`extend_selection`), which
+    /// only a question's freeform field gives a meaning of its own -- the
+    /// choice above or below, where the plain arrows walk the field's rows
+    /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
+    /// `c1db919`). Everywhere else they are the arrows they always were here:
+    /// the shell folds them back before any other surface sees them
+    /// (`super::shell::Shell`'s `unshifted`).
+    SelectUp,
+    SelectDown,
     Home,
     End,
     WordLeft,
@@ -135,10 +179,44 @@ pub(crate) enum Action {
     Backspace,
     Delete,
     DeleteWordLeft,
+    /// Alt-Backspace: the word to the left by **word characters** -- letters,
+    /// digits, `_` and everything from `U+00C0` up -- and what separates it
+    /// from the caret (`delete_word_left`, `wordLeftRange`,
+    /// `composer_deletion.zig:103-136`). A deletion, not a kill. Not
+    /// [`Action::DeleteWordLeft`], which is `C-w`'s whitespace word and goes
+    /// to the kill slot (`delete_whitespace_word_left`, `shortcuts.zig:23`).
+    DeleteWordBackward,
+    /// The word to the right of the caret and the gap after it: Alt-d, and
+    /// Delete with Alt or Ctrl (`escape_parser.zig` at `c1db919`, :175-180,
+    /// :251, :549). A deletion, not a kill (`composer_deletion.zig:138-164`).
+    DeleteWordRight,
     KillToEnd,
     KillToStart,
     Submit,
     InsertNewline,
+    /// `C-j` (`0x0a`): a newline in the composer, exactly as
+    /// [`Action::InsertNewline`] -- and the next row of a menu while one is up
+    /// (`app_input_runtime.zig:1220-1235`, `routePickerControlByte`).
+    ///
+    /// Named for the key rather than folded into `InsertNewline`, because
+    /// upstream binds the menu move to the **byte**: Alt-Enter and Shift-Enter
+    /// are newlines everywhere, and only the key that is `0x0a` walks a menu.
+    ControlJ,
+    /// `C-k` (`0x0b`): [`Action::KillToEnd`] in the composer, and the row
+    /// above in a menu while one is up -- the other half of `ControlJ`, for the
+    /// same reason (Super-Delete kills to the end and walks no menu).
+    ControlK,
+    /// Page Up: `CSI 5 ~`, kitty's keypad Page Up, and either with a modifier
+    /// (`escape_parser.zig` at `c1db919`, :169-173, :632, :708).
+    ///
+    /// One key, routed by the surface it lands on: the full transcript pages
+    /// itself (`keyForAction`, `input_full_transcript_runtime.zig:156-179`),
+    /// a menu moves its mark a page of the composer's row cap, and the
+    /// composer moves the caret that far (`routeComposerVertical` with `page`,
+    /// `input_completion_runtime.zig:209-262`) -- never a history step.
+    PageUp,
+    /// Page Down, the mirror of [`Action::PageUp`].
+    PageDown,
     /// The tab key. Bound by the approval panel, where it cycles the marked
     /// choice, and by the slash completion menu, where it takes the marked
     /// command (`super::picker`). With neither of those up it still does
@@ -146,15 +224,24 @@ pub(crate) enum Action {
     /// a tab typed at a bare prompt is a keystroke this session has no binding
     /// for rather than a character.
     Tab,
-    /// The line before this one, out of what the session has submitted.
+    /// Shift-Tab: `CSI Z`, `CSI 1;<modifiers> Z`, and kitty's `CSI 9;2u`.
     ///
-    /// `C-p`, and the `Up` arrow when the caret has no row above it -- but the
-    /// two are **different actions** on purpose: the arrow is the composer's
-    /// first and the recall's only at the edge of the draft
-    /// (`super::shell::Shell::act`), and this one is the recall wherever the
-    /// caret is. A decoder that folded them together would put the edge rule on
-    /// a key whose whole purpose is not to have one.
-    HistoryPrevious,
+    /// Upstream decodes all three to one action, `toggle_permission_mode`
+    /// (`escape_parser.zig` at `c1db919`, :254, :569, :723-725), and lets an
+    /// open catalog have it first: the `/help` catalog's previous tab
+    /// (`app_input_runtime.zig:1175-1177`, `super::help_menu`). Named for the
+    /// key rather than for that fallback because xfx has no permission-mode
+    /// toggle -- with no catalog up it does nothing, as [`Action::Tab`] does.
+    BackTab,
+    /// `C-p` (`0x10`, and kitty's Ctrl+P): the model catalog at the composer
+    /// (`open_model_catalog`, `escape_parser.zig` at `c1db919`, :271), and
+    /// the choice above / a review walked back at a permission question.
+    ///
+    /// Named for the key, as [`Action::ControlJ`] is, because what it does is
+    /// the surface's to say. It is **not** the recall any more (ssot
+    /// divergence 8): the line before this one is the `Up` arrow's, at the
+    /// first row of the draft.
+    ControlP,
     /// The line after it, and the draft the walk began from once there are no
     /// more. `C-n`, and `Down` at the last row.
     HistoryNext,
@@ -169,13 +256,34 @@ pub(crate) enum Action {
     /// sequences (`runtime.zig:3018,3025`). `C-z` (`0x1a`) is not this key --
     /// upstream binds nothing to it and neither does this decoder.
     Redo,
+    /// The full transcript: open it, or close it again. `C-o` (`0x0f`), and
+    /// kitty's Ctrl+O report (`escape_parser.zig` at `c1db919`, :111-114,
+    /// :270).
+    ToggleTranscript,
     /// Insert what was last killed. `C-y` (`0x19`, `shortcuts.zig:84-85`).
     Yank,
+    /// Attach the clipboard's image at the caret. `C-v` (`0x16`), as
+    /// upstream's composer binds it (`app_input_runtime.zig:1561-1567`, at
+    /// `c1db919`): the same read `/paste` makes.
+    PasteImage,
+    /// Select the whole draft: Super+A on a terminal that reports Super
+    /// (`select_all`, `escape_parser.zig` at `c1db919`, :223-225).
+    SelectAll,
+    /// Put the selection on the clipboard: Super+C (`copy_selection`,
+    /// :226-228).
+    CopySelection,
+    /// Put the selection on the clipboard and take it out of the draft:
+    /// Super+X (`cut_selection`, :229-231).
+    CutSelection,
     Escape,
     Cancel,
     Eof,
     Redraw,
     PasteStart,
+    /// A paste that stands. Not the end marker's own event: a paste's end is
+    /// said when its delivery is over and nothing followed the marker
+    /// ([`Decoder::end_delivery`]); one that something did follow ends in
+    /// [`Delivery::Refused`] and never in this.
     PasteEnd,
     /// Something well-formed that means nothing here.
     ///
@@ -276,6 +384,21 @@ enum Stage {
     Utf8(Partial),
 }
 
+/// What the end of a delivery made of a paste ([`Decoder::end_delivery`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Delivery {
+    /// No paste ended in it: there was none, or the one that is open goes on
+    /// into the next delivery.
+    Quiet,
+    /// A paste ended and nothing followed its end marker: it stands, and
+    /// [`Action::PasteEnd`] is owed to whatever gathered it.
+    Pasted,
+    /// A paste ended and `dropped` more bytes followed its end marker in the
+    /// same delivery (`Settlement.reject`, `paste_framing.zig:165`). None of
+    /// them was read as anything, and the paste is not applied.
+    Refused { dropped: usize },
+}
+
 /// The byte-at-a-time terminal input decoder.
 // Task 9's editor is the first caller.
 #[allow(dead_code)]
@@ -288,6 +411,12 @@ pub(crate) struct Decoder {
     /// How many bytes of [`PASTE_END`] have matched so far. The bytes
     /// themselves are known, so the count is the whole of the held prefix.
     matched: usize,
+    /// How many bytes have arrived behind a paste's end marker in the delivery
+    /// that carried it: `Some(0)` the moment the marker completes, and `None`
+    /// again once that delivery is over ([`Self::end_delivery`]). While it is
+    /// `Some`, a byte is counted here and nothing else is done with it
+    /// (`end_candidate` and `unsafe`, `paste_framing.zig:98-108`).
+    behind: Option<usize>,
 }
 
 // Task 9's editor is the first caller of these.
@@ -306,16 +435,44 @@ impl Decoder {
             params: Vec::new(),
             pasting: false,
             matched: 0,
+            behind: None,
         }
     }
 
-    /// Whether the decoder is between paste markers.
+    /// Whether a paste owns the input: between its markers, and behind its
+    /// end marker until the delivery that carried the marker is over.
     pub(crate) fn pasting(&self) -> bool {
-        self.pasting
+        self.pasting || self.behind.is_some()
+    }
+
+    /// The delivery the bytes fed so far arrived in is over: the terminal had
+    /// nothing more to read. Settles a paste whose end marker arrived in it
+    /// (`settleDeliveryEpoch`, `paste_framing.zig:160-167`).
+    ///
+    /// Only the caller knows when that is -- the loop's readiness check
+    /// (`super::event_loop`'s `read_burst`) -- and it is said once per drained
+    /// burst, not once per read: a paste larger than one read is one delivery,
+    /// and so is its end marker and an Enter one read behind it.
+    pub(crate) fn end_delivery(&mut self) -> Delivery {
+        match self.behind.take() {
+            None => Delivery::Quiet,
+            Some(0) => Delivery::Pasted,
+            Some(dropped) => Delivery::Refused { dropped },
+        }
     }
 
     /// Feeds one byte, in arrival order, appending whatever it completed.
     pub(crate) fn feed(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+        // Behind a paste's end marker, in the delivery that carried it: the
+        // byte is counted, and that is all. Not decoded, so not a key -- an
+        // Enter here is the clipboard's, not the user's -- and not a marker
+        // either: a second end marker or a new paste's start is input behind
+        // this one's like any other (`paste_framing.zig:548-565`,
+        // `app_input_runtime.zig:9841-9860`).
+        if let Some(behind) = self.behind.as_mut() {
+            *behind = behind.saturating_add(1);
+            return;
+        }
         // First, and before any stage is consulted: inside a paste there is
         // nothing to decode but the end marker.
         if self.pasting {
@@ -366,9 +523,12 @@ impl Decoder {
         if byte == PASTE_END[self.matched] {
             self.matched += 1;
             if self.matched == PASTE_END.len() {
+                // The marker, but not yet the paste's end: that is the
+                // delivery's to say ([`Self::end_delivery`]), once it is known
+                // whether anything followed.
                 self.matched = 0;
                 self.pasting = false;
-                out.push(Input::Action(Action::PasteEnd));
+                self.behind = Some(0);
             }
             return;
         }
@@ -439,11 +599,11 @@ impl Decoder {
             // Escapes inside the double-Esc window and the gesture that throws
             // the whole draft away would fire on a keystroke that means delete
             // *one word* and keep the rest (`super::gesture`). One keystroke,
-            // one action, and it is the action the same key already has as
-            // Ctrl-W.
-            0x7f => {
+            // one action: upstream's `delete_word_left` (:547-552), which
+            // is not Ctrl-W's whitespace kill.
+            0x7f | 0x08 => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(Action::DeleteWordLeft));
+                out.push(Input::Action(Action::DeleteWordBackward));
             }
             // Alt-Enter, in the spelling a terminal without a key protocol
             // uses (`escape_parser.zig` at `c1db919`, :515-519), and the second
@@ -463,11 +623,27 @@ impl Decoder {
                 out.push(Input::Action(Action::Escape));
                 self.ground(byte, now, out);
             }
-            // `ESC` + a printable byte is Alt-something, and this phase binds
-            // no Alt key that is not an arrow. Ignored rather than replayed:
-            // replaying would put the character in the composer *and* fire
-            // whatever `Escape` fires, which is the one thing the user cannot
-            // have meant by a single keystroke.
+            // Alt-b, Alt-f and Alt-d in the spelling a terminal without a key
+            // protocol uses (`escape_parser.zig` at `c1db919`, :529-546): the
+            // word moves the modified arrows already make, and the forward
+            // word delete. Lower case only, as upstream reads them.
+            b'b' => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::WordLeft));
+            }
+            b'f' => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::WordRight));
+            }
+            b'd' => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::DeleteWordRight));
+            }
+            // Any other `ESC` + a printable byte is an Alt key this session
+            // binds nothing to. Ignored rather than replayed: replaying would
+            // put the character in the composer *and* fire whatever `Escape`
+            // fires, which is the one thing the user cannot have meant by a
+            // single keystroke.
             _ => {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::Ignore));
@@ -704,13 +880,16 @@ fn control(byte: u8) -> Action {
         0x06 => Action::Right,
         0x08 | 0x7f => Action::Backspace,
         0x09 => Action::Tab,
-        0x0a => Action::InsertNewline,
-        0x0b => Action::KillToEnd,
+        0x0a => Action::ControlJ,
+        0x0b => Action::ControlK,
         0x0c => Action::Redraw,
         0x0d => Action::Submit,
         0x0e => Action::HistoryNext,
-        0x10 => Action::HistoryPrevious,
+        // `controlByteFeatureAction` (`escape_parser.zig` at `c1db919`, :270).
+        0x0f => Action::ToggleTranscript,
+        0x10 => Action::ControlP,
         0x15 => Action::KillToStart,
+        0x16 => Action::PasteImage,
         0x17 => Action::DeleteWordLeft,
         0x19 => Action::Yank,
         0x1f => Action::Undo,
@@ -750,11 +929,14 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
             b"1" => Input::Action(Action::Home),
             b"3" => Input::Action(Action::Delete),
             b"4" => Input::Action(Action::End),
+            // The page keys (`escape_parser.zig` at `c1db919`, :632-633).
+            b"5" => Input::Action(Action::PageUp),
+            b"6" => Input::Action(Action::PageDown),
             b"200" => Input::Action(Action::PasteStart),
             b"201" => Input::Action(Action::PasteEnd),
             // xterm's `modifyOtherKeys` spelling of a key report -- a
             // **params shape** under a final byte that already carries five
-            // literal ones.
+            // literal ones -- or a tilde key with a modifier.
             _ => tilde_report(params),
         },
         // The cursor keys, bare or with one modifier.
@@ -767,6 +949,14 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
         }
         // Kitty's spelling of a key report.
         b'u' => report(params),
+        // Shift-Tab, bare or with a modifier (`escape_parser.zig:569`,
+        // `:723-725`): upstream reads any modifier as the same key, and a
+        // modifier field of `1` -- none at all -- is not a spelling it has.
+        b'Z' => match modifier(params) {
+            Some(1) if params.is_empty() => Input::Action(Action::BackTab),
+            Some(mask) if mask > 1 => Input::Action(Action::BackTab),
+            _ => Input::Action(Action::Ignore),
+        },
         _ => Input::Action(Action::Ignore),
     }
 }
@@ -775,11 +965,15 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// arrow table, and the one a keypad arrow is resolved through as well
 /// ([`kitty_key`]).
 ///
-/// Shift is dropped along with the selection it would have extended, so what
-/// is left is "ctrl or alt means by word".
+/// Shift is dropped from Left and Right along with the selection it would have
+/// extended, so what is left there is "ctrl or alt means by word". On Up and
+/// Down it is kept, as [`Action::SelectUp`] and [`Action::SelectDown`].
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
+    let shifted = mask & SHIFT != 0;
     match letter {
+        b'A' if shifted => Action::SelectUp,
+        b'B' if shifted => Action::SelectDown,
         b'A' => Action::Up,
         b'B' => Action::Down,
         b'C' if word => Action::WordRight,
@@ -839,14 +1033,60 @@ fn report(params: &[u8]) -> Input {
 fn tilde_report(params: &[u8]) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
-    let (Some(b"27"), Some(mask), Some(code), None) =
-        (fields.next(), fields.next(), fields.next(), fields.next())
-    else {
-        return ignore;
-    };
-    match (key_modifiers(mask), decimal(code, KEYCODE_DIGITS)) {
-        (Some(mask), Some(code)) => kitty_key(code, mask),
+    match (fields.next(), fields.next(), fields.next(), fields.next()) {
+        (Some(b"27"), Some(mask), Some(code), None) => {
+            match (key_modifiers(mask), decimal(code, KEYCODE_DIGITS)) {
+                (Some(mask), Some(code)) => kitty_key(code, mask),
+                _ => ignore,
+            }
+        }
+        (Some(key), Some(mask), None, None) => match key_modifiers(mask) {
+            Some(mask) => modified_tilde(key, mask),
+            None => ignore,
+        },
         _ => ignore,
+    }
+}
+
+/// `CSI <key> ; <modifier> ~`: a tilde key held with a modifier
+/// (`escape_parser.zig` at `c1db919`, :694-718).
+///
+/// Delete is upstream's `forwardDeleteKeyAction` (:175-180): Super kills to
+/// the end of the line, Alt or Ctrl deletes the word to the right, and Shift
+/// alone is nothing. The page keys are a page move with any modifier
+/// (`composerMove(.page_up, ...)`, :708-709) -- Shift's selection extension is
+/// dropped with the selection, as the arrows drop it ([`cursor`]). Home and End
+/// with a modifier are upstream's draft and line jumps, which this composer
+/// does not have, and stay [`Action::Ignore`].
+///
+/// A modifier field of `1` -- no modifier at all -- is not a spelling any
+/// terminal sends for these keys, and is refused as the bare `CSI 1 ; 1 Z` is
+/// ([`csi`]): the bare key has its one spelling.
+fn modified_tilde(key: &[u8], mask: u8) -> Input {
+    let mods = mask & 0x3f;
+    if mask == 0 {
+        return Input::Action(Action::Ignore);
+    }
+    Input::Action(match key {
+        b"3" => forward_delete(mods),
+        b"5" => Action::PageUp,
+        b"6" => Action::PageDown,
+        _ => Action::Ignore,
+    })
+}
+
+/// Delete under a modifier mask (`forwardDeleteKeyAction`,
+/// `escape_parser.zig` at `c1db919`, :175-180), shared by the legacy tilde
+/// spelling and the keypad's.
+fn forward_delete(mods: u8) -> Action {
+    if mods & SUPER != 0 {
+        Action::KillToEnd
+    } else if mods & (ALT | CTRL) != 0 {
+        Action::DeleteWordRight
+    } else if mods == 0 {
+        Action::Delete
+    } else {
+        Action::Ignore
     }
 }
 
@@ -945,18 +1185,26 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   decoder's main-row arrow table -- upstream's own rule that a keypad key
 ///   behaves as its main-row key (:116-118), read against xfx's main row;
 /// * `escape`, `insert_newline`, `undo`/`redo`, `word_left`/`word_right`,
-///   `delete_word_left`, `delete_to_line_start`/`delete_to_line_end` and
-///   `delete_next` are [`Action::Escape`], [`Action::InsertNewline`],
+///   `delete_word_left`, `delete_word_right`,
+///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the page
+///   keys are [`Action::Escape`], [`Action::InsertNewline`],
 ///   [`Action::Undo`]/[`Action::Redo`], [`Action::WordLeft`]/[`Action::WordRight`],
-///   [`Action::DeleteWordLeft`], [`Action::KillToStart`]/[`Action::KillToEnd`]
-///   and [`Action::Delete`].
+///   [`Action::DeleteWordBackward`], [`Action::DeleteWordRight`],
+///   [`Action::KillToStart`]/[`Action::KillToEnd`], [`Action::Delete`] and
+///   [`Action::PageUp`]/[`Action::PageDown`], a page key with a modifier
+///   included -- upstream's `composerMove` to a page (:171), whose selection
+///   extension this composer does not have;
+/// * `toggle_full_transcript` -- Ctrl+O and nothing else held (:111-114,
+///   :252) -- is [`Action::ToggleTranscript`], and `select_all`,
+///   `copy_selection` and `cut_selection` (:223-231) are
+///   [`Action::SelectAll`], [`Action::CopySelection`] and
+///   [`Action::CutSelection`].
 ///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
-/// `select_all` (:223-225), `copy_selection` (:226-228), `cut_selection`
-/// (:229-231), every `composerMove` that extends a selection (:238-241, :244,
-/// :248), `delete_word_right` (:178, :251), `toggle_full_transcript`
-/// (:111-114, :252), `open_all_sessions` (:253), `toggle_permission_mode`
-/// (:254), and the page keys with or without a modifier (:169-173). Upstream's
+/// every `composerMove` that extends a selection (:238-241, :244,
+/// :248), an `o` under any other modifiers (:111-114) and
+/// `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
+/// [`Action::BackTab`], the key it is spelled with. Upstream's
 /// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
 /// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
 /// so it is always `false` here and its branches are not carried.
@@ -980,21 +1228,18 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             return Input::Action(cursor(letter, mods));
         } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
             // `page_up`/`page_down`, or a `composerMove` to them with a
-            // modifier (:169-173): this session has no page key.
-            return ignore;
+            // modifier (:169-173): a page either way here, because the
+            // modifier's selection is one this composer does not have.
+            return Input::Action(if code == KP_PAGE_UP {
+                Action::PageUp
+            } else {
+                Action::PageDown
+            });
         } else if code == KP_ENTER {
             return kitty_key(13, modifiers);
         } else if code == KP_DELETE {
-            // The main-row `ESC[3~` family (:175-180): Super kills to the end
-            // of the line, Alt or Ctrl is `delete_word_right` -- which this
-            // session does not have -- and Shift alone is nothing.
-            return Input::Action(if mods & SUPER != 0 {
-                Action::KillToEnd
-            } else if mods == 0 {
-                Action::Delete
-            } else {
-                Action::Ignore
-            });
+            // The main-row `ESC[3~` family (:175-180).
+            return Input::Action(forward_delete(mods));
         }
     }
     if code == KITTY_UP || code == KITTY_DOWN {
@@ -1020,9 +1265,16 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
     let ascii = u8::try_from(code).ok().filter(u8::is_ascii);
     let is = |wanted: u8| ascii.is_some_and(|byte| byte.to_ascii_lowercase() == wanted);
     if mods & SUPER != 0 {
-        // `select_all`, `copy_selection`, `cut_selection` (:223-231).
-        if is(b'a') || is(b'c') || is(b'x') {
-            return ignore;
+        // `select_all`, `copy_selection`, `cut_selection` (:223-231), with
+        // whatever else is held.
+        if is(b'a') {
+            return Input::Action(Action::SelectAll);
+        }
+        if is(b'c') {
+            return Input::Action(Action::CopySelection);
+        }
+        if is(b'x') {
+            return Input::Action(Action::CutSelection);
         }
         if is(b'z') {
             return Input::Action(if mods & SHIFT == 0 {
@@ -1047,14 +1299,26 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             Action::WordRight
         });
     }
-    // `delete_word_right` (:251), `toggle_full_transcript` or nothing (:252),
-    // `open_all_sessions` (:253), `toggle_permission_mode` (:254).
-    if (is(b'd') && mods & ALT != 0)
-        || is(b'o')
-        || (is(b'r') && mods & SUPER != 0)
-        || (code == 9 && mods & SHIFT != 0)
-    {
+    // `delete_word_right` (:251).
+    if is(b'd') && mods & ALT != 0 {
+        return Input::Action(Action::DeleteWordRight);
+    }
+    // `toggle_full_transcript` for Ctrl+O alone, and nothing for an `o` under
+    // any other modifiers (`ctrlOKeyAction`, :111-114, :252).
+    if is(b'o') {
+        return Input::Action(if mods == CTRL {
+            Action::ToggleTranscript
+        } else {
+            Action::Ignore
+        });
+    }
+    // `open_all_sessions` (:253).
+    if is(b'r') && mods & SUPER != 0 {
         return ignore;
+    }
+    // `toggle_permission_mode` (:254): Tab with Shift, whatever else is held.
+    if code == 9 && mods & SHIFT != 0 {
+        return Input::Action(Action::BackTab);
     }
     // Ctrl and a letter or `_` is that key's control byte (:255-259); the
     // low five bits are the arithmetic upstream spells as `- 96` and `- 64`.
@@ -1067,7 +1331,7 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         return Input::Action(Action::KillToStart);
     }
     if code == 127 && mods & ALT != 0 {
-        return Input::Action(Action::DeleteWordLeft);
+        return Input::Action(Action::DeleteWordBackward);
     }
     match code {
         13 => replayed(b'\r'),
@@ -1131,6 +1395,7 @@ fn ss3(byte: u8) -> Action {
 mod tests {
     use super::*;
 
+    /// `bytes` as one delivery: fed, and then the delivery ended.
     fn decode(bytes: &[u8]) -> Vec<Input> {
         let mut decoder = Decoder::new();
         let now = Instant::now();
@@ -1138,7 +1403,19 @@ mod tests {
         for byte in bytes {
             decoder.feed(*byte, now, &mut out);
         }
+        deliver(&mut decoder, &mut out);
         out
+    }
+
+    /// Ends a delivery the way the shell does (`super::super::shell::Shell`'s
+    /// `end_delivery`): a paste that stands is its [`Action::PasteEnd`], and a
+    /// refused one is nothing at all.
+    fn deliver(decoder: &mut Decoder, out: &mut Vec<Input>) -> Delivery {
+        let delivery = decoder.end_delivery();
+        if delivery == Delivery::Pasted {
+            out.push(Input::Action(Action::PasteEnd));
+        }
+        delivery
     }
 
     /// What `csi` decodes a sequence to, for the cases that are an action.
@@ -1278,14 +1555,13 @@ mod tests {
         // `kittyUnicodeKeyAction` (`escape_parser.zig` at `c1db919`,
         // :185-266): `2` is shift alone and `3` alt alone, neither of which
         // makes `c` anything; `13` is ctrl *and* super, which upstream reads
-        // as `copy_selection` before Ctrl is consulted (:226-228) -- a key
-        // this session does not have.
+        // as `copy_selection` before Ctrl is consulted (:226-228).
         assert_eq!(csi(b"27;2;99", b'~'), Action::Ignore, "shift is not ctrl");
         assert_eq!(csi(b"27;3;99", b'~'), Action::Ignore, "alt is not ctrl");
         assert_eq!(
             csi(b"27;13;99", b'~'),
-            Action::Ignore,
-            "ctrl+super+c is copy_selection, which xfx has no key for"
+            Action::CopySelection,
+            "ctrl+super+c is copy_selection, ahead of Ctrl"
         );
         assert_eq!(csi(b"27;1;99", b'~'), Action::Ignore, "no modifier at all");
 
@@ -1390,24 +1666,24 @@ mod tests {
         ("alt+enter", b"\x1b[13;3u", Action::InsertNewline),
         ("ctrl+a", b"\x1b[97;5u", Action::Home),
         ("ctrl+e", b"\x1b[101;5u", Action::End),
-        ("ctrl+k", b"\x1b[107;5u", Action::KillToEnd),
+        ("ctrl+k", b"\x1b[107;5u", Action::ControlK),
         ("ctrl+w", b"\x1b[119;5u", Action::DeleteWordLeft),
         ("ctrl+y", b"\x1b[121;5u", Action::Yank),
-        ("ctrl+p", b"\x1b[112;5u", Action::HistoryPrevious),
+        ("ctrl+p", b"\x1b[112;5u", Action::ControlP),
         ("ctrl+n", b"\x1b[110;5u", Action::HistoryNext),
         ("up", b"\x1b[A", Action::Up),
         ("down", b"\x1b[B", Action::Down),
         ("left", b"\x1b[D", Action::Left),
         ("right", b"\x1b[C", Action::Right),
-        // `toggle_permission_mode` (:254), which xfx has no key for.
-        ("shift+tab", b"\x1b[9;2u", Action::Ignore),
+        // `toggle_permission_mode` (:254), which is Shift-Tab's action.
+        ("shift+tab", b"\x1b[9;2u", Action::BackTab),
         ("super+z", b"\x1b[122;9u", Action::Undo),
         ("super+shift+z", b"\x1b[122;10u", Action::Redo),
         ("ctrl+b", b"\x1b[98;5u", Action::Left),
         ("ctrl+f", b"\x1b[102;5u", Action::Right),
         ("ctrl+h", b"\x1b[104;5u", Action::Backspace),
         ("ctrl+i", b"\x1b[105;5u", Action::Tab),
-        ("ctrl+j", b"\x1b[106;5u", Action::InsertNewline),
+        ("ctrl+j", b"\x1b[106;5u", Action::ControlJ),
         ("ctrl+l", b"\x1b[108;5u", Action::Redraw),
         ("ctrl+m", b"\x1b[109;5u", Action::Submit),
         ("ctrl+_", b"\x1b[95;5u", Action::Undo),
@@ -1415,7 +1691,7 @@ mod tests {
         // these two fall through to its final `.ignore` (:265).
         ("ctrl+/", b"\x1b[47;5u", Action::Ignore),
         ("ctrl+-", b"\x1b[45;5u", Action::Ignore),
-        ("alt+backspace", b"\x1b[127;3u", Action::DeleteWordLeft),
+        ("alt+backspace", b"\x1b[127;3u", Action::DeleteWordBackward),
         ("alt+left", b"\x1b[1;3D", Action::WordLeft),
         ("alt+right", b"\x1b[1;3C", Action::WordRight),
         ("ctrl+left", b"\x1b[1;5D", Action::WordLeft),
@@ -1569,7 +1845,7 @@ mod tests {
             (b"\x1b[57399;5u", Input::Action(Action::Ignore)),
             (b"\x1b[57417u", Input::Action(Action::Left)),
             (b"\x1b[57418;5u", Input::Action(Action::WordRight)),
-            (b"\x1b[57419;2u", Input::Action(Action::Up)),
+            (b"\x1b[57419;2u", Input::Action(Action::SelectUp)),
             (b"\x1b[57423u", Input::Action(Action::Home)),
             (b"\x1b[57424u", Input::Action(Action::End)),
             (b"\x1b[57414u", Input::Action(Action::Submit)),
@@ -1595,10 +1871,10 @@ mod tests {
         // `c1db919`) with no action in this session's vocabulary, and none is
         // invented for it.
         for (bytes, upstream) in [
-            (&b"\x1b[97;9u"[..], "select_all :223-225"),
-            (b"\x1b[99;9u", "copy_selection :226-228"),
-            (b"\x1b[120;9u", "cut_selection :229-231"),
-            (b"\x1b[97;6u", "composerMove line_start + selection :238"),
+            (
+                &b"\x1b[97;6u"[..],
+                "composerMove line_start + selection :238",
+            ),
             (
                 b"\x1b[98;6u",
                 "composerMove character_left + selection :239",
@@ -1610,15 +1886,16 @@ mod tests {
             ),
             (b"\x1b[98;4u", "composerMove word_left + selection :244"),
             (b"\x1b[102;4u", "composerMove word_right + selection :248"),
-            (b"\x1b[100;3u", "delete_word_right :251"),
-            (b"\x1b[100;7u", "delete_word_right ahead of Ctrl-D :251"),
-            (b"\x1b[111;5u", "toggle_full_transcript :252,:111-114"),
+            (
+                b"\x1b[111;6u",
+                "ctrlOKeyAction with Shift beside Ctrl :111-114",
+            ),
+            (b"\x1b[111;3u", "ctrlOKeyAction with Alt :111-114"),
             (b"\x1b[114;9u", "open_all_sessions :253"),
-            (b"\x1b[9;2u", "toggle_permission_mode :254"),
-            (b"\x1b[57421u", "page_up :169-173"),
-            (b"\x1b[57422;5u", "composerMove page_down :171"),
-            (b"\x1b[57426;5u", "delete_word_right :178"),
             (b"\x1b[57426;2u", "forward delete with Shift :179"),
+            (b"\x1b[3;2~", "main-row Delete with Shift alone :179, :697"),
+            (b"\x1b[1;5~", "composerMove draft_start :699-702"),
+            (b"\x1b[4;3~", "composerMove line_end :703-706"),
             (b"\x1b[57352;17u", "kitty Up with Hyper alone :214"),
         ] {
             assert_eq!(
@@ -1627,6 +1904,104 @@ mod tests {
                 "{bytes:?} ({upstream})"
             );
         }
+    }
+
+    #[test]
+    fn the_forward_word_delete_and_the_page_keys_decode_in_every_spelling() {
+        // Each is a real upstream result (`escape_parser.zig` at `c1db919`)
+        // that has an action here now.
+        for (bytes, action, upstream) in [
+            (&b"\x1bd"[..], Action::DeleteWordRight, "ESC d :541-546"),
+            (b"\x1bb", Action::WordLeft, "ESC b :529-534"),
+            (b"\x1bf", Action::WordRight, "ESC f :535-540"),
+            (b"\x1b[100;3u", Action::DeleteWordRight, "kitty Alt-d :251"),
+            (
+                b"\x1b[100;7u",
+                Action::DeleteWordRight,
+                "kitty Ctrl+Alt-d, ahead of Ctrl-D :251",
+            ),
+            (b"\x1b[3;3~", Action::DeleteWordRight, "Alt-Delete :175-180"),
+            (
+                b"\x1b[3;5~",
+                Action::DeleteWordRight,
+                "Ctrl-Delete :175-180",
+            ),
+            (b"\x1b[3;9~", Action::KillToEnd, "Super-Delete :175-180"),
+            (
+                b"\x1b[57426;5u",
+                Action::DeleteWordRight,
+                "keypad Delete :178",
+            ),
+            (b"\x1b[5~", Action::PageUp, "page_up :632"),
+            (b"\x1b[6~", Action::PageDown, "page_down :633"),
+            (b"\x1b[5;5~", Action::PageUp, "composerMove page_up :708"),
+            (
+                b"\x1b[6;2~",
+                Action::PageDown,
+                "composerMove page_down :709",
+            ),
+            (b"\x1b[57421u", Action::PageUp, "keypad page_up :169-173"),
+            (
+                b"\x1b[57422;5u",
+                Action::PageDown,
+                "composerMove page_down :171",
+            ),
+            (
+                b"\x0a",
+                Action::ControlJ,
+                "C-j :1220-1235 of app_input_runtime",
+            ),
+            (b"\x0b", Action::ControlK, "C-k, the same"),
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(action)],
+                "{bytes:?} ({upstream})"
+            );
+        }
+        // Upper case is not the binding, as upstream reads it.
+        assert_eq!(decode(b"\x1bB"), vec![Input::Action(Action::Ignore)]);
+        assert_eq!(decode(b"\x1bD"), vec![Input::Action(Action::Ignore)]);
+    }
+
+    #[test]
+    fn super_a_c_and_x_are_the_composers_selection_keys() {
+        // `escape_parser.zig` at `c1db919`, :223-231: Super with `a`, `c` or
+        // `x` in either case, whatever else is held, in both report spellings.
+        for (bytes, action) in [
+            (&b"\x1b[97;9u"[..], Action::SelectAll),
+            (b"\x1b[65;10u", Action::SelectAll),
+            (b"\x1b[99;9u", Action::CopySelection),
+            (b"\x1b[99;13u", Action::CopySelection),
+            (b"\x1b[120;9u", Action::CutSelection),
+            (b"\x1b[27;9;120~", Action::CutSelection),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads() {
+        // `escape_parser.zig` at `c1db919`: the control byte (:270), kitty's
+        // Ctrl+O and only Ctrl+O (:111-114, :252), the tilde page keys
+        // (:632-633) and the bare keypad ones (:169-173). One action per key
+        // whatever the spelling, so the screen has one binding to answer.
+        for (bytes, action) in [
+            (&b"\x0f"[..], Action::ToggleTranscript),
+            (b"\x1b[111;5u", Action::ToggleTranscript),
+            (b"\x1b[79;5u", Action::ToggleTranscript),
+            (b"\x1b[27;5;111~", Action::ToggleTranscript),
+            (b"\x1b[5~", Action::PageUp),
+            (b"\x1b[6~", Action::PageDown),
+            (b"\x1b[57421u", Action::PageUp),
+            (b"\x1b[57422u", Action::PageDown),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
+        // A spelling of the tilde key no terminal sends is not a page key, for
+        // the reason every tilde key is matched as bytes (`csi`).
+        assert_eq!(csi(b"05", b'~'), Action::Ignore);
+        assert_eq!(csi(b"5;1", b'~'), Action::Ignore);
     }
 
     #[test]
@@ -1655,7 +2030,7 @@ mod tests {
         // Alt-Backspace keeps its own carve-out.
         assert_eq!(
             decode(&[0x1b, 0x7f]),
-            vec![Input::Action(Action::DeleteWordLeft)]
+            vec![Input::Action(Action::DeleteWordBackward)]
         );
     }
 
@@ -1732,6 +2107,35 @@ mod tests {
     }
 
     #[test]
+    fn shift_tab_is_one_key_in_all_three_spellings() {
+        // `escape_parser.zig` at `c1db919`: `CSI Z` (:569), `CSI 1;<m> Z` with
+        // a modifier (:723-725), and kitty's Tab with Shift (:254).
+        for bytes in [
+            &b"\x1b[Z"[..],
+            b"\x1b[1;2Z",
+            b"\x1b[1;6Z",
+            b"\x1b[9;2u",
+            b"\x1b[9;6u",
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::BackTab)],
+                "{bytes:?}"
+            );
+        }
+        // A modifier field that says "no modifier" is not a spelling upstream
+        // has, and a parameter that is not a modifier is not Shift-Tab.
+        for bytes in [&b"\x1b[1;1Z"[..], b"\x1b[2Z", b"\x1b[1;Z"] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::Ignore)],
+                "{bytes:?}"
+            );
+        }
+        assert_eq!(decode(b"\x1b[9u"), vec![Input::Action(Action::Tab)]);
+    }
+
+    #[test]
     fn arrows_arrive_as_csi_and_as_ss3() {
         // escape_parser.zig:456-464, :535-553
         assert_eq!(decode(b"\x1b[A"), vec![Input::Action(Action::Up)]);
@@ -1805,6 +2209,7 @@ mod tests {
         for byte in b"\x1b[200~\x1b[0201~\x1b[201~" {
             decoder.feed(*byte, now, &mut out);
         }
+        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Pasted);
         assert!(!decoder.pasting(), "the exact end marker did not close");
         assert_eq!(
             out.iter()
@@ -1847,7 +2252,8 @@ mod tests {
             &b"\x1b[03~"[..],
             &b"\x1b[04~"[..],
             &b"\x1b[1;1~"[..],
-            &b"\x1b[3;5~"[..],
+            &b"\x1b[3;05~"[..],
+            &b"\x1b[3;5;1~"[..],
             &b"\x1b[30~"[..],
             &b"\x1b[~"[..],
         ] {
@@ -1858,9 +2264,17 @@ mod tests {
             );
         }
         // The two shapes that are keys, including the shift modifier that is
-        // dropped down to a plain move.
+        // dropped down to a plain move -- on Left and Right; on Up and Down it
+        // is the selection move a question's field binds.
         assert_eq!(decode(b"\x1b[C"), vec![Input::Action(Action::Right)]);
         assert_eq!(decode(b"\x1b[1;2C"), vec![Input::Action(Action::Right)]);
+        assert_eq!(decode(b"\x1b[1;2A"), vec![Input::Action(Action::SelectUp)]);
+        assert_eq!(
+            decode(b"\x1b[1;2B"),
+            vec![Input::Action(Action::SelectDown)]
+        );
+        assert_eq!(decode(b"\x1b[1;6A"), vec![Input::Action(Action::SelectUp)]);
+        assert_eq!(decode(b"\x1b[1;5A"), vec![Input::Action(Action::Up)]);
         assert_eq!(decode(b"\x1b[1;5C"), vec![Input::Action(Action::WordRight)]);
         assert_eq!(decode(b"\x1b[1;16D"), vec![Input::Action(Action::WordLeft)]);
         assert_eq!(decode(b"\x1b[1;5H"), vec![Input::Action(Action::Home)]);
@@ -1966,24 +2380,27 @@ mod tests {
         // one word and keep the rest.
         assert_eq!(
             decode(&[0x1b, 0x7f]),
-            vec![Input::Action(Action::DeleteWordLeft)]
+            vec![Input::Action(Action::DeleteWordBackward)]
         );
         assert_eq!(
             decode(&[0x1b, 0x7f, 0x1b, 0x7f]),
             vec![
-                Input::Action(Action::DeleteWordLeft),
-                Input::Action(Action::DeleteWordLeft)
+                Input::Action(Action::DeleteWordBackward),
+                Input::Action(Action::DeleteWordBackward)
             ],
             "two Alt-Backspaces armed the composer-clearing gesture"
+        );
+        // `ESC 0x08` is the same key on a terminal whose Backspace sends
+        // `C-h` (`escape_parser.zig` at `c1db919`, :549).
+        assert_eq!(
+            decode(&[0x1b, 0x08]),
+            vec![Input::Action(Action::DeleteWordBackward)]
         );
         // And the replay itself is untouched for every other byte in that
         // position, which is what keeps this a carve-out rather than a repeal.
         assert_eq!(
-            decode(&[0x1b, 0x08]),
-            vec![
-                Input::Action(Action::Escape),
-                Input::Action(Action::Backspace)
-            ]
+            decode(&[0x1b, 0x02]),
+            vec![Input::Action(Action::Escape), Input::Action(Action::Left)]
         );
     }
 
@@ -2009,11 +2426,14 @@ mod tests {
             (0x02, Action::Left),
             (0x06, Action::Right),
             (0x04, Action::Eof),
-            (0x0b, Action::KillToEnd),
+            // `C-k` and `C-j` are the kill and the newline in the composer,
+            // and walk a menu that is up, so they decode to their keys
+            // (`Action::ControlK`, `Action::ControlJ`).
+            (0x0b, Action::ControlK),
             (0x15, Action::KillToStart),
             (0x17, Action::DeleteWordLeft),
             (0x0c, Action::Redraw),
-            (0x0a, Action::InsertNewline),
+            (0x0a, Action::ControlJ),
             (0x0d, Action::Submit),
             (0x03, Action::Cancel),
             (0x7f, Action::Backspace),
@@ -2090,13 +2510,15 @@ mod tests {
             (0x06, Action::Right),
             (0x08, Action::Backspace),
             (0x09, Action::Tab),
-            (0x0a, Action::InsertNewline),
-            (0x0b, Action::KillToEnd),
+            (0x0a, Action::ControlJ),
+            (0x0b, Action::ControlK),
             (0x0c, Action::Redraw),
             (0x0d, Action::Submit),
             (0x0e, Action::HistoryNext),
-            (0x10, Action::HistoryPrevious),
+            (0x0f, Action::ToggleTranscript),
+            (0x10, Action::ControlP),
             (0x15, Action::KillToStart),
+            (0x16, Action::PasteImage),
             (0x17, Action::DeleteWordLeft),
             (0x19, Action::Yank),
             (0x1f, Action::Undo),
@@ -2132,10 +2554,7 @@ mod tests {
         // `Down` would make the recall unreachable from the middle of a
         // multi-row draft -- which is exactly the draft a user reaches for it
         // from.
-        assert_eq!(
-            decode(&[0x10]),
-            vec![Input::Action(Action::HistoryPrevious)]
-        );
+        assert_eq!(decode(&[0x10]), vec![Input::Action(Action::ControlP)]);
         assert_eq!(decode(&[0x0e]), vec![Input::Action(Action::HistoryNext)]);
         assert_ne!(
             decode(&[0x10]),
@@ -2177,6 +2596,7 @@ mod tests {
         for byte in b"\x1b[200~\x1b[2X\x1b[201~" {
             decoder.feed(*byte, now, &mut out);
         }
+        deliver(&mut decoder, &mut out);
         assert_eq!(
             out,
             vec![
@@ -2202,6 +2622,7 @@ mod tests {
         for byte in b"\x1b[200~\x1b[2\x1b[201~" {
             decoder.feed(*byte, now, &mut out);
         }
+        deliver(&mut decoder, &mut out);
         assert_eq!(
             out,
             vec![
@@ -2233,6 +2654,7 @@ mod tests {
             for byte in &stream {
                 decoder.feed(*byte, now, &mut out);
             }
+            deliver(&mut decoder, &mut out);
             assert!(
                 out.len() <= stream.len(),
                 "{} bytes produced {} events: {out:?}",
@@ -2279,6 +2701,7 @@ mod tests {
             let start = Instant::now();
             let mut out = Vec::new();
             let mut fed = 0usize;
+            let mut refused = 0usize;
             for step in 0..512 {
                 let roll = noise.next();
                 let bytes: &[u8] = match roll % 16 {
@@ -2311,6 +2734,20 @@ mod tests {
                          the {fed} bytes that were fed"
                     );
                 }
+                // And the end of a delivery, half the time, on bits the chunk
+                // was not chosen by: right behind an end marker that is a paste
+                // that stands, a chunk later one that is refused. The
+                // `PasteEnd` it owes is paid for by the marker.
+                if (roll >> 6).is_multiple_of(2) {
+                    if let Delivery::Refused { .. } = deliver(&mut decoder, &mut out) {
+                        refused += 1;
+                    }
+                    assert!(
+                        out.len() <= fed,
+                        "seed {seed} step {step}: a delivery's end pushed the events \
+                         past the {fed} bytes that were fed"
+                    );
+                }
             }
             // And the control policy over the same streams: whatever the noise
             // spelled, none of it arrived as a control character in the text.
@@ -2331,15 +2768,21 @@ mod tests {
             let ignored = counted(&|event| *event == Input::Action(Action::Ignore));
             let typed = counted(&|event| matches!(event, Input::Text(_)));
             assert!(
-                pasted >= 100 && opened >= 5 && closed >= 5 && ignored >= 5 && typed >= 30,
+                pasted >= 100
+                    && opened >= 5
+                    && closed >= 1
+                    && refused >= 1
+                    && ignored >= 5
+                    && typed >= 30,
                 "seed {seed} exercised too little to mean anything: {pasted} pasted \
-                 bytes, {opened} opened, {closed} closed, {ignored} ignored, {typed} typed"
+                 bytes, {opened} opened, {closed} closed, {refused} refused, {ignored} \
+                 ignored, {typed} typed"
             );
         }
     }
 
     #[test]
-    fn the_paste_flag_is_set_between_the_markers_and_nowhere_else() {
+    fn the_paste_flag_is_set_from_the_start_marker_to_the_end_of_the_delivery() {
         let mut decoder = Decoder::new();
         let now = Instant::now();
         let mut out = Vec::new();
@@ -2353,7 +2796,168 @@ mod tests {
         for byte in b"\x1b[201~" {
             decoder.feed(*byte, now, &mut out);
         }
-        assert!(!decoder.pasting(), "the end marker did not close the paste");
+        // Behind its end marker the paste still owns the input, until the
+        // delivery that carried the marker is over.
+        assert!(
+            decoder.pasting(),
+            "the end marker gave the input back early"
+        );
+        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Pasted);
+        assert!(
+            !decoder.pasting(),
+            "the delivery's end did not close the paste"
+        );
+    }
+
+    // --- a paste ends with its delivery (fx c1db919, `paste_framing.zig:93-167`) ---
+
+    /// `reads` fed one after another as **one** delivery, and then its end.
+    fn delivered(reads: &[&[u8]]) -> (Vec<Input>, Delivery) {
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for read in reads {
+            for byte in *read {
+                decoder.feed(*byte, now, &mut out);
+            }
+        }
+        let delivery = deliver(&mut decoder, &mut out);
+        assert!(!decoder.pasting(), "a settled paste still owns the input");
+        (out, delivery)
+    }
+
+    /// What a paste of `new` leaves before its delivery says how it ended.
+    fn pasted_new() -> Vec<Input> {
+        vec![
+            Input::Action(Action::PasteStart),
+            Input::PasteByte(b'n'),
+            Input::PasteByte(b'e'),
+            Input::PasteByte(b'w'),
+        ]
+    }
+
+    #[test]
+    fn an_enter_in_the_read_that_ended_a_paste_refuses_it_and_is_never_a_key() {
+        // The capture upstream's research took (`fx-p5-input-paste-40x120-
+        // paste-enter`): one buffer, the paste and an Enter behind it. The
+        // Enter is the clipboard's, so it is not `Submit`; and the paste it
+        // followed is not `PasteEnd` -- refused whole, not applied
+        // (`app_input_runtime.zig:9862-9873`).
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~\r"]);
+        assert_eq!(
+            out,
+            pasted_new(),
+            "the Enter or the paste's end got through"
+        );
+        assert_eq!(delivery, Delivery::Refused { dropped: 1 });
+    }
+
+    #[test]
+    fn a_printable_key_behind_the_end_marker_is_dropped_rather_than_typed() {
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~x"]);
+        assert_eq!(out, pasted_new(), "the byte behind the marker was typed");
+        assert_eq!(delivery, Delivery::Refused { dropped: 1 });
+    }
+
+    #[test]
+    fn an_escape_sequence_behind_the_end_marker_is_counted_and_never_decoded() {
+        // Not an arrow key, not a second marker, not a new paste: every byte
+        // behind the end marker is the same thing (`paste_framing.zig:548-565`,
+        // `app_input_runtime.zig:9849`).
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~\x1b[A"]);
+        assert_eq!(
+            out,
+            pasted_new(),
+            "the sequence behind the marker was decoded"
+        );
+        assert!(
+            !out.contains(&Input::Action(Action::Up)),
+            "an arrow behind the marker moved something: {out:?}"
+        );
+        assert_eq!(delivery, Delivery::Refused { dropped: 3 });
+
+        let behind = b"\x1b[201~/version\r\x1b[200~x\x1b[201~";
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~", behind]);
+        assert_eq!(out, pasted_new(), "a marker behind the marker was obeyed");
+        assert_eq!(
+            delivery,
+            Delivery::Refused {
+                dropped: behind.len()
+            }
+        );
+
+        // And the machine is at ground again once the delivery is over: the
+        // same arrow, in a delivery of its own, is the arrow.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[201~\x1b[" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert!(matches!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Refused { .. }
+        ));
+        out.clear();
+        for byte in b"\x1b[A" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert_eq!(out, vec![Input::Action(Action::Up)]);
+    }
+
+    #[test]
+    fn a_paste_with_nothing_behind_its_end_marker_stands() {
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~"]);
+        let mut expected = pasted_new();
+        expected.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, expected);
+        assert_eq!(delivery, Delivery::Pasted);
+    }
+
+    #[test]
+    fn an_end_marker_split_across_two_deliveries_is_the_marker_and_the_next_key_a_key() {
+        // A marker that lands across two reads -- or two deliveries -- is not
+        // input behind the marker: it *is* the marker. The paste stays open
+        // over the first delivery's end and stands at the second's, and an
+        // Enter in a delivery after that is the user's own key.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[20" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Quiet);
+        assert!(decoder.pasting(), "a delivery's end closed an open paste");
+        for byte in b"1~" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Pasted);
+        let mut expected = pasted_new();
+        expected.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, expected, "the split marker was taken as content");
+
+        out.clear();
+        decoder.feed(b'\r', now, &mut out);
+        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Quiet);
+        assert_eq!(out, vec![Input::Action(Action::Submit)]);
+
+        // The same marker split across two reads of **one** delivery.
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[2", b"01~"]);
+        let mut expected = pasted_new();
+        expected.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, expected);
+        assert_eq!(delivery, Delivery::Pasted);
+    }
+
+    #[test]
+    fn a_delivery_is_every_read_up_to_the_drain_and_not_one_read() {
+        // A read takes at most `BURST_BYTES`, so a paste whose end marker is
+        // the last bytes of one read can have its Enter at the start of the
+        // next -- the same write, the same delivery. Settling per read would
+        // let that Enter through.
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~", b"\r"]);
+        assert_eq!(out, pasted_new(), "the Enter one read behind got through");
+        assert_eq!(delivery, Delivery::Refused { dropped: 1 });
     }
 
     #[test]

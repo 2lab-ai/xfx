@@ -65,13 +65,17 @@ pub(crate) const MAX_FEEDBACK_BYTES: usize = 4096;
 /// together cannot outweigh the disclosure they sit under.
 pub(crate) const MAX_DRAFT_ROWS: usize = 3;
 
-/// What the panel says when a paste was too large to take.
+/// What an edit the draft's budget refuses says: upstream's sentence for an
+/// amendment, an error under `input` (`input_limit_feedback.zig:37-40`,
+/// `fx-approvals-amend-limit-40x120-refused`).
 ///
-/// Said rather than swallowed, and said as a **refusal of the whole paste**:
-/// the alternative -- keeping the first 4096 bytes of somebody's file -- is a
-/// draft the user did not type and would have no reason to re-read.
-pub(crate) const PASTE_REFUSED: &str =
-    "that paste is larger than the 4 KiB an amendment carries; nothing was taken";
+/// Said rather than swallowed, and the refusal is of the **whole** edit: the
+/// alternative -- keeping the first 4096 bytes of somebody's file -- is a draft
+/// the user did not type and would have no reason to re-read. Said once per
+/// run of refusals, again after an edit goes through, and for every paste,
+/// each of which begins a run of its own (`input_limit_rejection.zig:12-25`,
+/// `input_paste_runtime.zig:110-127`).
+pub(crate) const INPUT_LIMIT: &str = "That edit exceeds the input limit and was not applied.";
 
 /// Which of the two drafts a choice owns, or nothing when it owns none.
 ///
@@ -117,13 +121,20 @@ impl Draft {
     /// for the same reason: half of a pasted line is text the user did not
     /// write, and a draft that silently swallowed the tail of a yank would be a
     /// sentence they cannot check by reading.
-    fn insert(&mut self, text: &str) {
-        if text.is_empty() || !fits(self.editor.text().len(), text.len()) {
-            return;
+    ///
+    /// `false` is the budget's refusal; an empty `text` is no edit and no
+    /// refusal.
+    fn insert(&mut self, text: &str) -> bool {
+        if text.is_empty() {
+            return true;
+        }
+        if !fits(self.editor.text().len(), text.len()) {
+            return false;
         }
         if let Some(delta) = self.editor.insert(text) {
             self.history.record(delta);
         }
+        true
     }
 
     /// One editing key, on a draft `cols` cells wide.
@@ -131,7 +142,9 @@ impl Draft {
     /// The five the buffer does not answer are answered here; everything else
     /// is `Editor::apply`'s, and its delta is recorded so that an undo has
     /// something to take back.
-    fn apply(&mut self, action: Action, cols: u16) {
+    ///
+    /// `false` is an edit the budget refused.
+    fn apply(&mut self, action: Action, cols: u16) -> bool {
         match action {
             // The history's, not the buffer's. The two fields are split at the
             // call site, which is two disjoint borrows and what keeps the
@@ -151,7 +164,7 @@ impl Draft {
             Action::Yank => {
                 let killed = self.history.killed().map(|(text, _)| text.to_owned());
                 if let Some(text) = killed {
-                    self.insert(&text);
+                    return self.insert(&text);
                 }
             }
             // Everything the buffer really answers, kills included: those are
@@ -163,6 +176,7 @@ impl Draft {
                 }
             }
         }
+        true
     }
 
     /// The rows this draft would paint at `cols`, and the caret inside them.
@@ -271,6 +285,9 @@ pub(crate) struct Drafts {
     paste: DraftPaste,
     /// What the last keystroke has to be reported to the user, once.
     notice: Option<&'static str>,
+    /// Whether the budget has refused an edit since the last one it took:
+    /// [`INPUT_LIMIT`] is said once per such run.
+    over_limit: bool,
 }
 
 /// A manual `Debug`, because [`Editor`] has none and the band's slot is a
@@ -302,6 +319,15 @@ impl Drafts {
     #[cfg(test)]
     pub(crate) fn editing_at(&self, choice: usize) -> bool {
         self.active == Some(choice)
+    }
+
+    /// The choice whose draft has the keys, while one does.
+    ///
+    /// What an editing key needs to know the **width** it is applied at: each
+    /// draft sits on its own choice's row, after words of a different length
+    /// (`super::approval_view::draft_cols`).
+    pub(crate) fn active(&self) -> Option<usize> {
+        self.active
     }
 
     /// Opens `choice`'s draft, or reports that it has none.
@@ -361,18 +387,27 @@ impl Drafts {
         }
     }
 
-    /// One typed character, while a draft has the keys.
-    ///
-    /// Refused silently at the budget, exactly as the composer refuses one
-    /// (`super::shell::Shell::type_character`): a keystroke that changed
-    /// nothing says nothing.
+    /// One typed character, while a draft has the keys. One the budget
+    /// refuses is [`INPUT_LIMIT`], as upstream's is
+    /// (`app_input_runtime.zig:1306-1308`).
     pub(crate) fn typed(&mut self, character: char) {
         let Some(draft) = self.open() else {
             return;
         };
         let mut encoded = [0u8; 4];
         let typed = character.encode_utf8(&mut encoded).to_string();
-        draft.insert(&typed);
+        let taken = draft.insert(&typed);
+        self.settle(taken);
+    }
+
+    /// What one edit's outcome owes: a run of refusals said once, a run
+    /// ended by an edit that went through.
+    fn settle(&mut self, taken: bool) {
+        if taken {
+            self.over_limit = false;
+        } else if !std::mem::replace(&mut self.over_limit, true) {
+            self.notice = Some(INPUT_LIMIT);
+        }
     }
 
     /// One editing key, while a draft has the keys.
@@ -383,26 +418,30 @@ impl Drafts {
             sides,
             active,
             paste,
-            notice,
+            over_limit,
+            ..
         } = self;
         // No draft has the keys, so this key is not a draft's.
         let Some(side) = active.and_then(side) else {
             return;
         };
         let draft = &mut sides[side];
-        match action {
-            Action::PasteStart => paste.begin(),
+        let taken = match action {
+            // Each paste is a run of its own (`input_paste_runtime.zig:110-127`).
+            Action::PasteStart => {
+                paste.begin();
+                *over_limit = false;
+                true
+            }
+            // Atomic: nothing is inserted from a paste the budget refuses,
+            // and the refusal is said rather than left to be noticed.
             Action::PasteEnd => match paste.finish(draft.editor.text().len()) {
-                Some(text) => {
-                    draft.insert(&text);
-                    *notice = None;
-                }
-                // Atomic: nothing was inserted, and the panel says so rather
-                // than leaving the user to notice the absence.
-                None => *notice = Some(PASTE_REFUSED),
+                Some(text) => draft.insert(&text),
+                None => false,
             },
             other => draft.apply(other, cols),
-        }
+        };
+        self.settle(taken);
     }
 
     /// One raw byte of a bracketed paste, while a draft has the keys.
@@ -416,18 +455,37 @@ impl Drafts {
         self.paste.byte(byte);
     }
 
+    /// A paste refused for the input behind its end marker
+    /// (`super::shell::Shell::paste_refused`): what it gathered is dropped and
+    /// nothing reaches a draft. `true` when it had already outgrown the
+    /// budget, and then that is what is owed ([`INPUT_LIMIT`]) rather than the
+    /// sentence about the input behind it -- fx settles an overflowed capture
+    /// as finished whatever followed it (`paste_framing.zig:165`), and an
+    /// amendment's finish is its limit refusal (`input_paste_runtime.zig:
+    /// 199-224`).
+    pub(crate) fn refuse_paste(&mut self) -> bool {
+        self.paste.buffer.clear();
+        let overflowed = std::mem::take(&mut self.paste.refused);
+        if overflowed {
+            self.settle(false);
+        }
+        overflowed
+    }
+
     /// What the panel owes the user about their last keystroke, taken once.
     pub(crate) fn take_notice(&mut self) -> Option<&'static str> {
         self.notice.take()
     }
 
-    /// The rows both drafts would paint at `cols`, in choice order.
+    /// The rows both drafts would paint, each at its own choice's width, in
+    /// choice order.
     ///
     /// A draft is shown while it has the keys **or** while it holds text: a
     /// sentence the user typed and then navigated away from still travels if
     /// they submit that choice, so hiding it would be sending something they
-    /// cannot read back.
-    pub(crate) fn blocks(&self, cols: u16) -> Vec<Block> {
+    /// cannot read back. (Upstream shows only the draft being typed; this is
+    /// the one place xfx shows more, for that reason.)
+    pub(crate) fn blocks(&self, width: impl Fn(usize) -> u16) -> Vec<Block> {
         let mut blocks = Vec::new();
         for choice in 0..super::approval::CHOICE_COUNT {
             let Some(side) = side(choice) else {
@@ -438,7 +496,7 @@ impl Drafts {
             if !open && draft.empty() {
                 continue;
             }
-            let (rows, caret) = draft.viewport(cols);
+            let (rows, caret) = draft.viewport(width(choice));
             blocks.push(Block {
                 choice,
                 rows,
@@ -463,8 +521,8 @@ mod tests {
     const ALLOW: usize = 0;
     /// The deny side, which is choice 2.
     const DENY: usize = 2;
-    /// The width every case drives at, which is an eighty-column panel's inner
-    /// width (`super::approval::draft_cols`).
+    /// The width every case drives at (`super::approval_view::draft_cols`
+    /// gives each choice its own; these cases need only one).
     const COLS: u16 = 78;
 
     /// A `Drafts` with `text` typed into `choice`'s draft.
@@ -481,7 +539,7 @@ mod tests {
     /// it.
     fn caret(drafts: &Drafts) -> (usize, u16) {
         drafts
-            .blocks(COLS)
+            .blocks(|_| COLS)
             .into_iter()
             .find_map(|block| block.caret)
             .expect("a draft has the keys")
@@ -562,7 +620,7 @@ mod tests {
 
         assert_eq!(drafts.text(ALLOW), pasted, "the paste is not the draft");
         assert_eq!(
-            drafts.blocks(COLS)[0].caret,
+            drafts.blocks(|_| COLS)[0].caret,
             Some((1, 33)),
             "the caret is not past the pasted text"
         );
@@ -602,10 +660,19 @@ mod tests {
         );
         assert_eq!(
             drafts.take_notice(),
-            Some(PASTE_REFUSED),
+            Some(INPUT_LIMIT),
             "the refusal was silent"
         );
         assert_eq!(drafts.take_notice(), None, "the notice was said twice");
+
+        // A second paste past the budget is said again: each paste is a run
+        // of its own (`fx-approvals-amend-limit-40x120-refused-again`).
+        drafts.edit(Action::PasteStart, COLS);
+        for _ in 0..=MAX_FEEDBACK_BYTES {
+            drafts.paste_byte(b'x');
+        }
+        drafts.edit(Action::PasteEnd, COLS);
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
 
         // And the assembler is usable again: a refusal is about one paste.
         drafts.edit(Action::PasteStart, COLS);
@@ -618,6 +685,22 @@ mod tests {
             "keep this and this",
             "a refusal poisoned the next paste"
         );
+    }
+
+    #[test]
+    fn keystrokes_past_the_budget_are_said_once_until_an_edit_goes_through() {
+        // `input_limit_rejection.zig:12-25`, upstream's owner episode.
+        let mut drafts = typed_into(ALLOW, &"x".repeat(MAX_FEEDBACK_BYTES - 1));
+        drafts.typed('a');
+        assert_eq!(drafts.take_notice(), None);
+        drafts.typed('b');
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
+        drafts.typed('c');
+        assert_eq!(drafts.take_notice(), None, "said twice in one run");
+        drafts.edit(Action::Backspace, COLS);
+        drafts.typed('d');
+        drafts.typed('e');
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
     }
 
     #[test]
@@ -649,7 +732,7 @@ mod tests {
             !drafts.text(ALLOW).contains('\u{fffd}'),
             "a scalar was cut in half and the remains were shown as a replacement"
         );
-        assert_eq!(drafts.take_notice(), Some(PASTE_REFUSED));
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
 
         // The decoded bound. Every byte here is accepted and within the encoded
         // cap, and every one of them is invalid UTF-8 -- so the text is three
@@ -666,7 +749,7 @@ mod tests {
             "",
             "2000 bytes decoded to 6000 and the draft took them anyway"
         );
-        assert_eq!(drafts.take_notice(), Some(PASTE_REFUSED));
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
     }
 
     #[test]
@@ -676,7 +759,7 @@ mod tests {
         // sentence about it. What a long draft gets instead is a window on the
         // row the caret is on ([`MAX_DRAFT_ROWS`]).
         let mut drafts = typed_into(ALLOW, &"x".repeat(usize::from(COLS) * 6));
-        let blocks = drafts.blocks(COLS);
+        let blocks = drafts.blocks(|_| COLS);
         assert_eq!(blocks.len(), 1, "{blocks:?}", blocks = blocks.len());
         assert_eq!(
             blocks[0].rows.len(),
@@ -695,7 +778,7 @@ mod tests {
         for _ in 0..6 {
             drafts.edit(Action::Left, COLS);
         }
-        let blocks = drafts.blocks(COLS);
+        let blocks = drafts.blocks(|_| COLS);
         assert_eq!(blocks[0].caret.expect("the keys").0, 0);
     }
 
@@ -740,6 +823,6 @@ mod tests {
         drafts.edit(Action::PasteEnd, COLS);
         assert_eq!(drafts.text(ALLOW), "");
         assert_eq!(drafts.text(DENY), "");
-        assert!(drafts.blocks(COLS).is_empty());
+        assert!(drafts.blocks(|_| COLS).is_empty());
     }
 }

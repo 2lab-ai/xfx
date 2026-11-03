@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-ea484d5 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* status: model=fake/model-a[39m
+  [38;5;250mprovider=gateway[39m
+  [38;5;250mbuild_channel=debug[39m
+  [38;5;250mbuild_revision=ea484d5bbb71[39m
+  [38;5;250mauth=AI_GATEWAY_API_KEY[39m
+  [38;5;250mauth_refreshable=false[39m
+  [38;5;250mpermission_mode=auto[39m
+  [38;5;250msandbox=none[39m
+  [38;5;250mworkspace=<scratch>/work[39m
+  [38;5;250mhistory_turns=0[39m
+  [38;5;250msession_permission_grants=0[39m
+  [38;5;250magent_step_limit=25[39m
+
+[38;5;250m* version: 0.1.0[39m
+
+[38;5;250m* stats: ansi_bytes=4648, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

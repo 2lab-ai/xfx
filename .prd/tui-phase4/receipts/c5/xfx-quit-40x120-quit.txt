@@ -1,0 +1,40 @@
+
+┃ first question alpha
+
+  QUIT-ANSWER line one.
+
+  Second paragraph.
+
+  0s (↑6 ↓40)
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+
+Continue session with: xfx --resume 1791303682561-32bcb1a25dda2dd8
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Oct  7 01:21:30 2026)

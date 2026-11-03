@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
+
+┃ look
+
+● 2 tool calls · 2 read
+├ Read a.txt
+└ Read b.txt
+
+  Read both.
+
+  0s (↑1 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

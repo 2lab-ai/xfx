@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-06def9e [debug] · Run /help for commands
+
+* fast: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+* fast: on
+
+┃
+
+auto · opus 5 · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
+
+┃ stream please
+
+■ Cancelled · What can xfx do differently?
+
+┃ next
+
+  After interrupt answer.
+
+  0s (↑1 ↓40)
+
+┃ stream again
+
+• Generating (2s) (↑4 ↓37)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

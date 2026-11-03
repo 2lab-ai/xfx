@@ -29,8 +29,8 @@
 //!
 //! A **title** is frame metadata rather than a cell. Nothing on the grid moves
 //! when the window title changes, so a skip that consulted the cells alone
-//! would drop it; it travels inside the same synchronized frame as everything
-//! else.
+//! would drop it; it travels in the frame's own vector, ahead of the
+//! synchronized update, where upstream writes it ([`Band::retitle`]).
 
 use std::borrow::Cow;
 use std::io::{self, Write};
@@ -41,10 +41,53 @@ use super::grid::Grid;
 use super::layout::Geometry;
 
 /// Begins a frame: synchronized output on, cursor hidden.
-const BEGIN_FRAME: &str = "\x1b[?2026h\x1b[?25l";
+///
+/// Visible to [`super::event_loop`] for the one vector it assembles itself:
+/// the update that carries the document's growth and the band in one
+/// (`commit_primary`), which opens with exactly these bytes.
+pub(crate) const BEGIN_FRAME: &str = "\x1b[?2026h\x1b[?25l";
 
-/// Ends one: cursor shown, synchronized output off.
-const END_FRAME: &str = "\x1b[?2026l\x1b[?25h";
+/// Ends one: synchronized output off, then the cursor shown -- upstream's
+/// order, which shows the caret only once the update is presented
+/// (`render_engine/terminal_diff.zig:643-644`).
+pub(crate) const END_FRAME: &str = "\x1b[?2026l\x1b[?25h";
+
+/// Ends one and leaves the cursor as [`BEGIN_FRAME`] left it: hidden.
+///
+/// For a plane whose screen has no caret to show -- the full transcript,
+/// which upstream paints with the cursor off (`paint_plan.zig:1047`). Only
+/// [`Band::paint_alternate`] writes it, and only for a [`Caret`] that says so;
+/// the frame that gives the plane back ends with [`END_FRAME`], so the band is
+/// handed back its caret. A reset's handoff ends with it too ([`Band::hand_off`]),
+/// and so does an update whose band frame was refused
+/// (`super::event_loop`'s `commit_primary`): the caret is wherever the
+/// document's last row left it, and the frame still owed is what shows it.
+pub(crate) const END_FRAME_HIDDEN: &str = "\x1b[?2026l";
+
+/// Where an alternate-plane frame leaves the caret, and whether it is shown.
+///
+/// A position alone is the question's: its caret is on the marked choice or
+/// in an amendment, and shown -- which is what every `(row, column)` pair
+/// converts to. The full transcript's is hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Caret {
+    /// One-based row, zero-based column, as [`Band::enter_alternate`] takes it.
+    pub(crate) at: (u16, u16),
+    pub(crate) shown: bool,
+}
+
+impl Caret {
+    /// A caret parked at `at` with the cursor off.
+    pub(crate) fn hidden(at: (u16, u16)) -> Self {
+        Self { at, shown: false }
+    }
+}
+
+impl From<(u16, u16)> for Caret {
+    fn from(at: (u16, u16)) -> Self {
+        Self { at, shown: true }
+    }
+}
 
 /// Erase from the cursor to the end of the screen.
 ///
@@ -64,6 +107,12 @@ const ERASE_LINE: &str = "\x1b[K";
 /// terminal hands out that buffer holding whatever was last on it, and the rows
 /// this band is about to place are the only ones it knows about.
 const ERASE_SCREEN: &str = "\x1b[2J";
+
+/// A resume's terminal reset: the caret home, the screen erased, and the
+/// scrollback with it ([`Band::wipe`]). The one vector in this crate that
+/// erases a scrollback, which is why the output check admits `3J` for exactly
+/// one declaration (`check::Intent::Wiped`).
+pub(crate) const WIPE: &str = "\x1b[H\x1b[2J\x1b[3J";
 
 /// Take the terminal's alternate screen buffer, saving the cursor.
 ///
@@ -168,7 +217,7 @@ pub(crate) struct Band {
     /// actually showing, and the two differ for exactly one write -- the one
     /// that changes it. Everything that has to be balanced is balanced against
     /// this: an enter is written only from `Primary`, a leave only from
-    /// `Approval`, and the exit asks it rather than the shell
+    /// `Alternate`, and the exit asks it rather than the shell
     /// ([`super::term::shutdown`]) because by then the shell may have released a
     /// plane whose bytes are still on the terminal.
     showing: super::shell::ScreenOwner,
@@ -185,7 +234,7 @@ pub(crate) struct Band {
     /// Advanced by [`Self::frame_landed`] out of the frame that landed, and by
     /// nothing else -- for the same reason the shadow is: a surface that was
     /// only built is on no screen.
-    alternate: Option<(Vec<String>, (u16, u16))>,
+    alternate: Option<(Vec<String>, Caret)>,
     /// The screen [`Self::painted`] is a row of: the geometry it was recorded
     /// from, kept beside it so the exit cannot measure one against the other.
     painted_on: Option<(u16, u16)>,
@@ -217,6 +266,43 @@ pub(crate) struct Band {
     /// way to reach a grid the band did not plan.
     #[cfg(test)]
     taint: Option<fn(&mut Grid, &Geometry)>,
+    /// What the document's writers had found when an update that carries them
+    /// began ([`Self::save_document`]), while it is being assembled and has not
+    /// been written.
+    ///
+    /// The writers record what they wrote as each one is staged -- the shadow,
+    /// the band's top, the document's last row, the caret owed -- because each
+    /// is planned against the screen the one before it leaves. Until the one
+    /// vector they are written into lands, none of that is true of the
+    /// terminal, and this is what [`Self::restore_document`] gives back.
+    saved: Option<SavedDocument>,
+}
+
+/// The band's record of the screen as [`Band::save_document`] found it: exactly
+/// the fields a document writer adopts when its bytes land
+/// ([`Band::wipe`], [`Band::retint_document`], [`Band::collapse_groups`],
+/// [`Band::carry_document`], [`Band::append_floating`],
+/// [`Band::document_released`]).
+struct SavedDocument {
+    shadow: Grid,
+    painted: Option<u16>,
+    painted_on: Option<(u16, u16)>,
+    document_bottom: Option<u16>,
+    caret: Option<(u16, u16)>,
+    /// A resume's reset ([`Band::wipe`]) is the one writer staged into an
+    /// update that answers a damaged screen.
+    damaged: bool,
+}
+
+/// What [`Band::build_frame`] left in the band's buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Built {
+    /// A frame, to be written as it stands ([`Band::frame_bytes`]) and then
+    /// recorded ([`Band::frame_landed_primary`]).
+    Frame,
+    /// Nothing: the screen already holds this band, under this caret and this
+    /// title, and that has been recorded.
+    Unchanged,
 }
 
 /// One frame, and the plane it belongs to.
@@ -234,7 +320,7 @@ pub(crate) struct ScreenFrame {
     /// already holds. Adopted by [`Band::frame_landed`] and by nothing else,
     /// for the reason the shadow is: it is a claim about bytes that were
     /// delivered.
-    surface: Option<(Vec<String>, (u16, u16))>,
+    surface: Option<(Vec<String>, Caret)>,
 }
 
 impl ScreenFrame {
@@ -275,6 +361,16 @@ pub(crate) enum Retint {
     Deferred,
 }
 
+/// What [`Band::collapse_groups`] came to: the rows the document lost --
+/// none, when there was nothing to collapse or nothing knowable to collapse
+/// it in -- or, deferred, a screen the band cannot describe yet, for the same
+/// reason a recolour waits ([`Retint`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Collapse {
+    Settled(u16),
+    Deferred,
+}
+
 impl Band {
     pub(crate) fn new() -> Self {
         Self {
@@ -301,14 +397,23 @@ impl Band {
             tamper: None,
             #[cfg(test)]
             taint: None,
+            saved: None,
         }
     }
 
     /// Damages every vector this band builds from here on, for the tests that
-    /// have to see a wrong one refused.
+    /// have to see a wrong one refused -- here, and in `super::event_loop`'s,
+    /// where one part of an update is refused by its own check and the parts
+    /// before it are not.
     #[cfg(test)]
-    fn tamper_with(&mut self, tamper: fn(&mut Vec<u8>)) {
+    pub(crate) fn tamper_with(&mut self, tamper: fn(&mut Vec<u8>)) {
         self.tamper = Some(tamper);
+    }
+
+    /// Stops damaging them.
+    #[cfg(test)]
+    pub(crate) fn untamper(&mut self) {
+        self.tamper = None;
     }
 
     /// Damages the grid every frame from here on aims at, for the tests that
@@ -325,7 +430,7 @@ impl Band {
     /// the transitions, and answered from bytes that were delivered rather than
     /// from what the session wants.
     pub(crate) fn on_alternate(&self) -> bool {
-        matches!(self.showing, super::shell::ScreenOwner::Approval)
+        matches!(self.showing, super::shell::ScreenOwner::Alternate)
     }
 
     /// Builds the frame that **takes** the alternate buffer: the mode set, an
@@ -347,8 +452,9 @@ impl Band {
         &mut self,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) -> io::Result<ScreenFrame> {
+        let cursor = cursor.into();
         // The plane this vector is written *from*: the band is on the normal
         // buffer, and the `1049h` inside the vector is what moves it.
         let seed = self.seed(check::PlaneKind::Primary, geometry)?;
@@ -368,7 +474,7 @@ impl Band {
             check::PlaneMove::Take,
         )?;
         Ok(ScreenFrame {
-            owner: super::shell::ScreenOwner::Approval,
+            owner: super::shell::ScreenOwner::Alternate,
             bytes,
             // The buffer the terminal is about to hand out is blank, so what
             // these bytes put on it is the whole of what is on it -- once they
@@ -393,15 +499,16 @@ impl Band {
         &mut self,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) -> io::Result<ScreenFrame> {
+        let cursor = cursor.into();
         // The plane the band is already on, holding what its own cache says is
         // up: the skip below writes no bytes, and a vector of none is checked
         // against that surface rather than against a blank one.
         let seed = match &self.alternate {
-            Some((held, cursor)) => self.seed(check::PlaneKind::Alternate, geometry)?.holding(
+            Some((held, caret)) => self.seed(check::PlaneKind::Alternate, geometry)?.holding(
                 &Self::surface(held, geometry),
-                (cursor.0, cursor.1.saturating_add(1)),
+                (caret.at.0, caret.at.1.saturating_add(1)),
             )?,
             None => self.seed(check::PlaneKind::Alternate, geometry)?,
         };
@@ -427,7 +534,7 @@ impl Band {
             check::PlaneMove::Stay,
         )?;
         Ok(ScreenFrame {
-            owner: super::shell::ScreenOwner::Approval,
+            owner: super::shell::ScreenOwner::Alternate,
             bytes,
             // Nothing for the frame that wrote nothing: an empty frame that
             // landed would otherwise re-assert a cache the band may have
@@ -463,7 +570,7 @@ impl Band {
         bytes: &[u8],
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: Caret,
         moves: check::PlaneMove,
     ) -> io::Result<()> {
         let surface = Self::surface(rows, geometry);
@@ -473,10 +580,16 @@ impl Band {
             &check::Declared::new(
                 check::Intent::Alternate {
                     grid: &surface,
-                    caret: (cursor.0, cursor.1.saturating_add(1)),
+                    caret: (cursor.at.0, cursor.at.1.saturating_add(1)),
                     // A repaint the screen already holds writes no bytes, and a
-                    // vector of none says nothing about the cursor.
-                    cursor_visible: if bytes.is_empty() { None } else { Some(true) },
+                    // vector of none says nothing about the cursor. A vector
+                    // that paints declares the cursor the caret asked for: shown
+                    // for a question, hidden for the full transcript.
+                    cursor_visible: if bytes.is_empty() {
+                        None
+                    } else {
+                        Some(cursor.shown)
+                    },
                 },
                 // The whole of the borrowed plane, and **no cell of the normal
                 // one** -- which is a claim about the buffer an effect landed
@@ -513,7 +626,7 @@ impl Band {
         bytes: &mut Vec<u8>,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: Caret,
     ) {
         bytes.extend_from_slice(BEGIN_FRAME.as_bytes());
         cup(bytes, 1, 1);
@@ -532,8 +645,12 @@ impl Band {
             cup(bytes, line, 1);
             bytes.extend_from_slice(row_text(row, geometry.cols).as_bytes());
         }
-        cup(bytes, cursor.0, cursor.1.saturating_add(1));
-        bytes.extend_from_slice(END_FRAME.as_bytes());
+        cup(bytes, cursor.at.0, cursor.at.1.saturating_add(1));
+        bytes.extend_from_slice(if cursor.shown {
+            END_FRAME.as_bytes()
+        } else {
+            END_FRAME_HIDDEN.as_bytes()
+        });
     }
 
     /// Builds the one frame that gives the primary plane back: the leave, the
@@ -587,11 +704,12 @@ impl Band {
         self.plan(rows, geometry);
         self.buffer.clear();
         self.buffer.extend_from_slice(LEAVE_ALTERNATE.as_bytes());
-        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         // The window title, which the terminal may have given back with the
-        // plane. Asked for again on the frame that is a whole repaint anyway.
+        // plane. Asked for again on the frame that is a whole repaint anyway,
+        // and ahead of the update, as every title is ([`Self::retitle`]).
         self.shown_title = None;
         self.retitle();
+        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         // The rows a band that shrank while the question was up no longer owns,
         // then its own rows and everything below them.
         self.release(geometry);
@@ -689,8 +807,9 @@ impl Band {
         &mut self,
         frame: &ScreenFrame,
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) {
+        let cursor = cursor.into().at;
         self.showing = frame.owner();
         if matches!(frame.owner(), super::shell::ScreenOwner::Primary) {
             // The terminal takes its alternate buffer back when the plane is
@@ -873,8 +992,10 @@ impl Band {
     /// Pure with respect to the terminal -- nothing is written -- so a frame's
     /// geometry is assertable without one, which is the only way the band's row
     /// numbers get tested at all. The buffer it is built in is reused; the copy
-    /// handed back is the caller's, and [`commit`](Self::commit) writes that
-    /// copy in a single call.
+    /// handed back is the test's. The painter itself is
+    /// [`paint_whole`](Self::paint_whole), which the `fault-injection` build's
+    /// frame calls in place and writes in a single call; this copy is the
+    /// tests' handle on it.
     ///
     /// `rows` are the band's rows, top first, starting at the band's top row
     /// ([`Geometry::band_top`]), which is the activity row while a turn is
@@ -883,16 +1004,33 @@ impl Band {
     /// cells to the **left** of the caret on it -- a count, which is what the
     /// composer measures, converted to a one-based column here and nowhere
     /// else.
-    #[cfg(any(test, feature = "fault-injection"))]
+    #[cfg(test)]
     pub(crate) fn render(
         &mut self,
         rows: &[String],
         geometry: &Geometry,
         cursor: (u16, u16),
     ) -> Vec<u8> {
+        self.paint_whole(rows, geometry, cursor, false);
+        self.buffer.clone()
+    }
+
+    /// [`Self::render`] into the band's own buffer, and -- when `opened` --
+    /// without the [`BEGIN_FRAME`] an update that already began has written
+    /// ([`Self::build_frame`]).
+    #[cfg(any(test, feature = "fault-injection"))]
+    fn paint_whole(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+        opened: bool,
+    ) {
         self.buffer.clear();
-        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
-        self.retitle();
+        if !opened {
+            self.retitle();
+            self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        }
         self.release(geometry);
         // The top of what this frame is about to write, which on a band that
         // shrank is still the *old* top: the erasures for the rows between the
@@ -922,7 +1060,6 @@ impl Band {
         }
         cup(&mut self.buffer, cursor.0, cursor.1.saturating_add(1));
         self.buffer.extend_from_slice(END_FRAME.as_bytes());
-        self.buffer.clone()
     }
 
     /// One frame: the difference between what the terminal is holding and what
@@ -945,6 +1082,41 @@ impl Band {
         geometry: &Geometry,
         cursor: (u16, u16),
     ) -> Result<Commit, Emit> {
+        match self.build_frame(rows, geometry, cursor, false)? {
+            Built::Unchanged => Ok(Commit::NoChange),
+            Built::Frame => {
+                out.emit(&self.buffer)?;
+                self.landed(geometry, cursor);
+                Ok(Commit::Painted)
+            }
+        }
+    }
+
+    /// [`Self::commit`] up to the write: the frame is planned, built into the
+    /// band's buffer and checked, and **nothing about it is recorded** except
+    /// what a frame records before it is written -- the top of what it is
+    /// about to paint ([`Self::record_painted`]), because a frame the terminal
+    /// took half of has still painted from there.
+    ///
+    /// `opened` is an update that has already begun: the document's growth
+    /// was written into it first (`super::event_loop`'s `commit_primary`), so
+    /// the frame leaves out the [`BEGIN_FRAME`] the update opened with and is
+    /// the rest of that one update -- upstream's order, movement bytes and then
+    /// the band, inside one `?2026h` (`render_engine/terminal_diff.zig:611-645`).
+    /// Its check is the same either way: the cells, the caret, the title, and
+    /// a cursor the frame shows as it ends.
+    ///
+    /// [`Built::Frame`] leaves the bytes in [`Self::frame_bytes`] for the
+    /// caller to write in one emit, and [`Self::frame_landed_primary`] is what
+    /// records them once they have landed. [`Built::Unchanged`] wrote nothing
+    /// and needs nothing more.
+    pub(crate) fn build_frame(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+        opened: bool,
+    ) -> Result<Built, Emit> {
         // A band that has never painted, or one whose screen has changed size,
         // knows nothing about what is on those rows.
         if self.shadow.rows() != geometry.rows || self.shadow.cols() != geometry.cols {
@@ -968,27 +1140,25 @@ impl Band {
         // compares against has to be one this band would stand behind.
         #[cfg(feature = "fault-injection")]
         if super::fault::injected(super::fault::Fault::FullPaintReference) {
-            let frame = self.render(rows, geometry, cursor);
+            self.paint_whole(rows, geometry, cursor, opened);
             // The shadow is kept honest even here, so the two builds differ in
             // the bytes they write and in nothing else.
             self.plan(rows, geometry);
             check::preflight(
                 &seed,
-                &frame,
+                &self.buffer,
                 &check::Declared::new(
                     check::Intent::Primary {
                         grid: &self.target,
                         caret: Some((cursor.0, cursor.1.saturating_add(1))),
                         cursor_visible: Some(true),
-                        title: self.title.as_deref().or(self.shown_title.as_deref()),
+                        title: self.declared_title(opened),
                     },
                     self.band_footprint(released, geometry),
                 ),
             )
             .map_err(Emit::rejected)?;
-            out.emit(&frame)?;
-            self.landed(geometry, cursor);
-            return Ok(Commit::Painted);
+            return Ok(Built::Frame);
         }
 
         self.plan(rows, geometry);
@@ -1000,8 +1170,17 @@ impl Band {
         let moved = self.caret != Some(cursor);
 
         self.buffer.clear();
-        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
-        self.retitle();
+        // The title ahead of the update rather than inside it, where upstream
+        // writes it: its title provider is a write of its own, made when the
+        // title changes, between one frame and the next
+        // (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`;
+        // `fx-stream-wire-24x80-end.wire` @1963). An update that has already
+        // begun has had its title written in front of it by the caller
+        // ([`Self::write_title_lead`]).
+        if !opened {
+            self.retitle();
+            self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        }
         if self.damaged {
             // Exactly the erase the Phase-1 painter opened every frame with,
             // and only on the frame that needs it: the rows a shrinking band
@@ -1068,7 +1247,7 @@ impl Band {
                         // compared, which is the whole of what "the screen
                         // already holds this" claims.
                         cursor_visible: None,
-                        title: self.title.as_deref().or(self.shown_title.as_deref()),
+                        title: self.declared_title(opened),
                     },
                     check::Footprint::none(check::PlaneKind::Primary),
                 ),
@@ -1080,7 +1259,7 @@ impl Band {
             // clears from the band's top row rather than from a row above it
             // that nothing is on.
             self.delivered(geometry);
-            return Ok(Commit::NoChange);
+            return Ok(Built::Unchanged);
         }
         // The top of what this frame is about to write, which on a band that
         // shrank is still the *old* top: recorded before the write, because a
@@ -1104,15 +1283,69 @@ impl Band {
                     grid: &self.target,
                     caret: Some((cursor.0, cursor.1.saturating_add(1))),
                     cursor_visible: Some(true),
-                    title: self.title.as_deref().or(self.shown_title.as_deref()),
+                    title: self.declared_title(opened),
                 },
                 self.band_footprint(released, geometry),
             ),
         )
         .map_err(Emit::rejected)?;
-        out.emit(&self.buffer)?;
+        Ok(Built::Frame)
+    }
+
+    /// The frame [`Self::build_frame`] left in the band's buffer.
+    pub(crate) fn frame_bytes(&self) -> &[u8] {
+        &self.buffer
+    }
+
+    /// Records that the frame [`Self::build_frame`] built reached the screen
+    /// -- whole, and only then.
+    pub(crate) fn frame_landed_primary(&mut self, geometry: &Geometry, cursor: (u16, u16)) {
         self.landed(geometry, cursor);
-        Ok(Commit::Painted)
+    }
+
+    /// Saves what the document's writers will record, before an update that
+    /// carries them is assembled (`super::event_loop`'s `commit_primary`).
+    ///
+    /// One clone of the shadow, and only on a tick that owes the document
+    /// something: the caller asks before it stages. The same order of work as
+    /// the copy each writer already makes to plan against
+    /// (`target.clone_from(&self.shadow)`, which for a derived `Clone` is a
+    /// fresh clone as well); what it adds to a streamed tick is measured by
+    /// the P3-WRAP painter benchmark below `super::event_loop`'s tests.
+    pub(crate) fn save_document(&mut self) {
+        debug_assert!(
+            self.saved.is_none(),
+            "an update began while the last one's document was still unsettled"
+        );
+        self.saved = Some(SavedDocument {
+            shadow: self.shadow.clone(),
+            painted: self.painted,
+            painted_on: self.painted_on,
+            document_bottom: self.document_bottom,
+            caret: self.caret,
+            damaged: self.damaged,
+        });
+    }
+
+    /// The update the document's writers were staged into landed: what they
+    /// recorded is true of the terminal, and nothing is kept.
+    pub(crate) fn forget_saved(&mut self) {
+        self.saved = None;
+    }
+
+    /// The update did not land, so nothing the document's writers recorded is
+    /// on the terminal: the band's record goes back to what
+    /// [`Self::save_document`] found.
+    pub(crate) fn restore_document(&mut self) {
+        let Some(saved) = self.saved.take() else {
+            return;
+        };
+        self.shadow = saved.shadow;
+        self.painted = saved.painted;
+        self.painted_on = saved.painted_on;
+        self.document_bottom = saved.document_bottom;
+        self.caret = saved.caret;
+        self.damaged = saved.damaged;
     }
 
     /// Builds [`target`](Self::target): what the screen will hold once this
@@ -1144,26 +1377,61 @@ impl Band {
         self.caret = Some(cursor);
     }
 
-    /// Puts the window title in the frame, when it is not the one the terminal
-    /// was last told.
+    /// Puts the window title in the frame's buffer, when it is not the one
+    /// the terminal was last told.
     ///
-    /// `OSC 2 ; <title> BEL`. It moves no cell, so it is written at the head of
-    /// the frame where it cannot land between a `CUP` and the text that `CUP`
-    /// was for.
+    /// `OSC 2 ; <title> BEL`, **ahead of the frame's `?2026h`**: upstream sets
+    /// the title by a write of its own, outside any update, the moment it
+    /// changes and before the next frame (`syncTerminalTitleWith`,
+    /// `app_session_runtime.zig:3608-3629`). It moves no cell, so ahead of the
+    /// update it also cannot land between a `CUP` and the text that `CUP` was
+    /// for; and it rides in the frame's own vector, so a title still costs no
+    /// write of its own.
     fn retitle(&mut self) {
+        let mut buffer = std::mem::take(&mut self.buffer);
+        self.write_title_lead(&mut buffer);
+        self.buffer = buffer;
+    }
+
+    /// The title the next frame owes the window, if it owes one: the one this
+    /// session wants, when the terminal was last told another
+    /// ([`Self::retitle`]).
+    ///
+    /// A session that has stopped wanting a title does not take the terminal's
+    /// old one away: the pop of the title stack in every restore sequence
+    /// (`super::term::RESTORE`) is what gives that back, and it is the only
+    /// thing that honestly can.
+    pub(crate) fn title_owed(&self) -> Option<&str> {
         if self.title == self.shown_title {
-            return;
+            return None;
         }
-        let Some(title) = &self.title else {
-            // A session that has stopped wanting a title does not take the
-            // terminal's old one away: the pop of the title stack in every
-            // restore sequence (`super::term::RESTORE`) is what gives that
-            // back, and it is the only thing that honestly can.
+        self.title.as_deref()
+    }
+
+    /// Writes [`Self::title_owed`] as `OSC 2` into `buffer`: the lead of an
+    /// update the caller assembles itself (`super::event_loop`'s
+    /// `commit_primary`), whose band frame was built `opened` and so carries
+    /// none -- recorded as told by the same landing as the rest of the frame
+    /// ([`Self::frame_landed_primary`]).
+    pub(crate) fn write_title_lead(&self, buffer: &mut Vec<u8>) {
+        let Some(title) = self.title_owed() else {
             return;
         };
-        self.buffer.extend_from_slice(b"\x1b]2;");
-        self.buffer.extend_from_slice(title.as_bytes());
-        self.buffer.push(0x07);
+        buffer.extend_from_slice(b"\x1b]2;");
+        buffer.extend_from_slice(title.as_bytes());
+        buffer.push(0x07);
+    }
+
+    /// The window title a band frame declares it leaves: the one it writes,
+    /// or -- for a frame built `opened`, whose title is the caller's to write
+    /// ahead of the update ([`Self::write_title_lead`]) -- the one the
+    /// terminal already has.
+    fn declared_title(&self, opened: bool) -> Option<&str> {
+        if opened {
+            self.shown_title.as_deref()
+        } else {
+            self.title.as_deref().or(self.shown_title.as_deref())
+        }
     }
 
     /// Builds the bytes that put completed rows into the terminal's own
@@ -1205,12 +1473,37 @@ impl Band {
     /// exactly the amount the count lost, and those rows would never be
     /// painted at all. Same silent, permanent loss as a batch scroll that
     /// outruns the document area, one order of magnitude further out.
+    ///
+    /// **`room` is how far the band moved down for this append**, and that many
+    /// new rows need no scroll at all. A band floating under a short document
+    /// ([`Geometry::floated`]) follows it down rather than scrolling it up: the
+    /// band's old rows are where the new ones go, and only the rows past the
+    /// bottom of the screen scroll. The settled block is where the band's top
+    /// *was*, `room` rows above where it is now.
+    #[cfg(test)]
     fn render_append<'rows>(
         &mut self,
         scroll: usize,
         rows: &'rows [String],
         geometry: &'rows Geometry,
+        room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
+        self.render_append_recorded(scroll, rows, &[], geometry, room)
+    }
+
+    /// [`Self::render_append`], with what each row is recorded on the target
+    /// grid as it is placed (`super::transcript::Append::kinds`; empty is every
+    /// row plain): what a later theme report repaints its cells as
+    /// ([`Grid::retint_document`]).
+    fn render_append_recorded<'rows>(
+        &mut self,
+        scroll: usize,
+        rows: &'rows [String],
+        kinds: &[super::theme::DocumentRow],
+        geometry: &'rows Geometry,
+        room: u16,
+    ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
+        let kind = |index: usize| kinds.get(index).copied().unwrap_or_default();
         self.buffer.clear();
         // The shadow moves with the screen, step for step, and the two are
         // written side by side rather than in two functions: an append that
@@ -1235,11 +1528,15 @@ impl Band {
                 check::Script::new(geometry),
             );
         }
+        // Never more rows than this append adds: `room` is a promise about
+        // new rows, and a settled row is never placed by it.
+        let room = room.min(u16::try_from(scroll.min(rows.len())).unwrap_or(u16::MAX));
+        let anchor = geometry.band_top().saturating_sub(room);
         // Everything above the band's top row is the document; the band's own
         // rows belong to `render`, and nothing here may write at or below it --
         // the activity row included, which is why this is the band's top rather
         // than its divider.
-        let area = geometry.band_top().saturating_sub(1);
+        let area = anchor.saturating_sub(1);
         // The rows a previous append already put on the screen, and the ones
         // this append adds. `scroll` past the end of `rows` is not something
         // `Transcript` produces -- an append's rows are its whole tail -- but a
@@ -1257,7 +1554,7 @@ impl Band {
         // fallback is the clamp itself rather than a return that would drop the
         // whole append.
         let shown = u16::try_from(settled.min(usize::from(area))).unwrap_or(area);
-        let first = geometry.band_top().saturating_sub(shown);
+        let first = anchor.saturating_sub(shown);
         // The rows the settled block **vacated**, erased before anything
         // scrolls -- the same window, and for the same reason, as
         // [`Self::release`] above.
@@ -1277,9 +1574,21 @@ impl Band {
         // Nothing when the band grew or held still (`saturating_sub` is zero),
         // and nothing when there is no settled block to have vacated anything,
         // since those rows are `release`'s and it has already written them.
-        let vacated = self
-            .painted
-            .map_or(0, |top| geometry.band_top().saturating_sub(top));
+        //
+        // Measured from `document_bottom` -- the row the block's last row is
+        // really on -- whenever the band knows it, and from `painted` only when
+        // it does not. The two agree while no frame has landed since the band
+        // moved. They part when one has: a band that grew carries the document
+        // up ([`Self::carry_document`]), and the frame that paints it shorter
+        // again records its new top as `painted` before the block is rewritten,
+        // so `painted` says nothing moved while the block sits as many rows
+        // above the band as the carry put it. A tool's approval opening and
+        // closing under a running tool group is the ordinary way to get there,
+        // and the group's old block stayed on the screen above its rewrite.
+        let vacated = match self.document_bottom {
+            Some(bottom) => anchor.saturating_sub(1).saturating_sub(bottom),
+            None => self.painted.map_or(0, |top| anchor.saturating_sub(top)),
+        };
         if shown > 0 {
             for line in first.saturating_sub(vacated)..first {
                 cup(&mut self.buffer, line, 1);
@@ -1304,12 +1613,13 @@ impl Band {
         // this particular one is.
         let reuse_eligible = !self.damaged
             && self.painted_on == Some((geometry.rows, geometry.cols))
-            && self.painted == Some(geometry.band_top())
+            && self.painted == Some(anchor)
             && scroll == fresh;
         for (offset, row) in rows[settled - usize::from(shown)..settled]
             .iter()
             .enumerate()
         {
+            let index = settled - usize::from(shown) + offset;
             // A row number too, bounded by `shown` a line above it.
             let offset = u16::try_from(offset).unwrap_or(shown);
             let line = first.saturating_add(offset);
@@ -1321,16 +1631,24 @@ impl Band {
                 place(&mut self.buffer, line, row, geometry);
                 self.target.place_row(line, row, geometry);
             }
+            // A reused row is still the row this append says it is.
+            self.target.set_kind(line, kind(index));
         }
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
         // append carries it off the top and into the terminal's own scrollback.
-        for row in &rows[settled..] {
-            scroll_one(&mut self.buffer, geometry);
-            self.target.scroll_up(1);
-            let line = geometry.band_top().saturating_sub(1);
+        for (index, row) in rows[settled..].iter().enumerate() {
+            let line = match u16::try_from(index) {
+                Ok(index) if index < room => anchor.saturating_add(index),
+                _ => {
+                    scroll_one(&mut self.buffer, geometry);
+                    self.target.scroll_up(1);
+                    geometry.band_top().saturating_sub(1)
+                }
+            };
             place(&mut self.buffer, line, row, geometry);
             self.target.place_row(line, row, geometry);
+            self.target.set_kind(line, kind(settled + index));
         }
         // Every row these bytes may reach, and every scroll they may make,
         // named from the counts above rather than from what was emitted.
@@ -1350,7 +1668,7 @@ impl Band {
                 check::Seg::Erase(erase_top..=bottom),
                 check::Seg::Place(first.min(bottom)..=bottom),
                 check::Seg::Scroll {
-                    rows: u32::try_from(scroll).unwrap_or(u32::MAX),
+                    rows: u32::try_from(scroll - usize::from(room)).unwrap_or(u32::MAX),
                 },
             ],
         );
@@ -1387,9 +1705,14 @@ impl Band {
             let offset = u16::try_from(offset).unwrap_or(shown);
             script.place(first.saturating_add(offset), row);
         }
-        for row in &rows[settled..] {
-            script.scroll();
-            script.place(geometry.band_top().saturating_sub(1), row);
+        for (index, row) in rows[settled..].iter().enumerate() {
+            match u16::try_from(index) {
+                Ok(index) if index < room => script.place(anchor.saturating_add(index), row),
+                _ => {
+                    script.scroll();
+                    script.place(geometry.band_top().saturating_sub(1), row);
+                }
+            }
         }
         (self.buffer.clone(), footprint, script)
     }
@@ -1400,7 +1723,8 @@ impl Band {
     /// There is exactly one such writer, and it is the reason this is not
     /// [`Self::frame_landed`]: the stop handler. A `SIGTSTP` at a question runs
     /// `super::signals`'s `stop_for_job_control`, which writes
-    /// [`super::term::abnormal_restore`] -- `1049l` first, unconditionally,
+    /// [`super::term::abnormal_restore`] -- `1049l` unconditionally, right
+    /// after the `?2026l` that closes any update a torn write left open,
     /// because an exit that does not know what is on the screen may not ask --
     /// and stops the process with the user's own buffer back. The `SIGCONT`
     /// that follows re-announces the mode set (`super::resume`), and the mode
@@ -1462,6 +1786,13 @@ impl Band {
         bottom.saturating_sub(top).saturating_add(1)
     }
 
+    /// Whether [`Self::carry_document`] has rows to carry off the top of the
+    /// screen for a band solved as `geometry`: one of the document's debts,
+    /// asked before an update that would carry them is assembled.
+    pub(crate) fn owes_carry(&self, geometry: &Geometry) -> bool {
+        self.grown(geometry) > 0
+    }
+
     /// Carries the document up out of the way of a band that has grown, in one
     /// write and one flush.
     ///
@@ -1496,10 +1827,10 @@ impl Band {
         &mut self,
         out: &mut impl Sink,
         geometry: &Geometry,
-    ) -> Result<(), Emit> {
+    ) -> Result<u16, Emit> {
         let grown = self.grown(geometry);
         if grown == 0 {
-            return Ok(());
+            return Ok(0);
         }
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
@@ -1565,6 +1896,209 @@ impl Band {
         self.delivered(geometry);
         // The scroll left the caret on the bottom row, which is not where the
         // last frame left it: the next frame owes a `CUP`.
+        self.caret = None;
+        Ok(grown)
+    }
+
+    /// Hands every document row still on the screen to the terminal's own
+    /// scrollback and leaves the screen blank, in one write and one flush: the
+    /// screen half of `/clear`, `/new` and `/reset`.
+    ///
+    /// Upstream's `commitVisibleTranscriptBeforeFreshSession`
+    /// (`transcript/runtime.zig:4844-4931`): the screen under the document is
+    /// blanked, the document is scrolled off the top by exactly the rows it
+    /// occupies, and the fresh session is painted on the screen that is left
+    /// (`app_session_runtime.zig:1978`). **Nothing is erased that the user
+    /// could scroll back to**, which is the whole difference from the
+    /// `2J`/`3J` this replaced: what leaves the top of the screen is the user's
+    /// to keep, the way every append's rows are.
+    ///
+    /// `reach` is how far down the screen the document reaches as the shell
+    /// counts it ([`super::shell::Shell::document_rows`]). It is clamped to the
+    /// rows above where this band last painted its top, and to the screen: a
+    /// band anchored at the bottom under a document taller than the screen has
+    /// its own rows under the document, and scrolling those would put the
+    /// erased band into history as blank rows.
+    ///
+    /// `spacing` is how many of the rows the document ends on are blank, as
+    /// the shell knows them, and they are not carried either. Upstream hands
+    /// over the transcript's last *occupied* row (`anchor.occupied_last_row`,
+    /// `transcript/runtime.zig:4853-4875`): the blank row a turn's summary or
+    /// a notice leaves under itself is spacing above the footer, not history,
+    /// and carried it would sit between the last answer and the next welcome
+    /// line in scrollback. Erased with the band instead.
+    ///
+    /// The erase runs from the row under the document to the bottom of the
+    /// screen -- the band's rows, the activity row with them, and whatever is
+    /// below a band that floated -- **before** anything scrolls, so no band row
+    /// is carried into scrollback; `ED` from the first column, the sequence the
+    /// exit's cleanup erases the band with. Then the instrument every scroll
+    /// here uses ([`scroll_one`]): `CUP` to the bottom row, then one linefeed
+    /// per row.
+    ///
+    /// **One synchronized update, the linefeeds inside it, and the cursor left
+    /// hidden** -- upstream's handoff is a frame of its own
+    /// (`buildAndFlushFrame` with `.synchronized_update`,
+    /// `transcript/runtime.zig:4904-4935`). Its scroll is movement bytes, which
+    /// follow the `?2026h` (`render_engine/terminal_diff.zig:611-616`; only a
+    /// reset by `RIS` goes before it, `:1318-1327`), and its cursor target is
+    /// hidden (`transcript/runtime.zig:4927`), so it ends on `?2026l` with no
+    /// `?25h` (`terminal_diff.zig:643-644`). A terminal that honours the mode
+    /// presents the erase and the scroll as one change rather than the band
+    /// erased and then the rows climbing; the fresh session's frame shows the
+    /// cursor again. That frame is the second update, and it carries the
+    /// welcome line ahead of the band, as upstream's does
+    /// (`finishLiveSessionTransition`, `app_session_runtime.zig:2012-2018`;
+    /// `super::event_loop`'s `commit_primary`).
+    ///
+    /// **Nothing is recorded until the write lands**, as everywhere else here.
+    /// Once it has, the band knows exactly what is on the screen -- nothing --
+    /// so the shadow is blank, the band has painted nowhere, the document has
+    /// no row on the screen, and the next frame owes a `CUP`.
+    pub(crate) fn hand_off(
+        &mut self,
+        out: &mut impl Sink,
+        reach: u32,
+        spacing: u16,
+        geometry: &Geometry,
+    ) -> Result<(), Emit> {
+        let rows = geometry.rows;
+        // The rows above the band's top as the screen last showed it: a band
+        // that has painted nothing claims none of the screen.
+        let above_band = self.painted.map_or(rows, |top| {
+            top.min(rows.saturating_add(1)).saturating_sub(1)
+        });
+        // Less the blank rows the document ends on, which are the last ones
+        // above the band whether it floats under the document or sits under a
+        // full screen of it.
+        let carried = u16::try_from(reach)
+            .unwrap_or(u16::MAX)
+            .min(above_band)
+            .min(rows)
+            .saturating_sub(spacing);
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        let mut script = check::Script::new(geometry);
+        let mut footprint = Vec::with_capacity(2);
+        self.buffer.clear();
+        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        let first_blank = carried.saturating_add(1);
+        let mut caret = (rows, 1);
+        if first_blank <= rows {
+            cup(&mut self.buffer, first_blank, 1);
+            self.buffer.extend_from_slice(ERASE_BELOW.as_bytes());
+            for line in first_blank..=rows {
+                script.erase(line);
+            }
+            footprint.push(check::Seg::Erase(first_blank..=rows));
+            caret = (first_blank, 1);
+        }
+        if carried > 0 {
+            // One `CUP` and then the linefeeds, as the launch's push writes them
+            // (`super::probe::push`) and upstream scrolls (`writeTerminalScroll`,
+            // `terminal_diff.zig`): every linefeed after the first is already on
+            // the bottom margin.
+            cup(&mut self.buffer, rows, 1);
+            self.buffer
+                .extend(std::iter::repeat_n(b'\n', usize::from(carried)));
+            for _ in 0..carried {
+                script.scroll();
+            }
+            footprint.push(check::Seg::Scroll {
+                rows: u32::from(carried),
+            });
+            caret = (rows, 1);
+        }
+        self.buffer.extend_from_slice(END_FRAME_HIDDEN.as_bytes());
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        // The rows that leave the top are compared as they go, which is the
+        // only moment they can be; the rows under them are declared erased,
+        // and at the end every cell is held to the seed displaced by exactly
+        // the declared scroll. A `3J` anywhere in this vector is refused by the
+        // metadata check: no declaration in this crate admits one.
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Document {
+                    script: &script,
+                    caret: Some(caret),
+                    // Hidden, and left hidden for the frame that follows to
+                    // show: the one thing about the cursor this vector says.
+                    cursor_visible: Some(false),
+                    title: self.shown_title.as_deref(),
+                },
+                check::Footprint::new(check::PlaneKind::Primary, footprint),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        self.shadow.resize(rows, geometry.cols);
+        self.target.resize(rows, geometry.cols);
+        self.painted = None;
+        self.painted_on = None;
+        self.document_bottom = None;
+        // Every row is in scrollback or erased, whatever the band believed
+        // about it before, so a band that was damaged knows its screen again.
+        self.damaged = false;
+        // The vector left the caret where its last step put it, which is not
+        // where any frame left it: the next frame owes a `CUP`.
+        self.caret = None;
+        Ok(())
+    }
+
+    /// Resets the screen **and its scrollback**, in one write and one flush:
+    /// the screen half of a `/resume`.
+    ///
+    /// Upstream's terminal reset (`finishLiveSessionResume` →
+    /// `requestTerminalReset`, `app_session_runtime.zig:1926-1929`), whose bytes
+    /// are `ESC[0m ESC[2J ESC[3J ESC[H` (`appendFrameReset`,
+    /// `render_engine/terminal_diff.zig:1311-1325`): a resumed session replaces
+    /// the conversation on the screen, and the one it replaced does not stay
+    /// in the scrollback above it (`fx-sessions-40x120-resumed.full.txt` is the
+    /// screen and nothing more). The opposite of [`Self::hand_off`], which is
+    /// what a fresh session does and keeps every row.
+    ///
+    /// The SGR reset is left out: this band closes every colour it opens, so
+    /// there is none for it to close.
+    ///
+    /// **Nothing is recorded until the write lands.** Once it has, the band's
+    /// bookkeeping is a blank screen's, as after a handoff.
+    pub(crate) fn wipe(&mut self, out: &mut impl Sink, geometry: &Geometry) -> Result<(), Emit> {
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        self.buffer.clear();
+        self.buffer.extend_from_slice(WIPE.as_bytes());
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Wiped,
+                check::Footprint::new(
+                    check::PlaneKind::Primary,
+                    vec![check::Seg::Erase(1..=geometry.rows)],
+                ),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        self.shadow.resize(geometry.rows, geometry.cols);
+        self.target.resize(geometry.rows, geometry.cols);
+        self.painted = None;
+        self.painted_on = None;
+        self.document_bottom = None;
+        self.damaged = false;
+        // `ESC[H` left it at the origin, which is still not where any frame
+        // left it.
         self.caret = None;
         Ok(())
     }
@@ -1807,8 +2341,9 @@ impl Band {
         out: &mut impl Sink,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) -> Result<(), Emit> {
+        let cursor = cursor.into();
         if !self.on_alternate() {
             return Err(Emit::rejected(io::Error::other(
                 "recover_alternate was called while the terminal is not on the alternate plane",
@@ -1950,6 +2485,112 @@ impl Band {
         Ok(Retint::Settled(Commit::Painted))
     }
 
+    /// Records that the document's last `rows` rows -- written blank by the
+    /// append that just landed -- are no longer the document's: a block that
+    /// shrank gave them back, and the band may take them without carrying
+    /// anything ([`Self::grown`]).
+    pub(crate) fn document_released(&mut self, rows: u16) {
+        self.document_bottom = self
+            .document_bottom
+            .map(|bottom| bottom.saturating_sub(rows))
+            .filter(|row| *row > 0);
+    }
+
+    /// Collapses the tool groups still on the screen, for a session whose
+    /// `Collapse tool calls` was just switched on: each group's call rows and
+    /// cancelled lines go, the rows under them move up, and the rows that
+    /// frees above the band are blank -- upstream re-projects the visible
+    /// transcript for it (`markTranscriptStructureDirty`,
+    /// `app_commands.zig:4120-4133`; [`Grid::collapsible_rows`]). Answers how
+    /// many rows the document lost, which the caller takes off its count of
+    /// them so the band floats up under it.
+    ///
+    /// The second emitter that writes above the band's top row, held to
+    /// everything the first one is ([`Self::retint_document`]):
+    ///
+    /// * **No scroll and no erase of its own**: a `CUP` and the cells that
+    ///   changed ([`Grid::diff`]), checked as a paint of rows `1..=last`
+    ///   against the whole candidate. Nothing reaches native scrollback.
+    /// * **Rows this band wrote, moved, never made up.** The candidate is the
+    ///   shadow with rows taken out ([`Grid::remove_rows`]): every cell it
+    ///   holds was on the screen already, and a row the screen no longer has
+    ///   cannot come back. Which rows go is read off what their writer
+    ///   recorded them as, not off their text.
+    /// * **Only where the shadow is a claim about this screen**, as for a
+    ///   recolour: damaged, the wrong size or the other plane is
+    ///   [`Collapse::Deferred`], with no bytes.
+    /// * **The open block's rows are not this function's**: the last `open`
+    ///   rows of the document are the transcript's to rewrite (its count of
+    ///   them is relative to the bottom, which moves with them), so nothing
+    ///   in them is taken out.
+    pub(crate) fn collapse_groups(
+        &mut self,
+        out: &mut impl Sink,
+        geometry: &Geometry,
+        open: u16,
+    ) -> Result<Collapse, Emit> {
+        if self.damaged
+            || !matches!(self.showing, super::shell::ScreenOwner::Primary)
+            || self.shadow.rows() != geometry.rows
+            || self.shadow.cols() != geometry.cols
+        {
+            return Ok(Collapse::Deferred);
+        }
+        let Some(last) = self.document_last(geometry) else {
+            return Ok(Collapse::Settled(0));
+        };
+        let removed = self.shadow.collapsible_rows(last.saturating_sub(open));
+        let Ok(count) = u16::try_from(removed.len()) else {
+            return Ok(Collapse::Settled(0));
+        };
+        if count == 0 {
+            return Ok(Collapse::Settled(0));
+        }
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        self.target.clone_from(&self.shadow);
+        self.target.remove_rows(&removed, last);
+        self.buffer.clear();
+        if self.shadow.diff(&self.target, geometry, &mut self.buffer) == 0 {
+            return Ok(Collapse::Settled(0));
+        }
+        let caret = self
+            .caret
+            .map(|(row, cells)| (row, cells.saturating_add(1)));
+        if let Some((row, column)) = caret {
+            cup(&mut self.buffer, row, column);
+        }
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Primary {
+                    grid: &self.target,
+                    caret,
+                    cursor_visible: None,
+                    title: self.shown_title.as_deref(),
+                },
+                check::Footprint::new(check::PlaneKind::Primary, vec![check::Seg::Place(1..=last)]),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        std::mem::swap(&mut self.shadow, &mut self.target);
+        // The document's last row moved up with everything under the rows
+        // that went.
+        self.document_bottom = self
+            .document_bottom
+            .map(|bottom| bottom.saturating_sub(count))
+            .filter(|row| *row > 0);
+        Ok(Collapse::Settled(count))
+    }
+
+    #[cfg(test)]
     pub(crate) fn append_document(
         &mut self,
         out: &mut impl Sink,
@@ -1957,10 +2598,29 @@ impl Band {
         rows: &[String],
         geometry: &Geometry,
     ) -> Result<(), Emit> {
+        self.append_floating(out, scroll, rows, &[], geometry, 0)
+    }
+
+    /// [`Self::append_document`] onto a band that moved `room` rows down for
+    /// it: the first `room` new rows take the rows the band gave back, and
+    /// only the rest scroll ([`Self::render_append`]).
+    ///
+    /// `kinds` is what each row is (`super::transcript::Append::kinds`,
+    /// empty for every row plain), recorded on the grid with the row.
+    pub(crate) fn append_floating(
+        &mut self,
+        out: &mut impl Sink,
+        scroll: usize,
+        rows: &[String],
+        kinds: &[super::theme::DocumentRow],
+        geometry: &Geometry,
+        room: u16,
+    ) -> Result<(), Emit> {
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
-        let (appended, footprint, script) = self.render_append(scroll, rows, geometry);
+        let (appended, footprint, script) =
+            self.render_append_recorded(scroll, rows, kinds, geometry, room);
         if appended.is_empty() {
             return Ok(());
         }
@@ -2041,26 +2701,54 @@ fn scroll_one(buffer: &mut Vec<u8>, geometry: &Geometry) {
 /// *shorter* than the one it replaces, when a word moves down. Without the
 /// erase, either leaves characters behind on a row nothing will ever repaint --
 /// they are the terminal's document now.
+///
+/// **Only after a row that stops short of the last column.** Autowrap is off
+/// (`super::term::MODE_SET`'s `?7l`), so the cluster written into the last
+/// column leaves the caret *on* that column rather than past it -- and an
+/// erase from there clears the cell the row has just written. A row exactly as
+/// wide as the screen lost its last character that way (`word32` painted as
+/// `word3` at 120 columns). A full row has no tail to erase: every cell of it
+/// was just written. Upstream asks the same question before its erase
+/// (`finishComposedInputRow`, `input_presentation.zig:1095-1097`, and
+/// `writeDocumentAppendClear`'s `start_col < target_cols`,
+/// `terminal_diff.zig:1177-1195`).
 fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
     cup(buffer, line, 1);
-    buffer.extend_from_slice(row_text(row, geometry.cols).as_bytes());
-    buffer.extend_from_slice(ERASE_LINE.as_bytes());
+    let text = row_text(row, geometry.cols);
+    buffer.extend_from_slice(text.as_bytes());
+    if super::wrap::width(&text) < geometry.cols {
+        buffer.extend_from_slice(ERASE_LINE.as_bytes());
+    }
 }
 
-/// The window title a session asks for: `xfx` and the model a turn would run
-/// against, in upstream's separator.
+/// The window title a session asks for: the session's own title once it has
+/// one, and until then `xfx v<version> | <workspace>` -- upstream's
+/// `syncTerminalTitleWith` (`app_session_runtime.zig:3608-3629`), which falls
+/// back to the word `workspace` for a root with no last component.
 ///
-/// **The label is made inert here**, and that is the load-bearing half rather
-/// than the formatting. A model id is configuration -- a file, an environment
-/// variable, a `/model` argument -- so it is a string a user or a provider
-/// chose; an `OSC` string ends at a `BEL` or an `ESC \`, so a label carrying
-/// either would close the title early and leave the rest of it being *executed*
-/// by the terminal. Every control goes, rather than the two that terminate this
-/// particular sequence: an allowlist of terminators is a list somebody has to
-/// keep correct as sequences are added, and there is no control a window title
-/// has a use for.
-pub(crate) fn title(model: &str) -> String {
-    format!("xfx \u{b7} {}", inert_label(model))
+/// **Both labels are made inert here**, and that is the load-bearing half
+/// rather than the formatting. A session title is the first line of a prompt
+/// and a directory name is whatever the user named it, so both are strings
+/// somebody else chose; an `OSC` string ends at a `BEL` or an `ESC \`, so a
+/// label carrying either would close the title early and leave the rest of it
+/// being *executed* by the terminal. Every control goes, rather than the two
+/// that terminate this particular sequence: an allowlist of terminators is a
+/// list somebody has to keep correct as sequences are added, and there is no
+/// control a window title has a use for. Upstream drops them from its cached
+/// title for the same reason (`appendTitleWithoutControlBytes`, `:3580-3590`).
+///
+/// A session title that is nothing once its controls are gone is no title:
+/// the window says what the session is rather than going blank.
+pub(crate) fn title(session: Option<&str>, workspace: &std::path::Path) -> String {
+    if let Some(session) = session.map(inert_label).filter(|label| !label.is_empty()) {
+        return session;
+    }
+    let folder = workspace
+        .file_name()
+        .map(|name| inert_label(&name.to_string_lossy()))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "workspace".to_string());
+    format!("xfx v{} | {folder}", crate::VERSION)
 }
 
 /// `label` with nothing in it a terminal would act on.
@@ -2095,10 +2783,20 @@ pub(crate) fn cup(buffer: &mut Vec<u8>, row: u16, column: u16) {
 /// a row assembled from anything that did not come through `UiEvent` would
 /// otherwise arrive here unexamined.
 ///
-/// One shape passes: an SGR. This phase's pacer re-opens attributes into the
-/// text it emits (`super::pacer::SgrState`), and Task 15's palette will put
-/// them into the band's own rows, so a blanket strip here would break the
-/// feature the allowlist exists to serve.
+/// Two shapes pass: an SGR, and an OSC 8 hyperlink that
+/// [`super::hyperlink::link_at`] admits -- upstream's spelling, with a target
+/// that is inert. This phase's pacer re-opens attributes into the text it
+/// emits (`super::pacer::SgrState`), the palette puts them into the band's own
+/// rows, and upstream's answers and image badges are links, so a blanket strip
+/// here would break the features the allowlist exists to serve.
+///
+/// **A link never outlives its row.** Whatever this returns closes every link
+/// it opens -- a link the row's own text left open, and one the clip cut the
+/// close off -- because the next thing written after a row is a `CUP`, and a
+/// link left open across one makes whatever is painted there part of it (and
+/// tmux ends an active link at a wrap anyway, `engine.zig:2400-2406`). A close
+/// with no link open is dropped, so a link refused here cannot leave a close
+/// behind that a later link would be ended by.
 ///
 /// **Dropped rather than turned into a space**, which is where this differs
 /// from `bridge::inert` and the difference is arithmetic rather than taste:
@@ -2115,9 +2813,30 @@ pub(crate) fn cup(buffer: &mut Vec<u8>, row: u16, column: u16) {
 /// that reached the painter by any other road.
 pub(crate) fn row_text(row: &str, cols: u16) -> Cow<'_, str> {
     if row.chars().any(obeyed) {
-        return Cow::Owned(clip(&tamed(row), cols).to_string());
+        return Cow::Owned(closed(clip(&tamed(row), cols)));
     }
     Cow::Borrowed(clip(row, cols))
+}
+
+/// `row` -- already [`tamed`], so every sequence in it is a colour or an
+/// admitted link -- with the link it leaves open, if it leaves one, closed.
+fn closed(row: &str) -> String {
+    let mut linked = false;
+    let mut rest = row;
+    while let Some(at) = rest.find('\u{1b}') {
+        rest = &rest[at..];
+        if let Some((len, link)) = super::hyperlink::link_at(rest) {
+            linked = matches!(link, super::hyperlink::Hyperlink::Open { .. });
+            rest = &rest[len..];
+            continue;
+        }
+        rest = &rest[super::pacer::escape_at(rest).unwrap_or(1)..];
+    }
+    let mut out = row.to_string();
+    if linked {
+        out.push_str(super::hyperlink::CLOSE);
+    }
+    out
 }
 
 /// Whether a character is one the terminal would act on rather than draw.
@@ -2129,13 +2848,26 @@ fn obeyed(character: char) -> bool {
     character.is_control()
 }
 
-/// `row` with every control sequence removed except the colours.
+/// `row` with every control sequence removed except the colours and the links
+/// [`super::hyperlink::link_at`] admits.
 fn tamed(row: &str) -> String {
     let mut out = String::with_capacity(row.len());
     let mut rest = row;
+    // Whether a link this function kept is open, so a close with nothing to
+    // close is not kept.
+    let mut linked = false;
     while !rest.is_empty() {
         if let Some(len) = super::pacer::colour_at(rest) {
             out.push_str(&rest[..len]);
+            rest = &rest[len..];
+            continue;
+        }
+        if let Some((len, link)) = super::hyperlink::link_at(rest) {
+            let opens = matches!(link, super::hyperlink::Hyperlink::Open { .. });
+            if opens || linked {
+                out.push_str(&rest[..len]);
+            }
+            linked = opens;
             rest = &rest[len..];
             continue;
         }
@@ -2209,15 +2941,16 @@ mod tests {
     }
 
     fn band_rows() -> Vec<String> {
-        vec!["--".to_string(), "> ".to_string(), "hint".to_string()]
+        vec!["> ".to_string(), "--".to_string(), "hint".to_string()]
     }
 
-    /// The same band with the row a running turn puts above the divider.
+    /// The same band with the rows a running turn puts above the composer.
     fn running_rows() -> Vec<String> {
         vec![
-            "\u{2022} Thinking  0s".to_string(),
-            "--".to_string(),
+            "\u{2022} Thinking (0s)".to_string(),
+            String::new(),
             "> ".to_string(),
+            "--".to_string(),
             "hint".to_string(),
         ]
     }
@@ -2240,9 +2973,14 @@ mod tests {
     /// * a linefeed on the bottom row scrolls, and the top row leaves for
     ///   native scrollback; anywhere else it walks the cursor down.
     /// * `EL` erases from the cursor to the end of its row.
-    /// * printable text overwrites from the cursor rightwards.
+    /// * printable text overwrites from the cursor rightwards, and the cursor
+    ///   stops **on** the last column rather than past it -- autowrap is off
+    ///   (`super::super::term::MODE_SET`'s `?7l`), so an `EL` sent after a
+    ///   row as wide as the screen erases that row's last cell, as a terminal
+    ///   does.
     struct Screen {
         rows: u16,
+        cols: usize,
         divider: u16,
         lines: Vec<String>,
         cursor_row: u16,
@@ -2259,12 +2997,13 @@ mod tests {
         /// erases pass.
         fn under_a_painted_band(geometry: &Geometry) -> Self {
             let mut lines = vec![String::new(); usize::from(geometry.rows)];
-            for line in &mut lines[usize::from(geometry.divider) - 1..] {
+            for line in &mut lines[usize::from(geometry.band_top()) - 1..] {
                 *line = "\u{2500}".repeat(usize::from(geometry.cols));
             }
             Self {
                 rows: geometry.rows,
-                divider: geometry.divider,
+                cols: usize::from(geometry.cols),
+                divider: geometry.band_top(),
                 lines,
                 cursor_row: 1,
                 cursor_column: 0,
@@ -2307,16 +3046,18 @@ mod tests {
             );
             let line = &mut self.lines[usize::from(self.cursor_row) - 1];
             let mut cells: Vec<char> = line.chars().collect();
-            for (offset, character) in text.chars().enumerate() {
-                let at = self.cursor_column + offset;
+            for character in text.chars() {
+                let at = self.cursor_column;
                 if at < cells.len() {
                     cells[at] = character;
                 } else {
                     cells.push(character);
                 }
+                if self.cursor_column + 1 < self.cols {
+                    self.cursor_column += 1;
+                }
             }
             *line = cells.into_iter().collect();
-            self.cursor_column += text.chars().count();
         }
 
         fn erase_to_end_of_row(&mut self) {
@@ -2399,7 +3140,7 @@ mod tests {
     fn a_document_append_scrolls_the_screen_so_the_row_enters_native_scrollback() {
         let mut band = Band::new();
         let bytes = band
-            .render_append(1, &["answered".to_string()], &geometry())
+            .render_append(1, &["answered".to_string()], &geometry(), 0)
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
         // CUP to the last row, then a literal newline: the terminal really
@@ -2425,8 +3166,8 @@ mod tests {
             String::from_utf8(bytes).expect("utf-8"),
             "\u{1b}[?2026h\u{1b}[?25l\
              \u{1b}[22;1H\u{1b}[J\
-             \u{1b}[22;1H--\
-             \u{1b}[23;1H> \
+             \u{1b}[22;1H> \
+             \u{1b}[23;1H--\
              \u{1b}[24;1Hhint\
              \u{1b}[23;3H\
              \u{1b}[?2026l\u{1b}[?25h"
@@ -2461,19 +3202,20 @@ mod tests {
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         let rows = vec![
-            "\u{2022} Thinking  9s".to_string(),
-            "--".to_string(),
+            "\u{2022} Thinking (9s)".to_string(),
+            String::new(),
             "> ".to_string(),
+            "--".to_string(),
             "hint".to_string(),
         ];
-        let text = String::from_utf8(band.render(&rows, &geometry, (23, 2))).expect("utf-8");
+        let text = String::from_utf8(band.render(&rows, &geometry, (22, 2))).expect("utf-8");
         let erase = text.find(ERASE_BELOW).expect("the erase");
         assert_eq!(
             &text[..erase],
-            format!("{BEGIN_FRAME}\u{1b}[21;1H"),
+            format!("{BEGIN_FRAME}\u{1b}[20;1H"),
             "the erase did not start at the band's own top row: {text:?}"
         );
-        for (line, row) in (21u16..).zip(&rows) {
+        for (line, row) in (20u16..).zip(&rows) {
             assert!(
                 text.contains(&format!("\u{1b}[{line};1H{row}")),
                 "{row:?} was not painted on row {line}: {text:?}"
@@ -2483,20 +3225,20 @@ mod tests {
 
     #[test]
     fn an_append_leaves_the_row_the_turn_is_using_alone() {
-        // The document is one row shorter while a turn runs, and an append that
+        // The document is two rows shorter while a turn runs, and an append that
         // measured it against the divider would aim its topmost row at the row
         // above the screen -- and paint over the activity row on the way.
         let mut band = Band::new();
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         let rows: Vec<String> = (0..40).map(|row| format!("row {row}")).collect();
-        let text = String::from_utf8(band.render_append(0, &rows, &geometry).0).expect("utf-8");
+        let text = String::from_utf8(band.render_append(0, &rows, &geometry, 0).0).expect("utf-8");
         assert!(
             !text.contains("\u{1b}[0;1H"),
             "the append aimed a row at the row above the screen: {text:?}"
         );
         assert!(
-            text.contains("\u{1b}[1;1Hrow 20"),
+            text.contains("\u{1b}[1;1Hrow 21"),
             "the document's first row is not on the screen's first row: {text:?}"
         );
         assert!(
@@ -2513,10 +3255,13 @@ mod tests {
         let mut band = Band::new();
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
-        let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry).0)
-            .expect("utf-8");
+        let text = String::from_utf8(
+            band.render_append(1, &["fresh".to_string()], &geometry, 0)
+                .0,
+        )
+        .expect("utf-8");
         assert!(
-            text.contains("\u{1b}[20;1Hfresh"),
+            text.contains("\u{1b}[19;1Hfresh"),
             "the new row is not on the bottom row of the document: {text:?}"
         );
         assert!(
@@ -2578,8 +3323,11 @@ mod tests {
         )
         .expect("a frame the screen took");
 
-        let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry).0)
-            .expect("utf-8");
+        let text = String::from_utf8(
+            band.render_append(1, &["fresh".to_string()], &geometry, 0)
+                .0,
+        )
+        .expect("utf-8");
         assert!(
             !text.contains(&format!("\u{1b}[{};1H{ERASE_LINE}", geometry.band_top())),
             "the append erased the row the turn is using: {text:?}"
@@ -2635,6 +3383,7 @@ mod tests {
                 2,
                 &["first\r\nsecond".to_string(), "third\n".to_string()],
                 &geometry(),
+                0,
             )
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
@@ -2697,6 +3446,145 @@ mod tests {
         // for exactly that reason.
         let row = "a\u{1b}[2Jb\u{1b}[?1049hc\u{1b}]0;title\u{7}d\u{1b}[31me\u{1b}[38;5;240mf\u{7}g";
         assert_eq!(row_text(row, 80), "abcde\u{1b}[38;5;240mfg");
+    }
+
+    /// Upstream's link around `docs`, with the answer's link colour and
+    /// underline inside it (`inline_render.zig:535-560`).
+    const DOCS_OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\";
+    const LINK_CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+
+    #[test]
+    fn an_admitted_link_reaches_the_row_whole_with_its_text() {
+        let row = format!("see {DOCS_OPEN}\u{1b}[4mdocs\u{1b}[24m{LINK_CLOSE} now");
+        assert_eq!(row_text(&row, 80), row);
+        // And costs no cell: the clip measures the text alone.
+        assert_eq!(super::super::wrap::width(&row_text(&row, 80)), 12);
+    }
+
+    #[test]
+    fn a_link_the_row_leaves_open_is_closed_at_the_end_of_it() {
+        let row = format!("see {DOCS_OPEN}docs");
+        assert_eq!(row_text(&row, 80), format!("{row}{LINK_CLOSE}"));
+    }
+
+    #[test]
+    fn a_clip_inside_a_link_closes_it_where_the_row_is_cut() {
+        // The close past the cut is not written, so without one here the link
+        // would stay open across the `CUP` that places the next row.
+        let row = format!("ab{DOCS_OPEN}cdefgh{LINK_CLOSE}ij");
+        assert_eq!(row_text(&row, 4), format!("ab{DOCS_OPEN}cd{LINK_CLOSE}"));
+    }
+
+    #[test]
+    fn a_link_in_a_scheme_this_crate_does_not_link_is_dropped_and_its_text_kept() {
+        for uri in [
+            "javascript:alert(1)",
+            "README.md",
+            "ftp://example.com/f",
+            "data:text/html,x",
+        ] {
+            let row = format!("a\u{1b}]8;id=fx-7;{uri}\u{1b}\\link{LINK_CLOSE}b");
+            assert_eq!(row_text(&row, 80), "alinkb", "{uri}");
+        }
+    }
+
+    #[test]
+    fn a_close_with_no_link_open_is_dropped() {
+        assert_eq!(row_text(&format!("a{LINK_CLOSE}b"), 80), "ab");
+    }
+
+    #[test]
+    fn a_link_spelled_with_bel_is_dropped_whole() {
+        // Not upstream's spelling, so not this crate's: the scanner measures it
+        // to its `BEL`, and the text after it is text.
+        let row = "a\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7}b";
+        assert_eq!(row_text(row, 80), "alinkb");
+    }
+
+    #[test]
+    fn an_escape_inside_a_target_executes_nothing() {
+        // The `ESC` that was meant to be inside the link is not the
+        // terminator, so the link is refused and the scanner reads that `ESC`
+        // alone: what follows it is printed as the characters it is, and the
+        // erase inside it is dropped like any other.
+        let row = "\u{1b}]8;;https://a\u{1b}[2Jb\u{1b}\\text";
+        assert_eq!(row_text(row, 80), "]8;;https://abtext");
+        assert!(!row_text(row, 80).contains('\u{1b}'));
+    }
+
+    #[test]
+    fn a_terminator_inside_a_target_ends_the_link_and_what_follows_is_judged_alone() {
+        // The author meant `https://a<ST><CSI 2J>` as one target. The link ends
+        // at the first `ST`, which is inert, and the erase after it is not a
+        // colour, so it goes.
+        let row = format!("\u{1b}]8;;https://a\u{1b}\\\u{1b}[2Jx{LINK_CLOSE}");
+        assert_eq!(
+            row_text(&row, 80),
+            format!("\u{1b}]8;;https://a\u{1b}\\x{LINK_CLOSE}")
+        );
+    }
+
+    #[test]
+    fn a_target_carrying_a_c1_terminator_is_dropped_whole() {
+        // `U+009C` is `ST` to a terminal that reads 8-bit controls: a target
+        // carrying one is refused, and the string is measured to its real
+        // terminator and goes whole.
+        let row = format!("a\u{1b}]8;;https://x\u{9c}y\u{1b}\\b{LINK_CLOSE}c");
+        assert_eq!(row_text(&row, 80), "abc");
+        // With a title smuggled behind it, the `ESC` of the title is what the
+        // scanner stops at, so that `ESC` goes alone, the bytes before it are
+        // printed as the inert characters they are, the C1 byte is dropped
+        // and the title is dropped as the `OSC` it is.
+        let row = format!("a\u{1b}]8;;https://x\u{9c}\u{1b}]2;owned\u{7}\u{1b}\\b{LINK_CLOSE}c");
+        let painted = row_text(&row, 80);
+        assert_eq!(painted, "a]8;;https://xbc");
+        assert!(!painted.contains(['\u{1b}', '\u{9c}', '\u{7}']));
+    }
+
+    #[test]
+    fn an_unterminated_link_takes_the_rest_of_the_row_with_it() {
+        // Half a string sequence would take its end from the next row.
+        assert_eq!(row_text("ab\u{1b}]8;;https://example.com/x", 80), "ab");
+    }
+
+    #[test]
+    fn a_target_longer_than_upstreams_cap_is_dropped() {
+        let long = format!(
+            "https://e.x/{}",
+            "a".repeat(super::super::hyperlink::MAX_URI_BYTES)
+        );
+        let row = format!("a\u{1b}]8;;{long}\u{1b}\\b{LINK_CLOSE}c");
+        assert_eq!(row_text(&row, 80), "abc");
+    }
+
+    #[test]
+    fn every_other_operating_system_command_is_still_dropped() {
+        let row = "a\u{1b}]52;c;aGVsbG8=\u{1b}\\b\u{1b}]2;t\u{1b}\\c\u{1b}]7;file:///tmp\u{7}d";
+        assert_eq!(row_text(row, 80), "abcd");
+    }
+
+    #[test]
+    fn a_link_is_never_split_across_two_rows_at_any_width() {
+        // The wrap and the painter agree about where a link sequence is, and
+        // every painted row closes what it opened.
+        // The answer's wrap (`super::super::prose`) included: it moves a word
+        // down where the composer's would not, and a break it moves must not
+        // land inside a sequence either.
+        let text = format!("ab {DOCS_OPEN}cd ef{LINK_CLOSE} gh");
+        for cols in 1..=14u16 {
+            let answer =
+                super::super::prose::prose(&text, cols, 2, super::super::prose::Opening::Line);
+            for row in super::super::wrap::wrap(&text, cols)
+                .into_iter()
+                .chain(answer.into_iter().map(|laid| laid.row))
+            {
+                let painted = row_text(&text[row.start..row.end], cols);
+                let opens = painted.matches("\u{1b}]8;id=").count();
+                let closes = painted.matches(LINK_CLOSE).count();
+                assert_eq!(opens, closes, "{painted:?} at {cols}");
+                assert!(!painted.contains("]8;id") || painted.contains(DOCS_OPEN));
+            }
+        }
     }
 
     #[test]
@@ -2777,7 +3665,7 @@ mod tests {
     #[test]
     fn an_append_of_nothing_writes_nothing() {
         let mut band = Band::new();
-        assert!(band.render_append(0, &[], &geometry()).0.is_empty());
+        assert!(band.render_append(0, &[], &geometry(), 0).0.is_empty());
     }
 
     #[test]
@@ -2788,7 +3676,7 @@ mod tests {
         // double-spaced.
         let mut band = Band::new();
         let bytes = band
-            .render_append(0, &["answered".to_string()], &geometry())
+            .render_append(0, &["answered".to_string()], &geometry(), 0)
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
         assert_eq!(
@@ -2804,12 +3692,86 @@ mod tests {
         // costs a scroll.
         let mut band = Band::new();
         let bytes = band
-            .render_append(1, &["abcd".to_string(), "efgh".to_string()], &geometry())
+            .render_append(1, &["abcd".to_string(), "efgh".to_string()], &geometry(), 0)
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
         assert_eq!(
             text, "\u{1b}[21;1Habcd\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1Hefgh\u{1b}[K",
             "the append moved the screen by something other than its new rows"
+        );
+    }
+
+    #[test]
+    fn a_row_as_wide_as_the_screen_is_placed_without_an_erase_after_it() {
+        // Autowrap is off, so the caret that wrote the last column is still on
+        // it, and an `EL` from there erases the cell the row just wrote --
+        // `word32` was painted `word3` at 120 columns. A full row has no tail
+        // to erase; one cell short of it still does.
+        let geometry = geometry();
+        let full = "x".repeat(usize::from(geometry.cols));
+        let short = "y".repeat(usize::from(geometry.cols) - 1);
+        let mut band = Band::new();
+        let bytes = band
+            .render_append(2, &[full.clone(), short.clone()], &geometry, 0)
+            .0;
+        assert_eq!(
+            String::from_utf8(bytes).expect("utf-8"),
+            format!(
+                "\u{1b}[24;1H\n\u{1b}[21;1H{full}\
+                 \u{1b}[24;1H\n\u{1b}[21;1H{short}\u{1b}[K"
+            ),
+            "a full row was erased from its own last column, or a short one \
+             kept the tail it replaced"
+        );
+        // And rewritten where it stands -- a tail re-placed after a resize, a
+        // tool group's block redrawn under the line written beneath it: the
+        // same placement, so the same rule.
+        let bytes = band
+            .render_append(0, std::slice::from_ref(&full), &geometry, 0)
+            .0;
+        assert_eq!(
+            String::from_utf8(bytes).expect("utf-8"),
+            format!("\u{1b}[21;1H{full}"),
+            "a full row re-placed where it stands was erased from its last column"
+        );
+    }
+
+    #[test]
+    fn an_answer_row_as_wide_as_the_screen_reaches_the_document_whole() {
+        // The path the capture took (`xfx-streaming-40x120`, and
+        // `notice-midstream` at both sizes): the answer's text in its
+        // two-column gutter, wrapped to `cols - 2`, so `word16` to `word32` is
+        // 118 cells of text and a 120-cell row. Wrapped right and placed
+        // right, it lost its `2` to the erase that followed it.
+        let geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
+        let mut transcript = crate::tui::transcript::Transcript::new(geometry.cols);
+        transcript.queue_gutter(crate::tui::transcript::Gutter::Indent);
+        // A gutter writes nothing of its own; landing it is a state change.
+        let palette = crate::tui::theme::Palette {
+            mode: crate::tui::theme::Mode::Dark,
+            depth: crate::tui::theme::Depth::Ansi256,
+        };
+        while transcript
+            .emit_front(palette, |_| {
+                crate::tui::transcript::Landed::<std::convert::Infallible>::All
+            })
+            .is_some()
+        {}
+        let mut band = Band::new();
+        let mut screen = Screen::under_a_painted_band(&geometry);
+        let words: Vec<String> = (16..=40).map(|n| format!("word{n}")).collect();
+        let append = transcript.push(&words.join(" "));
+        screen.feed(
+            &band
+                .render_append(append.scroll, &append.rows, &geometry, 0)
+                .0,
+        );
+        let row = format!("  {}", words[..17].join(" "));
+        assert_eq!(row.chars().count(), 120, "the fixture is not a full row");
+        assert_eq!(
+            screen.document(),
+            vec![row, format!("  {}", words[17..].join(" "))],
+            "a full-width answer row lost its last cell on the way to the screen"
         );
     }
 
@@ -2822,13 +3784,13 @@ mod tests {
         // transcript, so what is not in scrollback is gone. Asserted against a
         // screen rather than against bytes, because "the row reached the
         // terminal's document" is a claim about what the bytes *did*.
-        let geometry = crate::tui::layout::solve(6, 20, 1).expect("the smallest band");
-        assert_eq!(geometry.divider, 4, "three document rows");
+        let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
+        assert_eq!(geometry.band_top(), 5, "four document rows");
         let rows: Vec<String> = (1..=5).map(|row| format!("row{row}")).collect();
 
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
-        screen.feed(&band.render_append(5, &rows, &geometry).0);
+        screen.feed(&band.render_append(5, &rows, &geometry, 0).0);
 
         assert_eq!(
             screen.document(),
@@ -2837,7 +3799,7 @@ mod tests {
         );
         assert_eq!(
             screen.visible_document(),
-            vec!["row3", "row4", "row5"],
+            vec!["row2", "row3", "row4", "row5"],
             "the screen does not end on the tail of the answer"
         );
         assert_eq!(
@@ -2887,7 +3849,7 @@ mod tests {
         ] {
             let rows = vec!["x".to_string(); count];
             let mut band = Band::new();
-            let bytes = band.render_append(count, &rows, &geometry).0;
+            let bytes = band.render_append(count, &rows, &geometry, 0).0;
             assert_eq!(
                 scrolls_and_placements(&bytes, &geometry),
                 (count, count),
@@ -2907,11 +3869,11 @@ mod tests {
         let count = usize::from(u16::MAX) + 10;
         let rows = vec!["x".to_string(); count];
         let mut band = Band::new();
-        let bytes = band.render_append(3, &rows, &geometry).0;
+        let bytes = band.render_append(3, &rows, &geometry, 0).0;
         // Three scrolls for the three new rows, and one placement per row the
         // screen still holds: the whole document area, plus the three that
         // scrolled in under it.
-        let area = usize::from(geometry.divider) - 1;
+        let area = usize::from(geometry.band_top()) - 1;
         assert_eq!(
             scrolls_and_placements(&bytes, &geometry),
             (3, area + 3),
@@ -2934,13 +3896,13 @@ mod tests {
         // row an appended line lands on holds the divider's rule. Writing a
         // shorter line over it without an erase leaves the rest of the rule
         // behind -- on a document row nothing will ever repaint.
-        let geometry = crate::tui::layout::solve(6, 20, 1).expect("the smallest band");
+        let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
-        screen.feed(&band.render_append(1, &["ok".to_string()], &geometry).0);
+        screen.feed(&band.render_append(1, &["ok".to_string()], &geometry, 0).0);
         assert_eq!(
             screen.visible_document(),
-            vec!["", "", "ok"],
+            vec!["", "", "", "ok"],
             "the band's rule survived into the document"
         );
     }
@@ -2952,7 +3914,7 @@ mod tests {
         // hold the answer. Every row must be in the document exactly once, in
         // order -- which is the one property that a lost scroll, a duplicated
         // repaint, and an off-by-one placement each break differently.
-        let geometry = crate::tui::layout::solve(6, 20, 1).expect("the smallest band");
+        let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
         let mut transcript = crate::tui::transcript::Transcript::new(geometry.cols);
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
@@ -2964,7 +3926,11 @@ mod tests {
             "rested",
         ] {
             let append = transcript.push(chunk);
-            screen.feed(&band.render_append(append.scroll, &append.rows, &geometry).0);
+            screen.feed(
+                &band
+                    .render_append(append.scroll, &append.rows, &geometry, 0)
+                    .0,
+            );
         }
         assert_eq!(
             screen.document().join("\n"),
@@ -3073,9 +4039,12 @@ mod tests {
                 );
                 let end = rest.find('\u{1b}').unwrap_or(rest.len());
                 let (text, tail) = rest.split_at(end);
+                // The caret stops on the last column rather than past it:
+                // autowrap is off, so a character written there leaves the
+                // caret where an `EL` would erase it.
                 for character in text.chars() {
-                    if self.col < usize::from(self.cols) {
-                        self.lines[self.row][self.col] = character;
+                    self.lines[self.row][self.col] = character;
+                    if self.col + 1 < usize::from(self.cols) {
                         self.col += 1;
                     }
                 }
@@ -3449,7 +4418,7 @@ mod tests {
         assert!(band.on_alternate(), "recovery lost the plane it was on");
         assert_eq!(
             band.alternate,
-            Some((wanted.clone(), (3, 2))),
+            Some((wanted.clone(), Caret::from((3, 2)))),
             "the rebuild that landed was not adopted as what the plane holds"
         );
         // Nothing about the buffer the terminal saved was touched by a vector
@@ -3528,7 +4497,7 @@ mod tests {
         // Nothing landed, so nothing this band believes changed either.
         assert_eq!(
             band.alternate,
-            Some((rows, (7, 0))),
+            Some((rows, Caret::from((7, 0)))),
             "a cleanup vector that never landed still changed what the plane is believed to hold"
         );
     }
@@ -3665,7 +4634,7 @@ mod tests {
         // Rows 6 to 9, each cleared to its end, and **before** the band's own
         // rows are repainted: the erasures are the first thing in the frame.
         let mut expected = String::from(BEGIN_FRAME);
-        for line in short.divider - 4..short.divider {
+        for line in short.band_top() - 4..short.band_top() {
             expected.push_str(&released(line));
         }
         assert!(
@@ -3711,7 +4680,7 @@ mod tests {
         band.commit(&mut screen, &band_rows(), &short, (11, 2))
             .expect("the next frame");
         let text = String::from_utf8(screen.written).expect("utf-8");
-        for line in short.divider - 4..short.divider {
+        for line in short.band_top() - 4..short.band_top() {
             assert!(
                 text.contains(&released(line)),
                 "row {line} was never erased on the frame that landed: {text:?}"
@@ -3770,23 +4739,23 @@ mod tests {
         let idle = geometry();
         let mut band = Band::new();
         let mut screen = Counted::default();
-        band.commit(&mut screen, &running_rows(), &running, (23, 2))
+        band.commit(&mut screen, &running_rows(), &running, (22, 2))
             .expect("a frame while a turn runs");
-        assert_eq!(band.painted_top(), Some(21));
+        assert_eq!(band.painted_top(), Some(20));
 
         screen.written.clear();
         let (commit, rows) = crate::tui::grid::rows_compared(|| {
-            band.commit(&mut screen, &band_rows(), &idle, (23, 2))
+            band.commit(&mut screen, &band_rows(), &idle, (22, 2))
         });
         commit.expect("the frame that ends the turn");
         assert_eq!(
-            rows, 4,
-            "the frame did not read exactly the row it gave back and the band's own three"
+            rows, 5,
+            "the frame did not read exactly the two rows it gave back and the band's own three"
         );
         assert!(
             String::from_utf8(screen.written)
                 .expect("utf-8")
-                .contains(&released(21)),
+                .contains(&released(20)),
             "the row the band gave back was never erased"
         );
     }
@@ -3807,12 +4776,12 @@ mod tests {
 
         screen.written.clear();
         let (commit, rows) = crate::tui::grid::rows_compared(|| {
-            band.commit(&mut screen, &running_rows(), &running, (23, 2))
+            band.commit(&mut screen, &running_rows(), &running, (22, 2))
         });
         commit.expect("the frame that starts the turn");
         assert_eq!(
-            rows, 4,
-            "the frame did not read exactly the row it took and the band's own three"
+            rows, 5,
+            "the frame did not read exactly the two rows it took and the band's own three"
         );
         assert!(
             String::from_utf8(screen.written)
@@ -3935,9 +4904,9 @@ mod tests {
         let _painted = band.render(&vec![String::new(); 7], &tall, (11, 2));
         // The band has given the rows back: what is on them is the document's
         // problem now, and this append is the next thing written.
-        screen.divider = short.divider;
+        screen.divider = short.band_top();
 
-        screen.feed(&band.render_append(1, &["ok".to_string()], &short).0);
+        screen.feed(&band.render_append(1, &["ok".to_string()], &short, 0).0);
         assert_eq!(
             screen.visible_document(),
             vec!["", "", "", "", "", "", "", "", "ok"],
@@ -3967,8 +4936,8 @@ mod tests {
         let ended = crate::tui::layout::solve_with(12, 40, 1, false).expect("the turn over");
         assert_eq!(
             ended.band_top() - running.band_top(),
-            1,
-            "the activity row is the one row the band gives back here"
+            2,
+            "the activity row and the blank row under it are what the band gives back here"
         );
 
         let mut band = Band::new();
@@ -3984,7 +4953,7 @@ mod tests {
         // A committed band, so there is a recorded top to give back. Its own
         // bytes are not fed to the screen -- `render`'s frame is a different
         // instrument's subject, and this one models what an *append* does.
-        band.commit(&mut sink, &band_rows(), &running, (running.divider + 1, 3))
+        band.commit(&mut sink, &band_rows(), &running, (running.input_first, 3))
             .expect("the band while the turn runs");
         assert_eq!(band.painted_top(), Some(running.band_top()));
 
@@ -4038,7 +5007,7 @@ mod tests {
         };
         let mut screen = Screen::under_a_painted_band(&tall);
         screen.divider = tall.band_top();
-        band.commit(&mut sink, &band_rows(), &tall, (tall.divider + 1, 3))
+        band.commit(&mut sink, &band_rows(), &tall, (tall.input_first, 3))
             .expect("the tall band");
 
         // Two rows of answer, in the document, under the tall band.
@@ -4075,6 +5044,77 @@ mod tests {
             vec![FIRST, WHOLE],
             "a row the block vacated was left behind: {document:?}"
         );
+    }
+
+    #[test]
+    fn a_block_re_placed_after_the_band_shrank_under_a_frame_leaves_no_copy() {
+        // The same defect reached through a frame rather than an append. A band
+        // that grows over rows this band wrote carries them up out of its way
+        // (a tool's approval opening under a running tool group is the
+        // ordinary case); when it shrinks again, the frame that paints the
+        // shorter band lands **before** the block is rewritten -- and that
+        // frame records its top as `painted`. Measuring what the block vacated
+        // from `painted` then says nothing moved, and the rewritten block lands
+        // next to the band while its old copy stays where the carry put it.
+        // Where the document's last row really is, is `document_bottom`.
+        let short = crate::tui::layout::solve(12, 40, 1).expect("a one-row composer");
+        let tall = crate::tui::layout::solve(12, 40, 3).expect("a three-row composer");
+        assert_eq!(
+            short.band_top() - tall.band_top(),
+            2,
+            "the band grows by two rows here"
+        );
+
+        let mut band = Band::new();
+        let mut sink = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        let mut screen = Screen::under_a_painted_band(&short);
+        screen.divider = short.band_top();
+        band.commit(&mut sink, &band_rows(), &short, (short.input_first, 3))
+            .expect("the short band");
+
+        sink.written.clear();
+        band.append_document(&mut sink, 1, &[PARTIAL.to_string()], &short)
+            .expect("the block's row");
+        screen.feed(&sink.written);
+
+        // The band grows: the document is carried up, then the taller band is
+        // framed. Only the carry is fed: a frame writes at or below the band's
+        // top, which is not the document this screen models.
+        sink.written.clear();
+        band.carry_document(&mut sink, &tall)
+            .expect("the document is carried up");
+        screen.feed(&sink.written);
+        screen.divider = tall.band_top();
+        band.commit(&mut sink, &band_rows(), &tall, (tall.input_first, 3))
+            .expect("the tall band");
+        assert_eq!(screen.row(tall.band_top() - 1), PARTIAL);
+
+        // The band shrinks and its frame lands first.
+        band.commit(&mut sink, &band_rows(), &short, (short.input_first, 3))
+            .expect("the short band again");
+        assert_eq!(band.painted_top(), Some(short.band_top()));
+
+        // Then the block is rewritten.
+        screen.divider = short.band_top();
+        sink.written.clear();
+        band.append_document(&mut sink, 0, &[WHOLE.to_string()], &short)
+            .expect("the rewritten block");
+        screen.feed(&sink.written);
+
+        let document = screen.visible_document();
+        let answers: Vec<&String> = document
+            .iter()
+            .filter(|row| row.starts_with("answer:"))
+            .collect();
+        assert_eq!(
+            answers,
+            vec![WHOLE],
+            "the block's old copy stayed where the carry put it: {document:?}"
+        );
+        assert_eq!(screen.row(short.band_top() - 1), WHOLE);
     }
 
     /// The row above the one a turn ends on, so the two-row case has a row
@@ -4388,35 +5428,55 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_title_is_xfx_and_the_model_a_turn_would_run_against() {
-        assert_eq!(title("zai/glm-5.2"), "xfx \u{b7} zai/glm-5.2");
+    /// The window title for a session in `work`, with or without a title of
+    /// its own.
+    fn titled(session: Option<&str>) -> String {
+        title(session, std::path::Path::new("/tmp/somewhere/work"))
     }
 
     #[test]
-    fn a_model_label_cannot_close_the_title_it_is_carried_in() {
-        // The label is configuration -- a file, an environment variable, a
-        // `/model` argument -- so it is a string somebody else chose. An `OSC`
-        // ends at a `BEL` or an `ESC \`, so a label carrying either would close
-        // the title early and leave the rest of itself being *executed* by the
-        // terminal: `\x1b[2J` would erase the screen, `\x1b[?1049h` would take
-        // the alternate buffer this TUI promises never to touch.
+    fn a_title_is_the_sessions_own_or_xfx_its_version_and_the_workspace() {
+        // `app_session_runtime.zig:3608-3629`: `fx v0.0.13 | work` until the
+        // session has a title, then the title.
+        assert_eq!(titled(None), format!("xfx v{} | work", crate::VERSION));
+        assert_eq!(titled(Some("say the marker")), "say the marker");
+        // A root has no last component, and upstream names it `workspace`.
         assert_eq!(
-            title("evil\u{7}\u{1b}[2Jrest"),
-            "xfx \u{b7} evil[2Jrest",
+            title(None, std::path::Path::new("/")),
+            format!("xfx v{} | workspace", crate::VERSION)
+        );
+    }
+
+    #[test]
+    fn a_label_cannot_close_the_title_it_is_carried_in() {
+        // A session title is the first line of a prompt and a workspace is a
+        // directory somebody named, so both are strings somebody else chose. An
+        // `OSC` ends at a `BEL` or an `ESC \`, so a label carrying either would
+        // close the title early and leave the rest of itself being *executed*
+        // by the terminal: `\x1b[2J` would erase the screen, `\x1b[?1049h`
+        // would take the alternate buffer this TUI promises never to touch.
+        assert_eq!(
+            titled(Some("evil\u{7}\u{1b}[2Jrest")),
+            "evil[2Jrest",
             "a terminator survived the label"
         );
-        assert_eq!(
-            title("evil\u{1b}\\\u{1b}[?1049h"),
-            "xfx \u{b7} evil\\[?1049h"
-        );
+        assert_eq!(titled(Some("evil\u{1b}\\\u{1b}[?1049h")), "evil\\[?1049h");
         for label in ["a\u{7}b", "a\u{1b}b", "a\nb", "a\rb", "a\u{0}b"] {
-            let made = title(label);
-            assert!(
-                !made.chars().any(char::is_control),
-                "a control survived {label:?}: {made:?}"
-            );
+            for made in [
+                titled(Some(label)),
+                title(None, &std::path::Path::new("/tmp").join(label)),
+            ] {
+                assert!(
+                    !made.chars().any(char::is_control),
+                    "a control survived {label:?}: {made:?}"
+                );
+            }
         }
+        // A title that was nothing but controls is no title at all.
+        assert_eq!(
+            titled(Some("\u{7}\u{1b}")),
+            format!("xfx v{} | work", crate::VERSION)
+        );
     }
 
     #[test]
@@ -4426,12 +5486,12 @@ mod tests {
         // say nothing, on every keystroke.
         let mut band = Band::new();
         let mut screen = Vec::new();
-        band.set_title(title("first/model"));
+        band.set_title(titled(Some("first title")));
         band.commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("the first frame");
         let text = String::from_utf8(screen.clone()).expect("utf-8");
         assert!(
-            text.contains("\u{1b}]2;xfx \u{b7} first/model\u{7}"),
+            text.contains("\u{1b}]2;first title\u{7}"),
             "the title was never set: {text:?}"
         );
 
@@ -4447,18 +5507,20 @@ mod tests {
 
     #[test]
     fn a_title_only_change_is_still_one_synchronized_frame() {
-        // A `/model` changes the title and no cell, so a skip that consulted
-        // the grid alone would leave the window naming the model the session
-        // used to be running. It travels inside the frame rather than beside
-        // one, because this module is the terminal's only writer.
+        // A first turn's end changes the title and no cell, so a skip that
+        // consulted the grid alone would leave the window naming a session
+        // that has a title of its own by now. It travels in the frame's own
+        // vector rather than in a write beside one, because this module is the
+        // terminal's only writer -- ahead of the update, where upstream writes
+        // a title (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`).
         let mut band = Band::new();
         let mut screen = Vec::new();
-        band.set_title(title("first/model"));
+        band.set_title(titled(None));
         band.commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("the first frame");
 
         screen.clear();
-        band.set_title(title("second/model"));
+        band.set_title(titled(Some("second title")));
         let retitled = band
             .commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("the frame the title changed on");
@@ -4468,7 +5530,7 @@ mod tests {
         );
         assert_eq!(
             String::from_utf8(screen).expect("utf-8"),
-            format!("{BEGIN_FRAME}\u{1b}]2;xfx \u{b7} second/model\u{7}\u{1b}[23;3H{END_FRAME}"),
+            format!("\u{1b}]2;second title\u{7}{BEGIN_FRAME}\u{1b}[23;3H{END_FRAME}"),
             "a title-only change cost more than the title and the caret"
         );
     }
@@ -4575,9 +5637,9 @@ mod tests {
         let running =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         assert_eq!(
-            running.band_top() + 1,
+            running.band_top() + 2,
             idle.band_top(),
-            "the turn's row did not grow the band, so this case proves nothing"
+            "the turn's rows did not grow the band, so this case proves nothing"
         );
 
         let mut band = Band::new();
@@ -4803,7 +5865,7 @@ mod tests {
 
         assert_eq!(
             frame.owner(),
-            super::super::shell::ScreenOwner::Approval,
+            super::super::shell::ScreenOwner::Alternate,
             "the frame that takes the plane does not say whose it is"
         );
         assert!(
@@ -5115,7 +6177,7 @@ mod tests {
     fn a_plane_the_terminal_gave_back_behind_the_bands_back_is_taken_again() {
         // The stop handler is the one writer that is not a frame. `SIGTSTP`
         // lands, `super::super::signals`'s `stop_for_job_control` writes the
-        // abnormal restore -- which leads with `1049l` -- and the process stops
+        // abnormal restore -- which writes `1049l` -- and the process stops
         // with the user's own screen back. `super::super::resume` re-announces
         // the mode set and it carries no `1049h`, so the terminal is on the
         // normal buffer while this band still believes it is on the other one.
@@ -5435,6 +6497,123 @@ mod tests {
         assert_eq!(screen.writes, writes, "the extra scroll reached the screen");
     }
 
+    /// A band painted at the bottom of a full screen with one document row
+    /// under its own writing, as a session that has filled the screen holds.
+    fn a_full_screen(screen: &mut Counted) -> Band {
+        let mut band = Band::new();
+        band.commit(screen, &band_rows(), &geometry(), (23, 2))
+            .expect("a first frame");
+        band.append_document(screen, 1, &["answered".to_string()], &geometry())
+            .expect("a document row");
+        band
+    }
+
+    #[test]
+    fn a_handoff_erases_the_band_and_carries_only_the_rows_above_it() {
+        // A document taller than the screen: the shell's count is past the
+        // screen, and the rows to carry are the ones above the band. Scrolling
+        // the whole screen would put the erased band into history as three
+        // blank rows.
+        let mut screen = Counted::default();
+        let mut band = a_full_screen(&mut screen);
+        assert_eq!(band.painted_top(), Some(22));
+        screen.written.clear();
+
+        band.hand_off(&mut screen, u32::MAX, 0, &geometry())
+            .expect("the handoff");
+        // One synchronized update, the linefeeds inside it, and the cursor
+        // hidden and left hidden: upstream's handoff frame in its bracketing
+        // (`.prd/tui-phase4/receipts/t4/fx-reset-wire-24x80-clear.wire`).
+        assert_eq!(
+            String::from_utf8(screen.written).expect("utf-8"),
+            format!(
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+                "\n".repeat(21)
+            )
+        );
+        // The screen is blank and the band knows it: painted nowhere, no
+        // document row to carry or recolour, and a `CUP` owed.
+        assert_eq!(band.painted_top(), None);
+        assert!(band.owes_primary_frame());
+        assert!(matches!(
+            band.retint_document(
+                &mut Counted::default(),
+                &super::super::theme::Palette {
+                    mode: super::super::theme::Mode::Light,
+                    depth: super::super::theme::Depth::Ansi256,
+                },
+                &geometry()
+            ),
+            Ok(Retint::Settled(Commit::NoChange))
+        ));
+        assert!(matches!(
+            band.carry_document(&mut Counted::default(), &geometry()),
+            Ok(0)
+        ));
+    }
+
+    #[test]
+    fn a_handoff_under_a_short_document_carries_the_document_and_no_more() {
+        // A band floating under five rows: those five go to scrollback, and
+        // the blank rows under the band are erased with it rather than carried.
+        let floated = geometry().floated(5);
+        assert_eq!(floated.band_top(), 6);
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &floated, (7, 2))
+            .expect("a floating band");
+        screen.written.clear();
+
+        band.hand_off(&mut screen, 5, 0, &floated)
+            .expect("the handoff");
+        assert_eq!(
+            String::from_utf8(screen.written).expect("utf-8"),
+            format!(
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[6;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+                "\n".repeat(5)
+            )
+        );
+    }
+
+    #[test]
+    fn a_handoff_that_erased_the_scrollback_or_scrolled_too_far_is_refused_before_the_write() {
+        // The two harms a handoff could do that no later frame repairs: the
+        // history it exists to keep, erased, and a row more than the document
+        // carried off the top. Refused before a byte goes out, with nothing
+        // recorded, so the handoff is still owed.
+        type Tamper = fn(&mut Vec<u8>);
+        let tampered: [(Tamper, &str); 3] = [
+            (|bytes| bytes.extend_from_slice(b"\x1b[3J"), "scrollback"),
+            (|bytes| bytes.extend_from_slice(b"\x1b[24;1H\n"), "scroll"),
+            (
+                |bytes| bytes.extend_from_slice(b"\x1b[?2026h"),
+                "synchronized",
+            ),
+        ];
+        for (tamper, named) in tampered {
+            let mut screen = Counted::default();
+            let mut band = a_full_screen(&mut screen);
+            let writes = screen.writes;
+            band.tamper_with(tamper);
+            let refused = band
+                .hand_off(&mut screen, u32::MAX, 0, &geometry())
+                .expect_err("a tampered handoff");
+            assert!(
+                refused.to_string().contains(named),
+                "the refusal did not name the {named}: {refused}"
+            );
+            assert_eq!(
+                screen.writes, writes,
+                "the tampered handoff reached the screen"
+            );
+            assert_eq!(
+                band.painted_top(),
+                Some(22),
+                "a refused handoff was recorded as landed"
+            );
+        }
+    }
+
     #[test]
     fn an_append_that_scrolled_one_row_too_many_is_refused_before_the_write() {
         // The same harm from the other writer: an append is a scroll, and a
@@ -5486,6 +6665,65 @@ mod tests {
             .enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0))
             .err()
             .expect("a surface that left the cursor hidden");
+        assert!(
+            refused.to_string().contains("cursor visibility"),
+            "the refusal did not name the cursor: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_hidden_caret_ends_the_plane_with_the_cursor_off_and_the_give_back_shows_it_again() {
+        // The full transcript's plane has no caret (upstream's paint plan
+        // hides it, `paint_plan.zig:1047`): its frames end on `?2026l` alone,
+        // the check holds them to a cursor that is off, and the frame that
+        // gives the plane back ends on `END_FRAME` -- the band gets its caret.
+        let (mut band, geometry) = painted_primary();
+        let caret = Caret::hidden((23, 0));
+        let frame = band
+            .enter_alternate(&screen_rows(geometry.rows), &geometry, caret)
+            .expect("a hidden caret is a declared one");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.ends_with(&format!("\u{1b}[23;1H{END_FRAME_HIDDEN}")),
+            "{text:?}"
+        );
+        assert!(
+            !text.contains("\u{1b}[?25h"),
+            "the cursor was shown: {text:?}"
+        );
+        band.frame_landed(&frame, &geometry, caret);
+
+        // The same screen with the caret shown is a different screen.
+        let shown = band
+            .repaint_alternate(&screen_rows(geometry.rows), &geometry, (23, 0))
+            .expect("a repaint");
+        assert!(String::from_utf8_lossy(shown.bytes()).ends_with(END_FRAME));
+        // And with the caret hidden again, an unchanged one writes nothing.
+        band.frame_landed(&frame, &geometry, caret);
+        let unchanged = band
+            .repaint_alternate(&screen_rows(geometry.rows), &geometry, caret)
+            .expect("an unchanged repaint");
+        assert!(unchanged.bytes().is_empty());
+
+        let back = band
+            .restore_primary(&band_rows(), &geometry, (23, 2))
+            .expect("the give-back");
+        assert!(String::from_utf8_lossy(back.bytes()).ends_with(END_FRAME));
+    }
+
+    #[test]
+    fn a_frame_that_says_its_caret_is_hidden_and_shows_it_is_refused() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        band.tamper_with(|bytes| bytes.extend_from_slice(b"\x1b[?25h"));
+        let refused = band
+            .enter_alternate(
+                &screen_rows(geometry.rows),
+                &geometry,
+                Caret::hidden((7, 0)),
+            )
+            .err()
+            .expect("a surface that showed a cursor it declared hidden");
         assert!(
             refused.to_string().contains("cursor visibility"),
             "the refusal did not name the cursor: {refused}"
@@ -5828,6 +7066,125 @@ mod tests {
         (band, screen)
     }
 
+    /// A band whose document ends on a two-call group and a line under it,
+    /// each row recorded as its writer records it, with a frame on top.
+    fn a_group_this_band_painted(geometry: &Geometry) -> (Band, Counted) {
+        use super::super::theme::DocumentRow::{Plain, ToolGroup};
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("a first frame sizes the shadow");
+        band.append_floating(
+            &mut screen,
+            5,
+            &[
+                "\u{25cf} 2 tool calls \u{b7} 2 read".to_string(),
+                "\u{251c} Read a.txt".to_string(),
+                "\u{2514} Read b.txt".to_string(),
+                String::new(),
+                "  Read both.".to_string(),
+            ],
+            &[ToolGroup, ToolGroup, ToolGroup, Plain, Plain],
+            geometry,
+            0,
+        )
+        .expect("the document lands");
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("the frame the append owed");
+        screen.written.clear();
+        (band, screen)
+    }
+
+    #[test]
+    fn a_collapse_moves_the_rows_under_a_group_up_over_its_calls_and_scrolls_nothing() {
+        // `fx-settings-collapse-40x120-collapse-on`: the group on the screen
+        // keeps its header, its calls go, and what was under them is moved up
+        // -- with no linefeed, so nothing reaches scrollback -- and the rows
+        // that frees are blank above the band.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_group_this_band_painted(&geometry);
+        assert_eq!(band.document_bottom, Some(21));
+        let writes = screen.writes;
+
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("a screen that takes everything"),
+            Collapse::Settled(2)
+        );
+
+        let written = String::from_utf8(screen.written.clone()).expect("text and escapes");
+        assert!(!written.contains('\n'), "a collapse scrolled: {written:?}");
+        assert_eq!(
+            screen.writes - writes,
+            1,
+            "a collapse cost more than one vector"
+        );
+        // Row 18 takes the group's blank row, 19 the line under it (as wide
+        // as the call row it covers, so nothing is left to erase), 20 was
+        // blank and is again, and 21 is freed; then the caret goes back.
+        assert_eq!(
+            written, "\u{1b}[18;1H\u{1b}[K\u{1b}[19;1H  Read both.\u{1b}[21;1H\u{1b}[K\u{1b}[23;3H",
+            "the collapse is not the moved rows, the freed ones and the caret"
+        );
+        assert_eq!(
+            band.document_bottom,
+            Some(19),
+            "the document's bottom stayed"
+        );
+
+        // The rows that went are gone from the shadow too: a second pass has
+        // nothing to take.
+        screen.written.clear();
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("the second pass"),
+            Collapse::Settled(0)
+        );
+        assert!(screen.written.is_empty());
+    }
+
+    #[test]
+    fn a_collapse_leaves_the_open_blocks_rows_and_waits_for_a_screen_it_can_describe() {
+        let geometry = geometry();
+        // The group is the transcript's open block: its five rows are the
+        // transcript's to rewrite, and nothing is taken out of them.
+        let (mut band, mut screen) = a_group_this_band_painted(&geometry);
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 5)
+                .expect("nothing to write"),
+            Collapse::Settled(0)
+        );
+        assert!(screen.written.is_empty());
+        // A damaged band does not know what is on those rows.
+        band.invalidate(geometry.rows, geometry.cols);
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("nothing to write"),
+            Collapse::Deferred
+        );
+        assert!(screen.written.is_empty());
+    }
+
+    #[test]
+    fn a_collapse_the_screen_refused_is_owed_again_rather_than_recorded_as_done() {
+        let geometry = geometry();
+        let (mut band, _) = a_group_this_band_painted(&geometry);
+        band.collapse_groups(&mut Refuses, &geometry, 0)
+            .expect_err("a screen that refuses everything");
+        assert_eq!(
+            band.document_bottom,
+            Some(21),
+            "a refused collapse moved the bottom"
+        );
+        let mut screen = Counted::default();
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("the retry"),
+            Collapse::Settled(2),
+            "the refused collapse was recorded as if it had landed"
+        );
+    }
+
     #[test]
     fn a_retint_writes_the_documents_own_cells_and_puts_the_caret_back() {
         // The whole vector, byte for byte: a `CUP` and the cells of each row
@@ -5863,6 +7220,118 @@ mod tests {
             screen.writes - writes,
             1,
             "a recolour cost more than one vector"
+        );
+    }
+
+    /// A band whose document holds a linked answer row: `see docs now`, with
+    /// `docs` a link and the row in the body grey.
+    fn a_linked_document(geometry: &Geometry) -> (Band, Counted) {
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("a first frame sizes the shadow");
+        band.append_document(
+            &mut screen,
+            1,
+            &[format!(
+                "{BODY_DARK}see {DOCS_OPEN}docs{LINK_CLOSE} now{ENDED}"
+            )],
+            geometry,
+        )
+        .expect("a linked row passes the output check");
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("the frame the append owed");
+        screen.written.clear();
+        (band, screen)
+    }
+
+    #[test]
+    fn an_appended_link_is_closed_before_the_row_is_erased_or_scrolled() {
+        // The append path: `CUP`, the row, the link's close, then the `EL`
+        // and the linefeed that scrolls it -- never a linefeed under an open
+        // link, which the output check refuses.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame");
+        screen.written.clear();
+        band.append_document(
+            &mut screen,
+            1,
+            &[format!("see {DOCS_OPEN}docs and more")],
+            &geometry,
+        )
+        .expect("the append passes the output check");
+        let written = String::from_utf8(screen.written).expect("utf-8");
+        let placed = format!("see {DOCS_OPEN}docs and more{LINK_CLOSE}{ERASE_LINE}");
+        assert!(written.contains(&placed), "{written:?}");
+        let opened = written.find(DOCS_OPEN).expect("the link");
+        let closed = opened + written[opened..].find(LINK_CLOSE).expect("its close");
+        assert!(
+            !written[opened..closed].contains('\n'),
+            "a linefeed inside the link: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_retint_repaints_a_linked_row_with_its_link_closed_on_the_row() {
+        // The retint path: the colour moves, the link stays where it was, and
+        // the run that repaints it opens the link after the colour and closes
+        // it before anything else is addressed.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_linked_document(&geometry);
+        assert_eq!(
+            band.retint_document(&mut screen, &light_palette(), &geometry)
+                .expect("a retint of a linked row passes the output check"),
+            Retint::Settled(Commit::Painted)
+        );
+        let written = String::from_utf8(screen.written).expect("utf-8");
+        assert_eq!(
+            written,
+            format!(
+                "\u{1b}[21;1H{BODY_LIGHT}see {DOCS_OPEN}docs{LINK_CLOSE} now{ENDED}\u{1b}[23;3H"
+            )
+        );
+    }
+
+    #[test]
+    fn a_handoff_carries_a_linked_document_into_scrollback_with_nothing_open() {
+        // The scrollback handoff path: the linked row goes up with the rest,
+        // and the vector that carries it opens no link of its own.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_linked_document(&geometry);
+        band.hand_off(&mut screen, u32::MAX, 0, &geometry)
+            .expect("the handoff passes the output check");
+        let written = String::from_utf8(screen.written).expect("utf-8");
+        assert!(!written.contains("\u{1b}]8;"), "{written:?}");
+    }
+
+    #[test]
+    fn a_resize_repaints_a_linked_band_row_whole_and_closed() {
+        // The resize path: the shadow is blanked, and the next frame repaints
+        // the band whole -- a composer row carrying a badge's link among it --
+        // with every link closed before the next row is addressed.
+        let geometry = geometry();
+        let badge = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\[Image 1]\u{1b}]8;;\u{1b}\\ hi";
+        let rows = vec![format!("> {badge}"), "--".to_string(), "hint".to_string()];
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &rows, &geometry, (23, 2))
+            .expect("a linked band row passes the output check");
+        let smaller = crate::tui::layout::solve(20, 60, 1).expect("a band");
+        band.invalidate(20, 60);
+        screen.written.clear();
+        band.commit(&mut screen, &rows, &smaller, (19, 2))
+            .expect("the repaint after a resize passes the output check");
+        let written = String::from_utf8(screen.written).expect("utf-8");
+        let open = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\";
+        let at = written.find(open).expect("the badge's link, repainted");
+        let close = at + written[at..].find(LINK_CLOSE).expect("closed");
+        assert_eq!(&written[at + open.len()..close], "[Image 1]");
+        assert_eq!(
+            written.matches(open).count(),
+            written.matches(LINK_CLOSE).count()
         );
     }
 
@@ -6547,7 +8016,7 @@ mod tests {
                 let seed_elapsed = t.elapsed();
 
                 let t = Instant::now();
-                let (appended, footprint, script) = band.render_append(scroll, &rows, &geometry);
+                let (appended, footprint, script) = band.render_append(scroll, &rows, &geometry, 0);
                 let render_elapsed = t.elapsed();
 
                 // Cloned rather than borrowed from `band`: `declared` must

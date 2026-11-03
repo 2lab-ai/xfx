@@ -1,0 +1,30 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* status: model=fake/model-a
+  update_channel=stable
+  build_channel=stable
+  build_revision=c1db919112c5
+  auth=AI_GATEWAY_API_KEY
+  auth_refreshable=false
+  permission_mode=auto
+  workspace=<scratch>/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=0
+  ultrafast_requested=false
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+

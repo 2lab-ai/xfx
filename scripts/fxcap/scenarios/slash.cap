@@ -1,0 +1,29 @@
+wait 2
+type /
+wait 1
+snap slash
+key Down Down Down
+wait 0.5
+snap down3
+key Down Down Down Down
+wait 0.5
+snap down7
+type re
+wait 0.5
+snap filter-re
+key Escape
+wait 0.5
+snap esc
+key C-u
+type /help
+wait 0.5
+snap help-typed
+key Enter
+wait 1
+snap help
+key Down
+wait 0.5
+snap help-down
+key Escape
+wait 0.5
+snap help-esc

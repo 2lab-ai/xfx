@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* effort: saved to user settings (scope=user)
+
+* effort: saved to user settings (scope=user)
+
+* effort: saved to user settings (scope=user)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 14  [All]  Interface  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+  Model                    zai/glm-5.2
+  Reasoning effort         default  low  high
+  Fast mode                off
+  Ultra mode               off
+  Permission mode          ask  auto  full access
+  Session titles           off  on
+  Sound level              off  on  max
+  Startup scrollback       off  on
+  Prompt history           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-435c4d7 [debug] · Run /help for commands
+
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Usage  [30 days]  7 days  24 hours  Session
+Partial data · some usage may be missing
+
+  67.9K tokens      $0.43 spent      2 requests
+  64K input         3.9K output      900 reasoning
+  34K cache read    0 cache write
+
+Models 2
+  Model                      Tokens    Share    Spend
+  anthropic/claude-opus-5    55.1K     81.1%    $0.42
+❯ fake/model-a               12.8K     18.9%    $0.01
+Input 12K · Output 800 · Cache 4K/0 · Reasoning 0 · Requests 1 · $0.01
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+tab scope     ↑↓ model     enter expand     r refresh     esc close
+
+
+
+
+
+
+
+
+
+
+

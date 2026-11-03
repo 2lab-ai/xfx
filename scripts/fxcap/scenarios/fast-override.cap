@@ -1,0 +1,19 @@
+# /fast under a process override of the model: the save's report -- a layer
+# above the profile still decides a fresh session's model -- is the line
+# above `* fast: on`, as fx persists before it announces
+# (`applyFastMode`, `session_commands.zig:781-797`).
+models models.json
+seed fast-seed-opus.json
+env FX_MODEL=anthropic/claude-opus-5 XFX_MODEL=anthropic/claude-opus-5
+wait 2.5
+snap start
+type /fast
+key Enter
+wait 1
+snap fast-on
+home fast-on
+type /fast
+key Enter
+wait 1
+snap fast-off
+home end

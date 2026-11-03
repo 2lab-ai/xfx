@@ -1,0 +1,31 @@
+# W4 `/compact` stopped by the Escape pair while its notes are awaited, the
+# sentence it leaves, and the Escape that takes the sentence away.
+gateway compact-cancel-turns.json
+work compact-ws
+wait 3
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+type /compact
+key Enter
+wait 0.6
+snap compacting
+key Escape
+wait 0.2
+snap esc1
+key Escape
+wait 0.8
+snap cancelled
+wait 2
+snap cancelled-2.8s
+key Escape
+wait 0.5
+snap dismissed
+type third question
+key Enter
+wait 2.5
+snap next-turn
+gwlog

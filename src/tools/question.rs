@@ -8,11 +8,16 @@ use std::fmt::Write as _;
 use serde_json::{Map, Value};
 
 use super::spec::{
-    ArraySpec, InputSchema, PermissionKind, Property, PropertyKind, ToolContext, ToolInput,
-    ToolResult, ToolSpec,
+    Activity, ArraySpec, InputSchema, Outcome, PermissionKind, Presentation, Property,
+    PropertyKind, ToolContext, ToolInput, ToolResult, ToolSpec,
 };
 
 pub const CANCEL_SENTINEL: &str = "(user cancelled the question)";
+/// What a call the user stopped the turn at answers, in upstream's words
+/// (`aborted_tool_output`, `src/core/session/session.zig:64`, `c1db919`): a
+/// question ended by the interrupt is not a question the user declined, and
+/// the model is never told the [`CANCEL_SENTINEL`] about it.
+pub const ABORTED_OUTPUT: &str = "aborted by user";
 pub const NOT_AVAILABLE_SENTINEL: &str =
     "(ask_user_question is only available in the interactive shell; ask the user freeform instead)";
 pub const FREEFORM_LABEL: &str = "Other";
@@ -67,6 +72,36 @@ pub fn terminal_safe(raw: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// [`terminal_safe`], for an **answer**: the same encoding with the line feed
+/// left as it is.
+///
+/// A freeform answer can hold a line break -- a pasted paragraph -- and
+/// upstream hands it to the model as one (`insertFreeformSlice`,
+/// `question_prompt.zig:573-583`; e2e `tests/e2e/tui-decision-prompts.test.ts:2785`
+/// asserts the newline reaches the request). Every other control is still
+/// named, so the answer document carries nothing a terminal would obey but
+/// the break.
+pub fn answer_safe(raw: &str) -> Cow<'_, str> {
+    if !raw
+        .chars()
+        .any(|character| character != '\n' && needs_escape(character))
+    {
+        return Cow::Borrowed(raw);
+    }
+    let mut out = String::with_capacity(raw.len() + 16);
+    for line in raw.split_inclusive('\n') {
+        let (body, broke) = match line.strip_suffix('\n') {
+            Some(body) => (body, true),
+            None => (line, false),
+        };
+        out.push_str(&terminal_safe(body));
+        if broke {
+            out.push('\n');
+        }
+    }
+    Cow::Owned(out)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuestionOption {
     pub label: String,
@@ -95,9 +130,25 @@ impl AskUserQuestionInput {
     }
 }
 
-/// Shows a batch of questions to whoever is running xfx and returns their
-/// answers, one per question in order, or `None` if they declined to answer
-/// at all.
+/// What the person a batch was put to did with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reply {
+    /// One answer per question, in order.
+    Answered(Vec<String>),
+    /// They declined to answer at all -- or the batch could not be put to
+    /// them -- and the turn goes on: the model is told so with
+    /// [`CANCEL_SENTINEL`].
+    Declined,
+    /// The turn the batch belonged to was stopped while it was up, which is
+    /// how both Escape and Ctrl-C end a batch (upstream's
+    /// `cancelQuestionPrompt`, `src/core/app/input_question_runtime.zig:59-83`,
+    /// `c1db919`). The call answers [`ABORTED_OUTPUT`] and the turn ends with
+    /// it.
+    Interrupted,
+}
+
+/// Shows a batch of questions to whoever is running xfx and returns what they
+/// did with it ([`Reply`]).
 ///
 /// The tools layer never names the TUI: this is the seam `execute` calls
 /// through, injected on [`ToolContext`] by whichever front end built one. A
@@ -110,7 +161,7 @@ pub trait QuestionRequester: Send + Sync {
     /// `execute` does that on the way out, because the requester is a trait
     /// and a non-TUI implementation is not to be trusted with the model-visible
     /// document's shape.
-    fn request(&self, entries: &[QuestionEntry]) -> Option<Vec<String>>;
+    fn request(&self, entries: &[QuestionEntry]) -> Reply;
 }
 
 fn bad(detail: &str) -> String {
@@ -122,6 +173,18 @@ pub(crate) fn bounded(raw: &str, cap: usize, what: &str) -> Result<String, Strin
     let encoded = terminal_safe(raw).into_owned();
     if encoded.len() > cap {
         return Err(bad(&format!("{what} is longer than {cap} encoded bytes")));
+    }
+    Ok(encoded)
+}
+
+/// [`bounded`], for an answer: encoded by [`answer_safe`], so a line break the
+/// user pasted reaches the model as one.
+fn bounded_answer(raw: &str) -> Result<String, String> {
+    let encoded = answer_safe(raw).into_owned();
+    if encoded.len() > MAX_FREEFORM_ENCODED_BYTES {
+        return Err(bad(&format!(
+            "answer is longer than {MAX_FREEFORM_ENCODED_BYTES} encoded bytes"
+        )));
     }
     Ok(encoded)
 }
@@ -368,15 +431,21 @@ fn execute(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(parsed) => parsed,
         Err(body) => return ToolResult::failure(body),
     };
-    let Some(answers) = requester.request(&parsed.entries) else {
-        return ToolResult::success(CANCEL_SENTINEL, "the question was cancelled");
+    let answers = match requester.request(&parsed.entries) {
+        Reply::Answered(answers) => answers,
+        Reply::Declined => {
+            return ToolResult::success(CANCEL_SENTINEL, "the question was cancelled")
+        }
+        Reply::Interrupted => {
+            return ToolResult::failure(ABORTED_OUTPUT).ending(Outcome::Cancelled)
+        }
     };
     if answers.len() != parsed.entries.len() {
         return ToolResult::failure(bad("the answers did not match the questions"));
     }
     let mut encoded = Vec::with_capacity(answers.len());
     for answer in &answers {
-        match bounded(answer, MAX_FREEFORM_ENCODED_BYTES, "answer") {
+        match bounded_answer(answer) {
             Ok(answer) => encoded.push(answer),
             Err(body) => return ToolResult::failure(body),
         }
@@ -399,6 +468,7 @@ pub const ASK_USER_QUESTION: ToolSpec = ToolSpec::new(
     "ask_user_question",
     DESCRIPTION,
     PermissionKind::Interaction,
+    Presentation::new(Activity::Ask, "Asking", "Asked", ""),
     INPUT_SCHEMA,
     decode,
     validate,
@@ -458,6 +528,7 @@ mod tests {
     /// record the entries the executor showed and decline.
     enum Answering {
         Cancel,
+        Interrupt,
         With(Vec<String>),
         Record(Arc<Mutex<Vec<QuestionEntry>>>),
     }
@@ -465,13 +536,14 @@ mod tests {
     struct Scripted(Answering);
 
     impl QuestionRequester for Scripted {
-        fn request(&self, entries: &[QuestionEntry]) -> Option<Vec<String>> {
+        fn request(&self, entries: &[QuestionEntry]) -> Reply {
             match &self.0 {
-                Answering::Cancel => None,
-                Answering::With(answers) => Some(answers.clone()),
+                Answering::Cancel => Reply::Declined,
+                Answering::Interrupt => Reply::Interrupted,
+                Answering::With(answers) => Reply::Answered(answers.clone()),
                 Answering::Record(seen) => {
                     seen.lock().unwrap().extend_from_slice(entries);
-                    None
+                    Reply::Declined
                 }
             }
         }
@@ -711,6 +783,36 @@ mod tests {
         let result = run(&two_questions(), &context);
         assert!(result.ok, "the user declining is not the model's mistake");
         assert_eq!(result.output, CANCEL_SENTINEL);
+    }
+
+    #[test]
+    fn an_interrupted_batch_is_aborted_and_never_the_cancel_sentinel() {
+        // Upstream's interrupted call (`session.zig:64`), and the claim its e2e
+        // pins (`tui-decision-prompts.test.ts:2454`): the model is never told
+        // the user declined a question they stopped the turn at.
+        let (_dir, context) = scripted(Answering::Interrupt);
+        let result = run(&two_questions(), &context);
+        assert!(!result.ok);
+        assert_eq!(result.output, ABORTED_OUTPUT);
+        assert_eq!(result.output, "aborted by user");
+        assert_eq!(result.outcome, Outcome::Cancelled);
+        assert!(!result.output.contains(CANCEL_SENTINEL));
+    }
+
+    #[test]
+    fn a_line_break_in_a_freeform_answer_reaches_the_model_as_one() {
+        // e2e `tui-decision-prompts.test.ts:2785`: a pasted paragraph is
+        // answered with its newline. Every other control is still named.
+        let (_dir, context) = scripted(Answering::With(vec![
+            "pasted with cmd-v\nand this stays on the next line\t\u{1b}".into(),
+        ]));
+        assert_eq!(
+            run(&one_question(), &context).output,
+            r#"[{"question":"Which depth?","answer":"pasted with cmd-v\nand this stays on the next line\\x09\\x1b"}]"#
+        );
+        assert_eq!(answer_safe("a\nb"), "a\nb");
+        assert_eq!(answer_safe("a\rb\n"), "a\\x0db\n");
+        assert_eq!(answer_safe("plain"), "plain");
     }
 
     #[test]

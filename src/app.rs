@@ -5,12 +5,12 @@
 //! a second entry point, so there is exactly one path from argument to effect.
 
 use std::fmt::{self, Write as _};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{run_turn_with_skills, TurnRequest};
 use crate::cli::{Cli, Command};
 use crate::config::{ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
@@ -18,8 +18,9 @@ use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
     SessionDetailSnapshot, SessionFacts, SessionsSnapshot, SetupSnapshot, StatusSnapshot, TextSink,
 };
-use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
+use crate::permission::{Grant, LiveRules, PermissionSession, TtyPrompter, YOLO_WARNING};
 use crate::provider::{Bundle, ProviderId};
+use crate::session::store::DurableState;
 use crate::session::{
     ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
     SessionRecorder, SessionStore,
@@ -33,6 +34,11 @@ use crate::workspace::{AccessScope, ProjectContext};
 /// (`vercel-labs/fx@580a0c5d tests/e2e/cli.test.ts:404-412`), and scripts around
 /// xfx should not have to learn a second convention.
 const REJECTED_EXIT_CODE: u8 = 1;
+
+/// Why `xfx --resume` did not open anything.
+const RESUME_NEEDS_THE_TUI: &str = "xfx: `--resume` continues a session in the TUI, which \
+     needs a terminal on both ends and `XFX_TUI` not set to 0; without one, \
+     `xfx ask --resume <last|ID> <prompt>` continues it";
 
 /// The exit code for a turn that did not complete.
 ///
@@ -53,10 +59,12 @@ const TURN_FAILURE_EXIT_CODE: u8 = 1;
 /// finished stopping -- and on two of the three that state ends by itself. The
 /// line-oriented shell's `Interrupts` returns to `Idle` at `end_turn`, so the
 /// press after the conclusion offers a fresh prompt line and it takes two more
-/// to leave (`crate::interactive`); the TUI's `Gestures` clears `asked_to_stop`
-/// at `turn_ended`, so the same press clears the draft (`crate::tui::gesture`).
-/// Only `ask`'s one-shot watcher keeps the exiting arm for the rest of the
-/// process, and there the turn's end *is* the process's. So an unconditional
+/// to leave (`crate::interactive`). Only `ask`'s one-shot watcher keeps the
+/// exiting arm for the rest of the process, and there the turn's end *is* the
+/// process's. (The TUI no longer writes this sentence: it answers a cancel with
+/// upstream's `■ Cancelled` line and says `press ctrl+c again to exit` on its
+/// hint row for exactly as long as a press would leave, `crate::tui::gesture`.)
+/// So an unconditional
 /// "press Ctrl-C again to exit immediately" was true only while the turn was
 /// still stopping, and the sentence now says exactly that rather than promising
 /// a keystroke that would, a second later, clear a draft instead.
@@ -130,7 +138,8 @@ impl From<io::Error> for AppError {
 /// do nothing, and the second one does nothing either". Each write takes the
 /// lock for itself instead.
 pub async fn run(cli: Cli) -> Result<ExitCode, AppError> {
-    run_with(cli, &mut io::stdout(), &mut io::stderr()).await
+    let terminal = io::stdout().is_terminal();
+    run_streams(cli, &mut io::stdout(), terminal, &mut io::stderr()).await
 }
 
 /// Runs one invocation against explicit streams.
@@ -142,14 +151,36 @@ pub async fn run_with(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
+    run_streams(cli, stdout, false, stderr).await
+}
+
+/// [`run_with`], told whether `stdout` is a terminal.
+///
+/// Only the process's own stdout can be one, so only [`run`] says so: a
+/// caller's buffer is bytes, and an answer written to it arrives as the model
+/// wrote it ([`crate::output::TextSink::on_terminal`]).
+async fn run_streams(
+    cli: Cli,
+    stdout: &mut dyn Write,
+    stdout_is_terminal: bool,
+    stderr: &mut dyn Write,
+) -> Result<ExitCode, AppError> {
     match cli.command {
         // The shell is the one command whose streams are not arguments: it is
         // defined by the terminal the process was given, and it refuses to run
         // when there is not one. Its startup diagnostics still go through the
         // caller's stderr, so the refusal is testable without a terminal.
-        Command::Interactive => {
+        Command::Interactive { resume: None } => {
             let config = load_config()?;
             crate::interactive::run(&config, stderr).await
+        }
+        // Reached only when the TUI was not: a pipe on either end, or
+        // `XFX_TUI=0`. The line shell continues no saved session, so the flag
+        // is refused here rather than quietly opening a fresh conversation
+        // under a command line that asked for an old one.
+        Command::Interactive { resume: Some(_) } => {
+            writeln!(stderr, "{RESUME_NEEDS_THE_TUI}")?;
+            Ok(ExitCode::from(REJECTED_EXIT_CODE))
         }
         Command::Help { page } => {
             write!(stdout, "{page}")?;
@@ -178,7 +209,7 @@ pub async fn run_with(
                 mode,
                 resume,
             };
-            ask(&config, request, stdout, stderr).await
+            ask(&config, request, stdout, stdout_is_terminal, stderr).await
         }
         Command::Setup {
             provider,
@@ -292,6 +323,7 @@ async fn ask(
     config: &RuntimeConfig,
     request: AskRequest,
     stdout: &mut dyn Write,
+    stdout_is_terminal: bool,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
     // The permission mode is deliberately *not* restored from a session. It is
@@ -304,10 +336,22 @@ async fn ask(
     if mode == PermissionMode::Yolo {
         writeln!(stderr, "{YOLO_WARNING}")?;
     }
+    // Then what the configuration could not use, one line each, as upstream's
+    // headless run says it (`vercel-labs/fx@c1db9191
+    // src/core/cli/cli_ask.zig:1716-1727`) -- and, when a permission table was
+    // among it, what that means in the mode this run is in
+    // ([`crate::config::PermissionTables::refusal`]).
+    for diagnostic in &config.diagnostics {
+        writeln!(stderr, "xfx ask: config {}", diagnostic.startup_line())?;
+    }
+    if let Some(refusal) = config.permission.refusal(mode) {
+        writeln!(stderr, "xfx ask: permissions: {refusal}")?;
+    }
 
     // The sink borrows both streams in text mode, so the whole turn happens in
     // here and anything that still has to be said afterwards comes back out.
-    let (code, warning) = run_ask(config, request, mode, stdout, stderr).await?;
+    let (code, warning) =
+        run_ask(config, request, mode, stdout, stdout_is_terminal, stderr).await?;
     if let Some(warning) = warning {
         writeln!(stderr, "{warning}")?;
     }
@@ -320,6 +364,7 @@ async fn run_ask(
     request: AskRequest,
     mode: PermissionMode,
     stdout: &mut dyn Write,
+    stdout_is_terminal: bool,
     stderr: &mut dyn Write,
 ) -> Result<(ExitCode, Option<String>), AppError> {
     let quiet = |code: Result<ExitCode, AppError>| code.map(|code| (code, None));
@@ -327,11 +372,27 @@ async fn run_ask(
     // The authority the turn's tools will run under, resolved before anything
     // else. A directory the user named but xfx cannot use is a mistake in the
     // invocation, and reporting it here costs no credential and no round trip.
-    let scope = match AccessScope::new(&config.workspace_root, &request.add_dirs) {
+    //
+    // **The saved directories too**, as upstream's `ask` has them
+    // (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1193`, the launch's
+    // saved and command-line entries in one scope): one `/workspace add`
+    // means the same directory to every surface. A saved one that is not
+    // there is skipped rather than failing the turn -- it is not something
+    // this invocation named.
+    let saved = crate::workspace::access::WorkspaceAccess::load(
+        &config.workspace_root,
+        &config.additional_directories,
+    );
+    let roots = request
+        .add_dirs
+        .iter()
+        .map(PathBuf::as_path)
+        .chain(saved.active_roots());
+    let scope = match AccessScope::new(&config.workspace_root, roots) {
         Ok(scope) => scope,
         Err(err) => {
             let mut sink: Box<dyn EventSink> = if request.json {
-                Box::new(JsonlSink::new(stdout))
+                Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
@@ -349,7 +410,7 @@ async fn run_ask(
         Ok(bundle) => bundle,
         Err(message) => {
             let mut sink: Box<dyn EventSink> = if request.json {
-                Box::new(JsonlSink::new(stdout))
+                Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
@@ -363,7 +424,7 @@ async fn run_ask(
         Ok(opened) => opened,
         Err(err) => {
             let mut sink: Box<dyn EventSink> = if request.json {
-                Box::new(JsonlSink::new(stdout))
+                Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
@@ -371,31 +432,48 @@ async fn run_ask(
         }
     };
 
-    // Report any notices about dropped state before the turn starts.
+    // Report any notices about dropped state before the turn starts. Inert:
+    // a notice quotes what the log names -- the wire and the model a step's
+    // reasoning was recorded under -- and the log is file input.
     for notice in &opened.notices {
-        writeln!(stderr, "{notice}")?;
+        writeln!(
+            stderr,
+            "{}",
+            crate::output::safe_one_line(notice, MAX_NOTICE_BYTES)
+        )?;
     }
 
-    // Now create the sink after notices are printed.
+    // Now create the sink after notices are printed. On a terminal the
+    // answer arrives inert: the approval question is asked on the same one,
+    // after it, and must not find a state the model left there.
     let mut sink: Box<dyn EventSink + '_> = if request.json {
-        Box::new(JsonlSink::new(stdout))
+        Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
     } else {
-        Box::new(TextSink::new(stdout, stderr))
+        Box::new(TextSink::new(stdout, stderr).on_terminal(stdout_is_terminal))
     };
 
-    // A restored model preference applies only when nothing this run chose one:
-    // an explicit setting or override outranks what a past turn happened to use.
-    let model = match &opened.restored_model {
-        Some(model) if config.sources.model == SettingSource::CompiledDefault => model.clone(),
-        _ => config.model.clone(),
-    };
+    // A resumed session's model, by [`resumed_model`]'s rule; a fresh one's is
+    // the configuration's.
+    let model = opened
+        .restored_model
+        .clone()
+        .unwrap_or_else(|| config.model.clone());
     if let Some(recorder) = opened.recorder.as_mut() {
         let model_changed = recorder.state().model != model;
         let mode_changed = recorder.state().permission_mode != mode;
-        if model_changed || mode_changed {
+        // The provider too, so a later resume judges a restored Fast binding by
+        // the selection this one went on with (`restoredFastModeModelBound`,
+        // `app_session_runtime.zig:6318-6328`).
+        let provider = config.provider.label();
+        let provider_changed = recorder.state().provider.as_deref() != Some(provider);
+        if model_changed || mode_changed || provider_changed {
             recorder.commit(SessionEvent::PreferencesChanged {
                 model: model_changed.then(|| model.clone()),
                 permission_mode: mode_changed.then(|| mode.label().to_string()),
+                provider: provider_changed.then(|| provider.to_string()),
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
             });
         }
     }
@@ -420,13 +498,18 @@ async fn run_ask(
     // unreachable from the binary.
     watch_for_interrupt(cancel.clone());
 
-    let mut permissions = permission_session(mode);
+    let mut permissions =
+        permission_session(mode, LiveRules::new(config.permission.effective().clone()));
     // The prompt has to state the scope it is actually selling. When this turn
     // is being recorded, an "always" answer outlives the process and will be
     // reused by any later `ask --resume-id <id>`, so the id goes into the
     // question rather than being discovered afterwards.
     if let Some(recorder) = opened.recorder.as_ref() {
-        permissions = permissions.with_durable_session(recorder.id().as_str());
+        permissions = permissions
+            .with_durable_session(recorder.id().as_str())
+            // And its saved-session rules decide this turn's calls, as a
+            // resumed upstream session's do.
+            .with_session_rules(recorder.permission_rules_path());
     }
     for grant in &opened.restored_grants {
         permissions.grant(grant.clone());
@@ -436,11 +519,32 @@ async fn run_ask(
     // and this context builds with no requester. `ask_user_question` answers
     // such a call with `NOT_AVAILABLE_SENTINEL` rather than reaching for a UI
     // that isn't there.
+    // The skills this workspace has, and those the prompt names, read now as
+    // the project instructions are (`crate::skills`). `ask` reads no catalog,
+    // so the catalog's budget is sized by the window the Gateway is known to
+    // give the model, and by none elsewhere.
+    let window = (config.provider == ProviderId::Gateway)
+        .then(|| crate::provider::model::gateway_context_window(&model))
+        .flatten();
+    let skills = crate::skills::TurnSkills::prepare(
+        scope.primary(),
+        config.home(),
+        &request.prompt,
+        &[],
+        window,
+    );
     let tools = ToolContext::new(scope)
         .with_permissions(permissions)
-        .with_cancel(cancel.clone());
+        .with_cancel(cancel.clone())
+        .with_skills(
+            Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+            config.home().map(Path::to_path_buf),
+        )
+        .with_link_bases(crate::permission::LinkBase::from_environment())
+        .with_git_environment(crate::permission::GitEnvironment::from_process());
 
     let turn = TurnRequest {
+        images: Vec::new(),
         model,
         prompt: request.prompt,
         history: opened.history,
@@ -456,9 +560,10 @@ async fn run_ask(
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
         Some(recorder) => {
-            run_turn_saved(
+            run_turn_with_skills(
                 turn,
                 context,
+                &skills,
                 bundle.stream.as_ref(),
                 sink.as_mut(),
                 recorder,
@@ -467,9 +572,10 @@ async fn run_ask(
         }
         None => {
             let mut journal = crate::agent::NoJournal;
-            run_turn_saved(
+            run_turn_with_skills(
                 turn,
                 context,
+                &skills,
                 bundle.stream.as_ref(),
                 sink.as_mut(),
                 &mut journal,
@@ -501,6 +607,50 @@ async fn run_ask(
         },
         warning,
     ))
+}
+
+/// The most bytes of one history notice `ask` prints: a notice is a sentence
+/// around the names the log gave a step, and a log can make those as long as
+/// a frame.
+const MAX_NOTICE_BYTES: usize = 1024;
+
+/// The model a resumed `ask` is sent in.
+///
+/// **The session's**, as upstream's `ask --resume` goes on in the model the
+/// session recorded (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1035-1042`),
+/// which only a process override outranks (`XFX_MODEL`, upstream's
+/// `model_source == .process_override`, `:1810-1811`) -- never the profile's,
+/// which is the model a fresh session starts in. The TUI's resume has the same
+/// rule (`crate::tui::worker::Resumption::selection`).
+///
+/// Only on the provider the session recorded, which is the one this `ask`
+/// goes to: upstream restores the provider with the model (`:1037`), and this
+/// `ask` cannot -- its provider was built before the session was opened -- so
+/// a session recorded on another provider, or on none, keeps the launch's
+/// rule: its model only when no setting chose one.
+///
+/// **Never a model xfx would not have written**
+/// ([`crate::provider::model::model_id_problem`]), as the TUI's rule never
+/// restores one: the log is file input, and such a model would go into a
+/// request header and onto the terminal. The configuration's goes instead,
+/// and the turn records it, so the log is clean again after it.
+fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a str {
+    let logged = match crate::provider::model::model_id_problem(&state.model) {
+        None => &state.model,
+        Some(_) => &config.model,
+    };
+    let recorded = state.provider.as_deref().and_then(ProviderId::parse);
+    if recorded == Some(config.provider) {
+        if config.sources.model == SettingSource::ProcessOverride {
+            &config.model
+        } else {
+            logged
+        }
+    } else if config.sources.model == SettingSource::CompiledDefault {
+        logged
+    } else {
+        &config.model
+    }
 }
 
 /// What opening a session produced for the turn that follows.
@@ -545,9 +695,11 @@ fn open_session(
         Some(selector) => {
             let resumed = store.resume(selector, &config.workspace_root)?;
             let state = resumed.session.state();
-            let replay = state.history_messages(config.provider.wire());
+            // The model the turn will be sent to.
+            let model = resumed_model(config, state);
+            let replay = state.history_messages(config.provider.wire(), model);
             let restored_grants = state.grants.clone();
-            let restored_model = Some(state.model.clone());
+            let restored_model = Some(model.to_string());
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
                 history: replay.messages,
@@ -564,6 +716,7 @@ fn open_session(
                     workspace_root: config.workspace_root.clone(),
                     model: config.model.clone(),
                     permission_mode: mode,
+                    provider: Some(config.provider),
                 },
             )?;
             Ok(OpenedSession {
@@ -654,8 +807,12 @@ where
 /// ends. Without one, `ask` mode denies every mutation rather than hanging on a
 /// question nobody can see -- so a piped or scripted `xfx ask` fails closed by
 /// construction rather than by remembering to check.
-pub(crate) fn permission_session(mode: PermissionMode) -> PermissionSession {
-    let session = PermissionSession::new(mode);
+///
+/// `rules` is the configured table every decision reads: a fresh one from the
+/// profile for a single `ask`, and the line shell's own handle, which
+/// `/allowlist` replaces, for a conversation it opens.
+pub(crate) fn permission_session(mode: PermissionMode, rules: LiveRules) -> PermissionSession {
+    let session = PermissionSession::new(mode).with_live_rules(rules);
     match TtyPrompter::available() {
         Some(prompter) => session.with_prompter(Box::new(prompter)),
         None => session,
@@ -724,6 +881,13 @@ fn load_config_with_env() -> Result<(Environment, RuntimeConfig), AppError> {
     let workspace = std::env::current_dir().map_err(ConfigError::Workspace)?;
     let env = Environment::from_process();
     let config = RuntimeConfig::load_with(&env, &workspace)?;
+    // Where a link in a workspace skill root may resolve, for every discovery
+    // this process makes from now on, as upstream configures it once at
+    // launch (`setConfiguredSymlinkAuthorities`, `app_lifecycle.zig:709`).
+    crate::skills::discovery::set_authorities(crate::skills::discovery::Authorities::new(
+        &config.skill_symlink_authorities,
+        &config.skill_symlink_authorities_env,
+    ));
     Ok((env, config))
 }
 
@@ -1162,7 +1326,7 @@ mod tests {
         // Under `cargo test` there is no terminal, so this exercises the arm
         // and the refusal at once -- and proves the refusal goes to the stderr
         // it was handed rather than to the process's own.
-        let (code, stdout, stderr) = run_capture(Command::Interactive).await;
+        let (code, stdout, stderr) = run_capture(Command::Interactive { resume: None }).await;
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(REJECTED_EXIT_CODE))
@@ -1172,28 +1336,43 @@ mod tests {
         assert!(stderr.contains("xfx ask"), "{stderr}");
     }
 
+    #[tokio::test]
+    async fn a_resume_the_line_shell_cannot_honour_is_refused_rather_than_ignored() {
+        // The line shell opens a fresh conversation on its first prompt, so
+        // running it here would answer `--resume <id>` with a session that is
+        // not the one named.
+        let (code, stdout, stderr) = run_capture(Command::Interactive {
+            resume: Some(crate::session::Selector::Last),
+        })
+        .await;
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::from(REJECTED_EXIT_CODE))
+        );
+        assert_eq!(stdout, "");
+        assert_eq!(stderr, format!("{RESUME_NEEDS_THE_TUI}\n"));
+        assert!(stderr.contains("xfx ask --resume"), "{stderr}");
+    }
+
     #[test]
     fn the_interrupt_notice_bounds_its_promise_to_the_turn_that_is_stopping() {
         // The sentence itself, spelled out rather than derived, because it is a
         // policy literal three surfaces share and a test that imported it would
         // pass whatever it became. What it may not say is the thing that is
-        // false on two of those three the moment the turn concludes: an
-        // unconditional "press Ctrl-C again to exit". `interactive`'s
-        // `Interrupts` goes back to `Idle` at `end_turn` and answers the next
-        // press with a fresh prompt line; the TUI's `Gestures` clears
-        // `asked_to_stop` at `turn_ended` and answers it by clearing the draft.
-        // Each of those two modules pins its own half of that beside its own
-        // table.
+        // false the moment the turn concludes: an unconditional "press Ctrl-C
+        // again to exit". `interactive`'s `Interrupts` goes back to `Idle` at
+        // `end_turn` and answers the next press with a fresh prompt line, and
+        // pins that beside its own table. (The TUI's promise is its hint row's
+        // now, and `crate::tui::gesture` pins that one.)
         assert_eq!(
             INTERRUPT_NOTICE,
             "xfx: interrupted -- stopping the turn; another Ctrl-C before it \
              stops exits."
         );
-        // And it still fits the row it is written onto. The TUI writes it as
-        // one document line (`tui::shell::Shell::interrupt`), so a sentence
-        // that outgrew a standard terminal would spend a second row of the
-        // answer it is interrupting -- which is why the qualifier above
-        // replaced words rather than being added to them.
+        // And it still fits one row of a standard terminal: the line shell
+        // writes it under the answer it is interrupting, and a sentence that
+        // wrapped would spend a second row of it -- which is why the qualifier
+        // above replaced words rather than being added to them.
         assert!(
             INTERRUPT_NOTICE.len() <= 78,
             "the notice no longer fits one row of an 80-column terminal: {} \

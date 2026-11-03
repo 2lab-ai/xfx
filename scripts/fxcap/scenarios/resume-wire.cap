@@ -1,0 +1,27 @@
+# The bytes of one /resume: a prompt with an answer, /new, then /resume and
+# Enter on the session it left -- where the reset, the replay, the band and
+# the window title land against the synchronized update. `wire new` is
+# everything up to the picker, so the resume's own bytes are what follows it.
+gateway resume-turns.json
+wait 4
+type first question alpha
+wait 0.5
+key Enter
+wait 4
+type /new
+wait 0.5
+key Enter
+wait 2
+wire new
+type /resume
+wait 0.5
+key Enter
+wait 2
+type alpha
+wait 0.5
+key Enter
+wait 3
+snap resumed
+snapfull resumed
+title resumed
+wire resumed

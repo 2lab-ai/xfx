@@ -1,0 +1,33 @@
+$ curl -H x-vercel-ai-gateway-team: team_fake -H authorization: Bearer not-a-real-token http://127.0.0.1:<port>/ai-gateway/usage-report?teamId=team_fake&scope=user&start=2026-10-12&end=2026-10-12
+{"users":[{"budget":{"limitAmount":100,"currentSpend":12.5,"refreshPeriod":"monthly"}}]} [200]
+$ curl http://127.0.0.1:<port>/.well-known/openid-configuration
+not found [404]
+$ curl -X POST -d {} http://127.0.0.1:<port>/codex/responses
+curl: (52) Empty reply from server
+ [000]
+$ curl -X POST -d {} http://127.0.0.1:<port>/codex/responses
+curl: (52) Empty reply from server
+ [000]
+$ curl http://127.0.0.1:<port>/codex/models
+curl: (7) Failed to connect to 127.0.0.1 port <port> after 0 ms: Couldn't connect to server
+ [000]
+$ curl -X POST -d {} http://127.0.0.1:<port>/codex/responses
+data: {"type":"response.output_text.delta","delta":"after"}
+
+data: {"type":"response.completed","response":{"id":"response-0","status":"completed","usage":{"input_tokens":1200,"output_tokens":40}}}
+
+ [200]
+--- gateway log
+[fakegw] listening <port>
+[fakegw] usage /ai-gateway/usage-report -> 200 held 200ms
+[fakegw] request GET /ai-gateway/usage-report?teamId=team_fake&scope=user&start=2026-10-12&end=2026-10-12 at=117ms -> 200 at=324ms headers=authorization,x-vercel-ai-gateway-team
+[fakegw] request GET /.well-known/openid-configuration at=351ms -> 404 at=351ms headers=-
+[fakegw] codex /codex/responses -> reset
+[fakegw] request POST /codex/responses at=371ms -> cut at=373ms headers=-
+[fakegw] accepting again on <port>
+[fakegw] codex /codex/responses -> refuse 1500ms
+[fakegw] request POST /codex/responses at=705ms -> cut, refusing 1500ms at=706ms headers=-
+[fakegw] refusing connections for 1500ms
+[fakegw] accepting again on <port>
+[fakegw] codex /codex/responses -> text
+[fakegw] request POST /codex/responses at=2709ms -> 200 at=2710ms headers=-

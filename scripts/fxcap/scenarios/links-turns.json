@@ -1,0 +1,21 @@
+[
+ {
+  "delayMs": 50,
+  "chunks": [
+   "Here are the links.\n\n",
+   "See [the docs](https://example.com/docs) and https://example.org/path for more.\n\n",
+   "Mail <someone@example.com> or visit <https://example.net/a>.\n\n",
+   "Run `https://example.com/code` locally.\n\n",
+   "Also [readme](README.md), [script](javascript:alert(1)) and [ftp](ftp://example.com/f).\n\n",
+   "A long one: [this link text wraps across the edge of the row because it is very long indeed and it keeps going on past the right edge](https://example.com/wrap) then text.\n\n",
+   "| Name | Link |\n|---|---|\n| docs | [site](https://example.com/table) |\n\n",
+   "Done."
+  ]
+ },
+ {
+  "delayMs": 50,
+  "chunks": [
+   "Again: [second](https://example.com/second)."
+  ]
+ }
+]

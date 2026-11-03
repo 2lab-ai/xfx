@@ -1,0 +1,24 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ ask me
+
+────────────────────────────────────────────────────────────────────────────────
+  Which database should I use?
+
+    1) Postgres                      Relational, strong consistency
+    2) SQLite
+    3) MariaDB please
+
+────────────────────────────────────────────────────────────────────────────────
+↑↓ cursor · shift+↑↓ options · tab questions · enter answer · esc cancel
+
+
+
+
+
+
+
+
+
+
+

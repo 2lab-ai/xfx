@@ -1,0 +1,16 @@
+# /image on a model the catalog does not list: refused before any completion
+# request is sent.
+models models-empty.json
+gateway image-turns.json
+work image-ws
+wait 3
+type /image shot.png
+key Enter
+wait 1.5
+snap attached
+type  what is in this image?
+key Enter
+wait 4
+snap sent
+snapfull end
+gwlog

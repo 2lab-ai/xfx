@@ -1,0 +1,26 @@
+# The catalog cannot be read at launch (the fake gateway's /models answers 503
+# for its first six seconds), a turn starts and keeps streaming, and `/model`
+# asks again while it runs: fx starts the load on a thread of its own at once
+# (`ensureModelCache` from `openModelBrowseCatalog`,
+# `app_input_runtime.zig:2346-2349`) and the open menu takes the rows when they
+# land (`pollLoadTransition`, `model_cache_runtime.zig:549-557`).
+models models.json
+modelsdown 6000
+gateway model-reask-turns.json
+wait 2.5
+snap start
+type /model
+key Enter
+wait 1
+snap menu-failed
+key Escape
+wait 0.5
+type say something
+key Enter
+wait 4
+snap turn-running
+type /model
+key Enter
+wait 2
+snap reask-midturn
+gwlog

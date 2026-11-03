@@ -7,7 +7,7 @@
 //! advertises no catalog has `None`, not an object that answers nothing.
 
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -31,6 +31,38 @@ pub struct CatalogEntry {
     pub efforts: Vec<String>,
     /// Context window in tokens, or `None` when the provider did not publish one.
     pub max_context: Option<u64>,
+    /// What else the catalog said about the model. Empty for a llmux row,
+    /// whose document carries none of it.
+    pub facts: ModelFacts,
+}
+
+/// What a catalog row says about a model beyond its name and window: the
+/// facts `/model`'s menu prints beside it and the ones its order is decided by.
+///
+/// Upstream's catalog entry, reduced to what xfx reads
+/// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:2820-2940`). Every field
+/// defaults to "the catalog did not say", because a fact nobody published is
+/// not one the menu may print.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelFacts {
+    /// The vendor the catalog names (`owned_by`).
+    pub owned_by: Option<String>,
+    /// When the model was released, in seconds since the epoch; `0` when the
+    /// catalog did not say.
+    pub released: i64,
+    /// Whether the row is tagged `tool-use`.
+    pub tool_use: bool,
+    /// Whether the row is tagged `vision` and `file-input` both: the one case
+    /// upstream sends an image to the model inline (`image_input_support`
+    /// `.native`, `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:2847-2848`,
+    /// `src/core/config/model_capabilities.zig:96-104`).
+    pub image_input: bool,
+    /// The most tokens one answer may carry (`max_tokens`).
+    pub max_output: Option<u64>,
+    /// Whether the catalog offers Fast mode for it (`supportsFastMode`).
+    pub fast: bool,
+    /// Whether the catalog offers Ultra mode for it (`supportsUltrafastMode`).
+    pub ultrafast: bool,
 }
 
 impl CatalogEntry {
@@ -56,6 +88,51 @@ pub enum CatalogError {
     Empty,
     /// The body is not a catalog document at all.
     Malformed { detail: String },
+    /// The Gateway's catalog could not be read, for the reason given.
+    ///
+    /// Its own variant because the three above send the operator to a local
+    /// daemon and `xfx setup llmux`, which is the wrong place to look when the
+    /// catalog is a remote endpoint behind a key.
+    ///
+    /// `retry` says whether asking again could answer differently, and what
+    /// `/model`'s menu then says ([`CatalogRetry`]); `None` is a failure a
+    /// retry would only repeat -- a refused key, a body that is not a catalog.
+    Gateway {
+        detail: String,
+        retry: Option<CatalogRetry>,
+    },
+}
+
+/// A catalog failure worth asking again about, by upstream's categories
+/// (`failureForHttpStatus`, `model_catalog.zig:72-92`, and the transport rows
+/// of its table at `:736`, `c1db919`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogRetry {
+    /// HTTP 429.
+    RateLimited,
+    /// Nothing answered, or the Gateway answered 500, 502, 503 or 504.
+    Unreachable,
+}
+
+impl CatalogRetry {
+    /// What `/model`'s menu says in place of `Unable to load models.`
+    /// (`retryableFailureText`, `model_menu_presentation.zig:435-443`).
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::RateLimited => "AI Gateway rate limited model discovery; retry /model.",
+            Self::Unreachable => "Could not reach AI Gateway; retry /model.",
+        }
+    }
+
+    /// The category of an HTTP status the catalog answered with, when asking
+    /// again could change it.
+    pub fn for_status(status: u16) -> Option<Self> {
+        match status {
+            429 => Some(Self::RateLimited),
+            500 | 502 | 503 | 504 => Some(Self::Unreachable),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for CatalogError {
@@ -78,6 +155,9 @@ impl fmt::Display for CatalogError {
                     "catalog is malformed: {}; check the daemon is an llmux version compatible with xfx, or rerun `xfx setup llmux`",
                     detail
                 )
+            }
+            Self::Gateway { detail, .. } => {
+                write!(f, "the Gateway's model catalog is unavailable: {detail}")
             }
         }
     }
@@ -160,10 +240,555 @@ pub fn parse_llmux_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
                     name,
                     efforts,
                     max_context,
+                    facts: ModelFacts::default(),
                 })
             })
             .collect(),
     )
+}
+
+/// Parses the Gateway's model catalog (`GET /coding-agent/v1/models`).
+///
+/// Upstream's reading of the same document (`parseModelCatalogEntry`,
+/// `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:2820-2880`): the `data`
+/// array, a row only when its `type` is absent or `language`, and from each
+/// row the id, the vendor, the release time, the `tool-use` tag, the effort
+/// values, the context window, the output ceiling, and whether the row is
+/// priced for Fast or Ultra mode. A row without a usable id is skipped, as a
+/// llmux row is.
+///
+/// `None` when the body is not that document at all.
+pub fn parse_gateway_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
+    let Ok(Value::Object(document)) = serde_json::from_str::<Value>(body) else {
+        return None;
+    };
+    let Some(Value::Array(models)) = document.get("data") else {
+        return None;
+    };
+    Some(
+        models
+            .iter()
+            .filter_map(|model| {
+                let object = model.as_object()?;
+                if let Some(Value::String(kind)) = object.get("type") {
+                    if !kind.eq_ignore_ascii_case("language") {
+                        return None;
+                    }
+                }
+                let id = object.get("id")?.as_str()?;
+                if id.is_empty() {
+                    return None;
+                }
+                let owned_by = object
+                    .get("owned_by")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let facts = ModelFacts {
+                    released: object.get("released").and_then(Value::as_i64).unwrap_or(0),
+                    tool_use: tagged(object.get("tags"), "tool-use"),
+                    image_input: tagged(object.get("tags"), "vision")
+                        && tagged(object.get("tags"), "file-input"),
+                    max_output: positive(object.get("max_tokens")),
+                    fast: supports_fast(object, owned_by.as_deref()),
+                    ultrafast: supports_ultrafast(object, owned_by.as_deref()),
+                    owned_by,
+                };
+                Some(CatalogEntry {
+                    id: id.to_string(),
+                    aliases: Vec::new(),
+                    name: None,
+                    efforts: gateway_efforts(object.get("reasoning_options")),
+                    max_context: positive(object.get("context_window")),
+                    facts,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Whether a `tags` array carries `tag`, in any case (`tagListContains`).
+fn tagged(tags: Option<&Value>, tag: &str) -> bool {
+    tags.and_then(Value::as_array).is_some_and(|tags| {
+        tags.iter()
+            .filter_map(Value::as_str)
+            .any(|candidate| candidate.eq_ignore_ascii_case(tag))
+    })
+}
+
+/// A token count the catalog published, or `None` for one it did not
+/// (`optionalUnsignedU32`: absent, zero, negative and oversized all read as
+/// nothing, and upstream's capabilities treat a zero as no window at all).
+fn positive(value: Option<&Value>) -> Option<u64> {
+    value
+        .and_then(Value::as_u64)
+        .filter(|tokens| *tokens > 0 && *tokens <= u64::from(u32::MAX))
+}
+
+/// The effort values of the first `{type: "effort"}` option
+/// (`parseReasoningEfforts`, `gateway.zig:2882-2906`): at most sixteen, each a
+/// name upstream would parse, and never the default -- `auto`, `adaptive` or
+/// `default` -- which is the row a picker adds on its own.
+fn gateway_efforts(options: Option<&Value>) -> Vec<String> {
+    let Some(options) = options.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(values) = options
+        .iter()
+        .filter_map(Value::as_object)
+        .find(|option| option.get("type").and_then(Value::as_str) == Some("effort"))
+        .and_then(|option| option.get("values"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|effort| {
+            !effort.is_empty()
+                && effort.len() <= 64
+                && effort
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+                && !["auto", "adaptive", "default"]
+                    .iter()
+                    .any(|default| effort.eq_ignore_ascii_case(default))
+        })
+        .take(16)
+        .map(str::to_string)
+        .collect()
+}
+
+/// `supportsFastMode` (`gateway.zig:2918-2927`): a `{type: "toggle"}` fast
+/// option, or a `fast` price, or an OpenAI row with a `priority` service tier.
+/// A `fast` tag alone does not count.
+fn supports_fast(object: &serde_json::Map<String, Value>, owned_by: Option<&str>) -> bool {
+    let toggle = object
+        .get("fast_options")
+        .and_then(Value::as_array)
+        .is_some_and(|options| {
+            options
+                .iter()
+                .any(|option| option.get("type").and_then(Value::as_str) == Some("toggle"))
+        });
+    let pricing = object.get("pricing").and_then(Value::as_object);
+    let priced = pricing.is_some_and(|pricing| pricing.contains_key("fast"));
+    let priority = owned_by.is_some_and(|owner| owner.eq_ignore_ascii_case("openai"))
+        && pricing
+            .and_then(|pricing| pricing.get("service_tiers"))
+            .and_then(Value::as_object)
+            .is_some_and(|tiers| tiers.contains_key("priority"));
+    toggle || priced || priority
+}
+
+/// `supportsUltrafastMode` (`gateway.zig:2929-2937`): an OpenAI row whose
+/// `ultrafast` service tier prices both input and output above zero -- and its
+/// cached input too, when the row prices cached input at all. Names and tags
+/// do not count.
+fn supports_ultrafast(object: &serde_json::Map<String, Value>, owned_by: Option<&str>) -> bool {
+    if !owned_by.is_some_and(|owner| owner.eq_ignore_ascii_case("openai")) {
+        return false;
+    }
+    let Some(pricing) = object.get("pricing").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(tier) = pricing
+        .get("service_tiers")
+        .and_then(Value::as_object)
+        .and_then(|tiers| tiers.get("ultrafast"))
+        .and_then(Value::as_object)
+    else {
+        return false;
+    };
+    let priced = |key: &str| tier.get(key).is_some_and(positive_price);
+    priced("input")
+        && priced("output")
+        && (!pricing.contains_key("input_cache_read") || priced("input_cache_read"))
+}
+
+/// A price above zero, written as a number or as a decimal string
+/// (`positivePrice`).
+fn positive_price(value: &Value) -> bool {
+    let price = match value {
+        Value::String(text) => text.parse::<f64>().ok(),
+        Value::Number(number) => number.as_f64(),
+        _ => None,
+    };
+    price.is_some_and(|price| price.is_finite() && price > 0.0)
+}
+
+/// The order `/model` lists a catalog in, and the order a query is resolved
+/// over: upstream's featured projection (`projectPickerModelCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/gateway/model_catalog.zig:443-503`) over
+/// its catalog sort (`compareModelCatalogEntries`, `:398-441`).
+///
+/// One model from each featured family first, newest first; then every
+/// vendor in alphabetical order, two models each and three for Anthropic and
+/// OpenAI; then everything else, so any model is still selectable. The
+/// families are product preferences; which model fills each slot is always the
+/// catalog's.
+///
+/// Applied to a llmux catalog too, whose ids have no vendor in front: each id
+/// is then its own vendor, so the projection lists them by name. The catalog
+/// itself keeps the order the provider published -- `xfx setup llmux` takes
+/// its first entry, and that is the daemon's choice, not this one.
+pub fn picker_order(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
+    let mut candidates = entries.to_vec();
+    candidates.sort_by(catalog_order);
+    let mut selected: Vec<CatalogEntry> = Vec::with_capacity(candidates.len());
+    for (family, count) in FEATURED_FAMILIES {
+        for _ in 0..*count {
+            let newest = candidates
+                .iter()
+                .filter(|candidate| picker_candidate(&candidate.id))
+                .filter(|candidate| picker_family(&candidate.id) == *family)
+                .filter(|candidate| !contains_id(&selected, &candidate.id))
+                .reduce(|newest, candidate| {
+                    if featured_newer(family, candidate, newest) {
+                        candidate
+                    } else {
+                        newest
+                    }
+                });
+            match newest {
+                Some(entry) => selected.push(entry.clone()),
+                None => break,
+            }
+        }
+    }
+    let mut vendors: Vec<&str> = Vec::new();
+    for candidate in &candidates {
+        let vendor = picker_vendor(&candidate.id);
+        if picker_candidate(&candidate.id) && !vendors.contains(&vendor) {
+            vendors.push(vendor);
+        }
+    }
+    vendors.sort_unstable();
+    for vendor in vendors {
+        while selected
+            .iter()
+            .filter(|entry| picker_vendor(&entry.id) == vendor)
+            .count()
+            < vendor_limit(vendor)
+        {
+            let newest = candidates
+                .iter()
+                .filter(|candidate| picker_candidate(&candidate.id))
+                .filter(|candidate| picker_vendor(&candidate.id) == vendor)
+                .filter(|candidate| vendor_candidate(vendor, candidate, &candidates))
+                .filter(|candidate| !contains_id(&selected, &candidate.id))
+                .reduce(|newest, candidate| {
+                    if newer(candidate, newest) {
+                        candidate
+                    } else {
+                        newest
+                    }
+                });
+            match newest {
+                Some(entry) => selected.push(entry.clone()),
+                None => break,
+            }
+        }
+    }
+    for candidate in candidates {
+        if !contains_id(&selected, &candidate.id) {
+            selected.push(candidate);
+        }
+    }
+    selected
+}
+
+/// Upstream's featured families and how many of each lead the list
+/// (`featured_picker_families`, `model_catalog.zig:451-459`).
+const FEATURED_FAMILIES: &[(&str, usize)] = &[
+    ("anthropic/claude-fable", 1),
+    ("openai/gpt", 1),
+    ("xai/grok-build", 1),
+    ("anthropic/claude-opus", 1),
+    ("zai/glm", 1),
+    ("deepseek/deepseek", 1),
+    ("minimax/minimax", 1),
+];
+
+/// `compareModelCatalogEntries`: tool use first, then the tier, then the
+/// vendor's rank, then newest, then the id.
+fn catalog_order(a: &CatalogEntry, b: &CatalogEntry) -> std::cmp::Ordering {
+    b.facts
+        .tool_use
+        .cmp(&a.facts.tool_use)
+        .then_with(|| tier_rank(&a.id).cmp(&tier_rank(&b.id)))
+        .then_with(|| vendor_rank(&a.id).cmp(&vendor_rank(&b.id)))
+        .then_with(|| b.facts.released.cmp(&a.facts.released))
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+/// `modelProviderRank` (`model_catalog.zig:413-423`).
+fn vendor_rank(id: &str) -> u8 {
+    const RANKED: [&str; 8] = [
+        "anthropic/",
+        "openai/",
+        "google/",
+        "xai/",
+        "deepseek/",
+        "meta/",
+        "mistral/",
+        "alibaba/",
+    ];
+    RANKED
+        .iter()
+        .position(|prefix| id.starts_with(prefix))
+        .map_or(8, |rank| rank as u8)
+}
+
+/// `modelTierRank` (`model_catalog.zig:425-441`).
+fn tier_rank(id: &str) -> u8 {
+    let has = |word: &str| contains_ignore_case(id, word);
+    if has("preview") || has("beta") {
+        4
+    } else if has("haiku") || has("mini") || has("lite") {
+        3
+    } else if has("flash") {
+        2
+    } else if ["opus", "sonnet", "gpt-5", "o1", "o3", "o4", "pro", "grok-4"]
+        .iter()
+        .any(|word| has(word))
+    {
+        0
+    } else {
+        1
+    }
+}
+
+/// `isPickerCandidate` (`model_catalog.zig:530-541`): the variants the
+/// featured and per-vendor passes leave for the rest.
+fn picker_candidate(id: &str) -> bool {
+    if contains_ignore_case(id, "claude-sonnet") {
+        return false;
+    }
+    if id.starts_with("zai/glm-") && id.ends_with("-fast") {
+        return false;
+    }
+    !["-mini", "-nano", "-oss", "-safeguard"]
+        .iter()
+        .any(|variant| contains_ignore_case(id, variant))
+}
+
+/// `modelPickerFamily` (`model_catalog.zig:562-579`): the id up to the first
+/// `-` that is followed by a digit, after the vendor.
+fn picker_family(id: &str) -> &str {
+    if id.starts_with("openai/gpt-") && contains_ignore_case(id, "-codex") {
+        return "openai/gpt-codex";
+    }
+    if id.starts_with("deepseek/deepseek-") {
+        return "deepseek/deepseek";
+    }
+    if id.starts_with("minimax/minimax-") {
+        return "minimax/minimax";
+    }
+    let Some(slash) = id.find('/') else {
+        return id;
+    };
+    let bytes = id.as_bytes();
+    (slash + 1..bytes.len().saturating_sub(1))
+        .find(|&index| bytes[index] == b'-' && bytes[index + 1].is_ascii_digit())
+        .map_or(id, |index| &id[..index])
+}
+
+/// `modelPickerProvider`: what is before the first `/`, or the whole id.
+fn picker_vendor(id: &str) -> &str {
+    id.split_once('/').map_or(id, |(vendor, _)| vendor)
+}
+
+/// `pickerProviderLimit`.
+fn vendor_limit(vendor: &str) -> usize {
+    if vendor == "anthropic" || vendor == "openai" {
+        3
+    } else {
+        2
+    }
+}
+
+/// `isPickerProviderCandidate` (`model_catalog.zig:600-612`).
+fn vendor_candidate(vendor: &str, candidate: &CatalogEntry, all: &[CatalogEntry]) -> bool {
+    let family = picker_family(&candidate.id);
+    match vendor {
+        "anthropic" => family == "anthropic/claude-opus" && within_family_limit(candidate, all),
+        "openai" => {
+            (family == "openai/gpt" || family == "openai/gpt-codex")
+                && within_family_limit(candidate, all)
+        }
+        _ => true,
+    }
+}
+
+/// `isWithinPickerFamilyLimit` (`model_catalog.zig:546-560`).
+fn within_family_limit(candidate: &CatalogEntry, all: &[CatalogEntry]) -> bool {
+    if !picker_candidate(&candidate.id) {
+        return false;
+    }
+    let family = picker_family(&candidate.id);
+    let limit = match family {
+        "openai/gpt" => 2,
+        "openai/gpt-codex" => 1,
+        _ => 3,
+    };
+    all.iter()
+        .filter(|other| picker_candidate(&other.id))
+        .filter(|other| picker_family(&other.id) == family)
+        .filter(|other| newer(other, candidate))
+        .count()
+        < limit
+}
+
+/// `pickerModelIsNewer`: released later, then the shorter id, then the id.
+fn newer(a: &CatalogEntry, b: &CatalogEntry) -> bool {
+    if a.facts.released != b.facts.released {
+        return a.facts.released > b.facts.released;
+    }
+    if a.id.len() != b.id.len() {
+        return a.id.len() < b.id.len();
+    }
+    a.id < b.id
+}
+
+/// `featuredPickerModelIsNewer`: DeepSeek's slot prefers its best variant
+/// among models released together.
+fn featured_newer(family: &str, a: &CatalogEntry, b: &CatalogEntry) -> bool {
+    if a.facts.released != b.facts.released {
+        return a.facts.released > b.facts.released;
+    }
+    if family == "deepseek/deepseek" {
+        let quality = |id: &str| {
+            if id.ends_with("-pro") {
+                0
+            } else if contains_ignore_case(id, "-thinking")
+                || contains_ignore_case(id, "-reasoning")
+            {
+                1
+            } else if contains_ignore_case(id, "-flash") {
+                3
+            } else {
+                2
+            }
+        };
+        let (left, right) = (quality(&a.id), quality(&b.id));
+        if left != right {
+            return left < right;
+        }
+    }
+    newer(a, b)
+}
+
+fn contains_id(entries: &[CatalogEntry], id: &str) -> bool {
+    entries.iter().any(|entry| entry.id == id)
+}
+
+/// Whether `needle` occurs in `haystack`, ignoring ASCII case
+/// (`text_utils.containsIgnoreCase`).
+fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
+    let (haystack, needle) = (haystack.as_bytes(), needle.as_bytes());
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// How well `id` answers `query`; `0` is no answer at all
+/// (`fuzzyModelScore`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_commands.zig:1617-1670`).
+///
+/// A substring scores highest -- a prefix, or the part after the vendor,
+/// higher still -- then every word of the query somewhere in the id, then the
+/// query's letters in order, then any one word.
+pub fn fuzzy_model_score(id: &str, query: &str) -> i32 {
+    if query.is_empty() || id.is_empty() {
+        return 0;
+    }
+    if contains_ignore_case(id, query) {
+        let bonus = i32::try_from(query.len().min(50)).unwrap_or(50);
+        let (bytes, wanted) = (id.as_bytes(), query.as_bytes());
+        let after_vendor = bytes.len() > wanted.len()
+            && bytes[bytes.len() - wanted.len() - 1] == b'/'
+            && bytes[bytes.len() - wanted.len()..].eq_ignore_ascii_case(wanted);
+        if id.starts_with(query) || after_vendor {
+            return 120 + bonus;
+        }
+        return 100 + bonus;
+    }
+    let words = query_words(query);
+    if words.len() > 1 && words.iter().all(|word| contains_ignore_case(id, word)) {
+        return 80 + i32::try_from(words.len()).unwrap_or(16) * 5;
+    }
+    let wanted = query.as_bytes();
+    let mut next = 0;
+    for byte in id.bytes() {
+        if next < wanted.len() && byte.eq_ignore_ascii_case(&wanted[next]) {
+            next += 1;
+        }
+    }
+    if next == wanted.len() {
+        return 40 + i32::try_from(next.min(20)).unwrap_or(20);
+    }
+    if words.iter().any(|word| contains_ignore_case(id, word)) {
+        return 20;
+    }
+    0
+}
+
+/// The words of a query, split at a space, `-`, `/` or `_`, at most sixteen
+/// (`splitQueryTokens`).
+fn query_words(query: &str) -> Vec<&str> {
+    query
+        .split([' ', '-', '/', '_'])
+        .filter(|word| !word.is_empty())
+        .take(16)
+        .collect()
+}
+
+/// What `/model <query>` selects from `ids`, listed in [`picker_order`]
+/// (`resolveModelQueryFromIds`, `session_commands.zig:1282-1305`): the id the
+/// query names exactly, ignoring case; otherwise the best-scoring id, the first
+/// of equals; otherwise nothing, and the caller uses the query as it is.
+pub fn resolve_model_query<'a>(
+    ids: impl Iterator<Item = &'a str> + Clone,
+    query: &str,
+) -> Option<&'a str> {
+    if let Some(exact) = ids.clone().find(|id| id.eq_ignore_ascii_case(query)) {
+        return Some(exact);
+    }
+    let mut best: Option<(&str, i32)> = None;
+    for id in ids {
+        let score = fuzzy_model_score(id, query);
+        if score > best.map_or(0, |(_, best)| best) {
+            best = Some((id, score));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
+/// What `query` names among `ordered`, a catalog already in [`picker_order`]:
+/// the whole of `/model <query>`'s rule (`resolveModelQuery`,
+/// `session_commands.zig:1147-1166`) once a catalog is in hand.
+///
+/// An alias spelled exactly is kept as typed, because the provider resolves its
+/// own short names; otherwise the id the query names ignoring case, else the
+/// best fuzzy match ([`resolve_model_query`]), else the query itself.
+///
+/// Public because **two threads ask it**: the selector, which owns the
+/// catalog, and the TUI's band, which holds the rows the runtime sent it and
+/// has to say at once which model the next turn will use
+/// (`crate::tui::shell`). One rule, so the band cannot announce one id while
+/// the runtime applies another.
+pub fn resolve_in_order(ordered: &[CatalogEntry], query: &str) -> String {
+    if ordered
+        .iter()
+        .any(|entry| entry.aliases.iter().any(|alias| alias == query))
+    {
+        return query.to_string();
+    }
+    resolve_model_query(ordered.iter().map(|entry| entry.id.as_str()), query)
+        .unwrap_or(query)
+        .to_string()
 }
 
 /// Fetches a bounded response from a loopback URL with short timeouts and no proxy/redirects.
@@ -251,15 +876,120 @@ impl ModelCatalog for LlmuxCatalog {
     }
 }
 
+/// Where the Gateway publishes its model catalog, under the origin it is
+/// reached at (`models_path`, `vercel-labs/fx@c1db9191
+/// src/builtins/gateway.zig:48`).
+pub const GATEWAY_MODELS_PATH: &str = "/coding-agent/v1/models";
+
+/// How long the Gateway's catalog may take to connect, and to answer.
+///
+/// Longer than a loopback daemon's, because this one is on the internet; still
+/// bounded, because the thread that waits for it is the one a turn runs on.
+const GATEWAY_CATALOG_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const GATEWAY_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The catalog URL for a completion endpoint: its scheme and authority, and
+/// [`GATEWAY_MODELS_PATH`].
+///
+/// Derived rather than configured, so the catalog is asked of exactly the host
+/// a turn already sends the same credential to -- the default endpoint's
+/// origin is upstream's default catalog base (`ai-gateway.vercel.sh`), and a
+/// loopback `XFX_GATEWAY_URL` puts both on the same fake. No new place is
+/// trusted with the key.
+pub fn gateway_models_url(endpoint: &Endpoint) -> String {
+    let url = endpoint.url();
+    let authority = url.find("://").map_or(0, |at| at + 3);
+    let end = url[authority..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |at| authority + at);
+    format!("{}{GATEWAY_MODELS_PATH}", &url[..end])
+}
+
+/// The Gateway's catalog, asked with the credential a turn sends.
+pub struct GatewayCatalog {
+    url: String,
+    credential: crate::config::Credential,
+}
+
+impl GatewayCatalog {
+    pub fn new(endpoint: &Endpoint, credential: crate::config::Credential) -> Self {
+        Self {
+            url: gateway_models_url(endpoint),
+            credential,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl ModelCatalog for GatewayCatalog {
+    /// One authenticated `GET`, bounded while it reads.
+    ///
+    /// **No redirect is followed**: the URL was judged by the bearer rule and
+    /// the key goes to it alone, so a `3xx` is a failure rather than a second
+    /// host the key is replayed to. A proxy from the environment is honoured
+    /// over https only, as it is for a turn (`crate::gateway::bearer_rules`):
+    /// reaching a remote endpoint may need one, and a cleartext loopback one
+    /// must not hand the key to it.
+    async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+        let failed = |detail: String| CatalogError::Gateway {
+            detail,
+            retry: None,
+        };
+        let client = crate::gateway::bearer_rules(
+            reqwest::Client::builder()
+                .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
+                .timeout(GATEWAY_CATALOG_TIMEOUT)
+                .user_agent(USER_AGENT),
+            &self.url,
+        )
+        .build()
+        .map_err(|err| failed(format!("could not build HTTP client: {err}")))?;
+        let mut authorization =
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.credential.secret()))
+                .map_err(|_| failed("the credential is not a valid header value".to_string()))?;
+        // Keeps the credential out of reqwest's own diagnostics.
+        authorization.set_sensitive(true);
+        let response = client
+            .get(&self.url)
+            .header(reqwest::header::AUTHORIZATION, authorization)
+            .send()
+            .await
+            // Nothing answered: upstream's `transport`, which it asks again
+            // about.
+            .map_err(|err| CatalogError::Gateway {
+                detail: err.to_string(),
+                retry: Some(CatalogRetry::Unreachable),
+            })?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(CatalogError::Gateway {
+                detail: format!("HTTP {}", status.as_u16()),
+                retry: CatalogRetry::for_status(status.as_u16()),
+            });
+        }
+        let body = read_bounded(response, MAX_CATALOG_BODY_BYTES).await;
+        // An empty list is an answer, not a failure: upstream's menu says
+        // `No models available.` for it, and so does this one.
+        parse_gateway_catalog(&body)
+            .ok_or_else(|| failed("the answer is not a model catalog".to_string()))
+    }
+}
+
 /// The catalog for the configured provider, when it advertises one.
 ///
-/// `None` is a fact about the provider, not a missing feature: the Vercel
-/// Gateway publishes no catalog endpoint this port has evidence for, and xfx
-/// does not invent a URL to ask. `/model` on that provider therefore reports the
-/// model and its source and says there is nothing to browse.
-pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
+/// The Gateway's is `GET {origin}/coding-agent/v1/models` with the bearer a
+/// turn sends ([`GatewayCatalog`]) -- and **only with one**. Upstream falls
+/// back to the public catalog when there is no credential; xfx does not
+/// contact a remote host on its own initiative, and a Gateway with no
+/// credential cannot run a turn either, so `/model` there says there is
+/// nothing to browse. A llmux daemon's is its `GET /models`.
+pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog + Send + Sync>> {
     match config.provider {
-        ProviderId::Gateway => None,
+        ProviderId::Gateway => {
+            let credential = config.credential.clone()?;
+            let endpoint = Endpoint::from_process().ok()?;
+            Some(Box::new(GatewayCatalog::new(&endpoint, credential)))
+        }
         ProviderId::Llmux => {
             let url = config.llmux_url.as_deref()?;
             // Re-checked rather than trusted: the rule that decides what may
@@ -268,6 +998,82 @@ pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
             let endpoint = crate::llmux::endpoint(url, crate::llmux::URL_KEY).ok()?;
             Some(Box::new(LlmuxCatalog::new(endpoint)))
         }
+    }
+}
+
+/// The context window a Gateway model has when no catalog describes it, by
+/// its id (`contextWindowSize`, `vercel-labs/fx@c1db9191
+/// src/gateway/vercel_model_policy.zig:13-42`): upstream's Gateway
+/// capabilities before a catalog row overrides them (`capabilitiesForModel`,
+/// `:4-11`; `mergeCapabilities`, `src/core/config/model_capabilities.zig:107`).
+/// `None` for an id upstream knows no window for.
+pub fn gateway_context_window(model: &str) -> Option<u64> {
+    if model.starts_with("anthropic/") {
+        const MILLION: [&str; 10] = [
+            "anthropic/claude-fable-5",
+            "anthropic/claude-opus-4.6",
+            "anthropic/claude-opus-4-6",
+            "anthropic/claude-opus-4.7",
+            "anthropic/claude-opus-4-7",
+            "anthropic/claude-opus-4.8",
+            "anthropic/claude-opus-4-8",
+            "anthropic/claude-sonnet-5",
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-sonnet-4-6",
+        ];
+        return Some(if MILLION.contains(&model) {
+            1_000_000
+        } else {
+            200_000
+        });
+    }
+    if model.starts_with("openai/") {
+        let lower = model.to_ascii_lowercase();
+        if lower.contains("gpt-5") {
+            return Some(256_000);
+        }
+        if lower.contains("o3") || lower.contains("o4") || lower.contains("o1") {
+            return Some(200_000);
+        }
+        return Some(128_000);
+    }
+    if model.starts_with("xai/") {
+        return Some(131_072);
+    }
+    if model.starts_with("google/") {
+        return Some(1_000_000);
+    }
+    None
+}
+
+/// What `/model`'s menu says under its list about where the catalog came from,
+/// or nothing (`loadedCatalogStatusText`, `vercel-labs/fx@c1db9191
+/// src/ui/footer/model_menu_presentation.zig:403-433`).
+///
+/// Upstream's sentences for the two credentials xfx can hold. A llmux daemon's
+/// catalog is keyless and local, and upstream has no sentence for that, so it
+/// gets none.
+pub fn catalog_note(config: &RuntimeConfig) -> Option<&'static str> {
+    match config.provider {
+        ProviderId::Gateway => gateway_catalog_note(config.credential.as_ref()),
+        ProviderId::Llmux => None,
+    }
+}
+
+/// [`catalog_note`] for the Gateway, asked of the credential alone: the one a
+/// TUI session holds from launch, which a provider switch does not change.
+pub fn gateway_catalog_note(
+    credential: Option<&crate::config::Credential>,
+) -> Option<&'static str> {
+    use crate::config::CredentialSource;
+    match credential?.source() {
+        CredentialSource::AiGatewayApiKey => {
+            Some("Note: Gateway catalog is authenticated with an API key")
+        }
+        CredentialSource::VercelOidcToken => {
+            Some("Gateway catalog: authenticated with the Vercel session.")
+        }
+        CredentialSource::LlmuxLoopback => None,
     }
 }
 
@@ -321,21 +1127,27 @@ pub enum ModelRequest<'a> {
     Report,
     /// `/model <id>`.
     Select(&'a str),
+    /// This id, exactly as written: a row a picker named, an id the explicit
+    /// form spelled, or a query a front end already resolved by
+    /// [`resolve_in_order`]. Never resolved again -- upstream's
+    /// `selectModelFromPicker` takes the literal id (`session_commands.zig:
+    /// 886-915`), and a second resolution could fuzzy-match an id nothing
+    /// lists to one that is listed, which is not the model anybody named.
+    Exact(&'a str),
 }
 
 /// The most catalog rows a caller renders in one go, matching `list_files`'
 /// ceiling; a caller that hits it says how many were left out.
 pub const MAX_RENDERED_MODELS: usize = 100;
 
-/// What a provider that advertises no catalog is reported as, on **both**
-/// surfaces.
+/// What a provider that advertises no catalog is reported as, on the line
+/// shell.
 ///
-/// One string rather than two, because the two front ends must not disagree
-/// about a fact neither of them discovered: "there is nothing to browse" is a
-/// property of the provider (`catalog_for` answers `None` for the Gateway,
-/// which publishes no catalog endpoint this port has evidence for), and it is
-/// emphatically **not** a failure. Reported as one it would make every Gateway
-/// user's first `/model` read as a broken session.
+/// "There is nothing to browse" is a property of the session (`catalog_for`
+/// answers `None` for a Gateway with no credential, and for a llmux with no
+/// daemon URL), and it is emphatically **not** a failure. Reported as one it
+/// would make the first `/model` of such a session read as a broken one. The
+/// TUI says the same fact in its menu, as upstream's `No models available.`.
 pub const NO_CATALOG_NOTICE: &str = "[shell] catalog=unavailable (this provider advertises none)";
 
 /// What a surface says about a selection nothing could confirm.
@@ -359,8 +1171,283 @@ pub struct ModelSelector {
     provider: ProviderId,
     model: String,
     source: SettingSource,
-    catalog_fetcher: Option<Box<dyn ModelCatalog>>,
+    catalog_fetcher: Option<Fetcher>,
     catalog_state: CatalogState,
+    /// Whether the failure [`CatalogState::Failed`] holds is one asking again
+    /// could change, and how the menu says so. `None` beside any other state.
+    failure_retry: Option<CatalogRetry>,
+    /// A load started in the background ([`Self::begin_load`]) that nothing
+    /// has taken the answer of yet. [`CatalogState::NotLoaded`] meanwhile.
+    pending: Option<PendingLoad>,
+    /// When the read whose answer [`Self::catalog`] holds began: what
+    /// [`RETRY_FLOOR`] counts from. `None` before any read.
+    last_attempt: Option<Instant>,
+    /// Reads handed to this selector that it did not take the answer of
+    /// ([`Self::adopt_load`]): each runs on to tell its answer, and is stopped
+    /// with the selector -- so a provider switch, which replaces it, is never
+    /// followed by the old provider's rows.
+    strays: Vec<PendingLoad>,
+}
+
+/// What a selector asks its catalog with: shared with the thread each read
+/// runs on ([`PendingLoad`]), so `Send + Sync`. The future a fetch returns is
+/// not `Send`, and never leaves the thread that polls it.
+pub(crate) type Fetcher = std::sync::Arc<dyn ModelCatalog + Send + Sync>;
+
+/// How soon after a read began a read that failed may be asked again:
+/// upstream's model cache starts no load within a second of the last
+/// attempt's start, and a `/model` inside that second opens the menu over
+/// the failure it holds (`beginLoad`, `vercel-labs/fx@c1db9191
+/// src/core/app/model_cache_runtime.zig:441-442`, the attempt's time set when
+/// it starts, `:454`; `openMenu` -> `refreshMenuLocked`, `:529-539`,
+/// `:792-806`).
+pub(crate) const RETRY_FLOOR: Duration = Duration::from_secs(1);
+
+/// Whether a read that failed, begun at `attempted`, may be asked again at
+/// `now` ([`RETRY_FLOOR`]). Counted from the attempt's **start**, as
+/// upstream's is, so a failure that took longer than the floor to arrive is
+/// asked again at once.
+pub(crate) fn may_read_again(attempted: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(attempted) >= RETRY_FLOOR
+}
+
+/// A catalog load running on a thread of its own, as upstream's does
+/// (`startWarmup` spawns `preloadThreadMain`, `vercel-labs/fx@c1db9191
+/// src/core/app/model_cache_runtime.zig:321-349`, `:698-743`): it goes on
+/// whatever the thread that started it does meanwhile -- a turn's stream, or
+/// a question that has parked it (`crate::tui::bridge::park_on`) -- and tells
+/// its answer the moment it arrives. The thread holds the fetcher and the
+/// telling, never the selector: the answer reaches the selector only through
+/// [`Self::answer`], awaited by the thread that owns it.
+///
+/// **Dropped, it is stopped and waited for**, as upstream's `cancelAndJoin`
+/// (`:770-776`): the fetch and the telling are both raced against the stop,
+/// so the wait ends at the read's next await, and once the drop returns it
+/// tells nothing more.
+struct PendingLoad {
+    /// When it began, and what it answered once it has ([`LoadView`]).
+    view: LoadView,
+    /// Sent once the answer has been told.
+    done: tokio::sync::oneshot::Receiver<()>,
+    /// Fired by the drop.
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    /// The telling of a read that could not be given a thread: the answer is
+    /// that failure, told when the selector takes it.
+    unstarted: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
+}
+
+/// What a read is, seen from beside it: when it began, and its answer once
+/// it has told one. For work that holds the selector and is asked for the
+/// catalog meanwhile: upstream's `beginLoad` decides by the cache's state --
+/// a load on its way is not started twice, and one that failed is started
+/// again a second after it began (`model_cache_runtime.zig:441-447`).
+#[derive(Clone)]
+pub(crate) struct LoadView {
+    began: Instant,
+    outcome: std::sync::Arc<std::sync::OnceLock<Loaded>>,
+}
+
+impl LoadView {
+    /// When the read began ([`RETRY_FLOOR`]).
+    pub(crate) fn began(&self) -> Instant {
+        self.began
+    }
+
+    /// The answer it has told, if it has told one yet.
+    pub(crate) fn answered(&self) -> Option<&Loaded> {
+        self.outcome.get()
+    }
+}
+
+/// What a load leaves the selector holding: the catalog's state, and whether
+/// asking again could change a failure ([`ModelSelector::failure_retry`]).
+pub(crate) type Loaded = (CatalogState, Option<CatalogRetry>);
+
+/// [`Loaded`] for one attempt's answer.
+fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
+    match answer {
+        Ok(entries) => (CatalogState::Loaded(entries), None),
+        Err(err) => {
+            let retry = match &err {
+                CatalogError::Gateway { retry, .. } => *retry,
+                _ => None,
+            };
+            (CatalogState::Failed(err.to_string()), retry)
+        }
+    }
+}
+
+impl Drop for PendingLoad {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl PendingLoad {
+    /// Starts `fetcher`'s read on a thread of its own, telling `told` its
+    /// answer -- and when the read began -- the moment it arrives
+    /// ([`ModelSelector::begin_load`]).
+    fn start<Told, Telling>(fetcher: Fetcher, told: Told) -> Self
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let view = LoadView {
+            began: Instant::now(),
+            outcome: std::sync::Arc::new(std::sync::OnceLock::new()),
+        };
+        let began = view.began;
+        let outcome = std::sync::Arc::clone(&view.outcome);
+        let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
+        let (finished, done) = tokio::sync::oneshot::channel::<()>();
+        // Taken back if no thread can be had for it.
+        let work = std::sync::Arc::new(std::sync::Mutex::new(Some((fetcher, told, finished))));
+        let on_thread = std::sync::Arc::clone(&work);
+        let thread = std::thread::Builder::new()
+            .name("xfx-catalog".to_string())
+            .spawn(move || {
+                let Some((fetcher, told, finished)) = on_thread
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                else {
+                    return;
+                };
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(err) => {
+                        let _ = outcome.set(loaded(Err(CatalogError::Unavailable {
+                            detail: format!("could not start the catalog read: {err}"),
+                        })));
+                        let _ = finished.send(());
+                        return;
+                    }
+                };
+                runtime.block_on(async move {
+                    // A stop that was never sent -- its sender dropped -- is
+                    // no stop: the pattern disables the branch.
+                    let answer = tokio::select! {
+                        biased;
+                        Ok(()) = &mut stopped => return,
+                        answer = fetcher.fetch() => loaded(answer),
+                    };
+                    tokio::select! {
+                        biased;
+                        Ok(()) = &mut stopped => return,
+                        () = told(answer.0.clone(), answer.1, began) => {}
+                    }
+                    let _ = outcome.set(answer);
+                    let _ = finished.send(());
+                });
+            });
+        match thread {
+            Ok(thread) => Self {
+                view,
+                done,
+                stop: Some(stop),
+                thread: Some(thread),
+                unstarted: None,
+            },
+            // No thread to be had: the answer is that failure, told when the
+            // selector takes it ([`Self::answer`]).
+            Err(err) => {
+                let unstarted = work
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                    .map(|(_, told, finished)| {
+                        let failure = loaded(Err(CatalogError::Unavailable {
+                            detail: format!("could not start the catalog read: {err}"),
+                        }));
+                        let telling = told(failure.0.clone(), failure.1, began);
+                        let _ = view.outcome.set(failure);
+                        let _ = finished.send(());
+                        Box::pin(telling)
+                            as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                    });
+                Self {
+                    view,
+                    done,
+                    stop: None,
+                    thread: None,
+                    unstarted,
+                }
+            }
+        }
+    }
+
+    /// Whether it has answered -- and told its answer -- already.
+    fn is_finished(&self) -> bool {
+        self.unstarted.is_none()
+            && self
+                .thread
+                .as_ref()
+                .is_none_or(std::thread::JoinHandle::is_finished)
+    }
+
+    /// Waits for the answer, once it has been told. Cancel-safe: dropped
+    /// before it ends, it leaves the read as it was.
+    async fn answer(&mut self) -> Loaded {
+        if let Some(telling) = self.unstarted.as_mut() {
+            telling.await;
+            self.unstarted = None;
+        }
+        let _ = (&mut self.done).await;
+        self.view.answered().cloned().unwrap_or_else(|| {
+            loaded(Err(CatalogError::Unavailable {
+                detail: "the catalog read ended without an answer".to_string(),
+            }))
+        })
+    }
+}
+
+/// What starts a read of the selector's catalog **without the selector**:
+/// for a thread that is running work which holds the selector, when the
+/// interface asks for the catalog again meanwhile, as upstream's starts a
+/// load on a thread of its own whatever its worker is doing
+/// (`ensureModelCache` from `openModelBrowseCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
+/// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`). The read
+/// it starts runs on a thread of its own ([`PendingLoad`]), so a question
+/// that parks the thread asking does not hold it, and it is handed back to
+/// the selector afterwards ([`ModelSelector::adopt_load`]). `Send + Sync`,
+/// so the prompter a question parks in can start one.
+#[derive(Clone)]
+pub(crate) struct CatalogReader {
+    fetcher: Option<Fetcher>,
+}
+
+/// A read a [`CatalogReader`] started, for the selector to take.
+pub(crate) struct StartedLoad(PendingLoad);
+
+impl StartedLoad {
+    /// When it began, and its answer once it has told one.
+    pub(crate) fn view(&self) -> LoadView {
+        self.0.view.clone()
+    }
+}
+
+impl CatalogReader {
+    /// Starts the read, telling `told` its answer the moment it arrives, as
+    /// [`ModelSelector::begin_load`] does; `None` when the provider has no
+    /// catalog to read.
+    pub(crate) fn begin<Told, Telling>(&self, told: Told) -> Option<StartedLoad>
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let fetcher = self.fetcher.clone()?;
+        Some(StartedLoad(PendingLoad::start(fetcher, told)))
+    }
 }
 
 impl ModelSelector {
@@ -378,9 +1465,25 @@ impl ModelSelector {
             provider: config.provider,
             model: config.model.clone(),
             source: config.sources.model,
-            catalog_fetcher,
+            catalog_fetcher: catalog_fetcher.map(Fetcher::from),
             catalog_state,
+            failure_retry: None,
+            pending: None,
+            last_attempt: None,
+            strays: Vec::new(),
         }
+    }
+
+    /// The model `config` now names, with the catalog kept: the provider is
+    /// the same, so its catalog still describes it. A selector for another
+    /// provider is built anew instead ([`Self::new`]).
+    pub fn follow_model(&mut self, config: &RuntimeConfig) {
+        if config.provider != self.provider {
+            *self = Self::new(config);
+            return;
+        }
+        self.model = config.model.clone();
+        self.source = config.sources.model;
     }
 
     /// The provider whose catalog this selector browses.
@@ -410,16 +1513,188 @@ impl ModelSelector {
         if !matches!(self.catalog_state, CatalogState::NotLoaded) {
             return &self.catalog_state;
         }
+        // One already on its way is waited for, not asked a second time.
+        if self.pending.is_some() {
+            self.settle_load().await;
+            return &self.catalog_state;
+        }
         let Some(fetcher) = &self.catalog_fetcher else {
             return &self.catalog_state;
         };
-        match fetcher.fetch().await {
-            Ok(entries) => self.catalog_state = CatalogState::Loaded(entries),
-            Err(err) => {
-                self.catalog_state = CatalogState::Failed(err.to_string());
-            }
-        }
+        self.last_attempt = Some(Instant::now());
+        let answer = fetcher.fetch().await;
+        self.adopt(answer);
         &self.catalog_state
+    }
+
+    /// Starts loading the catalog in the background, if nothing has asked
+    /// for it yet: upstream reads it on a thread of its own at launch, and
+    /// again when the credential changes (`startModelCacheWarmup`,
+    /// `vercel-labs/fx@c1db9191 src/main.zig:2222-2243`, called from
+    /// `app_entry_runtime.zig:335` and `app_auth_runtime.zig:2026-2036`). The
+    /// load runs while the thread waits on anything else, and the first
+    /// thing to need the catalog takes its answer ([`Self::ensure_catalog`]).
+    ///
+    /// **`told` is given the answer the moment it arrives**, whatever the
+    /// thread is doing then -- a turn included -- as upstream's interface
+    /// polls its cache on every tick of its own loop and redraws an open menu
+    /// and the footer when a load has ended (`pollLoadTransition`,
+    /// `model_cache_runtime.zig:549-557`, from `loopCollectFacts`,
+    /// `main.zig:3050-3083`). The selector itself takes the answer later,
+    /// when something asks it ([`Self::is_loading`]). The load runs on a
+    /// thread of its own ([`PendingLoad`]), so a question that parks this
+    /// thread does not hold it.
+    pub(crate) fn begin_load<Told, Telling>(&mut self, told: Told)
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
+    {
+        if !matches!(self.catalog_state, CatalogState::NotLoaded) || self.pending.is_some() {
+            return;
+        }
+        let Some(fetcher) = self.catalog_fetcher.clone() else {
+            return;
+        };
+        self.pending = Some(PendingLoad::start(fetcher, told));
+    }
+
+    /// What starts a read of this selector's catalog while the selector is
+    /// held elsewhere ([`CatalogReader`]).
+    pub(crate) fn reader(&self) -> CatalogReader {
+        CatalogReader {
+            fetcher: self.catalog_fetcher.clone(),
+        }
+    }
+
+    /// Takes a read a [`CatalogReader`] started as this selector's own
+    /// background load: its answer, told already or about to be, is the
+    /// catalog from here on, and the first thing to need it waits for it
+    /// ([`Self::ensure_catalog`]). A read of the selector's own still on its
+    /// way stands, and so does a catalog it holds already; this one is then
+    /// let finish for nobody -- it tells its answer still, to an interface
+    /// that may be waiting on it -- and its answer is not taken. It is kept
+    /// all the same ([`Self::strays`]), so it is stopped with the selector.
+    ///
+    /// A read of the selector's own that **has answered** does not stand: a
+    /// reader's read begun beside it is begun only after it failed (the
+    /// worker's `CatalogAsks`), so this one is the newer, and the one taken.
+    pub(crate) fn adopt_load(&mut self, load: StartedLoad) {
+        self.strays.retain(|stray| !stray.is_finished());
+        let on_its_way = self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| !pending.is_finished());
+        if on_its_way || matches!(self.catalog_state, CatalogState::Loaded(_)) {
+            self.strays.push(load.0);
+            return;
+        }
+        self.catalog_state = CatalogState::NotLoaded;
+        self.failure_retry = None;
+        self.pending = Some(load.0);
+    }
+
+    /// Whether a background load is on its way, or has ended and not been
+    /// taken yet ([`Self::begin_load`]): its answer has been told, or is
+    /// being told, already.
+    pub(crate) fn is_loading(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// The background load, seen from beside it ([`LoadView`]), while there
+    /// is one.
+    pub(crate) fn load_view(&self) -> Option<LoadView> {
+        self.pending.as_ref().map(|pending| pending.view.clone())
+    }
+
+    /// Whether the background load has answered, and told its answer, and
+    /// only its taking is left ([`Self::settle_load`] returns at once).
+    pub(crate) fn has_answered(&self) -> bool {
+        self.pending.as_ref().is_some_and(PendingLoad::is_finished)
+    }
+
+    /// Waits for the background load, if there is one, and takes its answer.
+    ///
+    /// Cancel-safe: dropped before the load ends, it leaves the load running
+    /// and still pending.
+    pub(crate) async fn settle_load(&mut self) {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        let answer = pending.answer().await;
+        self.last_attempt = Some(pending.view.began);
+        self.pending = None;
+        (self.catalog_state, self.failure_retry) = answer;
+    }
+
+    fn adopt(&mut self, answer: Result<Vec<CatalogEntry>, CatalogError>) {
+        (self.catalog_state, self.failure_retry) = loaded(answer);
+    }
+
+    /// Lets the next [`ensure_catalog`](Self::ensure_catalog) ask again after
+    /// a load that failed.
+    ///
+    /// **Only `/model` calls this** -- opening its menu or its column, or
+    /// resolving a query typed with no catalog in hand -- because that is the
+    /// gesture upstream's failure text names (`retry /model.`): an operator who
+    /// was told the catalog could not be read and asks for it again. Nothing
+    /// else retries: a turn that wants the catalog for its effort takes the
+    /// failure as it stands rather than spending a request on every prompt
+    /// against a Gateway that is down.
+    ///
+    /// This one asks again whenever it is asked: a query `/model` could not
+    /// resolve is upstream's `fetchModelIds`, a read of its own beside the
+    /// model cache (`resolveModelQuery`, `session_commands.zig:1147-1166`;
+    /// `src/main.zig:2211-2220`), which no floor holds. The menu's and the
+    /// column's asks are [`Self::retry_after_failure_at`]'s.
+    pub fn retry_after_failure(&mut self) {
+        if matches!(self.catalog_state, CatalogState::Failed(_)) {
+            self.catalog_state = CatalogState::NotLoaded;
+            self.failure_retry = None;
+        }
+    }
+
+    /// [`Self::retry_after_failure`], held to upstream's model cache's floor:
+    /// within [`RETRY_FLOOR`] of the start of the read that failed, the
+    /// failure stands and nothing is asked (`beginLoad`,
+    /// `model_cache_runtime.zig:441-442`). Whether it let the next read
+    /// happen.
+    pub(crate) fn retry_after_failure_at(&mut self, now: Instant) -> bool {
+        if !matches!(self.catalog_state, CatalogState::Failed(_)) {
+            return false;
+        }
+        if self
+            .last_attempt
+            .is_some_and(|attempted| !may_read_again(attempted, now))
+        {
+            return false;
+        }
+        self.retry_after_failure();
+        true
+    }
+
+    /// When the read whose answer the catalog holds began, if any has
+    /// ([`RETRY_FLOOR`]).
+    pub(crate) fn last_attempt(&self) -> Option<Instant> {
+        self.last_attempt
+    }
+
+    /// Whether the failure the catalog is in is worth asking again about
+    /// ([`CatalogRetry`]); `None` for any other state.
+    pub fn failure_retry(&self) -> Option<CatalogRetry> {
+        if matches!(self.catalog_state, CatalogState::Failed(_)) {
+            self.failure_retry
+        } else {
+            None
+        }
+    }
+
+    /// The loaded catalog's row for `model`, if it lists one: by id, or by an
+    /// alias, which a llmux model is often selected by.
+    pub fn entry(&self, model: &str) -> Option<&CatalogEntry> {
+        let CatalogState::Loaded(entries) = &self.catalog_state else {
+            return None;
+        };
+        entries.iter().find(|entry| entry.matches(model))
     }
 
     /// Applies one `/model` request and returns what the caller must render.
@@ -431,11 +1706,29 @@ impl ModelSelector {
                 model: self.model.clone(),
                 source: self.source,
             },
-            ModelRequest::Select(id) => {
+            ModelRequest::Select(query) | ModelRequest::Exact(query) => {
                 // Validate the id before doing anything else.
-                if let Some(problem) = model_id_problem(id) {
+                if let Some(problem) = model_id_problem(query) {
                     return ModelOutcome::Refused {
                         reason: problem.to_string(),
+                    };
+                }
+                let id = match request {
+                    ModelRequest::Exact(id) => id.to_string(),
+                    _ => self.resolve(query),
+                };
+                // And the id a query resolved to, by the same rule: the
+                // catalog is the provider's document and its parser takes any
+                // non-empty id, and the id adopted here is written to the
+                // session log and the profile, from which a later launch
+                // paints it. Upstream adopts it and refuses it only when it
+                // persists (`session_codec.zig:433,3165`); refused here, before
+                // anything holds it. The id is not quoted back.
+                if let Some(problem) = model_id_problem(&id) {
+                    return ModelOutcome::Refused {
+                        reason: format!(
+                            "the catalog's match for that query is unusable: {problem}"
+                        ),
                     };
                 }
 
@@ -446,20 +1739,15 @@ impl ModelSelector {
                     };
                 }
 
-                // Check the catalog state to decide whether to refuse or accept unverified.
-                if let CatalogState::Loaded(entries) = &self.catalog_state {
-                    // Catalog is loaded: refuse if the id is not in it.
-                    if !entries.iter().any(|e| e.matches(id)) {
-                        return ModelOutcome::Refused {
-                            reason: format!(
-                                "{} does not publish {} in its catalog",
-                                self.provider_name(),
-                                id
-                            ),
-                        };
-                    }
-                }
-
+                // **An id the catalog does not list is applied, not refused**,
+                // as upstream applies it (`resolveModelQuery` falls back to the
+                // literal query, `session_commands.zig:1147-1166`, and
+                // `fx-model-fuzzy-40x120-unknown` shows `nonexistent-xyz`
+                // accepted and saved). A catalog is what a provider lists, not
+                // everything it will run -- a team-private model, or one
+                // published after the catalog was read, is a model the
+                // provider answers for -- and the provider is the one place
+                // that can say no.
                 let previous = self.model.clone();
                 let unverified = match &self.catalog_state {
                     CatalogState::Unavailable => None,
@@ -470,7 +1758,7 @@ impl ModelSelector {
                     CatalogState::Failed(reason) => Some(reason.clone()),
                 };
 
-                self.model = id.to_string();
+                self.model = id;
                 ModelOutcome::Selected {
                     provider: self.provider,
                     model: self.model.clone(),
@@ -481,11 +1769,16 @@ impl ModelSelector {
         }
     }
 
-    fn provider_name(&self) -> &'static str {
-        match self.provider {
-            ProviderId::Gateway => "gateway",
-            ProviderId::Llmux => "llmux",
-        }
+    /// What `query` names in the loaded catalog (`resolveModelQuery`,
+    /// `session_commands.zig:1147-1166`): an id or an alias spelled exactly
+    /// -- an alias kept as typed, because the provider resolves its own short
+    /// names -- else the best fuzzy match over the ids in the order `/model`
+    /// lists them ([`resolve_model_query`]), else the query itself.
+    fn resolve(&self, query: &str) -> String {
+        let CatalogState::Loaded(entries) = &self.catalog_state else {
+            return query.to_string();
+        };
+        resolve_in_order(&picker_order(entries), query)
     }
 
     #[cfg(test)]
@@ -496,6 +1789,10 @@ impl ModelSelector {
             source,
             catalog_fetcher: None,
             catalog_state: CatalogState::Unavailable,
+            failure_retry: None,
+            pending: None,
+            last_attempt: None,
+            strays: Vec::new(),
         }
     }
 
@@ -510,6 +1807,28 @@ impl ModelSelector {
     #[cfg(test)]
     pub(crate) fn set_catalog_for_test(&mut self, state: CatalogState) {
         self.catalog_state = state;
+    }
+
+    /// Moves the start of the last read back past [`RETRY_FLOOR`], so a test
+    /// can ask after the floor without waiting a second for it.
+    #[cfg(test)]
+    pub(crate) fn backdate_attempt_for_test(&mut self) {
+        self.last_attempt = self
+            .last_attempt
+            .and_then(|attempted| attempted.checked_sub(RETRY_FLOOR * 2));
+    }
+
+    /// A catalog this selector *asks* -- one a test wrote -- in place of the
+    /// provider's, with nothing loaded yet. For the worker's tests of what a
+    /// load that fails or succeeds is told to the UI as; `#[cfg(test)]` like
+    /// [`Self::set_catalog_for_test`], so no binary can reach it.
+    #[cfg(test)]
+    pub(crate) fn set_fetcher_for_test(&mut self, fetcher: Box<dyn ModelCatalog + Send + Sync>) {
+        self.catalog_fetcher = Some(Fetcher::from(fetcher));
+        self.catalog_state = CatalogState::NotLoaded;
+        self.failure_retry = None;
+        self.pending = None;
+        self.last_attempt = None;
     }
 }
 
@@ -550,6 +1869,7 @@ mod tests {
             name: None,
             efforts: Vec::new(),
             max_context: None,
+            facts: ModelFacts::default(),
         }
     }
 
@@ -587,6 +1907,10 @@ mod tests {
                     CatalogError::Malformed { detail } => CatalogError::Malformed {
                         detail: detail.clone(),
                     },
+                    CatalogError::Gateway { detail, retry } => CatalogError::Gateway {
+                        detail: detail.clone(),
+                        retry: *retry,
+                    },
                 }),
             }
         }
@@ -612,20 +1936,102 @@ mod tests {
     }
 
     #[test]
-    fn a_selection_the_loaded_catalog_does_not_have_is_refused_by_name() {
-        // The provider published what it can run. An id it did not publish is a
-        // turn that fails at the provider, and failing here says why.
+    fn an_id_the_loaded_catalog_does_not_list_is_applied_as_typed() {
+        // Upstream's rule (`fx-model-fuzzy-40x120-unknown`: `nonexistent-xyz`
+        // is switched to and saved). It used to be refused here; a catalog is
+        // what a provider lists, not everything it will run, and nothing in the
+        // query scores against `m-1`, so the query is the id.
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
         selector.set_catalog_for_test(CatalogState::Loaded(vec![entry("m-1", &["fable"])]));
         match selector.apply(ModelRequest::Select("not-published")) {
-            ModelOutcome::Refused { reason } => {
-                assert!(reason.contains("not-published"), "{reason}");
-                assert!(reason.contains("llmux"), "{reason}");
+            ModelOutcome::Selected {
+                model,
+                previous,
+                unverified,
+                ..
+            } => {
+                assert_eq!(model, "not-published");
+                assert_eq!(previous, "fable");
+                assert_eq!(unverified, None, "the catalog was read; nothing to caveat");
             }
-            other => panic!("expected a refusal, got {other:?}"),
+            other => panic!("expected a selection, got {other:?}"),
         }
-        assert_eq!(selector.model(), "fable", "a refusal changes nothing");
+        assert_eq!(selector.model(), "not-published");
+    }
+
+    #[test]
+    fn a_query_resolves_to_the_catalog_id_it_names_best() {
+        // `fx-model-fuzzy-40x120-opus`: `/model opus` switched to
+        // `anthropic/claude-opus-5` over the catalog in `models.json`.
+        let catalog = parse_gateway_catalog(MODELS_JSON).expect("a catalog");
+        let mut selector = ModelSelector::for_test(
+            ProviderId::Gateway,
+            "fake/model-a",
+            SettingSource::UserGlobal,
+        );
+        selector.set_catalog_for_test(CatalogState::Loaded(catalog));
+        for (query, resolved) in [
+            ("opus", "anthropic/claude-opus-5"),
+            ("astra", "openai/gpt-6-astra"),
+            // Exact wins, whatever its case, in the catalog's spelling.
+            ("XAI/GROK-4.7", "xai/grok-4.7"),
+            // The letters in order.
+            ("gpt6", "openai/gpt-6-astra"),
+            // Nothing scores: the literal query.
+            ("nonexistent-xyz", "nonexistent-xyz"),
+        ] {
+            match selector.apply(ModelRequest::Select(query)) {
+                ModelOutcome::Selected { model, .. } => assert_eq!(model, resolved, "{query}"),
+                other => panic!("{query}: expected a selection, got {other:?}"),
+            }
+        }
+        // And a query that resolves to the model in force changes nothing.
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("nonexistent-xyz")),
+            ModelOutcome::Unchanged { .. }
+        ));
+    }
+
+    #[test]
+    fn a_catalog_id_with_a_control_character_is_refused_when_a_query_resolves_to_it() {
+        // A catalog is the provider's document, and its parser takes any
+        // non-empty id. A clean query that fuzzy-matches an id carrying an
+        // escape must not adopt it: the adopted id is written to the session
+        // log and the profile, and a resume paints it in the footer. Red
+        // before: `evil` was selected as the id with the escape in it.
+        for hostile in [
+            "evil\u{1b}[31m-x",
+            "evil\u{1b}]8;;mailto:a@b\u{1b}\\-x",
+            "evil\u{9b}31m-x",
+        ] {
+            let mut selector =
+                ModelSelector::for_test(ProviderId::Llmux, "good", SettingSource::UserGlobal);
+            selector.set_catalog_for_test(CatalogState::Loaded(vec![
+                entry("good", &[]),
+                entry(hostile, &[]),
+            ]));
+            match selector.apply(ModelRequest::Select("evil")) {
+                ModelOutcome::Refused { reason } => {
+                    assert!(!reason.chars().any(char::is_control), "{reason:?}");
+                    assert!(!reason.contains("evil"), "the id is not quoted: {reason:?}");
+                }
+                other => panic!("{hostile:?}: expected a refusal, got {other:?}"),
+            }
+            assert_eq!(selector.model(), "good", "{hostile:?}");
+        }
+    }
+
+    #[test]
+    fn without_a_loaded_catalog_the_query_is_the_id() {
+        // Nothing to resolve against: upstream's fallback when the fetch fails.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Failed("down".to_string()));
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("opus")),
+            ModelOutcome::Selected { model, .. } if model == "opus"
+        ));
     }
 
     #[test]
@@ -770,6 +2176,7 @@ mod tests {
                 name: None,
                 efforts: vec![],
                 max_context: None,
+                facts: ModelFacts::default(),
             });
         }
         selector.set_catalog_for_test(CatalogState::Loaded(entries));
@@ -885,7 +2292,7 @@ mod tests {
 
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::sync::Arc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
 
         // First call should fetch.
@@ -899,15 +2306,138 @@ mod tests {
         assert_eq!(count_after_second, count_after_first);
     }
 
+    #[test]
+    fn an_exact_request_is_applied_as_written_and_never_resolved_again() {
+        // The explicit form's literal id (`fx-model3-40x120-paste-short-id`
+        // refuses `claude-opus-5` rather than resolving it), and an id a
+        // front end already resolved, are not queries: resolved again, an id
+        // nothing lists would be fuzzy-matched to one that is listed.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Loaded(vec![entry(
+            "anthropic/claude-opus-5",
+            &[],
+        )]));
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("claude-opus")),
+            ModelOutcome::Selected { model, .. } if model == "anthropic/claude-opus-5"
+        ));
+        assert!(matches!(
+            selector.apply(ModelRequest::Exact("claude-opus")),
+            ModelOutcome::Selected { model, .. } if model == "claude-opus"
+        ));
+        assert!(matches!(
+            selector.apply(ModelRequest::Exact("bad id")),
+            ModelOutcome::Refused { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_gateway_failure_says_whether_asking_again_could_help() {
+        // `failureForHttpStatus` (`model_catalog.zig:72-92`): a rate limit and
+        // the four transient 5xx are retryable; a refused key, any other
+        // status and a 5xx upstream does not retry are not.
+        for (status, retry) in [
+            (429, Some(CatalogRetry::RateLimited)),
+            (500, Some(CatalogRetry::Unreachable)),
+            (502, Some(CatalogRetry::Unreachable)),
+            (503, Some(CatalogRetry::Unreachable)),
+            (504, Some(CatalogRetry::Unreachable)),
+            (501, None),
+            (401, None),
+            (403, None),
+            (400, None),
+        ] {
+            assert_eq!(CatalogRetry::for_status(status), retry, "HTTP {status}");
+        }
+        let (url, server) = one_exchange(
+            "HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                .to_string(),
+        );
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&url)).expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        assert!(matches!(
+            catalog.fetch().await,
+            Err(CatalogError::Gateway {
+                retry: Some(CatalogRetry::Unreachable),
+                ..
+            })
+        ));
+        server.join().expect("the server");
+        // Nothing listening is upstream's `transport`, which it retries.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = closed.local_addr().expect("addr").port();
+        drop(closed);
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&format!(
+                "http://127.0.0.1:{port}/v4/ai/language-model"
+            )))
+            .expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        assert!(matches!(
+            catalog.fetch().await,
+            Err(CatalogError::Gateway {
+                retry: Some(CatalogRetry::Unreachable),
+                ..
+            })
+        ));
+        // Upstream's sentences (`model_menu_presentation.zig:435-443`).
+        assert_eq!(
+            CatalogRetry::Unreachable.text(),
+            "Could not reach AI Gateway; retry /model."
+        );
+        assert_eq!(
+            CatalogRetry::RateLimited.text(),
+            "AI Gateway rate limited model discovery; retry /model."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failure_is_asked_again_only_when_model_asks_for_it() {
+        // `retry /model.` is what upstream tells an operator whose catalog
+        // could not be read, so `/model` is the gesture that asks again --
+        // and nothing else does: a turn that wanted the catalog for its effort
+        // does not spend a request per prompt on a Gateway that is down.
+        let catalog = CountingCatalog::new(Err(CatalogError::Gateway {
+            detail: "HTTP 503".to_string(),
+            retry: Some(CatalogRetry::Unreachable),
+        }));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(catalog.clone()));
+        selector.catalog_state = CatalogState::NotLoaded;
+        selector.ensure_catalog().await;
+        assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
+        let after_first = catalog.count();
+        // `ensure_catalog` alone still asks once.
+        selector.ensure_catalog().await;
+        assert_eq!(catalog.count(), after_first);
+        // `/model` asks again.
+        selector.retry_after_failure();
+        assert!(matches!(selector.catalog(), CatalogState::NotLoaded));
+        assert_eq!(selector.failure_retry(), None);
+        selector.ensure_catalog().await;
+        assert_eq!(catalog.count(), after_first + 1);
+        // And a loaded catalog is not thrown away by it.
+        selector.catalog_state = CatalogState::Loaded(Vec::new());
+        selector.retry_after_failure();
+        assert!(matches!(selector.catalog(), CatalogState::Loaded(_)));
+    }
+
     #[tokio::test]
     async fn ensure_catalog_does_not_retry_after_failure() {
-        // A failed load is not retried within the same process.
+        // A failed load is not retried by `ensure_catalog` within the same
+        // process: only `/model` asks again
+        // (`a_failure_is_asked_again_only_when_model_asks_for_it`).
         let catalog = CountingCatalog::new(Err(CatalogError::Empty));
         let initial_count = catalog.count();
 
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::sync::Arc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
 
         // First call should fetch and fail.
@@ -923,6 +2453,151 @@ mod tests {
         let count_after_second = catalog.count();
         assert_eq!(count_after_second, count_after_first);
     }
+    #[test]
+    fn a_failed_read_is_asked_again_a_second_after_it_began_and_not_before() {
+        // Upstream's model cache: `.failed => now - last_attempt_ms >= 1000`,
+        // the attempt's time set when it starts (`beginLoad`,
+        // `model_cache_runtime.zig:441-442`, `:454`).
+        let began = Instant::now();
+        assert!(!may_read_again(began, began));
+        assert!(!may_read_again(
+            began,
+            began + RETRY_FLOOR - Duration::from_millis(1)
+        ));
+        assert!(may_read_again(began, began + RETRY_FLOOR));
+        // A clock that reads earlier than the attempt is no time at all.
+        assert!(!may_read_again(began + RETRY_FLOOR, began));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_state = CatalogState::Failed("HTTP 503".to_string());
+        selector.failure_retry = Some(CatalogRetry::Unreachable);
+        selector.last_attempt = Some(began);
+        // Inside the second: the failure stands, retryable sentence and all.
+        assert!(!selector.retry_after_failure_at(began + Duration::from_millis(999)));
+        assert!(matches!(selector.catalog(), CatalogState::Failed(_)));
+        assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
+        // After it, the next read may happen.
+        assert!(selector.retry_after_failure_at(began + RETRY_FLOOR));
+        assert!(matches!(selector.catalog(), CatalogState::NotLoaded));
+        // A loaded catalog is not given up by it, whenever it is asked.
+        selector.catalog_state = CatalogState::Loaded(Vec::new());
+        assert!(!selector.retry_after_failure_at(began + RETRY_FLOOR * 10));
+        assert!(matches!(selector.catalog(), CatalogState::Loaded(_)));
+    }
+
+    /// A catalog that answers once `gate` opens, or never.
+    struct Waiting {
+        gate: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        answer: Result<Vec<CatalogEntry>, CatalogError>,
+    }
+
+    impl Waiting {
+        fn new(
+            answer: Result<Vec<CatalogEntry>, CatalogError>,
+        ) -> (tokio::sync::oneshot::Sender<()>, Self) {
+            let (open, gate) = tokio::sync::oneshot::channel();
+            (
+                open,
+                Self {
+                    gate: std::sync::Mutex::new(Some(gate)),
+                    answer,
+                },
+            )
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl ModelCatalog for Waiting {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+            let gate = self.gate.lock().expect("gate").take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            match &self.answer {
+                Ok(entries) => Ok(entries.clone()),
+                Err(_) => Err(CatalogError::Gateway {
+                    detail: "HTTP 503".to_string(),
+                    retry: Some(CatalogRetry::Unreachable),
+                }),
+            }
+        }
+    }
+
+    #[test]
+    fn a_background_read_counts_its_floor_from_when_it_began_not_from_when_it_failed() {
+        // Upstream sets the attempt's time as the load starts (`:454`), so a
+        // failure that took longer than the floor to arrive is asked again
+        // at once.
+        let (open, waiting) = Waiting::new(Err(CatalogError::Empty));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(waiting));
+        selector.catalog_state = CatalogState::NotLoaded;
+        let before = Instant::now();
+        selector.begin_load(|_, _, _| async {});
+        let after_begin = Instant::now();
+        // Answered well after it began.
+        let opened = Instant::now();
+        open.send(()).expect("the read waits");
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(selector.settle_load());
+        assert!(matches!(selector.catalog(), CatalogState::Failed(_)));
+        let attempted = selector.last_attempt().expect("an attempt");
+        assert!(before <= attempted && attempted <= after_begin && attempted <= opened);
+    }
+
+    #[test]
+    fn a_read_on_its_way_is_stopped_with_its_selector_and_tells_nothing_after() {
+        // Upstream's `resetForProviderChange` -> `cancelAndJoin`
+        // (`model_cache_runtime.zig:483-492`, `reset` `:461-462`, `:770-776`): the old provider's
+        // load is stopped and waited for before the new one's is read, so it
+        // tells nothing about a catalog that is no longer the one in force.
+        // The telling holds the only sender: disconnected and empty is a
+        // thread that has ended without telling.
+        let (open, waiting) = Waiting::new(Ok(Vec::new()));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(waiting));
+        selector.catalog_state = CatalogState::NotLoaded;
+        let (told, heard) = std::sync::mpsc::channel::<()>();
+        selector.begin_load(move |_, _, _| async move {
+            let _ = told.send(());
+        });
+        assert!(selector.is_loading());
+        drop(selector);
+        let _ = open.send(());
+        assert_eq!(
+            heard.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        );
+
+        // And a read handed to a selector that did not take its answer is
+        // stopped with it too.
+        let (open, waiting) = Waiting::new(Ok(Vec::new()));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(waiting));
+        selector.catalog_state = CatalogState::Loaded(Vec::new());
+        let (told, heard) = std::sync::mpsc::channel::<()>();
+        let load = selector
+            .reader()
+            .begin(move |_, _, _| async move {
+                let _ = told.send(());
+            })
+            .expect("a catalog to read");
+        selector.adopt_load(load);
+        assert!(!selector.is_loading(), "a catalog in hand was given up");
+        drop(selector);
+        let _ = open.send(());
+        assert_eq!(
+            heard.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        );
+    }
+
     /// The third state of the same contract the two cases above pin
     /// (`ensure_catalog_fetches_exactly_once_on_success` and
     /// `ensure_catalog_does_not_retry_after_failure`): a provider that has no
@@ -930,8 +2605,8 @@ mod tests {
     #[tokio::test]
     async fn a_provider_with_no_catalog_opens_no_socket_at_all() {
         // `Unavailable` is a fact about the provider rather than a failure to
-        // load: the Gateway publishes no catalog endpoint this port has evidence
-        // for, and xfx does not invent a URL to ask.
+        // load: a Gateway session with no credential, or a llmux one with no
+        // daemon URL, has no catalog xfx may ask for.
         let mut selector = ModelSelector::for_test(
             ProviderId::Gateway,
             "zai/glm-5.2",
@@ -941,5 +2616,444 @@ mod tests {
             selector.ensure_catalog().await,
             CatalogState::Unavailable
         ));
+    }
+
+    /// The research harness's catalog (`account-model/scenarios/models.json`),
+    /// which both binaries were captured over.
+    const MODELS_JSON: &str = r#"{"object":"list","data":[
+ {"id":"fake/model-a","type":"language","owned_by":"fake","released":1700000000,"tags":["tool-use"]},
+ {"id":"openai/gpt-6-astra","type":"language","owned_by":"openai","released":1780000000,"tags":["tool-use","reasoning"],"context_window":400000,"max_tokens":128000,"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh"]}],"pricing":{"input":"0.000002","output":"0.00001","input_cache_read":"0.0000002","service_tiers":{"priority":{"input":"0.000004","output":"0.00002"},"ultrafast":{"input":"0.00006","output":"0.0003","input_cache_read":"0.000006"}}}},
+ {"id":"anthropic/claude-opus-5","type":"language","owned_by":"anthropic","released":1775000000,"tags":["tool-use","reasoning"],"context_window":1000000,"max_tokens":64000,"reasoning_options":[{"type":"effort","values":["low","medium","high","max"]}],"fast_options":[{"type":"toggle"}],"pricing":{"input":"0.000005","output":"0.000025"}},
+ {"id":"xai/grok-4.7","type":"language","owned_by":"xai","released":1770000000,"tags":["tool-use"],"pricing":{"input":"0.000003","output":"0.000015"}},
+ {"id":"openai/text-embedding-9","type":"embedding","owned_by":"openai"}
+]}"#;
+
+    fn ids(entries: &[CatalogEntry]) -> Vec<&str> {
+        entries.iter().map(|entry| entry.id.as_str()).collect()
+    }
+
+    fn gateway_entry(id: &str, released: i64) -> CatalogEntry {
+        CatalogEntry {
+            facts: ModelFacts {
+                released,
+                tool_use: true,
+                ..ModelFacts::default()
+            },
+            ..entry(id, &[])
+        }
+    }
+
+    #[test]
+    fn a_row_reads_images_inline_only_when_it_is_tagged_vision_and_file_input_both() {
+        // `image_input_support` is `.native` only for the two tags together
+        // (`gateway.zig:2847-2848`, `model_capabilities.zig:96-104`); either
+        // alone is a model upstream would route through its vision tool.
+        let catalog = parse_gateway_catalog(
+            r#"{"data":[
+              {"id":"a/both","tags":["tool-use","vision","file-input"]},
+              {"id":"a/vision","tags":["tool-use","vision"]},
+              {"id":"a/file","tags":["FILE-INPUT"]},
+              {"id":"a/none","tags":["tool-use"]},
+              {"id":"a/untagged"}
+            ]}"#,
+        )
+        .expect("a catalog document");
+        let reads: Vec<bool> = catalog
+            .iter()
+            .map(|entry| entry.facts.image_input)
+            .collect();
+        assert_eq!(reads, [true, false, false, false, false]);
+    }
+
+    #[test]
+    fn a_gateway_row_carries_the_facts_upstream_reads_and_nothing_else() {
+        let entries = parse_gateway_catalog(MODELS_JSON).expect("a catalog document");
+        // The embedding row is not a language model.
+        assert_eq!(
+            ids(&entries),
+            [
+                "fake/model-a",
+                "openai/gpt-6-astra",
+                "anthropic/claude-opus-5",
+                "xai/grok-4.7"
+            ]
+        );
+        let astra = &entries[1];
+        assert_eq!(astra.max_context, Some(400_000));
+        assert_eq!(astra.efforts, ["low", "medium", "high", "xhigh"]);
+        assert_eq!(
+            astra.facts,
+            ModelFacts {
+                owned_by: Some("openai".to_string()),
+                released: 1_780_000_000,
+                tool_use: true,
+                image_input: false,
+                max_output: Some(128_000),
+                // A `priority` tier on an OpenAI row is Fast; a priced
+                // `ultrafast` tier, cached input included, is Ultra.
+                fast: true,
+                ultrafast: true,
+            }
+        );
+        let opus = &entries[2];
+        assert_eq!(opus.max_context, Some(1_000_000));
+        assert_eq!(opus.facts.max_output, Some(64_000));
+        assert!(opus.facts.fast, "a toggle fast option is Fast");
+        assert!(!opus.facts.ultrafast, "Ultra is OpenAI's alone");
+        let model_a = &entries[0];
+        assert_eq!(model_a.max_context, None, "no window was published");
+        assert_eq!(model_a.facts.max_output, None);
+        assert!(!model_a.facts.fast && !model_a.facts.ultrafast);
+        assert!(model_a.efforts.is_empty());
+        let grok = &entries[3];
+        assert!(!grok.facts.fast, "a price is not a fast price");
+    }
+
+    #[test]
+    fn ultra_wants_priced_openai_metadata_rather_than_a_name_or_a_tag() {
+        // Upstream's own case (`gateway.zig:2950-2970`).
+        let entries = parse_gateway_catalog(
+            r#"{"data":[
+            {"id":"openai/gpt-6-astra","type":"language","owned_by":"openai","pricing":{"input_cache_read":"0.000001","service_tiers":{"ultrafast":{"input":"0.00006","output":"0.0003","input_cache_read":"0.000006"}}}},
+            {"id":"openai/gpt-5.6-sol","type":"language","owned_by":"openai","tags":["ultrafast"],"pricing":{"service_tiers":{"priority":{"input":"0.1","output":"0.2"}}}},
+            {"id":"openai/incomplete","type":"language","owned_by":"openai","pricing":{"service_tiers":{"ultrafast":{"input":"0.1"}}}},
+            {"id":"openai/uncached","type":"language","owned_by":"openai","pricing":{"input_cache_read":"0.1","service_tiers":{"ultrafast":{"input":"0.1","output":"0.2"}}}},
+            {"id":"provider/model","type":"language","owned_by":"provider","pricing":{"service_tiers":{"ultrafast":{"input":"0.1","output":"0.2"}}}},
+            {"id":"fast/priced","owned_by":"fast","pricing":{"fast":{"input":"1"}}},
+            {"id":"fast/tagged","owned_by":"fast","tags":["fast"]}
+        ]}"#,
+        )
+        .expect("a catalog document");
+        let ultra: Vec<bool> = entries.iter().map(|entry| entry.facts.ultrafast).collect();
+        assert_eq!(ultra, [true, false, false, false, false, false, false]);
+        let fast: Vec<bool> = entries.iter().map(|entry| entry.facts.fast).collect();
+        assert_eq!(fast, [false, true, false, false, false, true, false]);
+        // A row with no `type` is read, as upstream reads it.
+        assert_eq!(entries[5].id, "fast/priced");
+    }
+
+    #[test]
+    fn effort_values_skip_the_default_and_what_upstream_would_not_parse() {
+        let entries = parse_gateway_catalog(
+            r#"{"data":[{"id":"a/b","reasoning_options":[
+            {"type":"toggle"},
+            {"type":"effort","values":["auto","low","Default","x y","",7,"max"]},
+            {"type":"effort","values":["second"]}]}]}"#,
+        )
+        .expect("a catalog document");
+        assert_eq!(entries[0].efforts, ["low", "max"]);
+    }
+
+    #[test]
+    fn a_document_without_a_data_array_is_not_a_gateway_catalog() {
+        for body in ["", "[]", r#"{"models":[]}"#, r#"{"data":{}}"#] {
+            assert!(parse_gateway_catalog(body).is_none(), "for {body:?}");
+        }
+        let entries = parse_gateway_catalog(r#"{"data":[{"id":""},{"type":"language"},7]}"#)
+            .expect("a document with no usable row");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn the_menu_order_is_upstreams_featured_projection() {
+        // `fx-model-40x120-open`: astra (the `openai/gpt` slot), opus (the
+        // `anthropic/claude-opus` slot), then the vendors alphabetically --
+        // `fake`, then `xai` -- over a catalog published in another order.
+        let entries = parse_gateway_catalog(MODELS_JSON).expect("a catalog");
+        assert_eq!(
+            ids(&picker_order(&entries)),
+            [
+                "openai/gpt-6-astra",
+                "anthropic/claude-opus-5",
+                "fake/model-a",
+                "xai/grok-4.7"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_projection_caps_each_vendor_and_keeps_every_model_selectable() {
+        let entries = [
+            gateway_entry("anthropic/claude-opus-4", 10),
+            gateway_entry("anthropic/claude-opus-5", 30),
+            gateway_entry("anthropic/claude-sonnet-5", 40),
+            gateway_entry("anthropic/claude-haiku-5", 41),
+            gateway_entry("openai/gpt-6", 50),
+            gateway_entry("openai/gpt-5", 20),
+            gateway_entry("openai/gpt-4", 5),
+            gateway_entry("openai/gpt-6-mini", 60),
+            gateway_entry("zai/glm-5", 7),
+            gateway_entry("zai/glm-5-fast", 8),
+            gateway_entry("acme/one", 1),
+            gateway_entry("acme/two", 2),
+            gateway_entry("acme/three", 3),
+        ];
+        assert_eq!(
+            ids(&picker_order(&entries)),
+            [
+                // Featured: the newest `openai/gpt`, the newest opus, GLM.
+                "openai/gpt-6",
+                "anthropic/claude-opus-5",
+                "zai/glm-5",
+                // Vendors alphabetically: two of acme, newest first.
+                "acme/three",
+                "acme/two",
+                // Anthropic lists only opus, within its family's three.
+                "anthropic/claude-opus-4",
+                // OpenAI: `openai/gpt` is capped at two in the family.
+                "openai/gpt-5",
+                // The rest, in catalog order: tool use, tier, vendor, newest.
+                "anthropic/claude-sonnet-5",
+                "openai/gpt-4",
+                "zai/glm-5-fast",
+                "acme/one",
+                "anthropic/claude-haiku-5",
+                "openai/gpt-6-mini",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_llmux_catalog_without_vendors_is_listed_by_name() {
+        let entries = [
+            entry("grok-4.5", &["grok"]),
+            entry("claude-fable-5[1m]", &["fable"]),
+            entry("gpt-5.6-sol", &[]),
+        ];
+        assert_eq!(
+            ids(&picker_order(&entries)),
+            ["claude-fable-5[1m]", "gpt-5.6-sol", "grok-4.5"]
+        );
+    }
+
+    #[test]
+    fn fuzzy_scores_rank_as_upstreams_do() {
+        // Upstream's own cases (`session_commands.zig:3334-3368`).
+        assert!(fuzzy_model_score("anthropic/claude-sonnet-4-20250514", "claude-sonnet") >= 100);
+        assert!(
+            fuzzy_model_score("openai/gpt-4o", "openai/gpt-4o")
+                > fuzzy_model_score("openai/gpt-4o-mini", "gpt-4o")
+        );
+        assert!(fuzzy_model_score("anthropic/claude-sonnet-4-20250514", "claude sonnet") >= 80);
+        assert!(fuzzy_model_score("anthropic/claude-sonnet-4-20250514", "anth son") > 0);
+        assert_eq!(fuzzy_model_score("openai/gpt-4o", "zzzzz"), 0);
+        assert_eq!(fuzzy_model_score("openai/gpt-4o", ""), 0);
+        // And the arithmetic of each band.
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "openai"),
+            126,
+            "a prefix"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "GPT-4O"),
+            126,
+            "after the vendor"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "gpt"),
+            103,
+            "a substring"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "4o gpt"),
+            90,
+            "every word"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "og4"),
+            43,
+            "the letters in order"
+        );
+        assert_eq!(fuzzy_model_score("openai/gpt-4o", "gpt zz"), 20, "one word");
+        assert_eq!(
+            query_words("claude-sonnet/fast"),
+            ["claude", "sonnet", "fast"]
+        );
+    }
+
+    #[test]
+    fn the_first_of_equal_scores_wins_in_listed_order() {
+        let ids = ["acme/alpha-x", "acme/beta-x"];
+        assert_eq!(
+            resolve_model_query(ids.iter().copied(), "x"),
+            Some("acme/alpha-x")
+        );
+        assert_eq!(resolve_model_query(ids.iter().copied(), "zzz"), None);
+    }
+
+    #[test]
+    fn the_gateway_catalog_is_asked_of_the_endpoints_own_origin() {
+        for (endpoint, models) in [
+            (
+                "https://ai-gateway.vercel.sh/v3/ai/language-model",
+                "https://ai-gateway.vercel.sh/coding-agent/v1/models",
+            ),
+            (
+                "http://127.0.0.1:4100/v3/ai/language-model",
+                "http://127.0.0.1:4100/coding-agent/v1/models",
+            ),
+            (
+                "https://gateway.example.com?team=x",
+                "https://gateway.example.com/coding-agent/v1/models",
+            ),
+        ] {
+            let endpoint = Endpoint::resolve(Some(endpoint)).expect("an endpoint");
+            assert_eq!(gateway_models_url(&endpoint), models);
+        }
+    }
+
+    #[test]
+    fn the_note_names_the_credential_the_catalog_was_asked_with() {
+        use crate::config::Environment;
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let load = |vars: &[(&str, &str)]| {
+            let vars = vars
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect();
+            RuntimeConfig::load_with(&Environment::new(None, vars), workspace.path())
+                .expect("a configuration")
+        };
+        assert_eq!(
+            catalog_note(&load(&[("AI_GATEWAY_API_KEY", "fake-key")])),
+            Some("Note: Gateway catalog is authenticated with an API key")
+        );
+        assert_eq!(
+            catalog_note(&load(&[("VERCEL_OIDC_TOKEN", "fake-token")])),
+            Some("Gateway catalog: authenticated with the Vercel session.")
+        );
+        assert_eq!(catalog_note(&load(&[])), None);
+    }
+
+    #[test]
+    fn a_gateway_with_no_credential_has_no_catalog_to_ask() {
+        // Upstream falls back to a public catalog; xfx sends nothing to a
+        // remote host it was given no key for.
+        use crate::config::Environment;
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(None, Default::default()),
+            workspace.path(),
+        )
+        .expect("a configuration");
+        assert_eq!(config.provider, ProviderId::Gateway);
+        assert!(catalog_for(&config).is_none());
+    }
+
+    /// One HTTP exchange on a loopback port: the request it read, and the
+    /// answer it gave.
+    fn one_exchange(answer: String) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let url = format!(
+            "http://127.0.0.1:{}/v3/ai/language-model",
+            listener.local_addr().expect("an address").port()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("a connection");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).expect("a read");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            stream.write_all(answer.as_bytes()).expect("a write");
+            String::from_utf8_lossy(&request).into_owned()
+        });
+        (url, server)
+    }
+
+    #[test]
+    fn the_gateway_catalog_takes_no_proxy_to_a_loopback_gateway() {
+        // Cleartext to loopback: a proxy from the environment would read the
+        // key as sent (`crate::gateway::bearer_rules`).
+        if let Some(origin) = crate::test_net::server_in_this_copy() {
+            let endpoint = Endpoint::resolve(Some(&format!("{origin}/v4/ai/language-model")))
+                .expect("a loopback endpoint");
+            let catalog = GatewayCatalog::new(&endpoint, credential_for_test("fake-key-not-real"));
+            let entries = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime")
+                .block_on(catalog.fetch())
+                .expect("a catalog");
+            assert_eq!(ids(&entries), ["acme/one"]);
+            return;
+        }
+        crate::test_net::assert_no_proxy_is_used(
+            "provider::model::tests::the_gateway_catalog_takes_no_proxy_to_a_loopback_gateway",
+            crate::test_net::json_answer(r#"{"data":[{"id":"acme/one","type":"language"}]}"#),
+        );
+    }
+
+    #[tokio::test]
+    async fn the_gateway_catalog_is_one_get_with_the_bearer_and_no_redirect_followed() {
+        let body = r#"{"data":[{"id":"acme/one","type":"language"}]}"#;
+        let (url, server) = one_exchange(format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        ));
+        let credential = credential_for_test("fake-key-not-real");
+        let catalog = GatewayCatalog::new(&Endpoint::resolve(Some(&url)).expect("ok"), credential);
+        let entries = catalog.fetch().await.expect("a catalog");
+        assert_eq!(ids(&entries), ["acme/one"]);
+        let request = server.join().expect("the server");
+        assert!(
+            request.starts_with("GET /coding-agent/v1/models HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer fake-key-not-real\r\n"),
+            "{request}"
+        );
+
+        let (url, server) = one_exchange(
+            "HTTP/1.1 307 Temporary Redirect\r\nlocation: http://127.0.0.1:1/elsewhere\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                .to_string(),
+        );
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&url)).expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        match catalog.fetch().await {
+            // A redirect is not a failure asking again would change.
+            Err(CatalogError::Gateway {
+                detail,
+                retry: None,
+            }) => assert_eq!(detail, "HTTP 307"),
+            other => panic!("expected a refusal to follow, got {other:?}"),
+        }
+        server.join().expect("the server");
+
+        // A catalog with no language model in it is an answer -- the menu's
+        // `No models available.` -- and not a failed load.
+        let body = r#"{"data":[{"id":"openai/text-embedding-9","type":"embedding"}]}"#;
+        let (url, server) = one_exchange(format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        ));
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&url)).expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        assert_eq!(catalog.fetch().await.expect("an empty catalog"), Vec::new());
+        server.join().expect("the server");
+    }
+
+    fn credential_for_test(secret: &str) -> crate::config::Credential {
+        use crate::config::Environment;
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let vars = [("AI_GATEWAY_API_KEY".to_string(), secret.to_string())]
+            .into_iter()
+            .collect();
+        RuntimeConfig::load_with(&Environment::new(None, vars), workspace.path())
+            .expect("a configuration")
+            .credential
+            .expect("a credential")
     }
 }

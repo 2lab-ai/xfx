@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 11  [All]  Interface  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+  Model                    zai/glm-5.2
+  Reasoning effort         default  low  high
+  Permission mode          ask  auto  full access
+  Sound level              off  on
+  Startup scrollback       off  on
+  Prompt history           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

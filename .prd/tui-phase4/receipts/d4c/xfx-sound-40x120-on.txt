@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7527225 [debug] · Run /help for commands
+
+┃ first question
+
+  First answer, sound off.
+
+  0s (↑4 ↓40)
+
+* sound: on
+
+* sound: on
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

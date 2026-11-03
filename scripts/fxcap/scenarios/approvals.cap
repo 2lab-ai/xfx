@@ -1,0 +1,45 @@
+# Permission questions, both kinds, and every way out of one: a file edit
+# (walked, amended, applied), a new file (refused with Ctrl-C, the turn goes
+# on), a command (allowed for the session with `2`), a second command
+# (Escape cancels the turn). The tools are each product's own: fx's `shell`
+# is xfx's `terminal`, so each binary gets its own turns and its own `ask`.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap edit-ask
+key Down
+wait 0.4
+snap edit-down1
+key Down
+wait 0.4
+key Down
+wait 0.4
+snap edit-down3-wrap
+key Tab
+wait 0.4
+snap edit-tab-amend
+type use capitals
+wait 0.4
+snap edit-amend-typed
+key Enter
+wait 2.5
+snap write-ask
+key C-c
+wait 2.5
+snap after-cc-cmd-ask
+key 2
+wait 2.5
+snap cmd2-ask
+key Escape
+wait 2.5
+snap after-esc
+snapfull after-esc
+workls end
+gwlog

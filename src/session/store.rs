@@ -49,14 +49,17 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::TurnJournal;
 use crate::config::PermissionMode;
-use crate::gateway::protocol::{Message, ToolCall};
+use crate::gateway::protocol::{Message, ResultStatus, ToolCall};
 use crate::permission::Grant;
 use crate::provider::Wire;
 
 use super::event::{
-    new_identifier, system_now_ms, EventEnvelope, RecordedToolCall, SessionEvent, TurnConclusion,
-    EVENT_SCHEMA_VERSION,
+    new_identifier, system_now_ms, EventEnvelope, RecordedImage, RecordedToolCall, SessionEvent,
+    TurnConclusion, EVENT_SCHEMA_VERSION,
 };
+
+/// The directory beside a session's log that holds the copies of its images.
+pub const IMAGES_DIR: &str = "images";
 
 /// The directory holding every session, under the profile home.
 pub const SESSIONS_DIR_NAME: &str = "sessions";
@@ -92,8 +95,15 @@ pub const MAX_LIST_LIMIT: usize = 200;
 /// The most directory entries one listing will consider.
 const MAX_SCANNED_SESSIONS: usize = 5_000;
 
-/// The most bytes of a user message kept as a session's title.
-const MAX_TITLE_BYTES: usize = 80;
+/// The most words of a prompt a derived title keeps (`max_title_words`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:11`).
+const MAX_TITLE_WORDS: usize = 8;
+
+/// The most bytes any session title has (`max_title_bytes`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:12`):
+/// one a prompt gives, which is clipped to it ([`title_of`]), and one the user
+/// chose, which is refused past it rather than clipped ([`validate_title`]).
+pub const MAX_RENAMED_TITLE_BYTES: usize = 240;
 
 /// The tail every staged manifest name ends in, so a leftover one is
 /// recognizable as xfx's and never mistaken for session state.
@@ -246,9 +256,14 @@ impl fmt::Display for SessionError {
             }
             Self::AlreadyExists { id } => write!(f, "session `{id}` already exists"),
             Self::NoSession { detail } => write!(f, "{detail}"),
+            // The detail quotes what the session's files say -- a model, a
+            // workspace, a permission mode -- and is printed to a terminal
+            // (`tui::fail`, the binary's `fail`), so it is said on one line
+            // with every control character a space.
             Self::Corrupt { id, detail } => write!(
                 f,
-                "session `{id}` cannot be trusted and was not read: {detail}"
+                "session `{id}` cannot be trusted and was not read: {}",
+                crate::output::safe_one_line(detail, usize::MAX)
             ),
             Self::Busy { id } => write!(
                 f,
@@ -382,12 +397,31 @@ pub enum TurnStep {
         /// Which wire *and which authority* produced the state above.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         wire: Option<crate::provider::Wire>,
+        /// The model that produced the state above: the one the record names
+        /// ([`SessionEvent::AssistantMessage`]'s `model`), or for an older
+        /// record that names none, the model the log had in force when it was
+        /// written -- the session's own, which every model change is written
+        /// into before the next request. `None` beside no state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     ToolResult {
         call_id: String,
         tool: String,
         ok: bool,
         output: String,
+        /// The images the result carried (`tool_images_attached`).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        images: Vec<TurnImage>,
+        /// What the row said beyond `ok` ([`super::event::ToolEnding`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending: Option<super::event::ToolEnding>,
+        /// The lines a change added and removed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<super::event::LineCounts>,
+        /// The change, as its review showed it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<super::event::RecordedChange>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -395,7 +429,26 @@ pub enum TurnStep {
     /// opens a turn here, and one opened mid-batch would leave the results still
     /// to come with no call ahead of them.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the turn while it ran
+    /// ([`SessionEvent::Steered`]), in the words they typed.
+    Steered { text: String },
 }
+
+/// What the model is told after a turn that did not finish, before the next
+/// prompt (`interrupted_turn_context`, `vercel-labs/fx@c1db9191
+/// src/core/session/session.zig:52-56`).
+pub const TURN_ABORTED: &str = "<turn_aborted>\nThe previous turn ended before completion. \
+Any tools or commands may have partially executed. Do not continue this request unless the \
+user explicitly asks to continue.\n</turn_aborted>";
+
+/// What closes the answer of a turn that did not finish
+/// (`interrupted_before_completion_output`, `session.zig:63`).
+pub const ENDED_BEFORE_COMPLETION: &str = "The previous response ended before completion.";
+
+/// What a call its turn stopped under is answered with (`aborted_tool_output`,
+/// `session.zig:64`) -- the same words a question the user cancelled answers
+/// with, so there is one copy of them.
+pub const ABORTED_TOOL_OUTPUT: &str = crate::tools::question::ABORTED_OUTPUT;
 
 /// A history rebuilt for one active wire, and what the user has to be told
 /// about what did not survive the rebuild.
@@ -409,14 +462,192 @@ pub struct ReplayedHistory {
     pub notices: Vec<String>,
 }
 
+/// One image a turn's prompt carried, and its saved copy once read back.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TurnImage {
+    #[serde(flatten)]
+    pub recorded: RecordedImage,
+    /// The copy the session kept, as far as this process knows it.
+    #[serde(skip)]
+    pub snapshot: Snapshot,
+}
+
+/// Where a turn image's bytes stand.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Snapshot {
+    /// Not read: a listing reads the log and not the images beside it.
+    #[default]
+    Unread,
+    /// Read, and the digest it was recorded with: what a later request sends,
+    /// and the file it was read from.
+    Loaded { bytes: Arc<[u8]>, path: Arc<Path> },
+    /// Could not be used, for this reason: it is not sent, and the user is
+    /// told so ([`DurableState::history_messages`]).
+    Unusable(String),
+}
+
 /// One complete exchange: what was asked, what happened, and how it ended.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HistoryTurn {
     pub user: String,
+    /// The images the prompt carried, in the order they were attached.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<TurnImage>,
     pub steps: Vec<TurnStep>,
     /// `None` for a turn whose conclusion never reached the log, which is what a
     /// crash mid-turn looks like.
     pub outcome: Option<TurnConclusion>,
+    /// When it was asked and when it ended, and what the provider said it
+    /// wrote: the facts a resumed screen's turn summary is made of
+    /// ([`TurnTiming`]).
+    #[serde(skip)]
+    pub timing: TurnTiming,
+    /// Where the turn is in its log: what a [`SessionEvent::ContextCheckpoint`]
+    /// is measured against ([`TurnSeqs`]).
+    #[serde(skip)]
+    pub seqs: TurnSeqs,
+}
+
+impl HistoryTurn {
+    /// Adds a step recorded in frame `seq`.
+    fn push_step(&mut self, seq: u64, step: TurnStep) {
+        self.steps.push(step);
+        self.seqs.steps.push(seq);
+    }
+
+    /// The turn from its step `first` on: its message and images, and the
+    /// steps a checkpoint that cut before `first` left.
+    pub fn from_step(&self, first: usize) -> HistoryTurn {
+        let first = first.min(self.steps.len());
+        let mut seqs = self.seqs.clone();
+        seqs.steps = seqs.steps.get(first..).unwrap_or_default().to_vec();
+        HistoryTurn {
+            user: self.user.clone(),
+            images: self.images.clone(),
+            steps: self.steps[first..].to_vec(),
+            outcome: self.outcome.clone(),
+            timing: self.timing,
+            seqs,
+        }
+    }
+
+    /// The turn up to its step `end`, as an unfinished turn: what a
+    /// checkpoint that cuts there covers of it, with no conclusion to close.
+    pub fn until_step(&self, end: usize) -> HistoryTurn {
+        let end = end.min(self.steps.len());
+        let mut seqs = self.seqs.clone();
+        seqs.steps.truncate(end);
+        if let Some(last) = seqs.steps.last() {
+            seqs.last = *last;
+        }
+        HistoryTurn {
+            user: self.user.clone(),
+            images: self.images.clone(),
+            steps: self.steps[..end].to_vec(),
+            outcome: None,
+            timing: self.timing,
+            seqs,
+        }
+    }
+
+    /// Whether step `index` is an assistant step that called tools: the step
+    /// each exchange is built around (upstream's `ToolExecutionStep`).
+    pub fn calls_tools(&self, index: usize) -> bool {
+        matches!(
+            self.steps.get(index),
+            Some(TurnStep::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+        )
+    }
+
+    /// Where each of the turn's exchanges starts: the first at its first
+    /// step, each later one right after the results of the step before it.
+    /// So a steer, and the answer it cut short, go with the tool step that
+    /// came after them -- upstream keeps a steer with the step its
+    /// `after_tool_step_count` reaches, and those after the last step with
+    /// the last (`selectRecentContext`, `window.zig:219-224`). Empty for a
+    /// turn that called no tools. A cut inside a turn falls at one of these
+    /// but the first, or at the end of a turn still running
+    /// (`ContextHistoryCut`'s `tool_steps` and `steering`).
+    pub fn exchange_starts(&self) -> Vec<usize> {
+        let calls: Vec<usize> = (0..self.steps.len())
+            .filter(|index| self.calls_tools(*index))
+            .collect();
+        let Some((_, before_last)) = calls.split_last() else {
+            return Vec::new();
+        };
+        std::iter::once(0)
+            .chain(before_last.iter().map(|call| self.results_end(*call)))
+            .collect()
+    }
+
+    /// The step after the results of the tool step at `call`, and after what
+    /// the user said beside them.
+    fn results_end(&self, call: usize) -> usize {
+        let mut end = call + 1;
+        while matches!(
+            self.steps.get(end),
+            Some(TurnStep::ToolResult { .. } | TurnStep::ToolFeedback { .. })
+        ) {
+            end += 1;
+        }
+        end
+    }
+}
+
+/// The sequence numbers of a turn's first and last frames.
+///
+/// A checkpoint names the last frame it covers, as upstream's does
+/// (`covers_through_seq`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_event.zig:169-172`); these are what say which
+/// turns that is. Read off the envelopes, so nothing new is written for them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TurnSeqs {
+    /// The `user_message` frame's.
+    pub opened: u64,
+    /// The last frame that belongs to the turn.
+    pub last: u64,
+    /// Each step's frame, in [`HistoryTurn::steps`] order: where a checkpoint
+    /// that cuts inside the turn falls among them.
+    pub steps: Vec<u64>,
+}
+
+/// The compaction in force: which turns it covers and what replaces them in
+/// what the model reads ([`SessionEvent::ContextCheckpoint`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Checkpoint {
+    /// The last frame it covers.
+    pub covers_through_seq: u64,
+    /// How many of [`DurableState::turns`] it covers whole, oldest first.
+    pub covered_turns: usize,
+    /// How many steps of the turn after those it covers, when it cut inside
+    /// that turn: the turn's first user message, and its steps from this
+    /// one on, are what the model reads after the compacted form.
+    pub covered_steps: usize,
+    pub compacted: super::checkpoint::Compacted,
+    /// How many compactions the session has had, this one counted: what
+    /// `/trace` calls `compaction_count` (`compactor.zig:207`).
+    pub count: usize,
+}
+
+/// When one turn was asked, when it ended, and the tokens its provider
+/// reported writing, as its frames recorded them.
+///
+/// Read off the envelopes' own timestamps and the turn's `usage_recorded`
+/// frame, so nothing new is written for it: a log from before this existed
+/// replays with the same numbers. What a resumed TUI writes under each turn
+/// (`  0s (↑6 ↓40)`), and nothing else reads it -- which is why it is not part
+/// of a turn's serialized shape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TurnTiming {
+    /// The `user_message` frame's timestamp.
+    pub started_at_ms: i64,
+    /// The `turn_concluded` frame's, for a turn that has one.
+    pub concluded_at_ms: Option<i64>,
+    /// Out as the turn's summary row said it (`turn_output_tokens`), or, on
+    /// a frame from before that was kept, what the provider reported for the
+    /// answering step. `None` when its `usage_recorded` frame said neither or
+    /// there was none.
+    pub output_tokens: Option<u64>,
 }
 
 /// Everything a session's log adds up to.
@@ -430,6 +661,11 @@ pub struct DurableState {
     /// Where it is bound now. Only a [`SessionEvent::WorkspaceRebound`] moves it.
     pub workspace_root: String,
     pub model: String,
+    /// The provider the session last ran under, as its log names it -- the
+    /// label as written, so one a later binary wrote is kept rather than
+    /// refused -- or `None` for a log written before the provider was
+    /// recorded ([`SessionEvent::SessionStarted`]).
+    pub provider: Option<String>,
     pub permission_mode: PermissionMode,
     pub turns: Vec<HistoryTurn>,
     pub grants: Vec<Grant>,
@@ -440,6 +676,83 @@ pub struct DurableState {
     /// context is rediscovered.
     pub context_sources: Vec<String>,
     pub last_event_seq: u64,
+    /// The title the user gave the session, the last `session_renamed` in the
+    /// log. Outranks the one derived from the first prompt ([`Self::title`]).
+    pub renamed: Option<String>,
+    /// The effort and speed switches the session last recorded, or `None` for
+    /// a session that never recorded them -- a resume then keeps what the
+    /// profile says.
+    pub turn_settings: Option<crate::provider::effort::TurnSettings>,
+    /// What the session's `usage_recorded` frames say about its spend, for
+    /// `/usage` ([`crate::usage`]).
+    pub usage: RecordedUsage,
+    /// The last `context_checkpoint` in the log, when there is one: the turns
+    /// it covers are still in [`Self::turns`] -- a resumed screen shows them
+    /// -- and [`Self::history_messages`] sends its compacted form instead.
+    pub checkpoint: Option<Checkpoint>,
+}
+
+/// What a session's `usage_recorded` frames add up to, kept per request
+/// rather than summed: `/usage` windows them by time, and a sum cannot be cut
+/// at a window's edge.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RecordedUsage {
+    /// Every request the session's turns completed, in log order.
+    pub requests: Vec<crate::session::RequestUsage>,
+    /// When each frame that predates request records was written: a turn's
+    /// usage that was recorded only as totals, which no window can place
+    /// (upstream's `legacy` completeness, `usage_report.zig:90-95`).
+    pub legacy_at_ms: Vec<i64>,
+    /// When each turn that may have been billed without a record ended.
+    pub unaccounted_at_ms: Vec<i64>,
+    pub lines_added: u64,
+    pub lines_removed: u64,
+}
+
+impl RecordedUsage {
+    /// The requests whose bill is still to be asked for
+    /// ([`crate::session::RequestUsage::pending`]).
+    pub fn pending(&self) -> impl Iterator<Item = &crate::session::RequestUsage> {
+        self.requests.iter().filter(|request| request.pending())
+    }
+
+    /// Puts what the Gateway said later in place of the pending requests it
+    /// was about (`applyGeneration`, `session_usage.zig:1080-1126`, and
+    /// `rejectPendingGeneration`, `:2171-2187`).
+    ///
+    /// A bill takes the request's place under the same generation id and keeps
+    /// how long the request took, which only this side measured. A rejection
+    /// leaves the request with no cost and nowhere to ask: spend that stays
+    /// missing. Either applies only to a request still pending, so a second
+    /// answer for one generation changes nothing.
+    fn settle(&mut self, settled: &[crate::session::RequestUsage], rejected: &[String]) {
+        for bill in settled {
+            let Some(id) = bill.generation_id.as_deref() else {
+                continue;
+            };
+            if let Some(request) = self
+                .requests
+                .iter_mut()
+                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
+            {
+                let duration_ms = request.duration_ms;
+                *request = crate::session::RequestUsage {
+                    duration_ms,
+                    origin: None,
+                    ..bill.clone()
+                };
+            }
+        }
+        for id in rejected {
+            if let Some(request) = self
+                .requests
+                .iter_mut()
+                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
+            {
+                request.origin = None;
+            }
+        }
+    }
 }
 
 impl DurableState {
@@ -451,6 +764,7 @@ impl DurableState {
             origin_workspace_root: String::new(),
             workspace_root: String::new(),
             model: String::new(),
+            provider: None,
             permission_mode: PermissionMode::Ask,
             turns: Vec::new(),
             grants: Vec::new(),
@@ -458,12 +772,75 @@ impl DurableState {
             total_output_tokens: 0,
             context_sources: Vec::new(),
             last_event_seq: 0,
+            renamed: None,
+            turn_settings: None,
+            usage: RecordedUsage::default(),
+            checkpoint: None,
         }
     }
 
-    /// The session's first user message, clipped, for a listing.
+    /// An empty state, for a test that builds one by hand.
+    #[cfg(test)]
+    pub(crate) fn empty_for_tests() -> Self {
+        Self::empty()
+    }
+
+    /// The turns a compaction has not covered yet: what the model reads word
+    /// for word, and what the next compaction may compact.
+    pub fn uncovered_turns(&self) -> &[HistoryTurn] {
+        let covered = self
+            .checkpoint
+            .as_ref()
+            .map_or(0, |checkpoint| checkpoint.covered_turns);
+        &self.turns[covered.min(self.turns.len())..]
+    }
+
+    /// [`Self::uncovered_turns`] as the model reads them: the first one cut
+    /// to what a checkpoint that cut inside it left -- its first user
+    /// message, its images, and its steps from the first one the checkpoint
+    /// does not cover (`split`'s `retained_history`,
+    /// `vercel-labs/fx@c1db9191 src/core/compactor/window.zig:286-290`).
+    pub fn retained_turns(&self) -> Vec<std::borrow::Cow<'_, HistoryTurn>> {
+        let covered_steps = self
+            .checkpoint
+            .as_ref()
+            .map_or(0, |checkpoint| checkpoint.covered_steps);
+        self.uncovered_turns()
+            .iter()
+            .enumerate()
+            .map(|(index, turn)| {
+                if index == 0 && covered_steps > 0 {
+                    std::borrow::Cow::Owned(turn.from_step(covered_steps))
+                } else {
+                    std::borrow::Cow::Borrowed(turn)
+                }
+            })
+            .collect()
+    }
+
+    /// What the session is called: the title the user gave it, or else the
+    /// one the first prompt that can give one gives ([`title_of`]).
+    ///
+    /// The order is upstream's (`readNativeResumeDisplay`,
+    /// `app_session_runtime.zig:4644-4655`: the conversation title when there
+    /// is one, a title derived from the history when there is not --
+    /// `deriveFromHistory`, `session_display_metadata.zig:33-55`, whose search
+    /// passes over a prompt that is blank or a slash command alone), and the
+    /// manifest publishes this, so a listing, a resume and the window title all
+    /// say the same thing. `None` where no prompt gives one, which a surface
+    /// names `Untitled session`, as upstream's fallback does.
     pub fn title(&self) -> Option<String> {
-        self.turns.first().and_then(|turn| title_of(&turn.user))
+        self.renamed.clone().or_else(|| self.derived_title())
+    }
+
+    /// The title the session's prompts give it, whatever title is on record:
+    /// the first prompt that gives one (D1's derivation, `title_of`). Also
+    /// what a generated title may replace -- upstream compares the title on
+    /// record with its derived one (`installGeneratedTitle`,
+    /// `vercel-labs/fx@c1db9191 src/core/session/session_title_generation.zig:378-394`),
+    /// and this is the one derivation both read.
+    pub fn derived_title(&self) -> Option<String> {
+        self.turns.iter().find_map(|turn| title_of(&turn.user))
     }
 
     /// The durable history, as the messages a next request would carry on
@@ -477,101 +854,53 @@ impl DurableState {
     ///
     /// Dropping shapes a *request*; it never mutates a record. The items stay on
     /// disk and a later resume back onto the original authority replays them.
-    pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
+    ///
+    /// **A turn that did not finish is closed the way upstream closes one**
+    /// (`appendHistoryMessages`' `.interrupted` arm, `vercel-labs/fx@c1db9191
+    /// src/core/session/session.zig:2695-2747`) -- whether the user stopped it
+    /// or it failed, as upstream's arm reads neither reason: a call that never
+    /// got its result is answered `aborted by user` as an error, and otherwise
+    /// the turn's last answer is closed by a sentence saying it ended before
+    /// completion; then the model is told, in a message of its own, not to
+    /// carry the turn on unasked ([`TURN_ABORTED`]). A turn with no conclusion
+    /// in the log -- a crash -- is replayed as it always was, the incomplete
+    /// group dropped.
+    ///
+    /// **A compacted conversation is sent in place of the turns it covers**
+    /// ([`Self::checkpoint`]): one user message holding its text, then the
+    /// turns after it as they are -- the shape upstream sends after a
+    /// compaction (`receipts/w4/README.md`, "The next request").
+    pub fn history_messages(&self, active: Wire, model: &str) -> ReplayedHistory {
+        self.history_of(&self.retained_turns(), active, model)
+    }
+
+    /// The history a turn still in progress carries once a compaction in its
+    /// middle has replaced what came before: the compacted form and every
+    /// later turn but the open one, whose own messages the turn keeps -- and
+    /// trims itself, when the compaction took its earlier steps.
+    pub fn history_messages_before_open(&self, active: Wire, model: &str) -> ReplayedHistory {
+        let mut turns = self.retained_turns();
+        if turns.last().is_some_and(|turn| turn.outcome.is_none()) {
+            turns.pop();
+        }
+        self.history_of(&turns, active, model)
+    }
+
+    fn history_of(
+        &self,
+        turns: &[std::borrow::Cow<'_, HistoryTurn>],
+        active: Wire,
+        model: &str,
+    ) -> ReplayedHistory {
         let mut out = Vec::new();
         let mut notices = Vec::new();
-        for turn in &self.turns {
-            out.push(Message::user(turn.user.clone()));
-            let mut pending: Vec<Message> = Vec::new();
-            let mut awaiting: Vec<String> = Vec::new();
-            for step in &turn.steps {
-                match step {
-                    TurnStep::Assistant {
-                        text,
-                        tool_calls,
-                        raw_content,
-                        responses_state,
-                        wire,
-                    } => {
-                        if text.is_empty()
-                            && tool_calls.is_empty()
-                            && raw_content.is_empty()
-                            && responses_state.is_empty()
-                        {
-                            continue;
-                        }
-                        let calls: Vec<ToolCall> = tool_calls
-                            .iter()
-                            .map(|call| ToolCall {
-                                id: call.id.clone(),
-                                name: call.name.clone(),
-                                input: call.input.clone(),
-                            })
-                            .collect();
-                        awaiting.extend(calls.iter().map(|call| call.id.clone()));
-                        // The replay table of `.prd/04-providers.md` §Provenance,
-                        // in one expression. `None` with blocks is legacy
-                        // Anthropic, because that is the only wire that ever
-                        // wrote the field; everything else must match exactly.
-                        let recorded = wire.clone().unwrap_or_else(|| {
-                            if !raw_content.is_empty() {
-                                Wire::AnthropicMessages
-                            } else if !responses_state.is_empty() {
-                                // Wire-less responses_state is invalid: no pre-wire binary
-                                // wrote this field. Treat as unknown wire so it drops.
-                                Wire::Unrecognized("unknown_wire_with_responses_state".to_string())
-                            } else {
-                                active.clone()
-                            }
-                        });
-                        let state: &[serde_json::Value] = match (&recorded, &active) {
-                            (Wire::AnthropicMessages, Wire::AnthropicMessages) => raw_content,
-                            (Wire::CodexResponses, Wire::CodexResponses)
-                            | (Wire::GrokResponses, Wire::GrokResponses) => responses_state,
-                            _ => &[],
-                        };
-                        if state.is_empty()
-                            && !(raw_content.is_empty() && responses_state.is_empty())
-                        {
-                            notices.push(format!(
-                                "xfx: this session recorded reasoning on the {} wire and is \
-                                 resuming on {}, so that reasoning was not carried over",
-                                recorded.label(),
-                                active.label()
-                            ));
-                        }
-                        pending.push(if state.is_empty() {
-                            Message::assistant(Some(text), calls)
-                        } else {
-                            Message::assistant_raw(state.to_vec(), calls)
-                        });
-                    }
-                    TurnStep::ToolResult {
-                        call_id,
-                        tool,
-                        output,
-                        ..
-                    } => {
-                        pending.push(Message::tool_result(call_id, tool, output.clone()));
-                        awaiting.retain(|id| id != call_id);
-                    }
-                    TurnStep::ToolFeedback { text, .. } => {
-                        // Into `pending`, with `awaiting` untouched: this is
-                        // not an answer to a call, so it cannot complete a
-                        // group. The machine emits it only after every result
-                        // of its step, so `awaiting` is already empty here on a
-                        // complete step and the flush below carries the
-                        // sentence out with its group -- and on an incomplete
-                        // one it is dropped with the group, rather than
-                        // arriving as a user message about a result the model
-                        // was never shown.
-                        pending.push(Message::user(text.clone()));
-                    }
-                }
-                if awaiting.is_empty() {
-                    out.append(&mut pending);
-                }
-            }
+        if let Some(checkpoint) = &self.checkpoint {
+            out.push(Message::user(super::checkpoint::render(
+                &checkpoint.compacted,
+            )));
+        }
+        for turn in turns {
+            out.extend(turn_messages(turn.as_ref(), &active, model, &mut notices));
         }
         ReplayedHistory {
             messages: out,
@@ -580,20 +909,446 @@ impl DurableState {
     }
 }
 
-/// The first line of `text`, trimmed and clipped to a character boundary.
-fn title_of(text: &str) -> Option<String> {
-    let line = text.trim().lines().next().unwrap_or("").trim();
-    if line.is_empty() {
+/// Whether a recorded result is the answer of a call its turn was stopped
+/// under: a failure whose first line is [`ABORTED_TOOL_OUTPUT`] -- alone, or
+/// followed by xfx's own note that a stopped command left something running
+/// (`crate::tools::terminal`). No tool's own failure begins with those words:
+/// every other failure is a sentence xfx writes about the call.
+fn stopped_answer(ok: bool, output: &str) -> bool {
+    !ok && output.split('\n').next() == Some(ABORTED_TOOL_OUTPUT)
+}
+
+/// One turn as the messages a request carries for it on `active`, its user
+/// message first ([`DurableState::history_messages`]). A reasoning state that
+/// does not replay on `active` is dropped with a line in `notices`.
+pub fn turn_messages(
+    turn: &HistoryTurn,
+    active: &Wire,
+    model: &str,
+    notices: &mut Vec<String>,
+) -> Vec<Message> {
+    let mut out = Vec::new();
+    // Every image the prompt carried goes with it again, as upstream
+    // re-sends the history's images on every request
+    // (`cap/fx-image-40x120-bodies/002-completion.json`) -- the bytes
+    // the session saved, checked against the digest it saved them
+    // with. One it could not read back is left out and said so, the
+    // way a dropped reasoning record is: the prompt still names it.
+    let mut images = Vec::new();
+    for image in &turn.images {
+        let label = crate::image::MediaType::parse(&image.recorded.media_type);
+        match (&image.snapshot, label) {
+            (Snapshot::Loaded { bytes, path }, Some(media_type)) => {
+                images.push(crate::gateway::protocol::ContentPart::Image {
+                    id: image.recorded.id,
+                    media_type,
+                    data: Arc::clone(bytes),
+                    saved: Some(Arc::clone(path)),
+                });
+            }
+            (Snapshot::Unusable(reason), _) => notices.push(format!(
+                "xfx: image #{} of this session could not be read back ({reason}), \
+                 so it was not sent again",
+                image.recorded.id
+            )),
+            _ => notices.push(format!(
+                "xfx: image #{} of this session was not read back, so it was not sent \
+                 again",
+                image.recorded.id
+            )),
+        }
+    }
+    out.push(if images.is_empty() {
+        Message::user(turn.user.clone())
+    } else {
+        Message::user_with_images(turn.user.clone(), images)
+    });
+    let opened = out.len();
+    let mut pending: Vec<Message> = Vec::new();
+    let mut awaiting: Vec<String> = Vec::new();
+    // The calls of the step being answered, by id, for the aborted
+    // results an interrupted turn owes them; and every tool that did
+    // return in this turn, in order, for the sentence that names them.
+    let mut named: Vec<(String, String)> = Vec::new();
+    let mut finished: Vec<String> = Vec::new();
+    // Whether the step being answered has a call that was stopped
+    // rather than finished (see the `ToolResult` arm).
+    let mut stopped = false;
+    for step in &turn.steps {
+        match step {
+            TurnStep::Assistant {
+                text,
+                tool_calls,
+                raw_content,
+                responses_state,
+                wire,
+                model: sealed_by,
+            } => {
+                stopped = false;
+                if text.is_empty()
+                    && tool_calls.is_empty()
+                    && raw_content.is_empty()
+                    && responses_state.is_empty()
+                {
+                    continue;
+                }
+                let calls: Vec<ToolCall> = tool_calls
+                    .iter()
+                    .map(|call| ToolCall {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        input: call.input.clone(),
+                    })
+                    .collect();
+                awaiting.extend(calls.iter().map(|call| call.id.clone()));
+                named.extend(
+                    calls
+                        .iter()
+                        .map(|call| (call.id.clone(), call.name.clone())),
+                );
+                // The replay table of `.prd/04-providers.md` §Provenance,
+                // in one expression. `None` with blocks is legacy
+                // Anthropic, because that is the only wire that ever
+                // wrote the field; everything else must match exactly.
+                let recorded = wire.clone().unwrap_or_else(|| {
+                    if !raw_content.is_empty() {
+                        Wire::AnthropicMessages
+                    } else if !responses_state.is_empty() {
+                        // Wire-less responses_state is invalid: no pre-wire binary
+                        // wrote this field. Treat as unknown wire so it drops.
+                        Wire::Unrecognized("unknown_wire_with_responses_state".to_string())
+                    } else {
+                        active.clone()
+                    }
+                });
+                let on_wire: &[serde_json::Value] = match (&recorded, active) {
+                    (Wire::AnthropicMessages, Wire::AnthropicMessages) => raw_content,
+                    (Wire::CodexResponses, Wire::CodexResponses)
+                    | (Wire::GrokResponses, Wire::GrokResponses) => responses_state,
+                    _ => &[],
+                };
+                // **And the model**: a state goes back only to the model that
+                // sealed it, as upstream's does (`ProviderReplay.matches`,
+                // `vercel-labs/fx@c1db9191 src/core/shared/types.zig:1512-1515`,
+                // the same authority **and** `std.mem.eql` of the model): a
+                // daemon asked by one model to verify a signature another
+                // model made can refuse the request. The step is then sent as
+                // upstream sends one whose replay it dropped
+                // (`projectProviderReplay`, `:1548-1563`) -- its text and its
+                // calls.
+                let same_model = sealed_by.as_deref().is_none_or(|sealed| sealed == model);
+                let state: &[serde_json::Value] = if same_model { on_wire } else { &[] };
+                if state.is_empty() && !(raw_content.is_empty() && responses_state.is_empty()) {
+                    notices.push(match sealed_by {
+                        Some(sealed) if !on_wire.is_empty() => format!(
+                            "xfx: this session recorded reasoning from {sealed} and is \
+                             continuing with {model}, so that reasoning was not carried over"
+                        ),
+                        _ => format!(
+                            "xfx: this session recorded reasoning on the {} wire and is \
+                             continuing on {}, so that reasoning was not carried over",
+                            recorded.label(),
+                            active.label()
+                        ),
+                    });
+                }
+                pending.push(if state.is_empty() {
+                    Message::assistant(Some(text), calls)
+                } else {
+                    Message::assistant_raw(state.to_vec(), calls)
+                });
+            }
+            TurnStep::ToolResult {
+                call_id,
+                tool,
+                ok,
+                output,
+                images,
+                ..
+            } => {
+                // The images it carried go again with it, read back like a
+                // prompt's; one that cannot be is left out and said so.
+                let mut carried = Vec::new();
+                for image in images {
+                    let label = crate::image::MediaType::parse(&image.recorded.media_type);
+                    match (&image.snapshot, label) {
+                        (Snapshot::Loaded { bytes, .. }, Some(media_type)) => {
+                            carried.push(crate::image::ToolImage {
+                                media_type,
+                                data: Arc::clone(bytes),
+                                path: image.recorded.path.clone(),
+                            });
+                        }
+                        (Snapshot::Unusable(reason), _) => notices.push(format!(
+                            "xfx: an image `{tool}` returned could not be read back ({reason}), \
+                             so it was not sent again"
+                        )),
+                        _ => notices.push(format!(
+                            "xfx: an image `{tool}` returned was not read back, so it was not \
+                             sent again"
+                        )),
+                    }
+                }
+                // Replayed as it was sent: a failure as a failure, a
+                // refusal as a refusal.
+                let status = if *ok {
+                    ResultStatus::Success
+                } else if crate::tools::is_refusal(tool, output) {
+                    ResultStatus::Denied
+                } else {
+                    ResultStatus::Failure
+                };
+                pending.push(if status == ResultStatus::Success {
+                    Message::tool_result_with_images(call_id, tool, output.clone(), carried)
+                } else {
+                    Message::tool_ended(call_id, tool, output.clone(), status)
+                });
+                awaiting.retain(|id| id != call_id);
+                // A call that answered `aborted by user` did not
+                // finish: its turn was stopped under it (a question the
+                // user cancelled, `crate::tools::question`; a command
+                // the user stopped, `crate::tools::terminal`). It is the
+                // call upstream keeps on the interrupted turn rather
+                // than among the completed ones
+                // (`InterruptedHistoryTurn.tool_call`,
+                // `session.zig:2701-2736`).
+                if stopped_answer(*ok, output) {
+                    stopped = true;
+                } else {
+                    finished.push(tool.clone());
+                }
+            }
+            TurnStep::ToolFeedback { text, .. } => {
+                // Into `pending`, with `awaiting` untouched: this is
+                // not an answer to a call, so it cannot complete a
+                // group. The machine emits it only after every result
+                // of its step, so `awaiting` is already empty here on a
+                // complete step and the flush below carries the
+                // sentence out with its group -- and on an incomplete
+                // one it is dropped with the group, rather than
+                // arriving as a user message about a result the model
+                // was never shown.
+                pending.push(Message::user(text.clone()));
+            }
+            // The person's words as a user message of their own, as
+            // upstream's history replays a steer: plain, not in the
+            // wrapper the model was given live (`fx-interrupt-steer-
+            // 40x120-bodies/005-completion.json`: `user "what are you
+            // doing"`). Delivered only after every result of its step,
+            // so it goes out with the group.
+            TurnStep::Steered { text } => {
+                pending.push(Message::user(text.clone()));
+            }
+        }
+        if awaiting.is_empty() {
+            out.append(&mut pending);
+        }
+    }
+    if matches!(turn.outcome, Some(TurnConclusion::Interrupted { .. })) {
+        let stopped_under = stopped || !awaiting.is_empty();
+        close_interrupted(
+            &mut out,
+            opened,
+            pending,
+            &awaiting,
+            &named,
+            &finished,
+            stopped_under,
+        );
+    }
+    out
+}
+
+/// Closes a turn that did not finish, as upstream's history does
+/// ([`DurableState::history_messages`]): `opened` is where the turn's own
+/// messages begin in `out`, `pending` and `awaiting` are the step that was
+/// still waiting for results, `named` every call of the turn by id,
+/// `finished` the tools that returned, and `stopped_under` whether the turn
+/// stopped under a call -- one never answered, or one that answered
+/// `aborted by user`.
+///
+/// Upstream's two shapes (`session.zig:2695-2747`): a turn stopped under a
+/// call ends with that call answered `aborted by user` as a failure, the tools
+/// that did return named on the message that made it; any other ends with an
+/// assistant message closing the answer that was cut off. Both are followed by
+/// the [`TURN_ABORTED`] user message.
+fn close_interrupted(
+    out: &mut Vec<Message>,
+    opened: usize,
+    mut pending: Vec<Message>,
+    awaiting: &[String],
+    named: &[(String, String)],
+    finished: &[String],
+    stopped_under: bool,
+) {
+    use crate::gateway::protocol::{ContentPart, Role};
+    // `formatCompletedToolSummary` (`session.zig:3020-3032`).
+    let summary = (!finished.is_empty()).then(|| {
+        format!(
+            "Interrupted by user after completing {} tool call{}: {}.",
+            finished.len(),
+            if finished.len() == 1 { "" } else { "s" },
+            finished.join(", ")
+        )
+    });
+    if stopped_under {
+        // The call the turn stopped under, answered as an error so the group
+        // is whole (`formatInterruptedToolOutput`, `session.zig:82-108`) --
+        // beside the step's other results, ahead of any sentence the user said
+        // about them, so no user message stands between a call and an answer.
+        let aborted: Vec<Message> = awaiting
+            .iter()
+            .map(|id| {
+                let tool = named
+                    .iter()
+                    .rev()
+                    .find(|(call, _)| call == id)
+                    .map(|(_, tool)| tool.as_str())
+                    .unwrap_or_default();
+                Message::tool_error(id.clone(), tool, ABORTED_TOOL_OUTPUT)
+            })
+            .collect();
+        let at = pending
+            .iter()
+            .rposition(|message| message.role != Role::User)
+            .map_or(pending.len(), |last| last + 1);
+        pending.splice(at..at, aborted);
+        out.append(&mut pending);
+        // `formatInterruptedAssistantToolContent` (`session.zig:3034-3055`):
+        // the tools that did return are named after the text of the message
+        // that made the call. Not on a message carried as the provider's own
+        // blocks, which are sent back exactly as they arrived or not at all.
+        if let Some(summary) = summary {
+            let caller = out[opened..].iter_mut().rev().find(|message| {
+                message.role == Role::Assistant
+                    && message
+                        .content
+                        .iter()
+                        .any(|part| matches!(part, ContentPart::ToolCall(_)))
+            });
+            if let Some(caller) = caller.filter(|caller| caller.raw_blocks().is_none()) {
+                match caller.content.first_mut() {
+                    Some(ContentPart::Text { text }) => {
+                        text.push_str("\n\n");
+                        text.push_str(&summary);
+                    }
+                    _ => caller
+                        .content
+                        .insert(0, ContentPart::Text { text: summary }),
+                }
+            }
+        }
+    } else {
+        // The answer that was cut off: the turn's last message when it is the
+        // assistant's text and nothing else -- a step that answered with text
+        // alone would have ended the turn, so one here is the partial answer
+        // the turn stopped in.
+        let partial = match out.last() {
+            Some(last)
+                if out.len() > opened
+                    && last.role == Role::Assistant
+                    && last
+                        .content
+                        .iter()
+                        .all(|part| matches!(part, ContentPart::Text { .. })) =>
+            {
+                out.pop().map(|message| message.text())
+            }
+            _ => None,
+        }
+        .filter(|text| !text.is_empty());
+        // `formatInterruptedAssistantClosedContent` (`session.zig:3057-3069`).
+        let closing = match (partial, summary) {
+            (Some(text), Some(summary)) => format!("{text}\n\n{summary}"),
+            (None, Some(summary)) => summary,
+            (Some(text), None) => format!("{text}\n\n{ENDED_BEFORE_COMPLETION}"),
+            (None, None) => ENDED_BEFORE_COMPLETION.to_string(),
+        };
+        out.push(Message::assistant(Some(&closing), Vec::new()));
+    }
+    out.push(Message::user(TURN_ABORTED));
+}
+
+/// The title a prompt gives its session, upstream's way
+/// (`vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig`):
+/// its first line that is not blank (`firstNonEmptyLine`, `:117-124`), as at
+/// most [`MAX_TITLE_WORDS`] words joined by one space and at most
+/// [`MAX_RENAMED_TITLE_BYTES`] bytes, the last word cut at a character
+/// boundary if it does not fit (`cappedTitle`, `:126-147`). `None` for a
+/// prompt that gives none: one that is blank, or a slash command on a line
+/// of its own (`promptCandidateFromUser`, `:84-90`).
+///
+/// Also the TUI's window title for a session (`crate::tui`'s shell), so the
+/// window and a listing of the session say the same thing.
+pub(crate) fn title_of(text: &str) -> Option<String> {
+    let trimmed = text.trim_matches([' ', '\t', '\r', '\n']);
+    if trimmed.is_empty() || (trimmed.starts_with('/') && !trimmed.contains('\n')) {
         return None;
     }
-    if line.len() <= MAX_TITLE_BYTES {
-        return Some(line.to_string());
+    let line = text
+        .split('\n')
+        .map(|line| line.trim_matches([' ', '\t', '\r']))
+        .find(|line| !line.is_empty())?;
+    let mut title = String::new();
+    // `std.ascii.isWhitespace`, which is Rust's ASCII whitespace and the
+    // vertical tab.
+    let words = line
+        .split(|character: char| character.is_ascii_whitespace() || character == '\u{b}')
+        .filter(|word| !word.is_empty())
+        .take(MAX_TITLE_WORDS);
+    for word in words {
+        let separator = usize::from(!title.is_empty());
+        let room = MAX_RENAMED_TITLE_BYTES.saturating_sub(title.len() + separator);
+        let mut take = word.len().min(room);
+        while !word.is_char_boundary(take) {
+            take -= 1;
+        }
+        if take == 0 {
+            break;
+        }
+        if separator == 1 {
+            title.push(' ');
+        }
+        title.push_str(&word[..take]);
     }
-    let mut end = MAX_TITLE_BYTES;
-    while end > 0 && !line.is_char_boundary(end) {
-        end -= 1;
+    (!title.is_empty()).then_some(title)
+}
+
+/// Why a title the user typed cannot be a session's title.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleError {
+    /// Nothing but blanks.
+    Empty,
+    /// Over [`MAX_RENAMED_TITLE_BYTES`].
+    TooLong,
+    /// A control character: a line break, a tab, an escape, a DEL.
+    NotPrintable,
+}
+
+/// The title `raw` names, trimmed, or why it cannot be one
+/// (`validateSessionTitle`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:3790-3799`).
+///
+/// Trimmed of spaces, tabs and line breaks at both ends, then refused when
+/// nothing is left, when it is over [`MAX_RENAMED_TITLE_BYTES`], or when any
+/// byte of it is below `0x20` or is `0x7f` -- in that order, so a title that is
+/// both too long and unprintable is called too long, as upstream calls it. A
+/// `&str` is UTF-8 already, which is upstream's fourth refusal.
+///
+/// The store's own rule, because the store is what the title is written into:
+/// both shells and the runtime ask it rather than keeping a copy each.
+pub fn validate_title(raw: &str) -> Result<&str, TitleError> {
+    let title = raw.trim_matches([' ', '\t', '\r', '\n']);
+    if title.is_empty() {
+        return Err(TitleError::Empty);
     }
-    Some(format!("{}...", &line[..end]))
+    if title.len() > MAX_RENAMED_TITLE_BYTES {
+        return Err(TitleError::TooLong);
+    }
+    if title.bytes().any(|byte| byte < 0x20 || byte == 0x7f) {
+        return Err(TitleError::NotPrintable);
+    }
+    Ok(title)
 }
 
 // ---------------------------------------------------------------------------
@@ -882,6 +1637,18 @@ pub struct SessionList {
     pub skipped_invalid: usize,
 }
 
+/// What [`SessionStore::usage_since`] found.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UsageScan {
+    /// Each readable session's recorded spend.
+    pub sessions: Vec<RecordedUsage>,
+    /// One entry per session that could not be read: when its manifest says it
+    /// was last written, or `None` when not even that could be read.
+    pub unreadable: Vec<Option<i64>>,
+    /// Whether the scan cap left sessions unread.
+    pub truncated: bool,
+}
+
 /// One session read in full.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionDetail {
@@ -901,6 +1668,9 @@ pub struct NewSession {
     pub workspace_root: PathBuf,
     pub model: String,
     pub permission_mode: PermissionMode,
+    /// The provider the session is opened under, recorded beside the model
+    /// as upstream's `session_started` records it; `None` records none.
+    pub provider: Option<crate::provider::ProviderId>,
 }
 
 /// A resumed session, and whether resuming it moved it.
@@ -1030,6 +1800,7 @@ impl SessionStore {
                 workspace_root: workspace_key(&spec.workspace_root),
                 model: spec.model,
                 permission_mode: spec.permission_mode.label().to_string(),
+                provider: spec.provider.map(|provider| provider.label().to_string()),
             },
         )?;
         self.publish(&mut session)?;
@@ -1264,6 +2035,74 @@ impl SessionStore {
         })
     }
 
+    /// What every session written since `since_ms` recorded about its spend,
+    /// for `/usage` ([`crate::usage`]).
+    ///
+    /// Each session is replayed through its published boundary and
+    /// cross-checked against its manifest, as [`Self::detail`] does, so a
+    /// window adds up only what a resume would believe. A session last written
+    /// before `since_ms` is not opened: nothing it holds is that recent. One
+    /// that cannot be read is **reported, not skipped** -- its spend is missing
+    /// from whichever windows it could be in, and the dashboard has to say so.
+    /// The store's scan cap applies, newest kept, as it does to a listing.
+    ///
+    /// `Ok(None)` once `cancel` is set: it is looked at before each session is
+    /// opened, so a reader nobody wants any more stops after the one it is in
+    /// (`collectFromHomeConservativeCancelable`, `vercel-labs/fx@c1db9191
+    /// src/core/session/usage_recovery.zig:43-47`).
+    pub fn usage_since(
+        &self,
+        since_ms: i64,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<UsageScan>, SessionError> {
+        let cancelled = || cancel.load(std::sync::atomic::Ordering::Acquire);
+        if cancelled() {
+            return Ok(None);
+        }
+        self.verify_store_dirs()?;
+        let mut scan = UsageScan::default();
+        let entries = match fs::read_dir(&self.sessions_dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Some(scan)),
+            Err(err) => return Err(io_error(&self.sessions_dir, err)),
+        };
+        let mut names: Vec<String> = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|err| io_error(&self.sessions_dir, err))?;
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+        names.sort();
+        if names.len() > self.scan_cap {
+            names.drain(..names.len() - self.scan_cap);
+            scan.truncated = true;
+        }
+        for name in names {
+            if cancelled() {
+                return Ok(None);
+            }
+            // Not a session's name is not a session: a stray file beside them
+            // holds no spend.
+            let Ok(id) = SessionId::parse(&name) else {
+                continue;
+            };
+            let manifest = match self.read_manifest(&id) {
+                Ok(manifest) => manifest,
+                Err(_) => {
+                    scan.unreadable.push(None);
+                    continue;
+                }
+            };
+            if manifest.updated_at_ms < since_ms {
+                continue;
+            }
+            match self.replay(&id, &manifest) {
+                Ok(replay) => scan.sessions.push(replay.state.usage),
+                Err(_) => scan.unreadable.push(Some(manifest.updated_at_ms)),
+            }
+        }
+        Ok(Some(scan))
+    }
+
     /// One session, replayed and cross-checked against its manifest.
     pub fn detail(
         &self,
@@ -1293,6 +2132,31 @@ impl SessionStore {
     /// move is a fact in the log rather than a silent reinterpretation of every
     /// relative path in the history.
     pub fn resume(&self, selector: &Selector, workspace: &Path) -> Result<Resumed, SessionError> {
+        self.resume_within(selector, workspace, Wait::Grace)
+    }
+
+    /// [`Self::resume`], refusing at once when another process holds the
+    /// session rather than waiting out [`LOCK_RETRY_BUDGET`] for it.
+    ///
+    /// The `/resume` picker's (`resumeSelectedSession` takes the lock with a
+    /// zero deadline, `app_session_runtime.zig:2263-2265`): what a person
+    /// picking from a list is owed for a session open elsewhere is the reason,
+    /// at once, on the row they picked -- and the runtime thread that asks is
+    /// one a prompt typed next would otherwise wait behind.
+    pub fn resume_without_waiting(
+        &self,
+        selector: &Selector,
+        workspace: &Path,
+    ) -> Result<Resumed, SessionError> {
+        self.resume_within(selector, workspace, Wait::None)
+    }
+
+    fn resume_within(
+        &self,
+        selector: &Selector,
+        workspace: &Path,
+        wait: Wait,
+    ) -> Result<Resumed, SessionError> {
         self.require_writable()?;
         self.verify_store_dirs()?;
         let id = self.resolve(selector, workspace)?;
@@ -1311,19 +2175,33 @@ impl SessionStore {
             .write(true)
             .open(&log_path)
             .map_err(|err| io_error(&log_path, err))?;
-        lock_exclusive(&file, &log_path, &id)?;
+        lock_exclusive_within(&file, &log_path, &id, wait)?;
 
         let manifest = self.read_manifest(&id)?;
         let replay = self.replay(&id, &manifest)?;
 
         // The tail past the boundary is not part of this session and never will
-        // be: the next append has to own the offset it starts at.
-        file.set_len(manifest.event_log_bytes)
-            .map_err(|err| io_error(&log_path, err))?;
-        file.sync_data().map_err(|err| io_error(&log_path, err))?;
+        // be: the next append has to own the offset it starts at. Only when
+        // there is one: a same-length truncate still moves the log's
+        // modification time on some filesystems (APFS does), and a session
+        // opened and left is one nobody changed.
+        let length = file
+            .metadata()
+            .map_err(|err| io_error(&log_path, err))?
+            .len();
+        if length != manifest.event_log_bytes {
+            file.set_len(manifest.event_log_bytes)
+                .map_err(|err| io_error(&log_path, err))?;
+            file.sync_data().map_err(|err| io_error(&log_path, err))?;
+        }
 
         let mut hasher = Sha256::new();
         hasher.update(&replay.bytes);
+
+        // The images its prompts carried, read back now so every request of
+        // the continued conversation can send them again.
+        let mut state = replay.state;
+        read_snapshots(&dir, &mut state);
 
         let mut session = WritableSession {
             id,
@@ -1335,7 +2213,7 @@ impl SessionStore {
             hasher,
             next_seq: manifest.last_event_seq + 1,
             event_ids: replay.event_ids,
-            state: replay.state,
+            state,
             manifest: Some(manifest),
             poisoned: None,
         };
@@ -1628,6 +2506,25 @@ impl WritableSession {
     }
 }
 
+/// Lets go of the log's lock as the handle goes, rather than when the last
+/// descriptor for its file description closes.
+///
+/// Those are not the same moment. A child another thread is starting holds a
+/// copy of every descriptor from its `fork` (or Linux's `posix_spawn`, which
+/// is a `clone` too) until its `execve`, and the lock is the file
+/// description's, so it outlives this handle by that window. A resume that
+/// does not wait -- the `/resume` picker's -- would refuse a session nobody
+/// is writing. An explicit unlock on any descriptor of the description
+/// releases it for all of them (`flock(2)`, on Linux and on macOS alike).
+#[cfg(unix)]
+impl Drop for WritableSession {
+    fn drop(&mut self) {
+        // Nothing to do about a failure: the descriptor closes next, and the
+        // kernel releases the lock at the last close as it always did.
+        let _ = rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // the journal adapter
 // ---------------------------------------------------------------------------
@@ -1661,6 +2558,12 @@ impl SessionRecorder {
         self.session.id()
     }
 
+    /// Where this session's saved-session permission rules are kept
+    /// (`crate::permission::session_rules`), beside its log.
+    pub fn permission_rules_path(&self) -> std::path::PathBuf {
+        crate::permission::session_rules::path_in(&self.store.session_dir(self.session.id()))
+    }
+
     pub fn state(&self) -> &DurableState {
         self.session.state()
     }
@@ -1676,12 +2579,26 @@ impl SessionRecorder {
             return;
         }
         let kind = event.kind();
+        // A turn that recorded what its requests cost is the moment `/usage`
+        // began counting, if none has been before it ([`crate::usage::start_tracking`]).
+        let counted = matches!(
+            &event,
+            SessionEvent::UsageRecorded { requests, unaccounted, .. }
+                if !requests.is_empty() || *unaccounted
+        );
         let outcome = self
             .store
             .append(&mut self.session, event)
             .and_then(|()| self.store.publish(&mut self.session));
-        if let Err(err) = outcome {
-            self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
+        match outcome {
+            Err(err) => {
+                self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
+            }
+            Ok(()) if counted => crate::usage::start_tracking(
+                self.store.profile_dir(),
+                self.session.state().updated_at_ms,
+            ),
+            Ok(()) => {}
         }
     }
 
@@ -1720,10 +2637,274 @@ impl SessionRecorder {
     }
 }
 
+impl SessionRecorder {
+    /// Saves a copy of each of `images` beside the log and records them on the
+    /// turn the last user message opened.
+    ///
+    /// The copies come first and the record after, so a log never names a copy
+    /// that is not there; each is `images/` + [`crate::image::snapshot_name`],
+    /// owner-only, written once and `fsync`ed, as upstream keeps its own
+    /// (`session_store.zig:102-118`, mode 0600). A copy that cannot be written
+    /// is this recorder's failure, reported after the turn like any other --
+    /// the turn still sends the images, which it holds in memory.
+    pub fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<PathBuf> {
+        if images.is_empty() || self.failure.is_some() {
+            return None;
+        }
+        if let Err(err) = save_snapshots(self.session.dir(), images) {
+            self.failure = Some(format!("cannot save the attached images: {err}"));
+            return None;
+        }
+        let folder = self.session.dir().join(IMAGES_DIR);
+        self.commit(SessionEvent::ImagesAttached {
+            images: images
+                .iter()
+                .map(|image| RecordedImage {
+                    id: image.id,
+                    // A pasted clipboard image by the copy kept here, which a
+                    // resumed card links and which outlives the paste's own.
+                    path: if image.copied {
+                        folder.join(image.snapshot_name()).display().to_string()
+                    } else {
+                        image.path.display().to_string()
+                    },
+                    media_type: image.media_type.label().to_string(),
+                    sha256: image.sha256.clone(),
+                    bytes: image.bytes.len() as u64,
+                })
+                .collect(),
+        });
+        if self.failure.is_some() {
+            return None;
+        }
+        // The bytes are the ones just saved, so the state that re-sends them
+        // holds them without reading them back.
+        if let Some(turn) = self.session.state.turns.last_mut() {
+            for (kept, image) in turn.images.iter_mut().zip(images) {
+                kept.snapshot = Snapshot::Loaded {
+                    bytes: Arc::clone(&image.bytes),
+                    path: Arc::from(folder.join(image.snapshot_name())),
+                };
+            }
+        }
+        Some(folder)
+    }
+}
+
+impl SessionRecorder {
+    /// Saves a copy of each image the result of `call_id` carried and records
+    /// them right behind that result, as [`Self::attach_images`] does a
+    /// prompt's: the copies first, under [`crate::image::snapshot_name`] of
+    /// each one's place in the result.
+    pub fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        if images.is_empty() || self.failure.is_some() {
+            return;
+        }
+        let recorded: Vec<RecordedImage> = images
+            .iter()
+            .zip(1u32..)
+            .map(|(image, id)| RecordedImage {
+                id,
+                path: image.path.clone(),
+                media_type: image.media_type.label().to_string(),
+                sha256: crate::image::digest(&image.data),
+                bytes: image.data.len() as u64,
+            })
+            .collect();
+        let copies = recorded.iter().zip(images).map(|(record, image)| {
+            (
+                crate::image::snapshot_name(record.id, &record.sha256),
+                record.sha256.as_str(),
+                &image.data[..],
+            )
+        });
+        if let Err(err) = save_copies(self.session.dir(), copies) {
+            self.failure = Some(format!("cannot save a tool's images: {err}"));
+            return;
+        }
+        let folder = self.session.dir().join(IMAGES_DIR);
+        self.commit(SessionEvent::ToolImagesAttached {
+            call_id: call_id.to_string(),
+            images: recorded,
+        });
+        if self.failure.is_some() {
+            return;
+        }
+        // Held as they were handed over, as a prompt's are.
+        if let Some(TurnStep::ToolResult { images: kept, .. }) = self
+            .session
+            .state
+            .turns
+            .last_mut()
+            .and_then(|turn| turn.steps.last_mut())
+        {
+            for (kept, image) in kept.iter_mut().zip(images) {
+                kept.snapshot = Snapshot::Loaded {
+                    bytes: Arc::clone(&image.data),
+                    path: Arc::from(folder.join(crate::image::snapshot_name(
+                        kept.recorded.id,
+                        &kept.recorded.sha256,
+                    ))),
+                };
+            }
+        }
+    }
+}
+
 impl TurnJournal for SessionRecorder {
     fn record(&mut self, event: SessionEvent) {
         self.commit(event);
     }
+
+    // The log keeps a change in its result's record
+    // (`SessionEvent::ToolResult`'s `change`); this hand-over is for a
+    // surface watching the turn, which a recorder is not.
+    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+    // What the screen showed in a result's place is the screen's; the log
+    // keeps the result.
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn state(&self) -> Option<&DurableState> {
+        Some(SessionRecorder::state(self))
+    }
+
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<PathBuf> {
+        SessionRecorder::attach_images(self, images)
+    }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        SessionRecorder::attach_tool_images(self, call_id, images);
+    }
+}
+
+/// Writes each image's copy into `dir`'s [`IMAGES_DIR`], creating it
+/// owner-only. A copy already there with the same name is the same bytes by
+/// construction -- the name carries the digest -- and is checked rather than
+/// trusted.
+fn save_snapshots(dir: &Path, images: &[crate::image::Image]) -> Result<(), SessionError> {
+    save_copies(
+        dir,
+        images.iter().map(|image| {
+            (
+                image.snapshot_name(),
+                image.sha256.as_str(),
+                &image.bytes[..],
+            )
+        }),
+    )
+}
+
+/// Writes each `(name, sha256, bytes)` into `dir`'s [`IMAGES_DIR`] as
+/// [`save_snapshots`] says.
+fn save_copies<'a>(
+    dir: &Path,
+    copies: impl Iterator<Item = (String, &'a str, &'a [u8])>,
+) -> Result<(), SessionError> {
+    let folder = dir.join(IMAGES_DIR);
+    match fs::create_dir(&folder) {
+        Ok(()) => set_private_dir_mode(&folder)?,
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(err) => return Err(io_error(&folder, err)),
+    }
+    verify_private(&folder, 0o700)?;
+    for (name, sha256, bytes) in copies {
+        let path = folder.join(name);
+        match create_private_file(&path) {
+            Ok(mut file) => {
+                file.write_all(bytes)
+                    .and_then(|()| file.sync_all())
+                    .map_err(|err| io_error(&path, err))?;
+            }
+            Err(SessionError::Io { source, .. })
+                if source.kind() == io::ErrorKind::AlreadyExists =>
+            {
+                if let Err(reason) = read_snapshot(&path, sha256, bytes.len() as u64) {
+                    return Err(SessionError::Io {
+                        path,
+                        source: io::Error::new(io::ErrorKind::AlreadyExists, reason),
+                    });
+                }
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    sync_directory(&folder)
+}
+
+/// Whether a recorded image is one xfx could have written: a type it
+/// attaches, a digest, and a size within the ceiling.
+fn check_recorded(image: &RecordedImage) -> Result<(), String> {
+    if crate::image::MediaType::parse(&image.media_type).is_none() {
+        return Err(format!("an image names the type `{}`", image.media_type));
+    }
+    if !is_digest(&image.sha256) || image.bytes > crate::image::MAX_IMAGE_BYTES {
+        return Err(format!(
+            "image #{} has a digest or a size xfx would not have written",
+            image.id
+        ));
+    }
+    Ok(())
+}
+
+/// Reads back the copy of every image `state`'s turns carried, from `dir`.
+///
+/// Each is checked before it is believed: a regular file reached without
+/// following a symlink, the size it was recorded with, and the digest. One that
+/// fails any of them is [`Snapshot::Unusable`] with the reason, and the
+/// conversation goes on without it.
+fn read_snapshots(dir: &Path, state: &mut DurableState) {
+    let folder = dir.join(IMAGES_DIR);
+    for turn in &mut state.turns {
+        let tool_images = turn.steps.iter_mut().flat_map(|step| match step {
+            TurnStep::ToolResult { images, .. } => images.iter_mut(),
+            _ => [].iter_mut(),
+        });
+        for image in turn.images.iter_mut().chain(tool_images) {
+            let path = folder.join(crate::image::snapshot_name(
+                image.recorded.id,
+                &image.recorded.sha256,
+            ));
+            image.snapshot =
+                match read_snapshot(&path, &image.recorded.sha256, image.recorded.bytes) {
+                    Ok(bytes) => Snapshot::Loaded {
+                        bytes,
+                        path: Arc::from(path.as_path()),
+                    },
+                    Err(reason) => Snapshot::Unusable(reason),
+                };
+        }
+    }
+}
+
+/// One copy, checked, or why it cannot be used.
+fn read_snapshot(path: &Path, sha256: &str, size: u64) -> Result<Arc<[u8]>, String> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(path).map_err(|err| match err.kind() {
+        io::ErrorKind::NotFound => "its saved copy is missing".to_string(),
+        _ => format!("its saved copy cannot be opened: {err}"),
+    })?;
+    let metadata = file
+        .metadata()
+        .map_err(|err| format!("its saved copy cannot be read: {err}"))?;
+    if !metadata.is_file() || metadata.len() != size || size > crate::image::MAX_IMAGE_BYTES {
+        return Err("its saved copy is not the file that was saved".to_string());
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    (&mut file)
+        .take(size)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("its saved copy cannot be read: {err}"))?;
+    if crate::image::digest(&bytes) != sha256 {
+        return Err("its saved copy is not the file that was saved".to_string());
+    }
+    Ok(Arc::from(bytes))
 }
 
 // ---------------------------------------------------------------------------
@@ -1751,6 +2932,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             workspace_root,
             model,
             permission_mode,
+            provider,
         } => {
             let mode = PermissionMode::parse(permission_mode)
                 .ok_or_else(|| format!("unknown permission mode `{permission_mode}`"))?;
@@ -1759,6 +2941,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             state.origin_workspace_root = origin_workspace_root.clone();
             state.workspace_root = workspace_root.clone();
             state.model = model.clone();
+            state.provider = provider.clone();
             state.permission_mode = mode;
         }
         SessionEvent::WorkspaceRebound {
@@ -1777,13 +2960,34 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::PreferencesChanged {
             model,
             permission_mode,
+            provider,
+            effort,
+            fast_mode,
+            ultrafast_mode,
         } => {
             if let Some(model) = model {
                 state.model = model.clone();
             }
+            if let Some(provider) = provider {
+                state.provider = Some(provider.clone());
+            }
             if let Some(raw) = permission_mode {
                 state.permission_mode = PermissionMode::parse(raw)
                     .ok_or_else(|| format!("unknown permission mode `{raw}`"))?;
+            }
+            if effort.is_some() || fast_mode.is_some() || ultrafast_mode.is_some() {
+                let mut settings = state.turn_settings.clone().unwrap_or_default();
+                if let Some(raw) = effort {
+                    settings.effort = crate::provider::effort::Effort::parse(raw)
+                        .ok_or_else(|| format!("unknown reasoning effort `{raw}`"))?;
+                }
+                if let Some(on) = fast_mode {
+                    settings.fast = *on;
+                }
+                if let Some(on) = ultrafast_mode {
+                    settings.ultrafast = *on;
+                }
+                state.turn_settings = Some(settings);
             }
         }
         SessionEvent::ProjectContextRecorded { sources, .. } => {
@@ -1791,51 +2995,118 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         }
         SessionEvent::UserMessage { text } => state.turns.push(HistoryTurn {
             user: text.clone(),
+            images: Vec::new(),
             steps: Vec::new(),
             outcome: None,
+            timing: TurnTiming {
+                started_at_ms: envelope.timestamp_ms,
+                ..TurnTiming::default()
+            },
+            seqs: TurnSeqs {
+                opened: envelope.seq,
+                last: envelope.seq,
+                steps: Vec::new(),
+            },
         }),
+        SessionEvent::ImagesAttached { images } => {
+            let turn = open_turn(state, "an image", envelope.seq)?;
+            // Right behind the message that names them, once: anything else is
+            // not the order a turn writes them in.
+            if !turn.steps.is_empty() || !turn.images.is_empty() {
+                return Err("a turn's images appear after its first step or twice".to_string());
+            }
+            for image in images {
+                check_recorded(image)?;
+                turn.images.push(TurnImage {
+                    recorded: image.clone(),
+                    snapshot: Snapshot::Unread,
+                });
+            }
+        }
         SessionEvent::AssistantMessage {
             text,
             tool_calls,
             raw_content,
             responses_state,
             wire,
+            model,
         } => {
-            open_turn(state, "an assistant step")?
-                .steps
-                .push(TurnStep::Assistant {
+            let sealed = !(raw_content.is_empty() && responses_state.is_empty());
+            let model = sealed.then(|| model.clone().unwrap_or_else(|| state.model.clone()));
+            open_turn(state, "an assistant step", envelope.seq)?.push_step(
+                envelope.seq,
+                TurnStep::Assistant {
                     text: text.clone(),
                     tool_calls: tool_calls.clone(),
                     raw_content: raw_content.clone(),
                     responses_state: responses_state.clone(),
                     wire: wire.clone(),
-                });
+                    model,
+                },
+            );
         }
         SessionEvent::ToolResult {
             call_id,
             tool,
             ok,
             output,
+            ending,
+            lines,
+            change,
         } => {
-            open_turn(state, "a tool result")?
-                .steps
-                .push(TurnStep::ToolResult {
+            open_turn(state, "a tool result", envelope.seq)?.push_step(
+                envelope.seq,
+                TurnStep::ToolResult {
                     call_id: call_id.clone(),
                     tool: tool.clone(),
                     ok: *ok,
                     output: output.clone(),
+                    images: Vec::new(),
+                    ending: *ending,
+                    lines: *lines,
+                    change: change.clone(),
+                },
+            );
+        }
+        SessionEvent::ToolImagesAttached { call_id, images } => {
+            let turn = open_turn(state, "a tool's images", envelope.seq)?;
+            // Right behind the result they belong to, once, and only on one
+            // that succeeded: the order the machine writes them in.
+            let Some(TurnStep::ToolResult {
+                call_id: result,
+                ok: true,
+                images: kept,
+                ..
+            }) = turn.steps.last_mut()
+            else {
+                return Err("a tool's images do not follow a result that succeeded".to_string());
+            };
+            if result != call_id || !kept.is_empty() || images.is_empty() {
+                return Err("a tool's images name another result, or appear twice".to_string());
+            }
+            for image in images {
+                check_recorded(image)?;
+                kept.push(TurnImage {
+                    recorded: image.clone(),
+                    snapshot: Snapshot::Unread,
                 });
+            }
         }
         SessionEvent::ToolFeedback { call_id, text } => {
             // A step of the open turn, exactly as a result is. Reducing it the
             // way a `UserMessage` is reduced would push a new turn and leave
             // the rest of the batch's results with no call ahead of them.
-            open_turn(state, "an approval amendment")?
-                .steps
-                .push(TurnStep::ToolFeedback {
+            open_turn(state, "an approval amendment", envelope.seq)?.push_step(
+                envelope.seq,
+                TurnStep::ToolFeedback {
                     call_id: call_id.clone(),
                     text: text.clone(),
-                });
+                },
+            );
+        }
+        SessionEvent::Steered { text } => {
+            open_turn(state, "a steer", envelope.seq)?
+                .push_step(envelope.seq, TurnStep::Steered { text: text.clone() });
         }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
             let grant = Grant::new(tool.clone(), target.clone());
@@ -1843,20 +3114,155 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                 state.grants.push(grant);
             }
         }
+        // Every approval recorded so far is withdrawn; one recorded after
+        // this is a new answer and stands.
+        SessionEvent::PermissionGrantsCleared => state.grants.clear(),
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
+            turn_output_tokens,
+            requests,
+            unaccounted,
+            lines_added,
+            lines_removed,
+            settled,
+            rejected,
         } => {
+            // A frame with neither requests nor a cut-off one is one a binary
+            // before request records wrote: usage that happened and cannot be
+            // placed in any window. One that settles bills is the runtime's
+            // answer about earlier requests, and is none of those.
+            let settles = !settled.is_empty() || !rejected.is_empty();
+            if requests.is_empty() && !unaccounted && !settles {
+                state.usage.legacy_at_ms.push(envelope.timestamp_ms);
+            }
+            state.usage.settle(settled, rejected);
+            if *unaccounted {
+                state.usage.unaccounted_at_ms.push(envelope.timestamp_ms);
+            }
+            state.usage.requests.extend(requests.iter().cloned());
+            state.usage.lines_added = state.usage.lines_added.saturating_add(*lines_added);
+            state.usage.lines_removed = state.usage.lines_removed.saturating_add(*lines_removed);
             state.total_input_tokens = state
                 .total_input_tokens
                 .saturating_add(input_tokens.unwrap_or(0));
             state.total_output_tokens = state
                 .total_output_tokens
                 .saturating_add(output_tokens.unwrap_or(0));
+            // The turn it is about, when one is open: it is written just
+            // before that turn's conclusion (`agent::machine`'s
+            // `run_journaled`). One outside a turn still counts toward the
+            // totals, as it always has. What its summary row said, where the
+            // frame kept it; an older frame's answering step otherwise, which
+            // is what the row said when that binary wrote it.
+            if let Some(turn) = state.turns.last_mut().filter(|turn| turn.outcome.is_none()) {
+                if let Some(output) = turn_output_tokens.or(*output_tokens) {
+                    turn.timing.output_tokens = Some(
+                        turn.timing
+                            .output_tokens
+                            .unwrap_or(0)
+                            .saturating_add(output),
+                    );
+                }
+            }
         }
         SessionEvent::TurnConcluded { outcome } => {
-            let turn = open_turn(state, "a turn conclusion")?;
+            let turn = open_turn(state, "a turn conclusion", envelope.seq)?;
             turn.outcome = Some(outcome.clone());
+            turn.timing.concluded_at_ms = Some(envelope.timestamp_ms);
+        }
+        SessionEvent::SessionRenamed { title, .. } => {
+            // A title the reader would have to second-guess is not one this
+            // build wrote: [`validate_title`] runs before every write.
+            if validate_title(title) != Ok(title.as_str()) {
+                return Err("a rename names a title xfx would not have written".to_string());
+            }
+            state.renamed = Some(title.clone());
+        }
+        SessionEvent::ContextCheckpoint {
+            covers_through_seq,
+            compacted,
+        } => {
+            // Upstream's coverage rule (`session_event.zig:245-256`): never
+            // behind the checkpoint in force, never past the log's end -- and
+            // never over itself, since this frame is not in the log yet.
+            let in_force = state
+                .checkpoint
+                .as_ref()
+                .map_or(0, |checkpoint| checkpoint.covers_through_seq);
+            if *covers_through_seq < in_force || *covers_through_seq > state.last_event_seq {
+                return Err(format!(
+                    "a checkpoint covers through frame {covers_through_seq}, outside frames \
+                     {in_force} to {}",
+                    state.last_event_seq
+                ));
+            }
+            // Upstream's coverage is a frame, and it may fall inside a turn
+            // (`appendContextCompaction`, `session_log.zig:343-360`): the
+            // turns it covers whole are the concluded ones it reaches the
+            // end of; the turn after them it may cover the first steps of, up
+            // to where an exchange starts, or every step so far of a turn
+            // still running. That turn's first message stays after the
+            // compacted form, so a running turn is never covered whole.
+            let covered = state
+                .turns
+                .iter()
+                .take_while(|turn| turn.outcome.is_some() && turn.seqs.last <= *covers_through_seq)
+                .count();
+            let covered_steps = match state.turns.get(covered) {
+                Some(turn) if turn.seqs.opened <= *covers_through_seq => {
+                    let steps = turn
+                        .seqs
+                        .steps
+                        .iter()
+                        .take_while(|seq| **seq <= *covers_through_seq)
+                        .count();
+                    // A running turn's steps so far end an exchange: its
+                    // reply would have ended it.
+                    let ends_exchange = matches!(
+                        turn.steps.get(steps.wrapping_sub(1)),
+                        Some(
+                            TurnStep::ToolResult { .. }
+                                | TurnStep::ToolFeedback { .. }
+                                | TurnStep::Steered { .. }
+                        )
+                    );
+                    let at_boundary = turn
+                        .exchange_starts()
+                        .get(1..)
+                        .is_some_and(|starts| starts.contains(&steps))
+                        // Where a cut fell when a steer went with the step
+                        // before it: a log written then still reads.
+                        || turn.calls_tools(steps)
+                        || (turn.outcome.is_none() && steps == turn.steps.len() && ends_exchange);
+                    if steps == 0 || !at_boundary {
+                        return Err("a checkpoint covers part of a turn".to_string());
+                    }
+                    steps
+                }
+                _ => 0,
+            };
+            if covered == 0 && covered_steps == 0 {
+                return Err("a checkpoint covers no turn".to_string());
+            }
+            // Never less than the one in force covered of the same turn.
+            if let Some(in_force) = &state.checkpoint {
+                if covered == in_force.covered_turns && covered_steps < in_force.covered_steps {
+                    return Err("a checkpoint covers less than the one in force".to_string());
+                }
+            }
+            let count = state
+                .checkpoint
+                .as_ref()
+                .map_or(0, |checkpoint| checkpoint.count)
+                + 1;
+            state.checkpoint = Some(Checkpoint {
+                covers_through_seq: *covers_through_seq,
+                covered_turns: covered,
+                covered_steps,
+                compacted: compacted.clone(),
+                count,
+            });
         }
     }
 
@@ -1865,14 +3271,32 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
     Ok(())
 }
 
-/// The turn currently open, or why there is not one.
-fn open_turn<'a>(state: &'a mut DurableState, what: &str) -> Result<&'a mut HistoryTurn, String> {
+/// The turn currently open, or why there is not one, with `seq` recorded as
+/// its last frame.
+///
+/// A turn a checkpoint covers takes nothing more: the checkpoint is what the
+/// model reads for it, and a step the compacted form does not hold would be a
+/// step no request ever carries.
+fn open_turn<'a>(
+    state: &'a mut DurableState,
+    what: &str,
+    seq: u64,
+) -> Result<&'a mut HistoryTurn, String> {
+    let covered = state
+        .checkpoint
+        .as_ref()
+        .map_or(0, |checkpoint| checkpoint.covered_turns);
+    let count = state.turns.len();
     let Some(turn) = state.turns.last_mut() else {
         return Err(format!("{what} appears before any user message"));
     };
     if turn.outcome.is_some() {
         return Err(format!("{what} appears after its turn already concluded"));
     }
+    if count <= covered {
+        return Err(format!("{what} appears in a turn a checkpoint covers"));
+    }
+    turn.seqs.last = seq;
     Ok(turn)
 }
 
@@ -2079,7 +3503,8 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// make it the right primitive here:
 ///
 /// - **It is released by the kernel**, when the last descriptor for the open
-///   file description closes. A `WritableSession` therefore cannot leak a lock
+///   file description closes -- or sooner, by the handle's own `Drop`, which
+///   unlocks it explicitly. A `WritableSession` therefore cannot leak a lock
 ///   by panicking, by being forgotten, or by the process being killed -- which
 ///   is exactly the situation a crash-safe store has to survive.
 /// - **It is per open file description, not per process.** Opening the same
@@ -2100,7 +3525,11 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// `terminal` command is a child, and a child forked by one thread inherits the
 /// session another thread has open. In the window between that `fork` and its
 /// `exec`, the lock is held by a process that is not writing to the session and
-/// never will, and it stays held even after the real writer closes.
+/// never will. A writer that drops its handle unlocks explicitly
+/// ([`WritableSession`]'s `Drop`), which releases the lock for the child's copy
+/// too; one whose process ends without dropping it -- an `exit`, a crash, a
+/// kill -- leaves the lock to the last close, and a child mid-spawn is still
+/// holding a copy then.
 ///
 /// So `WOULDBLOCK` opens a **bounded grace period** rather than a refusal: the
 /// lock is retried across [`LOCK_RETRY_BUDGET`] by [`acquire_with_grace`], and
@@ -2129,19 +3558,57 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// it, which is the answer a person needs.
 #[cfg(unix)]
 fn lock_exclusive(file: &File, path: &Path, id: &SessionId) -> Result<(), SessionError> {
+    lock_exclusive_within(file, path, id, Wait::Grace)
+}
+
+/// How long a resume waits for a lock someone else holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wait {
+    /// [`LOCK_RETRY_BUDGET`]: long enough for a child that is about to let go.
+    Grace,
+    /// Not at all: one attempt, and `Busy` if it is held.
+    None,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread has tried a session's writer lock
+    /// ([`lock_attempts_on_this_thread`]).
+    static LOCK_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has tried a session's writer lock: how a test
+/// tells a resume that did not wait -- one try -- from one that waited out
+/// the grace period, without a wall clock a loaded machine can stretch.
+#[cfg(test)]
+pub(crate) fn lock_attempts_on_this_thread() -> usize {
+    LOCK_ATTEMPTS.with(std::cell::Cell::get)
+}
+
+#[cfg(unix)]
+fn lock_exclusive_within(
+    file: &File,
+    path: &Path,
+    id: &SessionId,
+    wait: Wait,
+) -> Result<(), SessionError> {
     use rustix::fs::{flock, FlockOperation};
 
-    let outcome = acquire_with_grace(
-        || match flock(file, FlockOperation::NonBlockingLockExclusive) {
+    let attempt = || {
+        #[cfg(test)]
+        LOCK_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
+        match flock(file, FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => AttemptOutcome::Acquired,
             // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
             // xfx builds for, so matching one covers both.
             Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
             Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
-        },
-        std::thread::sleep,
-        Instant::now,
-    );
+        }
+    };
+    let outcome = match wait {
+        Wait::Grace => acquire_with_grace(attempt, std::thread::sleep, Instant::now),
+        Wait::None => acquire_within(Duration::ZERO, attempt, std::thread::sleep, Instant::now),
+    };
     match outcome {
         Ok(()) => Ok(()),
         Err(AcquireFailure::HeldThroughGrace) => Err(SessionError::Busy {
@@ -2193,11 +3660,23 @@ enum AcquireFailure {
 /// last pause overran by.
 #[cfg(unix)]
 fn acquire_with_grace(
+    attempt: impl FnMut() -> AttemptOutcome,
+    sleep: impl FnMut(Duration),
+    now: impl FnMut() -> Instant,
+) -> Result<(), AcquireFailure> {
+    acquire_within(LOCK_RETRY_BUDGET, attempt, sleep, now)
+}
+
+/// [`acquire_with_grace`] over a budget of the caller's: zero is one attempt
+/// and no pause, since the deadline has passed the first time it is read.
+#[cfg(unix)]
+fn acquire_within(
+    budget: Duration,
     mut attempt: impl FnMut() -> AttemptOutcome,
     mut sleep: impl FnMut(Duration),
     mut now: impl FnMut() -> Instant,
 ) -> Result<(), AcquireFailure> {
-    let deadline = now() + LOCK_RETRY_BUDGET;
+    let deadline = now() + budget;
     let mut backoff = LOCK_FIRST_BACKOFF;
     loop {
         match attempt() {
@@ -2248,6 +3727,16 @@ fn lock_exclusive(_file: &File, _path: &Path, _id: &SessionId) -> Result<(), Ses
     Ok(())
 }
 
+#[cfg(not(unix))]
+fn lock_exclusive_within(
+    _file: &File,
+    _path: &Path,
+    _id: &SessionId,
+    _wait: Wait,
+) -> Result<(), SessionError> {
+    Ok(())
+}
+
 #[cfg(unix)]
 fn sync_directory(dir: &Path) -> Result<(), SessionError> {
     let handle = File::open(dir).map_err(|err| io_error(dir, err))?;
@@ -2287,8 +3776,8 @@ fn verify_private(_path: &Path, _expected: u32) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gateway::protocol::Role;
-    use crate::session::event::TurnConclusion;
+    use crate::gateway::protocol::{ContentPart, Role};
+    use crate::session::event::{TitleSource, TurnConclusion};
 
     fn frame(seq: u64, event: SessionEvent) -> EventEnvelope {
         EventEnvelope {
@@ -2308,6 +3797,7 @@ mod tests {
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
             permission_mode: "auto".to_string(),
+            provider: None,
         }
     }
 
@@ -2317,6 +3807,73 @@ mod tests {
             apply(&mut state, &frame(index as u64 + 1, event))?;
         }
         Ok(state)
+    }
+
+    #[test]
+    fn the_provider_is_the_last_one_the_log_named_and_none_for_an_older_log() {
+        // An older log names none, and nothing later makes one up.
+        let older = reduce(vec![
+            started(),
+            SessionEvent::PreferencesChanged {
+                model: Some("m2".to_string()),
+                permission_mode: None,
+                provider: None,
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            },
+        ])
+        .expect("an older log");
+        assert_eq!(older.provider, None);
+        let SessionEvent::SessionStarted {
+            id,
+            origin_workspace_root,
+            workspace_root,
+            model,
+            permission_mode,
+            ..
+        } = started()
+        else {
+            unreachable!()
+        };
+        let opened_under = |provider: &str| SessionEvent::SessionStarted {
+            id: id.clone(),
+            origin_workspace_root: origin_workspace_root.clone(),
+            workspace_root: workspace_root.clone(),
+            model: model.clone(),
+            permission_mode: permission_mode.clone(),
+            provider: Some(provider.to_string()),
+        };
+        assert_eq!(
+            reduce(vec![opened_under("gateway")])
+                .expect("a log")
+                .provider
+                .as_deref(),
+            Some("gateway")
+        );
+        // A change that names one moves it; one that does not leaves it. A
+        // label this build does not know is kept as written.
+        let moved = reduce(vec![
+            opened_under("gateway"),
+            SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: None,
+                provider: Some("a-later-provider".to_string()),
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            },
+            SessionEvent::PreferencesChanged {
+                model: Some("m3".to_string()),
+                permission_mode: None,
+                provider: None,
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            },
+        ])
+        .expect("a log");
+        assert_eq!(moved.provider.as_deref(), Some("a-later-provider"));
     }
 
     #[test]
@@ -2338,8 +3895,12 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,
@@ -2393,14 +3954,21 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
                 output: "wrote a.md".to_string(),
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c2".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
@@ -2426,7 +3994,7 @@ mod tests {
         );
 
         // And it replays behind both results, in the group they belong to.
-        let replay = state.history_messages(crate::provider::Wire::VercelGateway);
+        let replay = state.history_messages(crate::provider::Wire::VercelGateway, &state.model);
         assert_eq!(
             replay
                 .messages
@@ -2496,15 +4064,138 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(3),
                 output_tokens: Some(4),
+                turn_output_tokens: None,
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                turn_output_tokens: None,
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
         ])
         .expect("reduces");
         assert_eq!(state.total_input_tokens, 3);
         assert_eq!(state.total_output_tokens, 5);
+    }
+
+    /// The runtime's later answer about a pending request takes its place
+    /// under the same generation id (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`): the Gateway's time, model, tokens and
+    /// cost, and the request's own duration. A rejection leaves it missing.
+    /// Neither touches a request that is not pending, or the meter's totals,
+    /// and neither is a frame from before request records.
+    #[test]
+    fn a_later_bill_settles_its_pending_request_and_a_rejection_leaves_it_missing() {
+        let pending = |id: &str| crate::session::RequestUsage {
+            at_ms: 1_000,
+            duration_ms: 700,
+            model: "vendor/model".to_string(),
+            input_tokens: 12,
+            output_tokens: 3,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: None,
+            cost: None,
+            generation_id: Some(id.to_string()),
+            origin: Some("http://127.0.0.1:4100".to_string()),
+        };
+        let first = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+        let second = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
+        let bill = crate::session::RequestUsage {
+            at_ms: 900,
+            duration_ms: 0,
+            model: "anthropic/claude-opus-5".to_string(),
+            input_tokens: 1340,
+            output_tokens: 250,
+            cache_read_tokens: 300,
+            cache_write_tokens: 40,
+            reasoning_tokens: Some(50),
+            cost: Some(0.0123),
+            generation_id: Some(first.to_string()),
+            origin: None,
+        };
+        let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
+            input_tokens: None,
+            output_tokens: None,
+            turn_output_tokens: None,
+            requests,
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled,
+            rejected,
+        };
+        let state = reduce(vec![
+            started(),
+            frame(
+                vec![pending(first), pending(second)],
+                Vec::new(),
+                Vec::new(),
+            ),
+            frame(Vec::new(), vec![bill.clone()], vec![second.to_string()]),
+            // A second answer about the same generation changes nothing.
+            frame(
+                Vec::new(),
+                vec![crate::session::RequestUsage {
+                    cost: Some(9.0),
+                    ..bill.clone()
+                }],
+                Vec::new(),
+            ),
+        ])
+        .expect("reduces");
+        let requests = &state.usage.requests;
+        assert_eq!(
+            requests[0],
+            crate::session::RequestUsage {
+                duration_ms: 700,
+                ..bill
+            }
+        );
+        assert!(!requests[1].pending());
+        assert_eq!(requests[1].cost, None);
+        assert_eq!(state.usage.pending().count(), 0);
+        assert!(state.usage.legacy_at_ms.is_empty());
+        assert_eq!(
+            (state.total_input_tokens, state.total_output_tokens),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn a_reset_withdraws_every_grant_before_it_and_none_after_it() {
+        let grant = |tool: &str, target: &str| SessionEvent::PermissionGrantRecorded {
+            tool: tool.to_string(),
+            target: target.to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            grant("edit_file", "/w/a.txt"),
+            grant("terminal", "ls in /w"),
+            SessionEvent::PermissionGrantsCleared,
+            grant("edit_file", "/w/a.txt"),
+        ])
+        .expect("reduces");
+        assert_eq!(state.grants, vec![Grant::new("edit_file", "/w/a.txt")]);
+
+        let cleared = reduce(vec![
+            started(),
+            grant("edit_file", "/w/a.txt"),
+            SessionEvent::PermissionGrantsCleared,
+        ])
+        .expect("reduces");
+        assert!(cleared.grants.is_empty());
     }
 
     #[test]
@@ -2524,34 +4215,372 @@ mod tests {
         assert_eq!(state.grants.len(), 1);
     }
 
+    /// The roles and the text of each message, for a case about the shape.
+    fn shape(messages: &[Message]) -> Vec<(Role, String)> {
+        messages
+            .iter()
+            .map(|message| {
+                let text = message
+                    .content
+                    .iter()
+                    .map(|part| match part {
+                        ContentPart::Text { text } => text.clone(),
+                        ContentPart::ToolCall(call) => format!("call {}", call.id),
+                        ContentPart::ToolResult {
+                            call_id,
+                            output,
+                            status,
+                            ..
+                        } => match status {
+                            ResultStatus::Denied => format!("result {call_id} {output} denied"),
+                            _ => format!(
+                                "result {call_id} {output} error={}",
+                                *status != ResultStatus::Success
+                            ),
+                        },
+                        ContentPart::RawBlocks(_) => "raw".to_string(),
+                        ContentPart::Image { media_type, .. } => {
+                            format!("image {}", media_type.label())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                (message.role, text)
+            })
+            .collect()
+    }
+
+    fn interrupted() -> SessionEvent {
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "the turn was cancelled".to_string(),
+                terminal_reason: None,
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
+            },
+        }
+    }
+
+    fn assistant(text: &str, calls: &[(&str, &str)]) -> SessionEvent {
+        SessionEvent::AssistantMessage {
+            text: text.to_string(),
+            tool_calls: calls
+                .iter()
+                .map(|(id, name)| RecordedToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: serde_json::json!({}),
+                })
+                .collect(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        }
+    }
+
     #[test]
-    fn history_drops_a_tool_call_that_never_got_its_result() {
+    fn history_answers_a_call_its_interrupted_turn_never_finished_as_aborted() {
+        // Claim changed (was `history_drops_a_tool_call_that_never_got_its_
+        // result`): fx's next request after a command the user stopped
+        // (`fx-interrupt-40x120-bodies/006-completion.json`) carries the call,
+        // its result as `error-text` `aborted by user` (`session.zig:64`,
+        // `:2725-2737`) and then the `<turn_aborted>` message (`:52-56`).
         let state = reduce(vec![
             started(),
             SessionEvent::UserMessage {
                 text: "go".to_string(),
             },
-            SessionEvent::AssistantMessage {
-                text: "reading".to_string(),
-                tool_calls: vec![RecordedToolCall {
-                    id: "c1".to_string(),
-                    name: "read_file".to_string(),
-                    input: serde_json::json!({ "path": "a.txt" }),
-                }],
-                raw_content: Vec::new(),
-                responses_state: Vec::new(),
-                wire: None,
+            assistant("reading", &[("c1", "read_file")]),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (Role::Assistant, "reading | call c1".to_string()),
+                (
+                    Role::Tool,
+                    "result c1 aborted by user error=true".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+        assert_eq!(
+            TURN_ABORTED,
+            "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may \
+             have partially executed. Do not continue this request unless the user explicitly asks \
+             to continue.\n</turn_aborted>"
+        );
+    }
+
+    #[test]
+    fn history_closes_an_interrupted_answer_with_upstreams_sentence() {
+        // `fx-interrupt-40x120-bodies/003-completion.json`: the partial
+        // answer, a blank line, `The previous response ended before
+        // completion.` (`session.zig:63`, `:3067-3069`), then `<turn_aborted>`.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "stream please".to_string(),
             },
+            assistant("MARKER-HEAD word0 ", &[]),
+            interrupted(),
+            SessionEvent::UserMessage {
+                text: "next".to_string(),
+            },
+            assistant("After interrupt answer.", &[]),
             SessionEvent::TurnConcluded {
-                outcome: TurnConclusion::Interrupted {
-                    reason: "the turn was cancelled".to_string(),
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
                 },
             },
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::AnthropicMessages);
-        assert_eq!(replay.messages.len(), 1, "{:?}", replay.messages);
-        assert_eq!(replay.messages[0].text(), "go");
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "stream please".to_string()),
+                (
+                    Role::Assistant,
+                    "MARKER-HEAD word0 \n\nThe previous response ended before completion."
+                        .to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+                (Role::User, "next".to_string()),
+                (Role::Assistant, "After interrupt answer.".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_closes_an_interrupted_turn_that_said_nothing_with_the_sentence_alone() {
+        // `formatInterruptedAssistantClosedContent` (`session.zig:3057-3065`):
+        // no partial answer and no finished tool -- the sentence by itself.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (
+                    Role::Assistant,
+                    "The previous response ended before completion.".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_says_which_tools_finished_before_the_interruption() {
+        // `formatInterruptedAssistantToolContent` and
+        // `formatCompletedToolSummary` (`session.zig:3020-3055`): tools that
+        // finished are named, after whatever partial answer followed them.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            assistant("", &[("c1", "read_file"), ("c2", "glob_files")]),
+            SessionEvent::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: "bytes".to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            SessionEvent::ToolResult {
+                call_id: "c2".to_string(),
+                tool: "glob_files".to_string(),
+                ok: true,
+                output: "a.txt".to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            assistant("so far", &[]),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
+        let shown = shape(&replay.messages);
+        assert_eq!(
+            shown[4],
+            (
+                Role::Assistant,
+                "so far\n\nInterrupted by user after completing 2 tool calls: read_file, glob_files."
+                    .to_string()
+            ),
+            "{shown:#?}"
+        );
+        assert_eq!(shown[5], (Role::User, TURN_ABORTED.to_string()));
+        assert_eq!(shown.len(), 6, "{shown:#?}");
+    }
+
+    fn result(call_id: &str, tool: &str, ok: bool, output: &str) -> SessionEvent {
+        SessionEvent::ToolResult {
+            call_id: call_id.to_string(),
+            tool: tool.to_string(),
+            ok,
+            output: output.to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        }
+    }
+
+    #[test]
+    fn history_answers_a_question_the_user_cancelled_as_the_call_its_turn_stopped_under() {
+        // A question cancelled with Ctrl-C or Escape answers `aborted by user`
+        // as a failure (`crate::tools::question`), and upstream keeps that
+        // call on the interrupted turn (`session.zig:2701-2736`): the call,
+        // its answer as `error-text`, then `<turn_aborted>` -- no closing
+        // assistant message, and the question is not a tool that completed.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "ask me".to_string(),
+            },
+            assistant("", &[("q1", "ask_user_question")]),
+            result("q1", "ask_user_question", false, ABORTED_TOOL_OUTPUT),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "ask me".to_string()),
+                (Role::Assistant, "call q1".to_string()),
+                (
+                    Role::Tool,
+                    "result q1 aborted by user error=true".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_answers_a_command_the_user_stopped_as_the_call_its_turn_stopped_under() {
+        // A command stopped under its turn answers `aborted by user`
+        // (`crate::tools::terminal`), with xfx's note after it when its group
+        // could not be emptied; either way it is the call the turn stopped
+        // under, not a tool that completed (`fx-interrupt-next-cmd-40x120-
+        // bodies/003-completion.json`).
+        for output in [
+            ABORTED_TOOL_OUTPUT.to_string(),
+            format!("{ABORTED_TOOL_OUTPUT}\n... [the command's process group was still there]\n"),
+        ] {
+            let state = reduce(vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "run cmd".to_string(),
+                },
+                assistant("", &[("c1", "terminal")]),
+                result("c1", "terminal", false, &output),
+                interrupted(),
+            ])
+            .expect("reduces");
+            let shown = shape(
+                &state
+                    .history_messages(Wire::VercelGateway, &state.model)
+                    .messages,
+            );
+            assert_eq!(shown.len(), 4, "{shown:#?}");
+            assert_eq!(shown[1], (Role::Assistant, "call c1".to_string()));
+            assert_eq!(shown[3], (Role::User, TURN_ABORTED.to_string()));
+        }
+        // A tool's own failure that merely mentions the words is not one.
+        assert!(!stopped_answer(false, "no such file: aborted by user"));
+        assert!(!stopped_answer(true, ABORTED_TOOL_OUTPUT));
+    }
+
+    #[test]
+    fn history_names_the_finished_tools_on_the_call_its_turn_stopped_under() {
+        // `formatInterruptedAssistantToolContent` (`session.zig:3034-3055`):
+        // when the turn stopped under a call, the tools that finished before
+        // it are named after the text of the message that made that call.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            assistant("", &[("c1", "read_file")]),
+            result("c1", "read_file", true, "bytes"),
+            assistant("checking", &[("c2", "terminal")]),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (Role::Assistant, "call c1".to_string()),
+                (Role::Tool, "result c1 bytes error=false".to_string()),
+                (
+                    Role::Assistant,
+                    "checking\n\nInterrupted by user after completing 1 tool call: read_file. \
+                     | call c2"
+                        .to_string()
+                ),
+                (
+                    Role::Tool,
+                    "result c2 aborted by user error=true".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_replays_a_failed_result_as_a_failure_and_as_a_call_that_finished() {
+        // Upstream sends every result whose status is a failure as
+        // `error-text` (`vercel_protocol.zig:742-747`); a call that failed on
+        // its own still returned, so it is among the completed ones.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            assistant("", &[("c1", "read_file")]),
+            result("c1", "read_file", false, "no such file"),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway, &state.model);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (Role::Assistant, "call c1".to_string()),
+                (Role::Tool, "result c1 no such file error=true".to_string()),
+                (
+                    Role::Assistant,
+                    "Interrupted by user after completing 1 tool call: read_file.".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_aborted_answer_is_the_questions_own_words() {
+        assert_eq!(ABORTED_TOOL_OUTPUT, "aborted by user");
     }
 
     #[test]
@@ -2571,8 +4600,12 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -2588,10 +4621,11 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::AnthropicMessages);
+        let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
         assert_eq!(replay.messages.len(), 3, "{:?}", replay.messages);
         assert_eq!(replay.messages[1].text(), "first");
     }
@@ -2599,10 +4633,801 @@ mod tests {
     #[test]
     fn a_title_is_the_first_line_of_the_first_prompt_and_is_bounded() {
         assert_eq!(title_of("  hello \n world "), Some("hello".to_string()));
+        assert_eq!(
+            title_of("\n\n  second line\nthird"),
+            Some("second line".to_string())
+        );
         assert_eq!(title_of("   "), None);
-        let long = title_of(&"x".repeat(200)).expect("a title");
-        assert!(long.len() <= MAX_TITLE_BYTES + 3, "{}", long.len());
-        assert!(long.ends_with("..."));
+        // Eight words, joined by one space whatever separated them.
+        assert_eq!(
+            title_of("one  two\tthree four five six seven eight nine ten").as_deref(),
+            Some("one two three four five six seven eight")
+        );
+        // 240 bytes, the word that does not fit cut where a character ends.
+        let long =
+            title_of(&format!("{} {}", "x".repeat(200), "\u{e9}".repeat(30))).expect("a title");
+        assert_eq!(long.len(), 239, "{long}");
+        assert!(long.ends_with('\u{e9}'));
+        assert_eq!(title_of(&"x".repeat(300)), Some("x".repeat(240)));
+        // A slash command alone gives none; one with more lines under it does.
+        assert_eq!(title_of("  /compact  "), None);
+        assert_eq!(title_of("/plan\nthe migration").as_deref(), Some("/plan"));
+    }
+
+    #[test]
+    fn a_session_is_titled_by_the_first_prompt_that_gives_a_title() {
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "/status".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Interrupted {
+                    reason: "x".to_string(),
+                    terminal_reason: None,
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "fix the parser please".to_string(),
+            },
+        ])
+        .expect("reduces");
+        assert_eq!(state.title().as_deref(), Some("fix the parser please"));
+    }
+
+    #[test]
+    fn a_title_the_user_chose_outranks_the_first_prompt_and_the_last_one_wins() {
+        let asked = vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "first question alpha".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
+                },
+            },
+        ];
+        let derived = reduce(asked.clone()).expect("a valid log");
+        assert_eq!(derived.title().as_deref(), Some("first question alpha"));
+
+        let mut renamed = asked.clone();
+        renamed.push(SessionEvent::SessionRenamed {
+            title: "My Title".to_string(),
+            source: TitleSource::User,
+        });
+        assert_eq!(
+            reduce(renamed.clone())
+                .expect("a valid log")
+                .title()
+                .as_deref(),
+            Some("My Title")
+        );
+        renamed.push(SessionEvent::SessionRenamed {
+            title: "Second name".to_string(),
+            source: TitleSource::User,
+        });
+        assert_eq!(
+            reduce(renamed).expect("a valid log").title().as_deref(),
+            Some("Second name")
+        );
+
+        // A session renamed before anything was asked in it has a title and
+        // no turn -- upstream keeps exactly that one on exit.
+        let empty = reduce(vec![
+            started(),
+            SessionEvent::SessionRenamed {
+                title: "Before asking".to_string(),
+                source: TitleSource::User,
+            },
+        ])
+        .expect("a valid log");
+        assert_eq!(empty.title().as_deref(), Some("Before asking"));
+        assert!(empty.turns.is_empty());
+
+        // An explicit title is not clipped at the derived title's 80 bytes.
+        let wide = "w".repeat(MAX_RENAMED_TITLE_BYTES);
+        let state = reduce(vec![
+            started(),
+            SessionEvent::SessionRenamed {
+                title: wide.clone(),
+                source: TitleSource::User,
+            },
+        ])
+        .expect("a valid log");
+        assert_eq!(state.title(), Some(wide));
+    }
+
+    #[test]
+    fn a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote() {
+        // An escape too: a title is file input on its way to a terminal, and
+        // one holding a sequence never reaches the screen -- the log it is in
+        // is refused before any of it is replayed.
+        for title in [
+            "",
+            "  padded ",
+            "line\nbreak",
+            "set \u{1b}]0;pwned\u{7}",
+            &"x".repeat(241),
+        ] {
+            let refused = reduce(vec![
+                started(),
+                SessionEvent::SessionRenamed {
+                    title: title.to_string(),
+                    source: TitleSource::User,
+                },
+            ]);
+            assert!(refused.is_err(), "{title:?} was replayed");
+        }
+    }
+
+    #[test]
+    fn a_title_is_trimmed_and_refused_as_upstreams_is() {
+        // `validateSessionTitle`, `app_session_runtime.zig:3790-3799`.
+        assert_eq!(validate_title("   My Title  "), Ok("My Title"));
+        assert_eq!(validate_title("\t\r\nMy Title\n"), Ok("My Title"));
+        assert_eq!(validate_title(""), Err(TitleError::Empty));
+        assert_eq!(validate_title(" \t\r\n "), Err(TitleError::Empty));
+        assert_eq!(
+            validate_title(&"x".repeat(240)),
+            Ok("x".repeat(240).as_str())
+        );
+        assert_eq!(validate_title(&"x".repeat(241)), Err(TitleError::TooLong));
+        // Bytes, not characters: 81 three-byte characters are 243 bytes.
+        assert_eq!(
+            validate_title(&"\u{ac00}".repeat(81)),
+            Err(TitleError::TooLong)
+        );
+        assert_eq!(validate_title("a\tb"), Err(TitleError::NotPrintable));
+        assert_eq!(
+            validate_title("a\u{1b}]2;x\u{7}"),
+            Err(TitleError::NotPrintable)
+        );
+        assert_eq!(validate_title("a\u{7f}"), Err(TitleError::NotPrintable));
+        // Upstream checks the length first.
+        assert_eq!(
+            validate_title(&format!("{}\u{1b}", "x".repeat(241))),
+            Err(TitleError::TooLong)
+        );
+        assert_eq!(
+            validate_title("caf\u{e9} \u{1f600}"),
+            Ok("caf\u{e9} \u{1f600}")
+        );
+    }
+
+    #[test]
+    fn a_turn_remembers_when_it_was_asked_when_it_ended_and_what_it_wrote() {
+        // `frame` stamps each event at 1000 + its sequence number.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "q".to_string(),
+            },
+            SessionEvent::UsageRecorded {
+                input_tokens: Some(6),
+                output_tokens: Some(40),
+                turn_output_tokens: None,
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "r".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Interrupted {
+                    reason: "the turn was cancelled".to_string(),
+                    terminal_reason: None,
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "s".to_string(),
+            },
+        ])
+        .expect("a valid log");
+        assert_eq!(
+            state.turns[0].timing,
+            TurnTiming {
+                started_at_ms: 1_002,
+                concluded_at_ms: Some(1_004),
+                output_tokens: Some(40),
+            }
+        );
+        assert_eq!(
+            state.turns[1].timing,
+            TurnTiming {
+                started_at_ms: 1_005,
+                concluded_at_ms: Some(1_006),
+                output_tokens: None,
+            }
+        );
+        assert_eq!(state.turns[2].timing.concluded_at_ms, None);
+        assert_eq!(state.total_output_tokens, 40);
+    }
+
+    #[test]
+    fn a_turn_replays_the_out_its_summary_said_and_an_older_frame_its_answering_step() {
+        // A turn of two requests, 40 each, said `↓80` under it: the frame
+        // keeps that beside the answering step's 40, and the replay reads the
+        // 80. The session's own total is still the answering steps', as the
+        // meter has always counted it.
+        let usage = |output: u64, turn: Option<u64>| SessionEvent::UsageRecorded {
+            input_tokens: Some(1300),
+            output_tokens: Some(output),
+            turn_output_tokens: turn,
+            requests: Vec::new(),
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        };
+        let concluded = || SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        };
+        let asked = || SessionEvent::UserMessage {
+            text: "q".to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            asked(),
+            usage(40, Some(80)),
+            concluded(),
+            asked(),
+            usage(40, None),
+            concluded(),
+            asked(),
+            usage(40, Some(0)),
+            concluded(),
+        ])
+        .expect("a valid log");
+        let outs: Vec<Option<u64>> = state
+            .turns
+            .iter()
+            .map(|turn| turn.timing.output_tokens)
+            .collect();
+        assert_eq!(outs, [Some(80), Some(40), Some(0)]);
+        assert_eq!(state.total_output_tokens, 120);
+    }
+
+    #[test]
+    fn a_renamed_session_publishes_its_title_and_a_resume_reads_it_back() {
+        let root = tempfile::TempDir::new().expect("a profile root");
+        // A directory the store creates, so it is private; the temporary
+        // root around it is not.
+        let store = SessionStore::open(&root.path().join("profile")).expect("a store");
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        let id = SessionId::generate();
+        let mut session = store
+            .create(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                    provider: None,
+                },
+            )
+            .expect("a session");
+        store
+            .append(
+                &mut session,
+                SessionEvent::SessionRenamed {
+                    title: "My Title".to_string(),
+                    source: TitleSource::User,
+                },
+            )
+            .expect("appended");
+        store.publish(&mut session).expect("published");
+        assert_eq!(
+            session
+                .manifest()
+                .and_then(|manifest| manifest.title.as_deref()),
+            Some("My Title")
+        );
+        drop(session);
+
+        // Listed under it with no turn in it, and resumed with it.
+        let listed = store
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .expect("a listing");
+        assert_eq!(listed.sessions.len(), 1);
+        assert_eq!(listed.sessions[0].title.as_deref(), Some("My Title"));
+        assert_eq!(listed.sessions[0].history_turns, 0);
+        let resumed = store
+            .resume_without_waiting(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        assert_eq!(resumed.session.state().title().as_deref(), Some("My Title"));
+
+        // Held now, so a second resume that does not wait is refused at once
+        // as the session another process has open.
+        match store.resume_without_waiting(&Selector::Id(id.clone()), &workspace) {
+            Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
+            other => panic!("a held session was not refused as busy: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_closed_writer_is_not_kept_holding_by_a_copy_of_its_descriptor() {
+        // A child another thread is starting holds a copy of every descriptor
+        // until its `execve` -- on Linux even through `posix_spawn` -- and the
+        // lock is the file description's. `try_clone` makes that same copy
+        // without a fork, so the case is the race with the timing taken out.
+        // Red before: the copy kept the lock after the writer was dropped, and
+        // the picker's one try refused a session nobody was writing
+        // (`resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once`,
+        // aarch64 Linux CI).
+        let root = tempfile::TempDir::new().expect("a profile root");
+        let store = SessionStore::open(&root.path().join("profile")).expect("a store");
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        let id = SessionId::generate();
+        let session = store
+            .create(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                    provider: None,
+                },
+            )
+            .expect("a session");
+        let inherited = session.file.try_clone().expect("a copy of the descriptor");
+        drop(session);
+
+        let resumed = store
+            .resume_without_waiting(&Selector::Id(id.clone()), &workspace)
+            .expect("a closed writer's session resumes at once");
+        // And the lock is the new writer's now, copy or no copy.
+        match store.resume_without_waiting(&Selector::Id(id.clone()), &workspace) {
+            Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
+            other => panic!("a held session was not refused as busy: {other:?}"),
+        }
+        drop(inherited);
+        drop(resumed);
+    }
+
+    #[test]
+    fn a_refusal_that_quotes_a_session_file_says_it_without_its_control_characters() {
+        // The refusal is written to a terminal -- the TUI's `fail` and the
+        // binary's both print it as it displays -- and what it quotes is read
+        // from the session's files: here a manifest whose model disagrees with
+        // the log's. Red before: the escapes reached the message as written.
+        let root = tempfile::TempDir::new().expect("a profile root");
+        let (store, recorder, id, workspace) = recorder_in(root.path());
+        drop(recorder);
+        let path = store.session_dir(&id).join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("a manifest"))
+                .expect("JSON");
+        manifest["model"] =
+            serde_json::Value::String("x\u{1b}]0;pwned\u{7}\u{1b}[2J\u{9b}31m\ny".to_string());
+        std::fs::write(&path, format!("{manifest}\n")).expect("rewritten");
+
+        let refusal = match store.resume_without_waiting(&Selector::Id(id), &workspace) {
+            Err(err @ SessionError::Corrupt { .. }) => err.to_string(),
+            other => panic!("a manifest that disagrees was not refused: {other:?}"),
+        };
+        assert!(refusal.contains("model="), "{refusal:?}");
+        assert!(
+            refusal.contains("]0;pwned"),
+            "still says what it read: {refusal:?}"
+        );
+        assert!(!refusal.chars().any(char::is_control), "{refusal:?}");
+    }
+
+    /// A recorder on a fresh session in a private profile under `root`, and
+    /// the workspace it was opened in.
+    fn recorder_in(root: &Path) -> (SessionStore, SessionRecorder, SessionId, PathBuf) {
+        let store = SessionStore::open(&root.join("profile")).expect("a store");
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let id = SessionId::generate();
+        let session = store
+            .create(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                    provider: None,
+                },
+            )
+            .expect("a session");
+        let recorder = SessionRecorder::new(store.clone(), session);
+        (store, recorder, id, workspace)
+    }
+
+    fn shot(id: u32) -> crate::image::Image {
+        crate::image::Image::new(
+            id,
+            PathBuf::from("/w/shot.png"),
+            crate::image::MediaType::Png,
+            Arc::from(crate::image::fixture::SHOT_PNG),
+        )
+    }
+
+    fn images_of(message: &Message) -> usize {
+        message
+            .content
+            .iter()
+            .filter(|part| matches!(part, crate::gateway::protocol::ContentPart::Image { .. }))
+            .count()
+    }
+
+    fn saved_paths(message: &Message) -> Vec<PathBuf> {
+        message
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                crate::gateway::protocol::ContentPart::Image {
+                    saved: Some(path), ..
+                } => Some(path.to_path_buf()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_turns_images_are_saved_beside_the_log_and_sent_again_after_a_resume() {
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #3][Image #4] what is in this image?".to_string(),
+        });
+        let saved = recorder.attach_images(&[shot(3), shot(4)]);
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
+
+        // The live state sends them without reading them back.
+        let live = recorder
+            .state()
+            .history_messages(Wire::VercelGateway, &recorder.state().model);
+        assert_eq!(images_of(&live.messages[0]), 2);
+        assert!(live.notices.is_empty(), "{:?}", live.notices);
+
+        // Each copy is owner-only, in an owner-only directory, under the name
+        // the digest gives it, and byte for byte what was attached.
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        assert_eq!(saved.as_deref(), Some(folder.as_path()));
+        let name = shot(3).snapshot_name();
+        let copy = folder.join(&name);
+        // An image withheld at send is named by this copy.
+        assert_eq!(saved_paths(&live.messages[0])[0], copy);
+        assert_eq!(
+            std::fs::read(&copy).expect("a copy"),
+            crate::image::fixture::SHOT_PNG
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode =
+                |path: &Path| std::fs::metadata(path).expect("mode").permissions().mode() & 0o777;
+            assert_eq!(mode(&folder), 0o700);
+            assert_eq!(mode(&copy), 0o600);
+        }
+        // The log names them by reference: no bytes in it.
+        let log = std::fs::read_to_string(store.session_dir(&id).join(EVENTS_FILE)).expect("log");
+        assert!(log.contains("\"kind\":\"images_attached\""), "{log}");
+        assert!(
+            !log.contains(crate::image::fixture::SHOT_PNG_BASE64),
+            "{log}"
+        );
+        drop(recorder);
+
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let state = resumed.session.state();
+        assert_eq!(state.turns[0].images.len(), 2);
+        assert_eq!(state.turns[0].images[0].recorded.id, 3);
+        let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
+        assert_eq!(images_of(&replay.messages[0]), 2, "{:?}", replay.messages);
+        assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+        assert_eq!(saved_paths(&replay.messages[0])[0], copy);
+    }
+
+    #[test]
+    fn a_pasted_clipboard_image_is_recorded_by_the_copy_the_session_keeps() {
+        // Its paste-time copy is removed with the process; a resumed card
+        // links the session's own.
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, _workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1]".to_string(),
+        });
+        let mut pasted = shot(1);
+        pasted.path = PathBuf::from("/tmp/xfx-image-snapshots-x/image-1-0.bin");
+        pasted.copied = true;
+        recorder.attach_images(&[pasted.clone(), shot(2)]);
+        let recorded = &recorder.state().turns[0].images;
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        assert_eq!(
+            recorded[0].recorded.path,
+            folder.join(pasted.snapshot_name()).display().to_string()
+        );
+        assert_eq!(recorded[1].recorded.path, "/w/shot.png");
+    }
+
+    #[test]
+    fn a_copy_changed_or_gone_since_it_was_saved_is_not_sent_and_the_user_is_told() {
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1][Image #2] compare".to_string(),
+        });
+        recorder.attach_images(&[shot(1), shot(2)]);
+        assert_eq!(recorder.failure(), None);
+        drop(recorder);
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        // One replaced with other bytes of the same length, one removed.
+        let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
+        tampered[40] ^= 0xff;
+        std::fs::write(folder.join(shot(1).snapshot_name()), &tampered).expect("tamper");
+        std::fs::remove_file(folder.join(shot(2).snapshot_name())).expect("remove");
+
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("a session whose images are gone still resumes");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::VercelGateway, &resumed.session.state().model);
+        assert_eq!(images_of(&replay.messages[0]), 0);
+        assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
+        assert!(
+            replay.notices[0].contains("image #1")
+                && replay.notices[0].contains("not the file that was saved"),
+            "{:?}",
+            replay.notices
+        );
+        assert!(
+            replay.notices[1].contains("image #2") && replay.notices[1].contains("missing"),
+            "{:?}",
+            replay.notices
+        );
+    }
+
+    #[test]
+    fn a_tool_results_image_is_saved_and_sent_again_with_its_result_after_a_resume() {
+        // Upstream retains a result's tool images for later requests
+        // (`retainToolImages`, `execution_memory.zig:672-688`).
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "look at the picture".to_string(),
+        });
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: "c1".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "shot.png"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        });
+        recorder.commit(SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            output: "image attached".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        });
+        let image = crate::image::ToolImage {
+            media_type: crate::image::MediaType::Png,
+            data: Arc::from(crate::image::fixture::SHOT_PNG),
+            path: "shot.png".to_string(),
+        };
+        recorder.attach_tool_images("c1", std::slice::from_ref(&image));
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
+        let carried = |messages: &[Message]| -> Vec<crate::image::ToolImage> {
+            messages
+                .iter()
+                .flat_map(|message| message.content.iter())
+                .flat_map(|part| match part {
+                    crate::gateway::protocol::ContentPart::ToolResult { images, .. } => {
+                        images.clone()
+                    }
+                    _ => Vec::new(),
+                })
+                .collect()
+        };
+        let live = recorder
+            .state()
+            .history_messages(Wire::VercelGateway, &recorder.state().model);
+        assert_eq!(carried(&live.messages), std::slice::from_ref(&image));
+        let log = std::fs::read_to_string(store.session_dir(&id).join(EVENTS_FILE)).expect("log");
+        assert!(log.contains("\"kind\":\"tool_images_attached\""), "{log}");
+        assert!(
+            !log.contains(crate::image::fixture::SHOT_PNG_BASE64),
+            "{log}"
+        );
+        drop(recorder);
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::AnthropicMessages, &resumed.session.state().model);
+        assert_eq!(carried(&replay.messages), [image]);
+        assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+    }
+
+    #[test]
+    fn a_tools_images_belong_right_behind_the_result_that_succeeded() {
+        let record = RecordedImage {
+            id: 1,
+            path: "shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let images = |call_id: &str| SessionEvent::ToolImagesAttached {
+            call_id: call_id.to_string(),
+            images: vec![record.clone()],
+        };
+        let result = |ok: bool| SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok,
+            output: "x".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        };
+        let opened = |extra: Vec<SessionEvent>| {
+            let mut events = vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "look".to_string(),
+                },
+            ];
+            events.extend(extra);
+            reduce(events)
+        };
+        let state = opened(vec![result(true), images("c1")]).expect("reduced");
+        assert!(matches!(
+            &state.turns[0].steps[0],
+            TurnStep::ToolResult { images, .. } if images.len() == 1
+        ));
+        assert!(opened(vec![images("c1")]).is_err());
+        assert!(opened(vec![result(false), images("c1")]).is_err());
+        assert!(opened(vec![result(true), images("c2")]).is_err());
+        assert!(opened(vec![result(true), images("c1"), images("c1")]).is_err());
+    }
+
+    #[test]
+    fn a_saved_copy_that_is_a_symlink_is_not_followed() {
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1]".to_string(),
+        });
+        recorder.attach_images(&[shot(1)]);
+        drop(recorder);
+        let copy = store
+            .session_dir(&id)
+            .join(IMAGES_DIR)
+            .join(shot(1).snapshot_name());
+        let elsewhere = root.path().join("elsewhere.png");
+        std::fs::write(&elsewhere, crate::image::fixture::SHOT_PNG).expect("a decoy");
+        std::fs::remove_file(&copy).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &copy).expect("a symlink");
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::VercelGateway, &resumed.session.state().model);
+        assert_eq!(images_of(&replay.messages[0]), 0);
+        assert_eq!(replay.notices.len(), 1, "{:?}", replay.notices);
+    }
+
+    #[test]
+    fn images_belong_right_behind_the_message_that_names_them() {
+        let record = |id: u32| RecordedImage {
+            id,
+            path: "/w/shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let opened = |extra: Vec<SessionEvent>| {
+            let mut events = vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "[Image #1]".to_string(),
+                },
+            ];
+            events.extend(extra);
+            reduce(events)
+        };
+        let state = opened(vec![SessionEvent::ImagesAttached {
+            images: vec![record(1)],
+        }])
+        .expect("reduced");
+        assert_eq!(state.turns[0].images.len(), 1);
+        assert_eq!(state.turns[0].images[0].snapshot, Snapshot::Unread);
+        // Before any message, twice, or after a step: not the order a turn
+        // writes them in.
+        assert!(reduce(vec![
+            started(),
+            SessionEvent::ImagesAttached {
+                images: vec![record(1)]
+            }
+        ])
+        .is_err());
+        assert!(opened(vec![
+            SessionEvent::ImagesAttached {
+                images: vec![record(1)]
+            },
+            SessionEvent::ImagesAttached {
+                images: vec![record(2)]
+            },
+        ])
+        .is_err());
+        assert!(opened(vec![
+            SessionEvent::AssistantMessage {
+                text: "hi".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            SessionEvent::ImagesAttached {
+                images: vec![record(1)]
+            },
+        ])
+        .is_err());
+        // A type, a digest or a size xfx would not have written.
+        let mut bmp = record(1);
+        bmp.media_type = "image/bmp".to_string();
+        let mut short = record(1);
+        short.sha256 = "abc".to_string();
+        let mut huge = record(1);
+        huge.bytes = crate::image::MAX_IMAGE_BYTES + 1;
+        for bad in [bmp, short, huge] {
+            assert!(opened(vec![SessionEvent::ImagesAttached { images: vec![bad] }]).is_err());
+        }
     }
 
     #[test]
@@ -2824,6 +5649,26 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    #[test]
+    fn a_budget_of_nothing_is_one_attempt_and_no_pause() {
+        let start = Instant::now();
+        let mut attempts = 0;
+        let mut slept = Vec::new();
+        let result = acquire_within(
+            Duration::ZERO,
+            || {
+                attempts += 1;
+                AttemptOutcome::WouldBlock
+            },
+            |pause| slept.push(pause),
+            || start,
+        );
+        assert!(matches!(result, Err(AcquireFailure::HeldThroughGrace)));
+        assert_eq!(attempts, 1);
+        assert!(slept.is_empty(), "{slept:?}");
+    }
+
     #[test]
     fn an_error_that_is_not_contention_is_not_retried() {
         let (result, slept, attempts) = grace(vec![AttemptOutcome::Failed(io::Error::from(
@@ -2839,4 +5684,490 @@ mod tests {
         assert!(slept.is_empty(), "waiting cannot fix a refused syscall");
         assert_eq!(attempts, 1);
     }
+
+    // -- context checkpoints ------------------------------------------------
+
+    fn user(text: &str) -> SessionEvent {
+        SessionEvent::UserMessage {
+            text: text.to_string(),
+        }
+    }
+
+    fn answer(text: &str) -> SessionEvent {
+        SessionEvent::AssistantMessage {
+            text: text.to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        }
+    }
+
+    fn concluded() -> SessionEvent {
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        }
+    }
+
+    fn compacted_first() -> super::super::checkpoint::Compacted {
+        use super::super::checkpoint::{Compacted, CompactedTurn};
+        Compacted {
+            entries: Vec::new(),
+            turns: vec![CompactedTurn {
+                number: 1,
+                users: vec!["one".to_string()],
+                work: String::new(),
+                final_reply: "ONE".to_string(),
+                first_tool: 0,
+                last_tool: 0,
+                tools: Vec::new(),
+            }],
+            open: None,
+            turn_count: 1,
+            tool_count: 0,
+        }
+    }
+
+    /// Two answered turns: frames 2-4 and 5-7.
+    fn two_turns() -> Vec<SessionEvent> {
+        vec![
+            started(),
+            user("one"),
+            answer("ONE"),
+            concluded(),
+            user("two"),
+            answer("TWO"),
+            concluded(),
+        ]
+    }
+
+    #[test]
+    fn a_checkpoint_replaces_the_turns_it_covers_in_the_next_request_only() {
+        let mut events = two_turns();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let state = reduce(events).expect("a valid log");
+        // The log keeps both turns -- a resumed screen shows them.
+        assert_eq!(state.turns.len(), 2);
+        assert_eq!(state.uncovered_turns().len(), 1);
+        let checkpoint = state.checkpoint.as_ref().expect("in force");
+        assert_eq!(checkpoint.covered_turns, 1);
+        // The request: the compacted form, then the turn after it as it was.
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
+        assert_eq!(
+            messages,
+            vec![
+                Message::user(super::super::checkpoint::render(&compacted_first())),
+                Message::user("two"),
+                Message::assistant(Some("TWO"), Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_written_inside_a_turn_covers_the_turns_before_it_and_the_turn_goes_on() {
+        // What a compaction between a turn's steps writes
+        // (`crate::tui::worker`'s `TurnCompactor`): the second turn's prompt
+        // (frame 5), a checkpoint covering the first turn, then the rest of
+        // the second turn.
+        let mut events = two_turns();
+        events.truncate(5);
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let open = reduce(events.clone()).expect("a checkpoint inside a turn");
+        // The turn in progress goes on without the turns before it.
+        assert_eq!(
+            open.history_messages_before_open(Wire::VercelGateway, &open.model)
+                .messages,
+            vec![Message::user(super::super::checkpoint::render(
+                &compacted_first()
+            ))]
+        );
+        events.push(answer("TWO"));
+        events.push(concluded());
+        let state = reduce(events).expect("the turn's later frames are taken");
+        assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(1));
+        assert_eq!(
+            state
+                .history_messages(Wire::VercelGateway, &state.model)
+                .messages,
+            vec![
+                Message::user(super::super::checkpoint::render(&compacted_first())),
+                Message::user("two"),
+                Message::assistant(Some("TWO"), Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_that_covers_part_of_a_turn_or_none_is_refused() {
+        // Frame 3 is inside the first turn, whose conclusion is frame 4.
+        let mut part = two_turns();
+        part.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 3,
+            compacted: compacted_first(),
+        });
+        assert_eq!(
+            reduce(part).err().as_deref(),
+            Some("a checkpoint covers part of a turn")
+        );
+        let mut none = two_turns();
+        none.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 1,
+            compacted: compacted_first(),
+        });
+        assert_eq!(
+            reduce(none).err().as_deref(),
+            Some("a checkpoint covers no turn")
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_never_covers_frames_past_the_log_or_behind_the_one_in_force() {
+        let mut ahead = two_turns();
+        ahead.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 8,
+            compacted: compacted_first(),
+        });
+        assert!(reduce(ahead).is_err(), "covered itself");
+        let mut behind = two_turns();
+        behind.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 7,
+            compacted: compacted_first(),
+        });
+        behind.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        assert!(reduce(behind).is_err(), "went back");
+    }
+
+    #[test]
+    fn a_checkpoint_inside_a_concluded_turn_leaves_its_message_and_later_steps() {
+        // Upstream's coverage may fall at an exchange inside a turn
+        // (`appendContextCompaction`, `session_log.zig:343-360`; `split`,
+        // `window.zig:286-290`): the turn's first message stays, then its
+        // steps from the first exchange the checkpoint does not cover.
+        let call = |id: &str| SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: id.to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "a.txt"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        };
+        // Frames: 2 the prompt; 3-4 and 5-6 two reads; 7 the reply; 8 done.
+        let turn = vec![
+            started(),
+            user("read twice"),
+            call("r1"),
+            result("r1", "read_file", true, "FIRST-READ"),
+            call("r2"),
+            result("r2", "read_file", true, "SECOND-READ"),
+            answer("READ"),
+            concluded(),
+        ];
+        let mut events = turn.clone();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let state = reduce(events).expect("a cut at an exchange");
+        let checkpoint = state.checkpoint.as_ref().expect("in force");
+        assert_eq!((checkpoint.covered_turns, checkpoint.covered_steps), (0, 2));
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
+        assert_eq!(messages.len(), 5, "{messages:#?}");
+        assert_eq!(messages[1], Message::user("read twice"));
+        assert!(
+            !messages
+                .iter()
+                .any(|message| format!("{message:?}").contains("FIRST-READ")),
+            "the covered read came back: {messages:#?}"
+        );
+        assert_eq!(messages[4], Message::assistant(Some("READ"), Vec::new()));
+        // Not between a call and its result, nor at the reply.
+        for inside in [3, 6] {
+            let mut events = turn.clone();
+            events.push(SessionEvent::ContextCheckpoint {
+                covers_through_seq: inside,
+                compacted: compacted_first(),
+            });
+            assert_eq!(
+                reduce(events).err().as_deref(),
+                Some("a checkpoint covers part of a turn"),
+                "frame {inside}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_steer_goes_with_the_tool_step_after_it_and_a_cut_falls_before_it() {
+        // `selectRecentContext`, `window.zig:219-224`: a steer whose
+        // `after_tool_step_count` is one goes with step two, so the exchange
+        // boundary is right after step one's result.
+        let call = |id: &str| SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: id.to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "a.txt"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        };
+        let steered = |text: &str| SessionEvent::Steered {
+            text: text.to_string(),
+        };
+        // Frames: 2 the prompt; 3-4 a read; 5 a steer; 6-7 a read; 8 a steer
+        // after the last; 9 the reply; 10 done.
+        let turn = vec![
+            started(),
+            user("read twice"),
+            call("r1"),
+            result("r1", "read_file", true, "FIRST-READ"),
+            steered("also the second"),
+            call("r2"),
+            result("r2", "read_file", true, "SECOND-READ"),
+            steered("and sum up"),
+            answer("READ"),
+            concluded(),
+        ];
+        let state = reduce(turn.clone()).expect("a valid log");
+        let read = &state.turns[0];
+        assert_eq!(read.exchange_starts(), [0, 2]);
+        // The cut before the steer, and -- written when a steer went with the
+        // step before it -- the one after it: both read.
+        for (covers, steps) in [(4, 2), (5, 3)] {
+            let mut events = turn.clone();
+            events.push(SessionEvent::ContextCheckpoint {
+                covers_through_seq: covers,
+                compacted: compacted_first(),
+            });
+            let state = reduce(events).expect("a cut at an exchange");
+            let checkpoint = state.checkpoint.as_ref().expect("in force");
+            assert_eq!(checkpoint.covered_steps, steps, "frame {covers}");
+        }
+        // Not between the second read and the reply: the steer after the
+        // last step goes with it.
+        let mut events = turn.clone();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 7,
+            compacted: compacted_first(),
+        });
+        assert_eq!(
+            reduce(events).err().as_deref(),
+            Some("a checkpoint covers part of a turn")
+        );
+    }
+
+    #[test]
+    fn a_compacted_turns_images_go_with_it_and_a_cut_turns_stay_with_its_message() {
+        // Upstream sends a compacted turn as text (`turnsFrom` takes the
+        // message's text, `compactor.zig:266`), and a turn cut inside of keeps
+        // its first message whole, images and all (`contextHistoryRange`,
+        // `history_range.zig:36`).
+        use crate::gateway::protocol::ContentPart;
+        let image = |id: u32| TurnImage {
+            recorded: RecordedImage {
+                id,
+                path: format!("shot{id}.png"),
+                media_type: "image/png".to_string(),
+                sha256: "0".repeat(64),
+                bytes: 3,
+            },
+            snapshot: Snapshot::Loaded {
+                bytes: std::sync::Arc::from(&b"png"[..]),
+                path: std::sync::Arc::from(std::path::Path::new(&format!("shot{id}.png"))),
+            },
+        };
+        let step = |calls: bool, text: &str| TurnStep::Assistant {
+            text: text.to_string(),
+            tool_calls: if calls {
+                vec![RecordedToolCall {
+                    id: "c1".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "a"}),
+                }]
+            } else {
+                Vec::new()
+            },
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        };
+        let turn = |user: &str, id: u32, seq: u64| HistoryTurn {
+            user: user.to_string(),
+            images: vec![image(id)],
+            steps: vec![
+                step(true, ""),
+                TurnStep::ToolResult {
+                    call_id: "c1".to_string(),
+                    tool: "read_file".to_string(),
+                    ok: true,
+                    output: "x".to_string(),
+                    images: Vec::new(),
+                    ending: None,
+                    lines: None,
+                    change: None,
+                },
+                step(false, "done"),
+            ],
+            outcome: Some(TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            }),
+            timing: TurnTiming::default(),
+            seqs: TurnSeqs {
+                opened: seq,
+                last: seq + 4,
+                steps: vec![seq + 1, seq + 2, seq + 3],
+            },
+        };
+        let mut state = DurableState::empty_for_tests();
+        state.turns = vec![
+            turn("[Image #1] first", 1, 2),
+            turn("[Image #2] second", 2, 7),
+        ];
+        // The first turn whole, and the second cut at its reply's step --
+        // as a cut at an exchange of a longer turn would leave it.
+        state.checkpoint = Some(Checkpoint {
+            covers_through_seq: 9,
+            covered_turns: 1,
+            covered_steps: 2,
+            compacted: compacted_first(),
+            count: 1,
+        });
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
+        let images: Vec<usize> = messages
+            .iter()
+            .map(|message| {
+                message
+                    .content
+                    .iter()
+                    .filter(|part| matches!(part, ContentPart::Image { .. }))
+                    .count()
+            })
+            .collect();
+        assert_eq!(images, [0, 1, 0], "{messages:#?}");
+        assert_eq!(messages[1].text(), "[Image #2] second");
+    }
+
+    #[test]
+    fn an_older_log_replays_as_it_did_and_a_part_in_progress_is_omitted_when_absent() {
+        // The frame a whole-turn checkpoint writes has no `open`: written
+        // and read back exactly as before the field existed.
+        let mut events = two_turns();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let line = serde_json::to_string(events.last().expect("the checkpoint")).unwrap();
+        assert!(!line.contains("\"open\""), "{line}");
+        let older = r#"{"kind":"context_checkpoint","covers_through_seq":4,"compacted":{"turns":[],"turn_count":1,"tool_count":0}}"#;
+        let read: SessionEvent = serde_json::from_str(older).expect("an older frame");
+        assert!(matches!(
+            read,
+            SessionEvent::ContextCheckpoint { ref compacted, .. } if compacted.open.is_none()
+        ));
+    }
+
+    #[test]
+    fn a_checkpoint_over_a_running_turns_reply_is_refused() {
+        // A running turn may be covered through its last exchange, and goes
+        // on; never through a reply, which would have ended it -- a request
+        // would carry a step the compacted form never held.
+        let events = vec![
+            started(),
+            user("one"),
+            answer("ONE"),
+            SessionEvent::ContextCheckpoint {
+                covers_through_seq: 3,
+                compacted: compacted_first(),
+            },
+            answer("late"),
+        ];
+        assert_eq!(
+            reduce(events).err().as_deref(),
+            Some("a checkpoint covers part of a turn")
+        );
+    }
+
+    #[test]
+    fn the_latest_checkpoint_is_the_one_in_force() {
+        let mut events = two_turns();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let mut both = compacted_first();
+        both.turns.push(super::super::checkpoint::CompactedTurn {
+            number: 2,
+            users: vec!["two".to_string()],
+            work: String::new(),
+            final_reply: "TWO".to_string(),
+            first_tool: 0,
+            last_tool: 0,
+            tools: Vec::new(),
+        });
+        both.turn_count = 2;
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 7,
+            compacted: both.clone(),
+        });
+        events.push(user("three"));
+        let state = reduce(events).expect("a valid log");
+        assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(2));
+        let messages = state
+            .history_messages(Wire::VercelGateway, &state.model)
+            .messages;
+        assert_eq!(
+            messages[0],
+            Message::user(super::super::checkpoint::render(&both))
+        );
+        assert_eq!(messages[1], Message::user("three"));
+        assert_eq!(messages.len(), 2);
+    }
+
+    #[test]
+    fn a_checkpoint_frame_round_trips_under_its_kind() {
+        let event = SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        };
+        assert_eq!(event.kind(), "context_checkpoint");
+        let line = frame(8, event.clone()).encode().expect("encodes");
+        assert!(line.contains("\"kind\":\"context_checkpoint\""), "{line}");
+        assert!(line.contains("\"covers_through_seq\":4"), "{line}");
+        assert_eq!(
+            EventEnvelope::decode(line.trim_end())
+                .expect("decodes")
+                .event,
+            event
+        );
+    }
 }
+
+/// A conversation carried across a provider switch, as each wire is sent it.
+#[cfg(test)]
+mod carry_tests;

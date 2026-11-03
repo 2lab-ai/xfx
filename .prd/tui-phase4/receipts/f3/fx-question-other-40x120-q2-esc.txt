@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ ask me
+
+  1) Which database should I use?
+     MariaDB please
+
+  Got it.
+
+  4s (↑2 ↓80)
+
+┃ ask again
+
+■ Cancelled
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

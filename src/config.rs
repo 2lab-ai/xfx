@@ -57,6 +57,137 @@ pub const PROVIDER_KEY: &str = "provider";
 pub const MODELS_KEY: &str = "models";
 /// The v0.1.0 key that selected a backend, still read and still written.
 pub const BACKEND_KEY: &str = "backend";
+/// The settings object holding which of the footer's optional segments are
+/// shown, upstream's spelling (`config_runtime.zig:1807-1826`, `c1db919`).
+pub const STATUS_LINE_KEY: &str = "statusLine";
+/// Whether the slash popup shows each command's category, upstream's key
+/// (`config_runtime.zig:63`, written by `/settings`).
+pub const SLASH_MENU_CATEGORIES_KEY: &str = "slash_menu_categories";
+/// Whether a tool group is drawn as its header alone, upstream's key
+/// (`settings_store.zig:108`, written by `/settings`).
+pub const COLLAPSE_TOOL_CALLS_KEY: &str = "collapse_tool_calls";
+/// Whether a launch pushes the shell's output above the cursor into
+/// scrollback and starts on the screen's first row, upstream's key
+/// (`config_runtime.zig:1778-1782`, written by `/settings`).
+pub const STARTUP_SCROLLBACK_KEY: &str = "startup_scrollback";
+/// Whether a fresh session's first prompt asks a model for the session's
+/// title, upstream's key (`config_runtime.zig:1753-1757`, written by
+/// `/settings`).
+pub const SESSION_TITLES_KEY: &str = "session_titles";
+/// The object holding whether submitted lines are kept for recall:
+/// `prompt_history.enabled`, upstream's shape (`settings_store.zig:1076-1085`).
+pub const PROMPT_HISTORY_KEY: &str = "prompt_history";
+
+/// The session's reasoning effort, upstream's key (`config_runtime.zig:1798-1805`,
+/// `c1db919`): `"auto"` or a level the catalog names. Profile-only, as
+/// upstream's is (`isProfileOnlySettingKey`, `:834-861`): how hard a person
+/// wants their model to think is theirs, not a repository's.
+pub const EFFORT_KEY: &str = "effort";
+
+/// Fast mode, upstream's key: a `bool`. Profile-only, as upstream's is.
+pub const FAST_MODE_KEY: &str = "fast_mode";
+
+/// Ultra mode, upstream's key: a `bool`. Profile-only, as upstream's is.
+pub const ULTRAFAST_MODE_KEY: &str = "ultrafast_mode";
+
+/// Whether the profile's Fast mode was chosen for the model it holds,
+/// upstream's key (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+/// Upstream writes it `true` beside every model, effort or speed change; what
+/// it governs is the footer's `⚡︎`, which marks a Fast mode that is bound and
+/// on. A `fast_mode` an operator wrote by hand without it is on and sent, and
+/// not marked.
+pub const FAST_MODE_MODEL_BOUND_KEY: &str = "fast_mode_model_bound";
+
+/// The configured permission table (`config_runtime.zig:1845-1850`): an
+/// action for everything, or categories to actions or to patterns to actions
+/// (`crate::permission::rules::RuleSet::parse`). Profile-only, as upstream's is
+/// (`isProfileOnlySettingKey`, `:834-866`): a repository that could allowlist
+/// commands for whoever clones it would be choosing what runs on their machine.
+pub const PERMISSION_KEY: &str = "permission";
+
+/// The two places a permission table can live, and which one is in force.
+///
+/// Upstream keeps the same three facts (`PermissionSourceViews`,
+/// `config_runtime.zig:994-1005`): the profile's own table (`user`), this
+/// workspace's entry in the same file (`local`), and whether the second exists
+/// at all. **Whole-table replacement, not a merge**: a workspace entry with a
+/// `permission` key -- even `{}` -- puts every user rule out of force here, and
+/// `/allowlist` says so.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PermissionTables {
+    /// `permission` at the top of `~/.xfx/settings.json`.
+    pub user: crate::permission::rules::RuleSet,
+    /// `workspaces["<this workspace>"].permission`.
+    pub local: crate::permission::rules::RuleSet,
+    /// This workspace's entry carries a readable `permission` key, so `local`
+    /// is the table in force and `user` is not consulted.
+    pub user_shadowed_by_local: bool,
+    /// Why a table this workspace is judged by did not read, when one did
+    /// not: the profile is there and does not read, or its `permission`, its
+    /// `workspaces`, this workspace's entry or that entry's `permission` is not
+    /// what it must be. While it is set, [`Self::effective`] refuses every
+    /// tool -- the rules that did not read may have been denies.
+    ///
+    /// Upstream drops such a layer and goes on with no table from it
+    /// (`mergeDetailedSettingsLayer`, `vercel-labs/fx@c1db9191
+    /// src/core/config/config_runtime.zig:1009-1022`), so a typo beside a deny
+    /// takes the deny away; xfx does not copy that (`docs/parity.md`).
+    pub unreadable: Option<String>,
+}
+
+impl PermissionTables {
+    /// The table every decision in this workspace reads: the one in force, or
+    /// `"permission": "deny"` while a table did not read ([`Self::unreadable`]).
+    pub fn effective(&self) -> &crate::permission::rules::RuleSet {
+        if self.unreadable.is_some() {
+            refuse_every_tool()
+        } else if self.user_shadowed_by_local {
+            &self.local
+        } else {
+            &self.user
+        }
+    }
+
+    /// What a launch in `mode` says while a table did not read: one line, safe
+    /// for a terminal.
+    ///
+    /// Full access consults no table at all (`PermissionSession::evaluate_with`
+    /// returns before the rules), so there the line says the table is not
+    /// applied rather than that anything is refused -- and that every other
+    /// mode, the one a Shift-Tab or `/permissions` moves to included, refuses
+    /// every tool.
+    pub fn refusal(&self, mode: PermissionMode) -> Option<String> {
+        self.unreadable.as_ref().map(|reason| {
+            let head = if mode == PermissionMode::Yolo {
+                "full access consults no table, so it is not applied; every other mode refuses every tool"
+            } else {
+                "every tool is refused"
+            };
+            // The bound is on what the file can put in the line, not on the
+            // sentence around it.
+            let reason = crate::output::safe_one_line(reason, STARTUP_LINE_BYTES);
+            format!("{head}: a permission table did not read ({reason})")
+        })
+    }
+
+    /// Keeps the first reason a table did not read.
+    fn refuse(&mut self, reason: String) {
+        self.unreadable.get_or_insert(reason);
+    }
+}
+
+/// `"permission": "deny"`: one rule refusing every tool at every target.
+fn refuse_every_tool() -> &'static crate::permission::rules::RuleSet {
+    use crate::permission::rules::{ConfiguredRule, RuleAction, RuleSet};
+    static TABLE: std::sync::LazyLock<RuleSet> = std::sync::LazyLock::new(|| {
+        RuleSet::new(vec![ConfiguredRule::new("*", "*", RuleAction::Deny)])
+    });
+    &TABLE
+}
+
+/// The most a launch's line about one diagnostic holds: a note can quote what
+/// the file says, and the file is as large as [`MAX_SETTINGS_BYTES`].
+const STARTUP_LINE_BYTES: usize = 256;
 
 /// The environment override for the model.
 ///
@@ -66,8 +197,41 @@ pub const BACKEND_KEY: &str = "backend";
 pub const ENV_MODEL: &str = "XFX_MODEL";
 const ENV_PERMISSION_MODE: &str = "XFX_PERMISSION_MODE";
 const ENV_MAX_AGENT_STEPS: &str = "XFX_MAX_AGENT_STEPS";
+
+/// The environment override for `/sound`'s start value, upstream's `FX_SOUND`
+/// (`vercel-labs/fx@c1db9191 src/core/app/app_lifecycle.zig:1714-1725`).
+///
+/// `0`, `false` or `off` (the last two in any case) start the session with
+/// sound off; any other value that is not blank starts it on. It decides where
+/// the session **starts** and nothing else: `/sound` still moves it, and still
+/// saves what it moved it to. A harness that must stay silent sets
+/// `XFX_SOUND=off`, as fx's own sets `FX_SOUND=0`.
+pub const ENV_SOUND: &str = "XFX_SOUND";
+
+/// The directories outside a workspace a skill root's link may resolve into,
+/// colon-separated absolute paths: upstream's `FX_SKILL_SYMLINK_AUTHORITIES`
+/// (`vercel-labs/fx@c1db9191 src/core/skills/skill_runtime.zig:652-681`).
+pub const ENV_SKILL_SYMLINK_AUTHORITIES: &str = "XFX_SKILL_SYMLINK_AUTHORITIES";
+
+/// The profile's list of those directories (`skill_symlink_authorities`,
+/// `src/core/config/config_runtime.zig:1784-1788`, `:1853-1877`).
+pub const SKILL_SYMLINK_AUTHORITIES_KEY: &str = "skill_symlink_authorities";
+
+/// The most entries that list may have (`max_skill_symlink_authorities`,
+/// `config_runtime.zig:264-265`).
+pub const MAX_SKILL_SYMLINK_AUTHORITIES: usize = 32;
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
 const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
+
+/// The variables that hold xfx's own Gateway credential.
+///
+/// No child inherits them: [`crate::process::command`] removes both from every
+/// command, and the terminal tool and an MCP stdio server start from an
+/// environment that is built rather than inherited. Only a value a person wrote
+/// on purpose -- an MCP server's configured `env` -- hands one to a child; a
+/// project server's `${VAR}`, `header_env` and `bearer_token_env` never resolve
+/// them (`mcp::config::load_workspace`).
+pub const CREDENTIAL_VARIABLES: [&str; 2] = [ENV_OIDC_TOKEN, ENV_GATEWAY_KEY];
 
 /// The variable llmux uses to name its own configuration file.
 ///
@@ -87,14 +251,107 @@ pub const ENV_XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
 /// subset that its own settings surface actually supports.
 const PROFILE_ONLY_KEYS: &[&str] = &[
     "backend",
+    COLLAPSE_TOOL_CALLS_KEY,
     "credential_source",
+    EFFORT_KEY,
+    FAST_MODE_KEY,
+    FAST_MODE_MODEL_BOUND_KEY,
+    ULTRAFAST_MODE_KEY,
     "llmux_url",
     "model",
     "models",
+    "notifications",
+    PERMISSION_KEY,
     "permission_mode",
+    PROMPT_HISTORY_KEY,
     "provider",
+    SESSION_TITLES_KEY,
+    SKILL_SYMLINK_AUTHORITIES_KEY,
+    SLASH_MENU_CATEGORIES_KEY,
+    STARTUP_SCROLLBACK_KEY,
+    STATUS_LINE_KEY,
     "workspaces",
+    "yolo_acknowledged",
 ];
+
+/// Which of the footer's three optional segments are shown
+/// (`statusLine.{context,session,workspace}`).
+///
+/// **All three off unless a profile turns one on**, as upstream's are
+/// (`settings_catalog.zig:58-60`, `c1db919`): the session title, the context
+/// meter and the workspace path are things a user asks the footer for, not
+/// things it says by default. Profile-only ([`PROFILE_ONLY_KEYS`]), because
+/// what a person's footer shows is theirs and not a repository's to choose --
+/// upstream lists `statusLine` there too (`config_runtime.zig:853`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StatusLine {
+    /// How much of the context window the conversation has spent.
+    pub context: bool,
+    /// The session's title.
+    pub session: bool,
+    /// The workspace's path and its Git branch.
+    pub workspace: bool,
+}
+
+impl StatusLine {
+    /// Whether `item` is on.
+    pub fn get(self, item: StatusLineItem) -> bool {
+        match item {
+            StatusLineItem::Context => self.context,
+            StatusLineItem::Session => self.session,
+            StatusLineItem::Workspace => self.workspace,
+        }
+    }
+
+    /// Turns `item` on or off.
+    pub fn set(&mut self, item: StatusLineItem, on: bool) {
+        match item {
+            StatusLineItem::Context => self.context = on,
+            StatusLineItem::Session => self.session = on,
+            StatusLineItem::Workspace => self.workspace = on,
+        }
+    }
+}
+
+/// One of the footer's optional segments, by the name `/statusline` takes and
+/// the profile keeps it under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusLineItem {
+    Context,
+    Session,
+    Workspace,
+}
+
+impl StatusLineItem {
+    /// Every item, in upstream's order (`settings_catalog.zig:118-134`).
+    pub const ALL: [Self; 3] = [Self::Context, Self::Session, Self::Workspace];
+
+    /// The word `/statusline` takes, the notice says and the key is spelled
+    /// with (`@tagName(item)`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Context => "context",
+            Self::Session => "session",
+            Self::Workspace => "workspace",
+        }
+    }
+
+    /// The item an argument names, or `None`.
+    ///
+    /// **Exact and case-sensitive** once spaces and tabs are off its ends, as
+    /// upstream's is (`parseStatuslineItem`, `app_commands.zig:3863-3869`) --
+    /// unlike `/settings` and `/allowlist`, which fold case. `Context` and
+    /// `context please` are both a usage error.
+    pub fn parse(argument: &str) -> Option<Self> {
+        let word = argument.trim_matches([' ', '\t']);
+        Self::ALL.into_iter().find(|item| item.name() == word)
+    }
+
+    /// Where the profile keeps it: `statusLine.<name>`.
+    pub fn key_path(self) -> [&'static str; 2] {
+        [STATUS_LINE_KEY, self.name()]
+    }
+}
 
 /// How much authority the agent has before it must ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +375,41 @@ impl PermissionMode {
         }
     }
 
+    /// The word a person reads for this mode: upstream's
+    /// (`permissionModeDisplayLabel`, `vercel-labs/fx@c1db9191
+    /// src/core/permissions/permissions.zig`), where the mode that skips every
+    /// check is `full access` -- on the hint row, in `/permissions`, and in
+    /// the notice that sets it.
+    ///
+    /// **Not [`Self::label`]**, which stays the wire word: a session log and
+    /// the settings file record `yolo`, as upstream's own settings file does
+    /// (`"permission_mode":"yolo"`), and a reader of either must be able to
+    /// read back what an older xfx wrote.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Auto => "auto",
+            Self::Yolo => "full access",
+        }
+    }
+
+    /// A mode as a person types it: upstream's grammar
+    /// (`PermissionMode.parse`, `vercel-labs/fx@c1db9191
+    /// src/core/shared/types.zig:2396-2403`) -- `ask`, `auto`, and `full-access`,
+    /// `full access` or `yolo` for the third, in any case.
+    ///
+    /// The wire grammar is [`Self::parse`] and stays exact: a session log is
+    /// something xfx wrote, and one that says `Full Access` is not one it
+    /// wrote. This is what an argument to `/permissions` is read with, and it
+    /// ends in that same table rather than in one of its own.
+    pub fn parse_choice(raw: &str) -> Option<Self> {
+        let word = raw.trim().to_ascii_lowercase();
+        match word.as_str() {
+            "full-access" | "full access" => Some(Self::Yolo),
+            other => Self::parse(other),
+        }
+    }
+
     /// The inverse of [`Self::label`], tolerating surrounding whitespace.
     ///
     /// Public because a persisted session records the label and has to be able
@@ -138,6 +430,42 @@ impl Default for PermissionMode {
     /// (`vercel-labs/fx@580a0c5d src/core/config/config_runtime.zig:18`).
     fn default() -> Self {
         Self::Auto
+    }
+}
+
+/// The two switches `/sound` moves, as a session starts with them.
+///
+/// Upstream keeps them apart in its settings (`"notifications": {"turn_end",
+/// "attention_required"}`, `vercel-labs/fx@c1db9191
+/// src/core/config/config_runtime.zig:1829-1843`) and reads them apart, so a
+/// file that sets only one keeps the other at its default -- and so does this.
+/// `/sound` always writes both to the same value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Notifications {
+    /// Ring when a turn finishes, whether it answered or failed.
+    pub turn_end: bool,
+    /// Ring when the session stops to ask the user something.
+    pub attention_required: bool,
+}
+
+impl Notifications {
+    /// Both switches at once, which is the only way `/sound` sets them.
+    pub fn both(on: bool) -> Self {
+        Self {
+            turn_end: on,
+            attention_required: on,
+        }
+    }
+}
+
+impl Default for Notifications {
+    /// Upstream's compiled default: on where it has an audio player to play
+    /// through (macOS), off elsewhere, where all it has is the terminal bell
+    /// (`vercel-labs/fx@c1db9191 src/core/notifications/sound.zig:9-11`). xfx
+    /// only ever rings the bell, so it keeps the same split rather than
+    /// inventing a third rule: a Linux user gets what fx gives them there.
+    fn default() -> Self {
+        Self::both(cfg!(target_os = "macos"))
     }
 }
 
@@ -181,6 +509,17 @@ pub struct Sources {
     /// `setup` has to be able to tell the operator that the file it just wrote
     /// is not the layer their next turn will read.
     pub llmux_url: SettingSource,
+    /// Where `fast_mode` and `fast_mode_model_bound` came from: the binding
+    /// holds only when they and the model came from one layer
+    /// (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+    pub fast_mode: SettingSource,
+    pub fast_mode_model_bound: SettingSource,
+    /// Where `effort` and `ultrafast_mode` came from: they decide nothing at
+    /// launch, and are kept only so a save can say that a layer above the
+    /// profile -- this workspace's entry -- will still decide them
+    /// (`appendShadowedUserSources`, `session_commands.zig:182-184`).
+    pub effort: SettingSource,
+    pub ultrafast_mode: SettingSource,
 }
 
 impl Default for Sources {
@@ -191,6 +530,10 @@ impl Default for Sources {
             max_agent_steps: SettingSource::CompiledDefault,
             provider: SettingSource::CompiledDefault,
             llmux_url: SettingSource::CompiledDefault,
+            fast_mode: SettingSource::CompiledDefault,
+            fast_mode_model_bound: SettingSource::CompiledDefault,
+            effort: SettingSource::CompiledDefault,
+            ultrafast_mode: SettingSource::CompiledDefault,
         }
     }
 }
@@ -321,6 +664,25 @@ impl Diagnostic {
         }
         detail
     }
+
+    /// The diagnostic as upstream's launch says it -- `<layer>: <cause>`, then
+    /// `; key=<key>` (`vercel-labs/fx@c1db9191
+    /// src/core/app/app_bootstrap_runtime.zig:671-678`, `cli_ask.zig:1716-1727`,
+    /// `writeDiagnosticMetadata`, `config_runtime.zig:238-239`) -- and xfx's
+    /// note after that, as one line safe for a terminal: the note can quote
+    /// the file.
+    pub fn startup_line(&self) -> String {
+        let mut line = format!("{}: {}", self.layer.label(), self.cause.label());
+        if let Some(key) = &self.setting_key {
+            line.push_str("; key=");
+            line.push_str(key);
+        }
+        if let Some(note) = &self.note {
+            line.push_str("; ");
+            line.push_str(note);
+        }
+        crate::output::safe_one_line(&line, STARTUP_LINE_BYTES)
+    }
 }
 
 /// A provider selection xfx could not read, and which key wrote it.
@@ -418,6 +780,8 @@ impl Environment {
             ENV_MODEL,
             ENV_PERMISSION_MODE,
             ENV_MAX_AGENT_STEPS,
+            ENV_SOUND,
+            ENV_SKILL_SYMLINK_AUTHORITIES,
             ENV_OIDC_TOKEN,
             ENV_GATEWAY_KEY,
             // Not xfx knobs and not read by any layer below: `xfx setup llmux`
@@ -505,7 +869,19 @@ pub struct RuntimeConfig {
     pub project_settings_loaded: bool,
     pub model: String,
     pub permission_mode: PermissionMode,
+    /// Whether the person at this profile has already been shown the
+    /// full-access warning once (`yolo_acknowledged`).
+    ///
+    /// Upstream shows the warning on the hint row the first time a session is
+    /// in that mode and records that it did, so it is shown once per user,
+    /// ever (`app_permission_runtime.zig:99-111`, `:168-176`). Profile-only, like
+    /// the mode it is about: a repository cannot decide that its cloner has
+    /// already been warned.
+    pub yolo_acknowledged: bool,
     pub max_agent_steps: u32,
+    /// What `/sound` starts at: [`ENV_SOUND`], else the profile's
+    /// `notifications` (each switch on its own), else the compiled default.
+    pub notifications: Notifications,
     /// The provider a turn will talk to.
     ///
     /// This is the *configured* provider, never silently downgraded. When it is
@@ -530,12 +906,72 @@ pub struct RuntimeConfig {
     /// Model preferences by provider tag, as merged. Exposed so a writer can preserve the
     /// entries for providers this invocation is not using.
     pub models: BTreeMap<String, String>,
+    /// Which of the footer's optional segments the profile turned on.
+    pub statusline: StatusLine,
+    /// Whether the slash popup shows each command's category: on unless the
+    /// profile turns it off (`settings_catalog.zig:61`, `app_lifecycle.zig:785`).
+    pub slash_menu_categories: bool,
+    /// Whether a tool group is drawn as its header alone: off unless the
+    /// profile turns it on (`settings_catalog.zig:62`, `app_lifecycle.zig:786`).
+    pub collapse_tool_calls: bool,
+    /// Whether a launch pushes the shell's output into scrollback and starts on
+    /// the first row: on unless the profile turns it off
+    /// (`settings_catalog.zig:64`, `app_lifecycle.zig:789`). Off, the session
+    /// starts under that output (`prepareStartupViewport`,
+    /// `app_lifecycle.zig:966-988`; [`crate::tui`]'s launch).
+    pub startup_scrollback: bool,
+    /// Whether a fresh session's first prompt asks the provider for a title
+    /// (`crate::tui`'s `titles`): on unless the profile turns it off
+    /// (`settings_catalog.zig:63`, `app_lifecycle.zig:811`).
+    pub session_titles: bool,
+    /// Whether submitted lines are kept for the composer's recall and written
+    /// to `~/.xfx/history.jsonl`: on unless the profile turns it off
+    /// (`settings_catalog.zig:65`).
+    pub prompt_history: bool,
+    /// The reasoning effort a session starts in ([`EFFORT_KEY`]), the default
+    /// when the profile names none. Whether a given model *takes* it is the
+    /// catalog's question, asked per request
+    /// (`crate::provider::effort::Effort::for_request`).
+    pub effort: crate::provider::effort::Effort,
+    /// Fast mode as the profile left it ([`FAST_MODE_KEY`]); off when Ultra is
+    /// on, because the two are never on together.
+    pub fast_mode: bool,
+    /// Whether that Fast mode is bound to the model ([`FAST_MODE_MODEL_BOUND_KEY`]).
+    pub fast_mode_model_bound: bool,
+    /// Ultra mode as the profile left it ([`ULTRAFAST_MODE_KEY`]).
+    pub ultrafast_mode: bool,
+    /// The directories `/workspace` saved for this workspace, as the profile
+    /// spells them: `workspaces["<workspace>"].additional_directories`
+    /// (`crate::workspace::access`). Profile-only, because `workspaces` is: a
+    /// repository cannot add a directory to its cloner's session.
+    pub additional_directories: Vec<String>,
+    /// The directories outside a workspace a link in one of its skill roots
+    /// may resolve into, as the profile lists them
+    /// ([`SKILL_SYMLINK_AUTHORITIES_KEY`]): the workspace's own entry's list
+    /// in place of the global one when it has one. Profile-only -- a
+    /// repository cannot widen what its cloner's skills may read -- and empty
+    /// unless every layer that names it names it validly
+    /// (`crate::skills::discovery`'s authorities).
+    pub skill_symlink_authorities: Vec<String>,
+    /// The same, from [`ENV_SKILL_SYMLINK_AUTHORITIES`]: its absolute entries
+    /// without `..`, the rest skipped as upstream skips them.
+    pub skill_symlink_authorities_env: Vec<String>,
+    /// The configured permission tables ([`PERMISSION_KEY`]), user and this
+    /// workspace's, and which one is in force.
+    pub permission: PermissionTables,
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
 }
 
 impl RuntimeConfig {
+    /// The home directory the profile is under: what the managed skill root
+    /// `~/.xfx/skills` hangs off, and where the walk for workspace skill
+    /// roots stops (`crate::skills::discovery`).
+    pub fn home(&self) -> Option<&Path> {
+        self.profile_dir.as_deref().and_then(Path::parent)
+    }
+
     /// Loads configuration for `workspace` from the real process environment.
     pub fn load(workspace: &Path) -> Result<Self, ConfigError> {
         Self::load_with(&Environment::from_process(), workspace)
@@ -574,12 +1010,23 @@ impl RuntimeConfig {
             settings.merge(layer, SettingSource::Project, &mut sources);
         }
 
+        let before_user = diagnostics.len();
         let user = match user_settings_path.as_ref() {
             Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
             None => LayerRead::absent(),
         };
         let user_settings_present = user.present;
         let user_settings_loaded = user.object.is_some();
+        let mut additional_directories = Vec::new();
+        let mut permission = PermissionTables::default();
+        // Fail closed (`PermissionTables::unreadable`): a profile that is there
+        // and does not read holds a table nobody can say is empty.
+        if user.present && user.object.is_none() {
+            permission.refuse(diagnostics.get(before_user).map_or_else(
+                || "the profile settings file did not read".to_string(),
+                Diagnostic::detail,
+            ));
+        }
         if let Some(object) = &user.object {
             let layer = parse_layer(
                 object,
@@ -588,8 +1035,20 @@ impl RuntimeConfig {
                 &mut diagnostics,
             );
             settings.merge(layer, SettingSource::UserGlobal, &mut sources);
+            match permission_table(object, &mut diagnostics) {
+                Ok(Some(table)) => permission.user = table,
+                Ok(None) => {}
+                Err(reason) => permission.refuse(reason),
+            }
 
-            if let Some(entry) = exact_workspace_entry(object, &workspace_root, &mut diagnostics) {
+            let entry = match exact_workspace_entry(object, &workspace_root, &mut diagnostics) {
+                Ok(entry) => entry,
+                Err(reason) => {
+                    permission.refuse(reason);
+                    None
+                }
+            };
+            if let Some(entry) = entry {
                 let layer = parse_layer(
                     entry,
                     LayerKind::Profile,
@@ -597,6 +1056,24 @@ impl RuntimeConfig {
                     &mut diagnostics,
                 );
                 settings.merge(layer, SettingSource::UserWorkspace, &mut sources);
+                // Only in the workspace's own entry: a directory saved for one
+                // workspace is not one every workspace may use.
+                match crate::workspace::access::saved_from_entry(entry) {
+                    Ok(saved) => additional_directories = saved,
+                    Err(_) => diagnostics.push(Diagnostic::with_key(
+                        ConfigLayer::User,
+                        DiagnosticCause::InvalidValue,
+                        crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
+                    )),
+                }
+                match permission_table(entry, &mut diagnostics) {
+                    Ok(Some(table)) => {
+                        permission.local = table;
+                        permission.user_shadowed_by_local = true;
+                    }
+                    Ok(None) => {}
+                    Err(reason) => permission.refuse(reason),
+                }
             }
         }
 
@@ -821,11 +1298,51 @@ impl RuntimeConfig {
             project_settings_loaded,
             model,
             permission_mode: settings.permission_mode.unwrap_or_default(),
+            yolo_acknowledged: settings.yolo_acknowledged.unwrap_or(false),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
+            notifications: Notifications {
+                turn_end: settings
+                    .notification_turn_end
+                    .unwrap_or(Notifications::default().turn_end),
+                attention_required: settings
+                    .notification_attention_required
+                    .unwrap_or(Notifications::default().attention_required),
+            },
             provider,
             provider_rejected,
             llmux_url: settings.llmux_url,
             models: settings.models,
+            statusline: StatusLine {
+                context: settings.statusline_context.unwrap_or(false),
+                session: settings.statusline_session.unwrap_or(false),
+                workspace: settings.statusline_workspace.unwrap_or(false),
+            },
+            slash_menu_categories: settings.slash_menu_categories.unwrap_or(true),
+            collapse_tool_calls: settings.collapse_tool_calls.unwrap_or(false),
+            startup_scrollback: settings.startup_scrollback.unwrap_or(true),
+            session_titles: settings.session_titles.unwrap_or(true),
+            prompt_history: settings.prompt_history.unwrap_or(true),
+            effort: settings.effort.unwrap_or_default(),
+            // Ultra outranks Fast, as turning it on turns Fast off.
+            fast_mode: settings.fast_mode.unwrap_or(false)
+                && !settings.ultrafast_mode.unwrap_or(false),
+            // Bound only to a model chosen in the layer Fast was
+            // (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+            fast_mode_model_bound: settings.fast_mode.unwrap_or(false)
+                && settings.fast_mode_model_bound.unwrap_or(false)
+                && sources.model == sources.fast_mode
+                && sources.fast_mode == sources.fast_mode_model_bound,
+            ultrafast_mode: settings.ultrafast_mode.unwrap_or(false),
+            additional_directories,
+            skill_symlink_authorities: match settings.skill_symlink_authorities {
+                Some(Ok(list)) => list,
+                Some(Err(())) | None => Vec::new(),
+            },
+            skill_symlink_authorities_env: env
+                .var(ENV_SKILL_SYMLINK_AUTHORITIES)
+                .map(skill_symlink_authorities_env)
+                .unwrap_or_default(),
+            permission,
             sources,
             diagnostics,
             credential: resolve_credential(env),
@@ -851,8 +1368,16 @@ impl RuntimeConfig {
 #[derive(Debug, Default)]
 struct Settings {
     model: Option<String>,
+    /// [`SKILL_SYMLINK_AUTHORITIES_KEY`]: `Some(Ok)` a valid list, `Some(Err)`
+    /// one that was not.
+    skill_symlink_authorities: Option<Result<Vec<String>, ()>>,
     permission_mode: Option<PermissionMode>,
+    yolo_acknowledged: Option<bool>,
     max_agent_steps: Option<u32>,
+    /// `notifications.turn_end`, and the override's word for it.
+    notification_turn_end: Option<bool>,
+    /// `notifications.attention_required`, and the override's word for it.
+    notification_attention_required: Option<bool>,
     backend: Option<ProviderId>,
     backend_source: Option<SettingSource>,
     /// The raw `backend` value a layer wrote that could not be read.
@@ -871,6 +1396,28 @@ struct Settings {
     llmux_url: Option<String>,
     /// This layer wrote an `llmux_url` the endpoint policy refused.
     llmux_url_rejected: bool,
+    /// `statusLine.context`, `.session` and `.workspace`, each merged on its
+    /// own: a layer that sets one says nothing about the other two.
+    statusline_context: Option<bool>,
+    statusline_session: Option<bool>,
+    statusline_workspace: Option<bool>,
+    /// `slash_menu_categories`.
+    slash_menu_categories: Option<bool>,
+    /// `collapse_tool_calls`.
+    collapse_tool_calls: Option<bool>,
+    /// `startup_scrollback`.
+    startup_scrollback: Option<bool>,
+    /// `session_titles`.
+    session_titles: Option<bool>,
+    /// `prompt_history.enabled`.
+    prompt_history: Option<bool>,
+    /// `effort`, when a layer wrote a readable one.
+    effort: Option<crate::provider::effort::Effort>,
+    /// `fast_mode`, `fast_mode_model_bound` and `ultrafast_mode`, each merged
+    /// on its own.
+    fast_mode: Option<bool>,
+    fast_mode_model_bound: Option<bool>,
+    ultrafast_mode: Option<bool>,
 }
 
 impl Settings {
@@ -883,13 +1430,84 @@ impl Settings {
             self.model = Some(model);
             sources.model = source;
         }
+        // A newer layer's list replaces the older one's whole, as upstream's
+        // workspace entry replaces the global list
+        // (`config_runtime.zig:1986-1990`) -- and a list that could not be read
+        // anywhere leaves none at all: authority is never widened by a typo.
+        match (
+            self.skill_symlink_authorities.take(),
+            incoming.skill_symlink_authorities,
+        ) {
+            (Some(Err(())), _) | (_, Some(Err(()))) => {
+                self.skill_symlink_authorities = Some(Err(()));
+            }
+            (_, Some(Ok(list))) => self.skill_symlink_authorities = Some(Ok(list)),
+            (kept, None) => self.skill_symlink_authorities = kept,
+        }
+        // Per item, as upstream merges them (`config_runtime.zig:1999-2001`).
+        // No provenance is kept: nothing reports which layer turned a segment
+        // on, and nothing decides anything by it.
+        if let Some(on) = incoming.statusline_context {
+            self.statusline_context = Some(on);
+        }
+        if let Some(on) = incoming.statusline_session {
+            self.statusline_session = Some(on);
+        }
+        if let Some(on) = incoming.statusline_workspace {
+            self.statusline_workspace = Some(on);
+        }
+        if let Some(on) = incoming.fast_mode {
+            self.fast_mode = Some(on);
+            sources.fast_mode = source;
+        }
+        if let Some(on) = incoming.fast_mode_model_bound {
+            self.fast_mode_model_bound = Some(on);
+            sources.fast_mode_model_bound = source;
+        }
+        if let Some(on) = incoming.ultrafast_mode {
+            self.ultrafast_mode = Some(on);
+            sources.ultrafast_mode = source;
+        }
+        // The `/settings` switches, each on its own and with no
+        // provenance kept, for the reason the segments above keep none.
+        if let Some(on) = incoming.slash_menu_categories {
+            self.slash_menu_categories = Some(on);
+        }
+        if let Some(on) = incoming.collapse_tool_calls {
+            self.collapse_tool_calls = Some(on);
+        }
+        if let Some(on) = incoming.startup_scrollback {
+            self.startup_scrollback = Some(on);
+        }
+        if let Some(on) = incoming.session_titles {
+            self.session_titles = Some(on);
+        }
+        if let Some(on) = incoming.prompt_history {
+            self.prompt_history = Some(on);
+        }
+        if let Some(effort) = incoming.effort {
+            self.effort = Some(effort);
+            sources.effort = source;
+        }
         if let Some(mode) = incoming.permission_mode {
             self.permission_mode = Some(mode);
             sources.permission_mode = source;
         }
+        if let Some(acknowledged) = incoming.yolo_acknowledged {
+            self.yolo_acknowledged = Some(acknowledged);
+        }
         if let Some(steps) = incoming.max_agent_steps {
             self.max_agent_steps = Some(steps);
             sources.max_agent_steps = source;
+        }
+        // Field by field, as upstream merges them (`config_runtime.zig:2002-2004`):
+        // a workspace entry that sets one switch leaves the other where the
+        // global file put it. No provenance is kept, because nothing reports it.
+        if let Some(on) = incoming.notification_turn_end {
+            self.notification_turn_end = Some(on);
+        }
+        if let Some(on) = incoming.notification_attention_required {
+            self.notification_attention_required = Some(on);
         }
         if let Some(backend) = incoming.backend {
             self.backend = Some(backend);
@@ -958,6 +1576,12 @@ enum LayerKind {
     Project,
 }
 
+/// Whether a settings file's model can be used: one xfx would have written
+/// ([`crate::provider::model::model_id_problem`]).
+fn usable_model(model: &str) -> bool {
+    crate::provider::model::model_id_problem(model).is_none()
+}
+
 fn parse_layer(
     object: &serde_json::Map<String, Value>,
     kind: LayerKind,
@@ -967,9 +1591,28 @@ fn parse_layer(
     let mut settings = Settings::default();
 
     if kind == LayerKind::Profile {
+        if let Some(value) = object.get(SKILL_SYMLINK_AUTHORITIES_KEY) {
+            let parsed = skill_symlink_authorities(value);
+            if parsed.is_err() {
+                diagnostics.push(Diagnostic::with_note(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    SKILL_SYMLINK_AUTHORITIES_KEY,
+                    format!(
+                        "skill_symlink_authorities must be an array of at most {MAX_SKILL_SYMLINK_AUTHORITIES} absolute directory paths without .. components"
+                    ),
+                ));
+            }
+            settings.skill_symlink_authorities = Some(parsed);
+        }
+        // A model is held to the rule a typed one is
+        // (`provider::model::model_id_problem`): the profile's is painted at
+        // every launch, and a provider's catalog id has been written into it.
+        // Upstream refuses such a value here too (`config_runtime.zig:1645`,
+        // `:1674`).
         if let Some(value) = object.get("model") {
             match value.as_str().map(str::trim) {
-                Some(model) if !model.is_empty() => settings.model = Some(model.to_string()),
+                Some(model) if usable_model(model) => settings.model = Some(model.to_string()),
                 _ => diagnostics.push(Diagnostic::with_key(
                     layer,
                     DiagnosticCause::InvalidValue,
@@ -986,6 +1629,84 @@ fn parse_layer(
                     "permission_mode",
                 )),
             }
+        }
+        if let Some(value) = object.get("yolo_acknowledged") {
+            match value.as_bool() {
+                Some(acknowledged) => settings.yolo_acknowledged = Some(acknowledged),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    "yolo_acknowledged",
+                )),
+            }
+        }
+        if let Some(value) = object.get(STATUS_LINE_KEY) {
+            parse_statusline(value, layer, &mut settings, diagnostics);
+        }
+        // Upstream's reading (`config_runtime.zig:1798-1805`): a string it can
+        // parse, or `null` for the default. Anything else is a diagnostic and
+        // the effort an earlier layer chose stands.
+        // The speed switches: each a `bool`, and a value of any other type a
+        // diagnostic that leaves what an earlier layer said.
+        for (key, slot) in [
+            (FAST_MODE_KEY, &mut settings.fast_mode),
+            (
+                FAST_MODE_MODEL_BOUND_KEY,
+                &mut settings.fast_mode_model_bound,
+            ),
+            (ULTRAFAST_MODE_KEY, &mut settings.ultrafast_mode),
+        ] {
+            if let Some(value) = object.get(key) {
+                match value.as_bool() {
+                    Some(on) => *slot = Some(on),
+                    None => diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        key,
+                    )),
+                }
+            }
+        }
+        if let Some(value) = object.get(EFFORT_KEY) {
+            let effort = match value {
+                Value::Null => Some(crate::provider::effort::Effort::Auto),
+                Value::String(raw) => crate::provider::effort::Effort::parse(raw),
+                _ => None,
+            };
+            match effort {
+                Some(effort) => settings.effort = Some(effort),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    EFFORT_KEY,
+                )),
+            }
+        }
+        if let Some(value) = object.get(NOTIFICATIONS_KEY) {
+            parse_notifications(value, &mut settings, layer, diagnostics);
+        }
+        for (key, slot) in [
+            (
+                SLASH_MENU_CATEGORIES_KEY,
+                &mut settings.slash_menu_categories,
+            ),
+            (COLLAPSE_TOOL_CALLS_KEY, &mut settings.collapse_tool_calls),
+            (STARTUP_SCROLLBACK_KEY, &mut settings.startup_scrollback),
+            (SESSION_TITLES_KEY, &mut settings.session_titles),
+        ] {
+            if let Some(value) = object.get(key) {
+                match value.as_bool() {
+                    Some(on) => *slot = Some(on),
+                    None => diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        key,
+                    )),
+                }
+            }
+        }
+        if let Some(value) = object.get(PROMPT_HISTORY_KEY) {
+            parse_prompt_history(value, layer, &mut settings, diagnostics);
         }
         if let Some(value) = object.get("backend") {
             match value.as_str().and_then(ProviderId::parse) {
@@ -1027,7 +1748,7 @@ fn parse_layer(
                         // binary selects, and deleting other people's settings is
                         // not this reader's job. It is simply never selected.
                         match model.as_str().map(str::trim) {
-                            Some(model) if !model.is_empty() => {
+                            Some(model) if usable_model(model) => {
                                 settings.models.insert(tag.clone(), model.to_string());
                             }
                             _ => diagnostics.push(Diagnostic::with_key(
@@ -1082,6 +1803,109 @@ fn parse_layer(
     settings
 }
 
+/// Reads one layer's `statusLine` object into `settings`.
+///
+/// Upstream's reading (`config_runtime.zig:1807-1826`): the value is an object,
+/// each of the three items in it is a `bool`, and a key inside it that names no
+/// item -- upstream's own retired `sandbox`, say -- is left alone rather than
+/// reported, because a profile a newer build wrote is not malformed. A value of
+/// the wrong type is a diagnostic naming the item, and the item keeps whatever
+/// an earlier layer said: a typo must not turn a segment the user can see into
+/// one they cannot.
+fn parse_statusline(
+    value: &Value,
+    layer: ConfigLayer,
+    settings: &mut Settings,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(items) = value.as_object() else {
+        diagnostics.push(Diagnostic::with_key(
+            layer,
+            DiagnosticCause::InvalidValue,
+            STATUS_LINE_KEY,
+        ));
+        return;
+    };
+    for (item, slot) in [
+        ("context", &mut settings.statusline_context),
+        ("session", &mut settings.statusline_session),
+        ("workspace", &mut settings.statusline_workspace),
+    ] {
+        let Some(on) = items.get(item) else {
+            continue;
+        };
+        match on.as_bool() {
+            Some(on) => *slot = Some(on),
+            None => diagnostics.push(Diagnostic::with_key(
+                layer,
+                DiagnosticCause::InvalidValue,
+                &format!("{STATUS_LINE_KEY}.{item}"),
+            )),
+        }
+    }
+}
+
+/// Reads one layer's `prompt_history` object into `settings`.
+///
+/// Upstream's shape (`settings_store.zig:1076-1085`, `:2011`): an object whose
+/// `enabled` is a `bool`, other keys in it left alone for a build that knows
+/// them. A value of the wrong type is a diagnostic and keeps whatever an
+/// earlier layer said, as a mistyped `statusLine` item does.
+fn parse_prompt_history(
+    value: &Value,
+    layer: ConfigLayer,
+    settings: &mut Settings,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let enabled = value.as_object().map(|object| object.get("enabled"));
+    match enabled {
+        Some(None) => {}
+        Some(Some(Value::Bool(on))) => settings.prompt_history = Some(*on),
+        _ => diagnostics.push(Diagnostic::with_key(
+            layer,
+            DiagnosticCause::InvalidValue,
+            &format!("{PROMPT_HISTORY_KEY}.enabled"),
+        )),
+    }
+}
+
+/// A profile's [`SKILL_SYMLINK_AUTHORITIES_KEY`]: an array of at most
+/// [`MAX_SKILL_SYMLINK_AUTHORITIES`] absolute paths with no `..` component,
+/// or nothing (`parseSkillSymlinkAuthorities`, `config_runtime.zig:1853-1877`).
+fn skill_symlink_authorities(value: &Value) -> Result<Vec<String>, ()> {
+    let items = value.as_array().ok_or(())?;
+    if items.len() > MAX_SKILL_SYMLINK_AUTHORITIES {
+        return Err(());
+    }
+    items
+        .iter()
+        .map(|item| {
+            let path = item.as_str().ok_or(())?;
+            (Path::new(path).is_absolute() && !has_dot_dot(path))
+                .then(|| path.to_string())
+                .ok_or(())
+        })
+        .collect()
+}
+
+/// [`ENV_SKILL_SYMLINK_AUTHORITIES`]'s entries: colon-separated, blanks
+/// trimmed, and an empty, relative or `..` one skipped
+/// (`externalSymlinkAuthorities`, `skill_runtime.zig:652-681`).
+fn skill_symlink_authorities_env(raw: &str) -> Vec<String> {
+    raw.split(':')
+        .map(|entry| entry.trim_matches([' ', '\t']))
+        .filter(|entry| !entry.is_empty() && Path::new(entry).is_absolute() && !has_dot_dot(entry))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether `path` has a `..` component (`pathContainsDotDot`).
+fn has_dot_dot(path: &str) -> bool {
+    Path::new(path)
+        .components()
+        .any(|component| component == std::path::Component::ParentDir)
+}
+
 fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Settings {
     let mut settings = Settings::default();
 
@@ -1108,8 +1932,134 @@ fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Se
             )),
         }
     }
+    if let Some(raw) = env.nonblank(ENV_SOUND) {
+        // Upstream's reading, word for word (`soundEnvOverride`,
+        // `app_lifecycle.zig:1714-1725`): there is no invalid value, only the
+        // three that mean off. `max` is one of the others, and on this build
+        // that means on -- xfx has no `max` to start at.
+        let off =
+            raw == "0" || raw.eq_ignore_ascii_case("false") || raw.eq_ignore_ascii_case("off");
+        settings.notification_turn_end = Some(!off);
+        settings.notification_attention_required = Some(!off);
+    }
 
     settings
+}
+
+/// The settings key `/sound` writes under.
+pub const NOTIFICATIONS_KEY: &str = "notifications";
+
+/// Reads `notifications` out of one profile layer.
+///
+/// Upstream refuses the whole file over a value of the wrong type
+/// (`config_runtime.zig:1829-1843`); xfx's rule for every key is a diagnostic
+/// and the value dropped, so a mistyped switch falls back to whatever the layer
+/// below said rather than taking the profile's other keys down with it.
+/// `max` is upstream's and is not read: xfx has nothing for it to turn on.
+fn parse_notifications(
+    value: &Value,
+    settings: &mut Settings,
+    layer: ConfigLayer,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(object) = value.as_object() else {
+        diagnostics.push(Diagnostic::with_key(
+            layer,
+            DiagnosticCause::InvalidValue,
+            NOTIFICATIONS_KEY,
+        ));
+        return;
+    };
+    for (key, slot) in [
+        ("turn_end", &mut settings.notification_turn_end),
+        (
+            "attention_required",
+            &mut settings.notification_attention_required,
+        ),
+    ] {
+        match object.get(key) {
+            None => {}
+            Some(Value::Bool(on)) => *slot = Some(*on),
+            Some(_) => diagnostics.push(Diagnostic::with_key(
+                layer,
+                DiagnosticCause::InvalidValue,
+                NOTIFICATIONS_KEY,
+            )),
+        }
+    }
+}
+
+/// The permission tables the profile at `settings` holds for the workspace
+/// at `workspace_root`, read afresh -- what `/allowlist` puts in force after
+/// it has written the file, and what its view lists (`loadDetailedSettingsForNotice`,
+/// `session_commands.zig:137-142`).
+///
+/// No file is no tables. A file that cannot be read, or a table in it that
+/// does not parse, is an error naming why: upstream's post-commit resolution
+/// treats both as a reload that failed (`postCommitResolutionError`,
+/// `:144-165`), and the caller says so and keeps the table in force rather than
+/// putting half a table -- or none -- in its place.
+pub fn read_permission_tables(
+    settings: &Path,
+    workspace_root: &Path,
+) -> Result<PermissionTables, String> {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(settings, ConfigLayer::User, &mut diagnostics);
+    if let Some(diagnostic) = diagnostics.first() {
+        return Err(diagnostic.detail());
+    }
+    let mut tables = PermissionTables::default();
+    let Some(object) = &read.object else {
+        return Ok(tables);
+    };
+    if let Some(table) = permission_table(object, &mut diagnostics)? {
+        tables.user = table;
+    }
+    if let Some(entry) = exact_workspace_entry(object, workspace_root, &mut diagnostics)? {
+        if let Some(table) = permission_table(entry, &mut diagnostics)? {
+            tables.local = table;
+            tables.user_shadowed_by_local = true;
+        }
+    }
+    Ok(tables)
+}
+
+/// One profile layer's permission table: `Ok(None)` when it names none,
+/// `Err` -- with the reason, also pushed as a diagnostic naming the key --
+/// when the one it names does not parse.
+///
+/// Upstream's atomic layer parse makes such a layer contribute no table
+/// (`mergeDetailedSettingsLayer`, `config_runtime.zig:966-1027`). xfx's
+/// callers do not take it as absent: a launch refuses every tool
+/// ([`PermissionTables::unreadable`]) and `/allowlist` keeps the table in
+/// force, so the deny beside a typo cannot lapse.
+fn permission_table(
+    object: &serde_json::Map<String, Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<Option<crate::permission::rules::RuleSet>, String> {
+    let Some(value) = object.get(PERMISSION_KEY) else {
+        return Ok(None);
+    };
+    crate::permission::rules::RuleSet::parse(value)
+        .map(Some)
+        .map_err(|err| {
+            refused(
+                diagnostics,
+                Diagnostic::with_note(
+                    ConfigLayer::User,
+                    DiagnosticCause::InvalidValue,
+                    PERMISSION_KEY,
+                    err.to_string(),
+                ),
+            )
+        })
+}
+
+/// Pushes `diagnostic` and returns what it says.
+fn refused(diagnostics: &mut Vec<Diagnostic>, diagnostic: Diagnostic) -> String {
+    let detail = diagnostic.detail();
+    diagnostics.push(diagnostic);
+    detail
 }
 
 /// Records one diagnostic per profile-only key found in the project file.
@@ -1131,7 +2081,10 @@ fn report_ignored_profile_keys(
     }
 }
 
-/// The `workspaces` entry whose key is exactly this workspace root.
+/// The `workspaces` entry whose key is exactly this workspace root:
+/// `Ok(None)` when there is none, `Err` -- with the reason, also pushed as a
+/// diagnostic -- when `workspaces` or this workspace's entry is not an object,
+/// since then whether the entry holds a table cannot be told.
 ///
 /// Exact match only: a prefix match would let a parent directory's entry govern
 /// an unrelated nested repository.
@@ -1139,27 +2092,30 @@ fn exact_workspace_entry<'a>(
     object: &'a serde_json::Map<String, Value>,
     workspace_root: &Path,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Option<&'a serde_json::Map<String, Value>> {
-    let workspaces = object.get("workspaces")?;
-    let Some(map) = workspaces.as_object() else {
-        diagnostics.push(Diagnostic::with_key(
-            ConfigLayer::User,
-            DiagnosticCause::InvalidValue,
-            "workspaces",
-        ));
-        return None;
-    };
-    let entry = map.get(workspace_root.to_str()?)?;
-    match entry.as_object() {
-        Some(object) => Some(object),
-        None => {
-            diagnostics.push(Diagnostic::with_key(
+) -> Result<Option<&'a serde_json::Map<String, Value>>, String> {
+    let not_an_object = |diagnostics: &mut Vec<Diagnostic>| {
+        refused(
+            diagnostics,
+            Diagnostic::with_key(
                 ConfigLayer::User,
                 DiagnosticCause::InvalidValue,
                 "workspaces",
-            ));
-            None
-        }
+            ),
+        )
+    };
+    let Some(workspaces) = object.get("workspaces") else {
+        return Ok(None);
+    };
+    let Some(map) = workspaces.as_object() else {
+        return Err(not_an_object(diagnostics));
+    };
+    // A root that is not UTF-8 keys no entry; it is not a broken one.
+    let Some(entry) = workspace_root.to_str().and_then(|key| map.get(key)) else {
+        return Ok(None);
+    };
+    match entry.as_object() {
+        Some(object) => Ok(Some(object)),
+        None => Err(not_an_object(diagnostics)),
     }
 }
 
@@ -1279,6 +2235,263 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_mode_reads_upstreams_words_in_any_case() {
+        // `types.zig:2396-2403`: `full-access`, `full access` and `yolo` are
+        // the third mode, case-insensitively, and so are the other two.
+        for (typed, mode) in [
+            ("ask", PermissionMode::Ask),
+            ("ASK", PermissionMode::Ask),
+            ("auto", PermissionMode::Auto),
+            ("Auto", PermissionMode::Auto),
+            ("full-access", PermissionMode::Yolo),
+            ("Full-Access", PermissionMode::Yolo),
+            ("full access", PermissionMode::Yolo),
+            ("yolo", PermissionMode::Yolo),
+            ("YOLO", PermissionMode::Yolo),
+            ("  auto ", PermissionMode::Auto),
+        ] {
+            assert_eq!(PermissionMode::parse_choice(typed), Some(mode), "{typed:?}");
+        }
+        for typed in [
+            "",
+            "reset",
+            "full",
+            "fullaccess",
+            "full  access",
+            "remember",
+        ] {
+            assert_eq!(PermissionMode::parse_choice(typed), None, "{typed:?}");
+        }
+        // The wire grammar is not widened by it: a log or a settings file
+        // that says `Full Access` is not one xfx wrote.
+        assert_eq!(PermissionMode::parse("full-access"), None);
+        assert_eq!(PermissionMode::parse("YOLO"), None);
+    }
+
+    #[test]
+    fn the_mode_that_skips_every_check_reads_full_access_and_records_yolo() {
+        assert_eq!(PermissionMode::Ask.display_label(), "ask");
+        assert_eq!(PermissionMode::Auto.display_label(), "auto");
+        assert_eq!(PermissionMode::Yolo.display_label(), "full access");
+        assert_eq!(PermissionMode::Yolo.label(), "yolo");
+    }
+
+    #[test]
+    fn the_preferences_the_shell_writes_are_read_back_from_the_profile_only() {
+        // The round trip `/permissions` depends on: what the profile writer
+        // puts down is what the next launch resolves, through the loader and
+        // not through a second reading of the file.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(fresh.permission_mode, PermissionMode::Auto);
+        assert!(!fresh.yolo_acknowledged);
+
+        let path = fresh.user_settings_path.clone().expect("a profile path");
+        crate::provider::profile::write_preference(
+            &path,
+            &["permission_mode"],
+            Value::String(PermissionMode::Yolo.label().to_string()),
+        )
+        .expect("write the mode");
+        crate::provider::profile::write_preference(
+            &path,
+            &["yolo_acknowledged"],
+            Value::Bool(true),
+        )
+        .expect("write the acknowledgement");
+        let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert_eq!(reloaded.permission_mode, PermissionMode::Yolo);
+        assert_eq!(reloaded.sources.permission_mode, SettingSource::UserGlobal);
+        assert!(reloaded.yolo_acknowledged);
+        assert!(
+            reloaded.diagnostics.is_empty(),
+            "{:?}",
+            reloaded.diagnostics
+        );
+
+        // A repository cannot say its cloner has been warned.
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"yolo_acknowledged":false}"#,
+        )
+        .expect("project file");
+        let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(shadowed.yolo_acknowledged);
+        assert!(shadowed
+            .diagnostics
+            .iter()
+            .any(|d| d.ignored_setting_key() == Some("yolo_acknowledged")));
+
+        // And a value of the wrong type is a diagnostic, not a yes.
+        std::fs::write(&path, r#"{"yolo_acknowledged":"yes"}"#).expect("rewrite");
+        let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!refused.yolo_acknowledged);
+        assert!(refused.diagnostics.iter().any(|d| {
+            d.cause == DiagnosticCause::InvalidValue
+                && d.setting_key.as_deref() == Some("yolo_acknowledged")
+        }));
+    }
+
+    #[test]
+    fn the_settings_menus_switches_round_trip_through_the_profile_only() {
+        // `/settings`' `Slash menu categories`, `Collapse tool calls`,
+        // `Startup scrollback` and `Prompt history`: upstream's keys and
+        // defaults (`settings_catalog.zig:61-65`), written by the profile
+        // writer and read back by the next launch.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert!(fresh.slash_menu_categories);
+        assert!(!fresh.collapse_tool_calls);
+        assert!(fresh.startup_scrollback);
+        assert!(fresh.prompt_history);
+
+        let path = fresh.user_settings_path.clone().expect("a profile path");
+        for (key, on) in [
+            (&[SLASH_MENU_CATEGORIES_KEY][..], false),
+            (&[COLLAPSE_TOOL_CALLS_KEY][..], true),
+            (&[STARTUP_SCROLLBACK_KEY][..], false),
+            (&[PROMPT_HISTORY_KEY, "enabled"][..], false),
+        ] {
+            crate::provider::profile::write_preference(&path, key, Value::Bool(on)).expect("write");
+        }
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "slash_menu_categories": false,
+                "collapse_tool_calls": true,
+                "startup_scrollback": false,
+                "prompt_history": {"enabled": false}
+            })
+        );
+        let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!reloaded.slash_menu_categories);
+        assert!(reloaded.collapse_tool_calls);
+        assert!(!reloaded.startup_scrollback);
+        assert!(!reloaded.prompt_history);
+        assert!(
+            reloaded.diagnostics.is_empty(),
+            "{:?}",
+            reloaded.diagnostics
+        );
+
+        // A repository cannot choose them for whoever clones it.
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"slash_menu_categories":true,"collapse_tool_calls":false,"startup_scrollback":true,"prompt_history":{"enabled":true}}"#,
+        )
+        .expect("project file");
+        let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!shadowed.slash_menu_categories);
+        assert!(shadowed.collapse_tool_calls);
+        assert!(!shadowed.startup_scrollback);
+        assert!(!shadowed.prompt_history);
+        for key in [
+            SLASH_MENU_CATEGORIES_KEY,
+            COLLAPSE_TOOL_CALLS_KEY,
+            STARTUP_SCROLLBACK_KEY,
+            PROMPT_HISTORY_KEY,
+        ] {
+            assert!(
+                shadowed
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.ignored_setting_key() == Some(key)),
+                "{key}: {:?}",
+                shadowed.diagnostics
+            );
+        }
+
+        // A value of the wrong type is a diagnostic and the default.
+        std::fs::remove_file(workspace.path().join(PROJECT_SETTINGS_FILE)).expect("remove");
+        std::fs::write(
+            &path,
+            r#"{"slash_menu_categories":"no","collapse_tool_calls":1,"startup_scrollback":"off","prompt_history":false}"#,
+        )
+        .expect("rewrite");
+        let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(refused.slash_menu_categories);
+        assert!(!refused.collapse_tool_calls);
+        assert!(refused.startup_scrollback);
+        assert!(refused.prompt_history);
+        for key in [
+            SLASH_MENU_CATEGORIES_KEY,
+            COLLAPSE_TOOL_CALLS_KEY,
+            STARTUP_SCROLLBACK_KEY,
+            "prompt_history.enabled",
+        ] {
+            assert!(
+                refused.diagnostics.iter().any(|d| {
+                    d.cause == DiagnosticCause::InvalidValue
+                        && d.setting_key.as_deref() == Some(key)
+                }),
+                "{key}: {:?}",
+                refused.diagnostics
+            );
+        }
+        // Keys upstream keeps beside `enabled` are not this reader's to judge.
+        std::fs::write(&path, r#"{"prompt_history":{"future":1}}"#).expect("rewrite");
+        let future = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(future.prompt_history);
+        assert!(future.diagnostics.is_empty(), "{:?}", future.diagnostics);
+    }
+
+    #[test]
+    fn session_titles_are_on_unless_the_profile_turns_them_off() {
+        // `/settings`' `Session titles`: upstream's key and default
+        // (`settings_catalog.zig:63`, `app_lifecycle.zig:811`), profile-only
+        // as upstream's is (`isProfileOnlySettingKey`, `config_runtime.zig:850`).
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert!(fresh.session_titles);
+
+        let path = fresh.user_settings_path.clone().expect("a profile path");
+        crate::provider::profile::write_preference(
+            &path,
+            &[SESSION_TITLES_KEY],
+            Value::Bool(false),
+        )
+        .expect("write");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "{\n  \"session_titles\": false\n}\n"
+        );
+        let off = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!off.session_titles);
+        assert!(off.diagnostics.is_empty(), "{:?}", off.diagnostics);
+
+        // A repository cannot turn them back on for whoever clones it.
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"session_titles":true}"#,
+        )
+        .expect("project file");
+        let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!shadowed.session_titles);
+        assert!(shadowed
+            .diagnostics
+            .iter()
+            .any(|d| d.ignored_setting_key() == Some(SESSION_TITLES_KEY)));
+
+        // A value of the wrong type is a diagnostic and the default.
+        std::fs::remove_file(workspace.path().join(PROJECT_SETTINGS_FILE)).expect("remove");
+        std::fs::write(&path, r#"{"session_titles":"no"}"#).expect("rewrite");
+        let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(refused.session_titles);
+        assert!(refused.diagnostics.iter().any(|d| {
+            d.cause == DiagnosticCause::InvalidValue
+                && d.setting_key.as_deref() == Some(SESSION_TITLES_KEY)
+        }));
+    }
+
+    #[test]
     fn permission_mode_parsing_tolerates_surrounding_whitespace() {
         assert_eq!(
             PermissionMode::parse("  yolo \n"),
@@ -1311,12 +2524,119 @@ mod tests {
         assert_eq!(env.nonblank("XFX_ABSENT"), None);
     }
 
+    /// Writes `settings` as the profile under `home`.
+    fn write_user_settings(home: &Path, settings: &serde_json::Value) {
+        std::fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        std::fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            settings.to_string(),
+        )
+        .expect("a profile");
+    }
+
+    #[test]
+    fn skill_symlink_authorities_are_profile_only_and_a_workspace_entry_replaces_the_global_list() {
+        // `skill_symlink_authorities is profile-only and workspace overrides
+        // replace the global list` (`config_runtime.zig:2790-2828`).
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let key = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .to_string_lossy()
+            .into_owned();
+        write_user_settings(
+            home.path(),
+            &serde_json::json!({
+                "skill_symlink_authorities": ["/opt/global-skills"],
+                "workspaces": {key: {"skill_symlink_authorities": ["/opt/workspace-skills"]}}
+            }),
+        );
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"skill_symlink_authorities":["/opt/project-skills"]}"#,
+        )
+        .expect("project");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            [(
+                ENV_SKILL_SYMLINK_AUTHORITIES.to_string(),
+                "/nix/store:/opt/skills: relative :/bad/../path".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(config.skill_symlink_authorities, ["/opt/workspace-skills"]);
+        assert!(config.diagnostics.iter().any(|diagnostic| {
+            diagnostic.ignored_setting_key() == Some(SKILL_SYMLINK_AUTHORITIES_KEY)
+        }));
+        // `externalSymlinkAuthorities`' case (`skill_runtime.zig:5841`).
+        assert_eq!(
+            config.skill_symlink_authorities_env,
+            ["/nix/store", "/opt/skills"]
+        );
+        // Another workspace has the global list.
+        let other = tempfile::tempdir().expect("other");
+        let config = RuntimeConfig::load_with(&env, other.path()).expect("load");
+        assert_eq!(config.skill_symlink_authorities, ["/opt/global-skills"]);
+    }
+
+    #[test]
+    fn an_unreadable_skill_symlink_authorities_names_no_authority_and_says_why() {
+        // `invalid skill_symlink_authorities reports a specific diagnostic`
+        // (`config_runtime.zig:2830-2858`) and the four shapes it refuses.
+        for bad in [
+            serde_json::json!("/nix/store"),
+            serde_json::json!([7]),
+            serde_json::json!(["relative/skills"]),
+            serde_json::json!(["/opt/../etc"]),
+            serde_json::json!(vec!["/a"; MAX_SKILL_SYMLINK_AUTHORITIES + 1]),
+        ] {
+            let home = tempfile::tempdir().expect("home");
+            let workspace = tempfile::tempdir().expect("workspace");
+            let key = workspace
+                .path()
+                .canonicalize()
+                .expect("canonical")
+                .to_string_lossy()
+                .into_owned();
+            // A valid workspace list does not stand in for a global one that
+            // could not be read: authority is never widened by a typo.
+            write_user_settings(
+                home.path(),
+                &serde_json::json!({
+                    "skill_symlink_authorities": bad,
+                    "workspaces": {key: {"skill_symlink_authorities": ["/opt/ok"]}}
+                }),
+            );
+            let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+            let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+            assert!(config.skill_symlink_authorities.is_empty(), "{bad}");
+            let diagnostic = config
+                .diagnostics
+                .iter()
+                .find(|diagnostic| {
+                    diagnostic.setting_key.as_deref() == Some(SKILL_SYMLINK_AUTHORITIES_KEY)
+                })
+                .expect("a diagnostic");
+            assert!(diagnostic.detail().contains(
+                "skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components"
+            ));
+        }
+    }
+
     #[test]
     fn a_later_layer_only_overrides_the_keys_it_sets() {
         let mut settings = Settings {
             model: Some("first".to_string()),
+            skill_symlink_authorities: None,
             permission_mode: Some(PermissionMode::Ask),
+            yolo_acknowledged: Some(true),
             max_agent_steps: Some(1),
+            notification_turn_end: Some(true),
+            notification_attention_required: Some(false),
             backend: Some(ProviderId::Llmux),
             backend_source: Some(SettingSource::UserGlobal),
             backend_rejected: None,
@@ -1329,6 +2649,18 @@ mod tests {
             models_sources: BTreeMap::new(),
             llmux_url: Some("http://127.0.0.1:3456".to_string()),
             llmux_url_rejected: false,
+            statusline_context: Some(true),
+            statusline_session: None,
+            statusline_workspace: None,
+            slash_menu_categories: Some(false),
+            collapse_tool_calls: Some(true),
+            startup_scrollback: Some(false),
+            session_titles: Some(false),
+            prompt_history: Some(false),
+            effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+            fast_mode: Some(true),
+            fast_mode_model_bound: None,
+            ultrafast_mode: None,
         };
         let mut sources = Sources::default();
         settings.merge(
@@ -1341,12 +2673,25 @@ mod tests {
         );
         assert_eq!(settings.model.as_deref(), Some("first"));
         assert_eq!(settings.permission_mode, Some(PermissionMode::Ask));
+        assert_eq!(settings.yolo_acknowledged, Some(true));
         assert_eq!(settings.max_agent_steps, Some(2));
+        assert_eq!(settings.notification_turn_end, Some(true));
+        assert_eq!(settings.notification_attention_required, Some(false));
         assert_eq!(settings.backend, Some(ProviderId::Llmux));
         assert_eq!(
             settings.llmux_url.as_deref(),
             Some("http://127.0.0.1:3456"),
             "a layer that says nothing about the backend leaves its url alone"
+        );
+        assert_eq!(settings.statusline_context, Some(true));
+        assert_eq!(settings.slash_menu_categories, Some(false));
+        assert_eq!(settings.collapse_tool_calls, Some(true));
+        assert_eq!(settings.startup_scrollback, Some(false));
+        assert_eq!(settings.session_titles, Some(false));
+        assert_eq!(settings.prompt_history, Some(false));
+        assert_eq!(
+            settings.effort,
+            Some(crate::provider::effort::Effort::Named("low".to_string()))
         );
         assert_eq!(sources.max_agent_steps, SettingSource::UserGlobal);
         assert_eq!(sources.model, SettingSource::CompiledDefault);
@@ -1466,6 +2811,196 @@ mod tests {
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
+    /// A configuration loaded from `home` (with `settings` written into its
+    /// profile, when there are any) and a workspace that holds nothing.
+    fn loaded_with(settings: Option<&str>, vars: &[(&str, &str)]) -> RuntimeConfig {
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        if let Some(settings) = settings {
+            let profile = home.path().join(PROFILE_DIR_NAME);
+            fs::create_dir_all(&profile).expect("profile");
+            fs::write(profile.join(USER_SETTINGS_FILE), settings).expect("settings");
+        }
+        let vars = vars
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), vars),
+            workspace.path(),
+        )
+        .expect("load")
+    }
+
+    #[test]
+    fn sound_starts_at_upstreams_platform_default_when_nothing_sets_it() {
+        // `sound.zig:9-11`: on where fx has a player (macOS), off elsewhere.
+        let config = loaded_with(None, &[]);
+        assert_eq!(
+            config.notifications,
+            Notifications::both(cfg!(target_os = "macos"))
+        );
+        assert_eq!(Notifications::default(), config.notifications);
+    }
+
+    #[test]
+    fn the_profile_sets_each_sound_switch_on_its_own() {
+        let both_off = loaded_with(
+            Some(r#"{"notifications":{"turn_end":false,"attention_required":false}}"#),
+            &[],
+        );
+        assert_eq!(both_off.notifications, Notifications::both(false));
+        assert!(
+            both_off.diagnostics.is_empty(),
+            "{:?}",
+            both_off.diagnostics
+        );
+        // One switch set, and the other left at the compiled default; `max`
+        // is upstream's and is neither read nor refused.
+        let one = loaded_with(
+            Some(r#"{"notifications":{"attention_required":true,"max":true}}"#),
+            &[],
+        );
+        assert_eq!(
+            one.notifications,
+            Notifications {
+                turn_end: Notifications::default().turn_end,
+                attention_required: true,
+            }
+        );
+        assert!(one.diagnostics.is_empty(), "{:?}", one.diagnostics);
+    }
+
+    #[test]
+    fn a_workspace_entry_overrides_one_sound_switch_and_keeps_the_other() {
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let root = workspace.path().canonicalize().expect("canonical");
+        let profile = home.path().join(PROFILE_DIR_NAME);
+        fs::create_dir_all(&profile).expect("profile");
+        fs::write(
+            profile.join(USER_SETTINGS_FILE),
+            serde_json::json!({
+                "notifications": {"turn_end": true, "attention_required": false},
+                "workspaces": {root.to_str().unwrap(): {"notifications": {"attention_required": true}}}
+            })
+            .to_string(),
+        )
+        .expect("settings");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(config.notifications, Notifications::both(true));
+    }
+
+    #[test]
+    fn a_mistyped_sound_switch_is_a_diagnostic_and_falls_back() {
+        for body in [
+            r#"{"notifications":true}"#,
+            r#"{"notifications":{"turn_end":1}}"#,
+            r#"{"notifications":{"attention_required":"yes"}}"#,
+        ] {
+            let config = loaded_with(Some(body), &[]);
+            assert_eq!(config.notifications, Notifications::default(), "{body}");
+            assert_eq!(
+                config.diagnostics,
+                vec![Diagnostic::with_key(
+                    ConfigLayer::User,
+                    DiagnosticCause::InvalidValue,
+                    NOTIFICATIONS_KEY
+                )],
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_sound_override_decides_where_the_session_starts() {
+        // `soundEnvOverride`, `app_lifecycle.zig:1714-1725`: three spellings of
+        // off, and every other word that is not blank is on -- over whatever
+        // the profile says.
+        let profile = Some(r#"{"notifications":{"turn_end":true,"attention_required":true}}"#);
+        for off in ["0", "false", "FALSE", "off", "Off", " off "] {
+            assert_eq!(
+                loaded_with(profile, &[(ENV_SOUND, off)]).notifications,
+                Notifications::both(false),
+                "{off:?}"
+            );
+        }
+        let quiet = Some(r#"{"notifications":{"turn_end":false,"attention_required":false}}"#);
+        for on in ["1", "on", "true", "max", "yes"] {
+            assert_eq!(
+                loaded_with(quiet, &[(ENV_SOUND, on)]).notifications,
+                Notifications::both(true),
+                "{on:?}"
+            );
+        }
+        // Blank is absent, as every override here is.
+        assert_eq!(
+            loaded_with(quiet, &[(ENV_SOUND, "  ")]).notifications,
+            Notifications::both(false)
+        );
+    }
+
+    #[test]
+    fn a_project_file_cannot_choose_the_sound() {
+        // Upstream lists `notifications` among its profile-only keys
+        // (`config_runtime.zig:854`).
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"notifications":{"turn_end":false,"attention_required":false}}"#,
+        )
+        .expect("project");
+        // On every platform the default is the answer, whatever it is there.
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(config.notifications, Notifications::default());
+        let ignored: Vec<&str> = config
+            .diagnostics
+            .iter()
+            .filter_map(Diagnostic::ignored_setting_key)
+            .collect();
+        assert_eq!(ignored, [NOTIFICATIONS_KEY]);
+    }
+
+    #[test]
+    fn what_write_preference_writes_is_what_the_next_load_reads() {
+        // The round trip `/sound` depends on, through the two real functions:
+        // the shared writer, and the one reader that decides what a settings
+        // file means.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let path = RuntimeConfig::load_with(&env, workspace.path())
+            .expect("load")
+            .user_settings_path
+            .expect("a home has a settings path");
+        for on in [true, false, true] {
+            for key in ["turn_end", "attention_required"] {
+                crate::provider::profile::write_preference(
+                    &path,
+                    &[NOTIFICATIONS_KEY, key],
+                    Value::Bool(on),
+                )
+                .expect("write");
+            }
+            let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+            assert_eq!(reloaded.notifications, Notifications::both(on));
+            assert!(
+                reloaded.diagnostics.is_empty(),
+                "{:?}",
+                reloaded.diagnostics
+            );
+        }
+    }
+
     #[test]
     fn a_project_layer_cannot_choose_the_provider_or_its_url() {
         // A checked-in repository must not be able to redirect whoever clones
@@ -1560,5 +3095,729 @@ mod tests {
         );
         assert_eq!(diagnostic.ignored_setting_key(), Some("model"));
         assert!(!diagnostic.is_too_large());
+    }
+
+    /// A configuration loaded from `home` with `profile` as its settings file,
+    /// for a workspace beside it.
+    fn loaded_with_profile(profile: &str) -> (tempfile::TempDir, RuntimeConfig) {
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        let config =
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load");
+        (root, config)
+    }
+
+    #[test]
+    fn a_profile_model_xfx_would_not_have_written_is_refused_with_a_diagnostic() {
+        // The profile's model is painted in the footer and the line shell at
+        // every launch, and a pre-fix `/model` or `xfx setup llmux` wrote a
+        // provider's catalog id into it unchecked. Upstream refuses such a
+        // value when it reads settings (`config_runtime.zig:1645,1674`,
+        // `vercel-labs/fx@c1db9191`); so does this reader, by the rule a
+        // typed id is held to (`provider::model::model_id_problem`). Red
+        // before: both were taken as written.
+        let hostile = "m\u{1b}]0;pwned\u{7}\u{1b}[2J\u{9b}31m";
+        let profile = serde_json::json!({
+            "provider": "llmux",
+            "model": hostile,
+            "models": {"llmux": hostile, "gateway": "zai/glm-5.2"},
+        })
+        .to_string();
+        let (_root, config) = loaded_with_profile(&profile);
+        assert!(
+            !config.model.chars().any(char::is_control),
+            "{:?}",
+            config.model
+        );
+        assert_eq!(config.model, DEFAULT_MODEL);
+        assert!(!config.models.contains_key("llmux"), "{:?}", config.models);
+        assert_eq!(
+            config.models.get("gateway").map(String::as_str),
+            Some("zai/glm-5.2")
+        );
+        let refused: Vec<(&str, &str)> = config
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.cause.label(),
+                    diagnostic.setting_key.as_deref().unwrap_or(""),
+                )
+            })
+            .collect();
+        assert!(
+            refused.contains(&("invalid_value", "model"))
+                && refused.contains(&("invalid_value", MODELS_KEY)),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn every_statusline_segment_is_off_unless_the_profile_turns_it_on() {
+        // `settings_catalog.zig:58-60`: all three default to off, upstream's
+        // choice and therefore this one's.
+        let (_root, config) = loaded_with_profile("{}");
+        assert_eq!(config.statusline, StatusLine::default());
+        assert_eq!(
+            StatusLine::default(),
+            StatusLine {
+                context: false,
+                session: false,
+                workspace: false
+            }
+        );
+
+        let (_root, config) = loaded_with_profile(
+            r#"{"statusLine":{"session":false,"context":true,"workspace":true}}"#,
+        );
+        assert_eq!(
+            config.statusline,
+            StatusLine {
+                context: true,
+                session: false,
+                workspace: true
+            }
+        );
+        assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+    }
+
+    #[test]
+    fn a_statusline_item_of_the_wrong_type_is_reported_and_an_unknown_one_is_left_alone() {
+        // Upstream's own retired `sandbox` item is in profiles it wrote
+        // (`tui-slash-menu.test.ts:1777`), and it is not a mistake.
+        let (_root, config) =
+            loaded_with_profile(r#"{"statusLine":{"sandbox":false,"context":1,"session":true}}"#);
+        assert_eq!(
+            config.statusline,
+            StatusLine {
+                context: false,
+                session: true,
+                workspace: false
+            }
+        );
+        assert_eq!(
+            config.diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::User,
+                DiagnosticCause::InvalidValue,
+                "statusLine.context"
+            )]
+        );
+
+        let (_root, config) = loaded_with_profile(r#"{"statusLine":7}"#);
+        assert_eq!(config.statusline, StatusLine::default());
+        assert_eq!(
+            config.diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::User,
+                DiagnosticCause::InvalidValue,
+                "statusLine"
+            )]
+        );
+    }
+
+    /// The configuration for a workspace beside `home`, with `profile` as its
+    /// settings and `project` as its `.xfx.json` when there is one.
+    fn loaded_in(
+        root: &Path,
+        profile: impl Fn(&str) -> Value,
+        project: Option<Value>,
+    ) -> RuntimeConfig {
+        let home = root.join("home");
+        let workspace = root.join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile(&canonical.to_string_lossy()).to_string(),
+        )
+        .expect("a profile");
+        if let Some(project) = project {
+            fs::write(workspace.join(PROJECT_SETTINGS_FILE), project.to_string())
+                .expect("a project file");
+        }
+        RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+            .expect("load")
+    }
+
+    #[test]
+    fn the_saved_directories_are_this_workspaces_entry_and_nobody_elses() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = loaded_in(
+            root.path(),
+            |key| {
+                serde_json::json!({
+                    "additional_directories": ["/global"],
+                    "workspaces": {
+                        key: {"additional_directories": ["/one", "/two"]},
+                        "/some/other/workspace": {"additional_directories": ["/three"]}
+                    }
+                })
+            },
+            None,
+        );
+        assert_eq!(config.additional_directories, ["/one", "/two"]);
+        assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+    }
+
+    #[test]
+    fn a_saved_directory_list_out_of_upstreams_shape_is_reported_and_unused() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = loaded_in(
+            root.path(),
+            |key| serde_json::json!({"workspaces": {key: {"additional_directories": ["relative"]}}}),
+            None,
+        );
+        assert!(config.additional_directories.is_empty());
+        assert!(config.diagnostics.iter().any(|diagnostic| {
+            diagnostic.cause == DiagnosticCause::InvalidValue
+                && diagnostic.setting_key.as_deref() == Some("additional_directories")
+        }));
+    }
+
+    #[test]
+    fn a_project_file_cannot_add_a_directory_to_its_cloners_session() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = loaded_in(
+            root.path(),
+            |_| serde_json::json!({}),
+            Some(serde_json::json!({
+                "workspaces": {"/anything": {"additional_directories": ["/etc"]}},
+                "additional_directories": ["/etc"]
+            })),
+        );
+        assert!(config.additional_directories.is_empty());
+        assert!(config
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.ignored_setting_key() == Some("workspaces")));
+    }
+
+    #[test]
+    fn a_workspace_entry_overrides_one_statusline_item_and_leaves_the_others() {
+        // Merged per item, the way `permission_mode` is read: the exact
+        // workspace entry outranks the global object, key by key.
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        let profile = serde_json::json!({
+            "statusLine": {"context": true, "session": true},
+            "workspaces": {canonical.to_string_lossy(): {"statusLine": {"session": false}}}
+        });
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile.to_string(),
+        )
+        .expect("a profile");
+        let config =
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load");
+        assert_eq!(
+            config.statusline,
+            StatusLine {
+                context: true,
+                session: false,
+                workspace: false
+            }
+        );
+    }
+
+    #[test]
+    fn a_project_file_cannot_choose_what_a_users_footer_shows() {
+        let object = serde_json::from_str::<Value>(r#"{"statusLine":{"context":true}}"#).unwrap();
+        let object = object.as_object().unwrap();
+        let mut diagnostics = Vec::new();
+        report_ignored_profile_keys(object, &mut diagnostics);
+        let settings = parse_layer(
+            object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        assert_eq!(settings.statusline_context, None);
+        assert_eq!(
+            diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::Project,
+                DiagnosticCause::IgnoredProjectProfileSetting,
+                "statusLine"
+            )]
+        );
+    }
+
+    #[test]
+    fn the_effort_is_the_profiles_and_the_default_unless_it_names_one() {
+        use crate::provider::effort::Effort;
+        let (_root, config) = loaded_with_profile("{}");
+        assert_eq!(config.effort, Effort::Auto);
+        let (_root, config) = loaded_with_profile(r#"{"effort":"xhigh"}"#);
+        assert_eq!(config.effort, Effort::Named("xhigh".to_string()));
+        // `null` and any spelling of the default are the default
+        // (`config_runtime.zig:1798-1805`).
+        for profile in [r#"{"effort":null}"#, r#"{"effort":"auto"}"#] {
+            let (_root, config) = loaded_with_profile(profile);
+            assert_eq!(config.effort, Effort::Auto, "{profile}");
+        }
+        // A value upstream would not parse is reported and does not become an
+        // effort anybody asked for.
+        for profile in [r#"{"effort":7}"#, r#"{"effort":"very high"}"#] {
+            let (_root, config) = loaded_with_profile(profile);
+            assert_eq!(config.effort, Effort::Auto, "{profile}");
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.detail()
+                        == "user config diagnostic: invalid_value key=effort"),
+                "{profile}: {:?}",
+                config.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn fast_is_bound_only_to_a_model_chosen_where_fast_was() {
+        // `resolveStartupFastMode` (`app_lifecycle.zig:827-844`): the binding
+        // holds only when the model, `fast_mode` and the binding all come from
+        // the same layer -- a model an `XFX_MODEL` names, or the compiled
+        // default, was not the one Fast was chosen for, so the footer does not
+        // mark it (Fast is still on, and still sent).
+        let profile = r#"{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":true,"fast_mode_model_bound":true}"#;
+        let (_root, config) = loaded_with_profile(profile);
+        assert!(config.fast_mode && config.fast_mode_model_bound);
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        let env = Environment::new(
+            Some(home),
+            BTreeMap::from([(ENV_MODEL.to_string(), "openai/gpt-6-astra".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, &workspace).expect("load");
+        assert!(config.fast_mode, "Fast is still on");
+        assert!(
+            !config.fast_mode_model_bound,
+            "bound to a model the environment replaced"
+        );
+        // The compiled default model is not the profile's either.
+        let (_root, config) =
+            loaded_with_profile(r#"{"fast_mode":true,"fast_mode_model_bound":true}"#);
+        assert!(config.fast_mode && !config.fast_mode_model_bound);
+    }
+
+    #[test]
+    fn the_speed_switches_are_the_profiles_and_ultra_outranks_fast() {
+        let (_root, config) = loaded_with_profile("{}");
+        assert!(!config.fast_mode && !config.ultrafast_mode && !config.fast_mode_model_bound);
+        let (_root, config) = loaded_with_profile(
+            r#"{"model":"acme/one","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}"#,
+        );
+        assert!(config.fast_mode && config.fast_mode_model_bound && !config.ultrafast_mode);
+        // Fast written by hand without the binding is on, and not bound.
+        let (_root, config) = loaded_with_profile(r#"{"fast_mode":true}"#);
+        assert!(config.fast_mode && !config.fast_mode_model_bound);
+        // Never both.
+        let (_root, config) = loaded_with_profile(r#"{"fast_mode":true,"ultrafast_mode":true}"#);
+        assert!(config.ultrafast_mode && !config.fast_mode);
+        let (_root, config) = loaded_with_profile(r#"{"fast_mode":"yes"}"#);
+        assert!(!config.fast_mode);
+        assert!(
+            config
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.detail()
+                    == "user config diagnostic: invalid_value key=fast_mode"),
+            "{:?}",
+            config.diagnostics
+        );
+        // A repository does not choose it.
+        let object = serde_json::from_str::<Value>(r#"{"ultrafast_mode":true}"#).unwrap();
+        let mut diagnostics = Vec::new();
+        report_ignored_profile_keys(object.as_object().unwrap(), &mut diagnostics);
+        assert_eq!(
+            diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::Project,
+                DiagnosticCause::IgnoredProjectProfileSetting,
+                ULTRAFAST_MODE_KEY
+            )]
+        );
+    }
+
+    #[test]
+    fn a_project_file_cannot_choose_how_hard_a_users_model_thinks() {
+        let object = serde_json::from_str::<Value>(r#"{"effort":"max"}"#).unwrap();
+        let object = object.as_object().unwrap();
+        let mut diagnostics = Vec::new();
+        report_ignored_profile_keys(object, &mut diagnostics);
+        let settings = parse_layer(
+            object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        assert_eq!(settings.effort, None);
+        assert_eq!(
+            diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::Project,
+                DiagnosticCause::IgnoredProjectProfileSetting,
+                EFFORT_KEY
+            )]
+        );
+    }
+
+    /// A home with `profile` written into it (the workspace path substituted
+    /// for `{ROOT}`, canonical, as the loader keys the entry), a workspace with
+    /// `project` as its `.xfx.json` when given, and what loading made of them.
+    fn loaded_tables(profile: &str, project: Option<&str>) -> RuntimeConfig {
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        let profile = profile.replace("{ROOT}", canonical.to_str().expect("utf-8"));
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        if let Some(project) = project {
+            fs::write(workspace.join(PROJECT_SETTINGS_FILE), project).expect("a project file");
+        }
+        RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+            .expect("load")
+    }
+
+    fn table(
+        rules: &[(&str, &str, crate::permission::rules::RuleAction)],
+    ) -> crate::permission::rules::RuleSet {
+        crate::permission::rules::RuleSet::new(
+            rules
+                .iter()
+                .map(|(permission, pattern, action)| {
+                    crate::permission::rules::ConfiguredRule::new(*permission, *pattern, *action)
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_user_table_is_in_force_until_this_workspace_names_one() {
+        use crate::permission::rules::RuleAction::{Allow, Deny};
+        let config = loaded_tables(
+            r#"{"permission":{"bash":{"git *":"allow"},"edit":"deny"}}"#,
+            None,
+        );
+        let user = table(&[("bash", "git *", Allow), ("edit", "*", Deny)]);
+        assert_eq!(config.permission.user, user);
+        assert!(!config.permission.user_shadowed_by_local);
+        assert_eq!(config.permission.effective(), &user);
+        assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+    }
+
+    #[test]
+    fn a_workspace_table_replaces_the_user_table_whole() {
+        // `later permission layers replace earlier rules`
+        // (`config_runtime.zig:3092-3117`): not a merge.
+        use crate::permission::rules::RuleAction::{Allow, Deny};
+        let config = loaded_tables(
+            r#"{"permission":{"edit":"allow"},"workspaces":{"{ROOT}":{"permission":{"bash":"deny"}}}}"#,
+            None,
+        );
+        assert_eq!(config.permission.user, table(&[("edit", "*", Allow)]));
+        assert_eq!(config.permission.local, table(&[("bash", "*", Deny)]));
+        assert!(config.permission.user_shadowed_by_local);
+        assert_eq!(
+            config.permission.effective(),
+            &table(&[("bash", "*", Deny)])
+        );
+    }
+
+    #[test]
+    fn an_empty_workspace_table_still_shadows_the_user_table() {
+        // `empty workspace override permission clears earlier rules`
+        // (`config_runtime.zig:3119-3140`).
+        let config = loaded_tables(
+            r#"{"permission":{"edit":"allow"},"workspaces":{"{ROOT}":{"permission":{}}}}"#,
+            None,
+        );
+        assert!(config.permission.user_shadowed_by_local);
+        assert!(config.permission.effective().is_empty());
+        // Another workspace's entry is not this one's.
+        let other = loaded_tables(
+            r#"{"permission":{"edit":"allow"},"workspaces":{"/elsewhere":{"permission":{}}}}"#,
+            None,
+        );
+        assert!(!other.permission.user_shadowed_by_local);
+        assert!(!other.permission.effective().is_empty());
+    }
+
+    #[test]
+    fn a_table_keeps_the_order_the_file_wrote_it_in() {
+        // Last match wins, so the order is the verdict; a sorted reading would
+        // turn this deny-everything table into one that allows `rm`.
+        use crate::permission::rules::RuleAction::{Allow, Deny};
+        let config = loaded_tables(
+            r#"{"permission":{"bash":{"rm*":"allow","*":"deny"}}}"#,
+            None,
+        );
+        assert_eq!(
+            config.permission.effective(),
+            &table(&[("bash", "rm*", Allow), ("bash", "*", Deny)])
+        );
+        assert_eq!(
+            config
+                .permission
+                .effective()
+                .decide(crate::permission::rules::BASH, None, "rm x"),
+            Some(Deny)
+        );
+    }
+
+    #[test]
+    fn a_repository_cannot_write_a_permission_table() {
+        // Trap (a) of the research: "local" is the profile's entry for this
+        // workspace, never a file in it.
+        let config = loaded_tables("{}", Some(r#"{"permission":{"bash":"allow"}}"#));
+        assert!(config.permission.effective().is_empty());
+        assert!(config
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.ignored_setting_key() == Some(PERMISSION_KEY)));
+    }
+
+    /// What a session launched on `config` makes of a read of `secrets/key`.
+    fn a_secret_read(config: &RuntimeConfig) -> crate::permission::PolicyDecision {
+        use crate::permission::{PermissionSession, ProposedAction, ReadPlan};
+        let read = ReadPlan::new(
+            "read_file",
+            PathBuf::from("/w/secrets/key"),
+            "secrets/key".to_string(),
+            b"secrets/key".to_vec(),
+            "secrets/key".to_string(),
+            Vec::new(),
+        );
+        PermissionSession::new(config.permission_mode)
+            .with_rules(config.permission.effective().clone())
+            .evaluate(ProposedAction::Read(&read))
+    }
+
+    #[test]
+    fn a_permission_table_that_does_not_read_refuses_every_tool_at_launch() {
+        use crate::permission::{DenyCause, PolicyDecision};
+        // Each of these is a profile whose table this workspace should have
+        // been judged by and was not read: the deny beside the typo, or the
+        // workspace's own table, would lapse if the launch took it as absent.
+        for (profile, mode) in [
+            (
+                r#"{"permission_mode":"ask","permission":{"read":{"secrets/*":"deny"},"bash":{"ls":"allow","rm":"sure"}}}"#,
+                PermissionMode::Ask,
+            ),
+            (
+                r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":{"{ROOT}":{"permission":["x"]}}}"#,
+                PermissionMode::Ask,
+            ),
+            (
+                r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":{"{ROOT}":"x"}}"#,
+                PermissionMode::Ask,
+            ),
+            (
+                r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":["x"]}"#,
+                PermissionMode::Ask,
+            ),
+            // A broken user table under a readable workspace table that
+            // shadows it: the workspace's table is read, and still not the one
+            // in force -- what did not read may be what it was written to
+            // replace, and `effective` must not pick the half that read.
+            (
+                r#"{"permission_mode":"ask","permission":{"bash":"sure"},"workspaces":{"{ROOT}":{"permission":{"read":"allow"}}}}"#,
+                PermissionMode::Ask,
+            ),
+            // A file that does not read at all: its mode goes with it.
+            ("{not json", PermissionMode::Auto),
+        ] {
+            let config = loaded_tables(profile, None);
+            assert_eq!(config.permission_mode, mode, "{profile}");
+            assert!(
+                matches!(
+                    a_secret_read(&config),
+                    PolicyDecision::Deny {
+                        cause: DenyCause::ConfiguredRule,
+                        ..
+                    }
+                ),
+                "{profile}: {:?}",
+                a_secret_read(&config)
+            );
+            // And the model is offered no tool it could only be refused.
+            assert!(
+                config
+                    .permission
+                    .effective()
+                    .denies_every_target_of_tool("terminal"),
+                "{profile}"
+            );
+            // The reason is the first diagnostic about a permission source.
+            let reason = config.permission.unreadable.as_deref().expect("a reason");
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.detail() == reason),
+                "{profile}: {reason}"
+            );
+        }
+        let shadowed = loaded_tables(
+            r#"{"permission":{"bash":"sure"},"workspaces":{"{ROOT}":{"permission":{"read":"allow"}}}}"#,
+            None,
+        );
+        assert!(shadowed.permission.user_shadowed_by_local);
+        assert!(!shadowed.permission.local.is_empty());
+        assert_eq!(shadowed.permission.effective(), refuse_every_tool());
+        let broken = loaded_tables(r#"{"permission":{"bash":"sure"}}"#, None);
+        let reason = "a permission table did not read (user config diagnostic: \
+                      invalid_value key=permission `sure` is not a permission action; use allow, ask or deny)";
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            assert_eq!(
+                broken.permission.refusal(mode),
+                Some(format!("every tool is refused: {reason}"))
+            );
+        }
+        // Full access consults no table, so nothing is refused there; the
+        // line says so rather than claim a refusal that does not happen.
+        assert_eq!(
+            broken.permission.refusal(PermissionMode::Yolo),
+            Some(format!(
+                "full access consults no table, so it is not applied; every other mode refuses every tool: {reason}"
+            ))
+        );
+        assert_eq!(
+            loaded_tables(r#"{"permission":{"bash":"allow"}}"#, None)
+                .permission
+                .refusal(PermissionMode::Ask),
+            None
+        );
+        assert_eq!(
+            broken.diagnostics[0].startup_line(),
+            "user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny"
+        );
+    }
+
+    #[test]
+    fn a_startup_line_is_one_bounded_line_whatever_the_file_quotes() {
+        let config = loaded_tables(
+            &format!(
+                "{{\"permission\":{{\"bash\":\"x\\u001b]0;owned\\u0007\\n{}\"}}}}",
+                "y".repeat(400)
+            ),
+            None,
+        );
+        let line = config.diagnostics[0].startup_line();
+        assert!(!line.chars().any(char::is_control), "{line:?}");
+        assert!(line.len() <= STARTUP_LINE_BYTES + 3, "{}", line.len());
+        assert!(line.ends_with('\u{2026}'), "{line:?}");
+        for mode in [PermissionMode::Ask, PermissionMode::Yolo] {
+            let refusal = config.permission.refusal(mode).expect("a refusal");
+            assert!(!refusal.chars().any(char::is_control), "{refusal:?}");
+            assert!(
+                refusal.len() <= 200 + STARTUP_LINE_BYTES,
+                "{}",
+                refusal.len()
+            );
+        }
+        // A file that does not read at all is said by its cause alone.
+        assert_eq!(
+            loaded_tables("{not json", None).diagnostics[0].startup_line(),
+            "user: malformed_settings"
+        );
+    }
+
+    #[test]
+    fn the_table_a_launch_refuses_with_is_the_one_permission_deny_means() {
+        assert_eq!(
+            Ok(refuse_every_tool().clone()),
+            crate::permission::rules::RuleSet::parse(&serde_json::json!("deny"))
+        );
+    }
+
+    #[test]
+    fn a_table_that_does_not_read_is_reported_by_its_key() {
+        let broken = loaded_tables(
+            r#"{"permission":{"bash":{"ls":"allow","rm":"sure"}}}"#,
+            None,
+        );
+        let diagnostic = broken
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.setting_key.as_deref() == Some(PERMISSION_KEY))
+            .expect("a permission diagnostic");
+        assert_eq!(diagnostic.cause, DiagnosticCause::InvalidValue);
+        assert!(diagnostic
+            .detail()
+            .contains("`sure` is not a permission action"));
+    }
+
+    #[test]
+    fn what_is_not_a_permission_source_does_not_close_the_table() {
+        use crate::permission::rules::RuleAction::Deny;
+        // A bad value of another key in the profile, a project file that does
+        // not read, and a project file that names a table: none of them is a
+        // table this workspace is judged by, so the readable one stays in force.
+        let config = loaded_tables(
+            r#"{"max_agent_steps":"seven","permission":{"read":{"secrets/*":"deny"}}}"#,
+            Some("{not json"),
+        );
+        for (layer, key) in [
+            (ConfigLayer::User, Some("max_agent_steps")),
+            (ConfigLayer::Project, None),
+        ] {
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.layer == layer
+                        && diagnostic.setting_key.as_deref() == key),
+                "{layer:?} {key:?}: {:?}",
+                config.diagnostics
+            );
+        }
+        assert_eq!(config.permission.unreadable, None);
+        assert_eq!(
+            config.permission.effective(),
+            &table(&[("read", "secrets/*", Deny)])
+        );
+        let config = loaded_tables("{}", Some(r#"{"permission":"deny"}"#));
+        assert!(config.permission.effective().is_empty());
+        // No profile at all is no table, not a broken one.
+        let root = tempfile::tempdir().expect("a root");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let bare = RuntimeConfig::load_with(
+            &Environment::new(Some(root.path().join("home")), BTreeMap::new()),
+            &workspace,
+        )
+        .expect("load");
+        assert!(bare.permission.effective().is_empty());
     }
 }

@@ -1,0 +1,196 @@
+[
+ {
+  "request": "001-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #2] duplicate [Image #1]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "request": "002-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #2] duplicate [Image #1]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #4][Image #5]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "request": "003-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #2] duplicate [Image #1]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #4][Image #5]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #6][Image #7]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "request": "004-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #2] duplicate [Image #1]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #4][Image #5]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "[Image #6][Image #7]"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "RECOVERY"
+     }
+    ]
+   }
+  ]
+ }
+]

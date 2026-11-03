@@ -45,9 +45,9 @@ a source revision; a build from a tag answers `build_channel=release` instead.
 | | |
 |---|---|
 | **Ask** | `xfx ask "..."` runs one bounded, multi-step turn: streamed assistant text, tool calls executed locally, then exactly one terminal event. `--json` gives you JSONL. |
-| **Shell** | A bare `xfx` opens a line-oriented shell on your terminal. It never takes the alternate screen, so your scrollback survives. Seven commands: `/help`, `/new`, `/clear`, `/model`, `/setup`, `/version`, `/quit`. |
+| **Shell** | A bare `xfx` opens a line-oriented shell on your terminal. It never takes the alternate screen, so your scrollback survives. Eleven commands: `/help`, `/clear`, `/new`, `/reset`, `/setup`, `/stats`, `/status`, `/model`, `/copy`, `/version`, `/quit`. |
 | **TUI** | `XFX_TUI=1` on a bare `xfx` opts into a full-screen band instead: a divider, the composer and a status row at the bottom of the terminal's **normal** buffer, with a slash-completion menu, prompt history, framed paste and the same seven commands. It borrows the alternate screen for one thing only -- reviewing a change too large for a one-line summary -- and gives it straight back. Opt-in, and narrower than upstream's: [`docs/parity.md`](docs/parity.md)'s `full-screen TUI` row is the whole contract. |
-| **Models** | `/model` reports the model in force and browses the provider's catalog when it publishes one; `/model <id>` switches from the next turn on and records it in the session, and an id the loaded catalog does not publish is refused by name rather than sent. `/setup <gateway\|llmux>` switches which backend a prompt goes to. |
+| **Models** | `/model` opens a menu of the provider's models -- the Gateway's catalog or a llmux daemon's -- with their context window, output ceiling and Fast/Ultra facts; `/model <query>` switches to the model the query names best (or to the id as typed) from the next turn on, records it in the session and saves it as the provider's model in `~/.xfx/settings.json`. `/setup <gateway\|llmux>` switches which backend a prompt goes to. |
 | **Tools** | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `create_folder`, and `terminal` (one action: `exec`). Reads are bounded; writes are canonicalized inside the workspace, staged in the same directory, and renamed atomically. |
 | **Permissions** | `ask` asks you on the terminal, `auto` admits bounded reversible changes and a reporting-only command grammar, `yolo` skips the checks and says so on stderr. |
 | **Sessions** | Every turn is recorded to an append-only log under `~/.xfx/sessions/<id>/`, with an atomically published manifest. `xfx sessions`, `xfx session <id>`, and `xfx ask --resume last` read it back. `--no-save` writes nothing at all. |
@@ -96,8 +96,18 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 - **`auto` (the default)** runs reads directly, runs bounded reversible
   workspace writes after structural validation, and admits only a narrow
   reporting command grammar: no `&&`, no shell, no package-manager build or test
-  families, nothing that compiles or runs your project's code. It will not write
-  into a directory added with `--add-dir`.
+  families, nothing that compiles or runs your project's code. A directory added
+  with `--add-dir` or `/workspace add` is a root like the workspace, and `auto`
+  writes there as it does in the workspace -- except the files that decide what
+  runs later (`.zshrc`, `.zshenv` and the other shell startup files, all of
+  `.ssh`, launch agents and systemd user units, `.git/hooks`, `.git/config`,
+  `~/.gitconfig` and every file it includes, `~/.xfx`, a project's `.mcp.json`, the vim, neovim, emacs
+  and tmux startup files, `~/.aws/config`, `~/.kube/config`, Claude Code's
+  settings), which it leaves to `ask`. That holds in any root,
+  in any spelling a case-insensitive volume folds onto those names, and
+  through a link: a dotfiles file that `~/.zshenv`, or a link inside `~/.ssh`
+  or `~/.vim`, leads to is that file, and when xfx cannot finish checking for
+  such links, `auto` asks.
 - **`yolo` runs no permission check at all.** It prints a warning to stderr
   every time. Use it in a container you are willing to lose.
 - **Approvals are scoped.** Answering "always" grants exactly one tool and one
@@ -113,6 +123,12 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
   you have the model read a file holding your own secrets, that secret is on
   disk in the session log. Use `--no-save` for a turn that must leave nothing
   behind.
+- **What you submit at the full-screen shell's composer is kept too.** Every
+  prompt and command line -- a collapsed paste as the text it stands for -- is
+  appended to `~/.xfx/history.jsonl` (owner-only plaintext) for the next
+  session's recall, as upstream keeps `~/.fx/history.jsonl`. `/settings`'
+  `Prompt history` off keeps nothing there from then on; lines already kept
+  stay until you delete the file.
 - **The file tools never write `.git` or `.xfx`.** Refused structurally, before
   any permission check and in every mode including `--yolo`, because a
   `.git/config` entry decides what the commands xfx may then run will execute.
@@ -287,6 +303,18 @@ when stdin or stdout is not a terminal -- use `xfx ask` there.
 Later layers override earlier ones, key by key: project `.xfx.json`, then
 `~/.xfx/settings.json`, then that file's exact `workspaces["<root>"]` entry, then
 the environment (`XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`).
+`XFX_SOUND=off` (or `0`, `false`) starts a session with `/sound` off -- the
+switch for the terminal bell the full-screen shell rings when a turn ends and
+when it stops to ask you something -- and any other value starts it on;
+otherwise the profile's `notifications` decides, and on a machine that never
+set it the bell is on for macOS and off elsewhere, as upstream's sounds are.
+
+A link in a workspace skill root (`.xfx/skills`, `skills/`) is followed only
+when it resolves inside that workspace, or inside a directory you name: the
+profile-only `skill_symlink_authorities` (an array of absolute paths, which a
+workspace's own entry replaces) or `XFX_SKILL_SYMLINK_AUTHORITIES`
+(colon-separated absolute paths). None is named by default, and an unreadable
+list names none at all.
 
 Five keys are read, because those are the five the runtime consumes:
 `max_agent_steps`, and the four that are **profile-only** -- `model`,

@@ -1,0 +1,214 @@
+# The picker's paging (D1 follow-up): eighteen saved sessions on a 24-row
+# screen, whose page is seventeen (`resumePageLimitForRows`,
+# `app_session_runtime.zig:1188-1193`: max(rows - 7, 10)). The first page
+# ends on `↓ Load more` (`composeLoadMoreRow`, `resume_menu_presentation.zig:417-436`);
+# walking down to its last session loads the next (`maybePrefetchMoreSessions`,
+# `:2808-2820`). Scope and search keep to the page that is loaded.
+gateway resume-paging-turns.json
+wait 4
+type question one
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question two
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question three
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question four
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question five
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question six
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question seven
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question eight
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question nine
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question ten
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question eleven
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question twelve
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question thirteen
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question fourteen
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question fifteen
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question sixteen
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question seventeen
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type question eighteen
+wait 0.3
+key Enter
+wait 1.5
+type /new
+wait 0.3
+key Enter
+wait 1.2
+type /resume
+wait 0.5
+key Enter
+wait 2
+snap page1
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+key Down
+wait 0.2
+wait 0.3
+snap down14
+key Down
+wait 0.3
+snap down15
+key Down
+wait 0.5
+snap down16-loaded
+key Down
+wait 0.3
+snap down17
+key Tab
+wait 1
+snap tab-all
+key BTab
+wait 1
+type ve
+wait 0.5
+snap query-ve
+key Down
+wait 0.3
+key Down
+wait 0.3
+key Down
+wait 0.3
+wait 0.3
+snap query-ve-down3
+key Escape
+wait 1

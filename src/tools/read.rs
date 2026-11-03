@@ -30,9 +30,10 @@ use serde_json::Value;
 use crate::workspace::{is_ignored_directory, PathError};
 
 use super::spec::{
-    clip, nonblank, object, optional_bool, optional_enum, optional_integer, optional_string,
-    required_string, InputSchema, PermissionKind, Property, PropertyKind, ToolContext, ToolInput,
-    ToolLimits, ToolResult, ToolSpec,
+    access_denied, clip, execution_failure, is_access_denied, nonblank, object, optional_bool,
+    optional_enum, optional_integer, optional_string, required_string, zig_error_name, Activity,
+    InputSchema, PermissionKind, Presentation, Property, PropertyKind, Syscall, ToolContext,
+    ToolInput, ToolLimits, ToolResult, ToolSpec,
 };
 
 /// Appended to a line that was clipped by `read_file`
@@ -55,7 +56,7 @@ const GLOB_FILES_DESCRIPTION: &str = "Find file paths matching a glob pattern be
 
 const GREP_FILES_DESCRIPTION: &str = "Search text files for a literal substring, optionally narrowed by path and include glob, with modes for matching lines, files with matches, or counts, plus head_limit/offset paging and bounded context_lines. Paths are relative to the workspace root, or absolute inside an authorized root. Regular expressions are not supported: the pattern is matched literally. The search does not see every file: symlinks are not followed, build directories such as .git and node_modules are pruned, paths excluded by .gitignore are skipped, hidden dot-paths are skipped unless the include glob itself names one, and files that are not UTF-8 text or are above the size cap are not searched. Any file skipped for the last two reasons is counted on a ... skipped line, so no matches means no matches among the files actually searched. When to use: find an exact symbol, string, or usage site. When NOT to use: filename lookup, reading a known path, or regex search.";
 
-const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path. When NOT to use: list a directory, search many files, or read binary data.";
+const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range; image files (PNG, JPEG, GIF, WebP up to 3.9MB) attach to the result so you can see them. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path, or view an image file. When NOT to use: list a directory, search many files, or read non-image binary data.";
 
 const PATH_DESCRIPTION: &str =
     "Path relative to the workspace root, or an absolute path inside an authorized root.";
@@ -68,6 +69,7 @@ pub const LIST_FILES: ToolSpec = ToolSpec::new(
     "list_files",
     LIST_FILES_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::List, "Listing", "Listed", "."),
     InputSchema {
         properties: &[Property {
             name: "path",
@@ -87,6 +89,7 @@ pub const GLOB_FILES: ToolSpec = ToolSpec::new(
     "glob_files",
     GLOB_FILES_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::List, "Matching", "Matched", "pattern"),
     InputSchema {
         properties: &[
             Property {
@@ -123,6 +126,7 @@ pub const GREP_FILES: ToolSpec = ToolSpec::new(
     "grep_files",
     GREP_FILES_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::Read, "Searching", "Searched", "pattern"),
     InputSchema {
         properties: &[
             Property {
@@ -194,6 +198,7 @@ pub const READ_FILE: ToolSpec = ToolSpec::new(
     "read_file",
     READ_FILE_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::Read, "Reading", "Read", "file"),
     InputSchema {
         properties: &[
             Property {
@@ -252,14 +257,28 @@ fn validate_list_files(input: &ToolInput) -> Result<(), String> {
 }
 
 fn execute_list_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    list_files(input, context, &mut said).with_feedback(said)
+}
+
+fn list_files(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::ListFiles(input) = input else {
         return ToolResult::failure(mismatched("list_files"));
     };
     let requested = input.path.as_deref().unwrap_or(".");
     let resolved = match context.scope().resolve_existing(requested) {
         Ok(resolved) => resolved,
-        Err(err) => return refusal("list_files", err),
+        Err(err) => return unresolved("list_files", requested, err),
     };
+    let asked = Asked {
+        tool: "list_files",
+        argument: requested,
+        binding,
+    };
+    if let Err(refused) = admitted(&asked, context, resolved.absolute(), said) {
+        return refused;
+    }
     let display = context.scope().display_path(resolved.absolute());
 
     let entries = match fs::read_dir(resolved.absolute()) {
@@ -344,6 +363,12 @@ fn validate_glob_files(input: &ToolInput) -> Result<(), String> {
 }
 
 fn execute_glob_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    glob_files(input, context, &mut said).with_feedback(said)
+}
+
+fn glob_files(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::GlobFiles(input) = input else {
         return ToolResult::failure(mismatched("glob_files"));
     };
@@ -351,8 +376,28 @@ fn execute_glob_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(matcher) => matcher,
         Err(reason) => return ToolResult::failure(reason),
     };
-    let root = match search_root("glob_files", context, input.path.as_deref()) {
-        Ok(root) => root,
+    let asked = Asked {
+        tool: "glob_files",
+        argument: &input.pattern,
+        binding,
+    };
+    let root = match search_root(&asked, context, input.path.as_deref(), said) {
+        Ok(SearchRoot::Directory(root)) => root,
+        // Pointed at something that is not a directory, upstream matches
+        // the pattern against its name and answers it or nothing
+        // (`glob_files.zig:191-198`).
+        Ok(SearchRoot::File(entry) | SearchRoot::Other(entry)) => {
+            let name = entry
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let matches = if glob_matches(&matcher, &name) {
+                vec![context.scope().display_path(&entry)]
+            } else {
+                Vec::new()
+            };
+            return glob_result(input, context, matches, String::new());
+        }
         Err(result) => return result,
     };
 
@@ -366,6 +411,16 @@ fn execute_glob_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         }
         matches.push(context.scope().display_path(candidate));
     }
+    glob_result(input, context, matches, walk.notes(context.limits()))
+}
+
+/// A glob's answer: its matches, sorted and capped, then `notes`.
+fn glob_result(
+    input: &GlobFilesInput,
+    context: &ToolContext,
+    mut matches: Vec<String>,
+    notes: String,
+) -> ToolResult {
     matches.sort();
 
     let pattern = &input.pattern;
@@ -386,7 +441,7 @@ fn execute_glob_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         }
         listed
     };
-    out.push_str(&walk.notes(context.limits()));
+    out.push_str(&notes);
 
     let detail = format!("{} matches for {pattern}", matches.len());
     ToolResult::success(out, detail)
@@ -464,6 +519,12 @@ struct GrepMatch {
 }
 
 fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    grep_files(input, context, &mut said).with_feedback(said)
+}
+
+fn grep_files(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::GrepFiles(input) = input else {
         return ToolResult::failure(mismatched("grep_files"));
     };
@@ -474,29 +535,65 @@ fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         },
         None => None,
     };
-    let root = match search_root("grep_files", context, input.path.as_deref()) {
-        Ok(root) => root,
-        Err(result) => return result,
+    let asked = Asked {
+        tool: "grep_files",
+        argument: &input.pattern,
+        binding,
     };
-
-    let hidden = input.include.as_deref().is_some_and(wants_hidden);
-    let walk = walk_files(&root, context.limits(), hidden);
-
     let limits = context.limits();
-    let mut candidates: Vec<(String, PathBuf)> = walk
-        .files
-        .iter()
-        .filter(|candidate| match &include {
-            Some(matcher) => glob_matches(matcher, &relative_to(&root, candidate)),
-            None => true,
-        })
-        .map(|candidate| {
-            (
-                context.scope().display_path(candidate),
-                candidate.to_path_buf(),
-            )
-        })
-        .collect();
+    let (mut candidates, walk_notes, single): (Vec<(String, PathBuf)>, String, bool) =
+        match search_root(&asked, context, input.path.as_deref(), said) {
+            Ok(SearchRoot::Directory(root)) => {
+                let hidden = input.include.as_deref().is_some_and(wants_hidden);
+                let walk = walk_files(&root, limits, hidden);
+                let candidates = walk
+                    .files
+                    .iter()
+                    .filter(|candidate| match &include {
+                        Some(matcher) => glob_matches(matcher, &relative_to(&root, candidate)),
+                        None => true,
+                    })
+                    .map(|candidate| {
+                        (
+                            context.scope().display_path(candidate),
+                            candidate.to_path_buf(),
+                        )
+                    })
+                    .collect();
+                (candidates, walk.notes(limits), false)
+            }
+            // One file, searched by itself when its name passes `include`,
+            // as upstream's regular-file root is (`collectRegularFileRoot`,
+            // `vercel-labs/fx@c1db9191 src/core/workspace/grep_search.zig`);
+            // one it could not read is a failure, in its words.
+            Ok(SearchRoot::File(file)) => {
+                if let Some(failure) = unscannable(&file) {
+                    return failure;
+                }
+                let name = file
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let wanted = include
+                    .as_ref()
+                    .is_none_or(|matcher| matcher.is_match(&name));
+                let candidates = if wanted {
+                    vec![(context.scope().display_path(&file), file)]
+                } else {
+                    Vec::new()
+                };
+                (candidates, String::new(), true)
+            }
+            // `grep_files.zig:287`.
+            Ok(SearchRoot::Other(entry)) => {
+                return ToolResult::failure(format!(
+                    "Not a regular file or directory: {}",
+                    entry.display()
+                ))
+                .unexplained()
+            }
+            Err(result) => return result,
+        };
     candidates.sort_by(|a, b| a.0.cmp(&b.0));
 
     let needle = if input.case_insensitive {
@@ -569,8 +666,12 @@ fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
             limits.max_grep_scan
         ));
     }
-    out.push_str(&skipped.notes());
-    out.push_str(&walk.notes(limits));
+    // A file root that is not text is no match and nothing more, as
+    // upstream's skip of it is (`readModelSafeContent`, `grep_search.zig`).
+    if !single {
+        out.push_str(&skipped.notes());
+    }
+    out.push_str(&walk_notes);
 
     let detail = format!("{} matches for {}", matches.len(), input.pattern);
     ToolResult::success(out, detail)
@@ -826,12 +927,27 @@ pub struct ReadFileInput {
     pub line_count: Option<usize>,
 }
 
+/// `read_file`'s arguments, refused in upstream's words
+/// (`vercel-labs/fx@c1db9191 src/tools/filesystem/read_file.zig:44-52`, and
+/// `:85` for a line field): the same fields and bounds as the shared decoders,
+/// whose sentences the other tools keep.
 fn decode_read_file(input: &Value) -> Result<ToolInput, String> {
-    let object = object("read_file", input)?;
+    let Some(object) = input.as_object() else {
+        return Err("read_file arguments must be an object".to_string());
+    };
+    let path = match object.get("path") {
+        None => return Err("read_file requires string field \"path\"".to_string()),
+        Some(Value::String(path)) => path.clone(),
+        Some(_) => return Err("read_file field \"path\" must be a string".to_string()),
+    };
+    let positive = |key: &str| {
+        optional_integer("read_file", object, key, 1)
+            .map_err(|_| format!("read_file field \"{key}\" must be a positive integer"))
+    };
     Ok(ToolInput::ReadFile(ReadFileInput {
-        path: required_string("read_file", object, "path")?,
-        start_line: optional_integer("read_file", object, "start_line", 1)?.unwrap_or(1),
-        line_count: optional_integer("read_file", object, "line_count", 1)?,
+        path,
+        start_line: positive("start_line")?.unwrap_or(1),
+        line_count: positive("line_count")?,
     }))
 }
 
@@ -839,31 +955,46 @@ fn validate_read_file(input: &ToolInput) -> Result<(), String> {
     let ToolInput::ReadFile(input) = input else {
         return Err(mismatched("read_file"));
     };
-    nonblank("read_file", "path", &input.path)
+    // `read_file.zig:96-103`.
+    if input.path.trim().is_empty() {
+        return Err("read_file field \"path\" must not be empty".to_string());
+    }
+    Ok(())
 }
 
 fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    read_file(input, context, &mut said).with_feedback(said)
+}
+
+fn read_file(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::ReadFile(input) = input else {
         return ToolResult::failure(mismatched("read_file"));
     };
     let limits = context.limits();
     let resolved = match context.scope().resolve_existing(&input.path) {
         Ok(resolved) => resolved,
-        Err(err) => return refusal("read_file", err),
+        Err(err) => return unresolved("read_file", &input.path, err),
     };
+    let asked = Asked {
+        tool: "read_file",
+        argument: &input.path,
+        binding,
+    };
+    if let Err(refused) = admitted(&asked, context, resolved.absolute(), said) {
+        return refused;
+    }
     let display = context.scope().display_path(resolved.absolute());
+    let target = resolved.absolute().display().to_string();
 
+    // Upstream stats the target before it opens it (`openExistingRegularFile
+    // WithPolicy`, `vercel-labs/fx@c1db9191 src/core/shared/io.zig:202-213`),
+    // so a failure here is named as its stat names one.
     let metadata = match fs::metadata(resolved.absolute()) {
         Ok(metadata) => metadata,
-        Err(err) => {
-            return ToolResult::failure(format!("read_file cannot stat `{display}`: {err}"))
-        }
+        Err(err) => return read_failure(&target, zig_error_name(Syscall::Stat, &err)),
     };
-    if metadata.is_dir() {
-        return ToolResult::failure(format!(
-            "read_file cannot read `{display}`: it is a directory; use list_files"
-        ));
-    }
     // Everything that is not a regular file is refused here rather than in the
     // read below: opening a writer-less FIFO -- or a device that answers slowly,
     // or a socket -- parks the thread for as long as the turn lasts, and a tool
@@ -874,17 +1005,38 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     // swapped for a FIFO between them can still block: what this closes is the
     // stable-path hazard, not the race, which is the bargain a cooperative
     // workspace makes everywhere else too.
+    //
+    // A directory is one of them, as upstream's open of one refuses it
+    // (`openExistingReadOnlyRegularFile`, `read_file.zig:133-139`).
     if !metadata.is_file() {
-        return ToolResult::failure(format!(
-            "read_file cannot read `{display}`: it is not a regular file"
-        ));
+        return ToolResult::failure(execution_failure(
+            "read_file",
+            "read_file requires a regular file",
+            &[
+                ("field", "path"),
+                ("path", &target),
+                ("error", "NotRegularFile"),
+            ],
+            Some("Use glob_files to inspect directory contents, then choose a regular file."),
+        ))
+        .unexplained();
     }
 
-    let bytes = match fs::read(resolved.absolute()) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            return ToolResult::failure(format!("read_file cannot read `{display}`: {err}"))
+    // Opened, then read: an open's failure is named as its open names one,
+    // and a read's is the reader's `ReadFailed`, which is what upstream's
+    // `readSliceShort` returns whatever the read hit (`readIntoBuffer`,
+    // `read_file.zig:215-223`, into `readFileFailure`).
+    let bytes = {
+        use std::io::Read;
+        let mut file = match fs::File::open(resolved.absolute()) {
+            Ok(file) => file,
+            Err(err) => return read_failure(&target, zig_error_name(Syscall::Open, &err)),
+        };
+        let mut bytes = Vec::new();
+        if file.read_to_end(&mut bytes).is_err() {
+            return read_failure(&target, "ReadFailed");
         }
+        bytes
     };
     let file_bytes = bytes.len();
     let snapshot_complete = file_bytes <= limits.max_read_bytes;
@@ -901,7 +1053,32 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         // The bytes are named and counted rather than shown. Dumping them would
         // fill the model's context with noise it cannot use and might not
         // survive as valid UTF-8 on the wire.
-        Ok(_) | Err(_) => return binary_result(&display, file_bytes),
+        //
+        // An image is the one binary file shown: attached for the model to see
+        // when a request can carry it, and refused in words when it cannot
+        // (`imageToolResult`, `read_file.zig:157`, `:228-278`).
+        Ok(_) | Err(_) => {
+            return match crate::image::read_file_image(
+                &display,
+                if snapshot_complete { &bytes } else { snapshot },
+                file_bytes as u64,
+                snapshot_complete,
+            ) {
+                Some((output, image)) => {
+                    let detail = match &image {
+                        Some(image) => {
+                            format!(
+                                "{display} ({}, {file_bytes} bytes)",
+                                image.media_type.label()
+                            )
+                        }
+                        None => format!("{display} (image not attached, {file_bytes} bytes)"),
+                    };
+                    ToolResult::success(output, detail).with_image(image)
+                }
+                None => binary_result(&display, file_bytes),
+            };
+        }
     };
 
     // The model may ask for fewer lines than the cap but never for more: a
@@ -1172,30 +1349,237 @@ fn walk_files(root: &Path, limits: &ToolLimits, hidden: bool) -> WalkResult {
     }
 }
 
-/// Resolves the directory a search runs below.
+/// What a search runs over: a directory it walks, or the one file -- or
+/// other entry -- it was pointed at, as upstream's searches take either
+/// (`glob_files.zig:104-124`, `:189-198`; `grep_files.zig:261-289`).
+enum SearchRoot {
+    Directory(PathBuf),
+    File(PathBuf),
+    /// Neither a directory nor a regular file: a FIFO, a socket, a device.
+    Other(PathBuf),
+}
+
+/// Resolves the root a search runs over.
+///
+/// An in-call failure is upstream's, with no reason on the row
+/// ([`ToolResult::unexplained`]): the operating system's refusal is its
+/// access-denied envelope and anything else a plain sentence -- each tool
+/// its own, as upstream's reaches the root its own way: `glob_files` opens it
+/// as a directory and names the argument (`glob_files.zig:104-109`),
+/// `grep_files` stats it and names the absolute path (`grep_files.zig:
+/// 243-247`).
 fn search_root(
-    tool: &str,
+    asked: &Asked<'_>,
     context: &ToolContext,
     requested: Option<&str>,
-) -> Result<PathBuf, ToolResult> {
+    said: &mut Option<String>,
+) -> Result<SearchRoot, ToolResult> {
+    let tool = asked.tool;
     let requested = requested.unwrap_or(".");
     let resolved = context
         .scope()
         .resolve_existing(requested)
-        .map_err(|err| refusal(tool, err))?;
-    let metadata = fs::metadata(resolved.absolute()).map_err(|err| {
-        ToolResult::failure(format!(
-            "{tool} cannot stat `{}`: {err}",
-            context.scope().display_path(resolved.absolute())
-        ))
+        .map_err(|err| unresolved(tool, requested, err))?;
+    admitted(asked, context, resolved.absolute(), said)?;
+    let absolute = resolved.absolute().to_path_buf();
+    let metadata = fs::metadata(&absolute).map_err(|err| {
+        let glob = tool == "glob_files";
+        let name = zig_error_name(
+            if glob {
+                Syscall::OpenDir
+            } else {
+                Syscall::Stat
+            },
+            &err,
+        );
+        let shown = absolute.display().to_string();
+        let path = if glob { requested } else { shown.as_str() };
+        let body = if is_access_denied(name) {
+            access_denied(tool, path, name)
+        } else if glob {
+            format!("Unable to resolve glob search root: {path} ({name})")
+        } else {
+            format!("Unable to stat grep search root: {path} ({name})")
+        };
+        ToolResult::failure(body).unexplained()
     })?;
-    if !metadata.is_dir() {
-        return Err(ToolResult::failure(format!(
-            "{tool} needs a directory to search below; `{}` is a file",
-            context.scope().display_path(resolved.absolute())
-        )));
+    Ok(if metadata.is_dir() {
+        SearchRoot::Directory(absolute)
+    } else if metadata.is_file() {
+        SearchRoot::File(absolute)
+    } else {
+        SearchRoot::Other(absolute)
+    })
+}
+
+/// A read call as policy is asked about it, before its path is resolved.
+struct Asked<'a> {
+    tool: &'static str,
+    /// The call's label argument as the model wrote it: a path, or a
+    /// search's pattern ([`crate::permission::ApprovalSubject::Call`]).
+    argument: &'a str,
+    /// The call's typed input, field by field ([`binding`]).
+    binding: Vec<u8>,
+}
+
+impl Asked<'_> {
+    /// The read this call is, at `canonical`. One construction for the call
+    /// and for `/permissions remember` ([`prepare_read`]), so the two cannot
+    /// key one read two ways.
+    fn plan(&self, context: &ToolContext, canonical: &Path) -> crate::permission::ReadPlan {
+        crate::permission::ReadPlan::new(
+            self.tool,
+            canonical.to_path_buf(),
+            context.scope().display_path(canonical),
+            crate::permission::rules::rule_path(context.scope().primary(), canonical),
+            self.argument.to_string(),
+            self.binding.clone(),
+        )
     }
-    Ok(resolved.absolute().to_path_buf())
+}
+
+/// The read `input` asks for, resolved as its tool resolves it and not run:
+/// what `/permissions remember` keys a rule about a read on. Upstream
+/// prepares a structured call's key and label and nothing else -- no
+/// configured rule is consulted (`preparePermissionStateAction`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:2261-2267`)
+/// -- and a path that does not resolve cannot be prepared.
+pub(crate) fn prepare_read(
+    input: &ToolInput,
+    context: &ToolContext,
+) -> Result<crate::permission::ReadPlan, String> {
+    let (tool, requested, argument) = match input {
+        ToolInput::ReadFile(read) => ("read_file", read.path.as_str(), read.path.as_str()),
+        ToolInput::ListFiles(list) => {
+            let path = list.path.as_deref().unwrap_or(".");
+            ("list_files", path, path)
+        }
+        ToolInput::GlobFiles(glob) => (
+            "glob_files",
+            glob.path.as_deref().unwrap_or("."),
+            glob.pattern.as_str(),
+        ),
+        ToolInput::GrepFiles(grep) => (
+            "grep_files",
+            grep.path.as_deref().unwrap_or("."),
+            grep.pattern.as_str(),
+        ),
+        _ => return Err("not a read".to_string()),
+    };
+    let resolved = context
+        .scope()
+        .resolve_existing(requested)
+        .map_err(|err| unresolved(tool, requested, err).output)?;
+    let asked = Asked {
+        tool,
+        argument,
+        binding: binding(input),
+    };
+    Ok(asked.plan(context, resolved.absolute()))
+}
+
+/// Whether the read `asked` may go ahead at `canonical`, the path
+/// [`crate::workspace::AccessScope::resolve_existing`] resolved -- symlinks
+/// followed and case as stored, so a rule cannot be walked around through a
+/// link or a capital letter, as upstream's `realpath`ed targets cannot
+/// (`resolveFileToolPath`, `vercel-labs/fx@c1db9191
+/// src/core/permissions/permissions.zig:1059-1074`).
+///
+/// Asked before anything is opened. A search tool is judged at the
+/// directory it searches below and not at each file it walks, which is
+/// upstream's single target for it (`path_optional_existing`, `:205-211`).
+/// The decision is the session's, in upstream's order
+/// (`requestPermissionOutcomeResolved`, `tool_admission.zig:1311-1511`):
+/// full access reads; a configured deny refuses; a saved-session rule for
+/// exactly this call decides; a rule that asks is put to the person, in
+/// `auto` as in `ask`, unless an exact grant already answered it; otherwise
+/// reading is free. What the person said beside their answer is left in
+/// `said` for the result, whichever way they answered.
+fn admitted(
+    asked: &Asked<'_>,
+    context: &ToolContext,
+    canonical: &Path,
+    said: &mut Option<String>,
+) -> Result<(), ToolResult> {
+    use crate::permission::{Decided, PolicyDecision, ProposedAction};
+    let plan = asked.plan(context, canonical);
+    let Decided { decision, feedback } = context
+        .permissions()
+        .decide_with_feedback(ProposedAction::Read(&plan));
+    *said = feedback;
+    match decision {
+        PolicyDecision::Allow { .. } => Ok(()),
+        PolicyDecision::Deny { reason, .. } => Err(ToolResult::refused(asked.tool, &reason)),
+        // `decide_with_feedback` resolves every question; this arm keeps a
+        // future decision from being read as a yes.
+        PolicyDecision::Prompt => Err(ToolResult::refused(
+            asked.tool,
+            "the approval was never resolved",
+        )),
+    }
+}
+
+/// A read call's typed input, field by field, for the key a saved-session
+/// rule about exactly this call is kept under
+/// ([`crate::permission::ProposedAction::state_key`]): upstream keys the call's
+/// arguments (`permissionStateKeyForCall`, `tool_admission.zig:2219-2235`),
+/// and xfx keys what they decoded to, so `/permissions remember` and the
+/// model's call agree on a key whenever they agree on what to read. An absent
+/// field and a present one are told apart.
+pub(crate) fn binding(input: &ToolInput) -> Vec<u8> {
+    use crate::permission::session_rules::field;
+    let mut out = Vec::new();
+    let mut put = |name: &str, value: Option<String>| {
+        field(&mut out, name.as_bytes());
+        match value {
+            Some(value) => field(&mut out, format!("={value}").as_bytes()),
+            None => field(&mut out, b""),
+        }
+    };
+    match input {
+        ToolInput::ListFiles(input) => put("path", input.path.clone()),
+        ToolInput::GlobFiles(input) => {
+            put("pattern", Some(input.pattern.clone()));
+            put("path", input.path.clone());
+            put("count", Some(input.count_only.to_string()));
+        }
+        ToolInput::GrepFiles(input) => {
+            put("pattern", Some(input.pattern.clone()));
+            put("path", input.path.clone());
+            put("include", input.include.clone());
+            put("case_insensitive", Some(input.case_insensitive.to_string()));
+            // The schema's own words, not a `Debug` spelling: this is a
+            // key on disk, and renaming a variant must not move it.
+            put(
+                "mode",
+                Some(
+                    match input.mode {
+                        GrepMode::Matches => "matches",
+                        GrepMode::FilesWithMatches => "files_with_matches",
+                        GrepMode::Count => "count",
+                    }
+                    .to_string(),
+                ),
+            );
+            put(
+                "head_limit",
+                input.head_limit.map(|limit| limit.to_string()),
+            );
+            put("offset", Some(input.offset.to_string()));
+            put("context_lines", Some(input.context_lines.to_string()));
+        }
+        ToolInput::ReadFile(input) => {
+            put("path", Some(input.path.clone()));
+            put("start_line", Some(input.start_line.to_string()));
+            put(
+                "line_count",
+                input.line_count.map(|count| count.to_string()),
+            );
+        }
+        // Not a read: nothing of it is a read's key.
+        _ => {}
+    }
+    out
 }
 
 fn compile_glob(tool: &str, field: &str, pattern: &str) -> Result<GlobMatcher, String> {
@@ -1239,9 +1623,82 @@ fn is_model_safe(bytes: &[u8]) -> bool {
     !bytes.contains(&0) && std::str::from_utf8(bytes).is_ok()
 }
 
+/// Why a file root could not be scanned, as upstream says it
+/// (`searchFailure`, `grep_files.zig:291-302`, reading it as
+/// `readModelSafeContent` does: opened, then read through a positional
+/// reader whose failure is the read's own error): the access-denied envelope
+/// or `Unable to scan grep file root: <path> (<error>)`, with no reason on
+/// the row. `None` when it reads.
+fn unscannable(file: &Path) -> Option<ToolResult> {
+    use std::io::Read;
+    let named = match fs::File::open(file) {
+        Err(err) => zig_error_name(Syscall::Open, &err),
+        Ok(mut opened) => match opened.read_to_end(&mut Vec::new()) {
+            Ok(_) => return None,
+            Err(err) => zig_error_name(Syscall::PositionalRead, &err),
+        },
+    };
+    let path = file.display().to_string();
+    let body = if is_access_denied(named) {
+        access_denied("grep_files", &path, named)
+    } else {
+        format!("Unable to scan grep file root: {path} ({named})")
+    };
+    Some(ToolResult::failure(body).unexplained())
+}
+
 /// The model-visible form of a path refusal.
 fn refusal(tool: &str, err: PathError) -> ToolResult {
     ToolResult::failure(format!("{tool} refused the path: {err}"))
+}
+
+/// A read of a resolved file that the system refused or failed, as upstream's
+/// `readFileFailure` answers it (`read_file.zig:184-216`): the access-denied
+/// envelope for a permission error, and `read_file failed` for anything
+/// else, each naming the target and the error by upstream's name for it
+/// (`name`, [`zig_error_name`]) -- and, being an in-call failure, no summary
+/// for the row.
+fn read_failure(target: &str, name: &str) -> ToolResult {
+    let body = if is_access_denied(name) {
+        access_denied("read_file", target, name)
+    } else {
+        execution_failure(
+            "read_file",
+            "read_file failed",
+            &[("field", "path"), ("path", target), ("error", name)],
+            Some(
+                "Run glob_files to discover matching paths, or check the path relative to the workspace.",
+            ),
+        )
+    };
+    ToolResult::failure(body).unexplained()
+}
+
+/// A path that did not resolve, as upstream says it: its permission
+/// preflight resolves a file tool's target before the tool runs and refuses
+/// one that does not with `permissionTargetResolutionFailureMessage`
+/// (`vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:2465-2495`) --
+/// `Path not found: <path>` for one that is absent (`:2471`), `Path is outside
+/// the workspace: <path>` for one past every root (`:2474`), and
+/// `Cannot resolve path "<path>": <why>` otherwise (`:2492-2493`, which names
+/// the error; this names it as the system did). The path is the argument as
+/// the model wrote it, spaces and all, as upstream's is
+/// (`targetPathForFailureMessage`, `:2503-2518`;
+/// `fx-read-failures-40x120-bodies/003-completion.json`: `Path not found:
+/// missing.txt  ` with its spaces). A root that is not usable is not the
+/// path's fault, and keeps xfx's sentence.
+fn unresolved(tool: &str, requested: &str, err: PathError) -> ToolResult {
+    let said = match err {
+        PathError::NotFound { .. } => format!("Path not found: {requested}"),
+        PathError::OutsideScope { .. } => format!("Path is outside the workspace: {requested}"),
+        PathError::Unresolvable { detail, .. } => {
+            format!("Cannot resolve path \"{requested}\": {detail}")
+        }
+        other @ (PathError::Empty | PathError::RootUnavailable { .. }) => {
+            return refusal(tool, other)
+        }
+    };
+    ToolResult::failure(said)
 }
 
 /// A decoded input reached the wrong executor.
@@ -1382,11 +1839,13 @@ mod tests {
             (decode_list_files as fn(&Value) -> _, "list_files"),
             (decode_glob_files, "glob_files"),
             (decode_grep_files, "grep_files"),
-            (decode_read_file, "read_file"),
         ] {
             let err = decode(&json!(["not", "an", "object"])).expect_err("refused");
             assert_eq!(err, format!("{tool} arguments must be a JSON object"));
         }
+        // `read_file`'s in upstream's words (`read_file.zig:44-45`).
+        let err = decode_read_file(&json!(["not", "an", "object"])).expect_err("refused");
+        assert_eq!(err, "read_file arguments must be an object");
     }
 
     #[test]

@@ -1,0 +1,10 @@
+[
+ {"tool":{"name":"read_file","input":{"path":"secret.txt"}}},
+ {"delayMs":50,"chunks":["Refused."]},
+ {"tool":{"name":"read_file","input":{"path":"secret.txt"}}},
+ {"delayMs":50,"chunks":["Read once."]},
+ {"tool":{"name":"read_file","input":{"path":"secret.txt"}}},
+ {"delayMs":50,"chunks":["Read always."]},
+ {"tools":[{"name":"read_file","input":{"path":"secret.txt"}},{"name":"read_file","input":{"path":"notes.txt"}}]},
+ {"delayMs":50,"chunks":["Read again."]}
+]

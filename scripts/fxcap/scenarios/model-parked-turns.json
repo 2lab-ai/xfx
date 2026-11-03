@@ -1,0 +1,4 @@
+[
+ {"chunks": ["Let me ask. "], "delayMs": 1000, "tool": {"name": "ask_user_question", "input": {"questions": [{"question": "Which database should I use?", "options": [{"label": "Postgres", "description": "Relational, strong consistency"}, {"label": "SQLite", "description": "Single file, embedded"}]}]}}},
+ {"delayMs": 100, "chunks": ["Got ", "it."]}
+]

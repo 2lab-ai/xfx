@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mask me[0m
+
+  1) Which database should I use?
+[38;5;245m     MariaDB please[39m
+
+  Got it.
+
+[38;5;245m  3s (↑2 ↓40)[39m
+
+[38;5;255m┃[39m [1mask again[0m
+
+[38;5;252m■[39m Cancelled
+
+[38;5;245m⊘ turn:[38;5;250m interrupted -- stopping the turn; another Ctrl-C before it stops exits.[39m
+
+[38;5;252m✗ system:[38;5;250m the turn was cancelled[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

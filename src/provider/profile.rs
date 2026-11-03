@@ -15,10 +15,13 @@
 //!    a previously operator-chosen endpoint and never a compiled default.
 //!
 //! **Atomicity scope:** File replacement is atomic (stage + rename), so a reader
-//! never sees a half-written file. However, the read-modify-write transaction is
-//! NOT atomic: concurrent `xfx setup` invocations are last-writer-wins and may
-//! lose the other setup's `models{}` or `llmux_url` updates. Recovery is simple:
-//! re-run `xfx setup` to overwrite with the intended configuration.
+//! never sees a half-written file. Every write is also a serialized
+//! transaction: its read, change and rename happen under an in-process mutex
+//! and upstream's cross-process `settings.lock`, so two writers of different
+//! keys both survive -- a **preference** write ([`write_preferences`]) and
+//! `xfx setup`'s ([`rewrite_document`]), which decides its selection before it
+//! takes the lock and merges it into the file as the file stands once it has
+//! the lock.
 
 use std::fs;
 use std::io;
@@ -123,7 +126,7 @@ pub fn write(
     existing: Map<String, Value>,
     selection: &Selection<'_>,
 ) -> io::Result<()> {
-    write_document(path, &document_for(existing, selection))
+    write_document(path, &document_for(existing, selection)?)
 }
 
 /// The exact bytes a [`Selection`] merged into `existing` becomes on disk.
@@ -134,12 +137,355 @@ pub fn write(
 /// (`super::setup::prepare`) has to know exactly that. Split out rather than
 /// duplicated, so `prepare` cannot promise one document while `commit` writes
 /// another: there is only one document.
-pub fn document_for(existing: Map<String, Value>, selection: &Selection<'_>) -> Vec<u8> {
+///
+/// A selection whose model xfx would not have written is refused
+/// ([`refused_model`]), as every other model write is.
+pub fn document_for(
+    existing: Map<String, Value>,
+    selection: &Selection<'_>,
+) -> io::Result<Vec<u8>> {
+    if let Some(err) = refused_model(selection.model) {
+        return Err(err);
+    }
     let merged = merge_selection(existing, selection, selection.provider.legacy_backend());
     let mut body = serde_json::to_string_pretty(&Value::Object(merged))
         .expect("a settings object is always serializable");
     body.push('\n');
-    body.into_bytes()
+    Ok(body.into_bytes())
+}
+
+/// Why `model` is not written into the profile, when it is one xfx would not
+/// have written ([`crate::provider::model::model_id_problem`]).
+///
+/// Every model the profile holds is painted at every launch -- the footer, the
+/// line shell -- and one has reached it from a provider's catalog, whose parser
+/// takes any non-empty string. Upstream refuses it at its settings write too
+/// (`validateUserPatch`, `putModelPreference`, `settings_store.zig:921,1633`,
+/// `vercel-labs/fx@c1db9191`). The model is not quoted.
+fn refused_model(model: &str) -> Option<io::Error> {
+    crate::provider::model::model_id_problem(model).map(|problem| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("the model is not one xfx can save: {problem}"),
+        )
+    })
+}
+
+/// Sets one preference in the settings file at `path` and writes it back.
+///
+/// `key_path` names a key inside nested objects -- `["statusLine", "context"]`
+/// is `statusLine.context` -- and `value` replaces whatever was there. Every
+/// object on the way is created when it is missing, and a value on the way
+/// that is not an object is **replaced** by one rather than refused: the
+/// operator asked for this key to hold this value, and upstream's partial
+/// merge does the same (`attemptUserPreferences`). Nothing else in the file is
+/// touched, so a key this build does not know survives the write.
+///
+/// The read is [`read_existing`] and the write is [`write_document`], so a file
+/// xfx cannot parse is an error rather than an empty object that would be
+/// written over it, and the replacement is the profile's own staged, owner-only
+/// rename. The bytes are pretty JSON and a newline, the same serializer
+/// [`document_for`] uses. The whole of it is one transaction under
+/// [`SettingsLock`] -- and this process's own writers queue for it -- so a key
+/// another writer set in between is never lost; a lock another process holds
+/// past two seconds is a failure (`WouldBlock`) rather than a write.
+///
+/// An empty `key_path` names no key and is refused before anything is read.
+pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
+    write_preferences(path, &[(key_path, value)])
+}
+
+/// [`write_preference`] for several keys, as **one** read and one rename.
+///
+/// What a change that is one decision but two keys needs -- `/model`'s effort
+/// column sets the model and the effort together -- so that a reader never sees
+/// one without the other, and so the two cost one transaction rather than two.
+/// Every key path is checked before anything is read.
+pub fn write_preferences(path: &Path, preferences: &[(&[&str], Value)]) -> io::Result<()> {
+    write_preferences_within(path, preferences, SETTINGS_LOCK_DEADLINE)
+}
+
+/// [`write_preferences`], waiting at most `deadline` for another process's
+/// `settings.lock`.
+fn write_preferences_within(
+    path: &Path,
+    preferences: &[(&[&str], Value)],
+    deadline: std::time::Duration,
+) -> io::Result<()> {
+    if preferences.iter().any(|(key_path, _)| key_path.is_empty()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a preference needs a key",
+        ));
+    }
+    // A model -- the flat `model` or one of `models` -- is held to the rule
+    // every model write is ([`refused_model`]), before anything is created.
+    for (key_path, value) in preferences {
+        let names_a_model = matches!(key_path, ["model"] | [crate::config::MODELS_KEY, _]);
+        if let (true, Some(model)) = (names_a_model, value.as_str()) {
+            if let Some(err) = refused_model(model) {
+                return Err(err);
+            }
+        }
+    }
+    // The whole transaction, read to rename, under both locks: this process's
+    // first, so two threads here queue on a mutex rather than spinning on a
+    // file lock, and then the one every other process honours.
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, deadline)?;
+    let mut document = read_existing(path)?;
+    set_preferences(&mut document, preferences);
+    write_settings(path, document)
+}
+
+/// Writes `document` as the settings file: pretty JSON, a newline, the
+/// profile's own staged rename. The one serializer every preference write
+/// ends in.
+fn write_settings(path: &Path, document: Map<String, Value>) -> io::Result<()> {
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
+/// Applies a `/allowlist` change to the settings file at `path` and writes it
+/// back, as one transaction under the same two locks [`write_preferences`]
+/// takes (`applyPermissionPatch`, `settings_store.zig:430-436`).
+///
+/// `workspace` names the table: `None` for the profile's own, `Some(key)` for
+/// that workspace's entry. **Nothing is written when nothing changed** -- a
+/// rule already there, a rule not there to remove -- so a no-op neither moves
+/// the file's mtime nor creates a profile. A file xfx cannot parse, or a table
+/// that is not an object, is an error and the file is left as it was.
+pub fn write_permission(
+    path: &Path,
+    workspace: Option<&str>,
+    patch: &crate::permission::allowlist::Patch,
+) -> io::Result<crate::permission::allowlist::Applied> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    let mut document = read_existing(path)?;
+    let applied = crate::permission::allowlist::apply(&mut document, workspace, patch)
+        .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))?;
+    if !applied.changed {
+        return Ok(applied);
+    }
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    // Read again under the lock: another process may have written between
+    // the first read -- which decided whether there was anything to do -- and
+    // the lock, and its change must survive this one.
+    let mut document = read_existing(path)?;
+    let applied = crate::permission::allowlist::apply(&mut document, workspace, patch)
+        .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))?;
+    if applied.changed {
+        write_settings(path, document)?;
+    }
+    Ok(applied)
+}
+
+/// Sets each preference's key path in `document`.
+fn set_preferences(document: &mut Map<String, Value>, preferences: &[(&[&str], Value)]) {
+    for (key_path, value) in preferences {
+        let (last, parents) = key_path
+            .split_last()
+            .expect("every key path was checked above");
+        let mut object = &mut *document;
+        for key in parents {
+            let slot = object
+                .entry((*key).to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if !slot.is_object() {
+                *slot = Value::Object(Map::new());
+            }
+            object = slot
+                .as_object_mut()
+                .expect("the slot was made an object above");
+        }
+        object.insert((*last).to_string(), value.clone());
+    }
+}
+
+/// One read, change and rename of the settings document, under the same two
+/// locks [`write_preferences`] takes, for a change that is not "set these
+/// keys".
+///
+/// `/workspace` is the one that needs it: it **removes** keys as well as
+/// setting them, and an entry it empties has to leave the file rather than
+/// stay behind as `{}` (`removeWorkspaceIfEmpty`, `vercel-labs/fx@c1db9191
+/// src/core/config/settings_store.zig:1498-1505`). A second writer beside this
+/// one would be a second place a concurrent key could be lost.
+///
+/// `edit` says whether it changed the document, and **nothing is written when
+/// it did not**: the file stays byte-identical, which is what lets a caller
+/// report `saved_changed=false` and mean it. An `Err` from `edit` is returned
+/// as it is, with nothing written.
+///
+/// The document keeps its key order (`serde_json`'s `preserve_order`), so an
+/// `edit` that removes a key removes it with `shift_remove`: `remove` would
+/// move the last key into the hole.
+pub fn edit_document<E: From<io::Error>>(
+    path: &Path,
+    edit: impl FnOnce(&mut Map<String, Value>) -> Result<bool, E>,
+) -> Result<bool, E> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    let mut document = read_existing(path)?;
+    if !edit(&mut document)? {
+        return Ok(false);
+    }
+    write_settings(path, document)?;
+    Ok(true)
+}
+
+/// One read-modify-write of the whole settings file, under the same two locks
+/// as [`write_preferences`]: the file as it stands **now** is read and handed
+/// to `decide`, and the bytes `decide` answers are what is written.
+///
+/// What `xfx setup` writes through (`crate::provider::setup::commit`): its
+/// selection is decided before -- the daemon probed, the catalog read -- and
+/// merged here into whatever another writer left meanwhile, so a key written
+/// between the two is kept rather than written over. A file that cannot be
+/// read is an error and `decide` is not asked; an `Err` from `decide` is
+/// returned as it is, with nothing written.
+pub fn rewrite_document(
+    path: &Path,
+    decide: impl FnOnce(Map<String, Value>) -> io::Result<Vec<u8>>,
+) -> io::Result<()> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    let document = decide(read_existing(path)?)?;
+    write_document(path, &document)
+}
+
+/// How long a settings write waits for another process's `settings.lock`
+/// before it gives up: upstream's two seconds (`settings_store.zig:19`).
+const SETTINGS_LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// How long a write sleeps between two looks at a held `settings.lock`
+/// (`acquireTimedAdvisoryLockControlled`, `io.zig:872-896`: ten milliseconds).
+#[cfg(unix)]
+const SETTINGS_LOCK_RETRY: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// The name of the lock beside the settings file, upstream's
+/// (`settings_store.zig:491`).
+const SETTINGS_LOCK_FILE: &str = "settings.lock";
+
+/// One preference writer at a time **in this process**.
+///
+/// The TUI has two: `/statusline` on the thread holding the terminal and
+/// `/model` on the runtime thread, and each is a read, a change and a rename.
+/// Interleaved, the later rename puts back a document read before the earlier
+/// one landed and the earlier key is lost. The file lock below would serialize
+/// them too -- `flock` is per open file description -- but a mutex makes the
+/// second thread wait its turn instead of polling the file every ten
+/// milliseconds.
+static WRITERS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `settings.lock`, held for one read-modify-write of the settings file
+/// against **other processes**: a second xfx, or upstream on a home they share
+/// the shape of.
+///
+/// Upstream's discipline (`acquireTimedAdvisoryLock`, `io.zig:780-896`): a
+/// private file beside the settings, never followed through a link, locked
+/// exclusively and without blocking, retried every ten milliseconds until a
+/// deadline, and a failure -- not a wait for ever -- after it. Released by the
+/// kernel when the file closes, so a write that panics or a process that dies
+/// cannot leave it held. It is advisory: it stops writers that ask, which is
+/// every writer of this file this module knows of.
+struct SettingsLock {
+    #[cfg(unix)]
+    _file: fs::File,
+}
+
+impl SettingsLock {
+    #[cfg(unix)]
+    fn acquire(dir: &Path, deadline: std::time::Duration) -> io::Result<Self> {
+        use rustix::fs::{flock, FlockOperation};
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(PRIVATE_MODE)
+            // A link planted where the lock goes is refused rather than
+            // followed to a file somebody else chose.
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(dir.join(SETTINGS_LOCK_FILE))?;
+        let started = std::time::Instant::now();
+        loop {
+            match flock(&file, FlockOperation::NonBlockingLockExclusive) {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(rustix::io::Errno::WOULDBLOCK) if started.elapsed() < deadline => {
+                    std::thread::sleep(SETTINGS_LOCK_RETRY.min(deadline));
+                }
+                Err(rustix::io::Errno::WOULDBLOCK) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "another process is writing the settings file (settings.lock is held)",
+                    ));
+                }
+                Err(err) => return Err(io::Error::from(err)),
+            }
+        }
+    }
+
+    /// No `flock` to take: the in-process mutex is all there is.
+    #[cfg(not(unix))]
+    fn acquire(dir: &Path, deadline: std::time::Duration) -> io::Result<Self> {
+        let _ = (dir, deadline);
+        Ok(Self {})
+    }
+}
+
+/// What a preference that was written says when a layer above the profile
+/// will still decide it for a fresh session, or nothing when none will.
+///
+/// Upstream's `reportUserSettingsCommit` with its caller's announcement
+/// already made (`session_commands.zig:27-85`): the benign `saved to user
+/// settings (scope=user)` is dropped, and what is kept is the suffix
+/// `appendShadowedUserSource` adds for a field whose resolved source is not
+/// the user's own file (`:225-236`) -- `fresh sessions here use
+/// higher-precedence <field>=<source>`. `source` is where the value a fresh
+/// session would be given comes from, as the loader ranked it at launch: an
+/// environment override or this workspace's entry outranks what was just
+/// written.
+pub fn saved_but_shadowed(field: &str, source: crate::config::SettingSource) -> Option<String> {
+    saved_but_any_shadowed(&[(field, source)])
+}
+
+/// [`saved_but_shadowed`] for a write of several fields: every one a layer
+/// above the profile still decides, in the order given and joined by `, `
+/// after the one header, as `appendShadowedUserSource` writes them
+/// (`session_commands.zig:225-240`); nothing when none is.
+pub fn saved_but_any_shadowed(fields: &[(&str, crate::config::SettingSource)]) -> Option<String> {
+    let shadowed: Vec<String> = fields
+        .iter()
+        .filter(|(_, source)| *source > crate::config::SettingSource::UserGlobal)
+        .map(|(field, source)| format!("{field}={}", source.label()))
+        .collect();
+    (!shadowed.is_empty()).then(|| {
+        format!(
+            "saved to user settings (scope=user); fresh sessions here use \
+             higher-precedence {}",
+            shadowed.join(", ")
+        )
+    })
 }
 
 /// Writes `document` to `path` with the profile's own discipline.
@@ -372,8 +718,9 @@ impl Drop for StagedFile {
 ///
 /// A reader of `settings.json` therefore sees either the old document or the new
 /// one -- never a half-written file. Note: this is file-replacement atomicity.
-/// The read-modify-write transaction that calls this is NOT atomic; concurrent
-/// writers are last-writer-wins (recoverable by re-running the operation).
+/// The read-modify-write around it is serialized by its callers' locks
+/// ([`write_preferences`], [`rewrite_document`]); a caller that writes without
+/// them is last-writer-wins.
 pub fn replace_private_file(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace_private_file_at(dir, path, bytes, PRIVATE_MODE)
 }
@@ -665,7 +1012,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
         let preimage = snapshot(&path).expect("absent");
-        write_document(&path, &document_for(Map::new(), &selection())).expect("write");
+        write_document(
+            &path,
+            &document_for(Map::new(), &selection()).expect("a document"),
+        )
+        .expect("write");
         assert!(path.exists(), "the transaction created it");
 
         restore(&path, &preimage).expect("restore");
@@ -689,7 +1040,11 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
 
         let preimage = snapshot(&path).expect("snapshot");
-        write_document(&path, &document_for(Map::new(), &selection())).expect("write");
+        write_document(
+            &path,
+            &document_for(Map::new(), &selection()).expect("a document"),
+        )
+        .expect("write");
         assert_ne!(fs::read(&path).expect("read"), original, "the write landed");
         assert_eq!(
             fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
@@ -713,12 +1068,339 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
         let existing = object(json!({"permission_mode": "auto"}));
-        let document = document_for(existing.clone(), &selection());
+        let document = document_for(existing.clone(), &selection()).expect("a document");
         write(&path, existing, &selection()).expect("write");
         assert_eq!(fs::read(&path).expect("read"), document);
         assert!(
             document.ends_with(b"\n"),
             "pretty JSON with a trailing newline"
+        );
+    }
+
+    #[test]
+    fn a_preference_is_one_nested_key_and_the_rest_of_the_file_survives() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+
+        // No file, and no profile home either: both are created, and the file
+        // holds the one key and nothing else (upstream's partial merge,
+        // `cap/fx-statusline-40x120-files.files`).
+        write_preference(&path, &["statusLine", "session"], json!(true)).expect("write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"statusLine\": {\n    \"session\": true\n  }\n}\n"
+        );
+
+        // A sibling under the same object, a key this build does not know and
+        // a key at the top are all kept.
+        fs::write(
+            &path,
+            "{\"permission_mode\":\"auto\",\"statusLine\":{\"session\":true,\"sandbox\":false}}",
+        )
+        .expect("seed");
+        write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({
+                "permission_mode": "auto",
+                "statusLine": {"session": true, "sandbox": false, "context": true}
+            })
+        );
+
+        // The same key again replaces its value rather than adding a second.
+        write_preference(&path, &["statusLine", "session"], json!(false)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written["statusLine"]["session"], json!(false));
+        assert_eq!(written["statusLine"]["context"], json!(true));
+    }
+
+    #[test]
+    fn a_preference_write_keeps_every_key_in_the_order_the_file_had_it() {
+        // A permission table is read last-match-wins in document order
+        // (`crate::permission::rules::RuleSet::decide`), so a write of any
+        // other key that sorted the file would change what the table allows:
+        // `{"rm*":"allow","*":"deny"}` denies everything, and sorted it would
+        // allow `rm`. Upstream's writer keeps the order (`writeJsonValue` over
+        // an insertion-ordered map, `settings_store.zig:1830-1850`).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            "{\"zeta\":1,\"permission\":{\"bash\":{\"rm*\":\"allow\",\"*\":\"deny\"},\"edit\":\"ask\"},\"alpha\":2}",
+        )
+        .expect("seed");
+        write_preference(&path, &["statusLine", "session"], json!(true)).expect("write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"zeta\": 1,\n  \"permission\": {\n    \"bash\": {\n      \"rm*\": \"allow\",\n      \
+             \"*\": \"deny\"\n    },\n    \"edit\": \"ask\"\n  },\n  \"alpha\": 2,\n  \
+             \"statusLine\": {\n    \"session\": true\n  }\n}\n"
+        );
+    }
+
+    #[test]
+    fn a_value_in_the_way_of_a_preference_is_replaced_by_an_object() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{\"statusLine\":7,\"model\":\"m\"}\n").expect("seed");
+        write_preference(&path, &["statusLine", "workspace"], json!(true)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"statusLine": {"workspace": true}, "model": "m"})
+        );
+    }
+
+    #[test]
+    fn a_model_xfx_would_not_have_written_is_never_written_into_the_profile() {
+        // Every writer of a model ends here -- `/model`, a speed save, a
+        // change put aside by a provider switch, `xfx setup` and `/provider`
+        // -- and the profile's model is painted at every launch. Upstream
+        // refuses such a model at its settings write (`validateUserPatch`,
+        // `putModelPreference`, `settings_store.zig:921,1633`,
+        // `vercel-labs/fx@c1db9191`); so does this one, before anything is
+        // created, and without quoting it. Red before: each was written.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+        let hostile = "m\u{1b}]0;pwned\u{7}\u{9b}31m";
+        for key in [&["model"][..], &[crate::config::MODELS_KEY, "llmux"][..]] {
+            let err =
+                write_preferences(&path, &[(key, json!(hostile)), (&["effort"], json!("low"))])
+                    .expect_err("a model with a control character is refused");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{key:?}: {err}");
+            assert!(!err.to_string().chars().any(char::is_control), "{err}");
+            assert!(!err.to_string().contains("pwned"), "quoted: {err}");
+            assert!(!path.exists(), "{key:?}: a refused write wrote the file");
+        }
+        let err = write(
+            &path,
+            Map::new(),
+            &Selection {
+                provider: ProviderId::Llmux,
+                model: hostile,
+                llmux_url: None,
+            },
+        )
+        .expect_err("a selection of such a model is refused");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+        assert!(!path.exists(), "a refused selection wrote the file");
+        // A model it would write is written as before.
+        write_preferences(&path, &[(&["model"], json!("vendor/m-1"))]).expect("written");
+        assert_eq!(
+            read_existing(&path).expect("read")["model"],
+            json!("vendor/m-1")
+        );
+    }
+
+    #[test]
+    fn a_preference_is_never_written_over_a_file_xfx_cannot_read() {
+        // "xfx could not parse this" is not "this is empty": the operator's file
+        // stays exactly as it was, and the write says why it did not happen.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        for original in ["{not json", "[1, 2]"] {
+            fs::write(&path, original).expect("seed");
+            let err = write_preference(&path, &["statusLine", "context"], json!(true))
+                .expect_err("an unreadable file is refused");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData, "{err}");
+            assert_eq!(fs::read_to_string(&path).expect("read"), original);
+        }
+        // And a preference with no key names nothing to write.
+        let err = write_preference(&path, &[], json!(true)).expect_err("no key");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preference_written_into_a_new_profile_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
+        assert_eq!(
+            fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn two_writers_of_different_keys_at_once_both_survive() {
+        // The TUI has two settings writers on two threads -- `/statusline` on
+        // the one holding the terminal, `/model` on the runtime -- and each is
+        // a read, a change and a rename. Unserialized, the second rename
+        // replaces a document read before the first one landed, and the first
+        // key is gone. Many rounds, because a lost update is a race and one
+        // round can be lucky.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+        let writers: Vec<_> = (0..8)
+            .map(|writer| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for round in 0..25 {
+                        let key = format!("writer{writer}");
+                        write_preference(&path, &[&key, &format!("round{round}")], json!(round))
+                            .expect("write");
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().expect("a writer panicked");
+        }
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        for writer in 0..8 {
+            for round in 0..25 {
+                assert_eq!(
+                    written[format!("writer{writer}")][format!("round{round}")],
+                    json!(round),
+                    "writer {writer} lost round {round}: {written}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_waits_for_another_process_holding_the_settings_lock() {
+        // Upstream's `settings.lock` beside the file (`settings_store.zig:491`,
+        // `acquireTimedAdvisoryLock`): what keeps a second xfx -- or upstream
+        // itself, on a shared home -- from writing between this one's read and
+        // its rename. `flock` is per open file description, so a second open in
+        // this process stands in for another process exactly.
+        use rustix::fs::{flock, FlockOperation};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{}\n").expect("seed");
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.path().join("settings.lock"))
+            .expect("open the lock");
+        flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold the lock");
+
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || write_preference(&path, &["effort"], json!("low")))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{}\n",
+            "the write went through a lock another process holds"
+        );
+        drop(held);
+        writer.join().expect("the writer panicked").expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written, json!({"effort": "low"}));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_held_past_the_deadline_is_a_failure_rather_than_a_wait_for_ever() {
+        use rustix::fs::{flock, FlockOperation};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.path().join("settings.lock"))
+            .expect("open the lock");
+        flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold the lock");
+        let err = write_preferences_within(
+            &path,
+            &[(&["effort"], json!("low"))],
+            std::time::Duration::from_millis(50),
+        )
+        .expect_err("a held lock is not waited out for ever");
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock, "{err}");
+        assert!(!path.exists(), "the write happened anyway");
+    }
+
+    #[test]
+    fn several_preferences_are_one_write() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{\"theme\":\"dark\"}").expect("seed");
+        write_preferences(
+            &path,
+            &[
+                (&["models", "gateway"], json!("openai/gpt-6-astra")),
+                (&["effort"], json!("low")),
+            ],
+        )
+        .expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"theme": "dark", "models": {"gateway": "openai/gpt-6-astra"}, "effort": "low"})
+        );
+        let err = write_preferences(&path, &[(&[], json!(true))]).expect_err("no key");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_save_is_said_only_when_a_layer_above_the_profile_still_decides() {
+        use crate::config::SettingSource;
+        for source in [
+            SettingSource::CompiledDefault,
+            SettingSource::Project,
+            SettingSource::UserGlobal,
+        ] {
+            assert_eq!(
+                saved_but_shadowed("permission_mode", source),
+                None,
+                "{source:?}"
+            );
+        }
+        assert_eq!(
+            saved_but_shadowed("permission_mode", SettingSource::ProcessOverride).as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence permission_mode=process_override"
+            )
+        );
+        assert_eq!(
+            saved_but_shadowed("model", SettingSource::UserWorkspace).as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=user_workspace"
+            )
+        );
+    }
+
+    #[test]
+    fn a_save_of_several_fields_names_every_one_still_decided_above_it_in_order() {
+        use crate::config::SettingSource;
+        assert_eq!(
+            saved_but_any_shadowed(&[
+                ("model", SettingSource::ProcessOverride),
+                ("fast_mode", SettingSource::UserGlobal),
+                ("ultrafast_mode", SettingSource::UserWorkspace),
+            ])
+            .as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override, ultrafast_mode=user_workspace"
+            )
+        );
+        assert_eq!(
+            saved_but_any_shadowed(&[
+                ("model", SettingSource::UserGlobal),
+                ("fast_mode", SettingSource::Project),
+            ]),
+            None
         );
     }
 
@@ -734,5 +1416,76 @@ mod tests {
             ProviderId::Gateway.legacy_backend(),
         );
         assert_eq!(merged["llmux_url"], "http://127.0.0.1:3456");
+    }
+
+    #[test]
+    fn a_preference_round_trips_through_the_configuration_and_keeps_every_other_key() {
+        // Written into a temp HOME's profile and read back by the one thing
+        // that decides what a settings file means, rather than by this module.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let path = home.path().join(".xfx").join("settings.json");
+        fs::create_dir_all(path.parent().expect("a parent")).expect("mkdir");
+        // `models` holds a scalar where an object belongs: replaced, not
+        // merged into and not refused.
+        fs::write(&path, r#"{"permission_mode":"ask","models":"stray"}"#).expect("seed");
+
+        write_preference(&path, &["provider"], json!("llmux")).expect("write provider");
+        write_preference(&path, &["models", "llmux"], json!("fable")).expect("write model");
+        write_preference(&path, &["llmux_url"], json!("http://127.0.0.1:3456")).expect("url");
+
+        let written = fs::read_to_string(&path).expect("read");
+        assert!(
+            written.ends_with("}\n"),
+            "pretty JSON and a newline: {written:?}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&written).expect("json"),
+            json!({
+                "permission_mode": "ask",
+                "models": {"llmux": "fable"},
+                "provider": "llmux",
+                "llmux_url": "http://127.0.0.1:3456"
+            })
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        let config = crate::config::RuntimeConfig::load_with(
+            &crate::config::Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("the written profile loads");
+        assert_eq!(config.provider, ProviderId::Llmux);
+        assert_eq!(config.model, "fable");
+        assert_eq!(
+            config.permission_mode,
+            crate::config::PermissionMode::Ask,
+            "a key the write did not name was lost"
+        );
+    }
+
+    #[test]
+    fn a_preference_is_never_written_over_a_file_that_could_not_be_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{ not json").expect("seed");
+        assert!(write_preference(&path, &["provider"], json!("llmux")).is_err());
+        assert_eq!(fs::read_to_string(&path).expect("read"), "{ not json");
+        // And a path of no keys names nothing to set.
+        let empty = dir.path().join("empty.json");
+        assert_eq!(
+            write_preference(&empty, &[], json!(1))
+                .expect_err("no key")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(!empty.exists(), "a refused write left a file behind");
     }
 }

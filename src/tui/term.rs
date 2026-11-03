@@ -47,9 +47,9 @@ use rustix::termios::{
 /// session leaves running writes reports onto whatever runs next.
 ///
 /// The push is the **last** thing in the mode set and the pop is the first
-/// thing in every restore below, so the title a session sets exists only
-/// between the two -- and a terminal that models no title stack ignores both
-/// and keeps whatever its user gave it.
+/// mode every restore below gives back, so the title a session sets exists
+/// only between the two -- and a terminal that models no title stack ignores
+/// both and keeps whatever its user gave it.
 ///
 /// Mouse reporting is deliberately absent: the wheel stays the terminal's own
 /// scrollback (`terminal.zig:135-142`).
@@ -61,21 +61,45 @@ pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[?2031h
 
 /// The normal exit's restore sequence, with **no** `1049l`: the main surface
 /// was never on the alternate screen (`app_lifecycle.zig:39-41`).
+///
+/// It opens by **clearing** the window title -- upstream's exit
+/// (`TerminalTitle.clear`, `ESC ] 2 ; BEL`, pinned at `render.zig:780-792`;
+/// observed as an empty `pane_title` after `/quit`) -- and then pops the one
+/// it pushed. On a terminal with a title stack the pop gives the user's own
+/// title back and the clear is overwritten by it; on one without, the pop is
+/// ignored and the clear is what keeps the window from naming a session that
+/// has ended. Only the planned exit's: the abnormal restores below keep the
+/// pop alone.
+///
+/// **All four open with `?2026l`**, synchronized output off. A frame is one
+/// update (`?2026h` ... `?2026l`), and a session can end with one open -- a
+/// write the terminal took part of and a cleanup it refused
+/// (`super::event_loop`'s `commit_primary`), or a signal between the two halves
+/// of a vector -- and a terminal holding an open update presents nothing until
+/// its own timeout, so the user's shell would come back on a screen that does
+/// not move. Upstream leads both of its restores with the same bytes
+/// (`app_lifecycle.zig:41`, `:44`, at `c1db919`; its test pins them first,
+/// `:2279-2287`). A close with no update open resets a mode that is already
+/// off. First rather than merely present: whatever is written ahead of it in
+/// an open update waits for it. The restore check seeds an open update
+/// ([`check_restore`]), so a restore without the close is refused.
 pub(crate) const RESTORE: &str =
-    "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The same for tmux, which was never given the push to pop.
-pub(crate) const RESTORE_TMUX: &str = "\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE_TMUX: &str =
+    "\x1b[?2026l\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The restore sequence for an exit that is *not* the planned one, which leads
 /// with `1049l` defensively: a crash may have happened while a surface xfx does
-/// not own was on screen (`app_lifecycle.zig:36-38`).
+/// not own was on screen (`app_lifecycle.zig:36-38`). Behind `?2026l`, in
+/// upstream's order (`app_lifecycle.zig:41`, pinned by `:2280-2282`).
 pub(crate) const ABNORMAL_RESTORE: &str =
-    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The abnormal restore for tmux.
 pub(crate) const ABNORMAL_RESTORE_TMUX: &str =
-    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The dimensions a terminal that will not answer is treated as having.
 const DEFAULT_ROWS: u16 = 24;
@@ -106,16 +130,23 @@ pub(crate) fn capture(fd: BorrowedFd<'_>) -> io::Result<Termios> {
     tcgetattr(fd).map_err(io::Error::from)
 }
 
-/// Raw mode, as upstream defines it (`shell_runtime.zig:108-138`).
+/// Raw mode, as upstream defines it (`shell_runtime.zig:103-129`).
 ///
 /// Not `cfmakeraw`: that clears `OPOST` as well, and output processing is not
 /// xfx's to take -- the acceptance matrix names `c_lflag`, `c_iflag`, `CS8`,
 /// and `VMIN`/`VTIME`, and nothing else.
+///
+/// All three carriage-return translations go, as upstream's do
+/// (`raw.iflag.IGNCR/ICRNL/INLCR = false`, `:106-108`): a terminal its user
+/// left with `IGNCR` set would otherwise swallow every Return before the
+/// composer saw it, and one with `INLCR` would turn `C-j` into a Return.
 pub(crate) fn raw_from(saved: &Termios) -> Termios {
     let mut raw = saved.clone();
     raw.input_modes.remove(
         InputModes::BRKINT
+            | InputModes::IGNCR
             | InputModes::ICRNL
+            | InputModes::INLCR
             | InputModes::INPCK
             | InputModes::ISTRIP
             | InputModes::IXON
@@ -129,8 +160,20 @@ pub(crate) fn raw_from(saved: &Termios) -> Termios {
     raw
 }
 
+/// Makes the terminal raw **now**, keeping what is already queued on it.
+///
+/// `TCSANOW`, as upstream's `enableRawMode` sets it (`shell_runtime.zig:128`),
+/// pinned there by "enableRawMode preserves already queued input"
+/// (`:640-678`). `TCSAFLUSH` -- what this used before -- discards input that
+/// was received and not yet read, which is every key typed while xfx was
+/// starting: a prompt typed ahead of the band, or a `/command`, was lost
+/// without a trace. Kept, those bytes are the first the composer reads, as a
+/// keyboard's are; a line the cooked terminal already ended reaches it as the
+/// line feed the line discipline made of its Return. The way **out**
+/// ([`restore_attrs`]) still flushes, as upstream's `disableRawMode` does
+/// (`:135`): what was typed at xfx is not the shell's next command.
 pub(crate) fn enter_raw(fd: BorrowedFd<'_>, saved: &Termios) -> io::Result<()> {
-    tcsetattr(fd, OptionalActions::Flush, &raw_from(saved)).map_err(io::Error::from)
+    tcsetattr(fd, OptionalActions::Now, &raw_from(saved)).map_err(io::Error::from)
 }
 
 /// Records what a handler will need, and who owns the terminal.
@@ -198,8 +241,8 @@ pub(crate) fn restore_pair() {
 ///
 /// One function rather than a branch at each of the three call sites, because
 /// the property those sites share is the whole of what makes them correct: an
-/// exit that does not know what is on the screen may not ask, so it leads with
-/// `1049l` unconditionally. An approval screen that was up when the process died
+/// exit that does not know what is on the screen may not ask, so it writes
+/// `1049l` unconditionally, behind only the `?2026l` every restore opens with. An approval screen that was up when the process died
 /// is therefore given back by exactly the same bytes as a session that never
 /// took one, and neither path has to consult a state a handler may not read.
 pub(crate) fn abnormal_restore(tmux: bool) -> &'static str {
@@ -307,6 +350,9 @@ fn shutdown_with(
     // `RESTORE` is about the surface the user is left looking at -- the title
     // popped, the autowrap put back, the cursor shown -- so one written while
     // the alternate buffer is still up is one restored for the wrong screen.
+    // The restore closes an update the session may have left open
+    // ([`RESTORE`]); a leave in front of it is applied by a terminal holding
+    // one and presented with the close.
     let leave = if on_alternate { "\x1b[?1049l" } else { "" };
     // **Two segments across the `termios` boundary, and they may not be
     // merged.** The check sits inside each of them and changes neither the
@@ -372,13 +418,16 @@ fn check_restore(
         super::check::PlaneKind::Primary
     };
     super::check::preflight(
+        // On a terminal that may still be holding an update the session tore:
+        // a restore that does not close it is refused.
         &super::check::TerminalModel::seed_modes(
             rows,
             columns,
             super::check::ModeSet::announced(tmux),
             1,
             plane,
-        ),
+        )
+        .update_open(),
         bytes.as_bytes(),
         &super::check::Declared::new(
             super::check::Intent::Modes {
@@ -606,7 +655,9 @@ mod tests {
         let mut termios = tcgetattr(&slave).expect("read the pty's termios");
         termios.input_modes.insert(
             InputModes::BRKINT
+                | InputModes::IGNCR
                 | InputModes::ICRNL
+                | InputModes::INLCR
                 | InputModes::INPCK
                 | InputModes::ISTRIP
                 | InputModes::IXON
@@ -647,7 +698,9 @@ mod tests {
         let cooked = cooked();
         for mode in [
             InputModes::BRKINT,
+            InputModes::IGNCR,
             InputModes::ICRNL,
+            InputModes::INLCR,
             InputModes::INPCK,
             InputModes::ISTRIP,
             InputModes::IXON,
@@ -678,7 +731,9 @@ mod tests {
         let raw = raw_from(&cooked());
         for mode in [
             InputModes::BRKINT,
+            InputModes::IGNCR,
             InputModes::ICRNL,
+            InputModes::INLCR,
             InputModes::INPCK,
             InputModes::ISTRIP,
             InputModes::IXON,
@@ -733,20 +788,23 @@ mod tests {
         );
         assert_eq!(
             RESTORE,
-            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
+             \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             RESTORE_TMUX,
-            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
-        );
-        assert_eq!(
-            ABNORMAL_RESTORE,
-            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\
+            "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\
              \u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
+            ABNORMAL_RESTORE,
+            "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
+             \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+        );
+        assert_eq!(
             ABNORMAL_RESTORE_TMUX,
-            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\
+             \u{1b}[?7h\u{1b}[?25h"
         );
     }
 
@@ -824,6 +882,8 @@ mod tests {
     /// constant it is checking would pass for whatever the module declared.
     const PUSH_TITLE: &str = "\u{1b}[22;2t";
     const POP_TITLE: &str = "\u{1b}[23;2t";
+    /// `OSC 2` with nothing in it: upstream's exit (`render.zig:780-792`).
+    const CLEAR_TITLE: &str = "\u{1b}]2;\u{7}";
 
     #[test]
     fn every_session_pushes_the_terminals_title_once_and_pops_it_once() {
@@ -857,17 +917,49 @@ mod tests {
         // Ordering, because one of these restores is written from a signal
         // handler onto a terminal that may be about to lose its process: the
         // sooner the user's own title is back, the smaller the window in which
-        // a second failure leaves it as xfx's.
+        // a second failure leaves it as xfx's. Behind the close of an open
+        // update and nothing else -- a title given back inside one is not
+        // shown until it ends (`every_restore_closes_an_open_update_first`).
         for restore in [RESTORE, RESTORE_TMUX] {
-            assert!(restore.starts_with(POP_TITLE), "{restore:?}");
+            // The clear in front of the pop is the same act -- the window
+            // stops naming this session -- said for a terminal with no stack
+            // (`render.zig:780-792`).
+            assert!(
+                restore.starts_with(&format!("{CLOSE_UPDATE}{CLEAR_TITLE}{POP_TITLE}")),
+                "{restore:?}"
+            );
         }
         for restore in [ABNORMAL_RESTORE, ABNORMAL_RESTORE_TMUX] {
             // Behind the defensive `1049l` and nothing else: a title popped on
             // the alternate screen would be popped for the wrong surface.
             assert!(
-                restore.starts_with(&format!("\u{1b}[?1049l{POP_TITLE}")),
+                restore.starts_with(&format!("{CLOSE_UPDATE}\u{1b}[?1049l{POP_TITLE}")),
                 "{restore:?}"
             );
+        }
+    }
+
+    /// `DECRST 2026`, spelled here for the reason [`PUSH_TITLE`] is.
+    const CLOSE_UPDATE: &str = "\u{1b}[?2026l";
+
+    #[test]
+    fn every_restore_closes_an_open_update_first() {
+        // A session can end with an update open on the terminal -- a write the
+        // terminal took part of, and a cleanup it then refused -- and a
+        // terminal holding one presents nothing until its own timeout. So every
+        // restore, planned or not, opens with the close, as upstream's both do
+        // (`app_lifecycle.zig:41`, `:44`), ahead of the abnormal one's
+        // `1049l` as upstream's test pins it (`:2280-2282`).
+        for restore in [
+            RESTORE,
+            RESTORE_TMUX,
+            ABNORMAL_RESTORE,
+            ABNORMAL_RESTORE_TMUX,
+            abnormal_restore(false),
+            abnormal_restore(true),
+        ] {
+            assert!(restore.starts_with(CLOSE_UPDATE), "{restore:?}");
+            assert_eq!(restore.matches("?2026").count(), 1, "{restore:?}");
         }
     }
 
@@ -946,6 +1038,88 @@ mod tests {
             output_before,
             "the restore was stamped onto the output terminal"
         );
+    }
+
+    #[test]
+    fn entering_raw_mode_keeps_a_carriage_return_a_carriage_return() {
+        // Upstream's "enableRawMode preserves carriage return input"
+        // (`shell_runtime.zig:683-722`), ported: a terminal left with every
+        // carriage-return translation on comes out of raw mode with none of
+        // them, and a Return typed then reads as `\r` -- not swallowed by
+        // `IGNCR`, not made a line feed by `ICRNL`.
+        let (master, input) = open_pty();
+        let mut original = tcgetattr(&input).expect("read the terminal");
+        original
+            .input_modes
+            .insert(InputModes::IGNCR | InputModes::ICRNL | InputModes::INLCR);
+        tcsetattr(&input, OptionalActions::Now, &original).expect("set the terminal");
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let raw = tcgetattr(&input).expect("read the terminal");
+        for mode in [InputModes::IGNCR, InputModes::ICRNL, InputModes::INLCR] {
+            assert!(!raw.input_modes.contains(mode), "{mode:?} survived");
+        }
+        rustix::io::write(&master, b"\r").expect("press Return");
+        let mut ready = [rustix::event::PollFd::new(
+            &input,
+            rustix::event::PollFlags::IN,
+        )];
+        let wait = rustix::event::Timespec {
+            tv_sec: 5,
+            tv_nsec: 0,
+        };
+        assert_eq!(
+            rustix::event::poll(&mut ready, Some(&wait)).expect("poll"),
+            1,
+            "the Return was swallowed"
+        );
+        let mut buffer = [0u8; 1];
+        assert_eq!(rustix::io::read(&input, &mut buffer).expect("read"), 1);
+        assert_eq!(buffer[0], b'\r');
+    }
+
+    #[test]
+    fn entering_raw_mode_keeps_what_was_already_typed() {
+        // Upstream's "enableRawMode preserves already queued input"
+        // (`shell_runtime.zig:640-678`), ported: a byte queued while the
+        // terminal was still the shell's is read once it is raw. And a
+        // cooked terminal's unfinished line -- keys typed while xfx starts,
+        // with no Return yet -- is kept as well.
+        for (setup, typed) in [(true, &b"\x03"[..]), (false, &b"typed early"[..])] {
+            let (master, input) = open_pty();
+            if setup {
+                let mut quiet = tcgetattr(&input).expect("read the terminal");
+                quiet
+                    .local_modes
+                    .remove(LocalModes::ECHO | LocalModes::ICANON | LocalModes::ISIG);
+                quiet.special_codes[SpecialCodeIndex::VMIN] = 1;
+                quiet.special_codes[SpecialCodeIndex::VTIME] = 0;
+                tcsetattr(&input, OptionalActions::Now, &quiet).expect("set the terminal");
+            }
+            let saved = tcgetattr(&input).expect("read the terminal");
+            rustix::io::write(&master, typed).expect("type on the terminal");
+            enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+            let mut read = Vec::new();
+            let mut buffer = [0u8; 64];
+            let wait = rustix::event::Timespec {
+                tv_sec: 5,
+                tv_nsec: 0,
+            };
+            while read.len() < typed.len() {
+                let mut ready = [rustix::event::PollFd::new(
+                    &input,
+                    rustix::event::PollFlags::IN,
+                )];
+                let polled = rustix::event::poll(&mut ready, Some(&wait)).expect("poll");
+                if polled == 0 {
+                    break;
+                }
+                let count = rustix::io::read(&input, &mut buffer).expect("read the terminal");
+                read.extend_from_slice(&buffer[..count]);
+            }
+            drop(master);
+            assert_eq!(read, typed, "what was typed before raw mode was lost");
+        }
     }
 
     #[test]
@@ -1242,14 +1416,16 @@ mod tests {
     fn ui_panic_while_alternate_is_owned_restores_ownership_and_terminal_state() {
         // A panic and both death signals leave through the same pair
         // ([`restore_pair`]): the abnormal restore, which leads with `1049l`
-        // whichever plane was on the screen, and then the captured `termios`.
+        // whichever plane was on the screen -- behind only the close of an
+        // update the death may have left open -- and then the captured
+        // `termios`.
         // The sequence is defensive by design -- an exit that does not know
         // what is on the screen may not ask -- so an approval screen that was
         // up when the process died is given back by exactly the same bytes.
         for tmux in [false, true] {
             let restore = abnormal_restore(tmux);
             assert!(
-                restore.starts_with("\u{1b}[?1049l"),
+                restore.starts_with("\u{1b}[?2026l\u{1b}[?1049l"),
                 "the abnormal restore does not leave the alternate screen first: {restore:?}"
             );
             assert!(
@@ -1457,6 +1633,21 @@ mod tests {
     }
 
     #[test]
+    fn a_restore_that_does_not_close_an_open_update_is_refused() {
+        // The check is seeded on a terminal holding an update this session
+        // opened and never closed -- a torn frame whose cleanup was refused --
+        // so the close is held to being there rather than merely allowed.
+        let damaged = RESTORE.replacen("\u{1b}[?2026l", "", 1);
+        let refused = check_restore(&damaged, false, false, (24, 80))
+            .expect_err("a restore that left the update open");
+        assert!(
+            refused.to_string().contains("synchronized output open"),
+            "the refusal did not name the open update: {refused}"
+        );
+        check_restore(RESTORE, false, false, (24, 80)).expect("the restore as it stands");
+    }
+
+    #[test]
     fn a_restore_that_leaves_a_mode_on_is_refused() {
         // Every mode this session turned on is one the terminal's own user gets
         // back. A restore that dropped the bracketed-paste reset would leave a
@@ -1476,9 +1667,21 @@ mod tests {
         // push it is seeded with. It says nothing about how many pushes a
         // session that was stopped and continued has made -- Unit A keeps no
         // state between vectors, and a depth across them would need one.
+        //
+        // The clear in front of the pop (upstream's exit, `render.zig:780-792`)
+        // does not stand in for it: without the pop the window is left with
+        // an empty title rather than the user's, and the check says so -- the
+        // first thing it finds wrong is the title, ahead of the stack's depth.
         let damaged = RESTORE.replace("\u{1b}[23;2t", "");
         let refused = check_restore(&damaged, false, false, (24, 80))
             .expect_err("a restore that kept the title it borrowed");
+        assert!(
+            refused.to_string().contains("title"),
+            "the refusal did not name the title: {refused}"
+        );
+        let unpopped = damaged.replace("\u{1b}]2;\u{7}", "");
+        let refused = check_restore(&unpopped, false, false, (24, 80))
+            .expect_err("a restore that neither cleared nor popped");
         assert!(
             refused.to_string().contains("title stack"),
             "the refusal did not name the title stack: {refused}"

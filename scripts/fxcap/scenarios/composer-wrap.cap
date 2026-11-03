@@ -1,0 +1,75 @@
+# The composer's wrap, taken at 40x120 and 24x80: a word wider than a row
+# after `look`; words, one of them wider than an 80-column row; a badge and a
+# pasted-text block just before the margin (at 71 cells, then after 111); a
+# row filled exactly, then one past it with the caret stepped back onto the
+# boundary; a paste with tabs in it; and Up from under a wide glyph, which
+# lands in front of it. `cursor` says where the caret is.
+work image-ws
+wait 10
+type look
+key Space
+type xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+wait 0.5
+snap long-word
+cursor long-word
+key C-u
+type alpha yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy omega and the rest of it
+wait 0.5
+snap words
+cursor words
+key C-u
+type aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+key Space
+paste shot.png
+wait 1.5
+snap badge-71
+cursor badge-71
+key C-u
+type aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+key Space
+paste shot.png
+wait 1.5
+snap badge-111
+cursor badge-111
+key C-u
+type aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+key Space
+pastex 1001
+wait 3
+snap block-71
+cursor block-71
+key C-u
+type aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+key Space
+pastex 1001
+wait 3
+snap block-111
+cursor block-111
+key C-u
+type bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+wait 0.5
+snap full-78
+cursor full-78
+type bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+wait 0.5
+snap full-118
+cursor full-118
+type b
+key Left
+wait 0.5
+snap boundary
+cursor boundary
+key End
+key C-u
+paste a\tbb\tccc\td
+wait 1
+snap tabs
+cursor tabs
+key C-u
+type ab界cd
+key C-j
+type xyz
+key Up
+wait 0.5
+snap up-wide
+cursor up-wide

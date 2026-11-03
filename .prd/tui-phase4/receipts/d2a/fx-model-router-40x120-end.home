@@ -1,0 +1,12 @@
+== ./.fx/backups/settings.json.backup.1791310877986-0000000000000001-34870b92bf9909e84860b25e4afd4ab0
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+== ./.fx/backups/settings.json.backup.1791310881114-0000000000000002-67da734e1aba2da2c0d2ea4c21514566
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+== ./.fx/backups/settings.json.backup.1791310886150-0000000000000003-cb52e6a6af7467a8abd4a6a2d8bbb17a
+{"models":{"gateway":"nonexistent-xyz"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+== ./.fx/settings.json
+{"models":{"gateway":"xai/grok-4.7"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+

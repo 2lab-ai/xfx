@@ -1,0 +1,5 @@
+[
+ {"delayMs":50,"chunks":["Ready."]},
+ {"tool":{"name":"terminal","input":{"action":"exec","command":"printf allowed-by-rule"}}},
+ {"delayMs":50,"chunks":["Ran it."]}
+]

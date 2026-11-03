@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-8826458 [debug] · Run /help for commands
+
+* permissions: mode=auto
+  configured rules: (none)
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+
+* permissions: saved-session permission rules: none
+
+┃
+
+auto · model-a                                                                                        esc again to clear
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -312,12 +312,169 @@ impl MutationKind {
 
 /// Which authorized root a target sits under.
 ///
-/// `--add-dir` grants reading. Writing into an added root is a separate
-/// decision, and `auto` does not make it.
+/// **Both are written to alike.** An added root -- `ask --add-dir`, or one
+/// `/workspace add` saved -- is a root the user put the session in, and
+/// upstream admits a write contained in one exactly as it admits one in the
+/// primary: containment is what makes a target "reversible", and a contained
+/// target bypasses review in auto (`vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:665-679`; the e2e `write_trusted_added`
+/// and "captured commands write through an active added root",
+/// `tests/e2e/file-tool-paths.test.ts:912-951`, `:1170-1179`). What auto does
+/// *not* write, in either, is [`MutationPlan::sensitive_auto_write_target`].
+/// The distinction is kept because it is a fact about the plan a reader may
+/// want, and because the fingerprint already commits to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetScope {
     PrimaryWorkspace,
     AdditionalRoot,
+}
+
+/// The component runs auto will not write without the user, wherever they sit:
+/// upstream's thirteen first (`sensitiveAutoWriteTarget`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:679-693`), in its order, so the first
+/// match still names the most specific run; then the rest of the same kind,
+/// which upstream's list misses.
+///
+/// Upstream's three `.git` runs -- `.git/hooks`, `.git/config`,
+/// `.git/config.worktree` -- are one here, `.git`, at any depth, a file or a
+/// directory: a run has to be consecutive, so they miss
+/// `.git/modules/<name>/config`, `.git/modules/<name>/hooks/*`,
+/// `.git/worktrees/<name>/config.worktree` and `.git/info/attributes`, and the
+/// `.git` *file* of a submodule's work tree (`gitdir: ...`) names the
+/// directory that submodule's git reads. No write inside `.git` is one auto
+/// has a reason to make. A git directory by another name -- a bare
+/// repository, the target of a `gitdir:` file -- has no component to match,
+/// and is found by what is in it instead ([`super::links`]).
+///
+/// Each is a file that decides what runs later with the user's authority -- a
+/// login shell's startup file, a launch agent, an SSH trust list, a git hook
+/// or git's own configuration -- so a write there is not "reversible" in the
+/// sense the rest of a root is: by the time anybody reverses it, it has run.
+/// Upstream sends these to its classifier; xfx's auto has no reviewer to send
+/// them to, so it refuses them and leaves the decision to `ask`.
+///
+/// The additions, and what each one runs:
+///
+/// - the rest of the startup files of the shells upstream names: zsh reads
+///   `.zshenv` for *every* zsh, `-c` included, and `.zprofile`, `.zlogin`,
+///   `.zlogout` around a login (upstream's own shell snapshot names the first
+///   three as zsh's user files, `src/core/terminal/shell_snapshot.zig:95`);
+///   bash reads `.bash_login` when there is no `.bash_profile`, and
+///   `.bash_logout` on the way out;
+/// - all of `.config/fish`: fish sources every `conf.d/*.fish` and autoloads
+///   `functions/`, not only `config.fish`;
+/// - all of `.ssh`: sshd runs `rc` at every login, reads `environment` where
+///   `PermitUserEnvironment` allows, and trusts `authorized_keys2` as well as
+///   `authorized_keys` by default; `ssh` runs a `ProxyCommand` or a
+///   `Match exec` from any file `config` includes;
+/// - git's global configuration, `.gitconfig` and `.config/git`: the same
+///   executable input `.git/config` is, and closer to hand -- a
+///   `filter.<driver>.clean` there is a shell command that auto's own
+///   `git diff` runs for every file a `.gitattributes` selects (auto's own
+///   git selects none, [`GIT_CONFIG_OVERRIDES`]; the user's git does);
+/// - `.config/systemd`: a user unit is Linux's launch agent;
+/// - `.xfx`: xfx's profile home -- its permission mode, its rules and its
+///   `mcp.json` -- when a root is at or inside it, so that the protected
+///   component below a root ([`crate::workspace::PROTECTED_WRITE_DIRECTORY_NAMES`])
+///   does not see it;
+/// - `.mcp.json`: the commands a project's MCP servers start;
+/// - the editors' and the multiplexer's startup files, each able to run a
+///   command on the next start: vim's `.vimrc` and `.vim/` (`plugin/`,
+///   `autoload/` load by themselves; `:!` runs a shell), neovim's
+///   `.config/nvim/` (`init.lua` is Lua), emacs's `.emacs`, `.emacs.d/` and
+///   `.config/emacs/` (`init.el` is Lisp, `shell-command` included), tmux's
+///   `.tmux.conf` and `.config/tmux/` (`run-shell` at server start).
+///   `Library/LaunchAgents` and `.config/autostart` are upstream's already;
+/// - the command hooks other tools run on their next start, with no build or
+///   action of the user's in between: the AWS CLI's `.aws/config`
+///   (`credential_process`), kubectl's `.kube/config` (an `exec` credential
+///   plugin), and Claude Code's `.claude/settings.json` and
+///   `.claude/settings.local.json` (`hooks`). Not `.cargo/config.toml`: a
+///   project's cargo configuration is project content, like its `build.rs`,
+///   and runs only when the user builds -- auto never does.
+pub(super) const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
+    &[".git"],
+    &[".ssh", "authorized_keys"],
+    &[".ssh", "config"],
+    &["Library", "LaunchAgents"],
+    &["Library", "LaunchDaemons"],
+    &[".config", "autostart"],
+    &[".config", "fish", "config.fish"],
+    &[".zshrc"],
+    &[".bashrc"],
+    &[".bash_profile"],
+    &[".profile"],
+    &[".zshenv"],
+    &[".zprofile"],
+    &[".zlogin"],
+    &[".zlogout"],
+    &[".bash_login"],
+    &[".bash_logout"],
+    &[".config", "fish"],
+    &[".ssh"],
+    &[".gitconfig"],
+    &[".config", "git"],
+    &[".config", "systemd"],
+    &[".xfx"],
+    &[".mcp.json"],
+    &[".vimrc"],
+    &[".vim"],
+    &[".config", "nvim"],
+    &[".emacs"],
+    &[".emacs.d"],
+    &[".config", "emacs"],
+    &[".tmux.conf"],
+    &[".config", "tmux"],
+    &[".aws", "config"],
+    &[".kube", "config"],
+    &[".claude", "settings.json"],
+    &[".claude", "settings.local.json"],
+];
+
+/// The first of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] that appears in `path` as
+/// consecutive components, joined with `/` for a sentence.
+///
+/// Upstream's scan (`pathContainsComponentSequence`, `tool_admission.zig:695-716`):
+/// one pass over the components, a run restarted at the first element when a
+/// component breaks it. **Folded** where upstream's is exact, as a
+/// case-insensitive volume folds a name ([`crate::workspace::fold_case`]): there
+/// `.ZSHRC` and `.zſhrc` are `.zshrc`, and the exact comparison would be a check
+/// a path could spell its way around. It refuses more, never less.
+///
+/// `path` is the canonical target: the executor resolves it from a canonical
+/// root without following a link and refuses `..`, so the components here are
+/// the ones the write reaches.
+fn sensitive_sequence(path: &Path) -> Option<String> {
+    let components = folded_components(path);
+    SENSITIVE_AUTO_WRITE_SEQUENCES
+        .iter()
+        .find(|expected| {
+            let mut matched = 0;
+            for component in &components {
+                if component.eq_ignore_ascii_case(expected[matched]) {
+                    matched += 1;
+                    if matched == expected.len() {
+                        return true;
+                    }
+                } else {
+                    matched = usize::from(component.eq_ignore_ascii_case(expected[0]));
+                }
+            }
+            false
+        })
+        .map(|expected| expected.join("/"))
+}
+
+/// `path`'s normal components, each folded ([`crate::workspace::fold_case`]).
+fn folded_components(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(name) => {
+                Some(crate::workspace::fold_case(&name.to_string_lossy()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// What was at the target when the plan was prepared.
@@ -617,9 +774,12 @@ pub fn non_text_summary(len: usize) -> String {
 ///
 /// Beside [`MutationExcerpt`] rather than in place of it, because they answer
 /// two different questions. The excerpt is a sentence's worth of each side, and
-/// it is what the band's one-line summary quotes; this is the whole of each
-/// side up to [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and it exists because the risk
-/// of an edit lives in bytes the sentence had to leave out.
+/// it is what the one-line summary quotes (the line shell's prompt); this is the
+/// part of the file the change touches -- for both an edit and a write, the
+/// changed lines and up to [`APPROVAL_DIFF_CONTEXT_LINES`] unchanged ones either
+/// side, and where they sit in the file ([`Self::around_change`]) -- up to
+/// [`MAX_APPROVAL_DIFF_SIDE_BYTES`] a side, and it exists because the risk of an
+/// edit lives in bytes the sentence had to leave out.
 ///
 /// Both fields are already escaped and already bounded: the payload is made
 /// inert at the permission boundary, where the change is known, rather than at
@@ -635,30 +795,70 @@ pub fn non_text_summary(len: usize) -> String {
 pub struct ApprovalDiff {
     pub before: String,
     pub after: String,
+    /// The file's line number, one-based, of the first line of both sides.
+    pub first_line: usize,
+    /// How many unchanged lines of the file follow the last line of both sides.
+    pub lines_below: usize,
 }
 
+/// How many unchanged lines a review carries on either side of a change
+/// (`vercel-labs/fx@c1db919 src/core/output/diff.zig:497`,
+/// `review_context_lines`).
+pub const APPROVAL_DIFF_CONTEXT_LINES: usize = 5;
+
 impl ApprovalDiff {
-    /// The two sides, each escaped and bounded.
+    /// The two sides whole, each escaped and bounded, starting at the file's
+    /// first line.
     pub fn of(before: &str, after: &str) -> Self {
         Self {
             before: bounded_diff_side(before),
             after: bounded_diff_side(after),
+            first_line: 1,
+            lines_below: 0,
         }
     }
 
-    /// Whether this change is bigger than the band's own summary can show.
+    /// The part of a file a change touches: the lines that differ, up to
+    /// [`APPROVAL_DIFF_CONTEXT_LINES`] unchanged ones either side, and where
+    /// that window sits in the file.
     ///
-    /// The comparison is against [`MAX_EXCERPT_BYTES`] because that is exactly
-    /// how much of each side the summary quotes: a change whose sides both fit
-    /// in it has already been shown whole, and a second surface would repeat
-    /// the band to hide the document behind it.
+    /// **A window rather than the file**, and the bound is why. A review numbers
+    /// its lines, so it needs the text around a change and not only the change;
+    /// but a side is cut at [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and a file bigger
+    /// than that cut at its end would put the change -- anywhere past the first
+    /// 64 KiB -- out of the review altogether, and make the two cut ends read as
+    /// a change that is not being made. The lines the window leaves out are
+    /// unchanged by construction and counted ([`Self::first_line`],
+    /// [`Self::lines_below`]), so a review can say how many there are.
     ///
-    /// Deliberately **not** a function of the terminal's height. A rule keyed on
-    /// rows would review a one-word edit on a full screen the moment somebody
-    /// made their window short, and leave a hundred-kilobyte replacement in two
-    /// rows of summary on a tall one.
-    pub fn wants_screen(&self) -> bool {
-        self.before.len() > MAX_EXCERPT_BYTES || self.after.len() > MAX_EXCERPT_BYTES
+    /// The changed region is the span between the longest common run of lines
+    /// at the start and at the end, which is exactly the change for an edit --
+    /// it replaces the one place its `old_string` matched -- and the smallest
+    /// span holding every change for a write.
+    pub fn around_change(before: &str, after: &str) -> Self {
+        let old: Vec<&str> = before.split_inclusive('\n').collect();
+        let new: Vec<&str> = after.split_inclusive('\n').collect();
+        let prefix = old
+            .iter()
+            .zip(&new)
+            .take_while(|(was, is)| was == is)
+            .count();
+        let room = old.len().min(new.len()) - prefix;
+        let suffix = old
+            .iter()
+            .rev()
+            .zip(new.iter().rev())
+            .take(room)
+            .take_while(|(was, is)| was == is)
+            .count();
+        let start = prefix.saturating_sub(APPROVAL_DIFF_CONTEXT_LINES);
+        let kept = suffix.min(APPROVAL_DIFF_CONTEXT_LINES);
+        Self {
+            before: bounded_diff_side(&old[start..old.len() - suffix + kept].concat()),
+            after: bounded_diff_side(&new[start..new.len() - suffix + kept].concat()),
+            first_line: start + 1,
+            lines_below: suffix - kept,
+        }
     }
 }
 
@@ -683,6 +883,25 @@ pub struct MutationPlan {
     /// beside the excerpt rather than replacing it: the band still asks its
     /// one-line question whichever surface reviews the change.
     diff: Option<ApprovalDiff>,
+    /// What a configured rule is matched against, in upstream's order: the
+    /// target, its parent, then every other directory this change creates,
+    /// deepest first (`assembleFileTargetDrafts`, `permissions.zig:738-801`),
+    /// each canonical and workspace-relative ([`super::rules::rule_path`]).
+    ///
+    /// Set by the executor that resolved the path, because only it knows which
+    /// directories exist and how the filesystem spells them. Not part of the
+    /// fingerprint: it is a reading of the same target, for policy.
+    rule_targets: Option<Vec<Vec<u8>>>,
+    /// What a saved-session rule's key binds besides the plan's own fields:
+    /// the call's typed input and the identity of the directory the change is
+    /// made in ([`super::policy::ProposedAction::state_key`]). Set by the
+    /// executor; a plan without it matches no saved rule.
+    state_binding: Option<Vec<u8>>,
+    /// The directories a protected entry is looked for below when auto asks
+    /// whether a link leads here -- the home directory and every root
+    /// ([`super::links`]). Set by the executor, which knows them; not part of
+    /// the fingerprint, as it is a reading of the same target, for policy.
+    link_check: Option<super::LinkCheck>,
     fingerprint: ContentHash,
 }
 
@@ -721,8 +940,46 @@ impl MutationPlan {
             after,
             excerpt: None,
             diff: None,
+            rule_targets: None,
+            state_binding: None,
+            link_check: None,
             fingerprint,
         }
+    }
+
+    /// The same plan, checked for protected links below `bases`
+    /// ([`Self::sensitive_auto_write_target`]).
+    pub fn with_link_check(mut self, check: super::LinkCheck) -> Self {
+        self.link_check = Some(check);
+        self
+    }
+
+    /// The same plan, bound to `binding` for a saved-session rule's key
+    /// ([`Self::state_binding`]).
+    pub fn with_state_binding(mut self, binding: Vec<u8>) -> Self {
+        self.state_binding = Some(binding);
+        self
+    }
+
+    /// The call's typed input and its directory's identity, as the executor
+    /// bound them, or `None`.
+    pub fn state_binding(&self) -> Option<&[u8]> {
+        self.state_binding.as_deref()
+    }
+
+    /// The same plan, judged by rules against `targets`
+    /// ([`Self::rule_targets`]).
+    pub fn with_rule_targets(mut self, targets: Vec<Vec<u8>>) -> Self {
+        self.rule_targets = Some(targets);
+        self
+    }
+
+    /// Every path a configured rule is matched against for this change, as
+    /// the executor resolved them -- or `None` for a plan built without them,
+    /// which policy refuses to judge against a table rather than guess at
+    /// from the display name: a spelling is not a file.
+    pub fn rule_targets(&self) -> Option<&[Vec<u8>]> {
+        self.rule_targets.as_deref()
     }
 
     /// The same plan, carrying the before/after a prompt will show.
@@ -787,6 +1044,23 @@ impl MutationPlan {
 
     pub fn scope(&self) -> TargetScope {
         self.scope
+    }
+
+    /// Why auto does not change this target on its own, as a clause that
+    /// finishes "because", or `None` for an ordinary file: the components that
+    /// make it a file deciding what runs later -- `.zshrc`, `.git` --
+    /// or a protected entry that leads to it through a link, or the entry xfx
+    /// could not check for one ([`super::links`]). Judged on the canonical
+    /// target, in whichever root it is ([`TargetScope`]).
+    ///
+    /// **Reads the filesystem** for the links, so only auto asks it, at the
+    /// moment it would admit the write.
+    pub fn sensitive_auto_write_target(&self) -> Option<String> {
+        if let Some(sequence) = sensitive_sequence(&self.target) {
+            return Some(format!("`{sequence}` decides what runs later"));
+        }
+        let check = self.link_check.as_ref()?;
+        super::links::link_hold(&self.target, check)
     }
 
     pub fn preimage(&self) -> &Preimage {
@@ -909,6 +1183,25 @@ impl CommandPlan {
             }
             denied => denied,
         };
+        // The one attribute source the hardened argv cannot switch off
+        // ([`super::git_attributes`]), and the hooks no option does
+        // ([`super::gitconfig::configured_hooks`]): either makes auto ask.
+        let effect = match effect {
+            CommandEffect::DirectReadOnly { argv }
+                if argv.first().map(String::as_str) == Some("git") =>
+            {
+                if super::git_attributes::driver_hold(&resolved_cwd).is_some() {
+                    CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+                } else if super::gitconfig::configured_hooks(&resolved_cwd, &git_environment())
+                    .unwrap_or(true)
+                {
+                    CommandEffect::Denied(DeniedEffect::ConfiguredHooks)
+                } else {
+                    CommandEffect::DirectReadOnly { argv }
+                }
+            }
+            other => other,
+        };
         let route = match &effect {
             CommandEffect::DirectReadOnly { argv } => CommandRoute::Direct {
                 argv: hardened(argv),
@@ -918,7 +1211,12 @@ impl CommandPlan {
             },
         };
 
-        let environment = minimal_environment();
+        let environment = match &route {
+            CommandRoute::Direct { argv } if argv.first().map(String::as_str) == Some("git") => {
+                git_environment()
+            }
+            _ => minimal_environment(),
+        };
         let mut hasher = Sha256::new();
         hasher.update(trimmed.as_bytes());
         hasher.update([0u8]);
@@ -1013,12 +1311,61 @@ impl PreparedCommand {
 
 /// Overrides prepended to an admitted `git`, before its subcommand.
 ///
-/// `core.fsmonitor` names a command git runs through a shell on `status` and on
-/// anything else that refreshes the index, so a repository whose `.git/config`
-/// already carries one would execute it on the route `auto` admits without
-/// asking. `-c` outranks every configuration file, and `false` is the value that
-/// disables both the built-in monitor and the hook form.
-const GIT_CONFIG_OVERRIDES: &[&str] = &["-c", "core.fsmonitor=false"];
+/// Each switches off a command git would otherwise run from configuration --
+/// and git's configuration is not only the files the protected list names: a
+/// `[include] path = ~/.gitconfig.local` in the user's own `~/.gitconfig`
+/// makes any file auto can write part of it.
+///
+/// - `core.fsmonitor` names a command git runs through a shell on `status` and
+///   on anything else that refreshes the index. `false` disables both the
+///   built-in monitor and the hook form.
+/// - `--attr-source=<the empty tree>` reads `.gitattributes` from a tree with
+///   none in it rather than from the work tree, and `core.attributesFile`
+///   pointed at `/dev/null` drops the global attributes file: with no
+///   attribute, no `filter`, `diff` or `merge` driver is selected, so a
+///   `filter.<driver>.clean` configured anywhere is never run -- and `git diff`
+///   and `git status` run one on any work-tree file an attribute selects.
+///   The system attributes file is dropped by `GIT_ATTR_NOSYSTEM` in the
+///   plan's environment. `$GIT_DIR/info/attributes` is still read, and no
+///   option skips it: a repository whose file selects a driver is not run in
+///   auto at all ([`super::git_attributes`]).
+/// - `log.showSignature` makes `log` and `show` run `gpg.program` on every
+///   signed commit.
+/// - `core.hooksPath=/dev/null` leaves no hook file to run: `git diff` and
+///   `git describe --dirty` write the index even with optional locks off, and
+///   a `post-index-change` hook in `.git/hooks` runs on that write (measured
+///   on git 2.54). A hook defined in configuration (`hook.<name>.command`,
+///   git-hook(1)) is not switched off by it; a plan whose git would read one
+///   is not admitted at all (`DeniedEffect::ConfiguredHooks`).
+///
+/// `-c` outranks every configuration file, include or not, for every key but
+/// one family: `trace2.*` is read from the system and global files only and
+/// is not honoured from `-c`, and its targets are paths git appends to. The
+/// plan's environment sets `GIT_TRACE2`, `GIT_TRACE2_PERF` and
+/// `GIT_TRACE2_EVENT` to `0`, which outrank that configuration
+/// ([`minimal_environment`]).
+///
+/// # Git older than 2.40
+///
+/// It does not know `--attr-source`: it refuses the option with its usage
+/// error (129) and runs nothing. So on such a git every command the grammar
+/// recognizes fails, in every mode, because the argv is the same in each.
+/// That is deliberate and fails closed -- the other way to fail would be to
+/// run it without the option. A command the grammar does not recognize still
+/// runs, unhardened, through the reviewed shell after an approval. A SHA-256
+/// repository has no object by the empty tree's SHA-1 name, and git refuses
+/// that the same way.
+const GIT_CONFIG_OVERRIDES: &[&str] = &[
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.attributesFile=/dev/null",
+    "-c",
+    "log.showSignature=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+];
 
 /// Options inserted directly after a `git` subcommand that accepts them.
 ///
@@ -1039,16 +1386,9 @@ const GIT_DIFF_SUBCOMMANDS: &[&str] = &["diff", "log", "show"];
 /// is keyed on, and what the user is shown -- so this changes what runs, not
 /// what was agreed.
 ///
-/// # What this does not cover
-///
-/// A `filter.<driver>.clean` selected by a `.gitattributes` entry is also a
-/// shell command, and `git diff` runs it on a worktree file. Git offers no
-/// single switch for it, and enumerating drivers is not a boundary. The real
-/// control for that is the other half of this change: the typed file tools
-/// refuse to write `.git` at all, so xfx cannot be the thing that installs one.
-/// A repository that already carries a hostile `.gitattributes` and a matching
-/// `.git/config` is a repository whose contents the user has already chosen to
-/// open.
+/// A `filter.<driver>.clean` is selected by an attribute and configured
+/// anywhere git reads configuration, includes included; with no attribute
+/// read ([`GIT_CONFIG_OVERRIDES`]) none is selected, so none runs.
 fn hardened(argv: &[String]) -> Vec<String> {
     if argv.first().map(String::as_str) != Some("git") {
         return argv.to_vec();
@@ -1128,13 +1468,31 @@ fn minimal_environment() -> Vec<(String, String)> {
         .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string());
     let home = std::env::var("HOME").unwrap_or_default();
     // Sorted by name, so the fingerprint does not depend on the order the
-    // variables happened to be read in.
+    // variables happened to be read in. The three `GIT_TRACE2` variables
+    // switch off the trace targets git's global configuration can name,
+    // which `-c` cannot ([`GIT_CONFIG_OVERRIDES`]).
     vec![
+        ("GIT_TRACE2".to_string(), "0".to_string()),
+        ("GIT_TRACE2_EVENT".to_string(), "0".to_string()),
+        ("GIT_TRACE2_PERF".to_string(), "0".to_string()),
         ("HOME".to_string(), home),
         ("LANG".to_string(), "C".to_string()),
         ("LC_ALL".to_string(), "C".to_string()),
         ("PATH".to_string(), path),
     ]
+}
+
+/// The environment an admitted `git` runs with: [`minimal_environment`],
+/// plus `GIT_ATTR_NOSYSTEM` -- the system attributes file, which no `-c`
+/// switches off -- and `GIT_OPTIONAL_LOCKS=0`, so that `status` does not
+/// write the index and no `post-index-change` hook runs (measured on git
+/// 2.54). Sorted, as the rest is.
+fn git_environment() -> Vec<(String, String)> {
+    let mut environment = minimal_environment();
+    environment.push(("GIT_ATTR_NOSYSTEM".to_string(), "1".to_string()));
+    environment.push(("GIT_OPTIONAL_LOCKS".to_string(), "0".to_string()));
+    environment.sort();
+    environment
 }
 
 /// The shell a reviewed command runs under.
@@ -1158,19 +1516,23 @@ fn platform_shell() -> PathBuf {
 pub(crate) type AllowSourceTag = super::policy::AllowSource;
 
 /// Permission to perform exactly one prepared action, exactly once.
+///
+/// A mutation's plan holds its whole preimage summary, bytes, excerpt and
+/// diff, so it is boxed rather than making every command's authority as
+/// large as the largest write's.
 #[derive(Debug)]
 pub enum ExecutionAuthority {
-    Mutation(PreparedMutation),
+    Mutation(Box<PreparedMutation>),
     Command(PreparedCommand),
 }
 
 impl ExecutionAuthority {
     pub(crate) fn mint_mutation(plan: MutationPlan, source: AllowSourceTag, nonce: Nonce) -> Self {
-        Self::Mutation(PreparedMutation {
+        Self::Mutation(Box::new(PreparedMutation {
             plan,
             nonce,
             source,
-        })
+        }))
     }
 
     pub(crate) fn mint_command(plan: CommandPlan, source: AllowSourceTag, nonce: Nonce) -> Self {
@@ -1657,10 +2019,6 @@ mod tests {
                 diff.before, diff.after,
                 "{before:?} replaced by {after:?} rendered as a change of nothing"
             );
-            assert!(
-                diff.wants_screen(),
-                "a change this size is not one the band's summary can show"
-            );
         }
     }
 
@@ -1770,23 +2128,36 @@ mod tests {
     }
 
     #[test]
+    fn a_change_is_sent_as_its_window_and_a_small_file_as_itself() {
+        // Five unchanged lines either side of the change, and where the window
+        // sits: the rest of the file is unchanged by construction, so it is
+        // counted rather than carried.
+        let before: String = (1..=100).map(|line| format!("{line}\n")).collect();
+        let after = before.replacen("50\n", "fifty\n", 1);
+        let diff = ApprovalDiff::around_change(&before, &after);
+        let window = |side: &[usize]| {
+            side.iter()
+                .map(|line| format!("{line}\n"))
+                .collect::<String>()
+        };
+        assert_eq!(
+            diff.before,
+            window(&[45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55])
+        );
+        assert_eq!(diff.after, diff.before.replacen("50\n", "fifty\n", 1));
+        assert_eq!((diff.first_line, diff.lines_below), (45, 45));
+
+        // A file no longer than its own context is sent whole, from line one.
+        let small = ApprovalDiff::around_change("a\nb\n", "a\nB\n");
+        assert_eq!(small, ApprovalDiff::of("a\nb\n", "a\nB\n"));
+    }
+
+    #[test]
     fn both_sides_of_a_diff_are_bounded_so_one_question_carries_at_most_128_kib() {
         let diff = ApprovalDiff::of(&"a".repeat(200_000), &"b".repeat(200_000));
         assert_eq!(diff.before.len(), 65_536);
         assert_eq!(diff.after.len(), 65_536);
         assert!(diff.before.len() + diff.after.len() <= 131_072);
-    }
-
-    #[test]
-    fn a_change_the_bands_own_summary_could_not_have_shown_asks_for_a_screen() {
-        // 160 bytes is what the inline summary quotes of each side, and the
-        // literal is written here rather than imported: the rule this pins is
-        // "bigger than what the band already shows", and a test that imported
-        // the number would follow it wherever it went instead of noticing.
-        assert!(!ApprovalDiff::of(&"a".repeat(160), &"b".repeat(160)).wants_screen());
-        assert!(ApprovalDiff::of(&"a".repeat(161), "b").wants_screen());
-        assert!(ApprovalDiff::of("a", &"b".repeat(161)).wants_screen());
-        assert!(!ApprovalDiff::of("", "").wants_screen());
     }
 
     #[test]
@@ -1865,7 +2236,18 @@ mod tests {
             .iter()
             .map(|(name, _)| name.as_str())
             .collect();
-        assert_eq!(names, ["HOME", "LANG", "LC_ALL", "PATH"]);
+        assert_eq!(
+            names,
+            [
+                "GIT_TRACE2",
+                "GIT_TRACE2_EVENT",
+                "GIT_TRACE2_PERF",
+                "HOME",
+                "LANG",
+                "LC_ALL",
+                "PATH"
+            ]
+        );
         assert_eq!(plan.display_cwd(), ".");
     }
 
@@ -1882,6 +2264,584 @@ mod tests {
         );
     }
 
+    /// A repository with one committed file changed since, and a home whose
+    /// `~/.gitconfig` includes `~/.gitconfig.local`, which defines
+    /// `filter.x.clean` as a command that leaves a marker -- the chain the
+    /// git tests below run, with the real git.
+    struct GitFixture {
+        git: PathBuf,
+        _home_dir: tempfile::TempDir,
+        home: PathBuf,
+        _repo_dir: tempfile::TempDir,
+        scope: AccessScope,
+        ran: PathBuf,
+    }
+
+    impl GitFixture {
+        fn new() -> Self {
+            // Required, not skipped: a test that passes because git was not
+            // there proves nothing about the git that is.
+            let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .map(|dir| dir.join("git"))
+                .find(|git| git.is_file())
+                .expect("git on PATH: these tests run the real one");
+            let home_dir = tempfile::tempdir().expect("a home");
+            let home = home_dir.path().canonicalize().expect("canonical");
+            let (repo_dir, scope) = scope();
+            let ran = home.join("RAN");
+            let fixture = Self {
+                git,
+                _home_dir: home_dir,
+                home,
+                _repo_dir: repo_dir,
+                scope,
+                ran,
+            };
+            let words =
+                |line: &str| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
+            assert!(fixture.run(&words("git init -q")).success());
+            std::fs::write(fixture.repo().join("a.txt"), "one\n").expect("a file");
+            assert!(fixture.run(&words("git add a.txt")).success());
+            assert!(fixture
+                .run(&words(
+                    "git -c user.email=a@b -c user.name=a commit -q -m a"
+                ))
+                .success());
+            std::fs::write(
+                fixture.home.join(".gitconfig"),
+                "[include]\n\tpath = ~/.gitconfig.local\n",
+            )
+            .expect("the global config");
+            std::fs::write(
+                fixture.home.join(".gitconfig.local"),
+                format!(
+                    "[filter \"x\"]\n\tclean = \"touch {}; cat\"\n[diff \"x\"]\n\ttextconv = \"touch {}; cat\"\n",
+                    fixture.ran.display(),
+                    fixture.ran.display()
+                ),
+            )
+            .expect("the included file");
+            std::fs::write(fixture.repo().join("a.txt"), "two\n").expect("a change");
+            fixture
+        }
+
+        fn repo(&self) -> &Path {
+            self.scope.primary()
+        }
+
+        /// Runs `argv` in the repository with the environment a direct plan
+        /// gets, the fixture's home standing in for `$HOME`.
+        fn run(&self, argv: &[String]) -> std::process::ExitStatus {
+            self.run_with(argv, &[])
+        }
+
+        fn run_with(&self, argv: &[String], extra: &[(&str, &str)]) -> std::process::ExitStatus {
+            let mut command = std::process::Command::new(&self.git);
+            command
+                .args(&argv[1..])
+                .current_dir(self.repo())
+                .env_clear()
+                .env("HOME", &self.home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            for (name, value) in extra {
+                command.env(name, value);
+            }
+            command.status().expect("git runs")
+        }
+
+        /// Runs a direct plan as the terminal tool would: its argv, with its
+        /// own environment, the fixture's home standing in for `$HOME`.
+        fn run_plan(&self, plan: &CommandPlan) -> std::process::ExitStatus {
+            let environment: Vec<(&str, &str)> = plan
+                .environment()
+                .iter()
+                .filter(|(name, _)| name != "HOME")
+                .map(|(name, value)| (name.as_str(), value.as_str()))
+                .collect();
+            self.run_with(direct_argv(plan), &environment)
+        }
+
+        /// Whether the filter ran, clearing the marker for the next run.
+        fn filter_ran(&self) -> bool {
+            let ran = self.ran.exists();
+            let _ = std::fs::remove_file(&self.ran);
+            ran
+        }
+
+        fn plan(&self, command: &str) -> CommandPlan {
+            CommandPlan::prepare(command, &self.scope, None, &ToolLimits::default())
+                .expect("a plan")
+        }
+    }
+
+    fn direct_argv(plan: &CommandPlan) -> &[String] {
+        let CommandRoute::Direct { argv } = plan.route() else {
+            panic!("`{}` is a direct plan", plan.command());
+        };
+        argv
+    }
+
+    #[test]
+    fn an_admitted_git_selects_no_driver_a_file_auto_can_write_defines() {
+        // The chain: `~/.gitconfig` includes `~/.gitconfig.local`; a filter
+        // defined there is selected by the workspace's `.gitattributes`, or by
+        // a global `core.attributesFile` the included file names.
+        let fixture = GitFixture::new();
+        let attributes_file = fixture.home.join("attributes");
+        for (attributes, where_) in [
+            (fixture.repo().join(".gitattributes"), "the workspace"),
+            (attributes_file.clone(), "the global attributes file"),
+        ] {
+            if attributes == attributes_file {
+                let mut local = std::fs::read_to_string(fixture.home.join(".gitconfig.local"))
+                    .expect("the included file");
+                local.push_str(&format!(
+                    "[core]\n\tattributesFile = {}\n",
+                    attributes.display()
+                ));
+                std::fs::write(fixture.home.join(".gitconfig.local"), local).expect("written");
+            }
+            std::fs::write(&attributes, "* filter=x\n").expect("attributes");
+            // The control: unhardened, git runs the filter.
+            assert!(fixture
+                .run(&["git".into(), "diff".into(), "--stat".into()])
+                .success());
+            assert!(
+                fixture.filter_ran(),
+                "the control did not run the filter ({where_})"
+            );
+            for command in ["git diff --stat", "git status --short"] {
+                let plan = fixture.plan(command);
+                let status = fixture.run(direct_argv(&plan));
+                assert!(status.success(), "`{command}` failed: {status}");
+                assert!(
+                    !fixture.filter_ran(),
+                    "`{command}` ran a filter that {where_} selected"
+                );
+            }
+            std::fs::remove_file(&attributes).expect("attributes");
+        }
+    }
+
+    #[test]
+    fn an_admitted_git_writes_no_trace_the_global_configuration_asks_for() {
+        // `trace2.*` is read from the system and global files only, and `-c`
+        // does not reach it: a `normalTarget` there is a path git appends to
+        // on every run. The plan's environment is what turns it off.
+        let fixture = GitFixture::new();
+        let targets: Vec<PathBuf> = ["normal", "perf", "event"]
+            .iter()
+            .map(|kind| fixture.home.join(format!("trace-{kind}")))
+            .collect();
+        let mut global =
+            std::fs::read_to_string(fixture.home.join(".gitconfig")).expect("the global config");
+        global.push_str(&format!(
+            "[trace2]\n\tnormalTarget = {}\n\tperfTarget = {}\n\teventTarget = {}\n",
+            targets[0].display(),
+            targets[1].display(),
+            targets[2].display()
+        ));
+        std::fs::write(fixture.home.join(".gitconfig"), global).expect("written");
+        let written = || -> Vec<&PathBuf> { targets.iter().filter(|t| t.exists()).collect() };
+        // The control: unhardened, git writes all three.
+        assert!(fixture
+            .run(&["git".into(), "status".into(), "--short".into()])
+            .success());
+        assert_eq!(written().len(), 3, "the control wrote {:?}", written());
+        for target in &targets {
+            std::fs::remove_file(target).expect("cleared");
+        }
+        for command in ["git status --short", "git diff --stat", "git log --oneline"] {
+            let plan = fixture.plan(command);
+            let status = fixture.run_plan(&plan);
+            assert!(status.success(), "`{command}` failed: {status}");
+            assert!(written().is_empty(), "`{command}` wrote {:?}", written());
+        }
+    }
+
+    #[test]
+    fn an_admitted_git_runs_no_hook_and_asks_when_configuration_defines_one() {
+        let fixture = GitFixture::new();
+        let ran = fixture.home.join("HOOK-RAN");
+        let hook_ran = || {
+            let was = ran.exists();
+            let _ = std::fs::remove_file(&ran);
+            was
+        };
+        // A hook file: `status` writes the index unless optional locks are
+        // off, `diff` writes it anyway; `post-index-change` runs on the write.
+        let hook = fixture.repo().join(".git/hooks/post-index-change");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch {}\n", ran.display())).expect("a hook");
+        std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .expect("chmod");
+        // The committed bytes, rewritten: only the stat changes, so git
+        // refreshes the index entry and writes the index.
+        let touch = || {
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            std::fs::write(fixture.repo().join("a.txt"), "one\n").expect("a touch");
+        };
+        for command in ["git status --short", "git diff --stat"] {
+            touch();
+            let words: Vec<String> = command.split(' ').map(str::to_string).collect();
+            assert!(fixture.run(&words).success());
+            assert!(hook_ran(), "the control `{command}` did not run the hook");
+            touch();
+            let plan = fixture.plan(command);
+            assert!(fixture.run_plan(&plan).success(), "`{command}` failed");
+            assert!(!hook_ran(), "`{command}` ran a hook file");
+        }
+        std::fs::remove_file(&hook).expect("removed");
+        // A hook defined in configuration: no option switches it off, so a
+        // git that would read one is not admitted.
+        let mut global =
+            std::fs::read_to_string(fixture.home.join(".gitconfig.local")).expect("included");
+        global.push_str(&format!(
+            "[hook \"x\"]\n\tcommand = touch {}\n\tevent = post-index-change\n",
+            ran.display()
+        ));
+        std::fs::write(fixture.home.join(".gitconfig.local"), global).expect("written");
+        touch();
+        assert!(fixture
+            .run(&["git".into(), "diff".into(), "--stat".into()])
+            .success());
+        assert!(hook_ran(), "the control did not run the configured hook");
+        touch();
+        let hardened = hardened(&["git".into(), "diff".into(), "--stat".into()]);
+        assert!(fixture
+            .run_with(&hardened, &[("GIT_OPTIONAL_LOCKS", "0")])
+            .success());
+        assert!(
+            hook_ran(),
+            "why it is refused: the hardened argv still runs it"
+        );
+        // The plan's own git reads `$HOME`, which the fixture stands in for
+        // only in its runs; ask the configuration that plan would read.
+        let environment: Vec<(String, String)> = git_environment()
+            .into_iter()
+            .map(|(name, value)| {
+                if name == "HOME" {
+                    (name, fixture.home.display().to_string())
+                } else {
+                    (name, value)
+                }
+            })
+            .collect();
+        assert_eq!(
+            super::super::gitconfig::configured_hooks(fixture.repo(), &environment),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn an_admitted_git_drops_system_attributes_and_optional_locks() {
+        let (_dir, scope) = scope();
+        let limits = ToolLimits::default();
+        let git = CommandPlan::prepare("git log --oneline", &scope, None, &limits).expect("a plan");
+        for (name, value) in [("GIT_ATTR_NOSYSTEM", "1"), ("GIT_OPTIONAL_LOCKS", "0")] {
+            assert!(
+                git.environment()
+                    .iter()
+                    .any(|(set, to)| set == name && to == value),
+                "{name}: {:?}",
+                git.environment()
+            );
+        }
+        let other = CommandPlan::prepare("pwd", &scope, None, &limits).expect("a plan");
+        assert!(other
+            .environment()
+            .iter()
+            .all(|(name, _)| name != "GIT_ATTR_NOSYSTEM" && name != "GIT_OPTIONAL_LOCKS"));
+    }
+
+    #[test]
+    fn a_module_git_directory_below_another_is_still_inspected() {
+        // A dangling `objects` link makes `modules/foo` count as a git
+        // directory; a real one nested under it, `modules/foo/bar`, is still
+        // looked at.
+        let fixture = GitFixture::new();
+        let foo = fixture.repo().join(".git/modules/foo");
+        std::fs::create_dir_all(&foo).expect("foo");
+        std::fs::write(foo.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+        std::os::unix::fs::symlink(fixture.home.join("nowhere"), foo.join("objects"))
+            .expect("a dangling link");
+        let bar = foo.join("bar");
+        for dir in ["objects", "refs", "info"] {
+            std::fs::create_dir_all(bar.join(dir)).expect("a directory");
+        }
+        std::fs::write(bar.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+        std::fs::write(bar.join("info/attributes"), "* filter=x\n").expect("attributes");
+        assert_eq!(
+            fixture.plan("git status --short").effect(),
+            &CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+    }
+
+    #[test]
+    fn a_real_submodule_is_inspected_without_counting_its_objects() {
+        // A submodule's git directory holds objects, refs and logs; only its
+        // `info/attributes` and its own `modules/` are looked at.
+        let fixture = GitFixture::new();
+        let source = tempfile::tempdir().expect("a source");
+        let source_path = source.path().canonicalize().expect("canonical");
+        let in_source = |args: &[&str]| {
+            std::process::Command::new(&fixture.git)
+                .args(args)
+                .current_dir(&source_path)
+                .env_clear()
+                .env("HOME", &fixture.home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .output()
+                .expect("git runs")
+        };
+        assert!(in_source(&["init", "-q"]).status.success());
+        for index in 0..300 {
+            std::fs::write(source_path.join(format!("f{index}")), format!("{index}\n"))
+                .expect("a file");
+        }
+        assert!(in_source(&["add", "."]).status.success());
+        assert!(in_source(&[
+            "-c",
+            "user.email=a@b",
+            "-c",
+            "user.name=a",
+            "commit",
+            "-q",
+            "-m",
+            "s"
+        ])
+        .status
+        .success());
+        assert!(
+            in_source(&["-c", "core.looseCompression=0", "repack", "-q"])
+                .status
+                .success()
+        );
+        let words = |line: String| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
+        assert!(fixture
+            .run(&words(format!(
+                "git -c protocol.file.allow=always submodule add -q {} sub",
+                source_path.display()
+            )))
+            .success());
+        // Loose objects in the submodule's git directory, more than the bound.
+        let objects = fixture.repo().join(".git/modules/sub/objects");
+        for index in 0..5000 {
+            let dir = objects.join(format!("x{index}"));
+            std::fs::create_dir_all(&dir).expect("a directory");
+        }
+        assert!(matches!(
+            fixture.plan("git status --short").effect(),
+            CommandEffect::DirectReadOnly { .. }
+        ));
+        // And a driver its `info/attributes` selects is still found.
+        let info = fixture.repo().join(".git/modules/sub/info");
+        std::fs::create_dir_all(&info).expect("info");
+        std::fs::write(info.join("attributes"), "* filter=x\n").expect("attributes");
+        assert_eq!(
+            fixture.plan("git status --short").effect(),
+            &CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+    }
+
+    #[test]
+    fn an_admitted_git_selects_no_driver_in_a_submodule_child_either() {
+        // `git status` in a superproject runs `git status` in each submodule.
+        // The submodule's own work-tree `.gitattributes` selects a filter its
+        // own `config` defines; `--attr-source` and `core.attributesFile`
+        // reach that child too (git passes them on), so it is not selected.
+        let fixture = GitFixture::new();
+        let source = tempfile::tempdir().expect("a source");
+        let source = source.path().canonicalize().expect("canonical");
+        let git_in = |dir: &Path, args: &[&str]| {
+            let status = std::process::Command::new(&fixture.git)
+                .args(args)
+                .current_dir(dir)
+                .env_clear()
+                .env("HOME", &fixture.home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?}");
+        };
+        git_in(&source, &["init", "-q"]);
+        std::fs::write(source.join("s.txt"), "s\n").expect("a file");
+        git_in(&source, &["add", "s.txt"]);
+        git_in(
+            &source,
+            &[
+                "-c",
+                "user.email=a@b",
+                "-c",
+                "user.name=a",
+                "commit",
+                "-q",
+                "-m",
+                "s",
+            ],
+        );
+        git_in(
+            fixture.repo(),
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                source.to_str().expect("utf-8"),
+                "sub",
+            ],
+        );
+        let ran = fixture.home.join("SUB-RAN");
+        let module_config = fixture.repo().join(".git/modules/sub/config");
+        let mut config = std::fs::read_to_string(&module_config).expect("config");
+        config.push_str(&format!(
+            "[filter \"y\"]\n\tclean = \"touch {}; cat\"\n",
+            ran.display()
+        ));
+        std::fs::write(&module_config, config).expect("config");
+        let sub = fixture.repo().join("sub");
+        std::fs::write(sub.join(".gitattributes"), "* filter=y\n").expect("attributes");
+        // The committed bytes, rewritten: the stat changes, the content does
+        // not, so the child has to hash it -- through the clean filter.
+        let touch = || {
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            std::fs::write(sub.join("s.txt"), "s\n").expect("a touch");
+            let _ = std::fs::remove_file(&ran);
+        };
+        touch();
+        assert!(fixture
+            .run(&["git".into(), "status".into(), "--short".into()])
+            .success());
+        assert!(
+            ran.exists(),
+            "the control did not run the submodule's filter"
+        );
+        touch();
+        let plan = fixture.plan("git status --short");
+        let status = fixture.run_plan(&plan);
+        assert!(status.success(), "{status}");
+        assert!(
+            !ran.exists(),
+            "the hardened status ran the submodule's filter"
+        );
+    }
+
+    #[test]
+    fn a_git_that_does_not_know_an_option_it_is_given_runs_nothing() {
+        // Git older than 2.40 has no `--attr-source`. What it does with a
+        // global option it does not know is what any git does: refuse it and
+        // run nothing. Shown with this git and an option no git has.
+        let fixture = GitFixture::new();
+        std::fs::write(fixture.repo().join(".gitattributes"), "* filter=x\n").expect("attributes");
+        let plan = fixture.plan("git diff --stat");
+        let argv: Vec<String> = direct_argv(&plan)
+            .iter()
+            .map(|word| {
+                if word.starts_with("--attr-source=") {
+                    "--no-such-global-option".to_string()
+                } else {
+                    word.clone()
+                }
+            })
+            .collect();
+        let status = fixture.run(&argv);
+        assert_eq!(status.code(), Some(129), "{argv:?}");
+        assert!(
+            !fixture.filter_ran(),
+            "an unknown option still ran the filter"
+        );
+    }
+
+    #[test]
+    fn auto_does_not_run_git_where_the_repositorys_own_attributes_select_a_driver() {
+        // `$GIT_DIR/info/attributes` is the attribute source `--attr-source`
+        // leaves in place. Auto cannot write it; a repository can already
+        // have it, and then the included filter runs on auto's own git.
+        let fixture = GitFixture::new();
+        let info = fixture.repo().join(".git/info");
+        std::fs::create_dir_all(&info).expect("info");
+        std::fs::write(info.join("attributes"), "* filter=x\n").expect("attributes");
+        // Why: the hardened argv alone still runs it.
+        assert!(fixture
+            .run(&hardened(&["git".into(), "diff".into(), "--stat".into()]))
+            .success());
+        assert!(
+            fixture.filter_ran(),
+            "the hardened argv did not run the filter"
+        );
+        for command in ["git diff --stat", "git status --short", "git log --oneline"] {
+            let plan = fixture.plan(command);
+            assert_eq!(
+                plan.effect(),
+                &CommandEffect::Denied(DeniedEffect::RepositoryAttributes),
+                "{command}"
+            );
+        }
+        // A driver named any of the three ways, or a macro that names one.
+        for selects in ["*.txt diff=x\n", "* merge=x\n", "[attr]m filter=x\n* m\n"] {
+            std::fs::write(info.join("attributes"), selects).expect("attributes");
+            assert_eq!(
+                fixture.plan("git diff").effect(),
+                &CommandEffect::Denied(DeniedEffect::RepositoryAttributes),
+                "{selects:?}"
+            );
+        }
+        // Attributes that select nothing are no reason to ask.
+        std::fs::write(
+            info.join("attributes"),
+            "# none\n*.png binary\n*.c text eol=lf\n",
+        )
+        .expect("attributes");
+        assert!(matches!(
+            fixture.plan("git diff").effect(),
+            CommandEffect::DirectReadOnly { .. }
+        ));
+        // Unreadable is not "selects nothing".
+        std::fs::set_permissions(
+            info.join("attributes"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o000),
+        )
+        .expect("chmod");
+        let unreadable = fixture.plan("git diff").effect().clone();
+        std::fs::set_permissions(
+            info.join("attributes"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o644),
+        )
+        .expect("chmod");
+        assert_eq!(
+            unreadable,
+            CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+        // A linked worktree reads its common directory's.
+        std::fs::write(info.join("attributes"), "").expect("attributes");
+        let linked = fixture.home.join("linked");
+        assert!(fixture
+            .run(&[
+                "git".into(),
+                "worktree".into(),
+                "add".into(),
+                "-q".into(),
+                linked.display().to_string(),
+            ])
+            .success());
+        std::fs::write(info.join("attributes"), "* diff=x\n").expect("attributes");
+        let linked_scope = AccessScope::primary_only(&linked).expect("a root");
+        let plan = CommandPlan::prepare("git diff", &linked_scope, None, &ToolLimits::default())
+            .expect("a plan");
+        assert_eq!(
+            plan.effect(),
+            &CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+    }
+
     #[test]
     fn an_admitted_git_runs_with_the_repositorys_own_hooks_and_diff_drivers_off() {
         let (_dir, scope) = scope();
@@ -1892,10 +2852,25 @@ mod tests {
         let CommandRoute::Direct { argv } = status.route() else {
             panic!("`git status` is a direct plan");
         };
-        assert_eq!(
-            argv,
-            &["git", "-c", "core.fsmonitor=false", "status", "--short"]
-        );
+        let overrides = [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.attributesFile=/dev/null",
+            "-c",
+            "log.showSignature=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        ];
+        let expected = |rest: &[&str]| -> Vec<String> {
+            std::iter::once("git")
+                .chain(overrides)
+                .chain(rest.iter().copied())
+                .map(str::to_string)
+                .collect()
+        };
+        assert_eq!(argv, &expected(&["status", "--short"]));
 
         // The diff family gets the two options that turn off the commands a
         // repository can configure for it.
@@ -1905,15 +2880,7 @@ mod tests {
         };
         assert_eq!(
             argv,
-            &[
-                "git",
-                "-c",
-                "core.fsmonitor=false",
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--stat"
-            ]
+            &expected(&["diff", "--no-ext-diff", "--no-textconv", "--stat"])
         );
 
         // The agreement is unchanged: the text a rule or a grant is keyed on,

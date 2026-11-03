@@ -45,7 +45,9 @@ use std::collections::VecDeque;
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::theme::Palette;
+use super::notice::Tone;
+use super::prose::{self, Continuation, Opening, ProseRow};
+use super::theme::{DocumentRow, Palette};
 use super::wrap;
 
 /// What a text *is*, which is what decides the colour the document row carrying
@@ -68,10 +70,17 @@ pub(crate) enum Role {
     /// since a provider's escapes are already spaced at the channel
     /// (`super::bridge`'s `inert`).
     Plain,
-    /// The model's answer.
-    Body,
-    /// One of xfx's own lines about the session.
+    /// One of xfx's own lines about the session: a notice's body, and the
+    /// lines that are not notices yet (the tool rows).
     Notice,
+    /// A notice's topic and its colon, in the colour its tone gives the
+    /// label (`noticeLabelStyle`, `transcript_blocks.zig:1707-1716`). The
+    /// glyph in front of it is the line's gutter ([`Gutter::Head`]), painted
+    /// in the same colour.
+    Label(Tone),
+    /// Upstream's quiet rows: the turn summary under an answer, in the
+    /// palette's dim foreground (`theme.zig`, `dim`).
+    Dim,
 }
 
 impl Role {
@@ -84,8 +93,9 @@ impl Role {
     fn paint(self, palette: Palette) -> Option<&'static str> {
         match self {
             Role::Plain => None,
-            Role::Body => Some(palette.body()),
             Role::Notice => Some(palette.notice()),
+            Role::Label(tone) => Some(tone.label(palette)),
+            Role::Dim => Some(palette.dim()),
         }
     }
 }
@@ -129,6 +139,23 @@ impl Roles {
         match self.spans.last_mut() {
             Some(last) if last.role == role => last.end = end,
             _ => self.spans.push(Span { end, role }),
+        }
+    }
+
+    /// Records that the next bytes of the tail are what `range` of `source`
+    /// is, run by run.
+    fn extend_from(&mut self, source: &Roles, range: std::ops::Range<usize>) {
+        let mut begin = 0usize;
+        for span in &source.spans {
+            let low = begin.max(range.start);
+            let high = span.end.min(range.end);
+            if low < high {
+                self.extend(high - low, span.role);
+            }
+            begin = span.end;
+            if begin >= range.end {
+                break;
+            }
         }
     }
 
@@ -179,6 +206,26 @@ impl Roles {
     }
 }
 
+/// What the bytes of one queued push mean: one role for all of them -- the
+/// stream's case, which costs nothing to carry -- or a run per role, for a line
+/// xfx composed out of parts (a notice's label and its body).
+#[derive(Clone, Copy)]
+enum Source<'a> {
+    One(Role),
+    Runs(&'a Roles),
+}
+
+impl Source<'_> {
+    /// Records `range` of the push's bytes into `roles`, in the role(s) the
+    /// push gave them.
+    fn extend(self, roles: &mut Roles, range: std::ops::Range<usize>) {
+        match self {
+            Source::One(role) => roles.extend(range.len(), role),
+            Source::Runs(runs) => roles.extend_from(runs, range),
+        }
+    }
+}
+
 /// What one push owes the terminal's document.
 ///
 /// `scroll` is how many rows the screen must move up to make room; `rows` is
@@ -197,10 +244,22 @@ impl Roles {
 /// the difference as settled and never paint it. That is silent, permanent
 /// loss of the beginning of an answer, the same class as a batch scroll that
 /// outruns the document area.
+///
+/// `kinds` is what each row is, for the theme report that may later repaint
+/// it (`super::theme::DocumentRow`): **empty when every row is plain**, which
+/// is most appends, and otherwise one per row. Recorded with the row as it is
+/// written rather than read back off its painted cells, because two of the
+/// document's greys are one number on a dark screen and two on a light one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Append {
     pub(crate) scroll: usize,
     pub(crate) rows: Vec<String>,
+    pub(crate) kinds: Vec<DocumentRow>,
+    /// How many of `rows`' last rows a block that shrank wrote blank and
+    /// gives back: once the append has landed they are not the document's,
+    /// and the band moves up over them (zero for every append but such a
+    /// rewrite).
+    pub(crate) release: usize,
 }
 
 impl Append {
@@ -209,6 +268,8 @@ impl Append {
         Self {
             scroll: 0,
             rows: Vec::new(),
+            kinds: Vec::new(),
+            release: 0,
         }
     }
 
@@ -223,6 +284,15 @@ impl Append {
     /// nothing.
     fn is_nothing(&self) -> bool {
         self.scroll == 0 && self.rows.is_empty()
+    }
+}
+
+/// `count` rows of `kind`, sparsely: nothing at all for plain rows ([`Append`]).
+fn kinds_of(kind: DocumentRow, count: usize) -> Vec<DocumentRow> {
+    if kind == DocumentRow::Plain {
+        Vec::new()
+    } else {
+        vec![kind; count]
     }
 }
 
@@ -269,6 +339,183 @@ pub(crate) enum Landed<E> {
 /// long the answer runs.
 const MAX_TAIL_ROWS: usize = 256;
 
+/// What every row of a line starts with, in upstream's transcript
+/// (`c1db919`).
+///
+/// A property of the **line**, not of the text: the rows a line wraps onto
+/// each carry it, and the text is wrapped to the width that is left. It is
+/// how a submitted prompt becomes upstream's card -- the rail
+/// (`user_message_card.zig:319-325`) -- and how the assistant's answer sits
+/// in its two-column gutter (`assistant_wrap.zig:706,744`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Gutter {
+    /// Nothing: xfx's own lines, the welcome line.
+    #[default]
+    None,
+    /// `┃` in the hint colour and a space.
+    Rail,
+    /// Two blank columns: the assistant's answer, wrapped by upstream's
+    /// assistant wrap ([`super::prose`]) -- no orphan on a line's last row,
+    /// and a list item's, a quote's or an indented paragraph's continuation
+    /// rows lined up under its text.
+    Indent,
+    /// The rest of an answer line whose first rows a freeze has handed to the
+    /// terminal ([`freeze`]): two blank columns, as [`Gutter::Indent`], and
+    /// the continuation that line's marker set -- which the text still held
+    /// here no longer begins with, so it is carried instead of read. Becomes
+    /// [`Gutter::Indent`] again when the line ends.
+    Carried(Option<Continuation>),
+    /// A notice's: its glyph and a space in front of the **first** row, in
+    /// the label's colour, and two blank columns in front of every row after
+    /// it -- the rows the first line wraps onto and every line after it.
+    ///
+    /// Upstream composes `<glyph> <topic>: <body>` as one logical line, wraps
+    /// it at the screen's width and indents every continuation row by two
+    /// (`renderSemanticNotice`, `transcript_blocks.zig:1758-1800`;
+    /// `noticeContinuationIndent`, `:1718-1725`). Every glyph is one cell
+    /// (`super::notice::Tone::glyph`), so the glyph and its space are exactly
+    /// a two-column gutter: the text wrapped at `cols - 2` behind it is the
+    /// same rows as upstream's line wrapped at `cols`, with the glyph standing
+    /// where the indent stands on the rows below it.
+    ///
+    /// **One-shot.** Only the first row of the next line carries the glyph;
+    /// once that line has ended -- or a freeze has dropped its first row --
+    /// the gutter is [`Gutter::NoticeIndent`] until the next one is queued
+    /// ([`Self::continued`]).
+    ///
+    /// Its text wraps by upstream's notice rule rather than the prose one
+    /// ([`super::wrap::wrap_notice`]): a path breaks after a separator.
+    Head(Tone),
+    /// The rest of a notice: two blank columns, as [`Gutter::Indent`] is, and
+    /// the notice's own wrap, as [`Gutter::Head`] has -- every line of a
+    /// notice is wrapped as upstream wraps the whole of it
+    /// (`renderSemanticNotice`, `transcript_blocks.zig:1781-1798`).
+    NoticeIndent,
+    /// A notice's body line that opens with a tree branch, `├ ` or `└ `: the
+    /// branch and its space stand where the indent stands on the notice's
+    /// other rows, so the branch is under the glyph, and the rows the line
+    /// wraps onto are two columns in (`noticeContinuationIndent`,
+    /// `transcript_blocks.zig:1718-1725`). The branch is painted in the
+    /// body's colour, as upstream writes it inside the body's run.
+    ///
+    /// One-shot, as [`Gutter::Head`] is: the line after it is
+    /// [`Gutter::NoticeIndent`]'s.
+    Branch(char),
+    /// A row of an MCP entry as a person is shown it -- the trust prompt's,
+    /// `v`'s ([`super::shell::Shell::write_raw_rows`]): two blank columns in
+    /// front of its first row, and `↳ ` in front of every row it wraps onto
+    /// ([`Gutter::Wrapped`]), so the rest of a long value never reads as a row
+    /// of the entry's own. xfx's addition; upstream shows no entry.
+    ///
+    /// One-shot, as [`Gutter::Head`] is: the line after it is
+    /// [`Gutter::Wrapped`]'s until the next one is queued.
+    Shown,
+    /// The rows a [`Gutter::Shown`] line wraps onto: `↳ ` in front of each.
+    Wrapped,
+}
+
+impl Gutter {
+    /// How many columns the gutter takes from every row.
+    pub(crate) fn width(self) -> u16 {
+        match self {
+            Gutter::None => 0,
+            Gutter::Rail
+            | Gutter::Indent
+            | Gutter::Carried(_)
+            | Gutter::Head(_)
+            | Gutter::NoticeIndent
+            | Gutter::Branch(_)
+            | Gutter::Shown
+            | Gutter::Wrapped => 2,
+        }
+    }
+
+    /// What the first row of the line opens with. Self-contained: whatever it
+    /// opens it closes, so the text's own sequences start from a clean pen.
+    fn prefix(self, palette: Palette) -> String {
+        match self {
+            Gutter::None => String::new(),
+            Gutter::Rail => format!("{}\u{2503}{} ", palette.hint(), palette.reset()),
+            Gutter::Indent | Gutter::Carried(_) | Gutter::NoticeIndent | Gutter::Shown => {
+                "  ".to_string()
+            }
+            Gutter::Wrapped => "\u{21b3} ".to_string(),
+            // The space inside the run, as upstream's label is: one run of one
+            // colour from the glyph to the colon, so a capture reads the label
+            // as the single span upstream's does.
+            Gutter::Head(tone) => {
+                format!(
+                    "{}{} {}",
+                    tone.label(palette),
+                    tone.glyph(),
+                    palette.reset()
+                )
+            }
+            Gutter::Branch(branch) => {
+                format!("{}{branch} {}", palette.notice(), palette.reset())
+            }
+        }
+    }
+
+    /// The gutter the rows **after** this line's first one carry, and the one
+    /// the next line begins with.
+    ///
+    /// Itself for every gutter but a notice's head, whose glyph belongs to one
+    /// row only, and an answer line's carried continuation, which belongs to
+    /// that line only.
+    fn continued(self) -> Gutter {
+        match self {
+            Gutter::Head(_) | Gutter::Branch(_) => Gutter::NoticeIndent,
+            Gutter::Carried(_) => Gutter::Indent,
+            Gutter::Shown => Gutter::Wrapped,
+            other => other,
+        }
+    }
+
+    /// The gutter the rest of a line is wrapped with once a freeze has dropped
+    /// `line`'s first rows: [`Self::continued`], except that an answer line
+    /// keeps the continuation its marker set ([`Gutter::Carried`]).
+    ///
+    /// `line` is the text held **before** the drop: the whole line from its
+    /// start, unless an earlier freeze already carried its continuation.
+    fn frozen(self, line: &str) -> Gutter {
+        match self {
+            Gutter::Indent => Gutter::Carried(prose::continuation_at(line, 0)),
+            Gutter::Carried(carried) => Gutter::Carried(carried),
+            other => other.continued(),
+        }
+    }
+
+    /// Whether this gutter's text is the assistant's answer, which upstream
+    /// wraps with its assistant wrap ([`super::prose`]).
+    fn is_answer(self) -> bool {
+        matches!(self, Gutter::Indent | Gutter::Carried(_))
+    }
+
+    /// The rows `text` occupies at `cols` behind this gutter: a notice's by
+    /// upstream's notice rule, the answer's by upstream's assistant wrap, a
+    /// card's by upstream's card cut ([`wrap::wrap_card`]), and everything
+    /// else's by the composer's.
+    fn wrap(self, text: &str, cols: u16) -> Vec<ProseRow> {
+        let bare = |rows: Vec<wrap::Row>| {
+            rows.into_iter()
+                .map(|row| ProseRow { row, lead: None })
+                .collect()
+        };
+        match self {
+            Gutter::Head(_) | Gutter::NoticeIndent | Gutter::Branch(_) => {
+                bare(wrap::wrap_notice(text, cols))
+            }
+            Gutter::None | Gutter::Shown | Gutter::Wrapped => bare(wrap::wrap(text, cols)),
+            Gutter::Rail => bare(wrap::wrap_card(text, cols)),
+            Gutter::Indent => prose::prose(text, cols, self.width(), Opening::Line),
+            Gutter::Carried(carried) => {
+                prose::prose(text, cols, self.width(), Opening::Continued(carried))
+            }
+        }
+    }
+}
+
 /// One thing the document was told, in the shape it was told it.
 ///
 /// **Logical rather than visual, and that is the whole point of the queue.** A
@@ -281,10 +528,25 @@ enum Op {
     /// This text arrived, and what it is. Never empty: an operation that adds
     /// no bytes would ask the terminal for nothing and is not queued at all.
     Push(String, Role),
+    /// The same for a text made of runs that mean different things, with the
+    /// runs beside it ([`Transcript::queue_push_runs`]). One operation, so the
+    /// line it writes lands once rather than once per part.
+    Runs(String, Roles),
     /// The line ended. Carries no bytes of its own and is queued anyway,
     /// because it is a **state transition**: the line it closes stops being
     /// rewritable, and the text after it starts a row of its own.
     EndLine,
+    /// Lines from here on carry this gutter. Queued only at a line boundary
+    /// ([`Transcript::queue_gutter`]), so no row already on the screen is
+    /// re-prefixed.
+    Gutter(Gutter),
+    /// The open block, whole, as it now stands: rows that are each **one**
+    /// screen row and replace the ones the block had, and what each of them
+    /// is ([`Transcript::queue_block`]).
+    Block(Vec<String>, Vec<DocumentRow>),
+    /// Lines from here on are rows of this kind ([`Transcript::queue_kind`]).
+    /// Queued only at a line boundary, like a gutter.
+    Kind(DocumentRow),
 }
 
 /// The unfinished line, what the screen already shows of it, and the text that
@@ -344,6 +606,17 @@ pub(crate) struct Transcript {
     /// written; what it can no longer do is decide a row the terminal is
     /// given.
     open: bool,
+    /// Whether the document ends on a **blank row**, or holds nothing at all,
+    /// once everything queued has landed.
+    ///
+    /// The other projection a caller asks about the document it is about to
+    /// write after, and for the same reason [`Self::open`] is one: a notice
+    /// wants one blank row above it (`fx-basic-40x120-version-trailing-space`:
+    /// two notices in a row share one), and whether the row above already is
+    /// one is a question about the text queued so far, not about what the
+    /// terminal has. `true` for a fresh transcript, so the first thing written
+    /// after a launch or a `/clear` is not pushed down a row by nothing.
+    blank: bool,
     /// Whether the last non-empty push ended on a carriage return.
     ///
     /// A CRLF that arrives in two pieces would otherwise be two line breaks:
@@ -357,9 +630,64 @@ pub(crate) struct Transcript {
     /// is why the flag is consulted against the *raw* next chunk and why an
     /// empty push does not disturb it.
     split_crlf: bool,
+    /// The gutter the tail's line -- and every line after it until the next
+    /// [`Op::Gutter`] -- is written with, **as of the last operation the
+    /// terminal took**.
+    gutter: Gutter,
+    /// What the rows of the lines written from here on are
+    /// ([`Self::queue_kind`]).
+    kind: DocumentRow,
+    /// Whether what [`Self::painted`] counts is an open **block** rather than
+    /// a line of text, as of the last operation the terminal took.
+    ///
+    /// The two are rewritten by different rules: a line's rows are its text
+    /// wrapped, and a block's are given ([`Op::Block`]), one screen row each,
+    /// so a resize re-measures the first and leaves the second's count alone.
+    block: bool,
+    /// How many of the open block's first rows are no longer rewritten: the
+    /// block's own [`MAX_TAIL_ROWS`] bound, for the reason a line has one
+    /// ([`freeze_block`]).
+    block_frozen: usize,
+    /// Whether a block is open once **everything queued** has landed -- the
+    /// enqueue-side projection of [`Self::block`], for the reason
+    /// [`Self::open`] is one.
+    block_open: bool,
+    /// What [`Self::stage`] found, and every operation committed since, while
+    /// a frame that carries them is being assembled and has not been written.
+    ///
+    /// `None` outside one. The operations are moved here rather than dropped
+    /// because the frame they are written into is **one** vector
+    /// (`super::event_loop`'s `commit_primary`): until it lands, none of them
+    /// is on the terminal, and a vector the screen refused must leave them
+    /// owed exactly as a refused append always did ([`Landed::None`]).
+    staged: Option<Staged>,
+}
+
+/// The committed state [`Transcript::stage`] saved, and the operations taken
+/// off the queue since, oldest first.
+///
+/// Exactly the fields [`Transcript::commit`] moves, and nothing else: the
+/// enqueue-side projections ([`Transcript::open`], [`Transcript::blank`],
+/// [`Transcript::block_open`]) describe the queue **with** these operations in
+/// it, which is what an unstaged transcript has again.
+struct Staged {
+    tail: String,
+    roles: Roles,
+    painted: usize,
+    gutter: Gutter,
+    kind: DocumentRow,
+    block: bool,
+    block_frozen: usize,
+    taken: Vec<Op>,
 }
 
 impl Transcript {
+    /// How many of the document's last rows are the open line or block this
+    /// module may still write over ([`Self::painted`]).
+    pub(crate) fn open_rows(&self) -> usize {
+        self.painted
+    }
+
     pub(crate) fn new(cols: u16) -> Self {
         Self {
             cols,
@@ -368,7 +696,14 @@ impl Transcript {
             painted: 0,
             queue: VecDeque::new(),
             open: false,
+            blank: true,
             split_crlf: false,
+            gutter: Gutter::None,
+            kind: DocumentRow::Plain,
+            block: false,
+            block_frozen: 0,
+            block_open: false,
+            staged: None,
         }
     }
 
@@ -411,11 +746,67 @@ impl Transcript {
         if body.is_empty() {
             return false;
         }
+        // Text never continues a block: whatever follows one starts on a row
+        // of its own, and the block's last row is left as it stands.
+        if self.block_open {
+            self.queue_end_line();
+        }
         self.queue.push_back(Op::Push(body.to_string(), role));
         // Every push leaves a line open, including one that ends on a break:
         // the row the next text starts on is the line this push opened, and it
         // is a row of the screen as soon as the push lands.
         self.open = true;
+        // The line this push leaves open is empty exactly when the push ended
+        // on a break: that row is on the screen, and it is blank.
+        self.blank = body.ends_with('\n');
+        true
+    }
+
+    /// Queues text made of runs that mean different things -- a notice's label
+    /// and its body -- as **one** operation, and says whether it asks for
+    /// anything.
+    ///
+    /// One push of the whole rather than one per run because each push is an
+    /// append, and an append rewrites the line it lengthens: three pushes for
+    /// `✗ command:`, ` ` and the body would write the same row three times.
+    ///
+    /// Each run is normalized on its own, so a CR that ends one run and an LF
+    /// that opens the next are two breaks rather than one; the caller is xfx
+    /// composing its own words at a label's edge, not a stream cut at an
+    /// arbitrary byte, which is what [`Self::queue_push`] is for. The carry a
+    /// stream left is honoured exactly as there.
+    pub(crate) fn queue_push_runs(&mut self, runs: &[(&str, Role)]) -> bool {
+        let mut body = String::new();
+        let mut roles = Roles::default();
+        for (text, role) in runs {
+            let normalized = normalize(text);
+            roles.extend(normalized.len(), *role);
+            body.push_str(&normalized);
+        }
+        let mut raw = runs
+            .iter()
+            .map(|(text, _)| *text)
+            .filter(|text| !text.is_empty());
+        let Some(first) = raw.next() else {
+            return false;
+        };
+        let last = raw.next_back().unwrap_or(first);
+        let carried = self.split_crlf && first.starts_with('\n');
+        self.split_crlf = last.ends_with('\r');
+        if carried && body.starts_with('\n') {
+            body.remove(0);
+            roles.trim_front(1);
+        }
+        if body.is_empty() {
+            return false;
+        }
+        // As for a single push: text never continues a block.
+        if self.block_open {
+            self.queue_end_line();
+        }
+        self.open = true;
+        self.blank = body.ends_with('\n');
+        self.queue.push_back(Op::Runs(body, roles));
         true
     }
 
@@ -441,8 +832,72 @@ impl Transcript {
         self.split_crlf = false;
         let blank_row = !self.open;
         self.queue.push_back(Op::EndLine);
+        // A line with nothing open is the blank row this end writes. An open
+        // one ends as whatever it holds, which [`Self::queue_push`] already
+        // said: blank when the push that opened it ended on a break.
+        if blank_row {
+            self.blank = true;
+        }
         self.open = false;
+        self.block_open = false;
         blank_row
+    }
+
+    /// Queues the open block as it now stands, and says whether it asks for
+    /// anything.
+    ///
+    /// **The one thing in the document that is rewritten after it has been
+    /// written**, and it is the tail's rule stretched to more than one line
+    /// rather than an exception to it: a block is the last thing in the
+    /// document for as long as it is open, exactly as the unfinished line is,
+    /// so the rows it occupies are the rows immediately above the band and an
+    /// append can rewrite them where they are ([`Append`]). It closes the way a
+    /// line does -- [`Self::queue_end_line`], or anything else queued after it
+    /// -- and from then on it is the terminal's like every finished row.
+    ///
+    /// Each row is one screen row: it is never wrapped, and one wider than the
+    /// screen it lands on is cut with an ellipsis there ([`ellipsized`]). A
+    /// block that is given fewer rows than it already occupies keeps the rest
+    /// as blank rows rather than leaving their old text on the screen.
+    ///
+    /// Starts on a row of its own: an open line of text is ended first.
+    pub(crate) fn queue_block(&mut self, rows: Vec<String>, kinds: Vec<DocumentRow>) -> bool {
+        if rows.is_empty() {
+            return false;
+        }
+        if self.open && !self.block_open {
+            self.queue_end_line();
+        }
+        // The document ends as the block's last row does: a tool group's is
+        // the blank row it ends on, so a notice written under it does not
+        // grow a second one ([`Self::ends_blank`]).
+        self.blank = rows.last().is_some_and(String::is_empty);
+        self.queue.push_back(Op::Block(rows, kinds));
+        self.open = true;
+        self.block_open = true;
+        true
+    }
+
+    /// Queues a change of gutter for the lines that follow.
+    ///
+    /// Ends the open line first, if there is one: a gutter is a property of a
+    /// whole line, and a line half-written with one and half with another would
+    /// be two shapes on the screen for one sentence.
+    pub(crate) fn queue_gutter(&mut self, gutter: Gutter) -> bool {
+        let asked = self.open && self.queue_end_line();
+        self.queue.push_back(Op::Gutter(gutter));
+        asked
+    }
+
+    /// Queues what the rows of the lines that follow are, for a theme report
+    /// that later repaints them ([`DocumentRow`]).
+    ///
+    /// Ends the open line first, as [`Self::queue_gutter`] does and for its
+    /// reason: a kind belongs to a whole line.
+    pub(crate) fn queue_kind(&mut self, kind: DocumentRow) -> bool {
+        let asked = self.open && self.queue_end_line();
+        self.queue.push_back(Op::Kind(kind));
+        asked
     }
 
     /// Whether a line is open once everything queued has landed.
@@ -452,6 +907,14 @@ impl Transcript {
     // rows the terminal has so far.
     pub(crate) fn open_line(&self) -> bool {
         self.open
+    }
+
+    /// Whether the document ends on a blank row -- or is empty -- once
+    /// everything queued has landed ([`Self::blank`]).
+    // `super::shell::Shell::write_notice` is the caller: a notice has one blank
+    // row above it, and two notices in a row share the one between them.
+    pub(crate) fn ends_blank(&self) -> bool {
+        self.blank
     }
 
     /// Whether the document is owed anything at all.
@@ -526,7 +989,7 @@ impl Transcript {
             // this module keeps describes rows that landed, and half a vector
             // landed. Replaying it would write the prefix twice.
             Landed::Prefix(err) => {
-                self.queue.pop_front();
+                self.take_front();
                 Some(Err(err))
             }
         }
@@ -536,8 +999,86 @@ impl Transcript {
     /// queue is empty.
     fn prepare_front(&self, palette: Palette) -> Option<Prepared> {
         match self.queue.front()? {
-            Op::Push(body, role) => Some(self.prepare_push(body, *role, palette)),
+            Op::Push(body, role) => Some(self.prepare_push(body, Source::One(*role), palette)),
+            Op::Runs(body, runs) => Some(self.prepare_push(body, Source::Runs(runs), palette)),
             Op::EndLine => Some(self.prepare_end_line(palette)),
+            Op::Gutter(gutter) => Some(Prepared {
+                append: Append::nothing(),
+                tail: self.tail.clone(),
+                roles: self.roles.clone(),
+                painted: self.painted,
+                gutter: *gutter,
+                kind: self.kind,
+                block: self.block,
+                block_frozen: self.block_frozen,
+            }),
+            Op::Kind(kind) => Some(Prepared {
+                append: Append::nothing(),
+                tail: self.tail.clone(),
+                roles: self.roles.clone(),
+                painted: self.painted,
+                gutter: self.gutter,
+                kind: *kind,
+                block: self.block,
+                block_frozen: self.block_frozen,
+            }),
+            Op::Block(rows, kinds) => Some(self.prepare_block(rows, kinds)),
+        }
+    }
+
+    /// What the open block would write as `rows`, and the state it would
+    /// leave.
+    ///
+    /// Only ever in front of a committed tail that is empty or is this block:
+    /// [`Self::queue_block`] ends an open line before it queues one.
+    fn prepare_block(&self, rows: &[String], kinds: &[DocumentRow]) -> Prepared {
+        let (frozen, painted) = if self.block {
+            (self.block_frozen, self.painted)
+        } else {
+            (0, 0)
+        };
+        let mut written: Vec<String> = rows
+            .iter()
+            .skip(frozen)
+            .map(|row| ellipsized(row, self.cols))
+            .collect();
+        // A block that lost rows must not leave their text behind: the rows it
+        // occupied are still its until a write clears them -- and once that
+        // write has landed they are given back, so the band moves up over
+        // them rather than leaving blank rows between the block and itself
+        // (a group collapsed while it is open, `fx-settings-collapse-40x120-running`).
+        // Not past rows already frozen: those are not rewritten, so what the
+        // block keeps is not the rows it has.
+        let fresh = written.len();
+        let released = if frozen == 0 {
+            painted.saturating_sub(fresh)
+        } else {
+            0
+        };
+        written.resize(written.len().max(painted), String::new());
+        let kinds = if kinds.iter().all(|kind| *kind == DocumentRow::Plain) {
+            Vec::new()
+        } else {
+            (frozen..frozen + written.len())
+                .map(|index| kinds.get(index).copied().unwrap_or(DocumentRow::Plain))
+                .collect()
+        };
+        let append = Append {
+            scroll: written.len() - painted,
+            rows: written,
+            kinds,
+            release: released,
+        };
+        let (frozen, painted) = freeze_block(frozen, append.rows.len() - released);
+        Prepared {
+            append,
+            tail: String::new(),
+            roles: Roles::default(),
+            painted,
+            gutter: self.gutter,
+            kind: self.kind,
+            block: true,
+            block_frozen: frozen,
         }
     }
 
@@ -556,7 +1097,7 @@ impl Transcript {
     /// cost, and nothing here is a timing or complexity guarantee: the wall
     /// clock belongs to `scripts/check-tui-preflight-cost.sh`, and what the
     /// cases in this module pin is the number of rows an operation produces.
-    fn prepare_push(&self, body: &str, role: Role, palette: Palette) -> Prepared {
+    fn prepare_push(&self, body: &str, source: Source<'_>, palette: Palette) -> Prepared {
         let painted = self.painted;
         let mut tail = self.tail.clone();
         // Beside the committed spans for the reason the tail is cloned: a write
@@ -569,24 +1110,42 @@ impl Transcript {
         // first segment always exists and always joins the tail.
         let first = segments.next().unwrap_or_default();
         tail.push_str(first);
-        roles.extend(first.len(), role);
+        source.extend(&mut roles, 0..first.len());
+        // Where the next segment begins in `body`: past this one and its break.
+        let mut offset = first.len() + 1;
+        let mut gutter = self.gutter;
         for next in segments {
             // Everything before the break is a finished line. Its rows are
             // written once, here, and never again.
-            rows.append(&mut texts(&tail, &roles, self.cols, palette));
+            rows.append(&mut texts(&tail, &roles, self.cols, gutter, palette));
+            // A notice's glyph went with the line it headed.
+            gutter = gutter.continued();
             // The line is over, so its offsets are too: the text after the
             // break starts a row of its own and a span table of its own.
             tail.clear();
             roles.clear();
             tail.push_str(next);
-            roles.extend(next.len(), role);
+            source.extend(&mut roles, offset..offset + next.len());
+            offset += next.len() + 1;
         }
-        let mut last = texts(&tail, &roles, self.cols, palette);
+        let mut last = texts(&tail, &roles, self.cols, gutter, palette);
         let mut open_rows = last.len();
         rows.append(&mut last);
         // After the append is built, because what is frozen is what the *next*
         // push may no longer rewrite; this one has already said what it owes.
-        freeze(&mut tail, &mut roles, &mut open_rows, self.cols);
+        if let Some(after) = freeze(
+            &mut tail,
+            &mut roles,
+            &mut open_rows,
+            inner(self.cols, gutter),
+            gutter,
+        ) {
+            // The row a notice's glyph stood on is the terminal's now, and the
+            // tail this keeps begins on a continuation row: re-wrapped as a
+            // head, it would grow a second glyph -- and re-wrapped as an
+            // answer line's start, it would lose the indent its marker set.
+            gutter = after;
+        }
 
         Prepared {
             roles,
@@ -595,36 +1154,134 @@ impl Transcript {
             // are rewritten where they are and everything past them is new.
             append: Append {
                 scroll: rows.len().saturating_sub(painted),
+                kinds: kinds_of(self.kind, rows.len()),
                 rows,
+                release: 0,
             },
             tail,
             painted: open_rows,
+            gutter,
+            kind: self.kind,
+            block: false,
+            block_frozen: 0,
         }
     }
 
     /// What ending the line would write, and the empty tail it would leave.
     fn prepare_end_line(&self, palette: Palette) -> Prepared {
-        let rows = texts(&self.tail, &self.roles, self.cols, palette);
+        // A block's rows are already on the screen as they stand, and an empty
+        // tail would otherwise be measured as the one row a wrap of nothing is.
+        if self.block {
+            return Prepared {
+                append: Append::nothing(),
+                tail: String::new(),
+                roles: Roles::default(),
+                painted: 0,
+                gutter: self.gutter,
+                kind: self.kind,
+                block: false,
+                block_frozen: 0,
+            };
+        }
+        let rows = texts(&self.tail, &self.roles, self.cols, self.gutter, palette);
         let scroll = rows.len().saturating_sub(self.painted);
         Prepared {
             append: if scroll == 0 {
                 Append::nothing()
             } else {
-                Append { scroll, rows }
+                Append {
+                    scroll,
+                    kinds: kinds_of(self.kind, rows.len()),
+                    rows,
+                    release: 0,
+                }
             },
             tail: String::new(),
             roles: Roles::default(),
             painted: 0,
+            // The line a notice's glyph headed is over.
+            gutter: self.gutter.continued(),
+            kind: self.kind,
+            block: false,
+            block_frozen: 0,
         }
     }
 
     /// Adopts a candidate the terminal took, and drops the operation it came
     /// from.
     fn commit(&mut self, prepared: Prepared) {
-        self.queue.pop_front();
+        self.take_front();
         self.tail = prepared.tail;
         self.roles = prepared.roles;
         self.painted = prepared.painted;
+        self.gutter = prepared.gutter;
+        self.kind = prepared.kind;
+        self.block = prepared.block;
+        self.block_frozen = prepared.block_frozen;
+    }
+
+    /// Takes the front operation off the queue -- into the journal while a
+    /// frame is being assembled ([`Self::stage`]), so a frame that never lands
+    /// can put it back.
+    fn take_front(&mut self) {
+        let taken = self.queue.pop_front();
+        if let (Some(staged), Some(op)) = (&mut self.staged, taken) {
+            staged.taken.push(op);
+        }
+    }
+
+    /// Begins a frame whose rows will be written in **one** vector with the
+    /// band's: what the terminal has been given so far is saved, and every
+    /// operation committed from here on is kept rather than dropped, until
+    /// [`Self::settle`] says the vector landed or [`Self::unstage`] says it did
+    /// not.
+    ///
+    /// What it costs is one copy of the committed tail -- bounded by
+    /// [`MAX_TAIL_ROWS`] rows, as the clone every attempt already makes is
+    /// ([`Self::prepare_push`]) -- and nothing on a frame that carries no row:
+    /// the caller stages only when the document owes something.
+    pub(crate) fn stage(&mut self) {
+        debug_assert!(
+            self.staged.is_none(),
+            "a frame began while the last one's operations were still unsettled"
+        );
+        self.staged = Some(Staged {
+            tail: self.tail.clone(),
+            roles: self.roles.clone(),
+            painted: self.painted,
+            gutter: self.gutter,
+            kind: self.kind,
+            block: self.block,
+            block_frozen: self.block_frozen,
+            taken: Vec::new(),
+        });
+    }
+
+    /// The vector the staged operations were written into landed: they are
+    /// the terminal's, and nothing is kept.
+    pub(crate) fn settle(&mut self) {
+        self.staged = None;
+    }
+
+    /// The vector did not land, so none of its rows is on the terminal: the
+    /// committed state goes back to what [`Self::stage`] saved and the
+    /// operations go back to the front of the queue, in their order, to be
+    /// measured again -- at whatever width the screen has then -- on the next
+    /// attempt, as a refused append's always were ([`Landed::None`]).
+    pub(crate) fn unstage(&mut self) {
+        let Some(staged) = self.staged.take() else {
+            return;
+        };
+        self.tail = staged.tail;
+        self.roles = staged.roles;
+        self.painted = staged.painted;
+        self.gutter = staged.gutter;
+        self.kind = staged.kind;
+        self.block = staged.block;
+        self.block_frozen = staged.block_frozen;
+        for op in staged.taken.into_iter().rev() {
+            self.queue.push_front(op);
+        }
     }
 
     /// Re-wraps the unfinished line for a screen that changed width.
@@ -662,8 +1319,58 @@ impl Transcript {
         if self.painted == 0 {
             return;
         }
-        self.painted = wrap::wrap(&self.tail, cols).len();
+        // A block's rows are one screen row each at any width, so the count
+        // the next append measures against is the one it already has.
+        if self.block {
+            return;
+        }
+        self.painted = self.gutter.wrap(&self.tail, inner(cols, self.gutter)).len();
     }
+}
+
+/// The open block's frozen prefix and painted count once it holds `rows` rows
+/// past the prefix it had.
+///
+/// The bound [`freeze`] gives a line, for the same reason: every rewrite of a
+/// block re-places every row it still holds, so a block that grew for ever
+/// would cost more for every row it gained. Rows past [`MAX_TAIL_ROWS`] from
+/// the bottom are more than any screen shows, so they are on the terminal's
+/// scrollback already and no rewrite would reach them anyway -- dropping them
+/// changes what this module holds and not what the terminal shows.
+fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
+    if rows <= MAX_TAIL_ROWS {
+        return (frozen, rows);
+    }
+    (frozen + (rows - MAX_TAIL_ROWS), MAX_TAIL_ROWS)
+}
+
+/// One block row as it is written at `cols`: whole when it fits, and cut one
+/// cell short with an ellipsis in that cell when it does not
+/// (`vercel-labs/fx@c1db9191 src/ui/transcript/tool_group_projection.zig:376-392`,
+/// `clipSummary`).
+///
+/// Cut by the painter's own function (`super::frame::clip`), so the row this
+/// makes is the row the painter puts on the screen rather than one it cuts
+/// again. A cut inside a run of colour leaves it open, so the row is closed
+/// after the ellipsis, as upstream closes it.
+pub(crate) fn ellipsized(row: &str, cols: u16) -> String {
+    if wrap::width(row) <= cols {
+        return row.to_string();
+    }
+    if cols == 0 {
+        return String::new();
+    }
+    let mut cut = format!("{}\u{2026}", super::frame::clip(row, cols - 1));
+    if cut.contains('\u{1b}') && !cut.ends_with("\u{1b}[0m") {
+        cut.push_str("\u{1b}[0m");
+    }
+    cut
+}
+
+/// The width a line's text is wrapped to: the screen less its gutter, and
+/// never nothing.
+fn inner(cols: u16, gutter: Gutter) -> u16 {
+    cols.saturating_sub(gutter.width()).max(1)
 }
 
 /// Stops holding the rows of an unfinished line that can no longer change.
@@ -678,21 +1385,40 @@ impl Transcript {
 /// `the_rows_the_document_gets_are_the_ones_a_single_wrap_would_give` is that
 /// claim, checked against one unbroken wrap of the whole text.
 ///
+/// **The answer's wrap looks further ahead, and is settled anyway.** Upstream's
+/// assistant wrap ([`super::prose`]) moves a word down to keep a line's last
+/// word company, so the break before a line's last row depends on where the
+/// line *ends*. An answer line is never appended to after it is pushed: the
+/// presenter holds a line until its newline has arrived and hands it over
+/// whole (`crate::markdown`'s processor), so a freeze measures the whole line
+/// and what it keeps is that line's last row.
+///
 /// The alternative -- ending the line early -- was rejected: a break the
 /// provider did not write lands in the middle of a row, and the answer grows a
 /// short line every few thousand characters.
-fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16) {
+///
+/// Answers with the gutter the rest of the line is wrapped with when it dropped
+/// anything: a line whose first row is no longer held here is a line whose
+/// next re-wrap starts on a continuation row ([`Gutter::frozen`]), and `None`
+/// when it dropped nothing.
+fn freeze(
+    tail: &mut String,
+    roles: &mut Roles,
+    open_rows: &mut usize,
+    cols: u16,
+    gutter: Gutter,
+) -> Option<Gutter> {
     if *open_rows <= MAX_TAIL_ROWS {
-        return;
+        return None;
     }
-    let rows = wrap::wrap(tail, cols);
-    let Some(last) = rows.last() else {
-        return;
-    };
-    let kept = last.start;
+    let rows = gutter.wrap(tail, cols);
+    let last = rows.last()?;
+    let kept = last.row.start;
     if kept == 0 {
-        return;
+        return None;
     }
+    // Asked before the drop, while the tail still begins where the line does.
+    let after = gutter.frozen(tail);
     tail.drain(..kept);
     // With the tail and by the same offset, because the spans describe *these*
     // bytes: a table left whole would paint the kept row in the role of text
@@ -703,7 +1429,8 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
     // tail really occupies would make that scroll too small -- which is the
     // renderer treating unpainted rows as settled, the silent loss this whole
     // path is counted in `usize` to avoid.
-    *open_rows = wrap::wrap(tail, cols).len();
+    *open_rows = after.wrap(tail, cols).len();
+    Some(after)
 }
 
 /// `text`, wrapped, as the strings an append writes -- each row painted in the
@@ -712,20 +1439,182 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
 /// **Wrapped first and painted second**, and the order is the claim: the rows
 /// are measured from the text alone, so a role costs no cell and moves no
 /// break. What the sequences are added to is the row that measurement produced.
-fn texts(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<String> {
-    wrap::wrap(text, cols)
-        .into_iter()
-        .map(|row| {
-            let slice = &text[row.start..row.end];
-            paint(
-                slice,
-                roles,
-                row.start,
-                drawn(slice, row.width, cols),
-                palette,
-            )
+///
+/// **A line that carries its own sequences is made row-by-row whole.** xfx's
+/// own styled lines -- the welcome line, the assistant's rendered markdown --
+/// are [`Role::Plain`] text with SGR inside, and a wrap can fall inside a run.
+/// A terminal's pen survives a `CUP`, so a row handed over as its bytes would
+/// colour the start of the next row with whatever the last one left open --
+/// and the output check (`super::check`) would refuse the frame, rightly. So
+/// each such row opens with the state its line had reached where it begins
+/// (`super::pacer::SgrState`, the same model the wire checker reads colours
+/// with), and closes whatever is still open at the point the painter cuts.
+fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette) -> Vec<String> {
+    let rows = body_rows(text, roles, inner(cols, gutter), gutter, palette);
+    if gutter == Gutter::None {
+        return rows;
+    }
+    let head = gutter.prefix(palette);
+    let rest = gutter.continued();
+    let continuation = rest.prefix(palette);
+    rows.into_iter()
+        .enumerate()
+        // The indent goes only where there is something to indent, as
+        // upstream's does (`assistant_wrap.zig:390-407`); the rail is on every
+        // row of the card, blank ones included, and a notice's glyph is on its
+        // first row whatever that row holds.
+        .map(|(index, row)| {
+            let (prefix, gutter) = if index == 0 {
+                (&head, gutter)
+            } else {
+                (&continuation, rest)
+            };
+            if matches!(
+                gutter,
+                Gutter::Indent | Gutter::Carried(_) | Gutter::NoticeIndent
+            ) && row.is_empty()
+            {
+                row
+            } else {
+                format!("{prefix}{row}")
+            }
         })
         .collect()
+}
+
+/// The text's own rows at `cols`, before any gutter.
+fn body_rows(
+    text: &str,
+    roles: &Roles,
+    cols: u16,
+    gutter: Gutter,
+    palette: Palette,
+) -> Vec<String> {
+    let styled = text.contains('\u{1b}');
+    let mut state = super::pacer::SgrState::default();
+    let mut seen = 0usize;
+    // The screen's width, for the answer's tab stops: they are columns of the
+    // screen, gutter included.
+    let screen = usize::from(cols) + usize::from(gutter.width());
+    gutter
+        .wrap(text, cols)
+        .into_iter()
+        .map(|laid| {
+            let row = laid.row;
+            // A continuation row's lead, in front of everything the row
+            // reopens -- upstream writes the indent, or the quote's rules,
+            // and then the pen (`assistant_wrap.zig:703-725`). It is there
+            // only when it leaves room, so the text's own cut is the rest.
+            let lead = laid.lead.map(Continuation::lead).unwrap_or_default();
+            let cols = cols.saturating_sub(laid.lead_width());
+            let slice = &text[row.start..row.end];
+            // The answer's tabs, as the spaces to their stops: the painter's
+            // four-cell tab is the composer's.
+            let slice = if gutter.is_answer() {
+                let first = usize::from(gutter.width()) + usize::from(laid.lead_width()) + 1;
+                prose::expand_tabs(slice, first, screen)
+            } else if gutter == Gutter::Rail {
+                // A card's too, as the cells the terminal skips for upstream's
+                // raw tab ([`card_tabs`]) -- which its cut, measuring them at
+                // nothing, did not count.
+                let mut pen = state.clone();
+                pen.observe(&text[seen.min(row.start)..row.start]);
+                card_tabs(slice, pen, usize::from(gutter.width()) + 1, screen)
+            } else {
+                std::borrow::Cow::Borrowed(slice)
+            };
+            let width = match slice {
+                std::borrow::Cow::Owned(ref expanded) if gutter == Gutter::Rail => {
+                    wrap::width(expanded)
+                }
+                _ => row.width,
+            };
+            let slice = slice.as_ref();
+            let cut = drawn(slice, width, cols);
+            let plain = roles.only(row.start..row.end) == Some(Role::Plain);
+            if !(styled && plain) {
+                // A plain row is written as it is; only a role paints.
+                if plain {
+                    return format!("{lead}{slice}");
+                }
+                return paint(slice, roles, row.start, cut, palette);
+            }
+            state.observe(&text[seen.min(row.start)..row.start]);
+            let reopen = format!("{lead}{}", state.reopen());
+            let (shown, past) = slice.split_at(cut);
+            // The spaces a wrap leaves at the end of a row that another row
+            // follows are the break, not part of the run they fell inside:
+            // upstream's wrap drops them (`assistant_wrap.zig:1306-1324`,
+            // `alpha beta` -> `alpha` / `beta`), so the cell after the last
+            // word is a blank one there. Written after the close here, they
+            // are blank cells too -- where an underline under them, or a link
+            // a click on them would follow, is a cell upstream does not paint.
+            //
+            // Not a card's: its cut has already dropped the one space it broke
+            // at, and the spaces it keeps are text, inside the row's bold as
+            // upstream writes them (`user_message_card.zig:370-379`).
+            let hung = if row.end < text.len() && gutter != Gutter::Rail {
+                shown.len() - shown.trim_end_matches([' ', '\n']).len()
+            } else {
+                0
+            };
+            let (shown, spaces) = shown.split_at(shown.len() - hung);
+            state.observe(shown);
+            // A reset for the attributes and a close for a link, each only
+            // when the row leaves it open: a wrap inside a link's text closes
+            // the link on this row and the reopen above carries it onto the
+            // next, as upstream's wrap does (`assistant_wrap.zig:1306-1311`).
+            let close = state.close();
+            state.observe(past);
+            seen = row.end;
+            format!("{reopen}{shown}{close}{spaces}{past}")
+        })
+        .collect()
+}
+
+/// A card row with every tab written as the cells the terminal skips for it.
+///
+/// Upstream writes a card's tab to the terminal as it is
+/// (`user_message_card.zig:370-379`), which moves the cursor to the screen's
+/// next eight-column stop and paints nothing on the way: the cells it skips
+/// are blank and carry none of the row's bold. xfx's painter never writes a
+/// tab (`super::frame::row_text`), so the skip is spelled here as the spaces
+/// to that stop with the pen closed around them and opened again after --
+/// the same cells. `pen` is the state the row starts in and `first_col` the
+/// one-based screen column of its first cell, on a screen `screen` wide.
+///
+/// Borrowed when there is no tab, which is nearly every row.
+fn card_tabs(
+    row: &str,
+    mut pen: super::pacer::SgrState,
+    first_col: usize,
+    screen: usize,
+) -> std::borrow::Cow<'_, str> {
+    if !row.contains('\t') {
+        return std::borrow::Cow::Borrowed(row);
+    }
+    let mut out = String::with_capacity(row.len() + 16);
+    let mut col = first_col.max(1);
+    let mut written = 0usize;
+    for painted in wrap::painting(row) {
+        let at = painted.end - painted.cluster.len();
+        let sequences = &row[written..at];
+        out.push_str(sequences);
+        pen.observe(sequences);
+        written = painted.end;
+        if painted.cluster == "\t" {
+            let next = prose::next_tab_stop(col, screen.max(1));
+            out.push_str(&pen.close());
+            out.extend(std::iter::repeat_n(' ', next.saturating_sub(col)));
+            out.push_str(&pen.reopen());
+            col = col.max(next);
+        } else {
+            out.push_str(painted.cluster);
+            col += usize::from(wrap::cluster_width(painted.cluster));
+        }
+    }
+    out.push_str(&row[written..]);
+    std::borrow::Cow::Owned(out)
 }
 
 /// How much of a row the painter will really put on the wire.
@@ -949,6 +1838,10 @@ struct Prepared {
     tail: String,
     roles: Roles,
     painted: usize,
+    gutter: Gutter,
+    kind: DocumentRow,
+    block: bool,
+    block_frozen: usize,
 }
 
 /// `text` with every line break spelled the one way the document accepts.
@@ -986,14 +1879,14 @@ mod tests {
     // roles
     // -----------------------------------------------------------------------
 
-    /// The dark palette's answer-text sequence, written out rather than asked
-    /// for: a case that read it off the palette would pass whatever the palette
-    /// said, including nothing at all.
-    const BODY_DARK: &str = "\u{1b}[38;5;255m";
-    /// The light one's.
-    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
-    /// What xfx's own lines are painted in, dark.
+    /// What xfx's own lines are painted in, dark -- written out rather than
+    /// asked for: a case that read it off the palette would pass whatever the
+    /// palette said, including nothing at all.
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    /// The light one's.
+    const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    /// The quiet rows' grey (a turn's summary), dark.
+    const DIM_DARK: &str = "\u{1b}[38;5;245m";
     /// What ends every one of them.
     const RESET: &str = "\u{1b}[0m";
 
@@ -1013,13 +1906,13 @@ mod tests {
     fn unpainted(row: &str) -> String {
         let mut text = row.to_string();
         for sequence in [
-            BODY_DARK,
-            BODY_LIGHT,
             NOTICE_DARK,
-            // The same two shades said the way a direct-colour terminal reads
-            // them.
-            "\u{1b}[38;2;238;238;238m",
-            "\u{1b}[38;2;38;38;38m",
+            NOTICE_LIGHT,
+            DIM_DARK,
+            // The dark notice and the dark dim said the way a direct-colour
+            // terminal reads them.
+            "\u{1b}[38;2;188;188;188m",
+            "\u{1b}[38;2;138;138;138m",
             RESET,
         ] {
             text = text.replace(sequence, "");
@@ -1028,19 +1921,21 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_carries_the_palette_onto_every_row_it_wraps_onto() {
-        // The break this catches: a body row that arrives unpainted, or one
+    fn a_summary_carries_the_palette_onto_every_row_it_wraps_onto() {
+        // The break this catches: a dim row that arrives unpainted, or one
         // whose continuation row loses the colour the row above opened --
-        // which is the whole of the answer after the first line reading as the
-        // terminal's default foreground.
+        // which is the whole of a turn's summary after the first row reading
+        // as the terminal's default foreground. (The answer itself carries no
+        // palette colour; xfx's own lines have this case as
+        // `a_notice_that_wraps_carries_its_colour_onto_every_row`.)
         let mut transcript = Transcript::new(4);
-        let append = transcript.push_as("abcdefgh", Role::Body, DARK_256);
+        let append = transcript.push_as("abcdefgh", Role::Dim, DARK_256);
 
         assert_eq!(
             append.rows,
             vec![
-                format!("{BODY_DARK}abcd{RESET}"),
-                format!("{BODY_DARK}efgh{RESET}"),
+                format!("{DIM_DARK}abcd{RESET}"),
+                format!("{DIM_DARK}efgh{RESET}"),
             ]
         );
         // and the colour cost the row no cell: the text is wrapped at four
@@ -1096,14 +1991,14 @@ mod tests {
         // colour.
         const COLS: u16 = 20;
         let mut transcript = Transcript::new(COLS);
-        transcript.queue_push(&format!("{}   \n", "x".repeat(20)), Role::Body);
+        transcript.queue_push(&format!("{}   \n", "x".repeat(20)), Role::Dim);
         transcript.queue_push("a plain row after it", Role::Plain);
         let wire = on_the_wire(drain(&mut transcript, DARK_256), COLS);
 
         assert_eq!(
             wire[0],
-            format!("{BODY_DARK}{}{RESET}", "x".repeat(20)),
-            "the answer's colour was not closed inside the cut"
+            format!("{DIM_DARK}{}{RESET}", "x".repeat(20)),
+            "the dim row's colour was not closed inside the cut"
         );
         assert_eq!(
             wire.last().expect("the plain row"),
@@ -1113,8 +2008,43 @@ mod tests {
         assert_eq!(
             foreground(&wire),
             super::super::check::Color::Default,
-            "the terminal was left painting in the answer's colour"
+            "the terminal was left painting in the dim row's colour"
         );
+    }
+
+    #[test]
+    fn a_link_whose_text_wraps_is_closed_on_each_row_and_opened_again_on_the_next() {
+        // Upstream's wrap (`assistant_wrap.zig:1306-1311`): the row the link
+        // breaks on ends `\x1b[0m\x1b]8;;\x1b\\`, and the next opens the
+        // attributes and then the link again -- so a click on either half goes
+        // to the target, and no link is open across the `CUP` between them.
+        const OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
+        const CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+        let mut transcript = Transcript::new(6);
+        let rows = transcript
+            .push_as(
+                &format!("{OPEN}\u{1b}[4mabc def\u{1b}[24m{CLOSE} tail"),
+                Role::Plain,
+                DARK_256,
+            )
+            .rows;
+        assert_eq!(
+            rows,
+            vec![
+                // The break space after `abc` is outside the link and the
+                // underline: a blank cell, as upstream's wrap leaves it.
+                format!("{OPEN}\u{1b}[4mabc{RESET}{CLOSE} "),
+                format!("\u{1b}[4m{OPEN}def\u{1b}[24m{CLOSE} "),
+                "tail".to_string(),
+            ]
+        );
+        for row in rows.iter().map(|row| super::super::frame::row_text(row, 6)) {
+            assert_eq!(
+                row.matches("\u{1b}]8;id=").count(),
+                row.matches(CLOSE).count(),
+                "{row:?} leaves a link open"
+            );
+        }
     }
 
     #[test]
@@ -1167,15 +2097,15 @@ mod tests {
         // The mixed-role version of the cut: the run that would be opened for
         // the hanging spaces is entirely past the point the painter stops, so
         // opening it would put a sequence on the wire whose reset is not. What
-        // the terminal is given ends with the answer's own reset.
+        // the terminal is given ends with the first role's own reset.
         const COLS: u16 = 20;
         let mut transcript = Transcript::new(COLS);
-        transcript.queue_push(&"x".repeat(20), Role::Body);
-        transcript.queue_push("   ", Role::Notice);
+        transcript.queue_push(&"x".repeat(20), Role::Notice);
+        transcript.queue_push("   ", Role::Dim);
         let appends = drain(&mut transcript, DARK_256);
         let held = appends
             .last()
-            .expect("the notice's append")
+            .expect("the dim push's append")
             .rows
             .last()
             .expect("one row")
@@ -1189,7 +2119,7 @@ mod tests {
         );
         assert_eq!(
             wire.last().expect("the row"),
-            &format!("{BODY_DARK}{}{RESET}", "x".repeat(20))
+            &format!("{NOTICE_DARK}{}{RESET}", "x".repeat(20))
         );
         assert_eq!(foreground(&wire), super::super::check::Color::Default);
     }
@@ -1206,12 +2136,12 @@ mod tests {
         // and U-B owns whatever repaints rows already on the screen.
         let mut transcript = Transcript::new(80);
         assert_eq!(
-            transcript.push_as("half ", Role::Body, DARK_256).rows,
-            vec![format!("{BODY_DARK}half {RESET}")]
+            transcript.push_as("half ", Role::Notice, DARK_256).rows,
+            vec![format!("{NOTICE_DARK}half {RESET}")]
         );
         assert_eq!(
-            transcript.push_as("and half", Role::Body, LIGHT_256).rows,
-            vec![format!("{BODY_LIGHT}half and half{RESET}")],
+            transcript.push_as("and half", Role::Notice, LIGHT_256).rows,
+            vec![format!("{NOTICE_LIGHT}half and half{RESET}")],
             "the rewritten tail kept the palette the first half landed in"
         );
     }
@@ -1223,12 +2153,12 @@ mod tests {
         // hundred of them on one row -- and would make the document a session
         // holds depend on how the socket cut the stream.
         let mut whole = Transcript::new(8);
-        let at_once = whole.push_as("one answer", Role::Body, DARK_256);
+        let at_once = whole.push_as("one answer", Role::Notice, DARK_256);
 
         let mut chunked = Transcript::new(8);
         let mut rows = Vec::new();
         for chunk in ["on", "e ans", "w", "er"] {
-            chunked.queue_push(chunk, Role::Body);
+            chunked.queue_push(chunk, Role::Notice);
         }
         for append in drain(&mut chunked, DARK_256) {
             rows = append.rows;
@@ -1238,13 +2168,13 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                format!("{BODY_DARK}one {RESET}"),
-                format!("{BODY_DARK}answer{RESET}"),
+                format!("{NOTICE_DARK}one {RESET}"),
+                format!("{NOTICE_DARK}answer{RESET}"),
             ]
         );
         for row in &rows {
             assert_eq!(
-                row.matches(BODY_DARK).count(),
+                row.matches(NOTICE_DARK).count(),
                 1,
                 "{row:?} was opened twice"
             );
@@ -1257,7 +2187,7 @@ mod tests {
         // The bound that keeps the metadata a property of the retained text.
         let mut transcript = Transcript::new(80);
         for _ in 0..1000 {
-            transcript.queue_push("x", Role::Body);
+            transcript.queue_push("x", Role::Plain);
         }
         drain(&mut transcript, DARK_256);
         assert_eq!(transcript.role_runs(), 1);
@@ -1270,12 +2200,12 @@ mod tests {
         // must not repaint the one that is already on the screen.
         let mut transcript = Transcript::new(80);
         transcript.queue_push("you said", Role::Plain);
-        transcript.queue_push(" and xfx answered", Role::Body);
+        transcript.queue_push(" and xfx answered", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
 
         assert_eq!(
             appends.last().expect("the answer's own append").rows,
-            vec![format!("you said{BODY_DARK} and xfx answered{RESET}")]
+            vec![format!("you said{NOTICE_DARK} and xfx answered{RESET}")]
         );
     }
 
@@ -1285,7 +2215,7 @@ mod tests {
         // on a row of its own -- a line the provider never wrote, and a row
         // the next append would measure its scroll against.
         let mut transcript = Transcript::new(80);
-        transcript.queue_push("answer", Role::Body);
+        transcript.queue_push("answer", Role::Dim);
         transcript.queue_push("[notice]", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
         let rows = appends.last().expect("the notice's append").rows.clone();
@@ -1293,7 +2223,7 @@ mod tests {
         assert_eq!(
             rows,
             vec![format!(
-                "{BODY_DARK}answer{RESET}{NOTICE_DARK}[notice]{RESET}"
+                "{DIM_DARK}answer{RESET}{NOTICE_DARK}[notice]{RESET}"
             )]
         );
         assert_eq!(unpainted(&rows[0]), "answer[notice]");
@@ -1307,7 +2237,7 @@ mod tests {
         // line by the old line's runs.
         let mut transcript = Transcript::new(80);
         transcript.queue_push("said", Role::Plain);
-        transcript.queue_push(" first\r\nanswer", Role::Body);
+        transcript.queue_push(" first\r\nanswer", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
         let rows: Vec<String> = appends.into_iter().flat_map(|append| append.rows).collect();
 
@@ -1315,8 +2245,8 @@ mod tests {
             rows,
             vec![
                 "said".to_string(),
-                format!("said{BODY_DARK} first{RESET}"),
-                format!("{BODY_DARK}answer{RESET}"),
+                format!("said{NOTICE_DARK} first{RESET}"),
+                format!("{NOTICE_DARK}answer{RESET}"),
             ]
         );
         assert_eq!(transcript.role_runs(), 1, "the finished line's runs stayed");
@@ -1331,7 +2261,7 @@ mod tests {
         // cell. The cluster takes the role of the byte it starts at.
         let mut transcript = Transcript::new(80);
         transcript.queue_push("e", Role::Plain);
-        transcript.queue_push("\u{301}rror", Role::Body);
+        transcript.queue_push("\u{301}rror", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
         let row = appends
             .last()
@@ -1341,7 +2271,7 @@ mod tests {
             .expect("one row")
             .clone();
 
-        assert_eq!(row, format!("e\u{301}{BODY_DARK}rror{RESET}"));
+        assert_eq!(row, format!("e\u{301}{NOTICE_DARK}rror{RESET}"));
         assert_eq!(unpainted(&row), "e\u{301}rror");
         assert_eq!(
             wrap::width(&unpainted(&row)),
@@ -1358,12 +2288,12 @@ mod tests {
         // offsets describes bytes that are the terminal's now, so the row that
         // was kept would be painted in the role of the rows that were dropped.
         let mut transcript = Transcript::new(4);
-        // Exactly the cap, none of it the answer.
+        // Exactly the cap, none of it painted.
         transcript.push_as(&"x".repeat(4 * MAX_TAIL_ROWS), Role::Plain, DARK_256);
         assert_eq!(transcript.tail_rows(), MAX_TAIL_ROWS);
 
-        // One row more, and it is the answer's. The freeze keeps this row.
-        transcript.push_as("yyyy", Role::Body, DARK_256);
+        // One row more, and it is a notice's. The freeze keeps this row.
+        transcript.push_as("yyyy", Role::Notice, DARK_256);
         assert_eq!(transcript.tail_rows(), 1, "the tail was not frozen");
         assert_eq!(
             transcript.role_runs(),
@@ -1371,10 +2301,10 @@ mod tests {
             "the dropped rows' runs are still held"
         );
         assert_eq!(
-            transcript.push_as("z", Role::Body, DARK_256).rows,
+            transcript.push_as("z", Role::Notice, DARK_256).rows,
             vec![
-                format!("{BODY_DARK}yyyy{RESET}"),
-                format!("{BODY_DARK}z{RESET}")
+                format!("{NOTICE_DARK}yyyy{RESET}"),
+                format!("{NOTICE_DARK}z{RESET}")
             ],
             "the kept row lost the role of the text still in it"
         );
@@ -1388,9 +2318,9 @@ mod tests {
         // background it lands on -- and nothing of what is queued is rewritten
         // to make that true.
         let mut transcript = Transcript::new(80);
-        transcript.queue_push("an answer", Role::Body);
+        transcript.queue_push("a notice", Role::Notice);
         let refused = transcript.emit_front(DARK_256, |append| {
-            assert_eq!(append.rows, vec![format!("{BODY_DARK}an answer{RESET}")]);
+            assert_eq!(append.rows, vec![format!("{NOTICE_DARK}a notice{RESET}")]);
             Landed::None("the screen said no")
         });
         assert!(matches!(refused, Some(Err("the screen said no"))));
@@ -1401,7 +2331,7 @@ mod tests {
                 .into_iter()
                 .flat_map(|append| append.rows)
                 .collect::<Vec<_>>(),
-            vec![format!("{BODY_LIGHT}an answer{RESET}")],
+            vec![format!("{NOTICE_LIGHT}a notice{RESET}")],
             "the retry was painted for the palette the refusal happened in"
         );
     }
@@ -1417,13 +2347,13 @@ mod tests {
             depth: super::super::theme::Depth::TrueColor,
         };
         let mut transcript = Transcript::new(4);
-        let rows = transcript.push_as("abcdefgh", Role::Body, direct).rows;
+        let rows = transcript.push_as("abcdefgh", Role::Notice, direct).rows;
 
         assert_eq!(
             rows,
             vec![
-                format!("\u{1b}[38;2;238;238;238mabcd{RESET}"),
-                format!("\u{1b}[38;2;238;238;238mefgh{RESET}"),
+                format!("\u{1b}[38;2;188;188;188mabcd{RESET}"),
+                format!("\u{1b}[38;2;188;188;188mefgh{RESET}"),
             ]
         );
         assert_eq!(
@@ -1446,27 +2376,33 @@ mod tests {
         // rows this module hands over, and nowhere downstream.
         let mut transcript = Transcript::new(80);
         let rows = transcript
-            .push_as("plain \u{1b}[1mbold\u{1b}[0m", Role::Body, DARK_256)
+            .push_as("plain \u{1b}[1mbold\u{1b}[0m", Role::Notice, DARK_256)
             .rows;
 
         assert_eq!(
             rows,
-            vec![format!("{BODY_DARK}plain \u{1b}[1mbold\u{1b}[0m{RESET}")]
+            vec![format!("{NOTICE_DARK}plain \u{1b}[1mbold\u{1b}[0m{RESET}")]
         );
     }
 
     #[test]
     fn plain_text_is_handed_over_as_the_bytes_it_arrived_as() {
         // The user's echo, and anything else that is not xfx's to colour: a
-        // palette is available at every one of these writes and none of it may
-        // reach the row. The sequence is a fixture for "these bytes are not
-        // touched" rather than a claim about what arrives here.
+        // palette is available at every one of these writes and none of its
+        // roles may reach the row. The text's own bytes are kept; the one
+        // thing added is the reset that closes a sequence the row left open,
+        // because a terminal's pen survives the `CUP` to the next row.
         let mut transcript = Transcript::new(80);
         let rows = transcript
             .push_as("what the user typed \u{1b}[31m", Role::Plain, DARK_256)
             .rows;
 
-        assert_eq!(rows, vec!["what the user typed \u{1b}[31m".to_string()]);
+        assert_eq!(
+            rows,
+            vec!["what the user typed \u{1b}[31m\u{1b}[0m".to_string()]
+        );
+        assert!(!rows[0].contains(DARK_256.notice()));
+        assert!(!rows[0].contains(DARK_256.dim()));
     }
 
     #[test]
@@ -1476,7 +2412,9 @@ mod tests {
             transcript.push("answer"),
             Append {
                 scroll: 1,
-                rows: vec!["answer".to_string()]
+                rows: vec!["answer".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -1489,7 +2427,9 @@ mod tests {
             transcript.push("wer"),
             Append {
                 scroll: 0,
-                rows: vec!["answer".to_string()]
+                rows: vec!["answer".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -1502,7 +2442,9 @@ mod tests {
             transcript.push("efgh"),
             Append {
                 scroll: 1,
-                rows: vec!["abcd".to_string(), "efgh".to_string()]
+                rows: vec!["abcd".to_string(), "efgh".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -1517,7 +2459,9 @@ mod tests {
             transcript.push("second"),
             Append {
                 scroll: 1,
-                rows: vec!["second".to_string()]
+                rows: vec!["second".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -1548,7 +2492,9 @@ mod tests {
             transcript.push("first\nsecond"),
             Append {
                 scroll: 2,
-                rows: vec!["first".to_string(), "second".to_string()]
+                rows: vec!["first".to_string(), "second".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
         assert_eq!(
@@ -1561,7 +2507,9 @@ mod tests {
             transcript.push("!"),
             Append {
                 scroll: 0,
-                rows: vec!["second!".to_string()]
+                rows: vec!["second!".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -1575,8 +2523,317 @@ mod tests {
             transcript.push("a\n\nb"),
             Append {
                 scroll: 3,
-                rows: vec!["a".to_string(), String::new(), "b".to_string()]
+                rows: vec!["a".to_string(), String::new(), "b".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
+        );
+    }
+
+    /// The rows an answer's `lines` make at `cols`, in the answer's gutter,
+    /// as the document ends up holding them.
+    fn answer_rows(cols: u16, lines: &str) -> Vec<String> {
+        let mut transcript = Transcript::new(cols);
+        transcript.queue_gutter(Gutter::Indent);
+        transcript.queue_push(lines, Role::Plain);
+        transcript.queue_end_line();
+        replay(drain(&mut transcript, DARK_256))
+    }
+
+    #[test]
+    fn an_answer_line_moves_a_word_down_rather_than_end_on_an_orphan() {
+        // D2c's `fast-unconfirmed` at 40x120: upstream's row ends `... a
+        // standard or` and the next is `lower tier.`, because `tier.` is the
+        // last word of its line and overflows, so the word before it goes down
+        // with it (`assistant_wrap.zig:269-298`, `isFinalWordOnLine`).
+        let rows = answer_rows(
+            120,
+            "Ultrafast was requested, but Gateway did not confirm it was served; \
+             this response may have used a standard or lower tier.\n\
+             MARKER-ULTRA-UNCONFIRMED",
+        );
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.trim_end().to_string())
+                .collect::<Vec<_>>(),
+            [
+                "  Ultrafast was requested, but Gateway did not confirm it was served; \
+                 this response may have used a standard or",
+                "  lower tier.",
+                "  MARKER-ULTRA-UNCONFIRMED",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_answer_link_or_style_that_wraps_is_closed_and_reopened_behind_the_lead() {
+        // Upstream's wrap at a break (`assistant_wrap.zig:682-727`): close the
+        // pen and the link, then the gutter and the continuation's lead, then
+        // the pen and the link again -- so no link is open across the `CUP`
+        // and the lead is never underlined.
+        const OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
+        const CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+        // "reopens an OSC 8 link after a word-balanced wrap", at six columns.
+        let rows = answer_rows(8, &format!("{OPEN}\u{1b}[4malpha beta\u{1b}[24m{CLOSE}"));
+        assert_eq!(
+            rows,
+            [
+                format!("  {OPEN}\u{1b}[4malpha{RESET}{CLOSE} "),
+                format!("  \u{1b}[4m{OPEN}beta\u{1b}[24m{CLOSE}"),
+            ]
+        );
+        // "keeps styled list continuations unstyled at indentation".
+        let rows = answer_rows(
+            9,
+            "\u{1b}[2m\u{2022} \u{1b}[22m\u{1b}[1mabcdefghij\u{1b}[22m",
+        );
+        assert_eq!(
+            rows,
+            [
+                format!("  \u{1b}[2m\u{2022} \u{1b}[22m\u{1b}[1mabcde{RESET}"),
+                "    \u{1b}[1mfghij\u{1b}[22m".to_string(),
+            ]
+        );
+        // "repeats every styled nested blockquote rule on word-aware
+        // continuations": the rules, dim, ahead of the bold.
+        let rule = "\u{1b}[2m\u{2502} \u{1b}[22m";
+        let rows = answer_rows(
+            20,
+            &format!("{rule}{rule}\u{1b}[1malpha beta gamma delta\u{1b}[22m"),
+        );
+        assert_eq!(
+            rows,
+            [
+                format!("  {rule}{rule}\u{1b}[1malpha beta{RESET} "),
+                format!("  {rule}{rule}\u{1b}[1mgamma delta\u{1b}[22m"),
+            ]
+        );
+        for row in rows
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 20))
+        {
+            assert_eq!(
+                row.matches("\u{1b}]8;id=").count(),
+                row.matches(CLOSE).count(),
+                "{row:?} leaves a link open"
+            );
+        }
+    }
+
+    #[test]
+    fn an_answer_tab_is_the_spaces_to_the_screens_next_stop() {
+        // `assistant_wrap.zig:163-174`: the gutter's two columns and `a` put
+        // the tab at screen column 4, and the next stop is column 9.
+        assert_eq!(answer_rows(80, "a\tb"), ["  a     b"]);
+        // The composer's wrap is what everything else keeps: four cells.
+        let mut transcript = Transcript::new(80);
+        assert_eq!(transcript.push("a\tb").rows, ["a\tb"]);
+    }
+
+    #[test]
+    fn a_frozen_answer_line_keeps_its_continuation_rows_lined_up() {
+        // A list item long enough to freeze: the rows the document ends up
+        // with are the rows one wrap of the whole item gives, the indent under
+        // the bullet included -- on the row a freeze kept and re-wrapped too.
+        let cols = 12;
+        let mut item = "\u{1b}[2m\u{2022} \u{1b}[22m".to_string();
+        for index in 0..1200 {
+            item.push_str(&format!("w{index} "));
+        }
+        let item = item.trim_end().to_string();
+        let whole: Vec<String> = prose::prose(&item, cols - 2, 2, Opening::Line)
+            .iter()
+            .map(|laid| {
+                let lead = laid.lead.map(Continuation::lead).unwrap_or_default();
+                unpainted(&format!("  {lead}{}", &item[laid.row.start..laid.row.end]))
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            whole.len() > MAX_TAIL_ROWS + 1,
+            "the case is too short to freeze"
+        );
+        let rows: Vec<String> = answer_rows(cols, &item)
+            .iter()
+            .map(|row| unpainted(row).trim_end().to_string())
+            .collect();
+        assert_eq!(rows, whole);
+        assert!(
+            rows[1..].iter().all(|row| row.starts_with("    w")),
+            "{rows:?}"
+        );
+        // And a resize re-measures the kept row with the carried indent.
+        let mut transcript = Transcript::new(cols);
+        transcript.queue_gutter(Gutter::Indent);
+        transcript.queue_push(&item, Role::Plain);
+        drain(&mut transcript, DARK_256);
+        assert!(matches!(
+            transcript.gutter,
+            Gutter::Carried(Some(Continuation::Indent(2)))
+        ));
+        transcript.resize_unfinished(9);
+        assert_eq!(transcript.tail_rows(), 1);
+    }
+
+    /// The card's bold, as `super::super::shell`'s `write_card` opens each of
+    /// its lines.
+    const BOLD: &str = "\u{1b}[1m";
+
+    /// The rows a submitted `text` makes at `cols` behind the card's rail, as
+    /// `super::super::shell`'s `write_card` queues it: each line opened in
+    /// bold and closed with a reset.
+    fn card_rows(cols: u16, text: &str) -> Vec<String> {
+        let mut transcript = Transcript::new(cols);
+        transcript.queue_gutter(Gutter::Rail);
+        let card = text
+            .split('\n')
+            .map(|line| format!("{BOLD}{line}{RESET}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        transcript.queue_push(&card, Role::Plain);
+        transcript.queue_end_line();
+        replay(drain(&mut transcript, DARK_256))
+    }
+
+    /// `rows` as upstream's card writes them: the rail, then each row's text
+    /// in bold and a reset (`user_message_card.zig:319-325`, `:39-43`).
+    fn railed_rows(rows: &[&str]) -> Vec<String> {
+        let rail = Gutter::Rail.prefix(DARK_256);
+        rows.iter()
+            .map(|row| format!("{rail}{BOLD}{row}{RESET}"))
+            .collect()
+    }
+
+    /// What a row shows: its text with every sequence in it stepped over.
+    fn shown(row: &str) -> String {
+        let mut text = String::new();
+        let mut rest = row;
+        while let Some(character) = rest.chars().next() {
+            if let Some(len) = super::super::pacer::escape_at(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            text.push(character);
+            rest = &rest[character.len_utf8()..];
+        }
+        text
+    }
+
+    #[test]
+    fn a_card_breaks_at_its_last_space_that_fits_and_drops_that_space() {
+        // `wrapCut` (`user_message_card.zig:57-64`): the row ends before the
+        // last space inside the width and the next row begins after it -- the
+        // space is on neither, not hung after the row's bold is closed.
+        assert_eq!(
+            card_rows(12, "the quick brown fox"),
+            railed_rows(&["the quick", "brown fox"])
+        );
+    }
+
+    #[test]
+    fn a_card_word_that_ends_at_the_margin_before_a_space_leaves_an_empty_row() {
+        // The width's prefix stops before the space that would cross, so with
+        // no space inside it the row is the word; the next cut begins on that
+        // space, finds it as its last, keeps nothing before it and drops it --
+        // a row with the rail and nothing on it (`:59-64`, `:369-381`).
+        assert_eq!(
+            card_rows(6, "aaaa bbbb"),
+            railed_rows(&["aaaa", "", "bbbb"])
+        );
+    }
+
+    #[test]
+    fn a_card_word_that_ends_at_the_margin_goes_down_when_a_space_before_it_fits() {
+        // The same prefix with an earlier space in it: the cut is at that
+        // space, so the word that filled the row starts the next one.
+        assert_eq!(
+            card_rows(11, "aaaa bbbb cccc"),
+            railed_rows(&["aaaa", "bbbb cccc"])
+        );
+    }
+
+    #[test]
+    fn a_card_keeps_every_space_but_the_one_it_breaks_at() {
+        // Only one space is dropped per break (`skip_bytes = sp + 1`): the
+        // rest of a run stays where it fell, the row's bold over it, and a
+        // continuation row can begin with blanks or be nothing but them.
+        assert_eq!(card_rows(6, "aa   bb"), railed_rows(&["aa ", " bb"]));
+        assert_eq!(
+            card_rows(6, &format!("a{}b", " ".repeat(10))),
+            railed_rows(&["a  ", "   ", "   b"])
+        );
+        // A space after a word that fills the row is a row of its own.
+        assert_eq!(card_rows(6, "aaaa "), railed_rows(&["aaaa", " "]));
+    }
+
+    #[test]
+    fn a_card_tab_is_a_break_of_no_width_painted_to_the_screens_next_stop() {
+        // fx's `card-wrap` receipt at 40x120 (`A-R8`): upstream writes the tab
+        // as it is, so it stops at the screen's eighth columns -- the rail
+        // and its space put `A-R8` at columns 3-6, and `tab` at 9 -- and the
+        // cells it skips are blank, outside the row's bold.
+        assert_eq!(
+            card_rows(120, "A-R8\ttab\tstops"),
+            railed_rows(&[&format!("A-R8{RESET}  {BOLD}tab{RESET}     {BOLD}stops")])
+        );
+        // Measured at nothing by the cut, and a break like a space: `abc`,
+        // the tab and `d` are the four cells that fit, and the cut is at the
+        // tab, which is dropped.
+        assert_eq!(card_rows(6, "abc\tdefg"), railed_rows(&["abc", "defg"]));
+    }
+
+    #[test]
+    fn a_card_word_or_wide_glyph_that_does_not_fit_breaks_at_the_margin() {
+        // No space inside the width: the row is the prefix that fits
+        // (`:76`), and a two-cell glyph that would cross starts the next row.
+        assert_eq!(
+            card_rows(6, "abcdefghij"),
+            railed_rows(&["abcd", "efgh", "ij"])
+        );
+        assert_eq!(
+            card_rows(5, "ab\u{6f22}\u{5b57}"),
+            railed_rows(&["ab", "\u{6f22}", "\u{5b57}"])
+        );
+        // A hard break is a row of its own, and an empty line an empty row
+        // (`:358-368`).
+        assert_eq!(
+            card_rows(80, "one\n\nthree"),
+            railed_rows(&["one", "", "three"])
+        );
+    }
+
+    #[test]
+    fn a_card_badge_cut_by_a_break_is_closed_on_its_row_and_opened_on_the_next() {
+        // `terminal image badges balance hyperlinks across narrow card rows`
+        // (`user_message_card.zig:713-761`): `AA [Image #1] ZZZ` at seven
+        // columns. The space inside the badge is not a break the cut reaches
+        // from `[Imag`, and the space after the link's close is.
+        const OPEN: &str = "\u{1b}]8;;file:///tmp/x.png\u{1b}\\";
+        const CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+        let painted: Vec<String> = card_rows(7, &format!("AA {OPEN}[Image 1]{CLOSE} ZZZ"))
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 7).into_owned())
+            .collect();
+        for row in &painted {
+            assert_eq!(
+                row.matches("\u{1b}]8;;file").count(),
+                row.matches(CLOSE).count(),
+                "{row:?} leaves the badge's link open"
+            );
+        }
+        // Both halves of the badge are linked -- the second because its row
+        // opened the link again -- and neither row of plain text is.
+        let linked: Vec<bool> = painted.iter().map(|row| row.contains(OPEN)).collect();
+        assert_eq!(linked, [false, true, true, false], "{painted:?}");
+        assert_eq!(
+            painted.iter().map(|row| shown(row)).collect::<Vec<_>>(),
+            [
+                "\u{2503} AA",
+                "\u{2503} [Imag",
+                "\u{2503} e 1]",
+                "\u{2503} ZZZ"
+            ]
         );
     }
 
@@ -1589,6 +2846,7 @@ mod tests {
             let kept = (document.len() + append.scroll).saturating_sub(append.rows.len());
             document.truncate(kept);
             document.extend(append.rows);
+            document.truncate(document.len().saturating_sub(append.release));
         }
         document
     }
@@ -1713,7 +2971,9 @@ mod tests {
             split.push("a\r"),
             Append {
                 scroll: 2,
-                rows: vec!["a".to_string(), String::new()]
+                rows: vec!["a".to_string(), String::new()],
+                kinds: Vec::new(),
+                release: 0,
             },
             "the line and the row its successor starts on"
         );
@@ -1721,7 +2981,9 @@ mod tests {
             split.push("\nb"),
             Append {
                 scroll: 0,
-                rows: vec!["b".to_string()]
+                rows: vec!["b".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             },
             "the leading newline was answered a second time"
         );
@@ -1731,7 +2993,9 @@ mod tests {
             whole.push("a\r\nb"),
             Append {
                 scroll: 2,
-                rows: vec!["a".to_string(), "b".to_string()]
+                rows: vec!["a".to_string(), "b".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -1915,7 +3179,9 @@ mod tests {
             transcript.push("pq"),
             Append {
                 scroll: 0,
-                rows: vec!["abcdefghijklmnopq".to_string()]
+                rows: vec!["abcdefghijklmnopq".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             },
             "the tail was not re-wrapped to the screen it is now on"
         );
@@ -1937,7 +3203,9 @@ mod tests {
             transcript.push("rs"),
             Append {
                 scroll: 0,
-                rows: vec!["abcdefghij".to_string(), "klmnopqrs".to_string()]
+                rows: vec!["abcdefghij".to_string(), "klmnopqrs".to_string()],
+                kinds: Vec::new(),
+                release: 0,
             },
             "the tail was not re-wrapped to the narrower screen"
         );
@@ -2273,5 +3541,385 @@ mod tests {
              on -- anything more is an operation that re-wrote what an earlier \
              one already said"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the open block (a tool group)
+    // -----------------------------------------------------------------------
+
+    fn rows(texts: &[&str]) -> Vec<String> {
+        texts.iter().map(|text| (*text).to_string()).collect()
+    }
+
+    #[test]
+    fn rows_carry_what_they_are_from_the_kind_queued_before_their_line() {
+        // A plain line has no record at all (most appends), an answer line's
+        // rows all say so, and the kind changes only at a line boundary, so
+        // the line before it keeps its own.
+        let mut transcript = Transcript::new(20);
+        transcript.queue_push("  1) Proceed?", Role::Plain);
+        transcript.queue_kind(DocumentRow::Answer);
+        transcript.queue_push("     a long answer that wraps", Role::Plain);
+        transcript.queue_end_line();
+        transcript.queue_kind(DocumentRow::Plain);
+        transcript.queue_push("after", Role::Plain);
+        transcript.queue_end_line();
+        let appends = drain(&mut transcript, DARK_256);
+        let recorded: Vec<(String, DocumentRow)> = appends
+            .iter()
+            .flat_map(|append| {
+                append.rows.iter().enumerate().map(|(index, row)| {
+                    (
+                        row.clone(),
+                        append.kinds.get(index).copied().unwrap_or_default(),
+                    )
+                })
+            })
+            .collect();
+        assert!(
+            recorded.contains(&("  1) Proceed?".to_string(), DocumentRow::Plain)),
+            "{recorded:?}"
+        );
+        let answer: Vec<&(String, DocumentRow)> = recorded
+            .iter()
+            .filter(|(row, _)| row.contains("answer") || row.contains("wraps"))
+            .collect();
+        assert!(!answer.is_empty(), "{recorded:?}");
+        assert!(
+            answer.iter().all(|(_, kind)| *kind == DocumentRow::Answer),
+            "{recorded:?}"
+        );
+        assert!(
+            recorded.contains(&("after".to_string(), DocumentRow::Plain)),
+            "{recorded:?}"
+        );
+        assert!(
+            appends
+                .iter()
+                .filter(|append| append.rows.iter().all(|row| !row.contains("answer")))
+                .all(|append| append.kinds.is_empty()),
+            "a plain append carried a record: {appends:?}"
+        );
+    }
+
+    #[test]
+    fn a_block_carries_each_rows_kind_past_the_rows_it_froze() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(
+            rows(&[
+                "\u{25cf} header",
+                "\u{2514} call",
+                "",
+                "\u{25a0} Cancelled call",
+                "",
+            ]),
+            vec![
+                DocumentRow::ToolGroup,
+                DocumentRow::ToolGroup,
+                DocumentRow::Plain,
+                DocumentRow::ToolStopped,
+                DocumentRow::Plain,
+            ],
+        );
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            appends[0].kinds,
+            vec![
+                DocumentRow::ToolGroup,
+                DocumentRow::ToolGroup,
+                DocumentRow::Plain,
+                DocumentRow::ToolStopped,
+                DocumentRow::Plain,
+            ]
+        );
+        // An all-plain block records nothing.
+        transcript.queue_block(rows(&["a", "b"]), vec![DocumentRow::Plain; 2]);
+        assert!(drain(&mut transcript, DARK_256)
+            .iter()
+            .all(|append| append.kinds.is_empty()));
+    }
+
+    #[test]
+    fn a_block_is_rewritten_where_it_stands_and_scrolls_only_the_rows_it_gained() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(rows(&["header 1", "\u{2514} one", ""]), Vec::new());
+        transcript.queue_block(
+            rows(&["header 2", "\u{251c} one", "\u{2514} two", ""]),
+            Vec::new(),
+        );
+        transcript.queue_block(
+            rows(&["header 2", "\u{251c} one", "\u{2514} two!", ""]),
+            Vec::new(),
+        );
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            appends
+                .iter()
+                .map(|append| append.scroll)
+                .collect::<Vec<_>>(),
+            [3, 1, 0],
+            "a rewrite scrolled rows the block already had"
+        );
+        assert_eq!(
+            replay(appends),
+            ["header 2", "\u{251c} one", "\u{2514} two!", ""],
+            "the block was not rewritten in place"
+        );
+        assert_eq!(transcript.tail_rows(), 4);
+    }
+
+    #[test]
+    fn whatever_follows_a_block_starts_on_a_row_of_its_own_and_leaves_it_alone() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_push("the answer so far", Role::Plain);
+        transcript.queue_block(rows(&["header", "\u{2514} call", ""]), Vec::new());
+        transcript.queue_push("after", Role::Plain);
+        transcript.queue_end_line();
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            replay(appends),
+            ["the answer so far", "header", "\u{2514} call", "", "after"],
+            "a block shared a row with the text around it"
+        );
+        // Closed by the text: a block queued now is a new one, under it.
+        transcript.queue_block(rows(&["second"]), Vec::new());
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends.len(), 1);
+        assert_eq!(appends[0].scroll, 1, "the second block rewrote the first");
+    }
+
+    #[test]
+    fn a_block_that_lost_rows_blanks_the_ones_it_gave_up_and_gives_them_back() {
+        // Blanked, because only a write clears a row; given back, because a
+        // block is the document's last thing and what comes next -- the band,
+        // or the next row -- belongs right under what it still has, as
+        // upstream's re-render puts it.
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(rows(&["a", "b", "c"]), Vec::new());
+        transcript.queue_block(rows(&["a"]), Vec::new());
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends[1].rows, ["a", "", ""]);
+        assert_eq!((appends[1].scroll, appends[1].release), (0, 2));
+        assert_eq!(replay(appends), ["a"]);
+        assert_eq!(transcript.tail_rows(), 1);
+        // And it grows again from the row it kept.
+        transcript.queue_block(rows(&["a", "b"]), Vec::new());
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!((appends[0].scroll, appends[0].release), (1, 0));
+        assert_eq!(transcript.tail_rows(), 2);
+    }
+
+    #[test]
+    fn a_block_row_wider_than_the_screen_is_cut_with_an_ellipsis_and_closed() {
+        // `clipSummary`: one cell short, the ellipsis in it, and a colour the
+        // cut left open closed after it.
+        let mut transcript = Transcript::new(10);
+        transcript.queue_block(
+            vec![
+                "\u{1b}[38;5;245m\u{251c} Ran something long\u{1b}[0m".to_string(),
+                "short".to_string(),
+            ],
+            Vec::new(),
+        );
+        let written = replay(drain(&mut transcript, DARK_256));
+        assert_eq!(
+            written[0], "\u{1b}[38;5;245m\u{251c} Ran som\u{2026}\u{1b}[0m",
+            "the row was not cut where upstream cuts it"
+        );
+        assert_eq!(super::super::wrap::width(&written[0]), 10);
+        assert_eq!(written[1], "short");
+    }
+
+    #[test]
+    fn a_resize_leaves_an_open_blocks_row_count_alone() {
+        // One screen row each, at any width: re-measuring them as wrapped text
+        // would make the next rewrite scroll rows the block already has.
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(rows(&["header", "\u{2514} call", ""]), Vec::new());
+        drain(&mut transcript, DARK_256);
+        transcript.resize_unfinished(5);
+        assert_eq!(transcript.tail_rows(), 3);
+        transcript.queue_block(rows(&["header", "\u{2514} done", ""]), Vec::new());
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends[0].scroll, 0);
+        // Cut at the width it lands on: four cells and the ellipsis.
+        assert_eq!(appends[0].rows[1], "\u{2514} do\u{2026}");
+    }
+
+    #[test]
+    fn a_block_past_the_bound_stops_rewriting_its_oldest_rows() {
+        // The bound a line has, for a block: every rewrite re-places every row
+        // still held, so the rows past it -- more than any screen shows -- are
+        // the terminal's.
+        let mut transcript = Transcript::new(40);
+        let tall: Vec<String> = (0..MAX_TAIL_ROWS + 10)
+            .map(|n| format!("row {n}"))
+            .collect();
+        transcript.queue_block(tall.clone(), Vec::new());
+        drain(&mut transcript, DARK_256);
+        assert_eq!(transcript.tail_rows(), MAX_TAIL_ROWS);
+        let mut taller = tall;
+        taller.push("one more".to_string());
+        transcript.queue_block(taller, Vec::new());
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends[0].scroll, 1);
+        assert_eq!(appends[0].rows.len(), MAX_TAIL_ROWS + 1);
+        assert_eq!(
+            appends[0].rows[0], "row 10",
+            "a frozen row was written again"
+        );
+    }
+
+    /// What a notice's label is painted in on the dark palette, literal: the
+    /// outcome grey (`theme.zig:86-88`).
+    const LABEL_DARK: &str = "\u{1b}[38;5;252m";
+
+    #[test]
+    fn a_notice_head_puts_the_glyph_on_its_first_row_and_two_columns_on_the_rest() {
+        // `renderSemanticNotice` (`transcript_blocks.zig:1758-1800`): the line is
+        // `✗ command: Unknown command. Try /help.`, wrapped at the screen's
+        // width, every continuation row indented by two. At 20 columns the
+        // text behind the glyph has 18, so it breaks at the space after
+        // `Unknown`, which is on neither row, and after the `/` of `/help`,
+        // where upstream's notice wrap breaks a path (`scanNoticeLine`,
+        // `transcript_blocks.zig:1674-1702`).
+        let mut transcript = Transcript::new(20);
+        transcript.queue_gutter(Gutter::Head(Tone::Error));
+        // One operation for the label and the body, as the shell queues it.
+        assert!(transcript.queue_push_runs(&[
+            ("command:", Role::Label(Tone::Error)),
+            (" ", Role::Notice),
+            ("Unknown command. Try /help.", Role::Notice),
+        ]));
+        transcript.queue_end_line();
+        transcript.queue_gutter(Gutter::None);
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            appends
+                .iter()
+                .filter(|append| !append.rows.is_empty())
+                .count(),
+            1,
+            "the notice's line was written more than once: {appends:?}"
+        );
+        assert_eq!(
+            screen(&appends),
+            vec![
+                format!(
+                    "{LABEL_DARK}\u{2717} {RESET}{LABEL_DARK}command:{RESET}\
+                     {NOTICE_DARK} Unknown{RESET}"
+                ),
+                format!("  {NOTICE_DARK}command. Try /{RESET}"),
+                format!("  {NOTICE_DARK}help.{RESET}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_notice_heads_one_line_and_the_lines_after_it_are_continuations() {
+        // A multi-line body (`* status: model=…` and its `k=v` rows) is one
+        // head and then rows two columns in: the glyph is the first row's
+        // only, however the lines arrive -- in one push or one per line.
+        for chunks in [
+            &["version:", " 1\nsecond\n\nthird"][..],
+            &["version:", " 1", "\nsecond", "\n", "\nthird"][..],
+        ] {
+            let mut transcript = Transcript::new(40);
+            transcript.queue_gutter(Gutter::Head(Tone::Neutral));
+            for chunk in chunks {
+                let role = if chunk.ends_with(':') {
+                    Role::Label(Tone::Neutral)
+                } else {
+                    Role::Notice
+                };
+                transcript.queue_push(chunk, role);
+            }
+            transcript.queue_end_line();
+            transcript.queue_gutter(Gutter::None);
+            transcript.queue_push("after", Role::Plain);
+            transcript.queue_end_line();
+            let shown: Vec<String> = screen(&drain(&mut transcript, DARK_256))
+                .iter()
+                .map(|row| strip(row))
+                .collect();
+            assert_eq!(
+                shown,
+                vec!["* version: 1", "  second", "", "  third", "after"],
+                "{chunks:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_frozen_notice_line_does_not_grow_a_second_glyph() {
+        // The freeze drops the rows a line can no longer change, and the first
+        // one -- the glyph's -- goes with them. What the line keeps begins on a
+        // continuation row, so a re-wrap of it is indented, not headed.
+        let mut transcript = Transcript::new(6);
+        transcript.queue_gutter(Gutter::Head(Tone::Neutral));
+        drain(&mut transcript, DARK_256);
+        transcript.push_as(&"x".repeat(4 * (MAX_TAIL_ROWS + 1)), Role::Notice, DARK_256);
+        assert_eq!(transcript.tail_rows(), 1, "the tail was not frozen");
+        let rows = transcript.push_as("y", Role::Notice, DARK_256).rows;
+        assert_eq!(
+            rows,
+            vec![
+                format!("  {NOTICE_DARK}xxxx{RESET}"),
+                format!("  {NOTICE_DARK}y{RESET}")
+            ]
+        );
+    }
+
+    #[test]
+    fn whether_the_document_ends_on_a_blank_row_is_asked_of_the_queue() {
+        // The projection a notice reads to decide whether it needs a blank row
+        // above it: two notices in a row share the one between them.
+        let mut transcript = Transcript::new(80);
+        assert!(
+            transcript.ends_blank(),
+            "nothing written is not a row to put a gap under"
+        );
+        transcript.queue_push("a line", Role::Notice);
+        transcript.queue_end_line();
+        assert!(!transcript.ends_blank(), "a line of text read as blank");
+        transcript.queue_end_line();
+        assert!(transcript.ends_blank(), "the blank row was not counted");
+        // A push that ends on a break leaves the row it opened empty, and
+        // ending that row is ending a blank one.
+        transcript.queue_push("an answer\n", Role::Plain);
+        transcript.queue_end_line();
+        assert!(transcript.ends_blank());
+        transcript.queue_push("more", Role::Plain);
+        assert!(!transcript.ends_blank());
+    }
+
+    /// The document a run of appends leaves, as the renderer would: each one
+    /// rewrites the rows its tail already had and scrolls in the rest.
+    fn screen(appends: &[Append]) -> Vec<String> {
+        let mut document: Vec<String> = Vec::new();
+        for append in appends {
+            let held = append.rows.len() - append.scroll;
+            document.truncate(document.len() - held);
+            document.extend(append.rows.iter().cloned());
+        }
+        document
+    }
+
+    /// A row with every sequence taken out of it.
+    fn strip(row: &str) -> String {
+        let mut out = String::new();
+        let mut chars = row.chars();
+        while let Some(character) = chars.next() {
+            if character == '\u{1b}' {
+                for terminator in chars.by_ref() {
+                    if terminator == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            out.push(character);
+        }
+        out
     }
 }

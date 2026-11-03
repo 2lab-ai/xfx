@@ -1,0 +1,30 @@
+x𝒇x v0.1.0-72bf024 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 1  [Servers]  Tools  Resources  Prompts
+
+  remote                Reloading             HTTP · Profile
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

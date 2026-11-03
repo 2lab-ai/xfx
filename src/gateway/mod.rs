@@ -17,8 +17,10 @@
 //! attempts, the transport's retry count is forced to one
 //! (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1169-1172`).
 
+pub mod generation;
 pub mod protocol;
 pub mod sse;
+pub mod tool_call_ids;
 
 use std::fmt;
 use std::io;
@@ -34,8 +36,40 @@ use protocol::{Completion, CompletionRequest, ProtocolError};
 use sse::{SseError, SseReader};
 
 /// The Vercel AI Gateway completion endpoint
-/// (`vercel-labs/fx@580a0c5d src/builtins/gateway.zig:41`).
-pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v3/ai/language-model";
+/// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:47`).
+///
+/// **The v4 route, not v3**: upstream moved there in `09ec38c2` ("so reasoning
+/// effort settings are applied instead of dropped by the v3 route"), and the
+/// request and its stream are otherwise the same shape -- the commit changes
+/// the URL and nothing it sends or reads. xfx already announced specification
+/// version 4 in its headers ([`GatewayProvider`]'s `headers`).
+pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v4/ai/language-model";
+
+/// The origin of [`DEFAULT_CHAT_URL`]: the one remote place a generation's
+/// bill is asked for (`default_gateway_base_url`,
+/// `vercel-labs/fx@c1db9191 src/gateway/client.zig:233`).
+pub const DEFAULT_ORIGIN: &str = "https://ai-gateway.vercel.sh";
+
+/// Whether a generation made at `origin` may be asked about there, with the
+/// credential that made it (`isTrustedGenerationOrigin`, `client.zig:637-640`):
+/// the Gateway's own origin, or plain http on loopback with a port -- a local
+/// test server (`isLoopbackHttpUrl`, `client.zig:2383-2399`).
+///
+/// **Narrower than [`Endpoint`]'s bearer rule**, which takes https anywhere:
+/// upstream asks for a bill only where it would have sent its own default or
+/// its loopback override, so a generation made through any other https host is
+/// one it will not ask about, and neither does xfx.
+pub fn is_trusted_generation_origin(origin: &str) -> bool {
+    if origin == DEFAULT_ORIGIN {
+        return true;
+    }
+    ParsedUrl::parse(origin).is_some_and(|parsed| {
+        parsed.scheme == "http"
+            && !parsed.has_userinfo
+            && parsed.path.is_empty()
+            && parsed.is_loopback_with_port()
+    })
+}
 
 /// The environment variable that overrides the endpoint.
 ///
@@ -78,16 +112,59 @@ pub const GATEWAY_SUBJECT: &str = "the Gateway";
 /// The product's own user agent. xfx does not claim to be `fx`.
 pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
 
-/// The HTTP client a remote provider streams over.
+/// The HTTP client a remote provider streams over to `endpoint`.
 ///
 /// One builder rather than one per backend: the timeouts and the user agent are
 /// facts about xfx as a client, not about which wire it happens to be speaking,
-/// and two copies would be two places for them to drift apart.
+/// and two copies would be two places for them to drift apart. It carries the
+/// bearer, so it is built under [`bearer_rules`]: no redirect is followed, and a
+/// proxy from the environment is used only over https.
+pub(crate) fn build_client(endpoint: &Endpoint) -> Result<reqwest::Client, ProviderError> {
+    finish_client(
+        bearer_rules(base_client_builder(), endpoint.url()),
+        GATEWAY_SUBJECT,
+    )
+}
+
+/// The two rules every client that sends a credential to `url` is built
+/// under: the completion and title client ([`build_client`]), the catalog, the
+/// `/credits` question and the generation-bill lookup, which send the Gateway
+/// bearer, and the MCP HTTP client, which sends a server's configured
+/// `headers`, `header_env` and `bearer_token_env` (`crate::mcp`).
 ///
-/// It honours the system proxy environment, which is correct for an endpoint on
-/// the internet -- reaching it may require one.
-pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
-    finish_client(base_client_builder(), GATEWAY_SUBJECT)
+/// **No redirect is followed.** The endpoint rule judges the URL xfx names; it
+/// cannot see where a reply points. reqwest's default `Policy::limited(10)`
+/// replays a `307`/`308`'s body -- the prompt and the project context -- to the
+/// `Location`, wherever it is, and drops `Authorization` only when the host or
+/// port changes, so a redirect to another path, or from https to http on the
+/// same port, carries the key as well. Upstream never follows one
+/// (`redirect_behavior = .unhandled`, `vercel-labs/fx@c1db9191
+/// src/gateway/client.zig:1561`), and a `3xx` is a status error, as there
+/// (`:1717-1750`).
+///
+/// **A proxy from the environment is honoured only over https**
+/// ([`may_use_a_proxy`]).
+pub(crate) fn bearer_rules(builder: reqwest::ClientBuilder, url: &str) -> reqwest::ClientBuilder {
+    let builder = builder.redirect(reqwest::redirect::Policy::none());
+    if may_use_a_proxy(url) {
+        builder
+    } else {
+        builder.no_proxy()
+    }
+}
+
+/// Whether a request carrying the bearer to `url` may go through a proxy that
+/// `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY` names.
+///
+/// Over https the proxy is handed a `CONNECT` and a TLS stream it cannot read,
+/// and an endpoint on the internet may be reachable no other way. A cleartext
+/// request -- which the bearer rule allows only to loopback -- goes to the proxy
+/// as written, key and prompt, and reqwest exempts no loopback host from one.
+/// Anything that is not plainly https gets no proxy, so a mistake here costs a
+/// direct connection and never the key. Upstream loads no proxy at all: it
+/// never calls `initDefaultProxies` (`vercel-labs/fx@c1db9191 src/`).
+pub(crate) fn may_use_a_proxy(url: &str) -> bool {
+    ParsedUrl::parse(url.trim()).is_some_and(|parsed| parsed.scheme == "https")
 }
 
 /// The same client for a service on this machine, with proxies and redirects
@@ -151,6 +228,23 @@ fn finish_client(
 pub trait DeltaSink {
     /// Accepts one assistant text fragment, in arrival order.
     fn text_delta(&mut self, text: &str) -> io::Result<()>;
+
+    /// One fragment of the model's reasoning, which nobody is shown.
+    ///
+    /// Told only so it can be **counted**: a request the provider reports no
+    /// usage for wrote its reasoning too, and upstream's estimate of what a
+    /// request wrote includes it (`vercel-labs/fx@c1db9191
+    /// src/core/agent/runtime/telemetry.zig:25-35`; `crate::agent::tokens`).
+    /// A body, so every sink that only wants the answer stays as it was.
+    fn reasoning_delta(&mut self, text: &str) {
+        let _ = text;
+    }
+
+    /// One fragment of a tool call's arguments as the model writes them,
+    /// counted for the same reason and in the same place.
+    fn tool_input_delta(&mut self, text: &str) {
+        let _ = text;
+    }
 }
 
 /// A cancellation flag shared by a turn, its transport, and its decoder.
@@ -295,6 +389,17 @@ impl Endpoint {
 
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// The scheme and authority: where the Gateway's other routes are asked,
+    /// under the host a turn already sends the same credential to.
+    pub fn origin(&self) -> &str {
+        let url = self.url();
+        let authority = url.find("://").map_or(0, |at| at + 3);
+        let end = url[authority..]
+            .find(['/', '?', '#'])
+            .map_or(url.len(), |at| authority + at);
+        &url[..end]
     }
 }
 
@@ -648,6 +753,16 @@ pub trait Provider {
         request: &CompletionRequest,
         deltas: &mut dyn DeltaSink,
     ) -> Result<Completion, ProviderError>;
+
+    /// What every request from now on asks for beside its prompt
+    /// ([`protocol::RequestOptions`]), until it is set again.
+    ///
+    /// Defaulted to ignoring them, which is the honest answer for a provider
+    /// with no way to send one: a scripted test provider, or a wire that has no
+    /// field for it. The two real wires each override it.
+    fn set_options(&self, options: protocol::RequestOptions) {
+        let _ = options;
+    }
 }
 
 /// Streams completions from the Vercel AI Gateway over HTTPS.
@@ -656,6 +771,14 @@ pub struct GatewayProvider {
     endpoint: Endpoint,
     credential: Credential,
     cancel: CancelToken,
+    /// What the session asks of every request ([`Provider::set_options`]).
+    /// A lock rather than a cell because the bundle is built on one thread and
+    /// may be driven from another; it is held for a clone and never across an
+    /// `await`.
+    options: std::sync::Mutex<protocol::RequestOptions>,
+    /// How long the rest of a body may be read once the model has finished
+    /// ([`Self::draining_after_finish`]); `None` lets it go at once.
+    drain_after_finish: Option<Duration>,
 }
 
 impl GatewayProvider {
@@ -665,11 +788,35 @@ impl GatewayProvider {
         cancel: CancelToken,
     ) -> Result<Self, ProviderError> {
         Ok(Self {
-            client: build_client()?,
+            client: build_client(&endpoint)?,
             endpoint,
             credential,
             cancel,
+            options: std::sync::Mutex::new(protocol::RequestOptions::default()),
+            drain_after_finish: None,
         })
+    }
+
+    /// Reads the rest of a body after the model's finish, for at most
+    /// `budget`, before the call returns -- what upstream's client does on its
+    /// pooled connection, so a finished stream gives the connection back
+    /// (`vercel-labs/fx@c1db9191 src/gateway/client.zig:1777-1810`, bounded by
+    /// `pool_drain_budget_ms`, `:218-221`). A drain that fails or runs out
+    /// costs nothing but the time: the answer is already whole. Opt-in, and
+    /// asked for by the session-title call alone (`crate::tui`'s `titles`),
+    /// whose elapsed time upstream measures past it.
+    pub fn draining_after_finish(mut self, budget: Duration) -> Self {
+        self.drain_after_finish = Some(budget);
+        self
+    }
+
+    /// The options in force, taken past a poisoned lock: the value is a plain
+    /// copy that no panic can leave half-written.
+    fn options(&self) -> protocol::RequestOptions {
+        self.options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// The fixed headers every completion request carries.
@@ -738,10 +885,12 @@ impl Provider for GatewayProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = request.body().map_err(|source| ProviderError::Request {
-            subject: GATEWAY_SUBJECT,
-            source,
-        })?;
+        let body = request
+            .body_with(&self.options())
+            .map_err(|source| ProviderError::Request {
+                subject: GATEWAY_SUBJECT,
+                source,
+            })?;
         let headers = self.headers(&request.model)?;
 
         let response = self
@@ -766,7 +915,8 @@ impl Provider for GatewayProvider {
             });
         }
 
-        let mut reader = SseReader::with_cancel(self.cancel.clone());
+        let mut reader =
+            SseReader::with_cancel(self.cancel.clone()).from_origin(self.endpoint.origin());
         let mut stream = response.bytes_stream();
         loop {
             // Waiting for the *next* chunk is where a cancelled turn actually
@@ -801,7 +951,30 @@ impl Provider for GatewayProvider {
                 break;
             }
         }
+        if let Some(budget) = self.drain_after_finish.filter(|_| reader.is_complete()) {
+            let deadline = tokio::time::Instant::now() + budget;
+            loop {
+                if self.cancel.is_cancelled() {
+                    return Err(ProviderError::Cancelled);
+                }
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(left.min(CANCEL_POLL), stream.next()).await {
+                    Ok(Some(Ok(_))) | Err(_) => {}
+                    Ok(Some(Err(_))) | Ok(None) => break,
+                }
+            }
+        }
         Ok(reader.finish()?)
+    }
+
+    fn set_options(&self, options: protocol::RequestOptions) {
+        *self
+            .options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = options;
     }
 }
 
@@ -1241,6 +1414,31 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn only_an_https_request_may_take_a_proxy_from_the_environment() {
+        // Over https a proxy sees a tunnel it cannot read; over cleartext it
+        // would read the bearer. Anything not plainly https is direct.
+        for url in [
+            DEFAULT_CHAT_URL,
+            DEFAULT_ORIGIN,
+            "HTTPS://gateway.example.com/v4/ai/language-model",
+            "  https://gateway.example.com  ",
+        ] {
+            assert!(may_use_a_proxy(url), "{url} is https");
+        }
+        for url in [
+            "http://127.0.0.1:8080/v4/ai/language-model",
+            "HTTP://localhost:8080",
+            "http://[::1]:9",
+            "http://127.0.0.1:8080/coding-agent/v1/models",
+            "ftp://gateway.example.com",
+            "gateway.example.com",
+            "",
+        ] {
+            assert!(!may_use_a_proxy(url), "{url:?} must not use a proxy");
+        }
     }
 
     #[test]

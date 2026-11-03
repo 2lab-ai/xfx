@@ -78,12 +78,37 @@ pub(crate) mod scans {
 
 /// What a span stands for.
 ///
-/// An enum with one variant, because the composer's other entities -- an
-/// attachment, a file reference -- are the same span with different contents,
-/// and a `Span` that assumed "paste" would have to be replaced rather than
-/// extended when one arrives.
+/// The composer's entities -- a paste, an attachment -- are the same span with
+/// different contents, which is why a `Span` never assumed "paste".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EntityKind {
+    /// An attached image: its badge `[Image N]` stands in the draft, and the
+    /// prompt says `[Image #N]` in its place -- upstream's two spellings of one
+    /// number (`writeImageBadge` and `writeImagePlaceholder`,
+    /// `vercel-labs/fx@c1db9191 src/core/images/image_attachments.zig:1336`,
+    /// `:1376`). The badge **is** the attachment: a delete that takes it drops
+    /// the image (`kill_ring.zig:562-584`), no undo brings it back
+    /// ([`super::edit_history::EditHistory::record`]), and a yank or a
+    /// recalled line brings a fresh image under a fresh number
+    /// ([`Entities::snapshots`], [`Entities::renumber_recalled_with_images`]).
+    Image {
+        image: Arc<crate::image::Image>,
+        /// [`crate::image::token`] of its id: what [`Entities::expand`] puts
+        /// where the badge stands.
+        token: Arc<str>,
+    },
+    /// A skill the `$` menu bound (`SkillTokenSpan`, `vercel-labs/fx@c1db9191
+    /// src/core/input/registered_entities.zig:12-19`): its name stands in the
+    /// draft, painted bold, and the prompt says `$name` in its place -- the
+    /// form upstream sends (`"text":"$demo run it"`). The token is the
+    /// **binding**: the turn loads the exact directory the menu chose
+    /// (`crate::skills::Binding`), whatever else answers to the name.
+    Skill {
+        name: Arc<str>,
+        path: Arc<std::path::Path>,
+        /// `$name`: what [`Entities::expand`] puts where the name stands.
+        token: Arc<str>,
+    },
     /// A collapsed paste: the number its summary says, the text it stands for,
     /// and how many lines that text has.
     Paste {
@@ -114,10 +139,12 @@ impl Span {
         self.start..self.end
     }
 
-    /// The text the summary stands for.
+    /// The text the summary stands for: a paste's text, or an image's
+    /// `[Image #N]`.
     pub(crate) fn text(&self) -> &Arc<str> {
         match &self.kind {
             EntityKind::Paste { text, .. } => text,
+            EntityKind::Image { token, .. } | EntityKind::Skill { token, .. } => token,
         }
     }
 
@@ -125,14 +152,39 @@ impl Span {
     pub(crate) fn id(&self) -> u32 {
         match &self.kind {
             EntityKind::Paste { id, .. } => *id,
+            EntityKind::Image { image, .. } => image.id,
+            // A skill token says no number.
+            EntityKind::Skill { .. } => 0,
         }
     }
 
-    /// How many lines the text has.
+    /// How many lines the text has; an image's token has one.
     pub(crate) fn lines(&self) -> usize {
         match &self.kind {
             EntityKind::Paste { lines, .. } => *lines,
+            EntityKind::Image { .. } | EntityKind::Skill { .. } => 1,
         }
+    }
+
+    /// The image this badge attaches, when it is one.
+    pub(crate) fn image(&self) -> Option<&Arc<crate::image::Image>> {
+        match &self.kind {
+            EntityKind::Paste { .. } | EntityKind::Skill { .. } => None,
+            EntityKind::Image { image, .. } => Some(image),
+        }
+    }
+
+    /// The skill this token binds -- its name and its directory -- when it is
+    /// one.
+    pub(crate) fn skill(&self) -> Option<(&str, &std::path::Path)> {
+        match &self.kind {
+            EntityKind::Skill { name, path, .. } => Some((name, path)),
+            EntityKind::Paste { .. } | EntityKind::Image { .. } => None,
+        }
+    }
+
+    fn is_paste(&self) -> bool {
+        matches!(self.kind, EntityKind::Paste { .. })
     }
 }
 
@@ -202,16 +254,65 @@ impl Entities {
     /// the number either of them names -- and what leaves the session is their
     /// sum.
     pub(crate) fn retained(&self) -> usize {
-        self.spans.iter().fold(0usize, |bytes, span| {
-            bytes.saturating_add(span.text().len())
-        })
+        // A paste's: an image's token is a few bytes that stand for no text,
+        // and the image is not part of the draft's text budget.
+        self.spans
+            .iter()
+            .filter(|span| span.is_paste())
+            .fold(0usize, |bytes, span| {
+                bytes.saturating_add(span.text().len())
+            })
+    }
+
+    /// The images the draft attaches, in the order their badges stand in it.
+    pub(crate) fn images(&self) -> impl Iterator<Item = &Arc<crate::image::Image>> {
+        self.spans.iter().filter_map(Span::image)
+    }
+
+    /// The skills the draft's tokens bind, in the order they stand in it --
+    /// the turn's explicit bindings (`config.skill_bindings`).
+    pub(crate) fn skills(&self) -> Vec<crate::skills::Binding> {
+        self.spans
+            .iter()
+            .filter_map(Span::skill)
+            .map(|(name, path)| crate::skills::Binding {
+                name: name.to_string(),
+                path: path.to_path_buf(),
+            })
+            .collect()
+    }
+
+    /// The card's text for `draft`, and where each skill token's name stands
+    /// in it: the prompt as it is sent ([`Self::expand`]) with each token
+    /// written as its name, which upstream's card paints in its accent
+    /// (`renderSkillTokensForCard`, `user_message_card.zig:271-291`, over the
+    /// submitted prompt's `$name` runs) -- so the card says `demo run it`
+    /// where the prompt says `$demo run it`.
+    pub(crate) fn card(&self, draft: &str) -> (String, Vec<Range<usize>>) {
+        let mut out = String::with_capacity(draft.len().saturating_add(self.retained()));
+        let mut runs = Vec::new();
+        let mut cut = 0usize;
+        for span in &self.spans {
+            out.push_str(&draft[cut..span.start]);
+            match span.skill() {
+                Some((name, _)) => {
+                    let start = out.len();
+                    out.push_str(name);
+                    runs.push(start..out.len());
+                }
+                None => out.push_str(span.text()),
+            }
+            cut = span.end;
+        }
+        out.push_str(&draft[cut..]);
+        (out, runs)
     }
 
     /// Records a new entity: the caller has just put its summary into the draft
     /// at `span`'s bytes.
     pub(crate) fn register(&mut self, span: Span) {
         debug_assert!(
-            !self.by_paste.contains_key(&span.id()),
+            !span.is_paste() || !self.by_paste.contains_key(&span.id()),
             "two live blocks would answer to #{}",
             span.id()
         );
@@ -358,13 +459,61 @@ impl Entities {
         out
     }
 
+    /// `draft` with every block put back as the text it stands for, and the
+    /// spans left the badges alone, moved to where they now stand: what a yank
+    /// puts in the composer, as upstream's kill ring holds a killed block's
+    /// text rather than the block (`capturePayload`, `kill_ring.zig:429-447`)
+    /// and its yank registers no block (`yank`, `:119-190`). The badges stay
+    /// badges -- each yank of one is a fresh image ([`Self::renumber_recalled_with_images`]).
+    pub(crate) fn inline_pastes(&mut self, draft: &mut String) {
+        if !self.spans.iter().any(Span::is_paste) {
+            return;
+        }
+        let mut out = String::with_capacity(draft.len().saturating_add(self.retained()));
+        let mut kept: Vec<Span> = Vec::with_capacity(self.spans.len());
+        let mut cut = 0usize;
+        for span in std::mem::take(&mut self.spans) {
+            out.push_str(&draft[cut..span.start]);
+            cut = span.end;
+            if span.is_paste() {
+                out.push_str(span.text());
+                continue;
+            }
+            let start = out.len();
+            out.push_str(&draft[span.start..span.end]);
+            kept.push(Span {
+                start,
+                end: out.len(),
+                kind: span.kind,
+            });
+        }
+        out.push_str(&draft[cut..]);
+        *draft = out;
+        self.spans = kept;
+        self.reindex();
+    }
+
     /// What a history entry has to remember to be able to put these blocks
     /// back.
+    ///
+    /// Pastes and images both: a recalled line brings its images back, each
+    /// under a fresh number ([`Self::renumber_recalled_with_images`]), as
+    /// upstream's recall does (`tui-composer-edit-contracts.test.ts:852-878`).
+    /// The bytes are held by reference -- the same ones the prompt carried.
     pub(crate) fn snapshots(&self) -> Vec<EntitySnapshot> {
         self.spans
             .iter()
-            .map(|span| {
-                EntitySnapshot::new(span.start, span.end, Arc::clone(span.text()), span.lines())
+            .map(|span| match &span.kind {
+                EntityKind::Image { image, .. } => {
+                    EntitySnapshot::image(span.start, span.end, Arc::clone(image))
+                }
+                EntityKind::Skill { .. } => EntitySnapshot {
+                    skill: Some(span.kind.clone()),
+                    ..EntitySnapshot::new(span.start, span.end, Arc::clone(span.text()), 1)
+                },
+                EntityKind::Paste { .. } => {
+                    EntitySnapshot::new(span.start, span.end, Arc::clone(span.text()), span.lines())
+                }
             })
             .collect()
     }
@@ -379,14 +528,22 @@ impl Entities {
         let mut entities = Self::new();
         for (index, snapshot) in snapshots.iter().enumerate() {
             let id = u32::try_from(index).unwrap_or(u32::MAX);
-            entities.spans.push(Span {
-                start: snapshot.span().start,
-                end: snapshot.span().end,
-                kind: EntityKind::Paste {
+            let kind = match (&snapshot.image, &snapshot.skill) {
+                (Some(image), _) => EntityKind::Image {
+                    token: Arc::clone(snapshot.text()),
+                    image: Arc::clone(image),
+                },
+                (None, Some(skill)) => skill.clone(),
+                (None, None) => EntityKind::Paste {
                     id,
                     text: Arc::clone(snapshot.text()),
                     lines: snapshot.lines(),
                 },
+            };
+            entities.spans.push(Span {
+                start: snapshot.span().start,
+                end: snapshot.span().end,
+                kind,
             });
         }
         entities.reindex();
@@ -407,7 +564,24 @@ impl Entities {
     /// The draft is rebuilt rather than patched, because a new number can be a
     /// digit longer or shorter than the old one and every span after it moves
     /// by that difference.
+    #[cfg(test)]
     pub(crate) fn renumber_recalled(&mut self, draft: &mut String, next: &mut u32) {
+        let mut images = None;
+        self.renumber_recalled_with_images(draft, next, &mut images);
+    }
+
+    /// [`Self::renumber_recalled`], and every image badge too, from `images`
+    /// -- the next image number this session would mint, advanced past the
+    /// ones spent here -- as upstream gives a yanked or recalled image a
+    /// fresh id (`tui-composer-edit-contracts.test.ts:763-797`, `:852-878`).
+    /// With `images` `None` an image is dropped and its badge stays as the
+    /// words it is.
+    pub(crate) fn renumber_recalled_with_images(
+        &mut self,
+        draft: &mut String,
+        next: &mut u32,
+        images: &mut Option<&mut u32>,
+    ) {
         #[cfg(test)]
         scans::note();
         if self.spans.is_empty() {
@@ -418,6 +592,46 @@ impl Entities {
         let mut cut = 0usize;
         let mut exhausted = false;
         for span in std::mem::take(&mut self.spans) {
+            // A skill token names no number: it comes back as it stands, its
+            // name and its directory unchanged.
+            if span.skill().is_some() {
+                out.push_str(&draft[cut..span.start]);
+                let start = out.len();
+                out.push_str(&draft[span.start..span.end]);
+                cut = span.end;
+                kept.push(Span {
+                    start,
+                    end: out.len(),
+                    kind: span.kind.clone(),
+                });
+                continue;
+            }
+            if let Some(image) = span.image() {
+                // One image, one badge: a fresh number for it, or none at all.
+                let Some(counter) = images.as_deref_mut() else {
+                    continue;
+                };
+                let id = *counter;
+                let Some(after) = id.checked_add(1) else {
+                    continue;
+                };
+                *counter = after;
+                let mut renamed = crate::image::Image::clone(image);
+                renamed.id = id;
+                out.push_str(&draft[cut..span.start]);
+                let start = out.len();
+                out.push_str(&crate::image::badge(id));
+                cut = span.end;
+                kept.push(Span {
+                    start,
+                    end: out.len(),
+                    kind: EntityKind::Image {
+                        token: Arc::from(crate::image::token(id)),
+                        image: Arc::new(renamed),
+                    },
+                });
+                continue;
+            }
             if exhausted {
                 continue;
             }
@@ -455,7 +669,11 @@ impl Entities {
     fn reindex(&mut self) {
         self.by_paste.clear();
         for (index, span) in self.spans.iter().enumerate() {
-            self.by_paste.insert(span.id(), index);
+            // Pastes only: an image's number is another allocator's, and the
+            // two may say the same digits.
+            if span.is_paste() {
+                self.by_paste.insert(span.id(), index);
+            }
         }
     }
 }
@@ -481,6 +699,14 @@ pub(crate) struct EntitySnapshot {
     text: Arc<str>,
     /// How many lines that text has -- the number the summary says out loud.
     lines: usize,
+    /// The image, when the run is an image's badge rather than a paste's
+    /// summary: its bytes by reference, the same ones the prompt that sent it
+    /// carried, so a recall brings the image back under a fresh number.
+    image: Option<Arc<crate::image::Image>>,
+    /// The skill token, when the run is one: a recall binds the same
+    /// directory again, as upstream's history keeps a token's span
+    /// (`composer_history.zig:110-125`).
+    skill: Option<EntityKind>,
 }
 
 impl EntitySnapshot {
@@ -490,6 +716,20 @@ impl EntitySnapshot {
             end,
             text,
             lines,
+            image: None,
+            skill: None,
+        }
+    }
+
+    /// An image's badge at `start..end`.
+    pub(crate) fn image(start: usize, end: usize, image: Arc<crate::image::Image>) -> Self {
+        Self {
+            start,
+            end,
+            text: Arc::from(crate::image::token(image.id)),
+            lines: 1,
+            image: Some(image),
+            skill: None,
         }
     }
 
@@ -682,7 +922,7 @@ mod tests {
     #[test]
     fn every_block_goes_back_where_it_stands_and_words_that_look_like_one_do_not() {
         // The whole reason a span replaces a name search: the draft below holds
-        // *three* copies of `[Pasted text #1, 1 lines]` and exactly one of them
+        // *three* copies of `[Pasted text #1, 1 line]` and exactly one of them
         // is the block.
         let (mut draft, mut entities) = one(&format!("{} see ", summary(1, 1)), 1, "y");
         let tail = format!(" {}", summary(1, 1));

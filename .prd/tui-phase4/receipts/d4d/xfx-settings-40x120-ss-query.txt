@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
+
+* settings: startup_scrollback: off (applies on next launch)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

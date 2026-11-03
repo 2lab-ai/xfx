@@ -3,12 +3,18 @@
 //! Reading is free. Changing a file and running a command are not, and this
 //! module is the only place that can say yes to either. It owns three things:
 //!
+//! - [`allowlist`]: what `/allowlist` means and says, for both shells.
 //! - [`command`]: what a command would *do*, decided from its text.
 //! - [`authority`]: the proofs a mutation rests on -- read records, content
 //!   digests, file identities -- and the [`ExecutionAuthority`] that carries
 //!   permission for exactly one prepared action.
 //! - [`policy`]: the modes, the configured rules, the session grants, the
 //!   approval channel, and the decision itself.
+//! - [`rules`]: the configured table upstream's settings carry, its pattern
+//!   language, and the verdict it gives one target.
+//! - [`session_rules`]: the exact actions one saved session was told to
+//!   allow or deny (`/permissions remember`), with ids and generations.
+//! - [`slash`]: what `/permissions` means and says, for both shells.
 //!
 //! # Why this shape
 //!
@@ -37,9 +43,16 @@
 //! agrees to start*, and nothing bounds what a started process then does
 //! (design, "Risks and controls").
 
+pub mod allowlist;
 pub mod authority;
 pub mod command;
+mod git_attributes;
+mod gitconfig;
+mod links;
 pub mod policy;
+pub mod rules;
+pub mod session_rules;
+pub mod slash;
 
 /// The permission mode is a configuration setting, and configuration owns it.
 ///
@@ -52,15 +65,19 @@ pub use authority::{
     bounded_diff_side, bounded_excerpt, non_text_summary, scalar_token, ApprovalDiff,
     AuthorityError, AuthorityLedger, CommandPlan, CommandRoute, ContentHash, ExecutionAuthority,
     FileIdentity, MutationExcerpt, MutationKind, MutationPlan, Nonce, Preimage, PreparedCommand,
-    PreparedMutation, ReadRecord, ReadTracker, TargetScope, MAX_APPROVAL_DIFF_SIDE_BYTES,
-    MAX_EXCERPT_BYTES,
+    PreparedMutation, ReadRecord, ReadTracker, TargetScope, APPROVAL_DIFF_CONTEXT_LINES,
+    MAX_APPROVAL_DIFF_SIDE_BYTES, MAX_EXCERPT_BYTES,
 };
 pub use command::{classify, CommandEffect, DeniedEffect};
+pub use gitconfig::GitEnvironment;
+pub use links::{Base as LinkBase, LinkCheck};
 pub use policy::{
-    AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse, Decided,
-    DenyCause, Grant, PermissionRules, PermissionSession, PolicyDecision, ProposedAction, Rule,
-    TtyPrompter, YOLO_WARNING,
+    AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
+    ApprovalSubject, Decided, DenyCause, Grant, LiveAuthority, LiveRules, McpCallPlan,
+    PermissionSession, PolicyDecision, ProposedAction, ReadPlan, ToolCallPlan, TtyPrompter,
+    YOLO_WARNING,
 };
+pub use rules::{ConfiguredRule, RuleAction, RuleSet};
 
 #[cfg(test)]
 mod tests {

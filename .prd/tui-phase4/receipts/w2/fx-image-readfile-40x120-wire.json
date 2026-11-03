@@ -1,0 +1,206 @@
+[
+ {
+  "request": "002-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "what is in the picture?"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "request": "003-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "what is in the picture?"
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "parts": [
+     {
+      "type": "tool-result",
+      "toolName": "read_file",
+      "output": {
+       "type": "content",
+       "value": [
+        {
+         "type": "text",
+         "text": "Saved images: image-result-read_file-82f3e9c695dc6b8d-3af1503edcc40140.txt. Use read_tool_result with this handle to load them again.\n<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "Attached image(s) from the tool result."
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "request": "004-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "what is in the picture?"
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "parts": [
+     {
+      "type": "tool-result",
+      "toolName": "read_file",
+      "output": {
+       "type": "content",
+       "value": [
+        {
+         "type": "text",
+         "text": "Saved images: image-result-read_file-82f3e9c695dc6b8d-3af1503edcc40140.txt. Use read_tool_result with this handle to load them again.\n<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "Attached image(s) from the tool result."
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "Session file evidence from previous tool execution. Re-read stale paths before relying on exact contents:\n- action=read status=success path=shot.png model_view=full tool=read_file"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "and the wide one?"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "request": "005-completion.json",
+  "messages": [
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "what is in the picture?"
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "parts": [
+     {
+      "type": "tool-result",
+      "toolName": "read_file",
+      "output": {
+       "type": "content",
+       "value": [
+        {
+         "type": "text",
+         "text": "Saved images: image-result-read_file-82f3e9c695dc6b8d-3af1503edcc40140.txt. Use read_tool_result with this handle to load them again.\n<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "Attached image(s) from the tool result."
+     },
+     {
+      "type": "file",
+      "mediaType": "image/png",
+      "base64_bytes": 100,
+      "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "Session file evidence from previous tool execution. Re-read stale paths before relying on exact contents:\n- action=read status=success path=shot.png model_view=full tool=read_file"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "parts": [
+     {
+      "type": "text",
+      "text": "and the wide one?"
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "parts": [
+     {
+      "type": "tool-result",
+      "toolName": "read_file",
+      "output": {
+       "type": "text",
+       "value": "<path>wide.png</path>\n<content>image not attached: image/png (24 bytes); the image exceeds 8000 pixels per side. Use an available image tool to save a smaller copy to a new file, then read_file the copy. If no image tool is available, ask the user before installing one.</content>"
+      }
+     }
+    ]
+   }
+  ]
+ }
+]

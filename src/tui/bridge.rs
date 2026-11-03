@@ -66,7 +66,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
-use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest};
+use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest, ApprovalSubject};
+use crate::tools::{LineChanges, Outcome, Shown};
 
 /// The most answer text one `UiEvent` may carry.
 ///
@@ -123,17 +124,34 @@ pub(crate) enum UiEvent {
     TurnStarted,
     /// A fragment of the answer, in arrival order.
     Delta(String),
-    /// A tool call was admitted and is about to run.
-    ToolStart { call_id: String, tool: String },
-    /// A tool call finished, correlated to its start by `call_id`.
+    /// A sentence the runtime adds to the answer about how it is being served
+    /// -- upstream's operational text (`TextEmission.operational`,
+    /// `orchestrator.zig:7253-7262`, `:8015-8022`): written as the answer's own
+    /// prose, ahead of whatever line the answer's presenter is still holding,
+    /// and never part of what the model said.
+    Operational(String),
+    /// A tool call was admitted and is about to run, and what the transcript
+    /// names it by.
+    ToolStart {
+        call_id: String,
+        tool: String,
+        shown: Shown,
+    },
+    /// A tool call finished, correlated to its start by `call_id`, and how it
+    /// ended for the person watching ([`Outcome`]) beside how it ended for the
+    /// model (`ok`).
     ToolResult {
         call_id: String,
         tool: String,
         ok: bool,
         detail: String,
+        outcome: Outcome,
+        changes: Option<LineChanges>,
     },
-    /// Something the session wants said that is not part of an answer.
-    Notice(String),
+    /// Something the session wants said that is not part of an answer, as a
+    /// notice whose tone and topic the side that knows what happened chose
+    /// ([`super::notice`]).
+    Notice(super::notice::Notice),
     /// What the user said when they answered an approval, on its way to the
     /// document.
     ///
@@ -143,6 +161,24 @@ pub(crate) enum UiEvent {
     /// sentence the user typed and then interrupted out of reaches neither, and
     /// a sentence that reached one reached all three.
     ToolFeedback { call_id: String, text: String },
+    /// What the session's journal recorded about a call that the document is
+    /// never shown -- its arguments, its whole result -- for the full
+    /// transcript (`super::full_transcript::Teed`).
+    ///
+    /// Its own variant rather than more fields on [`Self::ToolStart`] and
+    /// [`Self::ToolResult`]: those are the turn machine's events and carry
+    /// what the inline transcript draws; this is the journal's record, read
+    /// at the moment it is written down, and nothing but the full transcript
+    /// reads it.
+    ToolDetail {
+        call_id: String,
+        detail: super::full_transcript::Detail,
+    },
+    /// A record only the full transcript shows: one provider request the turn
+    /// settled (`super::full_transcript::Networked`), as upstream's
+    /// `full_detail_record` event carries its `* network:` notice
+    /// (`orchestrator.zig:4251-4280`).
+    FullDetail(super::notice::Notice),
     /// A question only the person at the terminal can answer (Task 17).
     ///
     /// Carries the id it was asked under
@@ -182,22 +218,41 @@ pub(crate) enum UiEvent {
         /// would go on being told to run `xfx setup`.
         missing_credential: bool,
     },
-    /// What `/model <id>` came back as, from the selector that owns the rule.
+    /// What `/model <query>` came back as, from the selector that owns the rule.
     ///
     /// Sent **after** the decision, and it carries the model in force
-    /// afterwards -- the new one when the id was applied, the standing one when
-    /// it was refused -- for the reason [`Self::ProviderSelected`] carries the
-    /// reloaded configuration's: the UI cannot know whether an id will be
-    /// taken, because the **catalog** decides and the catalog is on the runtime
-    /// thread. A band that adopted the id it submitted would put a model the
-    /// provider does not publish on its hint row and report it to the next bare
-    /// `/model`, while the turn after it was held in another one.
+    /// afterwards -- the id the query resolved to, or the standing one when it
+    /// was refused -- for the reason [`Self::ProviderSelected`] carries the
+    /// reloaded configuration's: the UI cannot know what a query becomes,
+    /// because it is resolved against the **catalog** and the catalog is on the
+    /// runtime thread. A band that adopted the query it submitted would put
+    /// `opus` on its hint row while the turn after it was held in
+    /// `anthropic/claude-opus-5`.
     ///
     /// Structured rather than a sentence: which model is in force is a fact the
     /// hint row reads, and a UI given only prose would have to parse it back
     /// out. The wording is the surface's ([`super::shell`]), exactly as the
     /// line shell's is its own (`crate::interactive`'s `apply_model`).
-    ModelAnswered { model: String, outcome: ModelAnswer },
+    ModelAnswered {
+        model: String,
+        /// The session's effort and speed switches afterwards: what the change
+        /// chose, or what it left standing -- the switches off for a query
+        /// that changed the model.
+        settings: crate::provider::effort::TurnSettings,
+        outcome: ModelAnswer,
+        /// Whether a turn was running when the change was asked for, so it
+        /// takes effect from the turn after it: upstream's `Next turn will use`
+        /// rather than `Switched to` (`announceModelSelection`,
+        /// `session_commands.zig:1266-1279`). Decided where the request was
+        /// made -- the UI knows whether a turn was running; the runtime only
+        /// ever applies a change between turns -- and carried back, so the
+        /// answer is worded for the moment it was asked in.
+        next_turn: bool,
+        /// Whether the band already said so ([`ModelChange::announced`]), in
+        /// which case this answer moves the band's own record of the model and
+        /// says nothing more about a change that was accepted.
+        announced: bool,
+    },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
     /// One event per load. The load happens on the runtime thread because it
@@ -206,18 +261,146 @@ pub(crate) enum UiEvent {
         provider: crate::provider::ProviderId,
         entries: Vec<crate::provider::model::CatalogEntry>,
     },
-    /// What a **completed** turn spent.
+    /// The provider's catalog could not be read.
     ///
-    /// Both halves optional because a provider really may publish neither
+    /// No reason rides with it: what `/model`'s menu says is upstream's
+    /// `Unable to load models.` -- or, for a failure asking again could
+    /// change, its `retry /model.` sentence, which `retry` names
+    /// (`crate::provider::model::CatalogRetry`). The selector remembers the
+    /// failure, so a `/model <id>` still applies the id as typed, and the next
+    /// `/model` asks again -- once a second has passed since `attempted`, when
+    /// the read that failed began, as upstream's model cache asks again
+    /// (`crate::provider::model::RETRY_FLOOR`).
+    CatalogUnread {
+        provider: crate::provider::ProviderId,
+        retry: Option<crate::provider::model::CatalogRetry>,
+        attempted: std::time::Instant,
+    },
+    /// What a **completed** turn's answering request read: the context
+    /// meter's numerator.
+    ///
+    /// Optional because a provider really may not publish it
     /// (`gateway::protocol::Usage::input_tokens` is an `Option`), and an absent
     /// number must stay absent: a meter that showed nought per cent for a turn
     /// nobody measured would be reporting a measurement that was never taken.
-    Usage {
-        input: Option<u64>,
-        output: Option<u64>,
+    /// What the turn wrote is not here: that is every request's, and arrives
+    /// as each one ends ([`Self::Output`]).
+    Usage { input: Option<u64> },
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]).
+    Output(crate::agent::tokens::Progress),
+    /// A request failed in a way the turn replays, and the next attempt goes
+    /// after `delay` (`crate::output::EventSink::retrying`).
+    ///
+    /// Already shaped for the row that says so ([`super::retry`]): the cause is
+    /// this crate's own word, and the diagnostic is what the server said --
+    /// which is why it is made inert like every other foreign string here.
+    Retrying {
+        cause: &'static str,
+        diagnostic: String,
+        delay: std::time::Duration,
     },
+    /// The turn took these steers -- prompts the person sent into it while it
+    /// ran -- and the model is being told them (`crate::agent::steering`): the
+    /// band writes each one's card now, at its delivery, as upstream writes a
+    /// steer's (`append_user_feedback`, `worker_runtime.zig:1233-1240`).
+    Steered { ids: Vec<u64> },
+    /// A retried request got through on `attempt`
+    /// (`crate::output::EventSink::recovered`): the row says so for a moment
+    /// ([`super::retry::Row::Recovered`]).
+    Recovered { attempt: u32 },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
+    /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
+    /// on, and the next prompt opens a new session.
+    ///
+    /// **The fence a reset waits on**, and the only reason it is sent. The work
+    /// a reset cancelled can still be reporting -- the tail of an answer, a tool
+    /// row, the turn's conclusion -- and those events belong to the
+    /// conversation the reset handed to scrollback, not to the fresh screen.
+    /// The runtime takes work in order and this is sent only once everything
+    /// before the drop has been sent, so on the UI's side everything that
+    /// arrives ahead of it is the old conversation's and everything after it is
+    /// the new one's (`super::shell`'s `draining`). Not terminal: no turn ends
+    /// here, and the drain at exit does not wait for it.
+    ///
+    /// `through` is the reset's own count, so that two resets in a row -- with
+    /// a prompt submitted between them, which the second one drops -- are told
+    /// apart: the UI drains until the fence of the **last** reset it sent.
+    /// Two resets that reached the same turn are answered by one fence, the
+    /// later count's.
+    Fresh { through: usize },
+    /// The saved sessions a `/resume` picker lists, or `None` when the store
+    /// could not be read (`Unable to load sessions.`).
+    ///
+    /// Read on the runtime thread because a listing reads one manifest per
+    /// session, and the thread holding the terminal reads no file
+    /// ([`super::session_picker`]). Not terminal: like a `/model` answer it
+    /// ends no turn.
+    Sessions(Option<super::session_picker::Listing>),
+    /// The session `/resume` asked for is now the runtime's conversation, and
+    /// this is what it replays as ([`super::hydration`]).
+    ///
+    /// Sent **after** the swap, through `send_terminal`, for the reason a
+    /// provider switch's answer is: the conversation the next prompt goes to
+    /// has already changed, and a cancellation that dropped the one event
+    /// saying so would leave the screen showing the session that was.
+    Resumed(super::hydration::Hydration),
+    /// The session `/resume` asked for could not be opened, and why. The
+    /// conversation is the one it was.
+    ResumeFailed {
+        id: String,
+        failure: super::session_picker::ResumeFailure,
+    },
+    /// A `/rename` the shell had already applied could not be written into
+    /// the session's log, for this reason (`renamed for this process but not
+    /// saved`, `app_commands.zig:3833-3846`).
+    ///
+    /// Its own event rather than a notice, because a reset's drain drops the
+    /// notices of the conversation it handed to scrollback, and a title typed
+    /// for that conversation is written just before it goes.
+    RenameUnsaved(String),
+    /// A `/rename` the shell had not said anything about yet
+    /// ([`TurnControl::Rename`]'s `announced`) is in the session's log under
+    /// this title: the shell's `renamed to "…"` (`app_commands.zig:3852-3857`)
+    /// is said now, the one notice the rename gets. Its own event for
+    /// [`Self::RenameUnsaved`]'s reason.
+    Renamed(String),
+    /// A model named the session from its first prompt (`super::titles`):
+    /// the session is called this from here on -- the window, the status
+    /// line's session segment -- and nothing is written into the document,
+    /// as upstream's poll only asks for a footer frame
+    /// (`pollSessionTitleGeneration`, `app_session_runtime.zig:3706-3779`).
+    SessionTitled(String),
+    /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
+    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
+    ///
+    /// **Not a [`Self::Notice`]**, and the one difference is the reason: a
+    /// notice the old conversation's work sends after a reset is dropped
+    /// (`super::shell`'s `drained`), and this one is never dropped, because a
+    /// file has changed -- or was refused -- by the time it is sent. An undo
+    /// typed before a `/new` that the runtime got to after it is still an undo
+    /// that happened, and one nobody was told of is a file that changed
+    /// invisibly.
+    Undone(super::notice::Notice),
+    /// A `/workspace` change reached the runtime: what it says, and -- when it
+    /// happened -- the saved directories now in force, for the picker and the
+    /// `@` index the band keeps. **Terminal**, like every answer to a piece of
+    /// work.
+    ///
+    /// Structured rather than a notice alone for the reason [`Self::Renamed`]
+    /// is: the band's copy of the directories changes only for a change that
+    /// happened, and a change a Ctrl-C dropped from the queue before it ran is
+    /// not one.
+    Workspace {
+        notice: super::notice::Notice,
+        access: Option<crate::workspace::access::WorkspaceAccess>,
+    },
+    /// Where a compaction is: begun, sending its notes request, or over
+    /// ([`super::compaction`]). The band's row only -- upstream writes
+    /// nothing of a compaction into the transcript. Not terminal: an
+    /// automatic one ends inside a turn, and a manual one ends no turn.
+    Compaction(super::compaction::Update),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -233,9 +416,9 @@ pub(crate) enum ModelAnswer {
     /// Applied, and recorded where a resumed session will read it.
     ///
     /// `unverified` is the reason the catalog could not confirm the id -- a
-    /// provider that advertises none, or a load that failed -- and `None` when
-    /// it did. It is not a refusal: a daemon that is down must not stop an
-    /// operator changing a preference.
+    /// provider with no catalog to ask, or a load that failed -- and `None`
+    /// when it did. It is not a refusal, and the band says nothing of it:
+    /// upstream applies an id it could not check without a word.
     Applied { unverified: Option<String> },
     /// Already the model in force. Nothing was written down.
     Unchanged,
@@ -264,24 +447,58 @@ impl UiEvent {
             // No text at all: what it carries is the fact that it arrived.
             Self::TurnStarted => Self::TurnStarted,
             Self::Delta(text) => Self::Delta(inert_owned(text)),
+            Self::Operational(text) => Self::Operational(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
             // the provider's half is exactly why they are not exempt.
-            Self::ToolStart { call_id, tool } => Self::ToolStart {
+            // The target is the model's own argument -- a path, a pattern, a
+            // command -- and is about to be painted into a row, so it is the
+            // least exempt string here. The verbs are this crate's `'static`
+            // words and carry nothing to make inert.
+            Self::ToolStart {
+                call_id,
+                tool,
+                shown,
+            } => Self::ToolStart {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
+                shown: Shown {
+                    presentation: shown.presentation,
+                    target: shown.target.map(inert_owned),
+                },
             },
             Self::ToolResult {
                 call_id,
                 tool,
                 ok,
                 detail,
+                outcome,
+                changes,
             } => Self::ToolResult {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
                 ok,
                 detail: inert_owned(detail),
+                outcome,
+                changes,
             },
-            Self::Notice(text) => Self::Notice(inert_owned(text)),
+            // The topic is this crate's word and the body may quote a file, a
+            // daemon or a settings layer; both are made inert, because a rule
+            // that exempted one field would be a rule about which field a
+            // future sender puts foreign text in.
+            Self::Notice(notice) => Self::Notice(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
+            // The body quotes a path, which is a file's name and therefore
+            // anybody's; it arrives spelled out already
+            // (`crate::tools::undo::display_path`), and the rule here is about
+            // the channel rather than about whoever built the value.
+            Self::Undone(notice) => Self::Undone(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
             // **The most foreign text on this channel.** It is typed at a
             // terminal by a person, so it is the one string here that a user
             // can put an `ESC` into on purpose -- and it is about to be painted
@@ -291,6 +508,19 @@ impl UiEvent {
                 call_id: inert_owned(call_id),
                 text: inert_owned(text),
             },
+            // A call's arguments and a tool's output are the model's and the
+            // tool's, and are about to be laid out into rows.
+            Self::ToolDetail { call_id, detail } => Self::ToolDetail {
+                call_id: inert_owned(call_id),
+                detail: detail.made_inert(),
+            },
+            // The model id is a settings file's or a catalog's, as foreign as
+            // the notice's own body.
+            Self::FullDetail(notice) => Self::FullDetail(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,
             // and is therefore exactly as foreign as a delta.
@@ -307,8 +537,29 @@ impl UiEvent {
             // composer, and the reason quotes the id it is about -- so both are
             // as foreign as a delta, and neither is exempt for having been
             // decided by xfx's own selector.
-            Self::ModelAnswered { model, outcome } => Self::ModelAnswered {
+            Self::ModelAnswered {
+                model,
+                settings,
+                outcome,
+                next_turn,
+                announced,
+            } => Self::ModelAnswered {
+                next_turn,
+                announced,
                 model: inert_owned(model),
+                // A level's name is limited to a word upstream would parse
+                // when it is read, but it comes off a settings file or a
+                // catalog all the same, and the rule here is about the
+                // channel rather than about whoever built the value.
+                settings: crate::provider::effort::TurnSettings {
+                    effort: match settings.effort {
+                        crate::provider::effort::Effort::Named(name) => {
+                            crate::provider::effort::Effort::Named(inert_owned(name))
+                        }
+                        auto => auto,
+                    },
+                    ..settings
+                },
                 outcome: match outcome {
                     ModelAnswer::Applied { unverified } => ModelAnswer::Applied {
                         unverified: unverified.map(inert_owned),
@@ -333,11 +584,28 @@ impl UiEvent {
                         name: entry.name.map(inert_owned),
                         efforts: entry.efforts.into_iter().map(inert_owned).collect(),
                         max_context: entry.max_context,
+                        facts: crate::provider::model::ModelFacts {
+                            owned_by: entry.facts.owned_by.map(inert_owned),
+                            ..entry.facts
+                        },
                     })
                     .collect(),
             },
-            // Two numbers. There is nothing here a terminal can be made to obey.
-            Self::Usage { input, output } => Self::Usage { input, output },
+            // A provider tag, a category and an instant. Nothing here is text.
+            Self::CatalogUnread {
+                provider,
+                retry,
+                attempted,
+            } => Self::CatalogUnread {
+                provider,
+                retry,
+                attempted,
+            },
+            // Numbers. There is nothing here a terminal can be made to obey.
+            Self::Usage { input } => Self::Usage { input },
+            Self::Output(progress) => Self::Output(progress),
+            // A count. There is nothing here a terminal can be made to obey.
+            Self::Fresh { through } => Self::Fresh { through },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -365,11 +633,57 @@ impl UiEvent {
                     tool: asked.request.tool,
                     target: inert_owned(asked.request.target),
                     summary: inert_owned(asked.request.summary),
-                    always_scope: inert_owned(asked.request.always_scope),
+                    // What `2` would grant quotes the command, so for a command
+                    // it is spelled as the command is (below): the panel shows
+                    // one command in one spelling, above the choices and under
+                    // them. Everything else in the sentence is printable text
+                    // the spelling leaves as it is.
+                    always_scope: if matches!(
+                        asked.request.subject,
+                        ApprovalSubject::Command { .. }
+                    ) {
+                        super::approval_view::command_text(&asked.request.always_scope)
+                    } else {
+                        inert_owned(asked.request.always_scope)
+                    },
+                    // Where the window sits is two numbers this crate counted,
+                    // so it crosses as it was.
                     diff: asked.request.diff.map(|diff| ApprovalDiff {
                         before: inert_owned(diff.before),
                         after: inert_owned(diff.after),
+                        first_line: diff.first_line,
+                        lines_below: diff.lines_below,
                     }),
+                    // The path a review lays out on rows of its own: the same
+                    // quotation as the summary, so the same policy.
+                    //
+                    // **The command is spelled rather than blanked**, as
+                    // upstream's approval spells it
+                    // (`super::approval_view::command_text`,
+                    // `approval_ui.zig:228-247`): an `ESC` is the four
+                    // characters `\x1b`, a tab `\x09`, a `CR` `\x0d`, a C1
+                    // control its `\u{…}`. The channel's promise holds, and
+                    // more strictly than `inert`'s: every character `inert`
+                    // would blank is spelled, every token is printable ASCII,
+                    // and the carriage return `inert` keeps is spelled too --
+                    // only the line break crosses as itself. What changes is
+                    // what the reviewer reads: a command with an escape
+                    // sequence in it shows the sequence, where a space would
+                    // show a command that is not the one being asked about.
+                    // The command is read for display only, by
+                    // `super::approval_view`'s `subject_rows`, which spells it
+                    // again -- and a spelling is its own answer, so twice is
+                    // once.
+                    subject: match asked.request.subject {
+                        ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
+                        ApprovalSubject::Call(argument) => {
+                            ApprovalSubject::Call(inert_owned(argument))
+                        }
+                        ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
+                            command: super::approval_view::command_text(&command),
+                            cwd: inert_owned(cwd),
+                        },
+                    },
                 },
             }),
             // **A belt on an encoded payload.** `crate::tools::question`'s
@@ -398,11 +712,170 @@ impl UiEvent {
                     })
                     .collect(),
             }),
+            // The cause is this crate's word; the diagnostic quotes a server.
+            Self::Retrying {
+                cause,
+                diagnostic,
+                delay,
+            } => Self::Retrying {
+                cause,
+                diagnostic: inert_owned(diagnostic),
+                delay,
+            },
+            // A count. There is nothing here a terminal can be made to obey.
+            Self::Recovered { attempt } => Self::Recovered { attempt },
+            // Numbers the band gave out.
+            Self::Steered { ids } => Self::Steered { ids },
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
+            // Every title and every path a session store holds: a title is a
+            // prompt somebody typed, or a `/rename` of one, and a path is a
+            // directory's own name.
+            Self::Sessions(listing) => {
+                Self::Sessions(listing.map(|listing| super::session_picker::Listing {
+                    current: listing.current.into_iter().map(inert_session).collect(),
+                    all: listing.all.into_iter().map(inert_session).collect(),
+                    now_ms: listing.now_ms,
+                }))
+            }
+            // A whole conversation read back off a disk ([`inert_hydration`]).
+            Self::Resumed(hydration) => Self::Resumed(inert_hydration(hydration)),
+            // The id is the store's own name for a directory, read back off a
+            // listing; the failure is this crate's word.
+            Self::ResumeFailed { id, failure } => Self::ResumeFailed {
+                id: inert_owned(id),
+                failure,
+            },
+            // The reason quotes a path and an I/O error, which are the
+            // filesystem's words.
+            Self::RenameUnsaved(problem) => Self::RenameUnsaved(inert_owned(problem)),
+            // The title passed the store's own validation, which refuses a
+            // control character; the same policy anyway, as every text does.
+            Self::Renamed(title) => Self::Renamed(inert_owned(title)),
+            // A model's words, cleaned of controls already
+            // (`super::titles::sanitize`); not exempt.
+            Self::SessionTitled(title) => Self::SessionTitled(inert_owned(title)),
+            // The notice quotes paths, which are the filesystem's words. The
+            // directories travel as paths rather than text: the picker spells
+            // each one through `access::terminal_safe` when it paints it,
+            // which writes a control character out as its code point -- a
+            // stronger rule than this one, and the one upstream paints a path
+            // by (`encodeTerminalSafe`).
+            Self::Workspace { notice, access } => Self::Workspace {
+                notice: super::notice::Notice {
+                    tone: notice.tone,
+                    topic: inert_owned(notice.topic),
+                    body: inert_owned(notice.body),
+                },
+                access,
+            },
+            // No text: phases and outcomes this crate names.
+            Self::Compaction(update) => Self::Compaction(update),
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
+    }
+}
+
+/// A saved session's replay with its text made inert -- **the one step both
+/// ways a session is resumed go through**: the picker's, which crosses the
+/// channel as [`UiEvent::Resumed`], and the launch's, which never crosses it
+/// (`super::worker::Resumption::hydration`, built before the terminal is
+/// taken).
+///
+/// A whole conversation read back off a disk: every prompt, every answer,
+/// every argument a model gave a tool, every result its full-transcript
+/// record shows. A log is file input -- anyone who can write the file can put
+/// an escape in it -- so none of it reaches the terminal as written. The line
+/// breaks survive, as a delta's do: a prompt's and an answer's rows are made
+/// of them.
+pub(crate) fn inert_hydration(
+    hydration: super::hydration::Hydration,
+) -> super::hydration::Hydration {
+    super::hydration::Hydration {
+        title: hydration.title.map(inert_owned),
+        turns: hydration
+            .turns
+            .into_iter()
+            .map(|turn| super::hydration::HydratedTurn {
+                // Image numbers and the paths the session's own store gave
+                // them, which nothing paints.
+                images: turn.images,
+                sent: inert_owned(turn.sent),
+                steps: turn.steps.into_iter().map(inert_step).collect(),
+                ending: turn.ending,
+                started_at_ms: turn.started_at_ms,
+                concluded_at_ms: turn.concluded_at_ms,
+                details: turn
+                    .details
+                    .into_iter()
+                    .map(|(id, detail)| (inert_owned(id), detail.made_inert()))
+                    .collect(),
+            })
+            .collect(),
+        model: hydration.model.map(inert_owned),
+        // A level's name is a word upstream would parse, read off the
+        // log all the same.
+        settings: hydration
+            .settings
+            .map(|settings| crate::provider::effort::TurnSettings {
+                effort: match settings.effort {
+                    crate::provider::effort::Effort::Named(name) => {
+                        crate::provider::effort::Effort::Named(inert_owned(name))
+                    }
+                    auto => auto,
+                },
+                ..settings
+            }),
+        // A number.
+        next_image: hydration.next_image,
+        keeps_fast_binding: hydration.keeps_fast_binding,
+        // Enums this crate wrote, and a yes or a no.
+        provider: hydration.provider,
+        unauthenticated: hydration.unauthenticated,
+        model_replaced: hydration.model_replaced,
+    }
+}
+
+/// One listed session with its text made inert.
+fn inert_session(
+    session: super::session_picker::ListedSession,
+) -> super::session_picker::ListedSession {
+    super::session_picker::ListedSession {
+        id: inert_owned(session.id),
+        title: session.title.map(inert_owned),
+        workspace: inert_owned(session.workspace),
+        updated_at_ms: session.updated_at_ms,
+        turns: session.turns,
+    }
+}
+
+/// One replayed step with its text made inert, as the live event it stands
+/// for would have been.
+fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::HydratedStep {
+    use super::hydration::HydratedStep;
+    match step {
+        HydratedStep::Text(text) => HydratedStep::Text(inert_owned(text)),
+        HydratedStep::ToolStart { id, shown } => HydratedStep::ToolStart {
+            id: inert_owned(id),
+            shown: Shown {
+                presentation: shown.presentation,
+                target: shown.target.map(inert_owned),
+            },
+        },
+        HydratedStep::ToolResult {
+            id,
+            ok,
+            outcome,
+            changes,
+        } => HydratedStep::ToolResult {
+            id: inert_owned(id),
+            ok,
+            outcome,
+            changes,
+        },
+        HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
+        HydratedStep::Steer(text) => HydratedStep::Steer(inert_owned(text)),
     }
 }
 
@@ -460,8 +933,174 @@ pub(crate) enum TurnControl {
     /// stop, which is the one they most certainly meant. Work submitted through
     /// this count is dropped; anything past it is a new intention and runs.
     Cancel { through: usize },
+    /// `/model`'s change of model or effort ([`ModelChange`]).
+    ///
+    /// **A control message rather than work**, for the reason [`Self::Reset`]
+    /// is one: as work it took a place in the queue, so a model chosen while a
+    /// turn ran and a prompt waited was refused as busy -- and upstream
+    /// applies it at once (`setResolvedModel`, `session_commands.zig:1168-1190`)
+    /// and says `Next turn will use` while a turn is still streaming. Here it
+    /// costs no place and is never refused: between turns it is applied when
+    /// it is read, and while work runs it is put aside -- by the turn loop, or
+    /// by a prompter parked on a question, which **does not** answer the
+    /// question with it (`super::approval::ControlChannel::defer`) -- and
+    /// applied the moment that work has said its last word, before anything
+    /// queued behind it is taken. An interrupt does not drop it: it is not a
+    /// piece of work, and the turn after the interrupt is the one it was for.
+    Model(ModelChange),
+    /// `/fast` and `/ultrafast on|off` ([`SpeedChange`]): a control message
+    /// for [`Self::Model`]'s reasons, put aside while work runs and applied
+    /// between turns in the order it came with any model change.
+    Speed(SpeedChange),
+    /// `/undo` ([`crate::tools::mutate::undo_through`]), answered with
+    /// [`UiEvent::Undone`].
+    ///
+    /// **A control message rather than work**, for the reason [`Self::Model`]
+    /// is one: as work it would take a place in the queue and be refused as
+    /// busy behind a waiting prompt, and upstream never refuses it
+    /// (`commandUndoLast`, `app_commands.zig:1242-1290`, runs from the
+    /// command handler whatever the worker is doing). Between turns it is done
+    /// when it is read. While work runs it is put aside and done the moment
+    /// that work has said its last word (`super::approval::ControlChannel::defer_undo`)
+    /// -- **not at once, as upstream's is**: the files a running turn is
+    /// changing are the runtime thread's to change, and an undo there,
+    /// between one call's commit and the next call's read, is exactly the
+    /// interleaving a single thread exists to rule out.
+    ///
+    /// **What it takes back is decided at the keystroke all the same.**
+    /// `through` is the journal's position when the key was pressed
+    /// ([`crate::tools::undo::Mark::now`], read on the UI thread), and the
+    /// undo takes back the newest change at or before it -- the one upstream's
+    /// would have -- whatever the turn has committed since. A later change to
+    /// the same file makes it `Could not undo` rather than a restore that
+    /// discards that change.
+    Undo { through: crate::tools::undo::Mark },
+    /// `/rename <title>`, the title already validated
+    /// (`crate::session::validate_title`): the shell has titled the window, as
+    /// upstream caches the title before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
+    /// conversation's session -- at once between turns; while work runs, put
+    /// aside like [`Self::Undo`] (`super::approval::ControlChannel::defer_rename`)
+    /// and written the moment that work has said its last word, the log being
+    /// the running turn's until then.
+    ///
+    /// Upstream says one thing per rename, what became of the write
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`). `announced` is
+    /// whether the shell has said `renamed to "…"` already -- it does while
+    /// work runs, where upstream's notice comes at once and this write
+    /// cannot -- and the runtime answers a write that worked only when it has
+    /// not ([`UiEvent::Renamed`]), and one that did not always
+    /// ([`UiEvent::RenameUnsaved`]).
+    ///
+    /// **A control message rather than work**, for [`Self::Undo`]'s reasons,
+    /// and for one of its own: it is ordered with [`Self::Reset`] on one
+    /// channel, so a title typed before a `/new` is the session the reset
+    /// drops and one typed after it is the session the reset starts.
+    Rename { title: String, announced: bool },
+    /// `/model`'s menu or its column wants the configured provider's model
+    /// catalog: told to the UI as it is when the runtime holds it, and read
+    /// otherwise -- read **again** after a read that failed, which is the
+    /// `retry /model.` the menu says -- with the answer told the moment it
+    /// arrives ([`UiEvent::CatalogLoaded`], [`UiEvent::CatalogUnread`]).
+    ///
+    /// **A control message rather than work**, because upstream's is not
+    /// queued behind anything: opening the menu starts the load on a thread of
+    /// its own at once, a turn streaming or not (`ensureModelCache` from
+    /// `openModelBrowseCatalog`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_input_runtime.zig:2346-2349`; `startWarmup`,
+    /// `src/core/app/model_cache_runtime.zig:321-349`), and the open menu is
+    /// refreshed when it lands (`pollLoadTransition`, `:549-557`). The read
+    /// is a task beside whatever the runtime is doing
+    /// ([`crate::provider::model::CatalogReader`]), so the socket is still
+    /// not the UI thread's.
+    Catalog,
+    /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
+    /// then the conversation is dropped -- the recorder closed, the tool
+    /// context's grants and read proofs with it -- so the next prompt opens a
+    /// new session. The runtime says so with [`UiEvent::Fresh`].
+    ///
+    /// **A control message rather than work**, which is upstream's "cancel
+    /// first, then apply once the worker is idle"
+    /// (`decideLiveSessionTransition`, `app_session_runtime.zig:137-170`) in
+    /// this channel's terms. As work it would take a place in the queue, so a
+    /// reset typed behind a turn and a waiting prompt would have nowhere to go
+    /// -- and a prompt typed straight after one would be refused while the
+    /// cancelled turn was still unwinding. Here it is never refused and costs
+    /// no place: the turn it reaches is stopped, the drop is made the moment
+    /// that turn has sent its conclusion and before anything else is taken,
+    /// and a prompt submitted after it -- past `through` -- runs in the new
+    /// conversation.
+    Reset { through: usize },
     /// Stop this turn and end the session.
     Shutdown,
+}
+
+/// One `/model` change, as the band asks for it ([`TurnControl::Model`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModelChange {
+    /// The model: the id itself when [`Self::announced`] is set -- a row the
+    /// picker or the menu named, an id the explicit form spelled, a query the
+    /// band resolved against the rows it holds
+    /// (`crate::provider::model::resolve_in_order`) -- and otherwise the query
+    /// as typed, which the selector resolves against the catalog it holds or
+    /// loads (`super::worker`'s `change_model`).
+    pub(crate) name: String,
+    /// The reasoning effort chosen with it, by the effort column or the
+    /// explicit form, for a model the catalog lists levels for. `None` leaves
+    /// the session's effort as it is -- upstream's router form changes only
+    /// the model (`setResolvedModel`), and a model with no levels takes none
+    /// (`selectModelFromPicker`, `session_commands.zig:886-915`).
+    pub(crate) effort: Option<crate::provider::effort::Effort>,
+    /// Chosen in a picker -- the column, the menu or the explicit form --
+    /// rather than typed as a query: what upstream's settings line names the
+    /// change (`model picker` against `model`, `session_commands.zig:914`, `:1187`).
+    pub(crate) picker: bool,
+    /// The band has already said `Switched to` or `Next turn will use` for
+    /// it, because it knew the id. Upstream says so the moment the change is
+    /// made; a change the band could not resolve is announced by the runtime's
+    /// answer instead.
+    pub(crate) announced: bool,
+    /// A turn was running, or waiting to, when it was asked for.
+    pub(crate) next_turn: bool,
+    /// The speed the picker's third column or the explicit form's third word
+    /// chose. `None` from a picker is upstream's "the Fast mode the session is
+    /// in, no Ultra" (`selectModelFromPicker(…, app.fast_mode, false)`); a
+    /// query ignores it, and turns both off when the model changes
+    /// ([`crate::provider::effort::TurnSettings::after_query`]).
+    pub(crate) speed: Option<crate::provider::effort::Speed>,
+    /// The provider the change was chosen under. A change put aside while a
+    /// `/provider` switch ran is applied to **that** provider's preference
+    /// and not to the provider the switch left in force (`super::worker`'s
+    /// `change_model`).
+    pub(crate) provider: crate::provider::ProviderId,
+    /// The effort alone: `/settings`' `Reasoning effort` row, which keeps the
+    /// model and leaves the runtime nothing to select, load or write
+    /// (`selectEffortFromSettings`, `session_commands.zig:882-884`) -- the band
+    /// has written `effort` itself and said so. Carried as a model change so
+    /// it waits behind a running turn exactly as one does, and keeps its place
+    /// among them.
+    pub(crate) effort_only: bool,
+}
+
+/// `/fast` or `/ultrafast on|off`, as the band decided it
+/// ([`TurnControl::Speed`]).
+///
+/// **The switches as they are to be**, not the command: the decision --
+/// whether the model offers the mode, which switch the other turns off -- is
+/// made on the band, where the catalog rows and the announcement are, by the
+/// one rule ([`crate::provider::effort::TurnSettings::after_fast`] and
+/// [`crate::provider::effort::TurnSettings::after_ultrafast`]). The runtime
+/// applies, records and saves it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SpeedChange {
+    pub(crate) fast: bool,
+    pub(crate) ultrafast: bool,
+    /// Upstream's label for the write (`fast` or `ultrafast`,
+    /// `session_commands.zig:790`, `:849`), which is what a failed save says.
+    pub(crate) topic: &'static str,
+    /// The provider the band decided it under: a change a `/provider` switch
+    /// overtook is dropped, because the switches go off with the model.
+    pub(crate) provider: crate::provider::ProviderId,
 }
 
 /// What the UI asks the runtime to do next.
@@ -480,30 +1119,51 @@ pub(crate) enum TurnControl {
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
     Submit(String),
-    /// Change the model, with the shell's own `/model` meaning.
-    Model(String),
+    /// Run a turn on this prompt and the images its `[Image #N]` name, in the
+    /// order they were attached.
+    ///
+    /// A variant of its own rather than a field on [`Self::Submit`]: a prompt
+    /// with nothing attached is the case every other surface and test sends,
+    /// and it stays the one-word value it always was.
+    Attached {
+        prompt: String,
+        images: Vec<crate::image::Image>,
+        /// The skills its `$` tokens bound, each to the exact directory the
+        /// composer chose (`crate::skills::Binding`), in the order they stand.
+        skills: Vec<crate::skills::Binding>,
+    },
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
-    /// A piece of *work* for the same reason `Model` and `New` are, and more
-    /// so: it performs network I/O, it writes a file, and it replaces the
+    /// A piece of *work* rather than a control message like `/model`'s
+    /// ([`TurnControl::Model`]): it performs network I/O, it writes a file, and it replaces the
     /// configuration, the bundle and the conversation together. None of that may
     /// happen under a running turn, and none of it may happen on the thread
     /// holding the terminal.
     Setup(crate::provider::ProviderId),
-    /// Load the configured provider's model catalog.
+    /// List the saved sessions a `/resume` picker offers
+    /// ([`UiEvent::Sessions`]). Work because it reads the store, which the
+    /// thread holding the terminal does not.
+    Sessions,
+    /// Make the saved session with this id the conversation
+    /// ([`UiEvent::Resumed`], or [`UiEvent::ResumeFailed`]). Work rather than
+    /// control because it must happen *between* turns: the picker that asks
+    /// for it is refused while one runs, and the conversation it replaces is
+    /// one a turn would be writing into.
+    Resume(String),
+    /// Make one `/workspace` change ([`UiEvent::Workspace`]).
     ///
-    /// Work rather than a control message because it opens a socket. The UI
-    /// thread sits in `pselect(2)` holding the terminal and may not wait for a
-    /// daemon that is not answering.
-    Catalog,
-    /// Drop the conversation, with the shell's own `/new` meaning: the next
-    /// prompt opens a fresh session.
-    ///
-    /// A piece of *work* rather than a control message, and for the reason the
-    /// other two are: the conversation belongs to the runtime thread, and `/new`
-    /// has to take effect between turns rather than in the middle of the one
-    /// that is writing into it.
-    New,
+    /// Work rather than control because it changes the scope a turn's tools
+    /// run in, so it must land **between** turns -- upstream refuses it while
+    /// anything runs or waits (`tryBeginWorkspaceMutation`,
+    /// `app_commands.zig:219-222`), and so does the band before it sends one --
+    /// and because a prompt typed after it must run in the scope it made: the
+    /// queue is what orders the two. It writes the profile, which the thread
+    /// holding the terminal does not wait on.
+    Workspace(crate::workspace::access::Action),
+    /// `/compact`: compact the conversation, between turns. Work because it
+    /// asks the model for notes and writes the session's log; answered with
+    /// [`UiEvent::Compaction`] updates and nothing in the transcript.
+    Compact,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport
@@ -532,6 +1192,15 @@ impl Cancellation {
     /// A handle on the session's root, for a producer that has to await it.
     pub(crate) fn token(&self) -> CancellationToken {
         self.root.clone()
+    }
+
+    /// `gateway`'s flag, for a conversation bound before any turn has begun.
+    ///
+    /// The same flag every [`Cancellation::turn`] hands its turn, so a tool
+    /// context made from it is stopped by the same keystroke as one
+    /// `worker`'s `ready` made from a turn's.
+    pub(crate) fn mirror(&self) -> CancelToken {
+        self.mirror.clone()
     }
 
     /// Ends the session's work: the mirror first, then the token.
@@ -815,11 +1484,18 @@ pub(crate) struct UiEventSink {
     /// This turn's token, not the session's: a cancelled turn stops streaming
     /// into a session that is still alive.
     cancel: CancellationToken,
+    /// The retry the next attempt is answering, for the records of that
+    /// attempt and of the recovery ([`super::retry::Retried`]).
+    retried: Option<super::retry::Retried>,
 }
 
 impl UiEventSink {
     pub(crate) fn new(events: Sender<UiEvent>, cancel: CancellationToken) -> Self {
-        Self { events, cancel }
+        Self {
+            events,
+            cancel,
+            retried: None,
+        }
     }
 }
 
@@ -839,20 +1515,29 @@ fn translate(event: &Event) -> Option<UiEvent> {
         // An empty delta is a permit and a frame spent on nothing.
         Event::AssistantDelta { text } if text.is_empty() => None,
         Event::AssistantDelta { text } => Some(UiEvent::Delta(text.clone())),
-        Event::ToolStart { call_id, tool } => Some(UiEvent::ToolStart {
+        Event::ToolStart {
+            call_id,
+            tool,
+            shown,
+        } => Some(UiEvent::ToolStart {
             call_id: call_id.clone(),
             tool: tool.clone(),
+            shown: shown.clone(),
         }),
         Event::ToolResult {
             call_id,
             tool,
             ok,
             detail,
+            outcome,
+            changes,
         } => Some(UiEvent::ToolResult {
             call_id: call_id.clone(),
             tool: tool.clone(),
             ok: *ok,
             detail: detail.clone(),
+            outcome: *outcome,
+            changes: *changes,
         }),
         // Carried through, unlike `Final` and `Error`: nothing else on this
         // channel says it, and the worker's `TurnEnded` is about the turn
@@ -906,6 +1591,69 @@ impl EventSink for UiEventSink {
             }
             event => self.send(event),
         }
+    }
+
+    /// The row that counts down to the next attempt, told as the event it is
+    /// drawn from.
+    ///
+    /// Through the same permit every other event waits for, and its failure
+    /// dropped: a turn that was cancelled or a UI that is gone is told so by
+    /// the wait and the next emit, and this hook changes nothing about either
+    /// ([`EventSink::retrying`]).
+    ///
+    /// And the full transcript's `* recovery:` record of it, through the same
+    /// path as every other full-detail record ([`UiEvent::FullDetail`]), as
+    /// upstream records each recovery it shows (`recordRouteRecoveryNotice`,
+    /// `app_worker_runtime.zig:92-133`).
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        attempt: u32,
+        limit: u32,
+        delay: std::time::Duration,
+    ) {
+        let _ = self.send(UiEvent::Retrying {
+            cause: super::retry::cause(error),
+            diagnostic: super::retry::diagnostic(error),
+            delay,
+        });
+        let retried = super::retry::Retried::of(error, delay);
+        let _ = self.send(UiEvent::FullDetail(retried.record(attempt, limit)));
+        self.retried = Some(retried);
+    }
+
+    /// The record of the attempt the retry above was waiting for, as it
+    /// starts: upstream's second `! recovery:` for the same retry.
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        if let Some(retried) = &self.retried {
+            let record = retried.record(attempt, limit);
+            let _ = self.send(UiEvent::FullDetail(record));
+        }
+    }
+
+    /// Which of the band's steers the turn took.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = self.send(UiEvent::Steered {
+            ids: steers.iter().map(|steer| steer.id).collect(),
+        });
+    }
+
+    /// The row that says an attempt got through after a retry, and its
+    /// `✓ recovery:` record, in upstream's order: the status is set, then
+    /// recorded (`app_worker_runtime.zig:1121-1129`).
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        if self.retried.take().is_some() {
+            let _ = self.send(UiEvent::Recovered { attempt });
+            let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
+        }
+    }
+
+    /// The turn's out, for the activity row and the summary under the answer,
+    /// through the same permit as the deltas it is counted beside -- so it
+    /// arrives after the text of the request it settles and before the next
+    /// one's. Its failure dropped, as the hook's contract says.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = self.send(UiEvent::Output(progress));
     }
 }
 
@@ -985,6 +1733,90 @@ mod tests {
             parked.recv_timeout(Duration::from_secs(5)),
             Ok(5),
             "the wakeup that arrived before the park was slept through"
+        );
+    }
+
+    #[test]
+    fn a_retry_is_the_rows_event_and_then_the_full_transcripts_recovery_record() {
+        // The row counts down on the band; the record is what the full
+        // transcript keeps of it (`recordRouteRecoveryNotice`,
+        // `app_worker_runtime.zig:92-133`), sent through the same path as F5's
+        // other records.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(UI_EVENTS);
+        let mut sink = UiEventSink::new(tx, CancellationToken::new());
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 503,
+            body: String::new(),
+            retryable: true,
+            retry_after: None,
+        };
+        sink.retrying(&error, 1, 3, Duration::from_secs(1));
+        drop(sink);
+        assert!(matches!(
+            rx.blocking_recv(),
+            Some(UiEvent::Retrying {
+                cause: "Provider unavailable",
+                ..
+            })
+        ));
+        let Some(UiEvent::FullDetail(record)) = rx.blocking_recv() else {
+            panic!("no recovery record followed the row");
+        };
+        assert_eq!(record.topic, "recovery");
+        assert_eq!(
+            record.body,
+            "\u{26a0} Provider unavailable \u{b7} HTTP 503 \u{b7} retrying request in 1s\n\
+             kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+             retry delay: 1s \u{b7} diagnostic: HTTP 503"
+        );
+        assert_eq!(rx.blocking_recv(), None);
+    }
+
+    #[test]
+    fn the_attempt_after_a_retry_and_its_recovery_are_recorded_too() {
+        // Upstream's sequence (`fx-interrupt-recovery-80x120-full`): the
+        // retry's record, the next attempt's as it starts -- same cause, delay
+        // and diagnostic, its own number -- then `✓ recovery:`. A turn that
+        // never retried records neither.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(UI_EVENTS);
+        let mut sink = UiEventSink::new(tx, CancellationToken::new());
+        sink.retry_started(2, 3);
+        sink.recovered(2, 3);
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 500,
+            body: String::new(),
+            retryable: true,
+            retry_after: None,
+        };
+        sink.retrying(&error, 1, 3, Duration::from_millis(250));
+        sink.retry_started(2, 3);
+        sink.recovered(2, 3);
+        drop(sink);
+        let mut records = Vec::new();
+        let mut recovered = Vec::new();
+        while let Some(event) = rx.blocking_recv() {
+            match event {
+                UiEvent::FullDetail(record) => records.push(record.body),
+                // The row's own event, once, for the retried step only.
+                UiEvent::Recovered { attempt } => recovered.push(attempt),
+                _ => {}
+            }
+        }
+        assert_eq!(recovered, [2]);
+        assert_eq!(
+            records,
+            [
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request\n\
+                 kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+                 diagnostic: HTTP 500",
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request\n\
+                 kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 2/3 \u{b7} \
+                 diagnostic: HTTP 500",
+                "\u{2713} recovered \u{b7} succeeded on attempt 2\nkind: auto_recovered \u{b7} \
+                 attempt: 2/3",
+            ]
         );
     }
 
@@ -1301,14 +2133,17 @@ mod tests {
             UiEvent::ToolStart {
                 call_id: "1".into(),
                 tool: "read".into(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             UiEvent::ToolResult {
                 call_id: "1".into(),
                 tool: "read".into(),
                 ok: true,
                 detail: "done".into(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
-            UiEvent::Notice("n".into()),
+            UiEvent::Notice(super::super::notice::Notice::neutral("", "n")),
             // A turn beginning is the *opposite* of one ending, and a drain
             // loop that stopped at it would leave before the answer.
             UiEvent::TurnStarted,
@@ -1438,14 +2273,22 @@ mod tests {
             UiEvent::ToolStart {
                 call_id: "\x1b[2Jc".into(),
                 tool: "\x1b[2Jt".into(),
+                // The model's own argument, which is what the row will quote.
+                shown: crate::tools::terminal::TERMINAL
+                    .shown(&serde_json::json!({"action": "exec", "command": "\x1b[2Jls"})),
             },
             UiEvent::ToolResult {
                 call_id: "\x1b[2Jc".into(),
                 tool: "\x1b[2Jt".into(),
                 ok: false,
                 detail: "\x1b[2Jd".into(),
+                outcome: Outcome::Denied,
+                changes: None,
             },
-            UiEvent::Notice("\x1b]0;retitled\x07".into()),
+            UiEvent::Notice(super::super::notice::Notice::warning(
+                "\x1b[2Jtopic",
+                "\x1b]0;retitled\x07",
+            )),
             UiEvent::Approval(super::super::approval::ApprovalAsked {
                 id: super::super::approval_readiness::ApprovalId(4),
                 request: ApprovalRequest {
@@ -1461,7 +2304,13 @@ mod tests {
                     diff: Some(ApprovalDiff {
                         before: "\x1b[2Jold".into(),
                         after: "\x1b]0;new\x07".into(),
+                        first_line: 1,
+                        lines_below: 0,
                     }),
+                    subject: ApprovalSubject::Command {
+                        command: "\x1b[2Jrm".into(),
+                        cwd: "\x1b]0;.\x07".into(),
+                    },
                 },
             }),
         ] {
@@ -1474,6 +2323,10 @@ mod tests {
             Some(UiEvent::ToolStart {
                 call_id: " [2Jc".into(),
                 tool: " [2Jt".into(),
+                shown: Shown {
+                    presentation: crate::tools::terminal::TERMINAL.presentation(),
+                    target: Some(" [2Jls".into()),
+                },
             })
         );
         assert_eq!(
@@ -1483,11 +2336,16 @@ mod tests {
                 tool: " [2Jt".into(),
                 ok: false,
                 detail: " [2Jd".into(),
+                outcome: Outcome::Denied,
+                changes: None,
             })
         );
         assert_eq!(
             next(&mut rx).await,
-            Some(UiEvent::Notice(" ]0;retitled ".into()))
+            Some(UiEvent::Notice(super::super::notice::Notice::warning(
+                " [2Jtopic",
+                " ]0;retitled ",
+            )))
         );
         assert_eq!(
             next(&mut rx).await,
@@ -1501,11 +2359,22 @@ mod tests {
                     tool: "write",
                     target: " [2Jsrc/main.rs".into(),
                     summary: "write  [2Jsomething".into(),
-                    always_scope: " [2Jsrc".into(),
+                    // A command's grant quotes the command, so it is spelled
+                    // as the command is.
+                    always_scope: "\\x1b[2Jsrc".into(),
                     diff: Some(ApprovalDiff {
                         before: " [2Jold".into(),
                         after: " ]0;new ".into(),
+                        first_line: 1,
+                        lines_below: 0,
                     }),
+                    // The command spelled as upstream's approval spells it,
+                    // the `ESC` named rather than blanked; nothing in it is a
+                    // character a terminal obeys.
+                    subject: ApprovalSubject::Command {
+                        command: "\\x1b[2Jrm".into(),
+                        cwd: " ]0;. ".into(),
+                    },
                 },
             })),
             "an approval quotes a file, which is where an escape would be"
@@ -1575,7 +2444,63 @@ mod tests {
             name: Some("name\u{1b}[H".to_string()),
             efforts: vec!["high\u{1b}[3J".to_string()],
             max_context: Some(200_000),
+            facts: crate::provider::model::ModelFacts {
+                owned_by: Some("vendor\u{1b}[2J".to_string()),
+                ..Default::default()
+            },
         }
+    }
+
+    #[test]
+    fn both_answers_to_a_rename_are_made_inert() {
+        // A title the store's validation passed, and an I/O error's words:
+        // the same policy for both, at the channel.
+        assert_eq!(
+            UiEvent::Renamed("a\x1b[2Jb".into()).made_inert(),
+            UiEvent::Renamed("a [2Jb".into())
+        );
+        assert_eq!(
+            UiEvent::RenameUnsaved("a\x1b[2Jb".into()).made_inert(),
+            UiEvent::RenameUnsaved("a [2Jb".into())
+        );
+    }
+
+    #[test]
+    fn a_commands_grant_is_spelled_as_its_command_and_a_files_is_blanked() {
+        // One panel, one spelling of the command: the rows under `$` and the
+        // `2 = ...` grant that quotes it. A file's grant keeps `inert`'s.
+        let asked = |subject| {
+            UiEvent::Approval(super::super::approval::ApprovalAsked {
+                id: super::super::approval_readiness::ApprovalId(1),
+                request: ApprovalRequest {
+                    tool: "terminal",
+                    target: "t".into(),
+                    summary: "s".into(),
+                    always_scope: "allow `a\x1b[2Jb\r`".into(),
+                    diff: None,
+                    subject,
+                },
+            })
+            .made_inert()
+        };
+        let UiEvent::Approval(command) = asked(ApprovalSubject::Command {
+            command: "a\x1b[2Jb\r".into(),
+            cwd: ".".into(),
+        }) else {
+            panic!("an approval stayed an approval");
+        };
+        assert_eq!(command.request.always_scope, "allow `a\\x1b[2Jb\\x0d`");
+        let ApprovalSubject::Command {
+            command: spelled, ..
+        } = &command.request.subject
+        else {
+            panic!("a command stayed a command");
+        };
+        assert!(command.request.always_scope.contains(spelled.as_str()));
+        let UiEvent::Approval(file) = asked(ApprovalSubject::Path("a.txt".into())) else {
+            panic!("an approval stayed an approval");
+        };
+        assert_eq!(file.request.always_scope, "allow `a [2Jb\r`");
     }
 
     #[test]
@@ -1598,6 +2523,7 @@ mod tests {
             .chain(entry.aliases.iter())
             .chain(entry.name.iter())
             .chain(entry.efforts.iter())
+            .chain(entry.facts.owned_by.iter())
         {
             assert!(!text.contains('\u{1b}'), "{text:?} still carries an escape");
             assert!(
@@ -1707,16 +2633,37 @@ mod tests {
         // document row, having been built by xfx's own selector rather than by
         // a model, which is exactly the producer a reader stops suspecting.
         let hostile = "model\u{1b}[2J".to_string();
-        let UiEvent::ModelAnswered { model, outcome } = (UiEvent::ModelAnswered {
+        let UiEvent::ModelAnswered {
+            model,
+            settings,
+            outcome,
+            next_turn,
+            announced,
+        } = (UiEvent::ModelAnswered {
             model: hostile.clone(),
+            settings: crate::provider::effort::TurnSettings {
+                effort: crate::provider::effort::Effort::Named(hostile.clone()),
+                fast: true,
+                ultrafast: false,
+            },
             outcome: ModelAnswer::Applied {
                 unverified: Some(hostile.clone()),
             },
+            next_turn: true,
+            announced: true,
         })
-        .made_inert() else {
+        .made_inert()
+        else {
             panic!("the variant changed");
         };
         assert!(!model.contains('\u{1b}'), "{model:?}");
+        assert!(
+            !settings.effort.display().contains('\u{1b}'),
+            "{settings:?}"
+        );
+        assert!(settings.fast, "a fact, not text, and carried through");
+        assert!(next_turn, "a fact, not text, and carried through");
+        assert!(announced, "a fact, not text, and carried through");
         let ModelAnswer::Applied { unverified } = outcome else {
             panic!("the answer changed");
         };
@@ -1726,9 +2673,12 @@ mod tests {
         // And the refusal, which is the arm that quotes the id back by name.
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
+            settings: crate::provider::effort::TurnSettings::default(),
             outcome: ModelAnswer::Refused {
                 reason: hostile.clone(),
             },
+            next_turn: false,
+            announced: false,
         })
         .made_inert() else {
             panic!("the variant changed");
@@ -1741,7 +2691,10 @@ mod tests {
         // The answer with nothing to say is carried through unchanged.
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
+            settings: crate::provider::effort::TurnSettings::default(),
             outcome: ModelAnswer::Unchanged,
+            next_turn: false,
+            announced: false,
         })
         .made_inert() else {
             panic!("the variant changed");
@@ -1755,7 +2708,10 @@ mod tests {
         // one would end while the worker was still publishing.
         assert!(!UiEvent::ModelAnswered {
             model: "m-1".to_string(),
+            settings: crate::provider::effort::TurnSettings::default(),
             outcome: ModelAnswer::Unchanged,
+            next_turn: false,
+            announced: false,
         }
         .is_terminal());
     }
@@ -1765,14 +2721,17 @@ mod tests {
         // The drain leaves on exactly the two events a turn cannot continue
         // past. A catalog or a usage number that answered `true` would end the
         // drain while the worker still owed its conclusion.
-        assert!(!UiEvent::Usage {
-            input: Some(1),
-            output: Some(2)
-        }
-        .is_terminal());
+        assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
+        assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()
+        }
+        .is_terminal());
+        assert!(!UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: None,
+            attempted: std::time::Instant::now(),
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

@@ -26,7 +26,7 @@
 //! before anything here runs, which is why the routing has one arm per
 //! canonical command rather than one per name the registry answers.
 
-use crate::interactive::{Slash, Submitted};
+use crate::interactive::{slash_spec, Slash, Submitted};
 
 /// What a front end has to be able to do to be routed to.
 ///
@@ -38,19 +38,162 @@ pub(crate) trait CommandHandlers {
     fn help(&mut self);
     fn new_session(&mut self);
     fn clear(&mut self);
+    /// `/reset`. The same operation as [`Self::new_session`] and
+    /// [`Self::clear`] on this surface, as upstream's three are
+    /// (`app_commands.zig:667-680`); a method of its own because the trait is
+    /// named after what the user asked for.
+    fn reset(&mut self);
+    /// `/resume`: the session picker. It takes nothing.
+    fn resume(&mut self);
+    /// `/rename`, with the rest of the line -- already trimmed, and empty when
+    /// there was none, which is the one refusal that names the command's own
+    /// grammar (`usage: /rename <title>`).
+    fn rename(&mut self, argument: &str);
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
+    /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
+    fn copy(&mut self);
+    /// `/fast`. It takes nothing: `/fast on` never reaches it ([`classify`]).
+    fn fast(&mut self);
+    /// `/ultrafast`, with the rest of the line -- already trimmed, and empty
+    /// for the status. `on`, `off` and `status` are what it means; refusing
+    /// anything else is the handler's, with upstream's usage line.
+    fn ultrafast(&mut self, argument: &str);
+    /// `/undo`: the newest file change the conversation's tools made, taken
+    /// back. It takes nothing: `/undo now` never reaches it ([`classify`]).
+    fn undo(&mut self);
+    /// `/trace`. It takes nothing either: `/trace now` is a line that names
+    /// no command, as upstream's is (`commands.zig:486` has no `has_args`).
+    fn trace(&mut self);
+    /// `/compact`. It takes nothing: `/compact now` never reaches it.
+    fn compact(&mut self);
+    /// `/sound`, with the rest of the line -- already trimmed, and empty for
+    /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
+    /// what refuses a word that is not a level.
+    fn sound(&mut self, argument: &str);
+    /// `/stats`: what this surface's terminal writer has done so far.
+    fn stats(&mut self);
+    /// `/usage` (or its alias `/cost`): the spend dashboard. It takes nothing.
+    fn usage(&mut self);
+    /// `/credits` (or its alias `/balance`): what the Gateway account has
+    /// left. It takes nothing.
+    fn credits(&mut self);
+    /// `/status`: the configuration a turn would run under, and the live
+    /// conversation's counts.
+    fn status(&mut self);
+    /// `/statusline`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the picker; anything else names the
+    /// item to flip, and what an item may be called is
+    /// `crate::config::StatusLineItem::parse`'s to say.
+    fn statusline(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
-    /// `/setup`, with the rest of the line -- already trimmed, and empty when
-    /// there was none.
+    /// `/provider` (or its alias `/setup`), with the rest of the line --
+    /// already trimmed, and empty when there was none.
     ///
-    /// The argument is the provider to switch to. It is *not* validated here:
+    /// Bare, it opens the provider picker; with an argument, the argument is
+    /// the provider to switch to. It is *not* validated here:
     /// what a provider name may be is `crate::provider::ProviderId::parse`'s to
     /// say, and a router that pre-screened it would be a second place that
     /// decides which backend a prompt can go to.
     fn setup(&mut self, argument: &str);
+    /// `/permissions`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. What it may be is
+    /// `crate::permission::slash::Request::parse`'s to say, not the router's.
+    fn permissions(&mut self, argument: &str);
+    /// `/image` (or its alias `/img`), with the rest of the line -- already
+    /// trimmed, and empty when there was none, which is the usage line. What
+    /// file it names is `crate::image::resolve`'s to say.
+    fn image(&mut self, argument: &str);
+    /// `/images`, with the rest of the line: `clear` drops every attachment
+    /// and any other word lists them, as upstream reads it
+    /// (`managePending`, `image_commands.zig:58-84`).
+    fn images(&mut self, argument: &str);
+    /// `/paste`: the clipboard's image. It takes nothing.
+    fn paste(&mut self);
+    /// `/allowlist`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which lists the rules in force. What it may be is
+    /// `crate::permission::allowlist::Request::parse`'s to say.
+    fn allowlist(&mut self, argument: &str);
+    /// `/settings`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the settings menu; anything else is
+    /// its usage line, because xfx answers none of upstream's argument forms.
+    fn settings(&mut self, argument: &str);
+    /// `/workspace`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which opens the picker. What the rest may be is
+    /// `crate::workspace::access::parse`'s to say, its refusal included.
+    fn workspace(&mut self, argument: &str);
+    /// `/mcp`, with the rest of the line: empty or `list` opens the menu,
+    /// anything else is a subcommand for `crate::mcp::command`.
+    fn mcp(&mut self, argument: &str);
+    /// `/skills`, with the rest of the line -- already trimmed, and empty when
+    /// there was none, which opens the menu. What the rest may be is
+    /// `crate::skills::command::parse`'s to say, its usage line included.
+    fn skills(&mut self, argument: &str);
+    /// `/alias`, with the rest of the line -- already trimmed, and empty when
+    /// there was none. Upstream's handler takes it and reads none of it
+    /// (`commandHandleAlias`, `app_commands.zig:2043-2050`), so every form is
+    /// one answer; the argument is passed so the trait says what was typed.
+    fn alias(&mut self, argument: &str);
+}
+
+/// What one line submitted **on this surface** is.
+///
+/// [`crate::interactive::classify`]'s answer -- the same reading of a leading
+/// `/` the line shell has, and the same registry -- with upstream's one rule
+/// about arguments on top (`command_router.zig:121-133`): a command that takes
+/// an argument matches by prefix and gets the rest of the line, and **every
+/// other command matches exactly**, trailing spaces and tabs tolerated and
+/// nothing else (`matchesCommandToken`, `registry.zig:59-68`). `/version now`
+/// is therefore not `/version`: it is a line that names no command, and it is
+/// answered as one (`fx-basic-40x120-version-trailing-space.txt`).
+///
+/// The line is left-trimmed first, as upstream's submit trims it
+/// (`input_submit_runtime.zig:707`), so leading blanks are not an argument.
+///
+/// **This surface's rule and not the line shell's.** `crate::interactive`'s
+/// read loop still ignores what follows a command that takes nothing; the TUI
+/// is the surface held to upstream's behaviour, and the two classifications
+/// differ in exactly this and in the next rule.
+///
+/// **A slash word that names nothing is a prompt when it is not a lone
+/// word.** Upstream refuses an unknown name only when it is the whole line and
+/// has no second `/` in it (`shouldRouteUnknownSlashCommand`,
+/// `input_submit_runtime.zig:926-934`); `/tmp/x is empty, why?` or
+/// `/nosuch please` goes to the model as written.
+pub(crate) fn classify(line: &str) -> Submitted {
+    let submitted = crate::interactive::classify(line);
+    if let Submitted::UnknownCommand { token } = &submitted {
+        let trimmed = line.trim();
+        if trimmed != token.as_str() || token[1..].contains('/') {
+            return Submitted::Prompt(trimmed.to_string());
+        }
+    }
+    match &submitted {
+        Submitted::Command { command, .. } if !exact(line, *command) => Submitted::UnknownCommand {
+            token: line
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+        },
+        _ => submitted,
+    }
+}
+
+/// Whether `line` names `command` the way upstream accepts it.
+fn exact(line: &str, command: Slash) -> bool {
+    if slash_spec(command).has_args {
+        return true;
+    }
+    let line = line.trim_start_matches([' ', '\t', '\r', '\n']);
+    // The name and nothing after it but spaces and tabs: anything else left
+    // once those are gone -- a word, a line break -- is an argument the command
+    // does not take.
+    !line
+        .trim_end_matches([' ', '\t'])
+        .contains(char::is_whitespace)
 }
 
 /// Calls the one handler `submitted` names, or no handler at all.
@@ -67,8 +210,33 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Help => handlers.help(),
         Slash::New => handlers.new_session(),
         Slash::Clear => handlers.clear(),
+        Slash::Reset => handlers.reset(),
+        Slash::Resume => handlers.resume(),
+        Slash::Rename => handlers.rename(argument),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
+        Slash::Permissions => handlers.permissions(argument),
+        Slash::Allowlist => handlers.allowlist(argument),
+        Slash::Undo => handlers.undo(),
+        Slash::Mcp => handlers.mcp(argument),
+        Slash::Copy => handlers.copy(),
+        Slash::Fast => handlers.fast(),
+        Slash::Ultrafast => handlers.ultrafast(argument),
+        Slash::Image => handlers.image(argument),
+        Slash::Images => handlers.images(argument),
+        Slash::Paste => handlers.paste(),
+        Slash::Trace => handlers.trace(),
+        Slash::Compact => handlers.compact(),
+        Slash::Sound => handlers.sound(argument),
+        Slash::Stats => handlers.stats(),
+        Slash::Usage => handlers.usage(),
+        Slash::Credits => handlers.credits(),
+        Slash::Status => handlers.status(),
+        Slash::Statusline => handlers.statusline(argument),
+        Slash::Settings => handlers.settings(argument),
+        Slash::Alias => handlers.alias(argument),
+        Slash::Workspace => handlers.workspace(argument),
+        Slash::Skills => handlers.skills(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -76,6 +244,25 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_unknown_slash_word_with_more_on_the_line_is_a_prompt() {
+        // The TUI's classifier, not the line shell's this module imports below.
+        use super::classify;
+        for line in ["/nosuch please", "/tmp/x is empty, why?", "/usr/bin"] {
+            assert!(
+                matches!(classify(line), Submitted::Prompt(ref text) if text == line),
+                "{line:?}"
+            );
+        }
+        assert!(matches!(
+            classify("/nosuch"),
+            Submitted::UnknownCommand { ref token } if token == "/nosuch"
+        ));
+        assert!(matches!(
+            classify("/version now"),
+            Submitted::UnknownCommand { .. }
+        ));
+    }
     use super::*;
 
     use crate::interactive::{classify, SLASH_COMMANDS};
@@ -96,8 +283,53 @@ mod tests {
         fn clear(&mut self) {
             self.calls.push("clear".to_string());
         }
+        fn reset(&mut self) {
+            self.calls.push("reset".to_string());
+        }
+        fn resume(&mut self) {
+            self.calls.push("resume".to_string());
+        }
+        fn rename(&mut self, argument: &str) {
+            self.calls.push(format!("rename {argument}"));
+        }
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
+        }
+        fn copy(&mut self) {
+            self.calls.push("copy".to_string());
+        }
+        fn fast(&mut self) {
+            self.calls.push("fast".to_string());
+        }
+        fn ultrafast(&mut self, argument: &str) {
+            self.calls.push(format!("ultrafast {argument}"));
+        }
+        fn undo(&mut self) {
+            self.calls.push("undo".to_string());
+        }
+        fn trace(&mut self) {
+            self.calls.push("trace".to_string());
+        }
+        fn compact(&mut self) {
+            self.calls.push("compact".to_string());
+        }
+        fn sound(&mut self, argument: &str) {
+            self.calls.push(format!("sound {argument}"));
+        }
+        fn stats(&mut self) {
+            self.calls.push("stats".to_string());
+        }
+        fn usage(&mut self) {
+            self.calls.push("usage".to_string());
+        }
+        fn credits(&mut self) {
+            self.calls.push("credits".to_string());
+        }
+        fn status(&mut self) {
+            self.calls.push("status".to_string());
+        }
+        fn statusline(&mut self, argument: &str) {
+            self.calls.push(format!("statusline {argument}"));
         }
         fn version(&mut self) {
             self.calls.push("version".to_string());
@@ -107,6 +339,36 @@ mod tests {
         }
         fn setup(&mut self, argument: &str) {
             self.calls.push(format!("setup {argument}"));
+        }
+        fn permissions(&mut self, argument: &str) {
+            self.calls.push(format!("permissions {argument}"));
+        }
+        fn image(&mut self, argument: &str) {
+            self.calls.push(format!("image {argument}"));
+        }
+        fn images(&mut self, argument: &str) {
+            self.calls.push(format!("images {argument}"));
+        }
+        fn paste(&mut self) {
+            self.calls.push("paste".to_string());
+        }
+        fn allowlist(&mut self, argument: &str) {
+            self.calls.push(format!("allowlist {argument}"));
+        }
+        fn settings(&mut self, argument: &str) {
+            self.calls.push(format!("settings {argument}"));
+        }
+        fn workspace(&mut self, argument: &str) {
+            self.calls.push(format!("workspace {argument}"));
+        }
+        fn mcp(&mut self, argument: &str) {
+            self.calls.push(format!("mcp {argument}"));
+        }
+        fn skills(&mut self, argument: &str) {
+            self.calls.push(format!("skills {argument}"));
+        }
+        fn alias(&mut self, argument: &str) {
+            self.calls.push(format!("alias {argument}"));
         }
     }
 
@@ -122,10 +384,35 @@ mod tests {
             ("/help", "help"),
             ("/new", "new"),
             ("/clear", "clear"),
+            ("/reset", "reset"),
+            ("/resume", "resume"),
+            ("/rename", "rename "),
             ("/model", "model "),
+            ("/copy", "copy"),
+            ("/fast", "fast"),
+            ("/ultrafast", "ultrafast "),
+            ("/trace", "trace"),
+            ("/compact", "compact"),
+            ("/sound", "sound "),
+            ("/stats", "stats"),
+            ("/usage", "usage"),
+            ("/credits", "credits"),
+            ("/status", "status"),
+            ("/statusline", "statusline "),
             ("/version", "version"),
             ("/quit", "quit"),
-            ("/setup", "setup "),
+            ("/provider", "setup "),
+            ("/permissions", "permissions "),
+            ("/image", "image "),
+            ("/images", "images "),
+            ("/paste", "paste"),
+            ("/allowlist", "allowlist "),
+            ("/settings", "settings "),
+            ("/undo", "undo"),
+            ("/workspace", "workspace "),
+            ("/mcp", "mcp "),
+            ("/skills", "skills "),
+            ("/alias", "alias "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -135,8 +422,70 @@ mod tests {
     }
 
     #[test]
+    fn an_mcp_line_is_a_command_and_its_words_never_reach_the_model() {
+        // Before this surface had the command, `/mcp list` went to the model
+        // as a prompt (`research/media-ext.md` section 5.4).
+        for (line, call) in [
+            ("/mcp", "mcp "),
+            ("/mcp list", "mcp list"),
+            ("/mcp resource list fixture", "mcp resource list fixture"),
+            ("/mcp add fixture /bin/x a b", "mcp add fixture /bin/x a b"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(matches!(super::classify(line), Submitted::Command { .. }));
+        }
+    }
+
+    #[test]
+    fn an_alias_line_is_a_command_in_every_form_and_never_reaches_the_model() {
+        // Upstream's row takes the rest of the line (`commands.zig:489`), so a
+        // name, and a name with a command after it, reach the handler too
+        // (`command_router.zig:135-137`, `:174`). Before this surface had the
+        // command, `/alias build zig build` went to the model as a prompt.
+        for (line, call) in [
+            ("/alias", "alias "),
+            ("/alias build", "alias build"),
+            ("/alias build zig build", "alias build zig build"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(matches!(super::classify(line), Submitted::Command { .. }));
+        }
+    }
+
+    #[test]
+    fn an_image_line_is_a_command_and_never_a_prompt() {
+        // Before this surface had the command, `/image shot.png` was a slash
+        // word with more on the line -- a prompt, and the path went to the
+        // model as prose (`cap/xfx-xfx-today-40x120-all.ansi`, row 3).
+        for (line, call) in [
+            ("/image shot.png", "image shot.png"),
+            ("/img shot.png", "image shot.png"),
+            ("/image   \"my shot.png\"  ", "image \"my shot.png\""),
+            ("/image", "image "),
+            ("/images", "images "),
+            ("/images clear", "images clear"),
+            ("/images foo", "images foo"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(
+                matches!(super::classify(line), Submitted::Command { .. }),
+                "{line:?} is not a command on this surface"
+            );
+        }
+        // `/paste` takes nothing, so with a word after it it names nothing.
+        assert_eq!(routed("/paste"), vec!["paste".to_string()]);
+        assert!(matches!(
+            super::classify("/paste now"),
+            Submitted::UnknownCommand { .. }
+        ));
+    }
+
+    #[test]
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
+        assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
+        assert_eq!(routed("/cost"), vec!["usage".to_string()]);
+        assert_eq!(routed("/balance"), vec!["credits".to_string()]);
         assert_eq!(
             classify("/exit"),
             Submitted::Command {
@@ -153,6 +502,89 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Trimmed, as upstream's payload is (`command_router.zig:121-133`):
+        // `/rename   My Title  ` names `My Title`.
+        assert_eq!(
+            routed("/rename   My Title  "),
+            vec!["rename My Title".to_string()]
+        );
+        // Every argument form reaches the one handler, trimmed; what each
+        // means is the handler's question.
+        for (line, call) in [
+            ("/permissions auto", "permissions auto"),
+            ("/permissions   full-access  ", "permissions full-access"),
+            ("/permissions full access", "permissions full access"),
+            ("/permissions reset", "permissions reset"),
+            ("/permissions bogus", "permissions bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
+        // Upstream's `accepts_payload` (`commands.zig:494`): the argument is
+        // the item, and whether it names one is the handler's question.
+        assert_eq!(
+            routed("/statusline context"),
+            vec!["statusline context".to_string()]
+        );
+        assert_eq!(
+            super::classify("/statusline  bogus words "),
+            Submitted::Command {
+                command: Slash::Statusline,
+                argument: "bogus words".to_string()
+            }
+        );
+        // Every form `/workspace` is typed in reaches its one handler, a path
+        // with spaces whole; what each means -- `bogus` is the usage line --
+        // is the handler's (`parseWorkspaceCommand`, `app_commands.zig:198-216`).
+        for (line, call) in [
+            ("/workspace", "workspace "),
+            ("/workspace   ", "workspace "),
+            ("/workspace list", "workspace list"),
+            ("/workspace add ../a b", "workspace add ../a b"),
+            ("/workspace remove /x", "workspace remove /x"),
+            ("/workspace clear", "workspace clear"),
+            ("/workspace bogus", "workspace bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
+        // And `/skills` the same way: every form reaches the one handler, and
+        // what each means -- `bogus` is the usage line -- is
+        // `crate::skills::command::parse`'s (`skills.zig:93-104`).
+        for (line, call) in [
+            ("/skills", "skills "),
+            ("/skills list", "skills list"),
+            ("/skills show demo", "skills show demo"),
+            ("/skills add ./skill-src", "skills add ./skill-src"),
+            ("/skills bogus", "skills bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+        }
+        // Every form `/sound` is typed in reaches its one handler, the words
+        // it does not know included: refusing them is the handler's, with the
+        // usage line (`app_commands.zig:3984-3988`), not this module's with
+        // "unknown command".
+        for (line, call) in [
+            ("/sound", "sound "),
+            ("/sound on", "sound on"),
+            ("/sound off", "sound off"),
+            ("/sound   off  ", "sound off"),
+            ("/sound max", "sound max"),
+            ("/sound bogus", "sound bogus"),
+            ("/sound on off", "sound on off"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(
+                matches!(
+                    super::classify(line),
+                    Submitted::Command {
+                        command: Slash::Sound,
+                        ..
+                    }
+                ),
+                "{line:?} is not `/sound` on this surface"
+            );
+        }
     }
 
     /// Advertising without a handler is what this module exists to make
@@ -181,6 +613,102 @@ mod tests {
                 assert_eq!(routed(name).len(), 1, "{name} routes to no handler");
             }
         }
+    }
+
+    #[test]
+    fn a_command_that_takes_nothing_is_matched_exactly_on_this_surface() {
+        // `super::classify` throughout: the bare name in this module is the
+        // line shell's, imported above.
+        // `fx-basic-40x120-version-trailing-space.txt`: `/version ` runs,
+        // `/version now` and `/help extra` are unknown commands
+        // (`registry.zig:59-68`).
+        for line in [
+            "/version",
+            "/version ",
+            "/version \t ",
+            "  /version",
+            "/exit  ",
+            "/copy ",
+            "/undo ",
+            "/undo\t",
+            "/stats ",
+            "/status\t",
+            "/usage ",
+            "/cost",
+            "/credits ",
+            "/balance",
+        ] {
+            assert!(
+                matches!(super::classify(line), Submitted::Command { .. }),
+                "{line:?} did not run"
+            );
+        }
+        for line in [
+            "/version now",
+            "/help extra",
+            "/version\tnow",
+            "/version\nnow",
+            "/version\n",
+            "/quit please",
+            "/exit now",
+            "/copy now",
+            "/copy\tall",
+            // `commands.zig:481` gives `/undo` no `accepts_payload` either:
+            // there is no "undo that one".
+            "/undo now",
+            "/undo 2",
+            "/undo\nall",
+            // `fx-stats-40x120-extra.txt`: `/stats extra` is an unknown
+            // command, and `/status` takes nothing either (`commands.zig:473,475`
+            // gives neither row `accepts_payload`).
+            "/stats extra",
+            "/status now",
+            "/status\tall",
+            // `fx-credits-404-40x120-arg.txt`: `/credits now` is an unknown
+            // command, and so is anything after `/usage`
+            // (`commands.zig:474,490` give neither row `accepts_payload`).
+            "/credits now",
+            "/balance now",
+            "/usage 7d",
+            "/cost session",
+        ] {
+            assert!(
+                matches!(super::classify(line), Submitted::UnknownCommand { .. }),
+                "{line:?} ran a command that takes nothing"
+            );
+        }
+        // And a command that takes something still gets it, trimmed.
+        assert_eq!(
+            super::classify("/model   acme/model-9  "),
+            Submitted::Command {
+                command: Slash::Model,
+                argument: "acme/model-9".to_string()
+            }
+        );
+        assert!(matches!(
+            super::classify("/setup"),
+            Submitted::Command {
+                command: Slash::Setup,
+                ..
+            }
+        ));
+        // Nothing else about the line shell's reading changes.
+        assert_eq!(super::classify("/nonesuch"), classify("/nonesuch"));
+        assert_eq!(super::classify("a/b"), classify("a/b"));
+        assert_eq!(super::classify("   "), Submitted::Blank);
+    }
+
+    #[test]
+    fn the_line_shell_keeps_its_own_reading_of_an_argument() {
+        // The TUI is the surface held to upstream here; `crate::interactive`'s
+        // own classifier, which the line shell reads, still takes the command.
+        assert!(matches!(
+            classify("/version now"),
+            Submitted::Command {
+                command: Slash::Version,
+                ..
+            }
+        ));
     }
 
     #[test]

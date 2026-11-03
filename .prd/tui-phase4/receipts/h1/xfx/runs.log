@@ -1,0 +1,85 @@
+$ capture.sh xfx h1-resize 30x100   # xfx
+xfx/xfx-h1-resize-30x100-start.txt
+resize: the pane is now 20x60
+xfx/xfx-h1-resize-30x100-small.txt
+resize: the pane is now 40x120
+xfx/xfx-h1-resize-30x100-large.txt
+xfx/xfx-h1-resize-30x100-end.wire (1558 bytes)
+exit=0
+$ capture.sh xfx h1-signal 24x80   # xfx
+xfx/xfx-h1-signal-24x80-start.txt
+xfx/xfx-h1-signal-24x80-ctrlz.txt
+xfx/xfx-h1-signal-24x80-ctrlz.wire (336 bytes)
+signal SIGCONT -> pid 85325: S+
+xfx/xfx-h1-signal-24x80-ctrlz-continued.txt
+signal SIGTSTP -> pid 85325: T+
+xfx/xfx-h1-signal-24x80-stopped.txt
+xfx/xfx-h1-signal-24x80-stopped.wire (585 bytes)
+signal SIGCONT -> pid 85325: S+
+xfx/xfx-h1-signal-24x80-continued.txt
+xfx/xfx-h1-signal-24x80-typed.txt
+signal SIGTERM -> pid 85325: gone; pane dead, signal term
+xfx/xfx-h1-signal-24x80-terminated.txt
+xfx/xfx-h1-signal-24x80-end.wire (885 bytes)
+exit=0
+$ capture.sh xfx h1-signal-hup 24x80   # xfx
+xfx/xfx-h1-signal-hup-24x80-start.txt
+signal SIGHUP -> pid 90887: gone; pane dead, signal hup
+xfx/xfx-h1-signal-hup-24x80-hup.txt
+xfx/xfx-h1-signal-hup-24x80-end.wire (397 bytes)
+exit=0
+$ capture.sh xfx h1-rehomefile 30x100   # xfx
+xfx/xfx-h1-rehomefile-30x100-start.txt
+rehomefile ~/.xfx/settings.json: mode 600, 29 bytes
+xfx/xfx-h1-rehomefile-30x100-swapped.files
+xfx/xfx-h1-rehomefile-30x100-status.txt
+exit=0
+$ capture.sh xfx h1-models2 30x100   # xfx
+xfx/xfx-h1-models2-30x100-before.txt
+xfx/xfx-h1-models2-30x100-after.txt
+exit=0
+$ capture.sh xfx h1-reset 30x100   # xfx
+xfx/xfx-h1-reset-30x100-after.txt
+exit=0
+$ capture.sh xfx h1-refuse 30x100   # xfx
+xfx/xfx-h1-refuse-30x100-refused.txt
+xfx/xfx-h1-refuse-30x100-back.txt
+exit=0
+$ capture.sh xfx h1-refuse-pause 30x100   # xfx
+xfx/xfx-h1-refuse-pause-30x100-refused.txt
+xfx/xfx-h1-refuse-pause-30x100-paused.txt
+xfx/xfx-h1-refuse-pause-30x100-after-pause.txt
+xfx/xfx-h1-refuse-pause-30x100-end.txt
+exit=0
+$ capture.sh xfx h1-usage 30x100   # xfx
+xfx/xfx-h1-usage-30x100-unknown.txt
+xfx/xfx-h1-usage-30x100-fetching.txt
+xfx/xfx-h1-usage-30x100-month.txt
+xfx/xfx-h1-usage-30x100-today.txt
+xfx/xfx-h1-usage-30x100-refused.txt
+xfx/xfx-h1-usage-30x100-end.files
+exit=0
+$ capture.sh xfx h1-usage-codex 30x100   # xfx
+xfx/xfx-h1-usage-codex-30x100-codex.txt
+exit=0
+$ capture.sh xfx h1-usage-grok 30x100   # xfx
+xfx/xfx-h1-usage-grok-30x100-grok.txt
+exit=0
+$ capture.sh xfx h1-mcphttp 30x100   # xfx
+xfx/xfx-h1-mcphttp-30x100-hanging.txt
+xfx/xfx-h1-mcphttp-30x100-ready.txt
+exit=0
+$ capture.sh xfx h1-mcphttp-fail 30x100   # xfx
+xfx/xfx-h1-mcphttp-fail-30x100-failed.txt
+xfx/xfx-h1-mcphttp-fail-30x100-rpcerror.txt
+xfx/xfx-h1-mcphttp-fail-30x100-ready.txt
+exit=0
+$ capture.sh xfx h1-guards 30x100   # xfx
+xfx/xfx-h1-guards-30x100-launch.sockets: 0 socket(s)
+xfx/xfx-h1-guards-30x100-turn.sockets: 1 socket(s)
+xfx/xfx-h1-guards-30x100-t12.sockets: 0 socket(s)
+xfx/xfx-h1-guards-30x100-mid.txt
+xfx/xfx-h1-guards-30x100-end.sockets: 0 socket(s)
+xfx/xfx-h1-guards-30x100-end.txt
+xfx/xfx-h1-guards-30x100-end.files
+exit=0

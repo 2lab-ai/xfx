@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ show me the links
+
+  Here are the links.
+
+  See the docs and https://example.org/path for more.
+
+  Mail someone@example.com or visit https://example.net/a.
+
+  Run https://example.com/code locally.
+
+  Also readme, script and ftp.
+
+  A long one: this link text wraps across the edge of the row because it is very long indeed and it keeps going on past
+  the right edge then text.
+
+  ┌──────┬──────┐
+  │ Name │ Link │
+  ├──────┼──────┤
+  │ docs │ site │
+  └──────┴──────┘
+
+  Done.
+
+  0s (↑5 ↓40)
+
+┃ and one more
+
+  Again: second.
+
+  0s (↑3 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+

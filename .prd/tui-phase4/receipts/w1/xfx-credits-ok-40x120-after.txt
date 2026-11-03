@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-435c4d7 [debug] · Run /help for commands
+
+* credits: balance=42.17
+  used=7.83
+  plan=pro
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

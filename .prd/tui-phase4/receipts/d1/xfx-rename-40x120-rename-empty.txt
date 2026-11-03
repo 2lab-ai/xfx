@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-120f93e [debug] · Run /help for commands
+
+✗ usage: /rename <title>
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

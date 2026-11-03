@@ -1,0 +1,19 @@
+=== ~/.fx/backups/settings.json.backup.1791342160416-0000000000000001-e1a200545e2fea6fff384b68fcb27f6a (59 bytes)
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+=== ~/.fx/sessions/6hzJFubKMPot/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/6hzJFubKMPot/owner.live (43 bytes)
+{"pid":91405,"opened_at_ms":1791342153603}
+
+=== ~/.fx/sessions/6hzJFubKMPot/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/6hzJFubKMPot/session.json (388 bytes)
+{"schema_version":4,"id":"6hzJFubKMPot","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791342153575,"updated_at_ms":1791342160611,"conversation_language":"und","provider":"gateway","model":"openai/gpt-6-astra","effort":"high","fast_mode":false,"ultrafast_mode":true,"subagent_child":false}
+=== ~/.fx/sessions/6hzJFubKMPot/session.lock (0 bytes)
+=== ~/.fx/sessions/6hzJFubKMPot/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"6hzJFubKMPot","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (150 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high","fast_mode":false,"ultrafast_mode":true,"fast_mode_model_bound":true}
+
+=== ~/.fx/settings.lock (0 bytes)

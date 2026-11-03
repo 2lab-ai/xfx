@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-fef6a14 [debug] · Run /help for commands
+
+┃ pick a database
+
+  Let me ask.
+
+  1) Which database should I use?
+     Postgres
+
+  Got it.
+
+  11s (↑4 ↓80)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 4  [All]  Anthropic  OpenAI  xAI  Others
+
+  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra
+  anthropic/claude-opus-5  1M context · 64K output · Fast
+  fake/model-a
+  xai/grok-4.7
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

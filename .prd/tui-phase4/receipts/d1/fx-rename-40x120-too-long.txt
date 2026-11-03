@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+✗ usage: /rename <title>
+
+* session: renamed to "My Title"
+
+✗ session: title is too long
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

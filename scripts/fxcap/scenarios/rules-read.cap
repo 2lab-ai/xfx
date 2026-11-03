@@ -1,0 +1,41 @@
+# R1: a rule that asks before a read puts the question to the person, as fx
+# does (`tool_admission.zig:1386-1444`). `read: {"secret*": "ask"}` in the
+# profile, `ask` mode. Four turns read `secret.txt`: the first is refused
+# with `3`, the second allowed once with `1`, the third allowed for the
+# session with `2`, and the fourth -- with `notes.txt`, which no rule asks
+# about -- reads both without a question. `/permissions` lists the grant.
+gateway rules-read-turns.json
+work rules-ws
+seed rules-read-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type read the secret
+key Enter
+wait 5
+snap ask
+key 3
+wait 4
+snap no
+type again
+key Enter
+wait 5
+snap ask2
+key 1
+wait 4
+snap once
+type and again
+key Enter
+wait 5
+key 2
+wait 4
+snap always
+type once more
+key Enter
+wait 5
+snap granted
+type /permissions
+key Enter
+wait 2
+snap listed
+gwlog

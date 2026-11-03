@@ -159,7 +159,7 @@ pub(crate) enum Depth {
 /// adds above the rule. The composer's own rows carry none, which is upstream's
 /// choice too -- `input_bar_style` is empty in both themes
 /// (`render.zig:69,88`). The fifth is the **document's**: the answer text a
-/// transcript row is made of ([`Self::body`]).
+/// transcript row is made of (`BODY`).
 ///
 /// Every accessor answers with a whole SGR sequence rather than with a colour
 /// number, so a painter concatenates and never formats, and
@@ -198,8 +198,75 @@ const RESET: &str = "\u{1b}[0m";
 /// Spelled as a role of its own rather than read off [`HINT`], because the two
 /// are the same colour and not the same decision: a phase that retints the hint
 /// row must not silently retint every row of the document with it.
-const DARK: [u8; 5] = [240, 255, 250, 252, 255];
-const LIGHT: [u8; 5] = [250, 235, 241, 238, 235];
+///
+/// The sixth and seventh are upstream's `statusline_style` and `dim_style`
+/// (`core/shared/theme.zig`, `c1db919`): the grey the hint row's text is
+/// written in, with the permission mode lifted out of it in the activity
+/// row's grey (`permission_auto_style`), and the grey the welcome line's
+/// version and the transcript's turn summary are written in.
+///
+/// The eighth is a **notice's label** when the notice reports an outcome: the
+/// glyph and topic of a success, a warning or an error. Upstream paints those
+/// three in `green_style`, `warning_style` and `red_style`
+/// (`app_render_runtime.zig:531-533`), which are the same grey in each theme
+/// (`theme.zig:86-88` dark, `:129-131` light) -- `✗ command:` in 252 over a
+/// body in the notice grey, as `fx-basic-40x120-version-trailing-space.ansi`
+/// shows. The same number as [`ACTIVITY`] and not the same decision, for the
+/// reason [`BODY`] is not [`HINT`]: the activity row is the band's, and this
+/// one is written into the document, where a theme report has to find it.
+///
+/// The ninth is upstream's `diff_added_style` / `diff_removed_style`, which a
+/// permission question's review paints the changed lines and the `+N  -N`
+/// counts in. Both are the same grey in either theme: the diff is monochrome
+/// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
+/// none. Band and review-plane rows only -- never the document -- so a theme
+/// report has nothing of it to retint ([`Palette::document_retint`]).
+///
+/// The tenth is upstream's `warning_style` (`core/shared/theme.zig:86,129`,
+/// `c1db919`) in the tool group: the `■` a cancelled tool call is marked with
+/// in the transcript. The same grey as the eighth in both modes, and a role
+/// of its own for the reason the fifth is one -- the two are the same colour
+/// and not the same decision.
+///
+/// The eleventh is upstream's `tool_stdout_style` (`theme.zig:103` dark, `:147`
+/// light): what a cancelled call's own line names it by, after `■ Cancelled`.
+/// The **same grey in both themes** -- 245 -- which is why it is a role and not
+/// the statusline's: on a light screen the two part ways (241 and 245).
+///
+/// The twelfth is the shell highlighter's word grey -- a command's words in a
+/// tool group's row, keywords, functions, variables and operators
+/// (`markdown::theme` `FX_DARK`/`FX_LIGHT` syntax, `252`/`238`). The
+/// highlighter paints them, not this table; the role is here so a theme report
+/// can find them ([`Self::document_retint_in`]).
+///
+/// The thirteenth is the answer under an answered question in the
+/// document's summary of a question batch, which upstream writes in
+/// `statusline_style` (`writeQuestionAnswerResolution`, `question_ui.zig:481`)
+/// -- the [`STATUSLINE`] numbers under a name of their own, for the reason
+/// [`BODY`] is not [`HINT`]: the hint row is the band's, and this row is the
+/// document's, where a theme report has to find it. Two of the document's
+/// roles share a number with it in one mode each ([`DIM`]'s `245` in the dark,
+/// [`NOTICE`]'s `241` in the light), so a report finds it by the row it is on,
+/// which is recorded as one ([`DocumentRow::Answer`]).
+///
+/// The fourteenth is upstream's `red_style` **on the hint row**: the one-time
+/// full-access warning flush with its last column
+/// (`input_presentation.zig:565`, `cap/fx-permissions-40x120-full.ansi`). The
+/// same grey as [`LABEL`] in each theme (`theme.zig:86-88`, `:129-131`) and not
+/// the same decision: that one is written into the document, and this one is
+/// the band's alone, so a theme report has nothing of it to retint.
+///
+/// The fifteenth is the foreground of the `@` file picker's marked row,
+/// upstream's `approval_button_inactive_style` (`theme.zig:96` dark, `:139`
+/// light): the hint grey over a background of its own ([`Palette::selected`]).
+/// Band rows only, so nothing of it is in the document for a theme report to
+/// find.
+const DARK: [u8; 15] = [
+    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 252, 255,
+];
+const LIGHT: [u8; 15] = [
+    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 238, 237,
+];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -207,6 +274,42 @@ const HINT: usize = 1;
 const NOTICE: usize = 2;
 const ACTIVITY: usize = 3;
 const BODY: usize = 4;
+const STATUSLINE: usize = 5;
+const DIM: usize = 6;
+const LABEL: usize = 7;
+const DIFF: usize = 8;
+const WARNING: usize = 9;
+const TOOL: usize = 10;
+const COMMAND: usize = 11;
+const ANSWER: usize = 12;
+const DANGER: usize = 13;
+const SELECTED: usize = 14;
+
+/// What kind of document row a theme report is repainting, **recorded with
+/// the row when it was written** (`super::transcript::Append::kinds`, kept per
+/// line by `super::grid::Grid`).
+///
+/// A report recognises a cell by the colour it holds, and three of xfx's
+/// document colours are **one grey on a dark screen and two on a light one**:
+/// the statusline grey a tool group's rows and an answered question's answer
+/// are written in, and the dim grey of a turn's summary, are all 245 on dark,
+/// and 241, 241 and 247 on light. A cell cannot say which it is, and neither
+/// can the cell a row opens with -- an answer row opens with the same painted
+/// blank a summary does. The writer can, so the row carries it, and the cell's
+/// colour is answered within it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum DocumentRow {
+    /// Every row that is none of the below.
+    #[default]
+    Plain,
+    /// A tool group's header (`●`) or one of its call rows (`├`, `└`).
+    ToolGroup,
+    /// A cancelled call's own line under its group (`■`).
+    ToolStopped,
+    /// The answer under an answered question, in the document's record of a
+    /// question batch ([`ANSWER`]).
+    Answer,
+}
 
 impl Palette {
     /// The rule between the document and the band.
@@ -235,13 +338,122 @@ impl Palette {
         self.paint(ACTIVITY)
     }
 
-    /// The answer text a document row carries.
+    /// The hint row's own text (`statusline_style`).
+    pub(crate) fn statusline(&self) -> &'static str {
+        self.paint(STATUSLINE)
+    }
+
+    /// Secondary text: the welcome line's version, a turn's summary.
+    pub(crate) fn dim(&self) -> &'static str {
+        self.paint(DIM)
+    }
+
+    /// What marks something the user stopped: a cancelled tool call's `■`.
+    pub(crate) fn warning(&self) -> &'static str {
+        self.paint(WARNING)
+    }
+
+    /// What a cancelled call's own line names it by ([`TOOL`]): 245 on either
+    /// screen.
+    pub(crate) fn tool_output(&self) -> &'static str {
+        self.paint(TOOL)
+    }
+
+    /// A notice's glyph and topic when it reports an outcome -- a success, a
+    /// warning, an error ([`LABEL`]).
+    pub(crate) fn notice_label(&self) -> &'static str {
+        self.paint(LABEL)
+    }
+
+    /// An informational notice's glyph and topic: the label grey, bold
+    /// (`system_notice_label_style`, `theme.zig:83` dark and `:126` light,
+    /// wired to `notice_information_style` at `app_render_runtime.zig:530`).
     ///
-    /// Not a band role: the rows this paints are the terminal's own document
-    /// ([`super::transcript`]), and they are painted at the moment they are
-    /// handed over rather than repainted with the band.
-    pub(crate) fn body(&self) -> &'static str {
-        self.paint(BODY)
+    /// Spelled per pair like [`Self::subtitle`], because a bold run is not one
+    /// of the table's sequences. The colour is [`LABEL`]'s, which is what lets
+    /// a theme report repaint it: the retint replaces the foreground and
+    /// leaves the bold where it is (`super::grid`'s `retint_document`).
+    pub(crate) fn notice_heading(&self) -> &'static str {
+        match (self.mode, self.depth) {
+            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;252m",
+            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;238m",
+            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;208;208;208m",
+            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;68;68;68m",
+        }
+    }
+
+    /// A changed line of a permission question's review, and the counts that
+    /// sum it up (`diff_added_style`, `diff_removed_style`).
+    pub(crate) fn diff(&self) -> &'static str {
+        self.paint(DIFF)
+    }
+
+    /// The answer under an answered question, in the document's summary of a
+    /// question batch (`statusline_style`, `question_ui.zig:481`; [`ANSWER`]).
+    pub(crate) fn answer(&self) -> &'static str {
+        self.paint(ANSWER)
+    }
+
+    /// The hint row's warning that every permission check is off ([`DANGER`]).
+    pub(crate) fn danger(&self) -> &'static str {
+        self.paint(DANGER)
+    }
+
+    /// What a permission question emphasises: the marked choice and the
+    /// command it would run (`tag_style`). Upstream's `tag_style` and
+    /// `subtitle_style` are one sequence in both themes, so this is
+    /// [`Self::subtitle`]'s by value and a role of its own by meaning.
+    pub(crate) fn strong(&self) -> &'static str {
+        self.subtitle()
+    }
+
+    /// Reverse video and nothing else: the one-cell caret upstream paints in a
+    /// draft it owns (`question_ui.zig:323-399`, `approval_ui.zig:1662`), and a
+    /// selection in the composer (`appendLayoutUnit`,
+    /// `input_presentation.zig:995-1021`, which writes `ESC[7m` before a
+    /// selected unit and the reset after it). The same in every mode and at
+    /// every depth, because it names no colour -- it swaps the two the
+    /// terminal already has.
+    pub(crate) fn reverse(&self) -> &'static str {
+        "\u{1b}[7m"
+    }
+
+    /// Bold and nothing else: a question's title and the path it is about
+    /// (`bold_style`). The same in every mode and at every depth, because it
+    /// names no colour.
+    pub(crate) fn bold(&self) -> &'static str {
+        "\u{1b}[1m"
+    }
+
+    /// The `@` file picker's marked row: a grey bar behind the hint grey
+    /// (`approval_button_inactive_style`, `theme.zig:96` dark and `:139` light;
+    /// `composeFilePickerOptionRow`, `picker_presentation.zig:827-849`).
+    ///
+    /// The background first and the foreground after it, in upstream's order.
+    /// The background is spelled per pair here rather than put in the table,
+    /// because the table is foregrounds and this is the one background the
+    /// band paints; the foreground is the table's [`SELECTED`]. What ends it is
+    /// [`Self::reset`], which closes the background with everything else -- and
+    /// `super::grid` closes every attribute before an `EL`, so the bar never
+    /// bleeds into the rest of the row.
+    pub(crate) fn selected(&self) -> String {
+        let background = match (self.mode, self.depth) {
+            (Mode::Dark, Depth::Ansi256) => "\u{1b}[48;5;239m",
+            (Mode::Light, Depth::Ansi256) => "\u{1b}[48;5;251m",
+            (Mode::Dark, Depth::TrueColor) => "\u{1b}[48;2;78;78;78m",
+            (Mode::Light, Depth::TrueColor) => "\u{1b}[48;2;198;198;198m",
+        };
+        format!("{background}{}", self.paint(SELECTED))
+    }
+
+    /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
+    pub(crate) fn subtitle(&self) -> &'static str {
+        match (self.mode, self.depth) {
+            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;255m",
+            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;235m",
+            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;238;238;238m",
+            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;38;38;38m",
+        }
     }
 
     /// What ends a run, in either mode and at either depth.
@@ -252,8 +464,10 @@ impl Palette {
     /// What this palette repaints an **already painted** document cell in, or
     /// `None` for a cell it has nothing to say about.
     ///
-    /// Two of the five roles reach the document -- the answer text
-    /// ([`Self::body`]) and xfx's own lines ([`Self::notice`]) -- and a cell is
+    /// Five of the roles reach a plain document row -- the answer text
+    /// (`BODY`), xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`), an
+    /// outcome notice's label ([`Self::notice_label`]) and a cancelled tool
+    /// call's mark ([`Self::warning`]) -- and a cell is
     /// recognised by the colour it is *holding*, in **either** mode, at this
     /// palette's own depth. Both sides map onto the mode in force rather than
     /// old-to-new, and that is what makes a run of reports converge: a chained
@@ -270,7 +484,50 @@ impl Palette {
     /// of the terminal program and does not move under a running session
     /// (`depth_from_env`).
     pub(crate) fn document_retint(&self, colour: Color) -> Option<&'static str> {
-        let role = [NOTICE, BODY].into_iter().find(|&role| {
+        // xfx's own colours in the document: its notices, the card's rail
+        // (`HINT`, the same grey `BODY` names), the quiet rows -- the
+        // welcome line's version, a turn's summary and a cancelled notice's
+        // label (`DIM`) -- the label of a notice that reports an outcome
+        // (`LABEL`), bold or not, and a cancelled tool call's `■` (`WARNING`),
+        // the same grey under another name. An answered question's answer is
+        // not here: it is only ever on a row recorded as one
+        // ([`DocumentRow::Answer`]), where it is answered alone.
+        let role = [NOTICE, BODY, DIM, LABEL, WARNING]
+            .into_iter()
+            .find(|&role| {
+                [Mode::Dark, Mode::Light]
+                    .into_iter()
+                    .any(|mode| self.shade(role, mode) == Some(colour))
+            })?;
+        if self.shade(role, self.mode) == Some(colour) {
+            return None;
+        }
+        Some(self.paint(role))
+    }
+
+    /// [`Self::document_retint`], for a cell on a row of the kind given.
+    ///
+    /// A tool group's rows are upstream's statusline grey with a command's
+    /// words in the highlighter's ([`COMMAND`]) and the mark in the hint grey,
+    /// so on those rows 245 is the statusline's and goes to 241 on a light
+    /// screen -- not to the summary's 247. A cancelled call's line keeps its
+    /// argument in [`TOOL`], 245 on either screen. The highlighter's quieter
+    /// greys (a string or a number, 250 and 241) are repainted as the notice
+    /// grey they share on dark; on light, where 241 is also the statusline's,
+    /// the statusline wins, which costs a quoted string in a command its
+    /// shade -- the one cell this cannot tell apart -- and nothing else.
+    pub(crate) fn document_retint_in(
+        &self,
+        row: DocumentRow,
+        colour: Color,
+    ) -> Option<&'static str> {
+        let roles: &[usize] = match row {
+            DocumentRow::Plain => return self.document_retint(colour),
+            DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE],
+            DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
+            DocumentRow::Answer => &[ANSWER],
+        };
+        let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
                 .any(|mode| self.shade(role, mode) == Some(colour))
@@ -333,9 +590,12 @@ impl Palette {
 fn ansi256(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;5;235m",
+        237 => "\u{1b}[38;5;237m",
         238 => "\u{1b}[38;5;238m",
         240 => "\u{1b}[38;5;240m",
         241 => "\u{1b}[38;5;241m",
+        245 => "\u{1b}[38;5;245m",
+        247 => "\u{1b}[38;5;247m",
         250 => "\u{1b}[38;5;250m",
         252 => "\u{1b}[38;5;252m",
         255 => "\u{1b}[38;5;255m",
@@ -363,9 +623,12 @@ fn ansi256(index: u8) -> &'static str {
 fn truecolor(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;2;38;38;38m",
+        237 => "\u{1b}[38;2;58;58;58m",
         238 => "\u{1b}[38;2;68;68;68m",
         240 => "\u{1b}[38;2;88;88;88m",
         241 => "\u{1b}[38;2;98;98;98m",
+        245 => "\u{1b}[38;2;138;138;138m",
+        247 => "\u{1b}[38;2;158;158;158m",
         250 => "\u{1b}[38;2;188;188;188m",
         252 => "\u{1b}[38;2;208;208;208m",
         255 => "\u{1b}[38;2;238;238;238m",
@@ -521,9 +784,50 @@ pub(crate) fn depth_from_env(colorterm: Option<&str>, term_program: Option<&str>
     }
 }
 
+/// The colour the hint row's `⚡︎` is said in while Ultra mode is on: one
+/// yellow on either screen (`appendSessionStatusSegments`, `render.zig:396-400`,
+/// `c1db919`), `38;2;255;204;0` where upstream believes in truecolor and
+/// `38;5;220` where it does not.
+///
+/// **Upstream's own rule, not [`depth_from_env`]'s** (`truecolorSupportedForValues`,
+/// `theme_protocol.zig:83-92`): a `COLORTERM` claim, else anything but Apple
+/// Terminal -- so a terminal that claims nothing gets the 24-bit yellow, as
+/// upstream's capture shows beside its 256-colour greys
+/// (`fx-fast-astra-40x120-uf-on`). The greys stay on the conservative depth
+/// for the reason that function gives: they are the same greys in two
+/// notations, and a wrong guess there costs every row. This is one sign, in
+/// the colour upstream paints it.
+pub(crate) fn ultra_marker(colorterm: Option<&str>, term_program: Option<&str>) -> &'static str {
+    let claimed =
+        colorterm.is_some_and(|value| value.contains("truecolor") || value.contains("24bit"));
+    if claimed || term_program != Some("Apple_Terminal") {
+        ULTRA_TRUECOLOR
+    } else {
+        "\u{1b}[38;5;220m"
+    }
+}
+
+/// [`ultra_marker`]'s answer for a terminal that claims nothing.
+pub(crate) const ULTRA_TRUECOLOR: &str = "\u{1b}[38;2;255;204;0m";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ultra_marker_follows_upstreams_truecolor_rule() {
+        // `theme_protocol.zig:95-106`.
+        assert_eq!(ultra_marker(None, None), ULTRA_TRUECOLOR);
+        assert_eq!(ultra_marker(None, Some("ghostty")), ULTRA_TRUECOLOR);
+        assert_eq!(
+            ultra_marker(Some("truecolor"), Some("Apple_Terminal")),
+            ULTRA_TRUECOLOR
+        );
+        assert_eq!(
+            ultra_marker(None, Some("Apple_Terminal")),
+            "\u{1b}[38;5;220m"
+        );
+    }
 
     #[test]
     fn an_osc_eleven_reply_is_light_above_half_luminance() {
@@ -622,6 +926,16 @@ mod tests {
             (Mode::Light, NOTICE, 241, 98),
             (Mode::Light, ACTIVITY, 238, 68),
             (Mode::Light, BODY, 235, 38),
+            // `theme.zig:86-88` / `:129-131`: an outcome notice's label.
+            (Mode::Dark, LABEL, 252, 208),
+            (Mode::Light, LABEL, 238, 68),
+            // `theme.zig` `statusline_style` (`245` dark, `241` light): an
+            // answered question's answer (`question_ui.zig:481`).
+            (Mode::Dark, ANSWER, 245, 138),
+            (Mode::Light, ANSWER, 241, 98),
+            // `theme.zig:96` / `:139`: the file picker's marked row.
+            (Mode::Dark, SELECTED, 255, 238),
+            (Mode::Light, SELECTED, 237, 58),
         ] {
             assert_eq!(
                 level,
@@ -663,6 +977,47 @@ mod tests {
         // accessor to confirm about itself.
         assert_eq!(dark.activity(), "\u{1b}[38;2;208;208;208m");
         assert_eq!(light.activity(), "\u{1b}[38;2;68;68;68m");
+    }
+
+    #[test]
+    fn the_file_pickers_marked_row_is_a_grey_bar_behind_the_hint_grey() {
+        // `theme.zig:96` dark and `:139` light, background first as upstream
+        // writes it; the direct spellings are the same indices on the ramp
+        // (`239` is 78, `251` is 198, `255` is 238, `237` is 58).
+        for (mode, depth, wanted) in [
+            (
+                Mode::Dark,
+                Depth::Ansi256,
+                "\u{1b}[48;5;239m\u{1b}[38;5;255m",
+            ),
+            (
+                Mode::Light,
+                Depth::Ansi256,
+                "\u{1b}[48;5;251m\u{1b}[38;5;237m",
+            ),
+            (
+                Mode::Dark,
+                Depth::TrueColor,
+                "\u{1b}[48;2;78;78;78m\u{1b}[38;2;238;238;238m",
+            ),
+            (
+                Mode::Light,
+                Depth::TrueColor,
+                "\u{1b}[48;2;198;198;198m\u{1b}[38;2;58;58;58m",
+            ),
+        ] {
+            assert_eq!(
+                Palette { mode, depth }.selected(),
+                wanted,
+                "{mode:?} {depth:?}"
+            );
+        }
+        // A band colour: nothing the document holds is ever repainted into it.
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.document_retint(Color::Indexed(237)), None);
     }
 
     #[test]
@@ -710,6 +1065,53 @@ mod tests {
     }
 
     #[test]
+    fn an_answered_questions_answer_is_a_document_grey_a_theme_report_reaches() {
+        // Upstream's `statusline_style` in both modes, literally: `245` dark and
+        // `241` light (`theme.zig`), the hint row's numbers under the
+        // document's name.
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.answer(), "\u{1b}[38;5;245m");
+        assert_eq!(light.answer(), "\u{1b}[38;5;241m");
+        // On a row recorded as an answer, the cell is the answer's, both ways
+        // -- not the quiet grey a dark `245` is on a plain row, nor the notice
+        // grey a light `241` is.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Answer, Color::Indexed(245)),
+            Some("\u{1b}[38;5;241m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Answer, Color::Indexed(241)),
+            Some("\u{1b}[38;5;245m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Answer, Color::Indexed(245)),
+            None
+        );
+        // And a plain row keeps the roles it always had: a dark `245` is a
+        // summary's, a light `241` a notice's.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
+            Some("\u{1b}[38;5;247m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Plain, Color::Indexed(241)),
+            Some("\u{1b}[38;5;250m")
+        );
+        // A colour this crate did not paint on an answer row is left alone.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Answer, Color::Indexed(250)),
+            None
+        );
+    }
+
+    #[test]
     fn a_direct_colour_session_matches_and_repaints_in_the_same_notation() {
         // The same two pairs at the other depth, spelled out: `255` and `235`
         // are `238` and `38` on xterm's ramp, and `250` and `241` are `188` and
@@ -744,10 +1146,13 @@ mod tests {
 
     #[test]
     fn the_colours_this_crate_does_not_own_in_the_document_are_left_alone() {
-        // The band's own three roles are painted by the band's own frame, and
-        // the user's echo and anything the terminal was already holding are
+        // The band's own roles are painted by the band's own frame, and the
+        // user's echo and anything the terminal was already holding are
         // nobody's to repaint here: a retint that reached them would rewrite a
-        // shell's output in xfx's greys.
+        // shell's output in xfx's greys. (The activity row's 252/238 is no
+        // longer foreign to the document: it is an outcome notice's label
+        // too, and `an_outcome_notices_label_is_retinted_like_the_rest` holds
+        // that half.)
         let light = Palette {
             mode: Mode::Light,
             depth: Depth::Ansi256,
@@ -755,8 +1160,7 @@ mod tests {
         for foreign in [
             Color::Default,
             Color::Indexed(240), // the divider's
-            Color::Indexed(252), // the activity row's
-            Color::Indexed(238),
+            Color::Indexed(244),
             Color::Indexed(31),
             Color::Rgb(1, 2, 3),
         ] {
@@ -769,11 +1173,60 @@ mod tests {
     }
 
     #[test]
+    fn an_outcome_notices_label_is_retinted_like_the_rest() {
+        // `✗ command:` is written in the label grey -- 252 dark, 238 light
+        // (`theme.zig:86-88`, `:129-131`) -- and a terminal that changes its
+        // background mid-session must find it, at either depth. Literals on
+        // both sides, as above.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.notice_label(), "\u{1b}[38;5;252m");
+        assert_eq!(light.notice_label(), "\u{1b}[38;5;238m");
+        assert_eq!(
+            light.document_retint(Color::Indexed(252)),
+            Some("\u{1b}[38;5;238m")
+        );
+        assert_eq!(
+            dark.document_retint(Color::Indexed(238)),
+            Some("\u{1b}[38;5;252m")
+        );
+        assert_eq!(light.document_retint(Color::Indexed(238)), None);
+        let direct = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        assert_eq!(
+            direct.document_retint(Color::Rgb(208, 208, 208)),
+            Some("\u{1b}[38;2;68;68;68m")
+        );
+        // The bold heading is the same grey, so the retint above is its too;
+        // the bold is a separate attribute the retint leaves where it is.
+        assert_eq!(dark.notice_heading(), "\u{1b}[1;38;5;252m");
+        assert_eq!(light.notice_heading(), "\u{1b}[1;38;5;238m");
+        assert_eq!(
+            Palette {
+                mode: Mode::Dark,
+                depth: Depth::TrueColor,
+            }
+            .notice_heading(),
+            "\u{1b}[1;38;2;208;208;208m"
+        );
+        assert_eq!(direct.notice_heading(), "\u{1b}[1;38;2;68;68;68m");
+    }
+
+    #[test]
     fn the_document_body_reads_against_the_background_the_session_is_on() {
         // What a transcript row is painted with, and the one thing about it
         // this module decides: the two modes must not paint it the same, or a
-        // light terminal gets the dark palette's near-white answer text on
-        // white.
+        // light terminal gets the dark palette's pale greys on white. The
+        // answer itself carries no palette colour; the rows this palette
+        // paints in the document are xfx's own lines and a turn's summary.
         let dark = Palette {
             mode: Mode::Dark,
             depth: Depth::Ansi256,
@@ -782,8 +1235,61 @@ mod tests {
             mode: Mode::Light,
             depth: Depth::Ansi256,
         };
-        assert_eq!(dark.body(), "\u{1b}[38;5;255m");
-        assert_eq!(light.body(), "\u{1b}[38;5;235m");
-        assert_ne!(dark.body(), light.body());
+        assert_eq!(dark.notice(), "\u{1b}[38;5;250m");
+        assert_eq!(light.notice(), "\u{1b}[38;5;241m");
+        assert_ne!(dark.notice(), light.notice());
+        assert_eq!(dark.dim(), "\u{1b}[38;5;245m");
+        assert_eq!(light.dim(), "\u{1b}[38;5;247m");
+        assert_ne!(dark.dim(), light.dim());
+    }
+
+    #[test]
+    fn the_highlighters_word_grey_is_the_command_role_in_both_modes() {
+        // The role a theme report repaints a command's words by has to be the
+        // grey the highlighter painted them in, or the report would skip them.
+        for (mode, light) in [(Mode::Dark, false), (Mode::Light, true)] {
+            let palette = Palette {
+                mode,
+                depth: Depth::Ansi256,
+            };
+            let syntax = crate::markdown::theme::builtin(light).syntax;
+            for style in [
+                &syntax.keyword_style,
+                &syntax.function_style,
+                &syntax.variable_style,
+                &syntax.operator_style,
+            ] {
+                assert_eq!(palette.paint(COMMAND), style.as_ref(), "{mode:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_tool_groups_row_answers_its_colours_as_the_groups() {
+        // The row's kind is recorded when it is written (the group's
+        // `kinds`), not read off its first cell -- which is what let a
+        // question's `■ Cancelled` row, in the outcome grey, pass for a tool
+        // group's stopped call.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(245)),
+            Some("\u{1b}[38;5;241m")
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
+            Some("\u{1b}[38;5;247m")
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(245)),
+            None,
+            "a cancelled call's argument is 245 on either screen"
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(252)),
+            Some("\u{1b}[38;5;238m")
+        );
     }
 }

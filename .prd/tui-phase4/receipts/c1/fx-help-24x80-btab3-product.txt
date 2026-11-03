@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────
+Commands 2  All  General  Session  Account  Model  Appearance  …  [Product]
+
+  /feedback    open the fx feedback form
+  /trace       copy a private diagnostic trace
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+

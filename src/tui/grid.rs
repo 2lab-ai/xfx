@@ -25,7 +25,9 @@
 //!   the untouched prefix opened is not on the terminal any more and has to be
 //!   re-opened at the first cell that is written.
 //!
-//! What the diff emits is `CUP`, replacement text, and `EL`. **No `ECH`**: it
+//! What the diff emits is `CUP`, replacement text with its attributes and its
+//! OSC 8 links (`super::hyperlink`, closed at the end of every row), and `EL`.
+//! **No `ECH`**: it
 //! is not in the subset `scripts/smoke-tui.sh`'s oracle models, and an erase to
 //! the end of a row says the same thing about a row that got shorter without
 //! adding a sequence the emulator -- and therefore the acceptance suite --
@@ -34,7 +36,7 @@
 use super::frame::cup;
 use super::layout::Geometry;
 use super::pacer::SgrState;
-use super::theme::Palette;
+use super::theme::{DocumentRow, Palette};
 
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\u{1b}[K";
@@ -144,10 +146,10 @@ pub(crate) fn tokenize_row(
     let mut rest = text.as_ref();
     while !rest.is_empty() {
         if let Some(len) = super::pacer::escape_at(rest) {
-            // `row_text` keeps colours and removes everything else, so the
-            // only sequences that reach here are the ones a cell is allowed
-            // to remember. Handed to the model whole; what it does not
-            // model, it drops.
+            // `row_text` keeps colours and admitted links and removes
+            // everything else, so the only sequences that reach here are the
+            // ones a cell is allowed to remember. Handed to the model whole;
+            // what it does not model, it drops.
             sgr.observe(&rest[..len]);
             rest = &rest[len..];
             continue;
@@ -193,7 +195,16 @@ pub(crate) struct Grid {
     /// method below relies on: [`Grid::span`] is the only place a row becomes
     /// an index range.
     cells: Vec<Cell>,
+    /// What each row is, `rows` long, as its writer recorded it
+    /// ([`Grid::set_kind`]): what a theme report repaints a row's cells as
+    /// ([`Grid::retint_document`]). Moved with the cells by every scroll, and
+    /// plain again wherever a row is erased.
+    kinds: Vec<DocumentRow>,
 }
+
+/// What a tool group's header row opens with (`super::toolgroup`'s header,
+/// upstream's `●`).
+const GROUP_MARK: &str = "\u{25cf}";
 
 impl Grid {
     /// A screen with nothing on it.
@@ -202,6 +213,7 @@ impl Grid {
             rows,
             cols,
             cells: vec![Cell::Empty; usize::from(rows) * usize::from(cols)],
+            kinds: vec![DocumentRow::Plain; usize::from(rows)],
         }
     }
 
@@ -217,6 +229,8 @@ impl Grid {
         self.cells.clear();
         self.cells
             .resize(usize::from(rows) * usize::from(cols), Cell::Empty);
+        self.kinds.clear();
+        self.kinds.resize(usize::from(rows), DocumentRow::Plain);
     }
 
     pub(crate) fn rows(&self) -> u16 {
@@ -260,6 +274,27 @@ impl Grid {
         for cell in &mut self.cells[span] {
             *cell = Cell::Empty;
         }
+        self.set_kind(line, DocumentRow::Plain);
+    }
+
+    /// Records what row `line` is, as its writer says
+    /// (`super::transcript::Append::kinds`). A row with no such line is
+    /// nothing to record.
+    pub(crate) fn set_kind(&mut self, line: u16, kind: DocumentRow) {
+        if let Some(slot) = line
+            .checked_sub(1)
+            .and_then(|index| self.kinds.get_mut(usize::from(index)))
+        {
+            *slot = kind;
+        }
+    }
+
+    /// What row `line` was recorded as, and plain for a row with no record.
+    pub(crate) fn kind(&self, line: u16) -> DocumentRow {
+        line.checked_sub(1)
+            .and_then(|index| self.kinds.get(usize::from(index)))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Puts `row`'s text on row `line`, and blanks the rest of it.
@@ -352,9 +387,12 @@ impl Grid {
     /// Three things make it narrow enough to be safe on rows nobody repaints:
     ///
     /// * **Only a [`Cell::Lead`] this crate's palette recognises.** The colour
-    ///   is asked of the cell rather than of the row it came from, and
-    ///   [`Palette::document_retint`] answers `None` for every one it did not
-    ///   paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
+    ///   is asked of the cell, within the kind of row it was recorded on when
+    ///   it was written -- a tool group's rows and an answered question's
+    ///   answer share one dark grey with a turn's summary and part ways on a
+    ///   light screen ([`DocumentRow`]) -- and
+    ///   [`Palette::document_retint_in`] answers `None` for every one it did
+    ///   not paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
     ///   echo and whatever the terminal was holding before xfx ran are all
     ///   left exactly as they are. Nothing here can *create* a cell, which is
     ///   what stops a repaint reconstructing history.
@@ -375,6 +413,10 @@ impl Grid {
             let Some(span) = self.span(line) else {
                 continue;
             };
+            // What its writer recorded the row as ([`DocumentRow`]), not what
+            // its first cell looks like: an answer row and a summary open with
+            // the same painted blank.
+            let row = self.kind(line);
             for cell in &mut self.cells[span] {
                 let Cell::Lead { sgr, .. } = cell else {
                     continue;
@@ -382,7 +424,7 @@ impl Grid {
                 let Ok(colour) = sgr.color() else {
                     continue;
                 };
-                let Some(wanted) = palette.document_retint(colour) else {
+                let Some(wanted) = palette.document_retint_in(row, colour) else {
                     continue;
                 };
                 sgr.observe(wanted);
@@ -390,6 +432,90 @@ impl Grid {
             }
         }
         moved
+    }
+
+    /// The rows of `1..=last` a switch to collapsed tool groups takes out of
+    /// the screen (`formatGroupBlock`'s `collapse_tool_calls`,
+    /// `tool_group_projection.zig:561-565`, re-projected over the visible
+    /// transcript by `markTranscriptStructureDirty`, `app_commands.zig:4120-4133`),
+    /// ascending: every call row of a group whose header is on the screen, and
+    /// each cancelled call's own line with the blank row its writer put under
+    /// it. The header and the group's blank row stay -- what a collapsed group
+    /// is (`super::toolgroup`).
+    ///
+    /// **Read off what the writers recorded, never guessed.** A row is a group's
+    /// when its writer said so ([`DocumentRow::ToolGroup`],
+    /// [`DocumentRow::ToolStopped`]), and its header is the one of them that
+    /// opens with the group's mark. Call rows at the top of the screen whose
+    /// header has already left it are a group's too -- the rows above the
+    /// first one are the same group's, in scrollback -- and go as well:
+    /// upstream's re-render has that group above the screen, header and all
+    /// (`fx-settings-collapse-open-40x120-collapse-on`, row 1).
+    pub(crate) fn collapsible_rows(&self, last: u16) -> Vec<u16> {
+        let last = last.min(self.rows);
+        let mut removed = Vec::new();
+        let mut in_group = true;
+        let mut line = 1;
+        while line <= last {
+            match self.kind(line) {
+                DocumentRow::ToolGroup if self.opens_with(line, GROUP_MARK) => in_group = true,
+                DocumentRow::ToolGroup if in_group => removed.push(line),
+                DocumentRow::ToolStopped if in_group => {
+                    removed.push(line);
+                    if line < last && self.is_blank(line + 1) {
+                        line += 1;
+                        removed.push(line);
+                    }
+                }
+                // The group's own blank row, after which its cancelled calls'
+                // lines still belong to it.
+                DocumentRow::Plain if self.is_blank(line) => {}
+                _ => in_group = false,
+            }
+            line += 1;
+        }
+        removed
+    }
+
+    /// Takes `removed` -- rows of `1..=last`, ascending -- off the screen:
+    /// every row of `1..=last` under one moves up past it, records and all,
+    /// and the rows that frees at the bottom of that range are blank. Nothing
+    /// below `last` moves, and nothing above the first removed row changes.
+    pub(crate) fn remove_rows(&mut self, removed: &[u16], last: u16) {
+        let last = last.min(self.rows);
+        let width = usize::from(self.cols);
+        let end = usize::from(last) * width;
+        let mut cells = Vec::with_capacity(end);
+        let mut kinds = Vec::with_capacity(usize::from(last));
+        for line in 1..=last {
+            if removed.binary_search(&line).is_ok() {
+                continue;
+            }
+            if let Some(span) = self.span(line) {
+                cells.extend_from_slice(&self.cells[span]);
+                kinds.push(self.kind(line));
+            }
+        }
+        cells.resize(end, Cell::Empty);
+        kinds.resize(usize::from(last), DocumentRow::Plain);
+        self.cells.splice(..end, cells);
+        self.kinds.splice(..usize::from(last), kinds);
+    }
+
+    /// Whether row `line`'s first cell is `grapheme`.
+    fn opens_with(&self, line: u16, grapheme: &str) -> bool {
+        matches!(self.cell(line, 1), Some(Cell::Lead { grapheme: first, .. }) if first == grapheme)
+    }
+
+    /// Whether row `line` holds nothing a terminal would draw.
+    fn is_blank(&self, line: u16) -> bool {
+        self.span(line).is_some_and(|span| {
+            self.cells[span].iter().all(|cell| match cell {
+                Cell::Empty => true,
+                Cell::Lead { grapheme, .. } => grapheme == " ",
+                Cell::Continuation => false,
+            })
+        })
     }
 
     /// The band's own rows, and the erase in front of them.
@@ -434,6 +560,8 @@ impl Grid {
         let width = usize::from(self.cols);
         self.cells.drain(..moved * width);
         self.cells.resize(height * width, Cell::Empty);
+        self.kinds.drain(..moved.min(self.kinds.len()));
+        self.kinds.resize(height, DocumentRow::Plain);
     }
 
     /// Writes the bytes that turn this grid into `target`, and says how many
@@ -504,7 +632,7 @@ impl Grid {
         // being *equal* rather than merely unwritten buys: a row the full diff
         // would have found nothing to say about opens nothing either, so the
         // narrowed run meets the first row it does compare in the same state.
-        let mut open = String::new();
+        let mut open = Pen::default();
         for line in first_row.max(1)..=rows {
             let (Some(before), Some(after)) = (self.span(line), target.span(line)) else {
                 continue;
@@ -558,11 +686,11 @@ impl Grid {
                     // Carried by the lead in front of it.
                     Cell::Continuation => {}
                     Cell::Empty => {
-                        reopen(out, &mut open, "");
+                        reopen(out, &mut open, "", None);
                         out.push(b' ');
                     }
                     Cell::Lead { grapheme, sgr, .. } => {
-                        reopen(out, &mut open, &sgr.reopen());
+                        reopen(out, &mut open, &sgr.attributes(), sgr.link());
                         out.extend_from_slice(grapheme.as_bytes());
                     }
                 }
@@ -575,17 +703,24 @@ impl Grid {
                 //
                 // With the attributes closed first, because an erase paints the
                 // *background* of what it clears on a terminal that has one
-                // switched on. This palette only ever opens a foreground, so
-                // today it costs nothing and prevents a class of defect that
-                // would otherwise arrive with the first background colour.
-                reopen(out, &mut open, "");
+                // switched on -- and the file picker's marked row is one
+                // (`super::theme::Palette::selected`), so a row that ended on
+                // it would otherwise have the bar painted to the right edge.
+                reopen(out, &mut open, "", None);
                 out.extend_from_slice(ERASE_LINE.as_bytes());
             }
+            // A link ends with the row it is on, before the `CUP` that starts
+            // the next run: upstream closes one there for the reason it gives
+            // -- tmux ends an active hyperlink at an automatic wrap
+            // (`engine.zig:2400-2406`) -- and a link carried across a `CUP`
+            // would take in whatever the next run paints first. The colours
+            // carry on as they did: a pen survives a `CUP` on every terminal.
+            close_link(out, &mut open);
             touched += 1;
         }
         // Whatever the last run opened, closed: the next frame assumes a
         // terminal in the default state, and this is what makes that true.
-        reopen(out, &mut open, "");
+        reopen(out, &mut open, "", None);
         touched
     }
 }
@@ -639,22 +774,50 @@ fn column_of(index: usize) -> u16 {
     u16::try_from(index.saturating_add(1)).unwrap_or(u16::MAX)
 }
 
-/// Puts the terminal into `wanted`, if it is not there already.
+/// What a diff has left switched on, so far into its frame.
 ///
-/// A reset in front of anything that is not a pure addition, because [`SgrState`]
-/// replays a *state* rather than a delta: replaying it onto a terminal that
-/// still has the previous run's attributes on would leave whatever the new run
-/// does not mention switched on.
-fn reopen(out: &mut Vec<u8>, open: &mut String, wanted: &str) {
-    if open == wanted {
-        return;
+/// The attributes and the link apart, because they are closed apart: a reset
+/// turns every attribute off and leaves a hyperlink open.
+#[derive(Default)]
+struct Pen {
+    attributes: String,
+    link: Option<std::sync::Arc<str>>,
+}
+
+/// Puts the terminal into `attributes` under `link`, if it is not there
+/// already -- the attributes first and the link second, upstream's order for
+/// one cell (`engine.zig:2421-2428`).
+///
+/// A reset in front of any attributes that are not a pure addition, because
+/// [`SgrState`] replays a *state* rather than a delta: replaying it onto a
+/// terminal that still has the previous run's attributes on would leave
+/// whatever the new run does not mention switched on. A link needs no close in
+/// front of another one -- an open replaces the link that was open, which is
+/// what OSC 8 says and what upstream writes -- and a cell with none closes the
+/// one that was.
+fn reopen(out: &mut Vec<u8>, open: &mut Pen, attributes: &str, link: Option<&std::sync::Arc<str>>) {
+    if open.attributes != attributes {
+        if !open.attributes.is_empty() {
+            out.extend_from_slice(RESET.as_bytes());
+        }
+        out.extend_from_slice(attributes.as_bytes());
+        open.attributes.clear();
+        open.attributes.push_str(attributes);
     }
-    if !open.is_empty() {
-        out.extend_from_slice(RESET.as_bytes());
+    if open.link.as_ref() != link {
+        match link {
+            Some(link) => out.extend_from_slice(link.as_bytes()),
+            None => out.extend_from_slice(super::hyperlink::CLOSE.as_bytes()),
+        }
+        open.link = link.cloned();
     }
-    out.extend_from_slice(wanted.as_bytes());
-    open.clear();
-    open.push_str(wanted);
+}
+
+/// Closes the link the pen has open, and nothing else.
+fn close_link(out: &mut Vec<u8>, open: &mut Pen) {
+    if open.link.take().is_some() {
+        out.extend_from_slice(super::hyperlink::CLOSE.as_bytes());
+    }
 }
 
 #[cfg(test)]
@@ -879,12 +1042,12 @@ mod tests {
         let geometry = geometry();
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(1, "the document", &geometry);
-        grid.place_row(geometry.divider, "stale", &geometry);
+        grid.place_row(geometry.band_top(), "stale", &geometry);
         grid.paint_band(&["--".to_string()], &geometry);
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(1, "the document", &geometry);
-        expected.place_row(geometry.divider, "--", &geometry);
+        expected.place_row(geometry.band_top(), "--", &geometry);
         assert_eq!(diffed(&grid, &expected), "");
     }
 
@@ -1006,6 +1169,11 @@ mod tests {
     const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
     const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    const SUMMARY_DARK: &str = "\u{1b}[38;5;245m";
+    const SUMMARY_LIGHT: &str = "\u{1b}[38;5;247m";
+    const ANSWER_LIGHT: &str = "\u{1b}[38;5;241m";
+    const LABEL_DARK: &str = "\u{1b}[38;5;252m";
+    const LABEL_LIGHT: &str = "\u{1b}[38;5;238m";
 
     #[test]
     fn a_retinted_row_is_the_row_a_fresh_paint_in_the_new_palette_would_leave() {
@@ -1030,6 +1198,172 @@ mod tests {
             "",
             "the retinted rows are not the rows the other palette would paint"
         );
+    }
+
+    #[test]
+    fn a_row_is_retinted_as_what_its_writer_recorded_it_as() {
+        // An answered question's answer and a turn's summary are the same dark
+        // grey, 245, and part on a light screen -- 241 and 247 -- and both open
+        // with a painted blank, so only the record the writer left with the
+        // row can tell them apart.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("{SUMMARY_DARK}     SQLite{RESET}"), &geometry);
+        grid.set_kind(3, DocumentRow::Answer);
+        grid.place_row(4, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
+        // A question's `■ Cancelled`: the mark in the outcome grey is not a
+        // tool group's stopped call, whatever its first cell looks like.
+        grid.place_row(
+            5,
+            &format!("{LABEL_DARK}\u{25a0}{RESET} Cancelled {SUMMARY_DARK}x{RESET}"),
+            &geometry,
+        );
+        assert_eq!(grid.kind(3), DocumentRow::Answer);
+        assert_eq!(grid.kind(5), DocumentRow::Plain);
+        grid.retint_document(10, &light());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("{ANSWER_LIGHT}     SQLite{RESET}"), &geometry);
+        expected.place_row(4, &format!("{SUMMARY_LIGHT}  5s (3 4){RESET}"), &geometry);
+        expected.place_row(
+            5,
+            &format!("{LABEL_LIGHT}\u{25a0}{RESET} Cancelled {SUMMARY_LIGHT}x{RESET}"),
+            &geometry,
+        );
+        assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    /// A grid holding `rows` from row 1 down, each with its writer's record.
+    fn document(rows: &[(&str, DocumentRow)]) -> Grid {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        for (index, (text, kind)) in rows.iter().enumerate() {
+            let line = u16::try_from(index + 1).expect("a row");
+            grid.place_row(line, text, &geometry);
+            grid.set_kind(line, *kind);
+        }
+        grid
+    }
+
+    /// Row `line`'s text, without the blank cells after it.
+    fn text_of(grid: &Grid, line: u16) -> String {
+        (1..=grid.cols())
+            .filter_map(|column| match grid.cell(line, column) {
+                Some(Cell::Lead { grapheme, .. }) => Some(grapheme.as_str()),
+                Some(Cell::Empty) => Some(" "),
+                _ => None,
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    #[test]
+    fn a_collapse_takes_each_groups_calls_and_cancelled_lines_and_keeps_its_header() {
+        use DocumentRow::{Plain, ToolGroup, ToolStopped};
+        let mut grid = document(&[
+            // A group whose header is in scrollback: its calls go too.
+            ("\u{251c} Read old.txt", ToolGroup),
+            ("\u{2514} Read older.txt", ToolGroup),
+            ("", Plain),
+            ("\u{2503} look", Plain),
+            ("", Plain),
+            ("\u{25cf} 2 tool calls \u{b7} 2 read", ToolGroup),
+            ("\u{251c} Read a.txt", ToolGroup),
+            ("\u{2514} Read b.txt", ToolGroup),
+            ("", Plain),
+            ("  Read both.", Plain),
+            ("", Plain),
+            ("\u{25cf} 1 tool call \u{b7} 1 command", ToolGroup),
+            ("\u{2514} Cancelled sleep 4", ToolGroup),
+            ("", Plain),
+            ("\u{25a0} Cancelled sleep 4", ToolStopped),
+            ("", Plain),
+            ("  after", Plain),
+        ]);
+        let removed = grid.collapsible_rows(17);
+        assert_eq!(removed, [1, 2, 7, 8, 13, 15, 16]);
+        // And nothing at or past a row it was not given.
+        assert_eq!(grid.collapsible_rows(7), [1, 2, 7]);
+
+        grid.remove_rows(&removed, 17);
+        let texts: Vec<String> = (1..=17).map(|line| text_of(&grid, line)).collect();
+        assert_eq!(
+            texts,
+            [
+                "",
+                "\u{2503} look",
+                "",
+                "\u{25cf} 2 tool calls \u{b7} 2 read",
+                "",
+                "  Read both.",
+                "",
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "",
+                "  after",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ]
+        );
+        // The records went with their rows, and the freed rows have none.
+        assert_eq!(grid.kind(4), ToolGroup);
+        assert_eq!(grid.kind(8), ToolGroup);
+        assert_eq!(grid.kind(11), Plain);
+        assert_eq!(
+            grid.collapsible_rows(17),
+            [] as [u16; 0],
+            "a second pass took more"
+        );
+    }
+
+    #[test]
+    fn rows_past_the_range_a_removal_was_given_do_not_move() {
+        use DocumentRow::{Plain, ToolGroup};
+        let mut grid = document(&[
+            ("\u{25cf} 1 tool call \u{b7} 1 read", ToolGroup),
+            ("\u{2514} Read a.txt", ToolGroup),
+            ("", Plain),
+            ("band", Plain),
+        ]);
+        grid.remove_rows(&[2], 3);
+        assert_eq!(text_of(&grid, 2), "");
+        assert_eq!(text_of(&grid, 3), "");
+        assert_eq!(text_of(&grid, 4), "band");
+    }
+
+    #[test]
+    fn a_rows_record_moves_with_it_and_goes_with_its_cells() {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, "answer", &geometry);
+        grid.set_kind(3, DocumentRow::Answer);
+        grid.scroll_up(1);
+        assert_eq!(
+            grid.kind(2),
+            DocumentRow::Answer,
+            "the record stayed behind"
+        );
+        assert_eq!(grid.kind(3), DocumentRow::Plain);
+        assert_eq!(grid.kind(geometry.rows), DocumentRow::Plain);
+        // A row written over or erased is a new row, with no record until its
+        // writer gives it one.
+        grid.place_row(2, "something else", &geometry);
+        assert_eq!(grid.kind(2), DocumentRow::Plain);
+        grid.set_kind(2, DocumentRow::ToolGroup);
+        grid.erase_row(2);
+        assert_eq!(grid.kind(2), DocumentRow::Plain);
+        grid.set_kind(2, DocumentRow::Answer);
+        grid.resize(geometry.rows, geometry.cols);
+        assert_eq!(grid.kind(2), DocumentRow::Plain);
+        // Nothing to record outside the grid, and nothing to read there.
+        grid.set_kind(0, DocumentRow::Answer);
+        grid.set_kind(geometry.rows + 1, DocumentRow::Answer);
+        assert_eq!(grid.kind(0), DocumentRow::Plain);
     }
 
     #[test]
@@ -1100,6 +1434,92 @@ mod tests {
             diffed(&grid, &expected),
             "",
             "the retint took the row's other attributes with it"
+        );
+    }
+
+    /// Upstream's link around `docs` (`inline_render.zig:535-560`).
+    const DOCS_OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\";
+    const LINK_CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+
+    #[test]
+    fn a_linked_run_opens_its_link_after_its_attributes_and_closes_it_with_the_row() {
+        // Upstream's order for one cell (`engine.zig:2421-2428`): the SGR
+        // transition, then the hyperlink transition -- and the link closed when
+        // a cell outside it comes, with the reset in front of it.
+        let after = painted(
+            10,
+            &format!("a{DOCS_OPEN}\u{1b}[4mbc\u{1b}[24m{LINK_CLOSE}d"),
+        );
+        assert_eq!(
+            diffed(&Grid::blank(24, 80), &after),
+            format!("\u{1b}[10;1Ha\u{1b}[4m{DOCS_OPEN}bc{RESET}{LINK_CLOSE}d")
+        );
+    }
+
+    #[test]
+    fn a_link_on_two_rows_is_closed_before_the_second_rows_cup_and_opened_again() {
+        // tmux ends an active hyperlink at an automatic wrap
+        // (`engine.zig:2400-2406`), and a link carried across a `CUP` would
+        // take in whatever the next run paints first.
+        let after = painted_rows(&[
+            (10, &format!("{DOCS_OPEN}ab{LINK_CLOSE}")),
+            (11, &format!("{DOCS_OPEN}cd{LINK_CLOSE}")),
+        ]);
+        assert_eq!(
+            diffed(&Grid::blank(24, 80), &after),
+            format!("\u{1b}[10;1H{DOCS_OPEN}ab{LINK_CLOSE}\u{1b}[11;1H{DOCS_OPEN}cd{LINK_CLOSE}")
+        );
+    }
+
+    #[test]
+    fn two_badges_that_name_one_file_are_one_run_and_a_second_file_switches_without_a_close() {
+        // `emitHyperlinkTransition` (`engine.zig:3245-3260`): an open replaces
+        // the link that was open.
+        let one = "\u{1b}]8;;file:///a.png\u{1b}\\";
+        let two = "\u{1b}]8;;file:///b.png\u{1b}\\";
+        let after = painted(1, &format!("{one}[1]{one}[2]{two}[3]{LINK_CLOSE}"));
+        assert_eq!(
+            diffed(&Grid::blank(24, 80), &after),
+            format!("\u{1b}[1;1H{one}[1][2]{two}[3]{LINK_CLOSE}")
+        );
+    }
+
+    #[test]
+    fn a_cell_that_changed_only_its_link_is_repainted() {
+        let before = painted(10, &format!("{DOCS_OPEN}docs{LINK_CLOSE}"));
+        let other = "\u{1b}]8;id=fx-2;https://example.com/docs\u{1b}\\";
+        let after = painted(10, &format!("{other}docs{LINK_CLOSE}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{other}docs{LINK_CLOSE}")
+        );
+        // A frame starts outside every link -- the one before it closed what
+        // it opened -- so the cells that lost theirs are written plain.
+        let unlinked = painted(10, "docs");
+        assert_eq!(diffed(&before, &unlinked), "\u{1b}[10;1Hdocs");
+    }
+
+    #[test]
+    fn a_retint_keeps_the_link_a_cell_was_painted_under() {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(
+            3,
+            &format!("{BODY_DARK}see {DOCS_OPEN}docs{LINK_CLOSE}{RESET}"),
+            &geometry,
+        );
+        assert_eq!(grid.retint_document(10, &light()), "see docs".len());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(
+            3,
+            &format!("{BODY_LIGHT}see {DOCS_OPEN}docs{LINK_CLOSE}{RESET}"),
+            &geometry,
+        );
+        assert_eq!(
+            diffed(&grid, &expected),
+            "",
+            "the retint took the row's link with it"
         );
     }
 

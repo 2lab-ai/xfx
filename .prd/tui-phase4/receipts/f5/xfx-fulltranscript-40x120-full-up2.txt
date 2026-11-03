@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-575ea48 [debug] · Run /help for commands
+
+  2026-10-06 20:20:22.432 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  tools: 9 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal, +1
+  more)
+  mcp: none
+
+  2026-10-06 20:20:30.526 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 2ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:20:30.550 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:20:33.741 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 2ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:20:36.250 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:20:36.477 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 205ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:20:30.456 UTC · Prompt
+┃ run the checks
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

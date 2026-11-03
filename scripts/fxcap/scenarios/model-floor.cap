@@ -1,0 +1,34 @@
+# The catalog cannot be read at all (the fake gateway's /models answers 503
+# throughout), and `/model` is asked three times: once to read again (the
+# launch read began well over a second ago, however slowly the binary
+# started), once inside the second after that read began -- fx's cache starts
+# no load then and opens the menu over the failure it holds (`beginLoad`,
+# `model_cache_runtime.zig:441-442`; `openMenu`, `:529-539`) -- and once after
+# that second. `modelsdelay 0` stamps the gateway log's catalog lines with when
+# they were asked; the evidence is two catalog reads after the launch's, not
+# three. Escape and the next `/` are 0.3 s apart: fx holds an Escape for
+# 30 ms to see whether a key follows it (`main.zig:188`), and under load its
+# loop can read both at once, as one chord, which types `model` into the
+# menu's search rather than submitting the command -- the empty composer row
+# in `inside-floor` is what says it was submitted.
+models models.json
+modelsdown 600000
+modelsdelay 0
+wait 4
+snap start
+type /model
+key Enter
+wait 0.1
+key Escape
+wait 0.3
+type /model
+key Enter
+wait 0.3
+snap inside-floor
+key Escape
+wait 1.5
+type /model
+key Enter
+wait 0.5
+snap after-floor
+gwlog

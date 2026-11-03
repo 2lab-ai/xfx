@@ -1,0 +1,40 @@
+│[38;5;245m  path: c.txt[39m
+│[38;5;245m  content: new file[39m
+│[38;5;245m  second line[39m
+
+[38;5;245m  2026-10-07 05:45:38.117 UTC · Tool[39m
+├ Failed missing.txt: Path not found: missing.txt
+│[38;5;245m  Path not found: missing.txt
+
+  2026-10-07 05:45:38.279 UTC · Tool[39m
+└ Exited 3 [38;5;252mecho[39m boom[38;5;252m;[39m [38;5;252mecho[39m err [38;5;252m>&[38;5;250m2[38;5;252m;[39m [38;5;252mexit[39m 3
+│[38;5;245m boom[39m
+│[38;5;245m err[39m
+│[38;5;245m exit code 3[39m
+
+[38;5;245m  2026-10-07 05:45:41.502 UTC · Response[39m
+  All done. The files were updated.
+
+[38;5;245m  2026-10-07 05:45:41.502 UTC · Usage[39m
+[38;5;245m  14s (↑8 ↓320)[39m
+
+[38;5;245m  2026-10-07 05:45:43.110 UTC · Prompt[39m
+[38;5;255m┃[39m [1mand once more[0m
+
+[38;5;245m  2026-10-07 05:45:43.181 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m1 tool call · 1 write · 1 cancelled[39m
+└ Cancelled file
+│[38;5;245m  path: d.txt[39m
+│[38;5;245m  content: one more[39m
+
+[38;5;245m  2026-10-07 05:45:47.200 UTC · Prompt[39m
+[38;5;255m┃[39m [1mrun the long one[0m
+
+[38;5;245m  2026-10-07 05:45:47.263 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command · 1 cancelled[39m
+└ Cancelled [38;5;252msleep[39m 4
+│[38;5;245m signal 15[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;245mask · model-a[39m

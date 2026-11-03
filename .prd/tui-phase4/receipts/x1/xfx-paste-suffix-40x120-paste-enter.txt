@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-bb78139 [debug] · Run /help for commands
+
+✗ input: Paste was not applied because extra input followed its end marker.
+
+┃ prior
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

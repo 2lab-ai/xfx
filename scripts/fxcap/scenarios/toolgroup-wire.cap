@@ -1,0 +1,13 @@
+# The bytes of a tool group (T8): two steps of read-only calls that the
+# group's block rewrites in place as each one starts and finishes, then the
+# answer under it, then the wire -- whether each rewrite of the group's rows
+# is inside the update that paints the band under them.
+gateway toolgroup-wire-turns.json
+work toolgroup-ws
+wait 2
+type read the files
+key Enter
+wait 4
+snap end
+snapfull end
+wire end

@@ -1,0 +1,30 @@
+# /settings' Model row over a catalog of four: Right opens the list under the
+# row, Down moves its mark, Left uses the marked model, Enter opens the list
+# again and Tab closes it with the tab change.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+models models.json
+wait 2
+type /settings
+key Enter
+wait 1
+key Down Down Down Down Down
+wait 0.3
+key Right
+wait 1.5
+snap list
+key Down
+wait 0.3
+snap list-down
+key Left
+wait 1
+snap used
+home used
+key Enter
+wait 1
+snap enter
+key Tab
+wait 0.5
+snap tab
+key Escape
+wait 0.5

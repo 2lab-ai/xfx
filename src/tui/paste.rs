@@ -29,7 +29,8 @@
 //!   half-taken: a [`Pasted::Refused`] puts nothing in the composer, so there
 //!   is no summary standing for a truncated half of what the user pasted.
 //! * **A collapse.** More than [`COLLAPSE_ABOVE`] codepoints becomes
-//!   `[Pasted text #N, M lines]` in the composer (`pasted_blocks.zig:7`) and
+//!   `[Pasted text #N, M lines]` (`1 line` for one) in the composer
+//!   (`pasted_blocks.zig:7`, `:59-62`) and
 //!   the text travels with it as an entity. Two reasons, and the second is the
 //!   load-bearing one: 1800 codepoints painted into a band is a band that has
 //!   eaten the screen, and every later keystroke re-wraps whatever the composer
@@ -165,6 +166,11 @@ pub(crate) enum Pasted {
     },
     /// Nothing goes into the composer, and the hint row says why.
     Refused(Refusal),
+    /// It names an image file: the shell reads it for images and puts the
+    /// rest in as typed, never collapsed, whatever its length
+    /// (`finalizePastedBlock`, `input_paste_runtime.zig:370-377`). No number
+    /// is spent on it.
+    Paths(String),
 }
 
 impl Paste {
@@ -202,6 +208,30 @@ impl Paste {
         self.refused = None;
     }
 
+    /// Whether the paste that is arriving has already outgrown what a draft
+    /// of `draft` bytes holding `retained` behind its summaries may take.
+    ///
+    /// fx's `confirmedOverflowBytes` (`paste_framing.zig:187-190`): its capture
+    /// is bounded by the room the composer has left
+    /// (`availableBytesForSelectionOrInsertion`, `input_paste_runtime.zig:117`)
+    /// and counts what does not fit, and a capture that overflowed is settled
+    /// as the input-limit refusal even when input followed its end marker
+    /// (`paste_framing.zig:165`). Here that is the buffer's own cap or the
+    /// prompt's budget ([`fits`]), on the bytes gathered so far. A paste with
+    /// nothing gathered -- none arriving, or one that went to another surface
+    /// -- has not.
+    pub(crate) fn overflowed(&self, draft: usize, retained: usize) -> bool {
+        !self.buffer.is_empty()
+            && (self.refused.is_some() || !fits(draft, retained, self.buffer.len()))
+    }
+
+    /// Drops the paste that is arriving: a paste refused for the input behind
+    /// its end marker leaves nothing behind it, and spends no number.
+    pub(crate) fn discard(&mut self) {
+        self.buffer.clear();
+        self.refused = None;
+    }
+
     /// One byte from between the markers.
     pub(crate) fn byte(&mut self, byte: u8) {
         if !accepted(byte) {
@@ -232,13 +262,30 @@ impl Paste {
     /// blocks a draft already holds go into one prompt ([`fits`]). A refusal
     /// puts nothing in the composer and spends no number, so the next paste is
     /// still `#N`.
+    #[cfg(test)]
     pub(crate) fn finish(&mut self, draft: usize, retained: usize) -> Pasted {
+        self.finish_with(draft, retained, |_| false)
+    }
+
+    /// [`Self::finish`], with `paths` asked of the text first: a paste it
+    /// answers yes for is [`Pasted::Paths`], ahead of the collapse and of its
+    /// number, as upstream asks `hasImagePathToken` before
+    /// `shouldUsePlaceholder` (`input_paste_runtime.zig:370-377`).
+    pub(crate) fn finish_with(
+        &mut self,
+        draft: usize,
+        retained: usize,
+        paths: impl FnOnce(&str) -> bool,
+    ) -> Pasted {
         let bytes = std::mem::take(&mut self.buffer);
         // Lossy rather than strict: a paste in an encoding this session does
         // not read must not be lost whole to one bad byte.
         let text = transcript::normalize(&String::from_utf8_lossy(&bytes));
         if let Some(refusal) = self.refused {
             return Pasted::Refused(refusal);
+        }
+        if paths(&text) {
+            return Pasted::Paths(text);
         }
 
         // The *decoded* size is what both budgets are about, and this is where
@@ -300,14 +347,38 @@ pub(crate) fn accepted(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7e | 0x80..=0xff)
 }
 
-/// What the composer shows in place of a collapsed block.
+/// What the composer shows in place of a collapsed block: `line` for one,
+/// `lines` for any other count (`formatPlaceholder`, `pasted_blocks.zig:59-62`).
 pub(crate) fn summary(id: u32, lines: usize) -> String {
-    format!("[Pasted text #{id}, {lines} lines]")
+    let noun = if lines == 1 { "line" } else { "lines" };
+    format!("[Pasted text #{id}, {lines} {noun}]")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paste_naming_an_image_is_handed_over_whole_and_spends_no_number() {
+        let long = format!("{} shot.png", "x".repeat(COLLAPSE_ABOVE + 1));
+        let mut state = Paste::default();
+        state.begin();
+        for byte in long.as_bytes() {
+            state.byte(*byte);
+        }
+        assert_eq!(
+            state.finish_with(0, 0, |text| text.ends_with(".png")),
+            Pasted::Paths(long.clone())
+        );
+        state.begin();
+        for byte in long.as_bytes() {
+            state.byte(*byte);
+        }
+        let Pasted::Collapsed { id, .. } = state.finish(0, 0) else {
+            panic!("a long paste with no path collapses");
+        };
+        assert_eq!(id, 1, "the paths spent a number");
+    }
 
     /// One whole paste, into an empty composer.
     fn paste(text: &str) -> Pasted {
@@ -361,6 +432,9 @@ mod tests {
         assert_eq!(summary, "[Pasted text #1, 2 lines]");
         assert_eq!(id, 1);
         assert_eq!(lines, 2);
+        // One line is `line`, as upstream's noun is (`formatPlaceholder`,
+        // `pasted_blocks.zig:59-62`).
+        assert_eq!(super::summary(3, 1), "[Pasted text #3, 1 line]");
         // pasted_blocks.zig:53-63 -- what is submitted is what was pasted, and
         // the text travels with the block rather than being kept here to be
         // found again by name.

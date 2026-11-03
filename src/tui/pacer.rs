@@ -520,31 +520,36 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 
 /// Whether `text` is one of the shapes the band's own painters emit.
 ///
-/// **The render allowlist, narrowed to the palette that exists**
-/// ([`super::theme`]), which is a foreground colour and the reset that ends it:
+/// **The render allowlist, narrowed to upstream's text vocabulary**
+/// (`c1db919`: `core/agent/presentation/ansi.zig`, `core/shared/theme.zig`):
+/// one SGR made of groups, each of which is one of
 ///
-/// * `CSI 38 ; 5 ; <n> m` -- a 256-colour foreground.
-/// * `CSI 38 ; 2 ; <r> ; <g> ; <b> m` -- a direct-colour foreground.
-/// * `CSI 0 m`, and the bare `CSI m` that means the same thing.
+/// * a reset or a foreground default: `0`, `39`, and the bare `CSI m`;
+/// * a text attribute and its close: bold/dim `1`/`2`/`22`, italic `3`/`23`,
+///   underline `4`/`24`, strike `9`/`29` -- what the assistant's markdown,
+///   the welcome line's brand and a statusline label are written in -- and
+///   reverse video `7`/`27`, the one-cell caret upstream paints in a draft it
+///   owns (`writeSelectedFreeformOptionLines`, `question_ui.zig:323-399`;
+///   `writeApprovalDraft`, `approval_ui.zig:1655-1675`) and the composer's
+///   selection (`appendLayoutUnit`, `input_presentation.zig:995-1021`;
+///   `super::theme::Palette::reverse`);
+/// * `38 ; 5 ; <n>` -- a 256-colour foreground;
+/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground;
+/// * `48 ; 5 ; <n>`, `48 ; 2 ; <r> ; <g> ; <b>` and `49` -- the one
+///   background the band paints, the `@` file picker's marked row
+///   (`approval_button_inactive_style`, `super::theme::Palette::selected`),
+///   and its close;
 ///
-/// Task 13 left the whole SGR vocabulary trusted because there was no palette
-/// yet to narrow it to, and said so in the note this replaces. There is one
-/// now, and it emits three shapes -- so the set a row may carry is those three.
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
-/// invisible, `blink` makes it move, `reverse` and a background colour repaint
-/// the whole width of it. None of them can reach a row from a Phase-1 path --
-/// `super::bridge::inert` spaces a provider's escapes at the channel -- but an
-/// allowlist wider than what is emitted is untested surface, and that is the
-/// only argument it has to answer.
-///
-/// **Widening obligation.** Two things will need this set to grow, and both
-/// must grow it deliberately: Task 16, if a hint-row segment wants an intensity
-/// (upstream's identity tag is `CSI 1 ; 38 ; 5 ; 255 m`, `render.zig:31`), and
-/// whatever admits a provider's own colour to the document -- the `colored and
-/// hyperlinked TTY output` row of `docs/parity.md` calls that out of scope
-/// today. Until then [`SgrState`] models attributes this will not render, which
-/// fails in the safe direction: an attribute that is dropped is a row that is
-/// plainer than it could be, never a terminal doing something nobody asked for.
+/// invisible and `blink` makes it move. None of them is in upstream's
+/// assistant or footer text, and an allowlist wider than what is emitted is
+/// untested surface. A background would repaint the width an `EL` erases,
+/// which is why `super::grid` closes every attribute before it writes one.
+/// Reverse video is admitted only because upstream's footer does paint it --
+/// a caret cell, a selected run, closed on the same row -- and provider text
+/// never reaches here with an escape in it (`super::bridge::inert`).
+/// [`SgrState`] models every attribute this admits, so a row that ends with
+/// one open is closed and reopened like a colour is.
 fn is_palette_sgr(text: &str) -> bool {
     let Some(body) = text.strip_prefix("\u{1b}[") else {
         return false;
@@ -552,32 +557,37 @@ fn is_palette_sgr(text: &str) -> bool {
     let Some(params) = body.strip_suffix('m') else {
         return false;
     };
-    let mut params = params.split(';');
-    let Some(first) = params.next() else {
-        return false;
-    };
-    // The number of parameters each shape carries after its first, and `0`
-    // for the two spellings of a reset.
-    let wanted = match first {
-        "" | "0" => 0,
-        "38" => match params.next() {
-            Some("5") => 1,
-            Some("2") => 3,
-            _ => return false,
-        },
-        _ => return false,
-    };
-    let mut seen = 0usize;
-    for param in params {
-        // A parameter a terminal reads as a number, and nothing else: an empty
-        // one is a zero to a terminal, and a `38;5;` with the index left off is
-        // not a colour this crate would write.
-        if param.is_empty() || !param.bytes().all(|byte| byte.is_ascii_digit()) {
-            return false;
-        }
-        seen += 1;
+    if params.is_empty() {
+        return true;
     }
-    seen == wanted
+    let mut params = params.split(';');
+    while let Some(group) = params.next() {
+        match group {
+            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "39"
+            | "49" => {}
+            "38" | "48" => {
+                // The number of parameters each colour shape carries after its
+                // selector. Each one a terminal reads as a number, and nothing
+                // else: an empty one is a zero to a terminal, and a `38;5;`
+                // with the index left off is not a colour this crate writes.
+                let wanted = match params.next() {
+                    Some("5") => 1,
+                    Some("2") => 3,
+                    _ => return false,
+                };
+                for _ in 0..wanted {
+                    match params.next() {
+                        Some(param)
+                            if !param.is_empty()
+                                && param.bytes().all(|byte| byte.is_ascii_digit()) => {}
+                        _ => return false,
+                    }
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// How many bytes the escape sequence at the head of `text` takes, complete or
@@ -612,11 +622,23 @@ pub(crate) fn escape_at(text: &str) -> Option<usize> {
 /// sequence whose meaning is unknown is how a re-open turns into a second
 /// instruction, and the cost of not replaying one is a lost attribute rather
 /// than a terminal doing something nobody asked for.
+///
+/// **And the hyperlink**, which is not an SGR but is state the same way: an
+/// OSC 8 open stays in force across text until a close, so a row cut out of a
+/// linked run starts outside the link unless it is reopened, exactly as it
+/// starts uncoloured unless its colour is. Only a link
+/// [`super::hyperlink::link_at`] admits is ever held -- one it refuses is
+/// dropped by the painter, so the terminal never enters it -- and an SGR reset
+/// does not close it, because on a terminal it does not.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SgrState {
     /// The open slots, in the order they were opened, so a replay reproduces
     /// the order the provider wrote.
     open: Vec<(Slot, String)>,
+    /// The link the text left open, as the sequence that opens it again.
+    /// Shared rather than owned per copy: a linked run puts this state into
+    /// every cell it paints (`super::grid::Cell`).
+    link: Option<std::sync::Arc<str>>,
 }
 
 /// One thing SGR can be in two states about.
@@ -646,6 +668,13 @@ impl SgrState {
             let (sequence, tail) = rest.split_at(len);
             if is_sgr(sequence) {
                 self.apply(sequence);
+            } else if let Some((_, link)) = super::hyperlink::link_at(sequence) {
+                self.link = match link {
+                    super::hyperlink::Hyperlink::Open { .. } => {
+                        Some(std::sync::Arc::from(sequence))
+                    }
+                    super::hyperlink::Hyperlink::Close => None,
+                };
             }
             rest = tail;
         }
@@ -701,12 +730,48 @@ impl SgrState {
         Ok(color)
     }
 
-    /// The sequences that put a fresh terminal back into this state.
+    /// The sequences that put a fresh terminal back into this state: the
+    /// attributes, then the link -- upstream's order when it carries a link
+    /// onto the next row (`assistant_wrap.zig:1306-1311`).
     pub(crate) fn reopen(&self) -> String {
+        let mut out = self.attributes();
+        if let Some(link) = &self.link {
+            out.push_str(link);
+        }
+        out
+    }
+
+    /// The SGR half of [`Self::reopen`]: the attributes alone.
+    pub(crate) fn attributes(&self) -> String {
         self.open
             .iter()
             .map(|(_, sequence)| sequence.as_str())
             .collect()
+    }
+
+    /// The link this state holds open, as the sequence that opens it.
+    ///
+    /// **The expected side of [`super::check`]'s link comparison**, read from
+    /// the slot rather than from [`Self::reopen`] for the reason
+    /// [`Self::color`] is: the wire side is decoded by a parser of its own.
+    pub(crate) fn link(&self) -> Option<&std::sync::Arc<str>> {
+        self.link.as_ref()
+    }
+
+    /// What takes a terminal in this state back to a fresh one: a reset for
+    /// the attributes and a close for the link, each only when it is owed --
+    /// upstream's order at the end of a wrapped row
+    /// (`assistant_wrap.zig:1310`, `\x1b[0m\x1b]8;;\x1b\\`). A reset alone
+    /// would leave the link open on whatever the next write paints.
+    pub(crate) fn close(&self) -> String {
+        let mut out = String::new();
+        if !self.open.is_empty() {
+            out.push_str("\u{1b}[0m");
+        }
+        if self.link.is_some() {
+            out.push_str(super::hyperlink::CLOSE);
+        }
+        out
     }
 
     /// Applies one SGR sequence, parameter by parameter.
@@ -1337,6 +1402,32 @@ mod tests {
             "\u{1b}[38;2;88;88;88m",
             "\u{1b}[0m",
             "\u{1b}[m",
+            // Upstream's text vocabulary: the welcome line's brand, the
+            // markdown's bold, dim, italic, underline and strike, their
+            // closes, and the foreground default.
+            "\u{1b}[1m",
+            "\u{1b}[1;38;5;255m",
+            "\u{1b}[2m",
+            "\u{1b}[22m",
+            "\u{1b}[3m",
+            "\u{1b}[23m",
+            "\u{1b}[4m",
+            "\u{1b}[24m",
+            "\u{1b}[9m",
+            "\u{1b}[29m",
+            "\u{1b}[39m",
+            // Upstream's one-cell caret in a draft it paints itself, spelled
+            // as its wire writes it (a reset, then reverse) and closed; and a
+            // selection in the composer, the same `7`.
+            "\u{1b}[7m",
+            "\u{1b}[0;7m",
+            "\u{1b}[27m",
+            "\u{1b}[1;7m",
+            // The file picker's marked row: its background, in both
+            // notations, and the background's close.
+            "\u{1b}[48;5;239m",
+            "\u{1b}[48;2;78;78;78m",
+            "\u{1b}[49m",
         ] {
             assert_eq!(
                 colour_at(painted),
@@ -1345,17 +1436,18 @@ mod tests {
             );
         }
         // Every one of these is a well-formed SGR the grammar accepts, and none
-        // of them is a shape this crate writes. The first four are the ones
-        // with a cost on a shared screen; the last two are well-formed colours
-        // in spellings the palette does not use.
+        // of them is a shape this crate writes. The first three are the ones
+        // with a cost on a shared screen; the rest are well-formed colours in
+        // spellings the palette does not use, or one of those hidden inside an
+        // otherwise admitted group.
         for refused in [
             "\u{1b}[5m",
-            "\u{1b}[7m",
             "\u{1b}[8m",
-            "\u{1b}[48;5;196m",
-            "\u{1b}[1m",
+            "\u{1b}[41m",
+            "\u{1b}[48;5m",
+            "\u{1b}[48;2;1;2m",
             "\u{1b}[31m",
-            "\u{1b}[1;38;5;255m",
+            "\u{1b}[1;8m",
             "\u{1b}[38;5m",
             "\u{1b}[38;5;m",
             "\u{1b}[38;2;1;2m",

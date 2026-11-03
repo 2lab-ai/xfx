@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-435c4d7 [debug] · Run /help for commands
+
+┃ explain the plan please
+
+  Here is a short answer.
+
+  It has bold text, inline code, and a list:
+
+  • first item
+  • second item
+
+  ─ rust ────────────
+  fn main() {
+      println!("hi");
+  }
+  ───────────────────
+
+  Done.
+
+  1s (↑6 ↓40)
+
+┃ /cost
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 1
+
+  /cost   show local xfx tokens, models, and spend                                                              Account
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+

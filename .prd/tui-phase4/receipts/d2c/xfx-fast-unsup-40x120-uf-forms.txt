@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+
+* fast: This model does not come with a fast mode.
+
+✗ command: Unknown command. Try /help.
+
+* ultrafast: requested: off
+
+* ultrafast: requested: off
+
+! ultrafast: Ultra mode is unavailable for this model and may increase cost.
+
+* ultrafast: requested off
+
+✗ usage: /ultrafast [on|off|status]
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

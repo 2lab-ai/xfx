@@ -1,0 +1,34 @@
+{
+ "/v1/report": {
+  "byStart": {
+   "2026-10-12": [
+    {
+     "model": "provider/today",
+     "request_count": 2,
+     "input_tokens": 10,
+     "output_tokens": 5,
+     "total_cost": 0.5
+    }
+   ],
+   "2026-10-01": [
+    {
+     "model": "provider/month",
+     "request_count": 4,
+     "input_tokens": 40,
+     "output_tokens": 8,
+     "total_cost": 2
+    }
+   ]
+  },
+  "rows": [
+   {
+    "model": "provider/week",
+    "request_count": 1,
+    "input_tokens": 4,
+    "output_tokens": 1,
+    "total_cost": 0.25
+   }
+  ],
+  "delayMs": 2500
+ }
+}

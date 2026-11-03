@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-014f57f [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m /
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mCommands 7 · type to filter                                                                                         1–6[39m
+
+[38;5;245m  /help      show available slash commands                                                                      General[39m
+[38;5;245m  /clear     clear the screen; the conversation and its session are kept                                        General[39m
+[38;5;245m  /new       start a fresh session                                                                              Session[39m
+[1m[38;5;255m  /setup     [38;5;245m`/setup <gateway|llmux>` to switch provider and record the choice                                  Account[0m
+[38;5;245m  /model     show the model, or `/model <id>` to use another one from now on                                    Model[39m
+[38;5;245m  /version   show the xfx version                                                                               General[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

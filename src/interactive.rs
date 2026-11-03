@@ -23,16 +23,24 @@ use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{run_turn_with_skills, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
-use crate::config::{Environment, PermissionMode, RuntimeConfig};
+use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
+use crate::config::{Environment, PermissionMode, RuntimeConfig, StatusLineItem};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
-use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SANDBOX_LABEL};
-use crate::permission::{PermissionSession, YOLO_WARNING};
+use crate::output::{
+    safe_one_line, Event, EventSink, OutputFormat, SessionFacts, StatusSnapshot, TextSink,
+    SANDBOX_LABEL,
+};
+use crate::permission::{LiveRules, PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
+use crate::session::{
+    validate_title, NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, TitleError,
+    WritableSession,
+};
 use crate::tools::{QuestionRequester, ToolContext};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// Every slash command the shell accepts, in the order `/help` lists them.
@@ -54,10 +62,35 @@ use crate::workspace::{AccessScope, ProjectContext};
 #[rustfmt::skip]
 pub const SLASH_COMMANDS: &[&str] = &[
     "/help",
-    "/new",
     "/clear",
+    "/new",
+    "/reset",
+    "/resume",
+    "/rename",
+    "/provider",
+    "/stats",
+    "/usage",
+    "/status",
+    "/image",
+    "/images",
     "/model",
-    "/setup",
+    "/permissions",
+    "/allowlist",
+    "/undo",
+    "/mcp",
+    "/skills",
+    "/copy",
+    "/trace",
+    "/compact",
+    "/settings",
+    "/alias",
+    "/credits",
+    "/paste",
+    "/fast",
+    "/ultrafast",
+    "/statusline",
+    "/sound",
+    "/workspace",
     "/version",
     "/quit",
 ];
@@ -83,8 +116,18 @@ pub struct SlashSpec {
     /// grow by one when it is added. What it does is make the parser answer it and
     /// the completion menu offer the command it belongs to.
     pub aliases: &'static [&'static str],
-    /// The single line `/help` prints beside the name.
+    /// The single line `/help` prints beside the name, and the menu beside it.
     pub summary: &'static str,
+    /// The group the completion menu files it under, at the right of its row,
+    /// and the tab the TUI's `/help` catalog lists it on.
+    ///
+    /// One of [`SLASH_CATEGORIES`], upstream's own names
+    /// (`SlashPresentationCategory.label`,
+    /// `vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:143-157`).
+    /// A string rather than an `enum` because nothing branches on *which* one it
+    /// is: the menu shows it and the catalog groups by it, and the assertion
+    /// under the registry keeps it to that closed set at compile time.
+    pub category: &'static str,
     /// Whether the rest of the line means anything to it.
     ///
     /// The completion menu's reason for existing: completing a command that
@@ -101,61 +144,375 @@ pub struct SlashSpec {
 /// `picker`). A name, a summary or an alias that only some of them agreed about
 /// would be a command surface that answers differently depending on where you
 /// asked -- which is the one thing a command surface must never be.
+///
+/// **Upstream's order, upstream's categories, and upstream's words where the
+/// command is upstream's command** (`vercel-labs/fx@c1db9191
+/// src/builtins/commands.zig:463-499`), because the menu shows all three. The
+/// rows xfx does not have are absent rather than stubbed. One summary stays
+/// xfx's own, because upstream's sentence describes something this command
+/// does not do: `/model` (upstream chooses a reasoning effort as well,
+/// `:478`; xfx sends none). `/clear`, `/new` and `/reset` are one operation, as
+/// upstream's are (`app_commands.zig:667-680`), and carry upstream's three
+/// sentences (`:464-466`). `/provider` is upstream's row whole -- name, `/setup`
+/// alias, sentence and category (`:472`) -- and is the one whose sentence
+/// promises more than xfx's picker shows: the provider column is there, the
+/// sign-in columns after it are gated (zbrain open-loop #88) and absent, as
+/// `docs/parity.md` says.
+/// `/permissions` is upstream's sentence with this product's name in it
+/// (`:479`). `/stats` keeps upstream's sentence although what it prints is the
+/// terminal writer's counters rather than tokens: so does upstream's
+/// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
+/// the one the menu shows beside the name.
 #[rustfmt::skip]
 pub const SLASH_REGISTRY: &[SlashSpec] = &[
     SlashSpec {
         command: Slash::Help,
         name: "/help",
         aliases: &[],
-        summary: "list these commands",
-        has_args: false,
-    },
-    SlashSpec {
-        command: Slash::New,
-        name: "/new",
-        aliases: &[],
-        summary: "start a new session; the next prompt begins a fresh conversation",
+        summary: "show available slash commands",
+        category: "General",
         has_args: false,
     },
     SlashSpec {
         command: Slash::Clear,
         name: "/clear",
         aliases: &[],
-        summary: "clear the screen; the conversation and its session are kept",
+        summary: "start a fresh conversation while keeping managed processes",
+        category: "General",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::New,
+        name: "/new",
+        aliases: &[],
+        summary: "start a fresh session",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Reset,
+        name: "/reset",
+        aliases: &[],
+        summary: "reset the current session context",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Resume,
+        name: "/resume",
+        aliases: &[],
+        summary: "resume a saved session",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Rename,
+        name: "/rename",
+        aliases: &[],
+        summary: "rename the current session",
+        category: "Session",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Setup,
+        name: "/provider",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:472`), and the
+        // name this command had before it was upstream's row.
+        aliases: &["/setup"],
+        summary: "choose the model provider and how it signs in",
+        category: "Account",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Stats,
+        name: "/stats",
+        aliases: &[],
+        summary: "show token and turn statistics",
+        category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Usage,
+        name: "/usage",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:474`).
+        aliases: &["/cost"],
+        // Upstream's sentence with this product's name in it (`:474`): what
+        // it shows is what xfx itself spent.
+        summary: "show local xfx tokens, models, and spend",
+        category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Status,
+        name: "/status",
+        aliases: &[],
+        summary: "show runtime configuration",
+        category: "General",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Image,
+        name: "/image",
+        // Upstream's row (`commands.zig:476`): its alias, its sentence, and
+        // the category its tab is.
+        aliases: &["/img"],
+        summary: "attach an image by path",
+        category: "Media",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Images,
+        name: "/images",
+        aliases: &[],
+        summary: "manage pending image attachments",
+        category: "Media",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Model,
         name: "/model",
         aliases: &[],
         summary: "show the model, or `/model <id>` to use another one from now on",
+        category: "Model",
         has_args: true,
     },
     SlashSpec {
-        command: Slash::Setup,
-        name: "/setup",
+        command: Slash::Permissions,
+        name: "/permissions",
         aliases: &[],
-        summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
+        summary: "choose what xfx is allowed to do",
+        category: "Security",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Allowlist,
+        name: "/allowlist",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:480`). URLs included: xfx keeps
+        // and lists `url` and `web-fetch-domain` rules as upstream does,
+        // although no xfx tool reaches a URL for one to decide.
+        summary: "manage trusted commands, tools, and URLs",
+        category: "Security",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Undo,
+        name: "/undo",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:481`): a Session command that
+        // takes nothing.
+        summary: "undo the latest tracked file operation",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Mcp,
+        name: "/mcp",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:482`): its words, its place
+        // after `/undo`, and the Extensions tab.
+        summary: "manage local and remote MCP servers, resources, prompts, and project trust",
+        category: "Extensions",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Skills,
+        name: "/skills",
+        aliases: &[],
+        // Upstream's row (`commands.zig:483`): its sentence, its category, and
+        // an argument. The grammar is `crate::skills::command::parse`, whose
+        // refusal is upstream's usage line.
+        summary: "browse and manage skills",
+        category: "Extensions",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Copy,
+        name: "/copy",
+        aliases: &[],
+        summary: "copy the last assistant response",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Trace,
+        name: "/trace",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:486`): its words, its category,
+        // and no argument.
+        summary: "copy a private diagnostic trace",
+        category: "Product",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Compact,
+        name: "/compact",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:487`).
+        summary: "summarize context into a fresh window",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Settings,
+        name: "/settings",
+        aliases: &[],
+        // Upstream's words (`commands.zig:488`). It takes an argument there
+        // (`startup-scrollback [on|off]`) and here, so completing it leaves the
+        // caret past a space as upstream's popup does.
+        summary: "browse and update settings",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Alias,
+        name: "/alias",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:489`): its words, its place
+        // between `/settings` and `/credits`, and the Extensions tab. It takes
+        // the rest of the line there (`/alias [name] [command]` is its help
+        // entry) and the answer is the same sentence whatever that is
+        // (`commandHandleAlias`, `app_commands.zig:2043-2050`).
+        summary: "show alias availability",
+        category: "Extensions",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Credits,
+        name: "/credits",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:490`).
+        aliases: &["/balance"],
+        summary: "show gateway credits balance",
+        category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Paste,
+        name: "/paste",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:491`); it takes nothing.
+        summary: "attach an image from the clipboard when supported",
+        category: "Media",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Fast,
+        name: "/fast",
+        aliases: &[],
+        // Upstream's words and place (`commands.zig:492`): a toggle that takes
+        // nothing, so `/fast on` is no command at all.
+        summary: "toggle Fast mode when supported",
+        category: "Model",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Ultrafast,
+        name: "/ultrafast",
+        aliases: &[],
+        // Upstream's words (`commands.zig:493`); the grammar is
+        // `/ultrafast [on|off|status]`, which its refusal prints.
+        summary: "request Ultra mode when supported",
+        category: "Model",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Statusline,
+        name: "/statusline",
+        aliases: &[],
+        // Upstream's words (`commands.zig:494`); the grammar is
+        // `STATUSLINE_USAGE`, which the refusal prints.
+        summary: "toggle status line segments",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Sound,
+        name: "/sound",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:495`). The bell is the one sound
+        // xfx makes, and it is a sound: what the terminal does with it -- a
+        // beep, a flash, a mark on a multiplexer's tab -- is the terminal's.
+        summary: "toggle sounds and terminal bells",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Workspace,
+        name: "/workspace",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:496`); the grammar is
+        // `crate::workspace::access::parse`, whose refusal is upstream's
+        // usage line.
+        summary: "manage additional workspace directories",
+        category: "Workspace",
         has_args: true,
     },
     SlashSpec {
         command: Slash::Version,
         name: "/version",
         aliases: &[],
-        summary: "show the version this shell was built from",
+        summary: "show the xfx version",
+        category: "General",
         has_args: false,
     },
     SlashSpec {
         command: Slash::Quit,
         name: "/quit",
         // Upstream's own alias for the same command
-        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:457`), and the
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:499`), and the
         // only one xfx answers.
         aliases: &["/exit"],
-        summary: "leave the shell",
+        summary: "exit the interactive shell",
+        category: "General",
         has_args: false,
     },
 ];
+
+/// Every category a command can be filed under, in the order the `/help`
+/// catalog's tabs are in.
+///
+/// Upstream's `SlashPresentationCategory`, in its declaration order
+/// (`vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:130-157`),
+/// which is also the order the catalog lists commands in (`helpCatalogSpecAt`,
+/// `:429-440`). **All eleven, including the ones no xfx command is filed
+/// under**: a tab is a category, not a command, and upstream's own catalog has
+/// a tab with nothing on it (`Agents` at `c1db919`), so an empty one says
+/// "nothing here" rather than advertising anything.
+pub const SLASH_CATEGORIES: &[&str] = &[
+    "General",
+    "Session",
+    "Account",
+    "Model",
+    "Appearance",
+    "Security",
+    "Workspace",
+    "Media",
+    "Agents",
+    "Extensions",
+    "Product",
+];
+
+/// Every registry row is filed under one of [`SLASH_CATEGORIES`], or this crate
+/// does not build: a row under a name the catalog has no tab for would be a
+/// command the `/help` catalog never lists.
+const _: () = {
+    let mut row = 0;
+    while row < SLASH_REGISTRY.len() {
+        let mut found = false;
+        let mut category = 0;
+        while category < SLASH_CATEGORIES.len() {
+            if same(SLASH_REGISTRY[row].category, SLASH_CATEGORIES[category]) {
+                found = true;
+            }
+            category += 1;
+        }
+        assert!(found);
+        row += 1;
+    }
+};
 
 /// The registry row for one command.
 ///
@@ -208,6 +565,177 @@ const fn same(left: &str, right: &str) -> bool {
 /// What the shell prints before reading a line.
 pub const PROMPT: &str = "> ";
 
+/// What `/stats` says on this surface.
+///
+/// The counters are the terminal writer's -- bytes delivered, whole repaints,
+/// coalesced resizes (`crate::tui`'s `shell::Metrics`) -- and this shell has none of
+/// the three: it prints lines and lets the terminal scroll them. A row of
+/// zeros here would be a report about frames that were never drawn, so it
+/// says where the numbers are instead.
+pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
+     draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/compact` says on this surface.
+///
+/// Upstream's compaction is a piece of the full-screen shell's work: it
+/// shows on the band's activity row and nowhere else, waits behind a running
+/// turn, and is stopped by the keys that stop one
+/// (`compactionProjection`, `activity_status.zig:16-41`). This shell has no
+/// row to show it on, so it says where it is rather than compacting a
+/// conversation the user cannot watch being compacted.
+pub const COMPACT_ON_THE_LINE_SHELL: &str = "xfx: /compact runs in the full-screen shell, which \
+     shows its progress; without XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/usage` says on this surface.
+///
+/// Upstream's `/usage` is a dashboard in place of its footer
+/// (`commandShowUsage`, `app_commands.zig:1024-1062`), with keys that walk
+/// windows and models, and this shell reads a line at a time and has no
+/// footer. It says where the dashboard is, as `/stats` says where the
+/// counters are, rather than printing a different report under the same name.
+pub const USAGE_ON_THE_LINE_SHELL: &str = "xfx: /usage shows its dashboard in the full-screen \
+     shell, and this line-oriented shell has no footer to show it in; without XFX_TUI=0, xfx \
+     opens the full-screen one";
+
+/// What `/resume` says on this surface.
+///
+/// Upstream's `/resume` is a picker in its footer
+/// (`commandResumeSession`, `app_commands.zig:682-693`), and this shell has no
+/// footer to put one in: it reads a line at a time. It says where the picker
+/// is, as `/stats` says where the counters are, rather than resuming something
+/// the user did not pick.
+pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session in the full-screen \
+     shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
+     full-screen one, and `xfx --resume <last|ID>` opens it on a session";
+
+/// What `/fast` and `/ultrafast` say on this surface.
+///
+/// They choose the speed a turn asks the provider for, and only the
+/// full-screen shell asks for one: this shell sends neither a reasoning effort
+/// nor a speed with its requests. It says where the switches are, as `/stats`
+/// says where the counters are, rather than accepting a switch that would
+/// change nothing.
+pub const SPEED_ON_THE_LINE_SHELL: &str = "xfx: /fast and /ultrafast set the speed the \
+     full-screen shell asks for, and this line-oriented shell asks for none; without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/image`, `/images` and `/paste` say on this surface.
+///
+/// An attachment is a badge in the prompt being written, and this shell reads
+/// a finished line at a time: there is no draft for an image to wait in, and
+/// a path typed here is sent to the model as the words it is. It says where the
+/// attachments are, as `/stats` and `/resume` say where theirs are.
+pub const IMAGES_ON_THE_LINE_SHELL: &str = "xfx: /image, /images and /paste attach images to the \
+     prompt being written in the full-screen shell, and this line-oriented shell has no draft to \
+     attach them to; without XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/rename` says when there is no title to give the session, or one it
+/// cannot have (`handleRenameCommand`, `app_commands.zig:3815-3858`): the
+/// words both shells use.
+pub(crate) fn title_refusal(problem: TitleError) -> &'static str {
+    match problem {
+        TitleError::Empty => "usage: /rename <title>",
+        TitleError::TooLong => "title is too long",
+        TitleError::NotPrintable => "title must be printable text",
+    }
+}
+
+/// Gives `conversation`'s session the title `title`, already validated
+/// ([`crate::session::validate_title`]), and says whether it was written down.
+///
+/// The recorder's first failure is the answer when there is one, this write's
+/// or an earlier one's: a recorder that has failed writes nothing more
+/// (`SessionRecorder::commit`), so a title it was handed afterwards is a title
+/// the log does not have.
+pub(crate) fn rename_conversation(
+    conversation: &mut Conversation,
+    title: &str,
+) -> Result<(), String> {
+    conversation.recorder.commit(SessionEvent::SessionRenamed {
+        title: title.to_string(),
+        source: crate::session::TitleSource::User,
+    });
+    match conversation.recorder.failure() {
+        Some(problem) => Err(problem.to_string()),
+        None => Ok(()),
+    }
+}
+
+/// What `/settings` says to an argument it does not take, upstream's words
+/// exactly (`writeSettingsUsage`, `session_commands.zig:1129-1135`).
+pub const SETTINGS_USAGE: &str = "usage: /settings [startup-scrollback [on|off]]";
+
+/// What `/settings` says on this surface.
+///
+/// Upstream's `/settings` is a menu in its footer (`commandHandleSettings`,
+/// `app_commands.zig:2022-2041`), and this shell has no footer to put one in.
+/// It says where the menu is, as `/resume` says where its picker is.
+pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes settings in \
+     the full-screen shell, and this line-oriented shell has no menu; without XFX_TUI=0, xfx \
+     opens the full-screen one";
+
+/// `/mcp` on the line shell. The MCP client runs in the full-screen shell's
+/// session -- its servers, its menu, its trust prompt -- and this shell starts
+/// no server, so it says where they are rather than managing a profile it
+/// would never connect to.
+pub const MCP_ON_THE_LINE_SHELL: &str = "xfx: /mcp manages MCP servers in the full-screen \
+     shell, which starts and connects them; this line-oriented shell runs none. Without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/alias` is filed under, on both surfaces: upstream's topic, which is
+/// the plural (`commandHandleAlias`, `app_commands.zig:2046`).
+pub const ALIAS_TOPIC: &str = "aliases";
+
+/// What `/alias` says, bare or with anything after it: upstream's sentence,
+/// a neutral notice (`app_commands.zig:2047-2048`). Upstream answers every form
+/// of `/alias [name] [command]` with it and keeps nothing, and so does xfx --
+/// there is no alias table on either side for a name to go into.
+pub const ALIASES_NOT_CONFIGURABLE: &str = "Aliases are not yet configurable.";
+
+/// What every `/statusline` notice is filed under, on both surfaces.
+pub const STATUSLINE_TOPIC: &str = "statusline";
+
+/// `/statusline`'s refusal, upstream's words exactly
+/// (`handleStatuslineCommand`, `app_commands.zig:3931-3941`).
+pub const STATUSLINE_USAGE: &str = "usage: /statusline [context|session|workspace]";
+
+/// What a `/statusline` write that landed says (`reportUserSettingsCommit`,
+/// `session_commands.zig:27-84`): the profile is the one scope xfx writes.
+pub const STATUSLINE_SAVED: &str = "saved to user settings (scope=user)";
+
+/// What `/statusline` says an item is now: `context: on`
+/// (`applyStatuslineItem`, `app_commands.zig:3915-3923`).
+pub fn statusline_state(item: StatusLineItem, on: bool) -> String {
+    format!("{}: {}", item.name(), if on { "on" } else { "off" })
+}
+
+/// Keeps one `/statusline` item in the profile at `path`, or says why it could
+/// not.
+///
+/// One preference, through the profile's one writer
+/// ([`crate::provider::profile::write_preference`]): read, set
+/// `statusLine.<item>`, write back staged and owner-only. A session with no
+/// home has no profile to keep it in, and that is the reason it says.
+pub fn save_statusline(
+    path: Option<&std::path::Path>,
+    item: StatusLineItem,
+    on: bool,
+) -> Result<(), String> {
+    let Some(path) = path else {
+        return Err("no home directory is set".to_string());
+    };
+    crate::provider::profile::write_preference(path, &item.key_path(), serde_json::Value::Bool(on))
+        .map_err(|err| err.to_string())
+}
+
+/// What a `/statusline` write that failed says: the change is in force for
+/// this process and nowhere else (`reportUserSettingsFailure`,
+/// `session_commands.zig:110-133`, whose `runtime_changed` is always true
+/// here -- every `/statusline` change is a flip).
+pub fn statusline_not_saved(reason: &str) -> String {
+    format!("active for this process but not saved to user settings ({reason})")
+}
+
 /// Why xfx will not open a shell here.
 pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
      run `xfx ask <prompt>` when there is not one";
@@ -229,13 +757,6 @@ const INTERRUPTED_EXIT_CODE: i32 = 130;
 /// refusal worth reading is the guidance at the end of the line.
 const MAX_QUOTED_COMMAND_BYTES: usize = 60;
 
-/// Erase the screen, the scrollback, and put the cursor home.
-///
-/// The only control sequence the shell emits. `2J` clears what is visible and
-/// `3J` clears the scrollback, which is what a user asking to clear a transcript
-/// means -- the shell never does it on its own initiative.
-const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
-
 // ---------------------------------------------------------------------------
 // what a submitted line is
 // ---------------------------------------------------------------------------
@@ -246,6 +767,19 @@ pub enum Slash {
     Help,
     New,
     Clear,
+    /// The same operation as [`Slash::New`] and [`Slash::Clear`] under
+    /// upstream's third name for it (`commandResetSession`,
+    /// `app_commands.zig:672-675`): the policy upstream passes it is thrown
+    /// away before anything reads it (`app_session_runtime.zig:2001`), so it
+    /// opens a new session exactly as the other two do.
+    Reset,
+    /// Pick a saved session and continue it: the TUI's session picker
+    /// (`commandResumeSession`, `app_commands.zig:682-693`).
+    Resume,
+    /// Give the session a title of the user's own, which outranks the one its
+    /// first prompt would give it (`handleRenameCommand`,
+    /// `app_commands.zig:3815-3858`).
+    Rename,
     Model,
     /// Switch the provider a turn talks to, and record the choice.
     ///
@@ -253,7 +787,85 @@ pub enum Slash {
     /// and the only one that reaches the network, which is why it is a command
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
+    ///
+    /// `/provider`, with `/setup` as its alias. The variant keeps the name the
+    /// command had when `/setup` was canonical: it names what the command does
+    /// (`provider::setup`), and every surface reaches it by parsing the
+    /// registry rather than by spelling it.
     Setup,
+    /// What the session may do without asking, and the way to change it:
+    /// `ask`, `auto`, `full-access` or `reset`
+    /// ([`crate::permission::slash`]).
+    Permissions,
+    /// The persistent allow rules: view them, or add, remove and reset them
+    /// in the profile's table or this workspace's
+    /// ([`crate::permission::allowlist`]).
+    Allowlist,
+    /// Put the file the conversation's tools changed last back as it was
+    /// before ([`crate::tools::undo`]).
+    Undo,
+    /// The session's MCP servers: upstream's menu, its text subcommands and
+    /// its project trust (`commandHandleMcp`, `app_commands.zig:1312-1405`;
+    /// [`crate::mcp`]).
+    Mcp,
+    /// The skills the session can see: a menu in the TUI, `show`, `path`,
+    /// `create`, `remove` and `add` from a local directory on either surface
+    /// ([`crate::skills::command`]).
+    Skills,
+    /// Put the last thing the model said on the system clipboard
+    /// ([`crate::clipboard`]).
+    Copy,
+    /// Fast mode on or off, for a model that offers it
+    /// (`toggleFastForModel`, `session_commands.zig:733-751`).
+    Fast,
+    /// Ultra mode on, off, or asked about, for a model that offers it
+    /// (`handleUltrafast`, `session_commands.zig:704-723`).
+    Ultrafast,
+    /// Attach the image a path names to the prompt being written
+    /// ([`crate::image`]).
+    Image,
+    /// What the prompt being written has attached, or `clear` to drop it all.
+    Images,
+    /// Attach the image on the clipboard ([`crate::clipboard::Clipboard::read_image`]).
+    Paste,
+    /// Write a private diagnostic report about this session and put the file
+    /// on the clipboard ([`crate::trace`]).
+    Trace,
+    /// Replace the older turns of the conversation with a compacted form the
+    /// model reads in their place (`commandCompactHistory`,
+    /// `app_commands.zig:2010-2020`; [`crate::agent::compact`]).
+    Compact,
+    /// Upstream's sound switch, which here is the terminal bell
+    /// ([`crate::sound`]).
+    Sound,
+    /// What the terminal writer has done this session: upstream's five render
+    /// counters.
+    Stats,
+    /// What xfx itself has spent -- tokens, requests and the provider's own
+    /// cost, by model -- over the last 30 days, 7 days, 24 hours or this
+    /// session ([`crate::usage`]).
+    Usage,
+    /// What the Gateway account has left ([`crate::credits`]).
+    Credits,
+    /// The configuration a turn would run under, and the live conversation's
+    /// own two counts.
+    Status,
+    /// Which of the footer's optional segments are shown: a picker in the
+    /// TUI, one item flipped by name on either surface, and the choice kept in
+    /// the profile (`statusLine.{context,session,workspace}`).
+    Statusline,
+    /// Every preference the session can change, by category, in one menu
+    /// that changes each in place: the TUI's settings menu
+    /// (`commandHandleSettings`, `app_commands.zig:2022-2041`).
+    Settings,
+    /// Upstream's `/alias [name] [command]`, which says aliases cannot be
+    /// configured yet and keeps nothing (`commandHandleAlias`,
+    /// `app_commands.zig:2043-2050`).
+    Alias,
+    /// The directories a session may work in besides the workspace, saved in
+    /// the profile: a picker in the TUI, `list`, `add`, `remove` and `clear`
+    /// on either surface ([`crate::workspace::access`]).
+    Workspace,
     Version,
     Quit,
 }
@@ -478,6 +1090,143 @@ impl Interrupts {
 pub(crate) struct Conversation {
     pub(crate) recorder: SessionRecorder,
     pub(crate) tools: ToolContext,
+    /// The history notices this conversation has already said
+    /// ([`Self::unsaid`]).
+    said: std::collections::BTreeSet<String>,
+    /// The provider's count of this conversation's last measured request,
+    /// which the TUI's compaction scales its estimates by
+    /// ([`crate::agent::compact::Calibration`]). Upstream keeps it on the
+    /// conversation's agent (`agent.zig:14-19`), so it goes with this one:
+    /// `/new` and a resume start without it, and a provider switch keeps it
+    /// with the conversation -- a count applies only to the model that made
+    /// it ([`crate::agent::compact::Calibration::applies`]), as upstream's
+    /// (`orchestrator.zig:7293-7299`).
+    pub(crate) calibration:
+        std::sync::Arc<std::sync::Mutex<Option<crate::agent::compact::Calibration>>>,
+}
+
+impl Conversation {
+    /// The lines of `notices` this conversation has not said yet, which are
+    /// now said.
+    ///
+    /// The history is rebuilt for every request, and so are the notices about
+    /// what it could not carry -- a reasoning state sealed by another wire, an
+    /// image that could not be read back -- so the same line would otherwise
+    /// open every turn after a switch or a resume. Said once, it stays true
+    /// for the rest of the conversation, as `.prd/04-providers.md`
+    /// §Provenance asks ("a one-line user-visible notice"). A new
+    /// conversation starts with nothing said.
+    pub(crate) fn unsaid(&mut self, notices: Vec<String>) -> Vec<String> {
+        notices
+            .into_iter()
+            .filter(|notice| self.said.insert(notice.clone()))
+            .collect()
+    }
+
+    /// What `/status` says about this conversation: the turns it holds and the
+    /// "always" answers its authority has been given.
+    ///
+    /// **The live conversation's, not the store's.** `xfx status` reports the
+    /// last session on disk because it has no other; a shell has the one it is
+    /// talking in, and upstream's report is that one's (`session.historyLen()`
+    /// and the live session grants, `session_commands.zig:304-305`). The grants
+    /// are the authority's own list rather than the recorder's, because an
+    /// answer is held there from the moment it is given and only written down
+    /// once its turn is over.
+    pub(crate) fn facts(&self) -> SessionFacts {
+        SessionFacts {
+            history_turns: self.recorder.state().turns.len() as u64,
+            permission_grants: self.tools.permissions().grants().len() as u64,
+        }
+    }
+
+    /// Puts this conversation's authority in `mode`, forgetting every
+    /// "always" it holds when `clear_grants` -- `/permissions <mode>` and
+    /// `/permissions reset`, on either surface.
+    ///
+    /// **Here, and not by building a new authority**, because the authority is
+    /// built once per conversation and holds what an "always" answer is worth
+    /// for the rest of it: a fresh one would forget the grants a mode change
+    /// must keep. A mode that differs from the one the log last recorded is
+    /// written down, as a resume does (`crate::tui`'s worker, `app::run_ask`),
+    /// so a later resume reads what this session really ran under.
+    ///
+    /// A reset is **durable**. Upstream's `reset` clears the engine's session
+    /// grants (`permission_engine.clear`, `app_permission_runtime.zig:144-159`,
+    /// `permissions.zig:49-51`) -- the "don't ask again" answers -- and those
+    /// are never written down there (`permission_engine.allow` is reached only
+    /// from an approval, `app_callbacks.zig:1617-1620`), so a reset session
+    /// that is resumed has none. xfx writes the same answers into the log
+    /// (`permission_grant_recorded`), so the forgetting is written too
+    /// (`permission_grants_cleared`) or a resume would bring them back.
+    /// Upstream's saved-session rules -- `remember`, `permissions.json` -- are
+    /// a different store, which its `reset` leaves alone and xfx does not
+    /// have.
+    ///
+    /// The order matters: the clearing first, then whatever this session
+    /// holds afterwards. An "always" given after a live reset, in the turn
+    /// that was running when it happened ([`PermissionSession::clear_grants`]),
+    /// may be for a target the log already listed from before the reset, and
+    /// `record_new_grants` only writes what the log does not list -- so it is
+    /// written once the list has been emptied, or it would be lost with it.
+    pub(crate) fn set_permission_mode(&mut self, mode: PermissionMode, clear_grants: bool) {
+        let kept = {
+            let mut authority = self.tools.permissions();
+            authority.set_mode(mode);
+            if clear_grants {
+                authority.clear_grants();
+            }
+            authority.grants().to_vec()
+        };
+        if self.recorder.state().permission_mode != mode {
+            self.recorder.commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: Some(mode.label().to_string()),
+                provider: None,
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            });
+        }
+        if clear_grants {
+            self.recorder.commit(SessionEvent::PermissionGrantsCleared);
+            self.recorder.record_new_grants(&kept);
+        }
+    }
+
+    /// This conversation's grants, one ` - <tool> -> <target>` row each
+    /// ([`crate::permission::slash::grant_line`]), not yet made safe to print.
+    pub(crate) fn grant_lines(&self, workspace_root: &std::path::Path) -> Vec<String> {
+        self.tools
+            .permissions()
+            .grants()
+            .iter()
+            .map(|grant| {
+                crate::permission::slash::grant_line(&grant.tool, &grant.target, workspace_root)
+            })
+            .collect()
+    }
+}
+
+/// What `/status` reports on either surface: the configuration a turn here
+/// would run under, the model it would be held in, and the conversation it
+/// would continue.
+///
+/// `model` is a parameter rather than `config.model` because `/model` changes
+/// the one and not the other: the selector holds the model in force
+/// (`crate::provider::model::ModelSelector`), and a report that read the
+/// configuration would name the model the session started in. No conversation
+/// is zero turns and zero grants, which is what the next prompt would start
+/// with.
+pub(crate) fn status_snapshot(
+    config: &RuntimeConfig,
+    model: &str,
+    conversation: Option<&Conversation>,
+) -> StatusSnapshot {
+    let facts = conversation.map(Conversation::facts).unwrap_or_default();
+    let mut snapshot = StatusSnapshot::new(config, crate::build_info(), facts);
+    snapshot.model = model.to_string();
+    snapshot
 }
 
 /// Creates the session this shell records into, and the authority its tools run
@@ -503,7 +1252,7 @@ pub(crate) fn open_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
-    let scope = AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
+    let scope = conversation_scope(config)?;
     let session = store
         .create(
             SessionId::generate(),
@@ -514,10 +1263,61 @@ pub(crate) fn open_conversation(
                 // The mode the authority is really in, rather than a second
                 // copy of it the caller could pass a different value for.
                 permission_mode: permissions.mode(),
+                provider: Some(config.provider),
             },
         )
         .map_err(|err| err.to_string())?;
-    let permissions = permissions.with_durable_session(session.id().as_str());
+    Ok(bind_conversation(
+        store,
+        session,
+        scope,
+        permissions,
+        questioner,
+        cancel,
+    ))
+}
+
+/// The scope a conversation opened under `config` runs in: the workspace,
+/// and every directory `/workspace` saved for it that is still there
+/// ([`crate::workspace::access`]).
+///
+/// One function for every place a conversation is opened -- a first prompt, a
+/// `/rename` before one, a resumed session on either surface -- so a saved
+/// directory cannot be in force in one of them and missing from another.
+pub(crate) fn conversation_scope(config: &RuntimeConfig) -> Result<AccessScope, String> {
+    WorkspaceAccess::load(&config.workspace_root, &config.additional_directories)
+        .scope(&config.workspace_root)
+        .map_err(|err| err.to_string())
+}
+
+/// Binds an open session to the authority its tools run under.
+///
+/// [`open_conversation`]'s second half, and the whole of what continuing a
+/// saved session needs once `SessionStore::resume` has handed it back (the
+/// TUI's `xfx --resume`, `crate::tui::worker`): the grants the session's log
+/// already holds go back into the authority, as `xfx ask --resume` restores
+/// them, so an "always" answered last time is not asked again. A session this
+/// shell just created has none, so for it the loop adds nothing.
+///
+/// Infallible on purpose: the two things that can fail -- the scope and the
+/// session -- are the caller's to have in hand already, which is what lets a
+/// resumed session be refused before the terminal is taken.
+pub(crate) fn bind_conversation(
+    store: &SessionStore,
+    session: WritableSession,
+    scope: AccessScope,
+    permissions: PermissionSession,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Conversation {
+    let mut permissions = permissions
+        .with_durable_session(session.id().as_str())
+        .with_session_rules(crate::permission::session_rules::path_in(
+            &store.session_dir(session.id()),
+        ));
+    for grant in &session.state().grants {
+        permissions.grant(grant.clone());
+    }
     let recorder = SessionRecorder::new(store.clone(), session);
     let mut tools = ToolContext::new(scope)
         .with_permissions(permissions)
@@ -525,7 +1325,12 @@ pub(crate) fn open_conversation(
     if let Some(questioner) = questioner {
         tools = tools.with_questioner(questioner);
     }
-    Ok(Conversation { recorder, tools })
+    Conversation {
+        recorder,
+        tools,
+        said: std::collections::BTreeSet::new(),
+        calibration: std::sync::Arc::default(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -563,9 +1368,21 @@ pub async fn run(
         }
     };
 
-    let mode = config.permission_mode;
-    if mode == PermissionMode::Yolo {
+    if config.permission_mode == PermissionMode::Yolo {
         writeln!(diagnostics, "{YOLO_WARNING}")?;
+    }
+    // What the configuration could not use, as `xfx ask` says it
+    // ([`crate::config::Diagnostic::startup_line`]), and a table that did not
+    // read with the way back: `/allowlist` reads the file again and puts a
+    // table that reads in force.
+    for diagnostic in &config.diagnostics {
+        writeln!(diagnostics, "xfx: config {}", diagnostic.startup_line())?;
+    }
+    if let Some(refusal) = config.permission.refusal(config.permission_mode) {
+        writeln!(
+            diagnostics,
+            "xfx: permissions: {refusal}; fix it, then /allowlist reads it again"
+        )?;
     }
 
     // Owned from here down, because `/setup` replaces it. Everything below
@@ -574,6 +1391,10 @@ pub async fn run(
     // value it is assigned comes from re-reading the file that was just
     // written, never from what the writer believed it wrote.
     let mut config = config.clone();
+    // The configured table every conversation this shell opens decides with,
+    // and the one `/allowlist` puts a changed file's table into: a handle
+    // rather than a copy, so a change is in force for the next tool call.
+    let rules = LiveRules::new(config.permission.effective().clone());
     let env = Environment::from_process();
 
     let cancel = CancelToken::new();
@@ -584,10 +1405,16 @@ pub async fn run(
     let mut selector = ModelSelector::new(&config);
     let mut model = selector.model().to_string();
     let mut conversation: Option<Conversation> = None;
+    // Where `/sound` stands. Read once and then moved only by `/sound`: a
+    // `/setup` re-reads the configuration, and a provider switch is not a
+    // reason for the sound to change under the user.
+    let mut sound = config.notifications;
     // Built on first use: a shell must open on a machine with no credential --
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
     let mut bundle: Option<Bundle> = None;
+    // A `/permissions remember` or `revoke` waiting for its answer.
+    let mut pending_rule: Option<crate::permission::slash::Confirmation> = None;
 
     write!(io::stdout(), "{}", banner(&config, &model))?;
     io::stdout().flush()?;
@@ -605,6 +1432,13 @@ pub async fn run(
         };
         interrupts.line_submitted();
 
+        // A rule change printed by `/permissions remember` or `revoke` is
+        // answered by this line, whatever it says.
+        if let Some(confirmation) = pending_rule.take() {
+            answer_rule_confirmation(&line, &confirmation)?;
+            continue;
+        }
+
         match classify(&line) {
             Submitted::Blank => continue,
             Submitted::UnknownCommand { token } => {
@@ -619,6 +1453,92 @@ pub async fn run(
                     Slash::Version => {
                         writeln!(io::stdout(), "{}", version_line())?;
                     }
+                    // The `xfx status` report, about this shell's own model and
+                    // conversation rather than the last session on disk.
+                    Slash::Status => {
+                        let snapshot = status_snapshot(&config, &model, conversation.as_ref());
+                        write!(io::stdout(), "{}", snapshot.render_text())?;
+                    }
+                    Slash::Stats => {
+                        writeln!(io::stderr(), "{STATS_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Usage => {
+                        writeln!(io::stderr(), "{USAGE_ON_THE_LINE_SHELL}")?;
+                    }
+                    // Upstream's `credits` report, `[credits] key=value` per
+                    // field (`renderText`, `output_contracts.zig:1483-1511`),
+                    // asked of the provider the configuration names now: a
+                    // `/setup` since launch is the provider whose account this
+                    // is. A refusal goes where this shell's refusals go.
+                    Slash::Credits => {
+                        let answer = crate::credits::fetch(&config).await;
+                        if answer.is_error() {
+                            write!(io::stderr(), "{}", answer.render_text())?;
+                        } else {
+                            write!(io::stdout(), "{}", answer.render_text())?;
+                        }
+                    }
+                    Slash::Resume => {
+                        writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Fast | Slash::Ultrafast => {
+                        writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Image | Slash::Images | Slash::Paste => {
+                        writeln!(io::stderr(), "{IMAGES_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Settings => {
+                        writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Mcp => {
+                        writeln!(io::stderr(), "{MCP_ON_THE_LINE_SHELL}")?;
+                    }
+                    // Upstream's sentence under its topic, in this shell's
+                    // `[shell] <topic>:` shape; whatever follows the name is
+                    // dropped, as upstream drops it.
+                    Slash::Alias => {
+                        writeln!(
+                            io::stdout(),
+                            "[shell] {ALIAS_TOPIC}: {ALIASES_NOT_CONFIGURABLE}"
+                        )?;
+                    }
+                    // The session is opened for it when no prompt has opened
+                    // one yet, as upstream's exists from launch: a title is
+                    // something to keep, and a session renamed before anything
+                    // was asked in it is kept (`discardableOnClose`,
+                    // `app_session_runtime.zig:5702-5720`).
+                    Slash::Rename => match validate_title(&argument) {
+                        Err(problem) => {
+                            writeln!(io::stderr(), "xfx: {}", title_refusal(problem))?;
+                        }
+                        Ok(title) => {
+                            let opened = match &mut conversation {
+                                Some(existing) => Ok(existing),
+                                slot @ None => open_conversation(
+                                    &store,
+                                    &config,
+                                    &model,
+                                    crate::app::permission_session(
+                                        config.permission_mode,
+                                        rules.clone(),
+                                    ),
+                                    None,
+                                    &cancel,
+                                )
+                                .map(|opened| slot.insert(opened)),
+                            };
+                            match opened.and_then(|open| rename_conversation(open, title)) {
+                                Ok(()) => writeln!(
+                                    io::stdout(),
+                                    "[shell] session renamed to \"{title}\""
+                                )?,
+                                Err(problem) => writeln!(
+                                    io::stderr(),
+                                    "xfx: the session was not renamed: {problem}"
+                                )?,
+                            }
+                        }
+                    },
                     Slash::Model => {
                         model =
                             apply_model(&argument, &mut selector, conversation.as_mut()).await?;
@@ -634,13 +1554,12 @@ pub async fn run(
                         )
                         .await?;
                     }
-                    Slash::Clear => {
-                        let mut stdout = io::stdout();
-                        write!(stdout, "{CLEAR_SCREEN}")?;
-                        write!(stdout, "{}", banner(&config, &model))?;
-                        writeln!(stdout, "{}", kept_line(conversation.as_ref()))?;
-                    }
-                    Slash::New => {
+                    // One operation under three names, as upstream's are
+                    // (`app_commands.zig:667-680`): `/clear` no longer erases
+                    // anything -- what the shell printed stays where the user
+                    // can scroll back to it, which is upstream's scrollback
+                    // handoff on a surface that has no screen of its own.
+                    Slash::Clear | Slash::New | Slash::Reset => {
                         // Dropping the recorder closes the log and releases the
                         // session's writer lock, so the next prompt is free to
                         // create a genuinely new identity.
@@ -650,6 +1569,62 @@ pub async fn run(
                             "[shell] new session; the next prompt starts a fresh conversation"
                         )?;
                     }
+                    Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Undo => undo_on_the_line(conversation.as_ref())?,
+                    Slash::Trace => trace_on_the_line(
+                        &config,
+                        &model,
+                        conversation.as_ref(),
+                        &store,
+                        &TraceTarget {
+                            dir: crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref()),
+                            clipboard: Clipboard::system(),
+                        },
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
+                    Slash::Compact => {
+                        writeln!(io::stderr(), "{COMPACT_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Permissions => {
+                        apply_permissions(
+                            &argument,
+                            &mut config,
+                            conversation.as_mut(),
+                            &rules,
+                            &mut pending_rule,
+                        )?;
+                    }
+                    Slash::Allowlist => allowlist_on_the_line(
+                        &argument,
+                        &config,
+                        &rules,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
+                    Slash::Statusline => statusline_on_the_line(
+                        &argument,
+                        &mut config,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
+                    Slash::Sound => {
+                        sound =
+                            apply_sound(&argument, sound, config.user_settings_path.as_deref())?;
+                    }
+                    Slash::Skills => skills_on_the_line(
+                        &argument,
+                        &config,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
+                    Slash::Workspace => workspace_on_the_line(
+                        &argument,
+                        &mut config,
+                        conversation.as_mut(),
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                 }
                 io::stdout().flush()?;
             }
@@ -667,7 +1642,10 @@ pub async fn run(
                         &store,
                         &config,
                         &model,
-                        crate::app::permission_session(mode),
+                        // The configuration's mode rather than the launch's:
+                        // `/permissions` moves it, and a conversation opened
+                        // after that is opened in the mode the user chose.
+                        crate::app::permission_session(config.permission_mode, rules.clone()),
                         // fx's interactive shell is xfx's TUI, not this line
                         // shell: this loop reads one line at a time from
                         // standard input and has nowhere to render a question
@@ -721,35 +1699,73 @@ async fn one_turn(
             bytes: context.total_bytes() as u64,
         });
 
+    // The skills this workspace has, and those the prompt names, read now as
+    // the project instructions are (`crate::skills`). This shell reads no
+    // catalog for a turn, so the catalog's budget is sized by the window the
+    // Gateway is known to give the model, and by none elsewhere.
+    let window = (config.provider == ProviderId::Gateway)
+        .then(|| crate::provider::model::gateway_context_window(model))
+        .flatten();
+    let skills = crate::skills::TurnSkills::prepare(
+        conversation.tools.scope().primary(),
+        config.home(),
+        &prompt,
+        &[],
+        window,
+    );
+    let mut tools = conversation
+        .tools
+        .clone()
+        .with_link_bases(crate::permission::LinkBase::from_environment())
+        .with_git_environment(crate::permission::GitEnvironment::from_process());
+    tools.set_skills(
+        Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+        config.home().map(std::path::Path::to_path_buf),
+    );
+
     let replay = conversation
         .recorder
         .state()
-        .history_messages(config.provider.wire());
+        .history_messages(config.provider.wire(), model);
     let request = TurnRequest {
+        images: Vec::new(),
         model: model.to_string(),
         prompt,
         history: replay.messages,
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
         cancel: conversation.tools.cancel().clone(),
-        tools: conversation.tools.clone(),
+        tools,
     };
 
     let stdout = io::stdout();
     let stderr = io::stderr();
     let mut stderr_lock = stderr.lock();
-    for notice in &replay.notices {
+    for notice in conversation.unsaid(replay.notices) {
         writeln!(stderr_lock, "{notice}")?;
     }
     drop(stderr_lock);
-    let mut sink = TextSink::new(stdout, stderr).with_tool_notices();
+    // What the TUI says under the card, one `[shell]` line per row: which of
+    // the named skills loaded (`buildExplicitPromptSection`'s `load_notice`).
+    if let Some((_, said)) = &skills.explicit.load_notice {
+        let mut out = io::stdout().lock();
+        for line in said.lines() {
+            writeln!(out, "[shell] {line}")?;
+        }
+    }
+    // The approval question is asked on this terminal after the answer, so the
+    // answer reaches it inert: no state the model wrote is in force there.
+    let mut sink = TextSink::new(stdout, stderr)
+        .with_tool_notices()
+        .on_terminal(io::stdout().is_terminal());
 
     interrupts.begin_turn();
     // Awaited here, on this thread: when this returns there is no work left
     // running anywhere, which is what makes the next prompt safe to print.
-    let _ = run_turn_saved(
+    let _ = run_turn_with_skills(
         request,
         context,
+        &skills,
         provider,
         &mut sink,
         &mut conversation.recorder,
@@ -822,6 +1838,11 @@ fn provider_label(provider: crate::provider::ProviderId) -> &'static str {
 }
 
 /// Prints the catalog to stdout, bounded at MAX_RENDERED_MODELS.
+///
+/// Every string it prints from the catalog -- a name, the efforts, why it
+/// could not be read -- is the provider's (its parser takes any non-empty
+/// string), so each is said through [`safe_one_line`]: one line, every control
+/// character a space, nothing clipped.
 fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<()> {
     use crate::provider::model::{CatalogState, MAX_RENDERED_MODELS};
 
@@ -851,9 +1872,9 @@ fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<(
                 writeln!(
                     io::stdout(),
                     "[shell]   {} context={} efforts={}",
-                    entry.preferred_name(),
+                    safe_one_line(entry.preferred_name(), usize::MAX),
                     context_str,
-                    efforts_str
+                    safe_one_line(&efforts_str, usize::MAX)
                 )?;
             }
             let remaining = entries.len().saturating_sub(MAX_RENDERED_MODELS);
@@ -862,7 +1883,11 @@ fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<(
             }
         }
         CatalogState::Failed(reason) => {
-            writeln!(io::stdout(), "[shell] catalog=unread ({reason})")?;
+            writeln!(
+                io::stdout(),
+                "[shell] catalog=unread ({})",
+                safe_one_line(reason, usize::MAX)
+            )?;
         }
     }
     Ok(())
@@ -892,10 +1917,13 @@ pub fn setup_usage() -> String {
 /// writer believed it wrote; a layer that outranks the profile still outranks it
 /// after the write, and the report says which one.
 ///
-/// The bundle and the conversation go with it. A conversation carried across a
-/// provider switch would replay one provider's history into another's wire
-/// format, and a bundle is a connection to the endpoint that is no longer the
-/// one configured.
+/// The bundle goes with it: it is a connection to the endpoint that is no
+/// longer the one configured. **The conversation stays**, as the TUI's does
+/// and as upstream's `/provider` keeps its session (`vercel-labs/fx@c1db9191
+/// src/core/app/app_auth_runtime.zig:1377-1381`): its history is rebuilt from
+/// the log for each request in the wire then in force, and the switch is
+/// written into that log, provider and model both
+/// (`app_session_runtime.zig:3539-3550`).
 async fn apply_setup(
     argument: &str,
     env: &Environment,
@@ -936,11 +1964,22 @@ async fn apply_setup(
             *config = reloaded;
             *selector = ModelSelector::new(config);
             *bundle = None;
-            *conversation = None;
             let model = selector.model().to_string();
+            if let Some(conversation) = conversation.as_mut() {
+                conversation
+                    .recorder
+                    .commit(SessionEvent::PreferencesChanged {
+                        model: Some(model.clone()),
+                        permission_mode: None,
+                        provider: Some(config.provider.label().to_string()),
+                        effort: None,
+                        fast_mode: None,
+                        ultrafast_mode: None,
+                    });
+            }
             writeln!(
                 io::stdout(),
-                "[shell] provider={} model={model}; the next prompt starts a fresh conversation",
+                "[shell] provider={} model={model}",
                 config.provider.label()
             )?;
             Ok(model)
@@ -1020,6 +2059,10 @@ async fn apply_model(
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        provider: None,
+                        effort: None,
+                        fast_mode: None,
+                        ultrafast_mode: None,
                     });
             }
             Ok(model)
@@ -1035,16 +2078,587 @@ async fn apply_model(
     }
 }
 
-/// What `/clear` says about the conversation it did not touch.
-fn kept_line(conversation: Option<&Conversation>) -> String {
-    match conversation {
-        Some(conversation) => format!(
-            "[shell] cleared the screen; session={} keeps {} turn(s)",
-            conversation.recorder.id(),
-            conversation.recorder.state().turns.len()
-        ),
-        None => "[shell] cleared the screen; no conversation has started yet".to_string(),
+/// Applies `/permissions`, with the TUI's meaning in this shell's lines.
+///
+/// The words are [`crate::permission::slash`]'s, so the two surfaces say the
+/// same thing; the shape is this shell's: fx's own line format for its
+/// `permissions` command (`[permissions] mode=…`, `renderText`,
+/// `output_contracts.zig:705-722`) on stdout, and the usage line and a failed
+/// write on stderr. Every command here runs between turns -- the loop runs one
+/// thing at a time -- so a change is applied at once, to the configuration a
+/// later conversation is opened from and to the conversation in hand, and
+/// recorded in the profile the next launch reads.
+///
+/// `remember` and `revoke` are confirmed on the next line this shell reads
+/// (`pending`): the question, the line under it and the action are printed as
+/// `[permissions]` lines with the two choices, and `1` confirms -- anything
+/// else is the second choice, `Cancel` ([`answer_rule_confirmation`]).
+fn apply_permissions(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    conversation: Option<&mut Conversation>,
+    rules: &LiveRules,
+    pending: &mut Option<crate::permission::slash::Confirmation>,
+) -> io::Result<()> {
+    use crate::permission::slash::{self, Managed, Request};
+    let request = Request::parse(argument);
+    let rules_path = conversation.as_ref().and_then(|conversation| {
+        conversation
+            .tools
+            .permissions()
+            .session_rules_path()
+            .map(std::path::Path::to_path_buf)
+    });
+    let managed = slash::manage(&request, rules_path.as_deref(), false, |tool, arguments| {
+        // The session's own scope, added directories and all, as upstream
+        // prepares a rule (`tool_admission.zig:2270-2289`).
+        let scope = conversation_scope(config)?;
+        let context = ToolContext::new(scope).with_permissions(
+            // `ask`, whatever the session's mode, as upstream prepares a rule
+            // (`.permission_mode = .ask`, `tool_admission.zig:2286`): in full
+            // access no table is consulted, and a change a configured rule
+            // denies must not be remembered as allowed.
+            PermissionSession::new(PermissionMode::Ask).with_live_rules(rules.clone()),
+        );
+        crate::tools::prepare_rule_action(tool, arguments, &context)
+    });
+    if let Some(managed) = managed {
+        match managed {
+            Managed::Say { tone, topic, body } => say_permission_line(tone, topic, &body)?,
+            Managed::Confirm(confirmation) => {
+                let mut stdout = io::stdout();
+                writeln!(stdout, "[permissions] {}", confirmation.question)?;
+                writeln!(stdout, "[permissions] {}", confirmation.explanation)?;
+                writeln!(
+                    stdout,
+                    "  $ {}",
+                    safe_one_line(&confirmation.display, usize::MAX)
+                )?;
+                writeln!(stdout, "  1. Confirm")?;
+                writeln!(stdout, "  2. Cancel")?;
+                *pending = Some(confirmation);
+            }
+        }
+        return Ok(());
     }
+    let (mode, reset) = match request {
+        Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage => {
+            unreachable!("`manage` answers every rule-management form")
+        }
+        Request::Show => {
+            let grants = conversation
+                .map(|conversation| conversation.grant_lines(&config.workspace_root))
+                .unwrap_or_default();
+            let mut stdout = io::stdout();
+            // fx's own rows: the facts behind the prefix and each grant under
+            // them as ` - <tool> -> <target>`, flattened to one line because a
+            // command a model wrote is not text this shell hands a terminal.
+            let rules = rules.current();
+            for row in slash::status_rows(config.permission_mode, &rules, &grants).lines() {
+                match row.strip_prefix(" - ") {
+                    Some(grant) => writeln!(stdout, " - {}", safe_one_line(grant, usize::MAX))?,
+                    None => writeln!(stdout, "[permissions] {row}")?,
+                }
+            }
+            match slash::saved_rules_at(rules_path.as_deref()) {
+                Ok(body) => {
+                    for (index, row) in body.lines().enumerate() {
+                        let row = safe_one_line(row, usize::MAX);
+                        if index == 0 {
+                            writeln!(stdout, "[permissions] {row}")?;
+                        } else {
+                            writeln!(stdout, " {row}")?;
+                        }
+                    }
+                }
+                Err(reason) => writeln!(io::stderr(), "xfx: permissions: {reason}")?,
+            }
+            for row in slash::USAGE.lines() {
+                writeln!(stdout, "[permissions] {}", row.trim_start())?;
+            }
+            return Ok(());
+        }
+        Request::Usage => {
+            for row in slash::USAGE.lines() {
+                writeln!(io::stderr(), "xfx: {}", row.trim_start())?;
+            }
+            return Ok(());
+        }
+        Request::Select(mode) => (mode, false),
+        Request::Reset => (PermissionMode::Ask, true),
+    };
+    config.permission_mode = mode;
+    if let Some(conversation) = conversation {
+        conversation.set_permission_mode(mode, reset);
+    }
+    // Recorded before it is announced, as upstream's `selectMode` persists
+    // before `handlePermissions` writes its notice: a line saying the mode
+    // changed is a line a reader may act on, the file included.
+    let written = match config.user_settings_path.as_ref() {
+        Some(path) => crate::provider::profile::write_preference(
+            path,
+            &["permission_mode"],
+            serde_json::Value::String(mode.label().to_string()),
+        )
+        .map_err(|err| err.to_string()),
+        None => Err("no home directory".to_string()),
+    };
+    let said = if reset {
+        slash::RESET.to_string()
+    } else {
+        slash::selected(mode)
+    };
+    writeln!(io::stdout(), "[permissions] {said}")?;
+    if mode == PermissionMode::Yolo {
+        writeln!(io::stderr(), "{YOLO_WARNING}")?;
+    }
+    match written {
+        // A layer above the profile still decides what a fresh session here
+        // starts in: said, in upstream's words, on the stream warnings go to.
+        Ok(()) => {
+            if let Some(said) = crate::provider::profile::saved_but_shadowed(
+                "permission_mode",
+                config.sources.permission_mode,
+            ) {
+                writeln!(io::stderr(), "xfx: permission-mode: {said}")?;
+            }
+        }
+        Err(reason) => writeln!(
+            io::stderr(),
+            "xfx: permission-mode: {}",
+            slash::not_saved(&reason)
+        )?,
+    }
+    Ok(())
+}
+
+/// `/statusline` on this shell.
+///
+/// There is no footer here to draw the segments in and no band to put a picker
+/// in, so this surface does the half of the command that outlives it: an item
+/// named is flipped and kept in the profile the full-screen shell reads at
+/// launch, in the same two sentences that shell says. Bare, it says what each
+/// item is set to and how to change one -- the picker's content, as lines.
+fn statusline_on_the_line(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    if argument.is_empty() {
+        let states: Vec<String> = StatusLineItem::ALL
+            .into_iter()
+            .map(|item| statusline_state(item, config.statusline.get(item)))
+            .collect();
+        writeln!(out, "[shell] {STATUSLINE_TOPIC}: {}", states.join(", "))?;
+        return writeln!(out, "[shell] {STATUSLINE_USAGE}");
+    }
+    let Some(item) = StatusLineItem::parse(argument) else {
+        return writeln!(err, "xfx: {STATUSLINE_USAGE}");
+    };
+    let on = !config.statusline.get(item);
+    config.statusline.set(item, on);
+    match save_statusline(config.user_settings_path.as_deref(), item, on) {
+        Ok(()) => writeln!(out, "[shell] {STATUSLINE_TOPIC}: {STATUSLINE_SAVED}")?,
+        Err(reason) => writeln!(
+            err,
+            "xfx: {STATUSLINE_TOPIC}: {}",
+            statusline_not_saved(&reason)
+        )?,
+    }
+    writeln!(
+        out,
+        "[shell] {STATUSLINE_TOPIC}: {}",
+        statusline_state(item, on)
+    )
+}
+
+/// `/workspace` on this shell.
+///
+/// There is no band to put upstream's picker in, so a bare `/workspace` is
+/// `/workspace list`: the snapshot, its rows under one `[shell] workspace:`
+/// line. A change is made at once -- this loop runs no turn while it reads a
+/// line, which is the whole of upstream's "between turns" rule here -- and an
+/// open conversation is put in the new scope before the next prompt is read.
+/// A refusal is upstream's sentence on standard error.
+fn workspace_on_the_line(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    conversation: Option<&mut Conversation>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    let primary = config.workspace_root.clone();
+    let current = WorkspaceAccess::load(&primary, &config.additional_directories);
+    let action = match workspace_access::parse(argument) {
+        Err(()) => return writeln!(err, "xfx: {}", workspace_access::USAGE),
+        Ok(None) => {
+            let body = workspace_access::snapshot(&primary, &current.refreshed(), None);
+            return workspace_said(out, &body);
+        }
+        Ok(Some(action)) => action,
+    };
+    let updated = match workspace_access::execute(
+        &primary,
+        config.user_settings_path.as_deref(),
+        &current,
+        &action,
+    ) {
+        Ok(updated) => updated,
+        Err(failure) => {
+            return writeln!(
+                err,
+                "xfx: {}: {}",
+                workspace_access::TOPIC,
+                failure.message()
+            )
+        }
+    };
+    config.additional_directories = updated.access.saved();
+    if let Some(conversation) = conversation {
+        match updated.access.scope(&primary) {
+            Ok(scope) => conversation.tools.set_scope(scope),
+            Err(problem) => writeln!(err, "xfx: {}: {problem}", workspace_access::TOPIC)?,
+        }
+    }
+    workspace_said(
+        out,
+        &workspace_access::snapshot(&primary, &updated.access, Some(&updated.mutation)),
+    )
+}
+
+/// `/skills` on this shell: the forms the TUI answers with notices answered
+/// the same way, as `[shell] skills: …` lines; and the two that open the
+/// TUI's menu -- a bare `/skills` or `list`, and `show` -- said as upstream's
+/// listing (`listSkillsSummary`, `vercel-labs/fx@c1db9191
+/// src/core/skills/skill_runtime.zig:2964-3004`), there being no band to put a
+/// menu in.
+fn skills_on_the_line(
+    argument: &str,
+    config: &RuntimeConfig,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    use crate::skills::command::{self, Command, Outcome};
+    let workspace = &config.workspace_root;
+    let found = crate::skills::discovery::discover(workspace, config.home());
+    if !found.diagnostics.is_empty() {
+        writeln!(
+            err,
+            "xfx: {}: {}",
+            command::TOPIC,
+            crate::skills::diagnostic_summary(&found.diagnostics)
+        )?;
+    }
+    let Some(home) = config.home() else {
+        return writeln!(
+            err,
+            "xfx: {}: no home directory is set, so there is no managed skill root",
+            command::TOPIC
+        );
+    };
+    let managed = crate::skills::discovery::managed_root(home);
+    let parsed = command::parse(argument);
+    let said = |out: &mut dyn Write, body: &str| -> io::Result<()> {
+        let topic = command::topic_for(body);
+        for (index, line) in body.lines().enumerate() {
+            match (index, topic.is_empty()) {
+                (0, true) => writeln!(out, "[shell] {line}")?,
+                (0, false) => writeln!(out, "[shell] {topic}: {line}")?,
+                _ => writeln!(out, "[shell]   {line}")?,
+            }
+        }
+        Ok(())
+    };
+    match command::execute(&parsed, &found, &managed, workspace) {
+        Outcome::OpenMenu => {
+            for line in crate::skills::summary(&found.skills).lines() {
+                writeln!(out, "[shell] {line}")?;
+            }
+            Ok(())
+        }
+        Outcome::Focus(name) | Outcome::Search(name) => {
+            let named: Vec<crate::skills::Skill> = found
+                .skills
+                .iter()
+                .filter(|skill| skill.name == name)
+                .cloned()
+                .collect();
+            for line in crate::skills::summary(&named).lines() {
+                writeln!(out, "[shell] {line}")?;
+            }
+            Ok(())
+        }
+        Outcome::Said(lines) => {
+            for body in &lines {
+                if matches!(parsed, Command::Usage) {
+                    writeln!(err, "xfx: {body}")?;
+                } else {
+                    said(out, body)?;
+                }
+            }
+            Ok(())
+        }
+        // No list held between lines here: the next command discovers again,
+        // so what changed is said with the rest.
+        Outcome::Changed { said: lines, after } => {
+            for body in lines.iter().chain(std::iter::once(&after)) {
+                said(out, body)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// A `/workspace` snapshot on this shell: the first row after the topic, the
+/// rest two columns in, as the TUI's notice continues its rows.
+fn workspace_said(out: &mut dyn Write, body: &str) -> io::Result<()> {
+    for (index, line) in body.lines().enumerate() {
+        if index == 0 {
+            writeln!(out, "[shell] {}: {line}", workspace_access::TOPIC)?;
+        } else {
+            writeln!(out, "[shell]   {line}")?;
+        }
+    }
+    Ok(())
+}
+
+/// One rule-management answer on this shell: a neutral or warning line on
+/// stdout, an error on stderr, each row made safe.
+fn say_permission_line(
+    tone: crate::permission::allowlist::Tone,
+    topic: &str,
+    body: &str,
+) -> io::Result<()> {
+    use crate::permission::allowlist::Tone;
+    let topic = if topic.is_empty() {
+        String::new()
+    } else {
+        format!("{topic}: ")
+    };
+    for (index, row) in body.lines().enumerate() {
+        let row = safe_one_line(row.trim_start(), usize::MAX);
+        let lead = if index == 0 { topic.as_str() } else { "" };
+        match tone {
+            Tone::Error => writeln!(io::stderr(), "xfx: {lead}{row}")?,
+            Tone::Neutral | Tone::Warning => writeln!(io::stdout(), "[permissions] {row}")?,
+        }
+    }
+    Ok(())
+}
+
+/// The line read while a rule change waits: `1` makes it and says how it went
+/// ([`crate::permission::slash::confirm`]); anything else is `Cancel`.
+fn answer_rule_confirmation(
+    line: &str,
+    confirmation: &crate::permission::slash::Confirmation,
+) -> io::Result<()> {
+    use crate::permission::slash;
+    if line.trim() == "1" {
+        let (tone, body) = slash::confirm(confirmation);
+        say_permission_line(tone, slash::TOPIC, &body)
+    } else {
+        writeln!(io::stdout(), "[permissions] {}", slash::CANCELLED)
+    }
+}
+
+/// `/allowlist` on this shell: upstream's forms and words
+/// ([`crate::permission::allowlist`]), each answer one `[allowlist]` line on
+/// stdout -- a listing's further rows under it as they are -- and a refusal
+/// or a failure on stderr. A table read back from the file is put in force
+/// for this shell's next tool call through `rules`, as the TUI's is.
+fn allowlist_on_the_line(
+    argument: &str,
+    config: &RuntimeConfig,
+    rules: &LiveRules,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    use crate::permission::allowlist::{self, Tone};
+    let outcome = allowlist::run(
+        argument,
+        config.user_settings_path.as_deref(),
+        &config.workspace_root,
+        |name| crate::tools::ADVERTISED_TOOLS.contains(&name),
+    );
+    if let Some(table) = outcome.in_force {
+        rules.replace(table);
+    }
+    for answer in outcome.answers {
+        let topic = if answer.topic.is_empty() {
+            String::new()
+        } else {
+            format!("{}: ", answer.topic)
+        };
+        // A pattern is the person's own text, and a table can be edited by
+        // hand: each row goes out the way a grant's does, one line, made safe.
+        let mut rows = answer.body.lines();
+        let first = safe_one_line(rows.next().unwrap_or_default(), usize::MAX);
+        match answer.tone {
+            Tone::Error => writeln!(err, "xfx: {topic}{first}")?,
+            Tone::Neutral | Tone::Warning => writeln!(out, "[allowlist] {first}")?,
+        }
+        for row in rows {
+            let indent = row.len() - row.trim_start_matches(' ').len();
+            let row = format!(
+                "{}{}",
+                " ".repeat(indent),
+                safe_one_line(row.trim_start_matches(' '), usize::MAX)
+            );
+            match answer.tone {
+                Tone::Error => writeln!(err, "{row}")?,
+                Tone::Neutral | Tone::Warning => writeln!(out, "{row}")?,
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `/copy` on this shell: the conversation's last reply onto the clipboard,
+/// and one line saying how that went ([`crate::clipboard`]).
+///
+/// The copy waits for the clipboard tool to exit, as upstream's does. This
+/// loop is waiting for the next line anyway; it is the TUI, whose thread holds
+/// a terminal that has to keep being painted, that hands the wait to a thread.
+fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -> io::Result<()> {
+    let reply = conversation.and_then(|conversation| last_reply(conversation.recorder.state()));
+    match reply {
+        None => writeln!(io::stdout(), "[shell] {NO_REPLY}"),
+        Some(reply) if clipboard.copy(reply) => writeln!(io::stdout(), "[shell] {COPIED}"),
+        Some(_) => writeln!(io::stderr(), "xfx: {COPY_FAILED}"),
+    }
+}
+
+/// `/undo` on this shell: the conversation's newest change taken back, and
+/// upstream's sentence for what became of it, on this loop's thread like
+/// everything else it does. No conversation yet is no change yet.
+fn undo_on_the_line(conversation: Option<&Conversation>) -> io::Result<()> {
+    let undone = match conversation {
+        Some(conversation) => crate::tools::mutate::undo_last(&conversation.tools),
+        None => crate::tools::undo::Undone::Nothing,
+    };
+    writeln!(
+        io::stdout(),
+        "[shell] {}: {}",
+        crate::tools::undo::TOPIC,
+        undone.sentence()
+    )
+}
+
+/// Where `/trace` puts its report: the directory the file is written in, and
+/// the clipboard the file is copied to.
+pub(crate) struct TraceTarget {
+    pub(crate) dir: std::path::PathBuf,
+    pub(crate) clipboard: Clipboard,
+}
+
+/// `/trace` on this shell: the report built from this shell's own state,
+/// written and copied inline -- everything this loop does is inline, and a
+/// clipboard tool that never answers is killed at its deadline -- and one line
+/// saying how it went, on standard output when there is a report to paste or
+/// open and on the diagnostic stream when the copy or the write failed, as
+/// `/copy`'s lines are split here.
+///
+/// The session is the live conversation's, read from the recorder's own state
+/// rather than back from disk: on this surface that state is in hand. Before
+/// the first prompt there is none, and the report says so. The report has no
+/// screen to describe, so it has no timeline and no network records -- the
+/// full-screen shell's full transcript is where those are kept.
+fn trace_on_the_line(
+    config: &RuntimeConfig,
+    model: &str,
+    conversation: Option<&Conversation>,
+    store: &SessionStore,
+    target: &TraceTarget,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    let status = status_snapshot(config, model, conversation);
+    let settings = crate::trace::Settings::of(config);
+    let dir = conversation.map(|conversation| store.session_dir(conversation.recorder.id()));
+    let session = match (conversation, &dir) {
+        (Some(conversation), Some(dir)) => crate::trace::Session::Read {
+            dir,
+            state: conversation.recorder.state(),
+            failure: conversation.recorder.failure(),
+        },
+        _ => crate::trace::Session::None,
+    };
+    let now = crate::session::event::system_now_ms();
+    let compaction = crate::agent::compaction_trace::snapshot();
+    let report = crate::trace::Report {
+        generated_ms: now,
+        status: &status,
+        effort: Some(config.effort.label()),
+        settings: &settings,
+        session,
+        screen: None,
+        compaction: &compaction,
+        title: None,
+    }
+    .render();
+    let disposition = crate::trace::deliver(
+        &report,
+        &target.dir,
+        &target.clipboard,
+        now,
+        &crate::clipboard::Stop::default(),
+    );
+    if disposition.failed() {
+        writeln!(err, "xfx: {}", disposition.sentence())
+    } else {
+        writeln!(out, "[shell] {}", disposition.sentence())
+    }
+}
+
+/// What this shell adds to `/sound`'s answer: that the switch it just moved is
+/// the full-screen shell's to ring.
+///
+/// The bell is a byte the TUI writes through its checked frame writer, at a
+/// turn's end and when it stops to ask -- and this shell's question is asked by
+/// the prompter `xfx ask` shares, which rings nothing. So the command saves the
+/// same switch to the same file and says so, the way `/stats` here says where
+/// its counters are rather than printing zeros.
+pub const SOUND_ON_THE_LINE_SHELL: &str =
+    "the full-screen shell rings the terminal bell, and this line-oriented one rings none";
+
+/// `/sound` on this shell: the switch moved, saved, and said.
+///
+/// Saved inline, because everything this loop does is inline -- it waits on
+/// `/setup`'s socket the same way -- and in upstream's order: a save that
+/// failed is said first, on the diagnostic stream, and the level after it.
+fn apply_sound(
+    argument: &str,
+    current: crate::config::Notifications,
+    settings: Option<&std::path::Path>,
+) -> io::Result<crate::config::Notifications> {
+    let Some(request) = crate::sound::Request::parse(argument) else {
+        writeln!(io::stderr(), "xfx: {}", crate::sound::USAGE)?;
+        return Ok(current);
+    };
+    let level = request.level(current);
+    let next = level.notifications();
+    let saved = match settings {
+        Some(path) => crate::sound::save(path, level).map_err(|err| err.to_string()),
+        // Not reachable from `run`, which refuses to open without a home; said
+        // rather than assumed all the same.
+        None => Err("no home directory is set".to_string()),
+    };
+    if let Err(reason) = saved {
+        writeln!(
+            io::stderr(),
+            "xfx: {}: {}",
+            crate::sound::TOPIC,
+            crate::sound::not_saved(next != current, &reason)
+        )?;
+    }
+    writeln!(
+        io::stdout(),
+        "[shell] {}: {}; {SOUND_ON_THE_LINE_SHELL}",
+        crate::sound::TOPIC,
+        level.label()
+    )?;
+    Ok(next)
 }
 
 /// The version line `/version` prints.
@@ -1097,12 +2711,22 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_seven_commands() {
+    fn the_shell_advertises_exactly_the_registrys_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
-        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        // Seven since `/setup`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 7);
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
+        // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
+        // upstream's third name for the one reset -- thirteen since
+        // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
+        // since `/resume` and `/rename`, seventeen since `/undo`, nineteen
+        // since `/usage` and `/credits`, twenty since `/trace`, twenty-one
+        // since `/settings`, twenty-four since `/image`, `/images` and
+        // `/paste`, twenty-five since `/allowlist`, twenty-six since
+        // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
+        // `/fast` and `/ultrafast`, thirty since `/mcp`, thirty-one since
+        // `/skills`, and thirty-two since `/alias`; `/provider` took `/setup`'s
+        // place rather than adding one, and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 32);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1245,34 +2869,9 @@ mod tests {
     #[test]
     fn help_advertises_no_deferred_upstream_command() {
         let help = help_text();
-        for deferred in [
-            "/resume",
-            "/status",
-            "/login",
-            "/logout",
-            "/permissions",
-            "/models",
-            "/provider",
-            "/mcp",
-            "/undo",
-            "/stats",
-            "/usage",
-            "/image",
-            "/reset",
-            "/rename",
-            "/background",
-        ] {
+        for deferred in ["/login", "/logout", "/models", "/background"] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
         }
-    }
-
-    #[test]
-    fn the_clear_sequence_erases_the_screen_and_the_scrollback() {
-        assert!(CLEAR_SCREEN.contains("\u{1b}[2J"));
-        assert!(CLEAR_SCREEN.contains("\u{1b}[3J"));
-        // Never the alternate screen: the scrollback above the shell is the
-        // user's, and a shell that borrowed it would have to give it back.
-        assert!(!CLEAR_SCREEN.contains("1049"));
     }
 
     #[test]
@@ -1403,40 +3002,386 @@ mod tests {
 
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
-        // The two that mean something by the rest of the line: `/model <id>`
-        // picks among what a provider offers, `/setup <provider>` picks the
-        // provider. Every other name is the whole command.
+        // The five that mean something by the rest of the line: `/model <id>`
+        // picks among what a provider offers, `/provider <provider>` (or
+        // `/setup <provider>`) picks the provider -- upstream's row has args
+        // too, which is what puts the space after it when it is completed
+        // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
+        // authority, `/allowlist [view|add|remove|reset ...]` reads or edits
+        // the persistent allow rules, `/statusline <item>` flips a footer
+        // segment, `/sound [on|off]` sets the switch a bare `/sound` toggles,
+        // `/rename <title>` names the session, `/image <path>` attaches a
+        // file, `/images [clear]` lists or drops what is attached,
+        // `/workspace [list|add PATH|remove PATH|clear]` keeps the added
+        // directories, and `/ultrafast [on|off|status]` asks for Ultra mode.
+        // `/settings` is declared to take one as upstream's row is
+        // (`commands.zig:488`), so completing it leaves the caret past a
+        // space; every argument it is given is its usage line, since
+        // upstream's only form names a setting xfx does not have. `/alias` is
+        // declared to take one as upstream's row is (`commands.zig:489`), and
+        // answers every form with the same sentence. Every other name is the
+        // whole command -- `/fast` among them, a toggle (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup");
+            let takes_one = matches!(
+                spec.name,
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/allowlist"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
+                    | "/ultrafast"
+                    | "/image"
+                    | "/images"
+                    | "/settings"
+                    | "/workspace"
+                    | "/mcp"
+                    | "/skills"
+                    | "/alias"
+            );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }
 
     #[test]
-    fn setup_is_the_seventh_canonical_command() {
-        // Task 4's one new name. It is canonical rather than an alias: it takes
-        // an argument, it has a handler of its own on both surfaces, and it is
-        // the only command in the palette that can change which provider a turn
-        // talks to.
-        assert!(SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+    fn provider_is_canonical_and_setup_is_its_alias() {
+        // Upstream's row (`commands.zig:472`): `/provider`, with `/setup` as
+        // the alias. `/setup` was canonical here before; it is still answered,
+        // by the same command, and the count of canonical names did not move.
+        assert!(SLASH_COMMANDS.contains(&"/provider"), "{SLASH_COMMANDS:?}");
+        assert!(!SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+        assert_eq!(Slash::parse("/provider"), Some(Slash::Setup));
         assert_eq!(Slash::parse("/setup"), Some(Slash::Setup));
-        assert_eq!(Slash::Setup.name(), "/setup");
-        assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
-        assert!(help_text().contains("/setup"), "{}", help_text());
+        assert_eq!(Slash::Setup.name(), "/provider");
+        let spec = slash_spec(Slash::Setup);
+        assert_eq!(
+            (spec.aliases, spec.summary, spec.category, spec.has_args),
+            (
+                &["/setup"][..],
+                "choose the model provider and how it signs in",
+                "Account",
+                true
+            )
+        );
+        assert_eq!(
+            classify("/setup llmux"),
+            Submitted::Command {
+                command: Slash::Setup,
+                argument: "llmux".to_string()
+            }
+        );
+        // `/help` says the alias on the command's own line.
+        assert!(
+            help_text()
+                .lines()
+                .any(|line| line.trim_start().starts_with("/provider")
+                    && line.ends_with("(also /setup)")),
+            "{}",
+            help_text()
+        );
     }
 
     #[test]
-    fn the_standalone_catalog_commands_are_still_deferred() {
-        // `/setup` is the *only* name this task adds. `/models` and `/provider`
-        // are upstream commands xfx does not answer, and the catalog browser
-        // this task builds is reached by bare `/model` rather than by either of
-        // them -- so advertising one would be advertising a surface that is not
-        // there.
-        for absent in ["/models", "/provider"] {
-            assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
-            assert_eq!(Slash::parse(absent), None, "{absent} parses");
-            assert!(!help_text().contains(absent), "help advertises {absent}");
+    fn stats_and_status_are_upstreams_rows_and_take_nothing() {
+        // `commands.zig:473,475`: the category and the description the menu
+        // shows, and neither row `accepts_payload` -- so the TUI refuses
+        // `/stats extra` as an unknown command (`super::tui`'s router).
+        let stats = slash_spec(Slash::Stats);
+        assert_eq!(
+            (stats.name, stats.summary, stats.category, stats.has_args),
+            ("/stats", "show token and turn statistics", "Account", false)
+        );
+        let status = slash_spec(Slash::Status);
+        assert_eq!(
+            (
+                status.name,
+                status.summary,
+                status.category,
+                status.has_args
+            ),
+            ("/status", "show runtime configuration", "General", false)
+        );
+        // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
+        // `/model` (`commands.zig:472-478`).
+        let order: Vec<&str> = SLASH_COMMANDS.to_vec();
+        let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
+        assert!(at("/provider") < at("/stats") && at("/stats") < at("/usage"));
+        assert!(at("/usage") < at("/status"));
+        assert!(at("/status") < at("/model"));
+        // And `/credits`, then `/fast` and `/ultrafast`, then `/statusline`
+        // (`commands.zig:490-494`).
+        assert!(at("/credits") < at("/fast") && at("/fast") < at("/ultrafast"));
+        assert!(at("/ultrafast") < at("/statusline"));
+        assert!(help_text().contains("/status"), "{}", help_text());
+    }
+
+    #[test]
+    fn status_reports_the_model_in_force_and_the_conversation_it_is_given() {
+        // The `xfx status` facts, about this shell rather than the store's last
+        // session: the model the selector holds, and no conversation as none.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let snapshot = status_snapshot(&config, "acme/model-9", None);
+        assert_eq!(snapshot.model, "acme/model-9");
+        assert_ne!(config.model, "acme/model-9", "the case proves nothing");
+        assert_eq!(snapshot.history_turns, 0);
+        assert_eq!(snapshot.session_permission_grants, 0);
+        assert_eq!(
+            snapshot.workspace,
+            config.workspace_root.display().to_string()
+        );
+        assert!(
+            snapshot
+                .render_text()
+                .starts_with("[status] model=acme/model-9\n"),
+            "{}",
+            snapshot.render_text()
+        );
+    }
+
+    #[test]
+    fn stats_on_the_line_shell_points_at_the_counters_rather_than_inventing_them() {
+        // This shell writes lines and draws no frames, so the honest answer is
+        // where the counters are -- not a row of zeros about frames that never
+        // existed.
+        assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
+        assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+        assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
+    }
+
+    #[test]
+    fn the_media_commands_are_upstreams_rows_and_say_where_they_work() {
+        // `commands.zig:476-477`, `:491`: the names, the `/img` alias, the
+        // sentences and the Media tab.
+        for (command, name, aliases, summary, has_args) in [
+            (
+                Slash::Image,
+                "/image",
+                &["/img"][..],
+                "attach an image by path",
+                true,
+            ),
+            (
+                Slash::Images,
+                "/images",
+                &[],
+                "manage pending image attachments",
+                true,
+            ),
+            (
+                Slash::Paste,
+                "/paste",
+                &[],
+                "attach an image from the clipboard when supported",
+                false,
+            ),
+        ] {
+            let spec = slash_spec(command);
+            assert_eq!(spec.name, name);
+            assert_eq!(spec.aliases, aliases);
+            assert_eq!(spec.summary, summary);
+            assert_eq!(spec.category, "Media");
+            assert_eq!(spec.has_args, has_args);
         }
+        assert_eq!(
+            classify("/img shot.png"),
+            Submitted::Command {
+                command: Slash::Image,
+                argument: "shot.png".to_string()
+            }
+        );
+        // This shell has no draft to attach to, and says where there is one.
+        assert!(IMAGES_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+        assert!(IMAGES_ON_THE_LINE_SHELL.starts_with("xfx: /image"));
+    }
+
+    #[test]
+    fn usage_and_credits_are_upstreams_account_rows_with_their_aliases() {
+        // `commands.zig:474,490`: name, alias, sentence (xfx's name in place
+        // of upstream's in `/usage`'s) and category, and neither row
+        // `accepts_payload` -- `/credits now` is not `/credits`.
+        let usage = slash_spec(Slash::Usage);
+        assert_eq!(
+            (
+                usage.name,
+                usage.aliases,
+                usage.summary,
+                usage.category,
+                usage.has_args
+            ),
+            (
+                "/usage",
+                &["/cost"][..],
+                "show local xfx tokens, models, and spend",
+                "Account",
+                false
+            )
+        );
+        let credits = slash_spec(Slash::Credits);
+        assert_eq!(
+            (
+                credits.name,
+                credits.aliases,
+                credits.summary,
+                credits.category,
+                credits.has_args
+            ),
+            (
+                "/credits",
+                &["/balance"][..],
+                "show gateway credits balance",
+                "Account",
+                false
+            )
+        );
+        for (alias, command) in [("/cost", Slash::Usage), ("/balance", Slash::Credits)] {
+            assert_eq!(
+                classify(alias),
+                Submitted::Command {
+                    command,
+                    argument: String::new()
+                }
+            );
+            assert!(!SLASH_COMMANDS.contains(&alias), "{alias}");
+        }
+        // Upstream's order: `/copy` before `/credits` before `/statusline`
+        // (`commands.zig:484-494`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/copy") < at("/credits") && at("/credits") < at("/statusline"));
+        let help = help_text();
+        assert!(
+            help.contains("(also /cost)") && help.contains("(also /balance)"),
+            "{help}"
+        );
+    }
+
+    #[test]
+    fn alias_is_upstreams_extensions_row_and_takes_the_rest_of_the_line() {
+        // `commands.zig:489`: the sentence the menu shows, the Extensions tab,
+        // no alias of its own, and `has_args` with `accepts_payload` -- so a
+        // name and a command after it are the command's argument rather than
+        // an unknown command.
+        let alias = slash_spec(Slash::Alias);
+        assert_eq!(
+            (
+                alias.name,
+                alias.aliases,
+                alias.summary,
+                alias.category,
+                alias.has_args
+            ),
+            (
+                "/alias",
+                &[][..],
+                "show alias availability",
+                "Extensions",
+                true
+            )
+        );
+        for (line, argument) in [
+            ("/alias", ""),
+            ("/alias build", "build"),
+            ("/alias build zig build", "build zig build"),
+        ] {
+            assert_eq!(
+                classify(line),
+                Submitted::Command {
+                    command: Slash::Alias,
+                    argument: argument.to_string()
+                },
+                "{line:?}"
+            );
+        }
+        // Upstream's order: `/settings`, `/alias`, `/credits`
+        // (`commands.zig:488-490`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/settings") + 1 == at("/alias") && at("/alias") + 1 == at("/credits"));
+        // Upstream's sentence under upstream's topic, the same words on both
+        // surfaces (`app_commands.zig:2046-2048`).
+        assert_eq!(ALIAS_TOPIC, "aliases");
+        assert_eq!(
+            ALIASES_NOT_CONFIGURABLE,
+            "Aliases are not yet configurable."
+        );
+        assert!(help_text()
+            .lines()
+            .any(|line| line == "  /alias    show alias availability"));
+    }
+
+    #[test]
+    fn usage_on_the_line_shell_points_at_the_dashboard() {
+        assert!(USAGE_ON_THE_LINE_SHELL.starts_with("xfx: /usage"));
+        assert!(USAGE_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+    }
+
+    #[test]
+    fn sound_is_upstreams_appearance_row_and_takes_its_level() {
+        // `commands.zig:495`: the description the menu shows and the category
+        // it is filed under, and `accepts_payload` -- `/sound on` is the
+        // command with an argument, not an unknown one.
+        let sound = slash_spec(Slash::Sound);
+        assert_eq!(
+            (sound.name, sound.summary, sound.category, sound.has_args),
+            (
+                "/sound",
+                "toggle sounds and terminal bells",
+                "Appearance",
+                true
+            )
+        );
+        // Upstream's order puts it after `/copy` and before `/version`
+        // (`commands.zig:484-498`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/copy") < at("/sound") && at("/sound") < at("/version"));
+        assert_eq!(
+            classify("/sound on"),
+            Submitted::Command {
+                command: Slash::Sound,
+                argument: "on".to_string()
+            }
+        );
+        assert!(help_text().contains("/sound"), "{}", help_text());
+    }
+
+    #[test]
+    fn sound_on_the_line_shell_saves_the_switch_and_says_whose_bell_it_is() {
+        let dir = tempfile::tempdir().expect("home");
+        let path = dir.path().join(".xfx").join("settings.json");
+        let on = apply_sound("", crate::config::Notifications::both(false), Some(&path))
+            .expect("toggle");
+        assert_eq!(on, crate::config::Notifications::both(true));
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("saved")).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}})
+        );
+        let off = apply_sound("off", on, Some(&path)).expect("set");
+        assert_eq!(off, crate::config::Notifications::both(false));
+        // The usage line changes nothing and writes nothing.
+        let before = std::fs::read(&path).expect("read");
+        assert_eq!(apply_sound("max", off, Some(&path)).expect("usage"), off);
+        assert_eq!(std::fs::read(&path).expect("read"), before);
+        assert!(SOUND_ON_THE_LINE_SHELL.contains("rings none"));
+    }
+
+    #[test]
+    fn the_standalone_catalog_command_is_still_deferred() {
+        // `/models` is an upstream command xfx does not answer: the catalog
+        // browser is reached by a bare `/model`, so advertising it would be
+        // advertising a surface that is not there. (`/provider` used to be
+        // listed here; it is answered now, as upstream's row with `/setup` as
+        // its alias -- `provider_is_canonical_and_setup_is_its_alias`.)
+        let absent = "/models";
+        assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
+        assert_eq!(Slash::parse(absent), None, "{absent} parses");
+        assert!(!help_text().contains(absent), "help advertises {absent}");
     }
 
     #[test]
@@ -1457,5 +3402,362 @@ mod tests {
         // Still one bounded, sanitized line: deriving the count must not have
         // moved the guidance off the end of it.
         assert!(refusal.ends_with("commands"), "{refusal}");
+    }
+
+    /// A configuration over `root/home` and `root/work`, both kept by the
+    /// caller's temporary directory.
+    fn config_under(root: &std::path::Path) -> RuntimeConfig {
+        let home = root.join("home");
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&home).expect("a home");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        RuntimeConfig::load_with(
+            &Environment::new(Some(home), std::collections::BTreeMap::new()),
+            &workspace,
+        )
+        .expect("load a configuration")
+    }
+
+    /// `/workspace <argument>` on this shell: what it printed on each stream.
+    fn workspace_said_on(argument: &str, config: &mut RuntimeConfig) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        workspace_on_the_line(argument, config, None, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_lists_adds_and_keeps_a_workspace_directory() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let primary = config.workspace_root.clone();
+        let extra = primary.parent().expect("a parent").join("extra");
+        std::fs::create_dir(&extra).expect("extra");
+
+        let (out, err) = workspace_said_on("", &mut config);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "[shell] workspace: primary={}\n\
+                 [shell]   saved_suppressed=false limit=16\n\
+                 [shell]   additional directories: (none)\n",
+                primary.display()
+            )
+        );
+
+        let (out, err) = workspace_said_on("add ../extra", &mut config);
+        assert_eq!(err, "");
+        assert!(
+            out.contains(
+                "\n[shell]   add ../extra saved_changed=true runtime_changed=true \
+                 launch_flag_can_restore=false\n"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.ends_with(&format!(
+                "[shell]    - {} saved=true command_line=false available=true active=true\n",
+                extra.display()
+            )),
+            "{out}"
+        );
+        // In force for the next conversation this shell opens, and for the
+        // next launch.
+        assert_eq!(
+            conversation_scope(&config)
+                .expect("a scope")
+                .additional_roots(),
+            std::slice::from_ref(&extra)
+        );
+        let reloaded = config_under(root.path());
+        assert_eq!(
+            reloaded.additional_directories,
+            [extra.to_string_lossy().into_owned()]
+        );
+        assert_eq!(
+            conversation_scope(&reloaded)
+                .expect("a scope")
+                .additional_roots(),
+            [extra]
+        );
+
+        let (out, err) = workspace_said_on("clear", &mut config);
+        assert_eq!(err, "");
+        assert!(
+            out.ends_with("[shell]   additional directories: (none)\n"),
+            "{out}"
+        );
+        assert!(config.additional_directories.is_empty());
+    }
+
+    #[test]
+    fn the_line_shell_refuses_a_workspace_change_in_upstreams_words() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = workspace_said_on("bogus", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(err, "xfx: usage: /workspace [add PATH|remove PATH|clear]\n");
+        let (out, err) = workspace_said_on("add ../missing", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(
+            err,
+            "xfx: workspace: Workspace update rejected: directory does not exist\n"
+        );
+        assert!(config.additional_directories.is_empty());
+    }
+
+    /// `/statusline <argument>` on this shell: what it printed on each stream.
+    fn statusline_said(argument: &str, config: &mut RuntimeConfig) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        statusline_on_the_line(argument, config, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_flips_and_keeps_a_statusline_item_in_the_tuis_words() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = statusline_said("workspace", &mut config);
+        assert_eq!(
+            out,
+            "[shell] statusline: saved to user settings (scope=user)\n\
+             [shell] statusline: workspace: on\n"
+        );
+        assert_eq!(err, "");
+        assert!(config.statusline.workspace);
+        // What it kept is what the next launch reads.
+        let reloaded = config_under(root.path());
+        assert!(reloaded.statusline.workspace);
+        assert!(!reloaded.statusline.context);
+
+        let (out, _) = statusline_said("workspace", &mut config);
+        assert!(
+            out.ends_with("[shell] statusline: workspace: off\n"),
+            "{out}"
+        );
+        assert!(!config_under(root.path()).statusline.workspace);
+    }
+
+    #[test]
+    fn a_bare_statusline_on_the_line_shell_says_each_item_and_how_to_change_one() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        config.statusline.session = true;
+        let (out, err) = statusline_said("", &mut config);
+        assert_eq!(
+            out,
+            "[shell] statusline: context: off, session: on, workspace: off\n\
+             [shell] usage: /statusline [context|session|workspace]\n"
+        );
+        assert_eq!(err, "");
+        assert!(
+            !root.path().join("home").join(".xfx").exists(),
+            "asking wrote the profile"
+        );
+    }
+
+    #[test]
+    fn the_line_shell_refuses_an_item_it_does_not_have_and_says_a_failed_write() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = statusline_said("Context", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(err, "xfx: usage: /statusline [context|session|workspace]\n");
+        assert_eq!(config.statusline, crate::config::StatusLine::default());
+
+        // No home: in force for this process, and said not to be kept.
+        config.user_settings_path = None;
+        let (out, err) = statusline_said("context", &mut config);
+        assert_eq!(out, "[shell] statusline: context: on\n");
+        assert_eq!(
+            err,
+            "xfx: statusline: active for this process but not saved to user settings \
+             (no home directory is set)\n"
+        );
+        assert!(config.statusline.context);
+    }
+
+    /// `/trace` on this shell into `dir`, copying with `tool`: what it printed
+    /// on each stream.
+    fn trace_said(
+        config: &RuntimeConfig,
+        conversation: Option<&Conversation>,
+        store: &SessionStore,
+        dir: &std::path::Path,
+        tool: &crate::clipboard::fake::FakeTool,
+    ) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let target = TraceTarget {
+            dir: dir.to_path_buf(),
+            clipboard: tool.clipboard(),
+        };
+        trace_on_the_line(
+            config,
+            &config.model,
+            conversation,
+            store,
+            &target,
+            &mut out,
+            &mut err,
+        )
+        .expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    /// The one report written under `dir`.
+    fn one_report(dir: &std::path::Path) -> (std::path::PathBuf, String) {
+        let written: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+            .expect("the report directory")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        assert_eq!(written.len(), 1, "{written:?}");
+        let report = std::fs::read_to_string(&written[0]).expect("the report");
+        (written[0].clone(), report)
+    }
+
+    #[test]
+    fn the_line_shell_writes_a_report_about_its_own_conversation_and_says_so() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let store = SessionStore::open(&root.path().join("home").join(".xfx")).expect("a store");
+        let dir = tempfile::tempdir().expect("a report directory");
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+
+        // Before the first prompt there is no session to describe.
+        let (out, err) = trace_said(&config, None, &store, dir.path(), &tool);
+        let (path, report) = one_report(dir.path());
+        let expected = if cfg!(target_os = "macos") {
+            crate::trace::Disposition::Copied(path.clone())
+        } else {
+            crate::trace::Disposition::Saved(path.clone())
+        };
+        assert_eq!(out, format!("[shell] {}\n", expected.sentence()));
+        assert_eq!(err, "");
+        assert!(report.contains("\nsession: none (xfx opens one at the first prompt)\n"));
+        if cfg!(target_os = "macos") {
+            assert_eq!(tool.copied_file().as_deref(), path.to_str());
+        }
+        std::fs::remove_file(&path).expect("clear the directory");
+
+        // With one, the live conversation's own state.
+        let mut conversation = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            crate::app::permission_session(config.permission_mode, LiveRules::default()),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("a conversation");
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "what is in here?".to_string(),
+        });
+        let _ = trace_said(&config, Some(&conversation), &store, dir.path(), &tool);
+        let (_, report) = one_report(dir.path());
+        for line in [
+            format!("session_id: {}", conversation.recorder.id()),
+            "history_turns: 1".to_string(),
+            "    what is in here?".to_string(),
+        ] {
+            assert!(report.lines().any(|row| row == line), "{line}\n{report}");
+        }
+        assert!(
+            !report.contains("## Transcript Timeline"),
+            "this shell has no screen to describe: {report}"
+        );
+    }
+
+    #[test]
+    fn the_line_shell_says_a_failed_copy_or_write_on_the_diagnostic_stream() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let store = SessionStore::read_only(&root.path().join("home").join(".xfx"));
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let (out, err) = trace_said(&config, None, &store, dir.path(), &tool);
+        let (path, _) = one_report(dir.path());
+        if cfg!(target_os = "macos") {
+            assert_eq!(out, "");
+            assert_eq!(
+                err,
+                format!(
+                    "xfx: {}\n",
+                    crate::trace::Disposition::CopyFailed(path).sentence()
+                )
+            );
+        } else {
+            assert_eq!(
+                out,
+                format!(
+                    "[shell] {}\n",
+                    crate::trace::Disposition::Saved(path).sentence()
+                )
+            );
+        }
+        let (out, err) = trace_said(
+            &config,
+            None,
+            &store,
+            std::path::Path::new("/nonexistent/xfx-trace-dir"),
+            &tool,
+        );
+        assert_eq!(
+            (out.as_str(), err.as_str()),
+            ("", "xfx: Could not create trace.\n")
+        );
+    }
+
+    /// `/allowlist <argument>` on this shell: what it printed on each stream.
+    fn allowlist_said(
+        argument: &str,
+        config: &RuntimeConfig,
+        rules: &LiveRules,
+    ) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        allowlist_on_the_line(argument, config, rules, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_says_allowlist_answers_as_lines_and_puts_the_table_in_force() {
+        use crate::permission::{ConfiguredRule, RuleAction};
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let rules = LiveRules::default();
+        let (out, err) = allowlist_said("add command \"git *\"", &config, &rules);
+        assert_eq!(out, "[allowlist] added command: \"git *\" (scope=local)\n");
+        assert_eq!(err, "");
+        assert_eq!(
+            rules.current().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        let (out, _) = allowlist_said("view local", &config, &rules);
+        assert_eq!(
+            out,
+            "[allowlist] local persistent allow rules:\n  commands:\n    git *\n"
+        );
+        let (out, err) = allowlist_said("reset", &config, &rules);
+        assert_eq!(out, "");
+        assert_eq!(
+            err,
+            "xfx: usage: /allowlist reset [commands|tools|urls|web-fetch-domains|all]\n"
+        );
+        // A pattern is the person's own text: a control byte in it is not
+        // handed to the terminal.
+        let (out, _) = allowlist_said("add command \"a\u{1b}[2Jb\"", &config, &rules);
+        assert!(!out.contains('\u{1b}'), "{out:?}");
     }
 }

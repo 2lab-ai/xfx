@@ -1,0 +1,32 @@
+gateway copy-turn.json
+wait 2
+type /copy
+wait 0.5
+key Enter
+wait 1
+snap copy-empty
+clip copy-empty
+type /copy now
+wait 0.5
+key Enter
+wait 1
+snap copy-now
+clip copy-now
+type first question alpha
+key Enter
+wait 3
+snap turn1
+type /copy
+wait 0.5
+key Enter
+wait 1
+snap copy
+clip copy
+clipfail on
+type /copy
+wait 0.5
+key Enter
+wait 1
+snap copy-fail
+clip copy-fail
+clipfail off

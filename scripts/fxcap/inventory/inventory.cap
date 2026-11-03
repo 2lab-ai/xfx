@@ -1,0 +1,184 @@
+# The pinned fx's own surface inventory, read off its screens: the /help menu
+# and the slash popup, each walked from end to start, at the sweep's size.
+# inventory.py reads the snaps back. Not a parity scenario: it lives outside
+# scenarios/, so the sweep never runs it.
+#
+# Each walk starts with one Up from the first row, which wraps to the last
+# row and shows the menu's tail, and goes on up five rows a page. Going up, a
+# window's top row is the selected one, so five rows a page never skips a row
+# in a window of six or more; going down, a step can wrap past a tail it never
+# showed (a first version of this file missed /mcp../trace that way).
+# inventory.py checks the rows read against the menu's own `Commands N`, so a
+# short read fails instead of shrinking the count.
+wait 2.5
+type /help
+key Enter
+wait 1.2
+snap help-00
+key Up
+wait 0.5
+snap help-01
+key Up Up Up Up Up
+wait 0.4
+snap help-02
+key Up Up Up Up Up
+wait 0.4
+snap help-03
+key Up Up Up Up Up
+wait 0.4
+snap help-04
+key Up Up Up Up Up
+wait 0.4
+snap help-05
+key Up Up Up Up Up
+wait 0.4
+snap help-06
+key Up Up Up Up Up
+wait 0.4
+snap help-07
+key Up Up Up Up Up
+wait 0.4
+snap help-08
+key Up Up Up Up Up
+wait 0.4
+snap help-09
+key Up Up Up Up Up
+wait 0.4
+snap help-10
+key Up Up Up Up Up
+wait 0.4
+snap help-11
+key Up Up Up Up Up
+wait 0.4
+snap help-12
+key Up Up Up Up Up
+wait 0.4
+snap help-13
+key Up Up Up Up Up
+wait 0.4
+snap help-14
+key Up Up Up Up Up
+wait 0.4
+snap help-15
+key Up Up Up Up Up
+wait 0.4
+snap help-16
+key Up Up Up Up Up
+wait 0.4
+snap help-17
+key Up Up Up Up Up
+wait 0.4
+snap help-18
+key Up Up Up Up Up
+wait 0.4
+snap help-19
+key Up Up Up Up Up
+wait 0.4
+snap help-20
+key Up Up Up Up Up
+wait 0.4
+snap help-21
+key Up Up Up Up Up
+wait 0.4
+snap help-22
+key Up Up Up Up Up
+wait 0.4
+snap help-23
+key Up Up Up Up Up
+wait 0.4
+snap help-24
+key Up Up Up Up Up
+wait 0.4
+snap help-25
+key Up Up Up Up Up
+wait 0.4
+snap help-26
+key Escape
+wait 0.5
+key C-u
+wait 0.3
+type /
+wait 1.2
+snap slash-00
+key Up
+wait 0.4
+snap slash-01
+key Up Up Up Up Up
+wait 0.4
+snap slash-02
+key Up Up Up Up Up
+wait 0.4
+snap slash-03
+key Up Up Up Up Up
+wait 0.4
+snap slash-04
+key Up Up Up Up Up
+wait 0.4
+snap slash-05
+key Up Up Up Up Up
+wait 0.4
+snap slash-06
+key Up Up Up Up Up
+wait 0.4
+snap slash-07
+key Up Up Up Up Up
+wait 0.4
+snap slash-08
+key Up Up Up Up Up
+wait 0.4
+snap slash-09
+key Up Up Up Up Up
+wait 0.4
+snap slash-10
+key Up Up Up Up Up
+wait 0.4
+snap slash-11
+key Up Up Up Up Up
+wait 0.4
+snap slash-12
+key Up Up Up Up Up
+wait 0.4
+snap slash-13
+key Up Up Up Up Up
+wait 0.4
+snap slash-14
+key Up Up Up Up Up
+wait 0.4
+snap slash-15
+key Up Up Up Up Up
+wait 0.4
+snap slash-16
+key Up Up Up Up Up
+wait 0.4
+snap slash-17
+key Up Up Up Up Up
+wait 0.4
+snap slash-18
+key Up Up Up Up Up
+wait 0.4
+snap slash-19
+key Up Up Up Up Up
+wait 0.4
+snap slash-20
+key Up Up Up Up Up
+wait 0.4
+snap slash-21
+key Up Up Up Up Up
+wait 0.4
+snap slash-22
+key Up Up Up Up Up
+wait 0.4
+snap slash-23
+key Up Up Up Up Up
+wait 0.4
+snap slash-24
+key Up Up Up Up Up
+wait 0.4
+snap slash-25
+key Up Up Up Up Up
+wait 0.4
+snap slash-26
+key Escape
+wait 0.4
+key C-u
+wait 0.3

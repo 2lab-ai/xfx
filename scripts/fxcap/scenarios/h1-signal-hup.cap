@@ -1,0 +1,9 @@
+# H1 `signal` without `jobctl`: SIGHUP to the binary `exec`'d as the pane's
+# own process -- the pid the pane names -- with `keep` for its dead status.
+keep
+wait 4
+snap start
+signal HUP
+wait 1
+snap hup
+wire end

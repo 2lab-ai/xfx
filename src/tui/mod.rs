@@ -52,31 +52,47 @@ use std::time::Instant;
 
 use crate::cli::{Cli, Command};
 
-/// The variable that opts a bare invocation into the TUI.
+/// The variable that opts a bare invocation **out** of the TUI.
 pub const TUI_ENV: &str = "XFX_TUI";
 
 /// Whether this invocation is the one the TUI owns.
 ///
-/// A bare `xfx`, `XFX_TUI=1`, and a real terminal on both ends. Anything else --
-/// a subcommand, a pipe, an unset or different value -- is the line-oriented
-/// shell or an ordinary command, unchanged.
+/// A bare `xfx` with a real terminal on both ends, which is what a bare `fx`
+/// is upstream (`c1db919`: no flag, no variable). `XFX_TUI=0` is the one way
+/// back to the line-oriented shell on a terminal; any other value, or none, is
+/// the TUI. A subcommand or a pipe on either end is the line shell or an
+/// ordinary command, unchanged.
 pub fn should_run(cli: &Cli) -> bool {
-    matches!(cli.command, Command::Interactive)
-        && std::env::var_os(TUI_ENV).is_some_and(|value| value == "1")
+    matches!(cli.command, Command::Interactive { .. })
+        && std::env::var_os(TUI_ENV).is_none_or(|value| value != "0")
         && io::stdin().is_terminal()
         && io::stdout().is_terminal()
 }
 
 /// Runs the TUI on the calling thread, which must be the process's main thread.
-pub fn run_blocking(_cli: Cli) -> ExitCode {
+pub fn run_blocking(cli: Cli) -> ExitCode {
+    let resume = match cli.command {
+        Command::Interactive { resume } => resume,
+        _ => None,
+    };
     let config = match crate::app::load_config() {
         Ok(config) => config,
         Err(err) => return fail(&format!("{err}")),
     };
-    match session(&config) {
+    match session(&config, resume.as_ref()) {
         Ok(code) => code,
         Err(err) => fail(&format!("{err}")),
     }
+}
+
+/// How a session that ran to its end left.
+struct Exit {
+    code: ExitCode,
+    /// Upstream's way back in (`formatResumeHandoff`, `render.zig:795-810`):
+    /// the line that names the session to resume, written to standard output
+    /// once the terminal has been given back. `None` for a session with nothing
+    /// to come back to ([`worker::Worker::resumable`]).
+    handoff: Option<String>,
 }
 
 /// Takes the terminal, holds it, and gives it back.
@@ -86,7 +102,10 @@ pub fn run_blocking(_cli: Cli) -> ExitCode {
 /// while the mode sequences go to the one output leaves by. On an ordinary
 /// invocation they are the same terminal; when they are not, restoring the
 /// wrong one would leave the input raw.
-fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
+fn session(
+    config: &crate::config::RuntimeConfig,
+    resume: Option<&crate::session::Selector>,
+) -> io::Result<ExitCode> {
     // The matrix row for a startup that fails before the terminal is touched:
     // nothing has been captured, nothing has been set, and the exit must write
     // no restore bytes for state it never took.
@@ -104,6 +123,50 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     if layout::solve(rows, columns, layout::INITIAL_INPUT_ROWS).is_none() {
         return Err(io::Error::other(too_small(rows, columns)));
     }
+
+    // The session `--resume` names, opened -- and locked -- **before** the
+    // terminal is touched, for the reason the size refusal above is: an id
+    // that names nothing, or a session another xfx is writing, is reported on
+    // a terminal the user still has, rather than after a band was drawn and
+    // taken down again for nothing.
+    let resumed = resume
+        .map(|selector| worker::Resumption::open(config, selector))
+        .transpose()?;
+    // The provider the session last recorded is the one it continues on, as
+    // upstream's resume puts it back (`restoreRuntimePreferences`,
+    // `app_session_runtime.zig:6147`), and the model with it, which only a
+    // process override outranks; a session that recorded no provider goes on
+    // with the configured one under the launch's rule -- the same rules as
+    // `xfx ask --resume` (`app::resumed_model`), in
+    // [`worker::Resumption::selection`]. The band and the
+    // runtime both read the provider and the model from the configuration, so
+    // they are restored there, once, for both of them.
+    //
+    // The effort and the speed switches the session recorded come back with
+    // it whatever the profile says, as upstream's do
+    // (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`, which
+    // only a launch flag outranks -- xfx has none): they are the session's, and
+    // the profile's are only what the last session left.
+    let restored;
+    let config = match &resumed {
+        Some(resumed) => {
+            let mut owned = config.clone();
+            (owned.provider, owned.model) = resumed.selection(config, &config.model);
+            // The Fast binding survives only for the selection this launch
+            // was configured with: the session's provider, model and Fast
+            // ([`worker::Resumption::keeps_fast_binding`]).
+            owned.fast_mode_model_bound = config.fast_mode_model_bound
+                && resumed.keeps_fast_binding(config.provider, &config.model, config.fast_mode);
+            if let Some(settings) = resumed.settings() {
+                owned.effort = settings.effort.clone();
+                owned.fast_mode = settings.fast && !settings.ultrafast;
+                owned.ultrafast_mode = settings.ultrafast;
+            }
+            restored = owned;
+            &restored
+        }
+        None => config,
+    };
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -186,7 +249,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // that gives it back, so this function must not return before it runs --
     // no `?`, no early return. Everything that can fail happens inside `hold`,
     // which reports its failure rather than escaping with it.
-    let held = hold(config, tmux, &wakeup, blocked, &mut band);
+    let held = hold(config, tmux, &wakeup, blocked, &mut band, resumed);
     // The plane the terminal is really on, asked of the band rather than of the
     // session: `event_loop::shut_down` gives an approval screen back in one
     // frame on every way out of the loop, so this is `false` on every ordinary
@@ -223,7 +286,21 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
             );
         }
     }
-    result
+    // The way back in, on a terminal that is the user's again: upstream writes
+    // it to standard output after the restore (`app_entry_runtime.zig:424-438`),
+    // so it lands under the document the band floated beneath, on the row the
+    // exit's own cleanup left the cursor on. Best effort, as upstream's is: a
+    // standard output that will not take it changes nothing about how the
+    // session ended.
+    result.map(|exit| {
+        if let Some(line) = exit.handoff {
+            let mut stdout = io::stdout();
+            let _ = stdout
+                .write_all(line.as_bytes())
+                .and_then(|()| stdout.flush());
+        }
+        exit.code
+    })
 }
 
 /// Why a screen cannot hold a band, in the words the refusal is reported in.
@@ -255,7 +332,8 @@ fn hold(
     wakeup: &signals::Wakeup,
     blocked: signals::Blocked,
     band: &mut frame::Band,
-) -> io::Result<ExitCode> {
+    resumed: Option<worker::Resumption>,
+) -> io::Result<Exit> {
     // **Before `install`, and that is the whole of the ordering.** A new thread
     // inherits the creating thread's signal mask, and the mask is still the
     // whole of `block_owned`'s here -- `install` is what lifts the death
@@ -270,7 +348,22 @@ fn hold(
     // failure in this function is: `hold` reports, and `session` restores.
     // Nothing has been spawned yet when it fires.
     let cancel = bridge::Cancellation::new(crate::gateway::CancelToken::new());
-    let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone())?;
+    // Read before the session goes to the runtime thread, which is the only
+    // place it lives from then on: what the saved session replays as, built
+    // from the state the open already read, with no read of its own.
+    // The band is built from this configuration, with the provider the
+    // session continues on already in it; what it still has to say is
+    // whether that provider can authenticate ([`worker::unauthenticated`]),
+    // and whether the session's model was one it could not restore
+    // ([`worker::Resumption::replaces_model`]; the restore above changed the
+    // provider and the model, not the sources the rule reads).
+    let replay = resumed.as_ref().map(|resumed| {
+        let mut replay = resumed.hydration();
+        replay.unauthenticated = worker::unauthenticated(config);
+        replay.model_replaced = resumed.replaces_model(config);
+        replay
+    });
+    let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone(), resumed)?;
 
     // The block lifts inside `install`, so anything held across the transition
     // is delivered there. A held `SIGTSTP` is the case that has to be answered
@@ -321,22 +414,26 @@ fn hold(
         probe::DEADLINE
     };
     let mut cursor = probe::CursorProbe::new();
+    // The profile's `startup_scrollback`, read once: whether the launch pushes
+    // the shell's output away or starts under it ([`probe::launch_origin`]).
+    let scrollback = config.startup_scrollback;
     let screen = settle_screen(
         || {
+            let reply = cursor.read_reply(ask_background, Instant::now() + deadline)?;
+            let (rows, columns) = term::window_size();
             // A terminal that does not answer within the deadline is treated as
             // row 1 -- xfx starts at the bottom of what it can prove rather
             // than painting over something it cannot see.
-            let cursor_row = cursor
-                .read_reply(ask_background, Instant::now() + deadline)?
-                .map_or(UNKNOWN_CURSOR_ROW, |(row, _column)| row);
-            let (rows, columns) = term::window_size();
+            let cursor_row = reply.map_or(UNKNOWN_CURSOR_ROW, |(row, column)| {
+                probe::start_row(row, column, rows)
+            });
             Ok(Screen {
                 cursor_row,
                 rows,
                 columns,
             })
         },
-        |screen| push_scrollback(screen.cursor_row, screen.rows, screen.columns),
+        |screen| push_scrollback(screen, scrollback),
         signals::take_winch,
     )?;
 
@@ -370,16 +467,41 @@ fn hold(
         depth: theme::depth_from_env(colorterm.as_deref(), term_program.as_deref()),
     };
 
-    // The window title, from the model this session was configured with. It
+    // The window title is the shell's to decide (`Shell::take_title`) and
     // goes out with the first frame rather than from here: a title written
     // outside a frame is a second writer on a terminal this module owns
     // exclusively, and the band is the writer. The push that makes the user's
     // own title borrowable rather than taken is in the mode set
     // (`term::PUSH_TITLE`), which `announce` has already written above.
-    band.set_title(frame::title(&config.model));
+    // Sized now rather than by the first frame: the welcome line is a document
+    // row written before any frame, and a band whose record of the screen is
+    // still 0x0 when it lands keeps no record of it -- so a later theme report
+    // would find nothing on row 1 to recolour.
+    band.invalidate(geometry.rows, geometry.cols);
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
-    event_loop::run(
+    // The rows above the session's first are the shell's: with
+    // `startup_scrollback` off the band floats under them rather than on the
+    // first row (`initViewportWithReservedRows`, `app_lifecycle.zig:961`).
+    shell.document_landed(u32::from(origin(&screen, scrollback).row - 1));
+    shell.set_ultra_marker(theme::ultra_marker(
+        colorterm.as_deref(),
+        term_program.as_deref(),
+    ));
+    // A resumed launch writes no welcome line, as upstream's does not
+    // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
+    // are the document, on the screen the launch's push left.
+    match replay {
+        Some(replay) => shell.hydrate(replay, false),
+        None => {
+            shell.welcome();
+            shell.session_assembled();
+        }
+    }
+    // Fresh or resumed, as upstream's launch says them either way
+    // (`app_bootstrap_runtime.zig:666-687`).
+    shell.config_issues(config);
+    let code = event_loop::run(
         &mut shell,
         band,
         &event_loop::Launch {
@@ -390,13 +512,23 @@ fn hold(
         },
         &mut worker,
         &mut events,
-    )
+    )?;
+    // The session's MCP servers stop with it, each by its own process group
+    // ([`crate::mcp::McpRuntime::shutdown`]): a server that ignores the end of
+    // its input is not left running after the person has gone.
+    worker.handle().mcp().shutdown();
+    // Asked of the worker after the loop, because the loop's exit is what
+    // joined the thread that knows ([`worker::Worker::resumable`]); formatted
+    // by the shell, because the palette and the width are its.
+    let handoff = worker.resumable().map(|id| shell.resume_handoff(id));
+    Ok(Exit { code, handoff })
 }
 
 /// The one measurement a launch is computed from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Screen {
-    /// The row the shell left the cursor on, one-based.
+    /// The row the shell left the cursor on, one-based -- or the one under it,
+    /// when the cursor was past the first column ([`probe::start_row`]).
     cursor_row: u16,
     rows: u16,
     columns: u16,
@@ -505,15 +637,31 @@ fn settle_screen(
     Ok(screen)
 }
 
-/// Scrolls the shell's output above the band into scrollback, on the screen.
+/// Scrolls the shell's output above the band into scrollback, on the screen:
+/// all of it, or -- with `startup_scrollback` off -- only what leaves the
+/// launch too few rows under its start.
 ///
-/// The mechanics and the amount both live in [`probe::push`], against a writer
-/// it is handed, so that what the push does to a screen is a test rather than a
-/// claim; this is the two lines that hand it the real one. Nothing is erased
-/// here -- what leaves the top of the screen goes into the terminal's own
-/// scrollback, where the user can still reach it.
-fn push_scrollback(cursor_row: u16, rows: u16, columns: u16) -> io::Result<()> {
-    probe::push(&mut deliver::RawTty::stdout(), cursor_row, rows, columns)
+/// The amount lives in [`probe::launch_origin`] and the mechanics in
+/// [`probe::push_lines`], against a writer it is handed, so that what the push
+/// does to a screen is a test rather than a claim; this hands it the real one.
+/// Nothing is erased here -- what leaves the top of the screen goes into the
+/// terminal's own scrollback, where the user can still reach it.
+fn push_scrollback(screen: &Screen, scrollback: bool) -> io::Result<()> {
+    probe::push_lines(
+        &mut deliver::RawTty::stdout(),
+        origin(screen, scrollback).push,
+        screen.rows,
+        screen.columns,
+    )
+}
+
+/// Where the launch on `screen` starts, and what it pushes to start there
+/// ([`probe::launch_origin`]), against the document rows a band at the bottom
+/// of that screen leaves.
+fn origin(screen: &Screen, scrollback: bool) -> probe::Origin {
+    let content_bottom = layout::solve(screen.rows, screen.columns, layout::INITIAL_INPUT_ROWS)
+        .map_or(screen.rows, |geometry| geometry.content_bottom);
+    probe::launch_origin(screen.cursor_row, screen.rows, content_bottom, scrollback)
 }
 
 /// Announces the session on the wire.
@@ -603,38 +751,78 @@ mod approval;
 mod approval_amendment;
 mod approval_readiness;
 mod approval_screen;
+pub(crate) mod approval_view;
+mod blocks;
 mod bridge;
 mod check;
+mod clipboard_image;
+mod compaction;
+mod copy;
+mod credits_ask;
 mod deliver;
 mod diagnostic;
+mod drawn_wider;
 mod edit_history;
 mod editor;
 mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
-mod fault;
+pub(crate) mod fault;
+mod file_index;
+mod file_picker;
 mod frame;
+mod freeform;
+mod full_transcript;
 mod gesture;
 mod grid;
+mod held_skills;
+mod help_menu;
 mod hint;
 mod history;
+mod hydration;
+mod hyperlink;
+mod image_paths;
+mod inline_completion;
 mod input;
 mod layout;
+mod marks;
+mod mcp_menu;
+mod model_column;
+mod model_menu;
+mod notice;
 mod pacer;
 mod panic;
 mod paste;
+mod permissions;
 mod picker;
 mod probe;
+mod prose;
+mod provider_picker;
 mod question;
+mod recall;
+mod reconcile;
 mod render_request;
+mod retry;
 mod router;
+mod rule_confirm;
+mod session_picker;
+mod settings;
 mod shell;
 mod signals;
+mod skills_menu;
+mod sound;
+mod speed_save;
+mod statusline;
 mod term;
 mod theme;
+mod titles;
+mod toolgroup;
+mod trace;
 mod transcript;
+mod usage_menu;
 mod worker;
-mod wrap;
+mod workspace_menu;
+pub(crate) mod wrap;
 
 #[cfg(test)]
 mod tests {

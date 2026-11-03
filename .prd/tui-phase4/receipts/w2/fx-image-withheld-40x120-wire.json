@@ -1,0 +1,49 @@
+[
+ {
+  "request": "001-title.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #1] describe"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "none"
+  },
+  "tool_names": []
+ },
+ {
+  "request": "002-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #1 not sent: image/png is 9000x10 pixels. This request permits at most 8000 per side and 5 MiB encoded per image. The original is saved at <scratch>/home/.fx/sessions/pLiArschvG0M/images/image-1-c27bf7313d5f0cbe.bin. Use an available image tool to save a smaller copy to a new file ending in .png, then read_file the copy. If no image tool is available, ask the user before installing one.]\n[Image #1] describe"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "read_file",
+   "glob_files",
+   "grep_files",
+   "edit_file",
+   "write_file",
+   "shell",
+   "subagent",
+   "capability_search",
+   "skill",
+   "install_skill",
+   "mcp_select_tool",
+   "mcp_features",
+   "ask_user_question",
+   "web_fetch",
+   "exa_search",
+   "read_tool_result"
+  ]
+ }
+]

@@ -1,0 +1,20 @@
+=== ~/.xfx/history.jsonl (665 bytes)
+{"schema_version":1,"timestamp_ms":1791342100774,"workspace_root":"<scratch>/work","text":"/ultrafast on"}
+{"schema_version":1,"timestamp_ms":1791342101856,"workspace_root":"<scratch>/work","text":"/ultrafast"}
+{"schema_version":1,"timestamp_ms":1791342102900,"workspace_root":"<scratch>/work","text":"/fast"}
+{"schema_version":1,"timestamp_ms":1791342103984,"workspace_root":"<scratch>/work","text":"/ultrafast on"}
+{"schema_version":1,"timestamp_ms":1791342105977,"workspace_root":"<scratch>/work","text":"/model xai/grok-4.7"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (159 bytes)
+{
+  "models": {
+    "gateway": "xai/grok-4.7"
+  },
+  "provider": "gateway",
+  "fast_mode": false,
+  "ultrafast_mode": false,
+  "fast_mode_model_bound": true
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

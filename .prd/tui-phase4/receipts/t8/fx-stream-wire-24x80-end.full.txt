@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ stream please
+
+  STREAM-HEAD the first line of a streamed answer, long enough that it wraps
+  past the right edge of an eighty-column screen at least once.
+
+  A second paragraph, streamed a few words at a time, ending here. STREAM-TAIL
+
+  2s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+

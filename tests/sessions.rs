@@ -139,6 +139,7 @@ fn new_session(workspace: &Path) -> NewSession {
         workspace_root: workspace.to_path_buf(),
         model: "test/model".to_string(),
         permission_mode: PermissionMode::Auto,
+        provider: None,
     }
 }
 
@@ -178,20 +179,30 @@ fn evidence_events() -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "read_file".to_string(),
             ok: true,
             output: "1\thi".to_string(),
         },
         SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c2".to_string(),
             tool: "edit_file".to_string(),
             ok: true,
             output: "Edited greeting.txt".to_string(),
         },
         SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c3".to_string(),
             tool: "terminal".to_string(),
             ok: true,
@@ -203,10 +214,18 @@ fn evidence_events() -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
             output_tokens: Some(7),
+            turn_output_tokens: None,
+            requests: Vec::new(),
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
         },
         SessionEvent::PermissionGrantRecorded {
             tool: "edit_file".to_string(),
@@ -264,7 +283,9 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult { tool, .. } => Some(tool.as_str()),
-            TurnStep::Assistant { .. } | TurnStep::ToolFeedback { .. } => None,
+            TurnStep::Assistant { .. }
+            | TurnStep::ToolFeedback { .. }
+            | TurnStep::Steered { .. } => None,
         })
         .collect();
     assert_eq!(tools, ["read_file", "edit_file", "terminal"]);
@@ -285,7 +306,7 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
     assert_eq!(log.len() as u64, published);
 
     // History is replayed in wire order: user, assistant+calls, results, answer.
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     let roles: Vec<Role> = replay.messages.iter().map(|message| message.role).collect();
     assert_eq!(
         roles,
@@ -698,6 +719,7 @@ fn a_second_writer_is_refused_while_the_first_holds_the_session() {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         )
         .expect("the holder keeps writing");
@@ -1205,7 +1227,7 @@ fn resume_by_exact_id_restores_history_and_preferences() {
     assert_eq!(state.grants.len(), 1);
     assert_eq!(
         state
-            .history_messages(Wire::AnthropicMessages)
+            .history_messages(Wire::AnthropicMessages, &state.model)
             .messages
             .len(),
         6
@@ -1628,6 +1650,79 @@ fn ask_saves_a_turn_by_default_and_no_save_writes_nothing() {
 }
 
 #[test]
+fn a_saved_turn_records_what_its_request_cost_and_when_counting_began() {
+    // The Gateway's bill for one answer, in the shape it streams one
+    // (`vercel-labs/fx@c1db9191 src/gateway/client.zig:3313-3395`).
+    let body = sse_body(&[
+        json!({ "type": "response-metadata", "modelId": "fake/model-a",
+                "timestamp": "2026-10-07T01:02:03.456Z" }),
+        text_delta("answer_0", "billed answer"),
+        json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 12000, "cacheRead": 4000 },
+                "outputTokens": { "total": 800, "reasoning": 0 }
+            },
+            "providerMetadata": { "gateway": {
+                "routing": { "canonicalSlug": "fake/model-a" },
+                "cost": "0.0125",
+                "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
+            } }
+        }),
+    ]);
+    let gateway = FakeGateway::start(vec![Reply::Sse(body)]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "count this"],
+        &gateway_env(&gateway.chat_url(), TEST_KEY),
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let ids = sandbox.saved_ids();
+    let log = fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join(EVENTS_FILE))
+        .expect("read log");
+    let frame: Value = log
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("a frame"))
+        .find(|frame| frame["event"]["kind"] == "usage_recorded")
+        .expect("the turn recorded its usage");
+    assert_eq!(
+        frame["event"]["requests"][0],
+        json!({
+            "at_ms": 1_791_334_923_456_i64,
+            "duration_ms": frame["event"]["requests"][0]["duration_ms"],
+            "model": "fake/model-a",
+            "input_tokens": 12000,
+            "output_tokens": 800,
+            "cache_read_tokens": 4000,
+            "cache_write_tokens": 0,
+            "reasoning_tokens": 0,
+            "cost": 0.0125,
+            "generation_id": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
+        })
+    );
+    // The meter's own totals, beside it, as they always were.
+    assert_eq!(frame["event"]["input_tokens"], 12000);
+
+    // And the moment `/usage` began counting, kept once in the profile.
+    let marker = sandbox.profile_dir().join("usage.json");
+    let started: Value =
+        serde_json::from_str(&fs::read_to_string(&marker).expect("usage.json")).expect("json");
+    assert!(
+        started["tracking_started_at_ms"].as_i64().is_some(),
+        "{started}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&marker).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    run.assert_no_secret();
+}
+
+#[test]
 fn ask_resume_replays_durable_history_in_the_next_request() {
     let sandbox = Sandbox::new();
 
@@ -1678,6 +1773,135 @@ fn ask_resume_replays_durable_history_in_the_next_request() {
 
     // One session, two turns: resume continued rather than forked.
     assert_eq!(sandbox.saved_ids().len(), 1);
+}
+
+#[test]
+fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs() {
+    // fx's `ask --resume` goes on in the model the session recorded
+    // (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1035-1042`), which
+    // only a process override outranks (`:1806-1815`); the profile's model is
+    // what a fresh session starts in. Red before: the profile's model was
+    // sent, and written into the session as a preference change.
+    let sandbox = Sandbox::new();
+    let first = FakeGateway::start(vec![Reply::Sse(content_only(&["saved"]))]);
+    let url = first.chat_url();
+    let mut env = gateway_env(&url, TEST_KEY);
+    env.push(("XFX_MODEL", "fake/model-b"));
+    let run = sandbox.run(&["ask", "first question"], &env);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    drop(first);
+    fs::write(
+        sandbox.profile_dir().join("settings.json"),
+        r#"{"provider":"gateway","models":{"gateway":"fake/model-a"}}"#,
+    )
+    .expect("write the profile");
+
+    let second = FakeGateway::start(vec![
+        Reply::Sse(content_only(&["continued"])),
+        Reply::Sse(content_only(&["pinned"])),
+    ]);
+    let url = second.chat_url();
+    let run = sandbox.run(
+        &["ask", "--resume", "last", "second question"],
+        &gateway_env(&url, TEST_KEY),
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(
+        second.requests()[0].header("ai-language-model-id"),
+        Some("fake/model-b"),
+        "the profile's model outranked the session's"
+    );
+    let ids = sandbox.saved_ids();
+    let log = fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join(EVENTS_FILE))
+        .expect("read the log");
+    assert!(
+        !log.contains("fake/model-a"),
+        "the profile's model was recorded: {log}"
+    );
+
+    let mut env = gateway_env(&url, TEST_KEY);
+    env.push(("XFX_MODEL", "pinned/model"));
+    let run = sandbox.run(&["ask", "--resume", "last", "third question"], &env);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(
+        second.requests()[1].header("ai-language-model-id"),
+        Some("pinned/model"),
+        "a process override did not outrank the session's model"
+    );
+}
+
+#[test]
+fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
+    // The log is file input. A model xfx would not have written
+    // (`model_id_problem`) is not sent, as the TUI's resume does not restore
+    // one (`Resumption::selection`): the launch's model goes instead. And the
+    // notice about the history -- which quotes the wire a step's reasoning
+    // was recorded on, as the log names it -- reaches the terminal inert.
+    // Red before: the log's model was the one asked for, and the notice
+    // carried its escapes to stderr.
+    const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
+    const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
+    let sandbox = Sandbox::new();
+    let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
+    let mut session = store
+        .create(
+            id("hostile-model"),
+            NewSession {
+                origin_workspace_root: sandbox.workspace.clone(),
+                workspace_root: sandbox.workspace.clone(),
+                model: HOSTILE_MODEL.to_string(),
+                permission_mode: PermissionMode::Auto,
+                provider: Some(xfx::provider::ProviderId::Gateway),
+            },
+        )
+        .expect("create");
+    for event in [
+        SessionEvent::UserMessage {
+            text: "first question".to_string(),
+        },
+        SessionEvent::AssistantMessage {
+            text: "first answer".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: vec![json!({"type": "thinking", "thinking": "t", "signature": "s"})],
+            responses_state: Vec::new(),
+            wire: Some(Wire::parse(HOSTILE_WIRE)),
+            model: None,
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ] {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["continued"]))]);
+    let url = gateway.chat_url();
+    let run = sandbox.run(
+        &["ask", "--resume-id", "hostile-model", "second question"],
+        &gateway_env(&url, TEST_KEY),
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    let asked = gateway.only_request();
+    let model = asked.header("ai-language-model-id").expect("a model");
+    assert!(!model.chars().any(char::is_control), "{model:?}");
+    assert_ne!(model, HOSTILE_MODEL);
+    assert!(
+        run.stderr.contains("recorded reasoning on the"),
+        "the notice was not printed: {:?}",
+        run.stderr
+    );
+    for output in [&run.stdout, &run.stderr] {
+        assert!(
+            !output.chars().any(|character| character.is_control()
+                && !matches!(character, '\n' | '\r' | '\t')),
+            "a control character reached the terminal: {output:?}"
+        );
+    }
 }
 
 #[test]
@@ -2153,6 +2377,10 @@ fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
                             .to_string(),
                     ),
                     permission_mode: None,
+                    provider: None,
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
                 },
             )
             .expect("append");
@@ -2234,8 +2462,12 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c9".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -2532,6 +2764,7 @@ fn provenance_events(
             raw_content,
             responses_state,
             wire,
+            model: None,
         },
     ]
 }
@@ -2572,7 +2805,7 @@ fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
         provenance_events(vec![thinking_block()], Vec::new(), None),
     );
 
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     assert_eq!(
         replay.messages[1].raw_blocks().expect("blocks replayed")[0]["signature"],
@@ -2589,7 +2822,7 @@ fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
         provenance_events(vec![thinking_block()], Vec::new(), None),
     );
 
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert!(
         replay.messages[1].raw_blocks().is_none(),
         "a Gateway turn has no replay contract to satisfy"
@@ -2624,7 +2857,7 @@ fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
         Wire::AnthropicMessages,
         Wire::VercelGateway,
     ] {
-        let replay = state.history_messages(active.clone());
+        let replay = state.history_messages(active.clone(), &state.model);
         assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
         assert_eq!(replay.notices.len(), 1, "for {active:?}");
         assert!(
@@ -2648,7 +2881,7 @@ fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
         ),
     );
 
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.messages[1].raw_blocks().is_none());
     assert!(
         replay.notices[0].contains("some_future_wire"),
@@ -2670,7 +2903,7 @@ fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active()
     );
 
     // Replay on CodexResponses: wire-less responses_state must NOT replay here
-    let replay = state.history_messages(Wire::CodexResponses);
+    let replay = state.history_messages(Wire::CodexResponses, &state.model);
     assert!(
         replay.messages[1].raw_blocks().is_none(),
         "wire-less responses_state must not replay under active CodexResponses"
@@ -2698,7 +2931,7 @@ fn codex_responses_wire_replays_state_verbatim_under_codex() {
         ),
     );
 
-    let replay = state.history_messages(Wire::CodexResponses);
+    let replay = state.history_messages(Wire::CodexResponses, &state.model);
     assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
@@ -2723,7 +2956,7 @@ fn grok_responses_wire_replays_state_verbatim_under_grok() {
         ),
     );
 
-    let replay = state.history_messages(Wire::GrokResponses);
+    let replay = state.history_messages(Wire::GrokResponses, &state.model);
     assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
@@ -2748,13 +2981,15 @@ fn a_dropped_state_is_not_deleted_from_the_log() {
             Some(Wire::AnthropicMessages),
         ),
     );
-    let _ = state.history_messages(Wire::VercelGateway);
+    let _ = state.history_messages(Wire::VercelGateway, &state.model);
 
     let reread = profile
         .read_only_store()
         .detail(&Selector::Id(id("provenance")), workspace.path())
         .expect("read the session back");
-    let replay = reread.state.history_messages(Wire::AnthropicMessages);
+    let replay = reread
+        .state
+        .history_messages(Wire::AnthropicMessages, &reread.state.model);
     assert!(replay.notices.is_empty());
     assert_eq!(
         replay.messages[1].raw_blocks().expect("still on disk")[0]["signature"],
@@ -2817,8 +3052,12 @@ fn interrupted_batch_events() -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "write_file".to_string(),
             ok: true,
@@ -2836,7 +3075,7 @@ fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let state = recorded_state(&profile, &workspace, interrupted_batch_events());
 
-    let replay = state.history_messages(Wire::AnthropicMessages);
+    let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
 
     // Two calls are still unanswered, so the group never flushes -- and the
     // sentence goes with it. An orphan result would be refused on the next
@@ -2885,14 +3124,21 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "write_file".to_string(),
             ok: true,
             output: "Wrote a.md (6 bytes)".to_string(),
         },
         SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c2".to_string(),
             tool: "read_file".to_string(),
             ok: true,

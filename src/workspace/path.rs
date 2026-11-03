@@ -104,12 +104,53 @@ pub const PROTECTED_WRITE_DIRECTORY_NAMES: &[&str] = &[".git", ".xfx"];
 /// genuinely called `.GIT` is refused as well, which has no plausible legitimate
 /// instance and is the safe direction to be wrong in.
 ///
-/// ASCII folding only: both names are ASCII, and Unicode case folding would put
-/// locale-dependent behaviour inside a security check for nothing.
+/// Folded with [`fold_case`], so the comparison is the one such a volume makes.
 pub fn is_protected_write_directory(name: &str) -> bool {
+    let folded = fold_case(name);
     PROTECTED_WRITE_DIRECTORY_NAMES
         .iter()
-        .any(|protected| protected.eq_ignore_ascii_case(name))
+        .any(|protected| folded.eq_ignore_ascii_case(protected))
+}
+
+/// `name` as a case-insensitive volume compares it with an ASCII name: ASCII
+/// lowered, and every non-ASCII character that folds onto ASCII replaced by
+/// what it folds to.
+///
+/// **ASCII folding alone is a check a path can spell its way around.** APFS's
+/// case-insensitive variant -- macOS's default -- compares names under full
+/// Unicode case folding after canonical decomposition, so `.zſhrc` (U+017F)
+/// opens `.zshrc`, `.ßh` is `.ssh`, `.proﬁle` (U+FB01) is `.profile` and
+/// `authorized_Keys` (the Kelvin sign, U+212A) is `authorized_keys`: a file
+/// created under the first spelling is the one the shell or sshd later opens by
+/// the second.
+///
+/// The table is every code point whose canonical decomposition, case-folded
+/// (Unicode 16.0 `CaseFolding.txt`, statuses C and F), is pure ASCII -- the
+/// thirteen below, found by scanning every scalar value. Any other non-ASCII
+/// character folds to something that is not ASCII, so it can never equal an
+/// ASCII name, and is kept as it is. No locale enters: the Turkic mappings are
+/// not ones a volume applies.
+///
+/// The result is compared with `eq_ignore_ascii_case` against an ASCII name.
+pub fn fold_case(name: &str) -> String {
+    let mut folded = String::with_capacity(name.len());
+    for character in name.chars() {
+        match character {
+            '\u{DF}' | '\u{1E9E}' => folded.push_str("ss"),
+            '\u{17F}' => folded.push('s'),
+            '\u{212A}' => folded.push('k'),
+            '\u{FB00}' => folded.push_str("ff"),
+            '\u{FB01}' => folded.push_str("fi"),
+            '\u{FB02}' => folded.push_str("fl"),
+            '\u{FB03}' => folded.push_str("ffi"),
+            '\u{FB04}' => folded.push_str("ffl"),
+            '\u{FB05}' | '\u{FB06}' => folded.push_str("st"),
+            '\u{37E}' => folded.push(';'),
+            '\u{1FEF}' => folded.push('`'),
+            other => folded.push(other.to_ascii_lowercase()),
+        }
+    }
+    folded
 }
 
 /// Why a path could not be used.
@@ -214,6 +255,42 @@ impl AccessScope {
                 continue;
             }
             roots.push(root);
+        }
+        Ok(Self {
+            primary,
+            additional: roots,
+        })
+    }
+
+    /// A scope over extra roots that were canonical when they were recorded,
+    /// each kept **only while it still is**.
+    ///
+    /// [`Self::new`] resolves what it is given, which is right for a path a
+    /// person just typed and wrong for one recorded earlier: a directory the
+    /// user added, replaced since by a symbolic link to somewhere else, would
+    /// be followed to that somewhere else and authorized there. Upstream marks
+    /// such a root unavailable instead of following it (`resolveObservedDirectory`,
+    /// `vercel-labs/fx@c1db9191 src/core/workspace/workspace_access.zig:615-633`),
+    /// and so does this: a root whose canonical form is no longer itself, or
+    /// that is no longer a directory, is dropped rather than refused, so one
+    /// vanished directory does not take the session's other roots with it.
+    pub fn with_observed_roots(
+        primary: impl AsRef<Path>,
+        observed: impl IntoIterator<Item = impl AsRef<Path>>,
+    ) -> Result<Self, PathError> {
+        let primary = canonical_directory(primary.as_ref())?;
+        let mut roots: Vec<PathBuf> = Vec::new();
+        for candidate in observed {
+            let candidate = candidate.as_ref();
+            let still = std::fs::canonicalize(candidate).is_ok_and(|now| now == candidate)
+                && std::fs::symlink_metadata(candidate).is_ok_and(|meta| meta.is_dir());
+            if !still
+                || path_inside(&primary, candidate)
+                || roots.iter().any(|kept| path_inside(kept, candidate))
+            {
+                continue;
+            }
+            roots.push(candidate.to_path_buf());
         }
         Ok(Self {
             primary,
@@ -401,6 +478,37 @@ mod tests {
     }
 
     #[test]
+    fn a_name_is_folded_as_a_case_insensitive_volume_folds_it() {
+        // Each pair was observed to open one file on a case-insensitive APFS
+        // volume: the non-ASCII spelling is not a different name there.
+        for (spelled, ascii) in [
+            (".ZSHRC", ".zshrc"),
+            (".z\u{17F}hrc", ".zshrc"),
+            (".\u{DF}h", ".ssh"),
+            (".\u{1E9E}h", ".ssh"),
+            (".pro\u{FB01}le", ".profile"),
+            (".bash_pro\u{FB01}le", ".bash_profile"),
+            ("authorized_\u{212A}eys", "authorized_keys"),
+            ("\u{FB00}", "ff"),
+            ("\u{FB02}", "fl"),
+            ("\u{FB03}", "ffi"),
+            ("\u{FB04}", "ffl"),
+            ("\u{FB05}", "st"),
+            ("\u{FB06}", "st"),
+            ("x\u{37E}y", "x;y"),
+            ("a\u{1FEF}b", "a`b"),
+        ] {
+            assert!(
+                fold_case(spelled).eq_ignore_ascii_case(ascii),
+                "`{spelled}` folds to `{}`, not `{ascii}`",
+                fold_case(spelled)
+            );
+        }
+        // An accented letter is a different name, on every volume.
+        assert!(!fold_case(".zshr\u{E7}").eq_ignore_ascii_case(".zshrc"));
+    }
+
+    #[test]
     fn an_additional_root_already_inside_the_primary_is_dropped() {
         let dir = tree();
         let root = canonical(&dir);
@@ -408,6 +516,59 @@ mod tests {
         let scope = AccessScope::new(&root, [root.join("inner")]).expect("scope");
         assert!(scope.additional_roots().is_empty());
         assert_eq!(scope.roots().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_observed_root_swapped_for_a_symlink_is_dropped_rather_than_followed() {
+        let dir = tree();
+        let base = canonical(&dir);
+        let primary = base.join("work");
+        let extra = base.join("extra");
+        let elsewhere = base.join("elsewhere");
+        for path in [&primary, &extra, &elsewhere] {
+            std::fs::create_dir(path).expect("dir");
+        }
+        std::fs::write(elsewhere.join("secret.txt"), "s").expect("secret");
+
+        let scope = AccessScope::with_observed_roots(&primary, [&extra]).expect("scope");
+        assert_eq!(scope.additional_roots(), std::slice::from_ref(&extra));
+
+        // The directory the user added is replaced by a link to another one.
+        std::fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("symlink");
+        let scope = AccessScope::with_observed_roots(&primary, [&extra]).expect("scope");
+        assert!(scope.additional_roots().is_empty(), "{scope:?}");
+        let refusal = scope
+            .resolve_existing(&extra.join("secret.txt").to_string_lossy())
+            .expect_err("the link's target was never authorized");
+        assert!(
+            matches!(refusal, PathError::OutsideScope { .. }),
+            "{refusal:?}"
+        );
+        // `new`, which resolves what it is handed, would have followed it --
+        // the difference this constructor exists for.
+        let followed = AccessScope::new(&primary, [&extra]).expect("scope");
+        assert_eq!(followed.additional_roots(), [elsewhere]);
+    }
+
+    #[test]
+    fn an_observed_root_that_vanished_is_dropped_and_the_others_kept() {
+        let dir = tree();
+        let base = canonical(&dir);
+        let primary = base.join("work");
+        let gone = base.join("gone");
+        let kept = base.join("kept");
+        for path in [&primary, &gone, &kept] {
+            std::fs::create_dir(path).expect("dir");
+        }
+        std::fs::remove_dir(&gone).expect("remove");
+        let scope = AccessScope::with_observed_roots(&primary, [&gone, &kept]).expect("scope");
+        assert_eq!(scope.additional_roots(), [kept]);
+        // A spelling that is not canonical is not an observation of a root.
+        let spelled = base.join("work/../kept");
+        let scope = AccessScope::with_observed_roots(&primary, [&spelled]).expect("scope");
+        assert!(scope.additional_roots().is_empty());
     }
 
     #[test]

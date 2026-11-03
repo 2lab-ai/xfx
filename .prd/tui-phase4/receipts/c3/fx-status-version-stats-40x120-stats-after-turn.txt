@@ -1,0 +1,40 @@
+
+* version: 0.0.13
+
+* stats: ansi_bytes=6172, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+┃ say the marker
+
+  MARKER-STATUS-TURN
+
+  0s (↑4 ↓40)
+
+* status: model=fake/model-a
+  update_channel=stable
+  build_channel=stable
+  build_revision=c1db919112c5
+  auth=AI_GATEWAY_API_KEY
+  auth_refreshable=false
+  permission_mode=auto
+  workspace=<scratch>/work
+  history_turns=1
+  session_permission_grants=0
+  agent_step_limit=0
+  ultrafast_requested=false
+
+* stats: ansi_bytes=15894, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
