@@ -1811,6 +1811,57 @@ fn an_ask_answer_on_a_terminal_cannot_hide_its_approval_question_either() {
 }
 
 #[test]
+fn an_ask_json_answer_on_a_terminal_carries_no_c1_or_invisible_code_point_raw() {
+    // `ask --json` on a terminal still asks on it (`TtyPrompter`, stderr), after
+    // the JSONL stream has been written to the same terminal. JSON's own
+    // escaping covers C0 only: a C1 `CSI` (`U+009B`), a bidirectional override
+    // and a default-ignorable would otherwise reach the terminal as raw UTF-8.
+    // Escaped as `\uXXXX` they are the same JSON string to any reader.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", "go\u{9b}8m\u{202e}gone\u{ad}\u{e0041}"),
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "--json", "--no-save", "run it"]);
+    let mut session = Session::spawn(&pty, command);
+
+    let asked = session.wait_for("[n] no");
+    for (character, name) in [
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{202e}', "a right-to-left override"),
+        ('\u{ad}', "a soft hyphen"),
+        ('\u{e0041}', "a tag character"),
+    ] {
+        assert!(
+            !asked.contains(character),
+            "{name} reached the terminal raw through the JSONL stream: {asked:?}"
+        );
+    }
+    assert!(
+        asked.contains(r#""text":"go\u009b8m\u202egone\u00ad\udb40\udc41""#),
+        "{asked:?}"
+    );
+    assert!(
+        last_question(&asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn an_always_answered_on_the_terminal_is_written_where_a_resume_will_read_it() {
     // The durable half of `[a] always`. The prompt promises the approval lasts
     // beyond this process -- it names the session id a later `--resume-id` would
