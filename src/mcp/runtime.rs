@@ -259,19 +259,22 @@ pub enum Event {
     /// A notice: neutral or a warning, under `mcp` or, for a usage line, no
     /// topic at all (`noticeTopicForBody`, `app_commands.zig:1851-1853`).
     Notice { warning: bool, body: String },
-    /// Rows written into the transcript as they are, with no glyph: the
-    /// project trust prompt (`presentProjectMcpPrompt`, `main.zig:1818-1832`).
-    Raw(String),
     /// The trust prompt is up for this server, showing the entry whose
     /// [`config::entry_digest`] this is: what `1` approves. `listed` is every
     /// pending server as the prompt went up, each with its digest: what `2`
     /// approves. `whole` is whether every row of the entry fit the prompt
     /// ([`PROMPT_ROW_MAX_BYTES`]); `1` approves only an entry shown whole.
+    /// `text` is the prompt's rows, upstream's two with what the entry runs
+    /// between them (`presentProjectMcpPrompt`, `main.zig:1818-1832`),
+    /// written into the transcript as they are, with no glyph: one event, so
+    /// the text written last is always the prompt armed. No other event
+    /// writes rows as they are, so none can print a prompt it does not arm.
     TrustPrompt {
         name: String,
         digest: String,
         listed: Vec<(String, String)>,
         whole: bool,
+        text: String,
     },
     /// The menu's feedback row.
     MenuFeedback(String),
@@ -1231,42 +1234,42 @@ impl McpRuntime {
     /// the repository's to choose, so it says nothing about what would run.
     fn present_prompt(&self) {
         // The server asked about and the set `2` approves, from one read of
-        // the state: a reload publishing between two reads would leave the
-        // prompt showing one entry while `2` held another.
-        let (config, digest, listed) = {
-            let mut state = self.state();
-            let Some((config, digest)) = Self::pending_prompt(&state) else {
-                state.prompting = None;
-                return;
-            };
-            let listed = Self::pending_entries(&state);
-            // Sent again whenever the pending set changes, not only the entry
-            // asked about: `2` approves the whole set the prompt went up over.
-            let prompted = Prompted {
-                name: config.name.clone(),
-                digest: digest.clone(),
-                listed: listed.clone(),
-            };
-            if state.prompting.as_ref() == Some(&prompted) {
-                return;
-            }
-            state.prompting = Some(prompted);
-            (config, digest, listed)
+        // the state -- and published as one event while that read is held, so
+        // two prompts put up at once (a reload's, a refused `2`'s) reach the
+        // shell in the order the state took them, each with its own text.
+        let mut state = self.state();
+        let Some((config, digest)) = Self::pending_prompt(&state) else {
+            state.prompting = None;
+            return;
         };
-        let name = config.name.clone();
-        self.say(Event::Raw(format!(
+        let listed = Self::pending_entries(&state);
+        // Sent again whenever the pending set changes, not only the entry
+        // asked about: `2` approves the whole set the prompt went up over.
+        let prompted = Prompted {
+            name: config.name.clone(),
+            digest: digest.clone(),
+            listed: listed.clone(),
+        };
+        if state.prompting.as_ref() == Some(&prompted) {
+            return;
+        }
+        state.prompting = Some(prompted);
+        let text = format!(
             "Project MCP server '{}' is defined in .mcp.json.\n  {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-            prompt_value(&super::terminal_safe(&name)),
+            prompt_value(&super::terminal_safe(&config.name)),
             what_it_runs(&config)
-        )));
+        );
         let whole = entry_rows(&config)
             .iter()
             .all(|row| row.len() <= PROMPT_ROW_MAX_BYTES);
+        // The state lock, then the event queue's: no path takes them the
+        // other way round.
         self.say(Event::TrustPrompt {
-            name,
+            name: config.name,
             digest,
             listed,
             whole,
+            text,
         });
     }
 
@@ -1277,10 +1280,12 @@ impl McpRuntime {
     }
 
     /// The prompt again, from the state as it is now: for a `2` that refused
-    /// a set that no longer stands.
-    pub fn prompt_again(&self) {
+    /// a set that no longer stands. Whether one went up -- none does when
+    /// nothing is pending or the prompts were dismissed for this process.
+    pub fn prompt_again(&self) -> bool {
         self.prompt_answered();
         self.present_prompt();
+        self.state().prompting.is_some()
     }
 
     /// Esc at the prompt: no more prompts for this process.
