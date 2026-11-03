@@ -1333,20 +1333,34 @@ impl Resumption {
     /// provider was recorded, which goes on with the configured one -- the
     /// launch's rule holds: the session's model when no setting chose one
     /// (`app::run_ask`).
+    ///
+    /// **Never a model xfx would not have written**
+    /// ([`crate::provider::model::model_id_problem`]): the log is file input,
+    /// and the model chosen here reaches the band's hint row and `/settings`
+    /// at launch with no channel to make it inert on the way. Such a model is
+    /// not restored, on either branch: `current` is used in its place, and the
+    /// resume records it (`Runtime::resume`), so the log is clean again.
+    /// Upstream refuses the frame that carries such a model as invalid
+    /// instead (`parsePreferences`, `session_event.zig:1972-1976`, over
+    /// `validateModel`, `session_codec.zig:67,3165`; `docs/parity.md`).
     pub(crate) fn selection(&self, config: &RuntimeConfig, current: &str) -> (ProviderId, String) {
         use crate::config::SettingSource;
+        let logged = match crate::provider::model::model_id_problem(self.model()) {
+            None => self.model(),
+            Some(_) => current,
+        };
         match self.provider() {
             Some(recorded) if recorded != config.provider => {
                 let model = if config.sources.model == SettingSource::ProcessOverride {
                     current
                 } else {
-                    self.model()
+                    logged
                 };
                 (recorded, model.to_string())
             }
             _ => {
                 let model = if config.sources.model == SettingSource::CompiledDefault {
-                    self.model()
+                    logged
                 } else {
                     current
                 };
@@ -10224,6 +10238,101 @@ mod tests {
                 (ProviderId::Gateway, "zai/glm-5.2".to_string()),
                 "{recorded:?}"
             );
+        }
+    }
+
+    #[test]
+    fn a_resume_never_restores_a_model_with_a_control_character_in_it() {
+        // The launch hands the restored model straight to the band -- the hint
+        // row and `/settings` -- with no channel between them, so a model the
+        // log holds is file input that nothing else makes inert. A model xfx
+        // would not have written (`provider::model::model_id_problem`) is not
+        // restored: the launch's own model is used instead, on both of the
+        // rule's branches and whichever event recorded it. Red before: the
+        // log's model came back with its escapes.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.model = "zai/glm-5.2".to_string();
+        config.sources.model = crate::config::SettingSource::UserGlobal;
+        let mut unchosen = config.clone();
+        unchosen.sources.model = crate::config::SettingSource::CompiledDefault;
+        let opened = |config: &RuntimeConfig, id: SessionId| {
+            Resumption::open(config, &crate::session::Selector::Id(id)).expect("opens")
+        };
+        // The same model, recorded by a later `PreferencesChanged` over a
+        // clean start.
+        let changed_to = |provider: &str, model: &str| {
+            let id = saved_on(&config, Some(provider), "m-1");
+            let store = open_store(&config).expect("a store");
+            let resumed = store
+                .resume(
+                    &crate::session::Selector::Id(id.clone()),
+                    &config.workspace_root,
+                )
+                .expect("resumes");
+            let mut recorder = crate::session::SessionRecorder::new(store, resumed.session);
+            recorder.commit(SessionEvent::PreferencesChanged {
+                model: Some(model.to_string()),
+                permission_mode: None,
+                provider: None,
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            });
+            assert_eq!(recorder.failure(), None);
+            id
+        };
+        for hostile in [
+            HOSTILE,
+            "m\u{1b}]8;;mailto:a@b\u{1b}\\x\u{1b}]8;;\u{1b}\\",
+            "m\u{9b}31m",
+        ] {
+            for (written_by, on_llmux, on_gateway) in [
+                (
+                    "SessionStarted",
+                    saved_on(&config, Some("llmux"), hostile),
+                    saved_on(&config, Some("gateway"), hostile),
+                ),
+                (
+                    "PreferencesChanged",
+                    changed_to("llmux", hostile),
+                    changed_to("gateway", hostile),
+                ),
+            ] {
+                let context = format!("{written_by} {hostile:?}");
+                // Another provider's session: the session's model, unless the
+                // process named one (the first branch).
+                let resumed = opened(&config, on_llmux);
+                assert_eq!(resumed.model(), hostile, "{context}: the log holds it");
+                let (provider, model) = resumed.selection(&config, &config.model);
+                assert!(!model.chars().any(char::is_control), "{context}: {model:?}");
+                assert_eq!(
+                    (provider, model.as_str()),
+                    (ProviderId::Llmux, "zai/glm-5.2"),
+                    "{context}"
+                );
+                drop(resumed);
+                // The configured provider's, with no model chosen: the
+                // session's model (the second branch).
+                let resumed = opened(&unchosen, on_gateway);
+                let (provider, model) = resumed.selection(&unchosen, &unchosen.model);
+                assert!(!model.chars().any(char::is_control), "{context}: {model:?}");
+                assert_eq!(
+                    (provider, model.as_str()),
+                    (ProviderId::Gateway, unchosen.model.as_str()),
+                    "{context}"
+                );
+                // And the launch's next step writes the model it runs under
+                // into the log, so the next resume reads a clean one.
+                let mut launched = unchosen.clone();
+                (launched.provider, launched.model) = (provider, model);
+                let store = open_store(&launched).expect("a store");
+                let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
+                state.resume(resumed, &CancelToken::new());
+                let recorder = &state.conversation.as_ref().expect("bound").recorder;
+                assert_eq!(recorder.state().model, unchosen.model, "{context}");
+            }
         }
     }
 
