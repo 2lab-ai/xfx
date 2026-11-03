@@ -1206,8 +1206,8 @@ fn agreed_presentation(base: char) -> bool {
         && super::wrap::width(&format!("{base}\u{fe0f}")) == 2
 }
 
-/// [`tamed`] or [`named`]: `line` with nothing left in it a terminal would
-/// obey or reorder; no default-ignorable code point and nothing else xfx counts
+/// [`tamed`] or [`named`], with [`guarded`]'s postcondition: `line` with
+/// nothing left in it a terminal would obey or reorder; no default-ignorable code point and nothing else xfx counts
 /// as none on its own but a combining mark, past the exceptions [`tamed`] and
 /// [`Syllable`] make; no character a terminal was measured drawing alone wider
 /// than xfx counts it ([`super::drawn_wider`]), but a pair of regional
@@ -1285,7 +1285,74 @@ fn spelled(line: &str, emoji: Emoji) -> String {
             syllable = syllable.after(character);
         }
     }
-    declustered(safe)
+    guarded(declustered(safe), emoji)
+}
+
+/// Whether `cluster` is, exactly, a sequence both terminals were measured
+/// drawing whole at xfx's count: a pair of regional indicators (two cells to
+/// tmux 3.7b, libghostty-vt and xfx), and in text read as text also a
+/// character that takes an emoji presentation with its `U+FE0F`, or an RGI
+/// emoji without a skin-tone modifier ([`agreed_emoji`]). Nothing may come
+/// before or after it in the cluster: a mark or a selector after a flag makes
+/// a cluster nobody measured.
+fn measured_whole(cluster: &str, emoji: Emoji) -> bool {
+    let mut characters = cluster.chars();
+    if let (Some(first), Some(second), None) =
+        (characters.next(), characters.next(), characters.next())
+    {
+        if regional_indicator(first) && regional_indicator(second) {
+            return true;
+        }
+        if emoji == Emoji::Kept && second == '\u{fe0f}' && agreed_presentation(first) {
+            return true;
+        }
+    }
+    emoji == Emoji::Kept
+        && crate::markdown::display_width::rgi_sequence_len(cluster.as_bytes(), 0) == cluster.len()
+        && agreed_emoji(cluster)
+}
+
+/// The spelling's postcondition, enforced last: no character a terminal was
+/// measured drawing wider than xfx counts it ([`super::drawn_wider`]) is left
+/// in a cluster of `text` that is not, exactly, a sequence measured whole. The
+/// passes before this one decide character by character and then cluster by
+/// cluster, and what one keeps another can strip of its partner -- a
+/// selector named after its emoji base was kept for it -- so this re-reads the
+/// result as the row will lay it out and names whatever was left unprotected.
+///
+/// A pass that changes anything names at least one table character and adds
+/// only ASCII, so the number of table characters falls with each pass and the
+/// loop ends; in practice the second pass finds nothing.
+fn guarded(mut text: String, emoji: Emoji) -> String {
+    loop {
+        if text.is_ascii() {
+            return text;
+        }
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text.as_str();
+        let mut changed = false;
+        while let Some(cluster) = super::wrap::first_cluster(rest) {
+            rest = &rest[cluster.len()..];
+            if measured_whole(cluster, emoji)
+                || !cluster.chars().any(super::drawn_wider::drawn_wider)
+            {
+                out.push_str(cluster);
+                continue;
+            }
+            for character in cluster.chars() {
+                if super::drawn_wider::drawn_wider(character) {
+                    out.push_str(&crate::permission::scalar_token(character));
+                    changed = true;
+                } else {
+                    out.push(character);
+                }
+            }
+        }
+        if !changed {
+            return out;
+        }
+        text = out;
+    }
 }
 
 /// One line of foreign text read as text, with nothing left in it a terminal
@@ -2216,6 +2283,174 @@ mod tests {
     }
 
     #[test]
+    fn no_row_holds_a_table_character_outside_a_sequence_measured_whole() {
+        // SEC-A4g, the postcondition on the rows themselves: gpt-6's string
+        // (a table emoji base, its selector, three skin tones) and a pair of
+        // regional indicators in a cluster wider than the cap, repeated,
+        // through the subject, scope, diff and question rows.
+        use super::wider_terminal::unprotected;
+        let mut found = Vec::new();
+        for unit in [
+            "\u{261d}\u{fe0f}\u{1f3fb}\u{1f3fb}\u{1f3fb}",
+            "\u{1f1e6}\u{1f1e6}\u{93e}\u{93e}\u{93e}",
+        ] {
+            let text = format!("x{}", format!("{unit} ").repeat(8));
+            let mut request = asked("edit_file", ApprovalSubject::Path(text.clone()), ".");
+            request.always_scope = text.clone();
+            let surfaces: [(&str, Vec<String>); 4] = [
+                (
+                    "edit path",
+                    subject_rows(Kind::Edit, &request, 120, &Styles::PLAIN),
+                ),
+                ("scope row", scope_rows(&request, 120, &Styles::PLAIN)),
+                (
+                    "diff line",
+                    Review::of_diff(&diff("a\n", &format!("{text}\n")))
+                        .rows(120, &Styles::PLAIN)
+                        .into_iter()
+                        .map(|(row, _)| row)
+                        .collect(),
+                ),
+                ("question", safe_rows(&text, 116)),
+            ];
+            for (what, rows) in surfaces {
+                for row in rows {
+                    for cluster in unprotected(&row) {
+                        found.push(format!("{what}: {cluster:?} in {row:?}"));
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    /// A deterministic generator (xorshift, fixed seed) of foreign text built
+    /// from what has broken the spelling before: table characters, selectors,
+    /// skin tones, regional indicators, joiners, marks, conjunct chains,
+    /// Hangul jamo, emoji and ASCII.
+    fn generated(seed: u64, count: usize) -> Vec<String> {
+        let pieces: &[&str] = &[
+            "a",
+            "x ",
+            "/",
+            "\u{261d}",
+            "\u{270c}",
+            "\u{1f590}",
+            "\u{2e3a}",
+            "\u{fe0f}",
+            "\u{fe0e}",
+            "\u{1f3fb}",
+            "\u{1f3fd}",
+            "\u{1f1e6}",
+            "\u{1f1f0}",
+            "\u{1f1f7}",
+            "\u{200d}",
+            "\u{200c}",
+            "\u{301}",
+            "\u{94d}",
+            "\u{915}",
+            "\u{93e}",
+            "\u{9be}",
+            "\u{1780}",
+            "\u{17d2}",
+            "\u{16d67}",
+            "\u{1100}",
+            "\u{1161}",
+            "\u{11a8}",
+            "\u{ad}",
+            "\u{ffa0}",
+            "\u{3164}",
+            "\u{ff9e}",
+            "\u{302e}",
+            "\u{605}",
+            "\u{2764}",
+            "\u{1f468}",
+            "\u{1f469}",
+            "\u{1f467}",
+            "\u{1f44d}",
+            "\u{1f46f}",
+            "\u{1f3f4}",
+            "\u{e0067}",
+            "\u{e007f}",
+            "\u{20e3}",
+            "1",
+            "\u{ac00}",
+            "\u{6f22}",
+            "\u{e0b0}",
+        ];
+        let mut state = seed;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        (0..count)
+            .map(|_| {
+                let length = 1 + (next() % 12) as usize;
+                (0..length)
+                    .map(|_| pieces[(next() % pieces.len() as u64) as usize])
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_spelling_keeps_its_postcondition_over_generated_text() {
+        // SEC-A4g. Whatever `tamed`, `named` and `command_text` emit holds no
+        // table character outside a sequence measured whole, and is laid out
+        // at no fewer cells than its characters take one by one -- each kept
+        // character at xfx's count of it alone between two markers, which the
+        // sweep found both terminals draw at or under, and each sequence
+        // measured whole at its two cells.
+        use super::wider_terminal::{measured_whole, unprotected};
+        let alone =
+            |c: char| usize::from(super::super::wrap::width(&format!("[{c}]"))).saturating_sub(2);
+        let mut failures = Vec::new();
+        for input in generated(0x5eca_4f00_d5f8_7232, 4000) {
+            for (rule, shown) in [
+                ("tamed", tamed(&input)),
+                ("named", named(&input)),
+                ("command", command_text(&input)),
+            ] {
+                let left = unprotected(&shown);
+                if !left.is_empty() {
+                    failures.push(format!("{rule} {input:?} -> {shown:?}: {left:?}"));
+                    continue;
+                }
+                let mut floor = 0;
+                let mut rest = shown.as_str();
+                while let Some(cluster) = super::super::wrap::first_cluster(rest) {
+                    rest = &rest[cluster.len()..];
+                    floor += if measured_whole(cluster) {
+                        2
+                    } else {
+                        cluster.chars().map(alone).sum()
+                    };
+                }
+                // A command is laid out a character at a time (`token_prefix`).
+                let cells = if rule == "command" {
+                    shown
+                        .chars()
+                        .map(|c| usize::from(super::super::wrap::width(c.encode_utf8(&mut [0; 4]))))
+                        .sum()
+                } else {
+                    usize::from(super::super::wrap::width(&shown))
+                };
+                if cells < floor {
+                    failures.push(format!("{rule} {input:?} -> {shown:?}: {cells} < {floor}"));
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} failures, first {:#?}",
+            failures.len(),
+            &failures[..failures.len().min(5)]
+        );
+    }
+
+    #[test]
     fn a_cluster_wider_than_any_row_is_split_and_shown_whole() {
         // SEC-A4e. A Devanagari chain of 201 consonants joined by viramas is
         // one cluster (GB9c) of 201 cells: no row can hold it, so the wrap
@@ -2645,12 +2880,66 @@ pub(crate) mod wider_terminal {
             ("a\u{1f1e6}\u{301}".repeat(60), '\u{1f1e6}', 2),
             ("\u{261d}".repeat(120), '\u{261d}', 2),
             ("\u{2e3a}".repeat(120), '\u{2e3a}', 2),
+            // SEC-A4g: what the cluster pass used to leave behind -- a table
+            // emoji base kept for a selector the pass then named, and the
+            // first of a pair kept from a cluster wider than the cap.
+            (
+                "\u{261d}\u{fe0f}\u{1f3fb}\u{1f3fb}\u{1f3fb}".repeat(24),
+                '\u{261d}',
+                2,
+            ),
+            (
+                "x\u{1f1e6}\u{1f1e6}\u{93e}\u{93e}\u{93e}".repeat(24),
+                '\u{1f1e6}',
+                2,
+            ),
         ]
     }
 
     /// `한글.txt` as macOS writes a file name: decomposed (NFD), each
     /// syllable a leading consonant, a vowel and a trailing consonant.
     pub(crate) const NFD_KOREAN: &str = "\u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}.txt";
+
+    /// Whether `cluster` is a sequence both terminals were measured drawing
+    /// whole at xfx's count: a pair of regional indicators, a character that
+    /// takes an emoji presentation with its `U+FE0F`, or an RGI emoji without a
+    /// skin-tone modifier -- exactly, nothing before or after it in the
+    /// cluster. The test's own oracle, written apart from `super`'s.
+    pub(crate) fn measured_whole(cluster: &str) -> bool {
+        let characters: Vec<char> = cluster.chars().collect();
+        let regional = |c: char| ('\u{1f1e6}'..='\u{1f1ff}').contains(&c);
+        match characters.as_slice() {
+            [a, b] if regional(*a) && regional(*b) => return true,
+            [base, '\u{fe0f}']
+                if crate::markdown::display_width::is_variation_base(u32::from(*base))
+                    && super::super::wrap::width(cluster) == 2 =>
+            {
+                return true
+            }
+            _ => {}
+        }
+        crate::markdown::display_width::rgi_sequence_len(cluster.as_bytes(), 0) == cluster.len()
+            && super::super::wrap::width(cluster) == 2
+            && !characters
+                .iter()
+                .any(|c| ('\u{1f3fb}'..='\u{1f3ff}').contains(c))
+    }
+
+    /// The table characters `text` carries outside a sequence measured whole,
+    /// cluster by cluster as xfx lays them out.
+    pub(crate) fn unprotected(text: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        let mut rest = text;
+        while let Some(cluster) = super::super::wrap::first_cluster(rest) {
+            rest = &rest[cluster.len()..];
+            if !measured_whole(cluster)
+                && cluster.chars().any(super::super::drawn_wider::drawn_wider)
+            {
+                found.push(cluster.to_string());
+            }
+        }
+        found
+    }
 
     /// Every row of `rows` fits in `cols` cells, the `count` occurrences of
     /// `character` are all on the screen -- as themselves or by name -- and so
