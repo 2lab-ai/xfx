@@ -1,13 +1,13 @@
-[fakegw] listening 57230
-[fakegw] GET /coding-agent/v1/models bearer=yes at=1069ms
-[fakegw] GET /coding-agent/v1/models -> 503 (down) at=1069ms
+[fakegw] listening 59306
+[fakegw] GET /coding-agent/v1/models bearer=yes at=791ms
+[fakegw] GET /coding-agent/v1/models -> 503 (down) at=791ms
 [fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
 [fakegw] completion /v4/ai/language-model -> text
-[fakegw] GET /coding-agent/v1/models bearer=yes at=6618ms
-[fakegw] GET /coding-agent/v1/models -> 503 (down) at=6618ms
-[fakegw] GET /coding-agent/v1/models bearer=yes at=7618ms
-[fakegw] GET /coding-agent/v1/models -> 503 (down) at=7618ms
-[fakegw] GET /coding-agent/v1/models bearer=yes at=8677ms
-[fakegw] GET /coding-agent/v1/models -> 503 (down) at=8677ms
-[fakegw] GET /coding-agent/v1/models bearer=yes at=9740ms
-[fakegw] GET /coding-agent/v1/models -> 200 at=9740ms
+[fakegw] GET /coding-agent/v1/models bearer=yes at=6352ms
+[fakegw] GET /coding-agent/v1/models -> 503 (down) at=6354ms
+[fakegw] GET /coding-agent/v1/models bearer=yes at=7365ms
+[fakegw] GET /coding-agent/v1/models -> 503 (down) at=7365ms
+[fakegw] GET /coding-agent/v1/models bearer=yes at=8419ms
+[fakegw] GET /coding-agent/v1/models -> 503 (down) at=8422ms
+[fakegw] GET /coding-agent/v1/models bearer=yes at=9474ms
+[fakegw] GET /coding-agent/v1/models -> 200 at=9480ms

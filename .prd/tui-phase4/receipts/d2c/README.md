@@ -126,7 +126,7 @@ The gateway logs are the same in order: the launch read's 503, the title, the tu
 
 **Round 4's `model-reask`, retaken at `fef6a14`** beside fx in the same run (files not kept): `start` 2/2, `menu-failed` 6/6, `turn-running` 3/4, `reask-midturn` 11/12 -- the differing row the activity row's pulse (`•` in fx's frame, between pulses in xfx's) -- and the gateway logs line for line the same but the port.
 
-## Round 6 (`794a47a`, `eb6100e`): the inline column asks a failed catalog again from its own frames
+## Round 6 (`794a47a`, `eb6100e`; captured at `bbca423`, plan `49f32a9` merged): the inline column asks a failed catalog again from its own frames
 
 ```
 scripts/fxcap/capture.sh {fx,xfx} model-column-reask 40x120 <dir>   # the column open across the outage while a turn streams
@@ -145,17 +145,17 @@ xfx: `Shell::settle_column`, called from `commit_counted` as a frame goes out (e
 | `col-down` | **7/7** | `unable to load models` under `/model `, the turn `Generating (1s)` |
 | `col-back` | 9 of 10 | the four rows, the turn still generating (`6s`) -- from both; the differing row is the activity row's pulse (`•` in xfx's frame, between pulses in fx's) |
 
-The gateway logs: after the launch read, fx asked at 6618, 7618, 8677 and 9740 ms -- 1000, 1059 and 1063 apart, the last served -- and xfx at 6311, 7327, 8386 and 9398 ms -- 1016, 1059 and 1012 apart, the last served. Four reads each, the column's own frames asking once a second while the turn animates.
+The gateway logs: after the launch read, fx asked at 6352, 7365, 8419 and 9474 ms -- 1013, 1054 and 1055 apart, the last served -- and xfx at 6912, 7957, 8998 and 10009 ms -- 1045, 1041 and 1011 apart, the last served. Four reads each, the column's own frames asking once a second while the turn animates.
 
-**`model-column-idle`** (503 for the first 6.5 s; nothing running; `/model ` opened at 5 s; `o` typed at about 11 s):
+**`model-column-idle`** (503 for the first nine seconds; nothing running; `/model ` opened at 6 s; `o` typed at about 13 s):
 
 | Snap | Rows identical | What differs, and why |
 |---|---|---|
 | `col-down` | **5/5** | `unable to load models` |
-| `col-idle` | **5/5** | still `unable to load models`, four seconds after the catalog came back -- no frame, so no read, in either |
+| `col-idle` | **5/5** | still `unable to load models`, about four seconds after the catalog came back -- no frame, so no read, in either |
 | `col-typed` | **8/8** | `/model o` and the four rows: the keystroke's frame asked |
 
-The gateway logs: fx read at launch (1310 ms), at the column's opening (6331), and next at the keystroke (11177, served); xfx at 962, 5987 and 10919 (served). Nothing in the 4.8 s between, the catalog back for all but half a second of it.
+The gateway logs: fx read at launch (2023 ms), at the column's opening (7636), and next at the keystroke (14518, served); xfx at 799, 6820 and 13666 (served). Nothing between the opening's read and the keystroke's in either -- 5.5 s on fx's side, 4.7 s on xfx's, the catalog back from 9 s. A first run with a six-and-a-half-second outage is not kept: fx started slowly under load (its launch read at 3507 ms), its column's first read came after the outage, and its column never showed the failure.
 
 Tests: `the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed` (inside the floor nothing; an idle tick nothing; the animation tick with no frame owed asks once and asks for its frame; the rows land; a question over the column asks nothing -- RED with `settle_column` taken out) and `the_model_columns_frame_asks_for_a_failed_catalog_again_and_an_idle_tick_does_not` (through `commit_counted`).
 
