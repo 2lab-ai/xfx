@@ -1316,16 +1316,19 @@ fn measured_whole(cluster: &str, emoji: Emoji) -> bool {
 }
 
 /// The spelling's postcondition, enforced last: no character a terminal was
-/// measured drawing wider than xfx counts it ([`super::drawn_wider`]) is left
-/// in a cluster of `text` that is not, exactly, a sequence measured whole. The
+/// measured drawing wider than xfx counts it ([`super::drawn_wider`]) and no
+/// default-ignorable code point ([`default_ignorable`]) is left in a cluster of
+/// `text` that is not, exactly, a sequence measured whole. The
 /// passes before this one decide character by character and then cluster by
 /// cluster, and what one keeps another can strip of its partner -- a
-/// selector named after its emoji base was kept for it -- so this re-reads the
-/// result as the row will lay it out and names whatever was left unprotected.
+/// selector named after its emoji base was kept for it, an RGI sequence's
+/// joiner kept with it until a mark made its cluster larger -- so this re-reads
+/// the result as the row will lay it out and names whatever was left
+/// unprotected.
 ///
-/// A pass that changes anything names at least one table character and adds
-/// only ASCII, so the number of table characters falls with each pass and the
-/// loop ends; in practice the second pass finds nothing.
+/// A pass that changes anything names at least one such character and adds
+/// only ASCII, so their number falls with each pass and the loop ends; in
+/// practice the second pass finds nothing.
 fn guarded(mut text: String, emoji: Emoji) -> String {
     loop {
         if text.is_ascii() {
@@ -1336,14 +1339,16 @@ fn guarded(mut text: String, emoji: Emoji) -> String {
         let mut changed = false;
         while let Some(cluster) = super::wrap::first_cluster(rest) {
             rest = &rest[cluster.len()..];
-            if measured_whole(cluster, emoji)
-                || !cluster.chars().any(super::drawn_wider::drawn_wider)
-            {
+            let unprotected = |character: char| {
+                super::drawn_wider::drawn_wider(character)
+                    || default_ignorable(u32::from(character))
+            };
+            if measured_whole(cluster, emoji) || !cluster.chars().any(unprotected) {
                 out.push_str(cluster);
                 continue;
             }
             for character in cluster.chars() {
-                if super::drawn_wider::drawn_wider(character) {
+                if unprotected(character) {
                     out.push_str(&crate::permission::scalar_token(character));
                     changed = true;
                 } else {
@@ -2347,7 +2352,7 @@ mod tests {
                 "\u{1f1e6}\u{1f1e6}\u{1f3fd}\u{1f3fd}\u{1f3fd}",
                 ["tamed", "named"],
             ),
-            ("\u{261d}\u{fe0f}\u{1f3fd}\u{1f3fd}", ["tamed", "tamed"]),
+            ("\u{261d}\u{fe0f}\u{1f3fd}\u{1f3fd}", ["tamed", "named"]),
         ] {
             for rule in rules {
                 let shown = if rule == "tamed" {
@@ -2365,6 +2370,33 @@ mod tests {
                             "{rule} {input:?} -> {shown:?}: {alone:?} stands alone"
                         );
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_default_ignorable_is_left_outside_a_sequence_measured_whole() {
+        // SEC-A4i. An RGI sequence kept whole, then joined by a mark into a
+        // larger cluster, lost its standing as a sequence measured whole --
+        // and its joiner was left raw after the selector's name.
+        for input in [
+            "\u{1f3cb}\u{fe0f}\u{200d}\u{2642}\u{fe0f}\u{301}",
+            "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{301}",
+            "\u{2764}\u{fe0f}\u{301}",
+        ] {
+            for (rule, emoji, shown) in [
+                ("tamed", Emoji::Kept, tamed(input)),
+                ("named", Emoji::Named, named(input)),
+            ] {
+                let mut rest = shown.as_str();
+                while let Some(cluster) = super::super::wrap::first_cluster(rest) {
+                    rest = &rest[cluster.len()..];
+                    assert!(
+                        measured_whole(cluster, emoji)
+                            || !cluster.chars().any(|c| default_ignorable(u32::from(c))),
+                        "{rule} {input:?} -> {shown:?}: {cluster:?}"
+                    );
                 }
             }
         }
