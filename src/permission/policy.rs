@@ -1710,6 +1710,10 @@ mod tests {
             "/Users/u/Library/LaunchAgents/x.plist",
             "/Library/LaunchDaemons/x.plist",
             "/w/repo/.git/hooks/pre-commit",
+            "/w/repo/.git/modules/sub/config",
+            "/w/repo/.git/info/attributes",
+            "/w/repo/sub/.git",
+            "/w/hooks/.git",
             "/w/repo/.git/config",
             "/w/repo/.git/config.worktree",
             // APFS is case-insensitive by default, so is this.
@@ -1794,7 +1798,6 @@ mod tests {
             "/w/.cargo/config.toml",
             "/w/.aws/credentials",
             "/w/.claude/agents/x.md",
-            "/w/hooks/.git",
             "/w/.git-config",
             // An accented letter is a different name on every volume.
             "/w/.zshr\u{E7}",

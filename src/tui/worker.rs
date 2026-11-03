@@ -5560,7 +5560,8 @@ async fn one_turn(
                 Some(std::sync::Arc::new(skills.catalog.locations.clone())),
                 state.config.home().map(std::path::Path::to_path_buf),
             )
-            .with_link_bases(crate::permission::LinkBase::from_environment()),
+            .with_link_bases(crate::permission::LinkBase::from_environment())
+            .with_git_environment(crate::permission::GitEnvironment::from_process()),
     };
     let mut sink = UiEventSink::new(events.clone(), turn.token.clone());
     // The recorder, with what the full transcript shows of each call -- its
