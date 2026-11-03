@@ -51,5 +51,6 @@ private kill-server 2>/dev/null || true
 
 python3 -I "$here/generate.py" "$work" "$(date +%Y-%m-%d)" "$(tmux -V)" \
     "libghostty-vt $(cat "$prefix/../VERSION" 2>/dev/null || echo build)" \
-    > "$root/src/tui/drawn_wider.rs"
+    "$root/Cargo.lock" > "$root/src/tui/drawn_wider.rs"
+(cd "$root" && cargo fmt -- src/tui/drawn_wider.rs)
 echo "sweep: $(wc -l < "$work/scalars.txt") scalars measured in ${waited} s of tmux"

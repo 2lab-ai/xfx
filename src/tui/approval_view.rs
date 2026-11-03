@@ -1193,7 +1193,10 @@ fn agreed_emoji(sequence: &str) -> bool {
 /// named. Four cells holds every conjunct a real word carries -- xfx counts a
 /// Devanagari conjunct at one cell per consonant, and the longest in use join
 /// four -- and an emoji, a Hangul syllable or a letter with its marks is at
-/// most two, while the narrowest band xfx lays out is sixteen cells.
+/// most two. The cap is not the narrowest row: a diff line's text is the
+/// screen less ten cells (`Review::rows`), ten at twenty columns, so a cluster
+/// within the cap still fits there; only a screen under fourteen columns
+/// leaves a row one such cluster can run past.
 const CLUSTER_CAP: u16 = 4;
 
 /// Whether `U+FE0F` after `base` may cross as itself: after a character that
@@ -2180,7 +2183,7 @@ mod tests {
         // one with a mark; a joining with no RGI sequence; clusters xfx counts
         // as less than their parts; marks on their letter; what xfx counts
         // as no cells; and the sweep's emoji base and dash (`super::drawn_wider`).
-        let corpus: [(&str, u16, u16, &str, u16, u16); 27] = [
+        let corpus: [(&str, u16, u16, &str, u16, u16); 28] = [
             (
                 "\u{1f642}\u{200d}\u{2194}\u{fe0f}",
                 2,
@@ -2253,6 +2256,14 @@ mod tests {
             ("\u{302e}", 2, 1, "\\u{302E}", 8, 8),
             ("\u{a8fa}", 1, 1, "\\u{A8FA}", 8, 8),
             ("a\u{1f1e6}\u{301}", 2, 3, "a\\u{1F1E6}\u{301}", 10, 10),
+            (
+                "\u{1f1e6}\u{1f1e6}\u{301}",
+                2,
+                2,
+                "\\u{1F1E6}\\u{1F1E6}\u{301}",
+                18,
+                18,
+            ),
             ("\u{261d}", 2, 1, "\\u{261D}", 8, 8),
             ("\u{261d}\u{fe0f}", 2, 2, "\u{261d}\u{fe0f}", 2, 2),
             ("\u{2e3a}", 1, 2, "\\u{2E3A}", 8, 8),
@@ -2293,6 +2304,8 @@ mod tests {
         for unit in [
             "\u{261d}\u{fe0f}\u{1f3fb}\u{1f3fb}\u{1f3fb}",
             "\u{1f1e6}\u{1f1e6}\u{93e}\u{93e}\u{93e}",
+            "\u{1f1e6}\u{1f1e6}\u{1f3fd}\u{1f3fd}\u{1f3fd}",
+            "\u{261d}\u{fe0f}\u{1f3fd}\u{1f3fd}",
         ] {
             let text = format!("x{}", format!("{unit} ").repeat(8));
             let mut request = asked("edit_file", ApprovalSubject::Path(text.clone()), ".");
@@ -2322,6 +2335,49 @@ mod tests {
             }
         }
         assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[test]
+    fn no_table_character_is_left_standing_alone_by_the_split() {
+        // SEC-A4h, opus round 5's strings: the split keeps a cluster's first
+        // character, and a lone indicator or a lone emoji base is one cell to
+        // xfx and two to a terminal.
+        for (input, rules) in [
+            (
+                "\u{1f1e6}\u{1f1e6}\u{1f3fd}\u{1f3fd}\u{1f3fd}",
+                ["tamed", "named"],
+            ),
+            ("\u{261d}\u{fe0f}\u{1f3fd}\u{1f3fd}", ["tamed", "tamed"]),
+        ] {
+            for rule in rules {
+                let shown = if rule == "tamed" {
+                    tamed(input)
+                } else {
+                    named(input)
+                };
+                let mut rest = shown.as_str();
+                while let Some(cluster) = super::super::wrap::first_cluster(rest) {
+                    rest = &rest[cluster.len()..];
+                    let mut characters = cluster.chars();
+                    if let (Some(alone), None) = (characters.next(), characters.next()) {
+                        assert!(
+                            !super::super::drawn_wider::drawn_wider(alone),
+                            "{rule} {input:?} -> {shown:?}: {alone:?} stands alone"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_command_names_every_table_character_itself() {
+        // `command_text`'s own arm for `super::drawn_wider`: a regional
+        // indicator, a dash and an emoji base are neither default-ignorable
+        // nor counted as no cells, so only that arm names them.
+        assert_eq!(command_text("a\u{1f1e6}b"), "a\\u{1f1e6}b");
+        assert_eq!(command_text("a\u{2e3a}b"), "a\\u{2e3a}b");
+        assert_eq!(command_text("a\u{261d}b"), "a\\u{261d}b");
     }
 
     /// A deterministic generator (xorshift, fixed seed) of foreign text built
@@ -2891,6 +2947,18 @@ pub(crate) mod wider_terminal {
             (
                 "x\u{1f1e6}\u{1f1e6}\u{93e}\u{93e}\u{93e}".repeat(24),
                 '\u{1f1e6}',
+                2,
+            ),
+            // SEC-A4h (opus round 5): trailing skin tones -- Extend, not in
+            // the table -- push a cluster past the cap the same way.
+            (
+                "x\u{1f1e6}\u{1f1e6}\u{1f3fd}\u{1f3fd}\u{1f3fd}".repeat(16),
+                '\u{1f1e6}',
+                2,
+            ),
+            (
+                "x\u{261d}\u{fe0f}\u{1f3fd}\u{1f3fd}".repeat(20),
+                '\u{261d}',
                 2,
             ),
         ]
