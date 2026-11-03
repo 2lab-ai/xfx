@@ -174,6 +174,12 @@ fn hold_within(target: &Path, check: &LinkCheck, limit: usize) -> Option<String>
             git_dir.display()
         ));
     }
+    if let Some(directory) = chain.completes.clone() {
+        return Some(format!(
+            "it would make `{}` a git directory, whose config, hooks and attributes decide what git runs",
+            directory.display()
+        ));
+    }
     let mut walk = Walk {
         chain,
         limit,
@@ -226,6 +232,8 @@ enum Lead {
 struct Chain {
     links: Vec<(Identity, Vec<String>)>,
     git_dir: Option<PathBuf>,
+    /// The directory the write would make a git directory, if it would.
+    completes: Option<PathBuf>,
 }
 
 impl Chain {
@@ -243,6 +251,7 @@ impl Chain {
             .collect();
         let mut links = Vec::new();
         let mut git_dir = None;
+        let mut completes = None;
         let mut path = PathBuf::from("/");
         for depth in 0..=parts.len() {
             if depth > 0 {
@@ -261,12 +270,23 @@ impl Chain {
                 Err(err)
                     if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
                 {
-                    break
+                    // `names[depth - 1]` is the first entry the write
+                    // creates, in the directory that exists above it.
+                    if let Some(parent) = path.parent().filter(|_| depth > 0) {
+                        if completes_git_dir(parent, &names[depth - 1])? {
+                            completes = Some(parent.to_path_buf());
+                        }
+                    }
+                    break;
                 }
                 Err(err) => return Err(format!("`{}` cannot be inspected: {err}", path.display())),
             }
         }
-        Ok(Self { links, git_dir })
+        Ok(Self {
+            links,
+            git_dir,
+            completes,
+        })
     }
 
     /// Whether `lead` is the target or a directory above it, or names the
@@ -404,6 +424,37 @@ impl Walk {
             }
         }
         Ok(())
+    }
+}
+
+/// Whether creating `name` (folded) in `directory` would complete a git
+/// directory by the test [`super::git_attributes::is_git_dir`] makes -- a
+/// `HEAD` beside `objects` or `commondir`, or either of those beside a
+/// `HEAD`.
+///
+/// Each piece alone is an ordinary write, so a directory can be assembled one
+/// write at a time -- `config` with a hook in it, `refs/`, `objects/`, then
+/// `HEAD` -- and once it is whole, the user's git reads that `config` as a
+/// repository's whenever it runs in or below it. Git's own test
+/// (`is_git_directory`) needs `HEAD`, `objects` and `refs`, so this one is met
+/// no later than git's; and a write inside a directory that already meets it
+/// asks anyway ([`Chain::git_dir`]). Which piece comes last does not matter:
+/// the write that adds it is this one.
+fn completes_git_dir(directory: &Path, name: &str) -> Result<bool, String> {
+    let has = |entry: &str| match std::fs::metadata(directory.join(entry)) {
+        Ok(_) => Ok(true),
+        Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            Ok(false)
+        }
+        Err(err) => Err(format!(
+            "`{}` cannot be inspected: {err}",
+            directory.join(entry).display()
+        )),
+    };
+    match name {
+        "head" => Ok(has("objects")? || has("commondir")?),
+        "objects" | "commondir" => has("HEAD"),
+        _ => Ok(false),
     }
 }
 

@@ -2809,6 +2809,143 @@ fn an_include_path_is_protected_as_git_reads_its_bytes() {
     every_mutation_refused(&home_context(&repo, &home), &repo, "a\u{3000}b.gitconfig");
 }
 
+/// What the real git says, run in `dir` with a clean environment.
+fn git_says(dir: &Path, home: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env_clear()
+        .env("HOME", home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .output()
+        .expect("git on PATH: this test runs the real one");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn auto_mode_will_not_assemble_a_git_directory_one_ordinary_write_at_a_time() {
+    // Each piece on its own is an ordinary file or directory; together they
+    // are a bare repository whose `config` the user's git reads -- a hook,
+    // a monitor -- when it runs in or below it. The write that would make the
+    // directory a git directory is the one that asks, whichever piece is last.
+    let home = Tree::new();
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Auto);
+    let marker = "[hook \"x\"]\n\tcommand = touch /nonexistent/RAN\n\tevent = post-index-change\n";
+    for (tool, input) in [
+        ("create_folder", json!({ "path": "evil" })),
+        (
+            "write_file",
+            json!({ "path": "evil/config", "content": marker }),
+        ),
+        ("create_folder", json!({ "path": "evil/refs" })),
+        ("create_folder", json!({ "path": "evil/objects" })),
+    ] {
+        succeeds(&context, tool, input);
+    }
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "evil/HEAD", "content": "ref: refs/heads/main\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    // Had it been written, git would have taken it for a repository.
+    fs::write(tree.root().join("evil/HEAD"), "ref: refs/heads/main\n").expect("by hand");
+    assert_eq!(
+        git_says(
+            &tree.root().join("evil"),
+            home.root(),
+            &["rev-parse", "--is-bare-repository"]
+        ),
+        "true"
+    );
+    assert_eq!(
+        git_says(
+            &tree.root().join("evil"),
+            home.root(),
+            &["config", "--get", "hook.x.event"]
+        ),
+        "post-index-change"
+    );
+    // The other orders: `objects` last, and `commondir` in place of
+    // `objects`; and the workspace root itself.
+    tree.write("two/HEAD", "ref: refs/heads/main\n");
+    tree.mkdir("two/refs");
+    let refusal = fails(&context, "create_folder", json!({ "path": "two/objects" }));
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "two/objects/info/x", "content": "x\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "two/commondir", "content": "../real\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    tree.mkdir("objects");
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "head", "content": "ref: refs/heads/main\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    // One piece alone, where the other is not there, is an ordinary write.
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": "docs/HEAD", "content": "a heading\n" }),
+    );
+    succeeds(&context, "create_folder", json!({ "path": "src/objects" }));
+}
+
+#[test]
+fn auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook() {
+    // The hook query asks the git directory the command would use: the one
+    // its working directory finds, not the root's.
+    let home = Tree::new();
+    let tree = Tree::new();
+    let marker = tree.root().join("HOOK-RAN");
+    real_git(tree.root(), home.root(), &["init", "-q"]);
+    real_git(tree.root(), home.root(), &["init", "-q", "--bare", "inner"]);
+    let hook = format!(
+        "[hook \"x\"]\n\tcommand = touch {}\n\tevent = post-index-change\n",
+        marker.display()
+    );
+    let mut inner = fs::read_to_string(tree.root().join("inner/config")).expect("config");
+    inner.push_str(&hook);
+    fs::write(tree.root().join("inner/config"), inner).expect("config");
+    let context = home_context(&tree, &home);
+    let scope = AccessScope::primary_only(tree.root()).expect("a root");
+    let limits = ToolLimits::default();
+    let at_root = CommandPlan::prepare("git diff", &scope, None, &limits).expect("a plan");
+    assert!(
+        matches!(at_root.effect(), CommandEffect::DirectReadOnly { .. }),
+        "{:?}",
+        at_root.effect()
+    );
+    let inside = CommandPlan::prepare("git diff", &scope, Some("inner"), &limits).expect("a plan");
+    assert_eq!(
+        inside.effect(),
+        &CommandEffect::Denied(DeniedEffect::ConfiguredHooks)
+    );
+    // And the repository's own `.git/config`, through the terminal tool.
+    let mut own = fs::read_to_string(tree.root().join(".git/config")).expect("config");
+    own.push_str(&hook);
+    fs::write(tree.root().join(".git/config"), own).expect("config");
+    let refusal = fails(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "git diff" }),
+    );
+    assert!(refusal.contains("not admitted in auto mode"), "{refusal}");
+    assert!(refusal.contains("hook"), "{refusal}");
+    assert!(!marker.exists(), "the hook ran");
+}
+
 #[test]
 fn a_hard_linked_configuration_is_read_from_each_directory_that_names_it() {
     // One file, two names in two directories; its relative include is a
