@@ -926,20 +926,24 @@ impl ModelCatalog for GatewayCatalog {
     ///
     /// **No redirect is followed**: the URL was judged by the bearer rule and
     /// the key goes to it alone, so a `3xx` is a failure rather than a second
-    /// host the key is replayed to. The system proxy is honoured, as it is for
-    /// a turn: reaching a remote endpoint may need one.
+    /// host the key is replayed to. A proxy from the environment is honoured
+    /// over https only, as it is for a turn (`crate::gateway::bearer_rules`):
+    /// reaching a remote endpoint may need one, and a cleartext loopback one
+    /// must not hand the key to it.
     async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
         let failed = |detail: String| CatalogError::Gateway {
             detail,
             retry: None,
         };
-        let client = reqwest::Client::builder()
-            .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
-            .timeout(GATEWAY_CATALOG_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|err| failed(format!("could not build HTTP client: {err}")))?;
+        let client = crate::gateway::bearer_rules(
+            reqwest::Client::builder()
+                .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
+                .timeout(GATEWAY_CATALOG_TIMEOUT)
+                .user_agent(USER_AGENT),
+            &self.url,
+        )
+        .build()
+        .map_err(|err| failed(format!("could not build HTTP client: {err}")))?;
         let mut authorization =
             reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.credential.secret()))
                 .map_err(|_| failed("the credential is not a valid header value".to_string()))?;

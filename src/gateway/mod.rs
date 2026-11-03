@@ -112,16 +112,57 @@ pub const GATEWAY_SUBJECT: &str = "the Gateway";
 /// The product's own user agent. xfx does not claim to be `fx`.
 pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
 
-/// The HTTP client a remote provider streams over.
+/// The HTTP client a remote provider streams over to `endpoint`.
 ///
 /// One builder rather than one per backend: the timeouts and the user agent are
 /// facts about xfx as a client, not about which wire it happens to be speaking,
-/// and two copies would be two places for them to drift apart.
+/// and two copies would be two places for them to drift apart. It carries the
+/// bearer, so it is built under [`bearer_rules`]: no redirect is followed, and a
+/// proxy from the environment is used only over https.
+pub(crate) fn build_client(endpoint: &Endpoint) -> Result<reqwest::Client, ProviderError> {
+    finish_client(
+        bearer_rules(base_client_builder(), endpoint.url()),
+        GATEWAY_SUBJECT,
+    )
+}
+
+/// The two rules every client that sends the Gateway bearer to `url` is built
+/// under: the completion and title client ([`build_client`]), the catalog, the
+/// `/credits` question, and the generation-bill lookup.
 ///
-/// It honours the system proxy environment, which is correct for an endpoint on
-/// the internet -- reaching it may require one.
-pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
-    finish_client(base_client_builder(), GATEWAY_SUBJECT)
+/// **No redirect is followed.** The endpoint rule judges the URL xfx names; it
+/// cannot see where a reply points. reqwest's default `Policy::limited(10)`
+/// replays a `307`/`308`'s body -- the prompt and the project context -- to the
+/// `Location`, wherever it is, and drops `Authorization` only when the host or
+/// port changes, so a redirect to another path, or from https to http on the
+/// same port, carries the key as well. Upstream never follows one
+/// (`redirect_behavior = .unhandled`, `vercel-labs/fx@c1db9191
+/// src/gateway/client.zig:1561`), and a `3xx` is a status error, as there
+/// (`:1717-1750`).
+///
+/// **A proxy from the environment is honoured only over https**
+/// ([`may_use_a_proxy`]).
+pub(crate) fn bearer_rules(builder: reqwest::ClientBuilder, url: &str) -> reqwest::ClientBuilder {
+    let builder = builder.redirect(reqwest::redirect::Policy::none());
+    if may_use_a_proxy(url) {
+        builder
+    } else {
+        builder.no_proxy()
+    }
+}
+
+/// Whether a request carrying the bearer to `url` may go through a proxy that
+/// `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY` names.
+///
+/// Over https the proxy is handed a `CONNECT` and a TLS stream it cannot read,
+/// and an endpoint on the internet may be reachable no other way. A cleartext
+/// request -- which the bearer rule allows only to loopback -- goes to the proxy
+/// as written, key and prompt, and reqwest exempts no loopback host from one.
+/// Anything that is not plainly https gets no proxy, so a mistake here costs a
+/// direct connection and never the key. Upstream loads no proxy at all: it
+/// never calls `initDefaultProxies` (`vercel-labs/fx@c1db9191 src/`).
+pub(crate) fn may_use_a_proxy(url: &str) -> bool {
+    ParsedUrl::parse(url.trim()).is_some_and(|parsed| parsed.scheme == "https")
 }
 
 /// The same client for a service on this machine, with proxies and redirects
@@ -745,7 +786,7 @@ impl GatewayProvider {
         cancel: CancelToken,
     ) -> Result<Self, ProviderError> {
         Ok(Self {
-            client: build_client()?,
+            client: build_client(&endpoint)?,
             endpoint,
             credential,
             cancel,
@@ -1371,6 +1412,31 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn only_an_https_request_may_take_a_proxy_from_the_environment() {
+        // Over https a proxy sees a tunnel it cannot read; over cleartext it
+        // would read the bearer. Anything not plainly https is direct.
+        for url in [
+            DEFAULT_CHAT_URL,
+            DEFAULT_ORIGIN,
+            "HTTPS://gateway.example.com/v4/ai/language-model",
+            "  https://gateway.example.com  ",
+        ] {
+            assert!(may_use_a_proxy(url), "{url} is https");
+        }
+        for url in [
+            "http://127.0.0.1:8080/v4/ai/language-model",
+            "HTTP://localhost:8080",
+            "http://[::1]:9",
+            "http://127.0.0.1:8080/coding-agent/v1/models",
+            "ftp://gateway.example.com",
+            "gateway.example.com",
+            "",
+        ] {
+            assert!(!may_use_a_proxy(url), "{url:?} must not use a proxy");
+        }
     }
 
     #[test]
