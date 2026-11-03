@@ -1047,9 +1047,14 @@ fn default_ignorable(code: u32) -> bool {
 /// combining mark ([`super::marks`]) -- so a terminal may give it a cell of
 /// its own where xfx's grid gives it none.
 ///
-/// Keyed on xfx's **own count** rather than on a list of properties: a
-/// character a later width table counts as none is named until it is shown to
-/// be a mark. Measured where xfx counts none (cursor column between two
+/// Keyed on xfx's own count of the character **alone** rather than on a list
+/// of properties: a character a later width table counts as none is named
+/// until it is shown to be a mark. What xfx counts inside a cluster, where a
+/// character can count as none only beside its neighbours, is [`squeezed`]'s
+/// question. The cost is Indic text: the vowel signs xfx's table counts as
+/// none (`U+09BE`, `U+0BBE`, `U+0D3E`, `U+0B3E`, `U+0CC2`, `U+0DCF`, spacing
+/// marks that extend the cluster) are named. Measured where xfx counts none
+/// (cursor column between two
 /// markers, 2026-11-03): the halfwidth voiced sound mark `U+FF9E` is one cell
 /// in tmux 3.7b and in herdr's libghostty-vt; the Hangul tone mark `U+302E` two
 /// and one; the Devanagari caret `U+A8FA` and the prepended letter `U+0D4E` one
@@ -1060,6 +1065,62 @@ fn default_ignorable(code: u32) -> bool {
 fn uncounted(character: char) -> bool {
     unicode_width::UnicodeWidthChar::width(character) == Some(0)
         && !super::marks::is_combining_mark(character)
+}
+
+/// Whether xfx counts the grapheme cluster `cluster` as fewer cells than its
+/// characters take on their own -- each that is not a combining mark at the
+/// width xfx gives it alone -- which a terminal that draws them one by one
+/// shows wider than the row was laid out.
+///
+/// The layout measures a whole cluster (`super::wrap`'s `cluster_width`), and
+/// the width table's ligature rules count some clusters as far less than their
+/// parts. Measured (two markers, 2026-11-04): the Khmer coeng chain
+/// `U+1780 U+17D2 U+1780 U+17D2 U+1780` is one cluster xfx counts as one cell,
+/// three in tmux 3.7b and two in libghostty-vt; three Kirat Rai vowels
+/// `U+16D67` are one cluster xfx counts as two, three in tmux. An RGI emoji
+/// every measured terminal draws as the two cells xfx counts is not squeezed,
+/// and a Hangul syllable's count is its leading consonant's, which is what
+/// both terminals draw. A mark is left out of the sum because both draw it on
+/// the cell before it: a nonspacing mark after `a` (`U+0897`, `U+1E6E3`,
+/// `U+1AE0`, and `U+302A`, which is East Asian Wide) took no cell in either.
+fn squeezed(cluster: &str) -> bool {
+    if cluster.is_ascii() {
+        return false;
+    }
+    let own: usize = cluster
+        .chars()
+        .filter(|character| !super::marks::is_combining_mark(*character))
+        .map(|character| unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
+        .sum();
+    usize::from(super::wrap::cluster_width(cluster)) < own
+        && !(crate::markdown::display_width::rgi_sequence_len(cluster.as_bytes(), 0)
+            == cluster.len()
+            && agreed_emoji(cluster))
+}
+
+/// `safe` with every squeezed cluster ([`squeezed`]) kept to its first
+/// character and the rest of it named, so the row is laid out at the cells a
+/// terminal draws its characters at one by one, or more. The first character
+/// alone is a cluster xfx counts as it is drawn, and the names are ASCII.
+fn declustered(safe: String) -> String {
+    if safe.is_ascii() {
+        return safe;
+    }
+    let mut out = String::with_capacity(safe.len());
+    let mut rest = safe.as_str();
+    while let Some(cluster) = super::wrap::first_cluster(rest) {
+        rest = &rest[cluster.len()..];
+        if squeezed(cluster) {
+            let mut characters = cluster.chars();
+            out.extend(characters.next());
+            for character in characters {
+                out.push_str(&crate::permission::scalar_token(character));
+            }
+        } else {
+            out.push_str(cluster);
+        }
+    }
+    out
 }
 
 /// How far a conjoining Hangul syllable has come, as its jamo cross as
@@ -1121,9 +1182,10 @@ fn agreed_presentation(base: char) -> bool {
 }
 
 /// [`tamed`] or [`named`]: `line` with nothing left in it a terminal would
-/// obey or reorder, and nothing a terminal may draw where xfx counts no cells
-/// -- no default-ignorable code point and nothing else xfx counts as none but
-/// a combining mark, past the exceptions [`tamed`] and [`Syllable`] make.
+/// obey or reorder; no default-ignorable code point and nothing else xfx counts
+/// as none on its own but a combining mark, past the exceptions [`tamed`] and
+/// [`Syllable`] make; and no cluster xfx counts as fewer cells than its
+/// characters take one by one ([`squeezed`]).
 fn spelled(line: &str, emoji: Emoji) -> String {
     if line.bytes().all(|byte| (0x20..0x7f).contains(&byte)) {
         return line.to_string();
@@ -1164,18 +1226,21 @@ fn spelled(line: &str, emoji: Emoji) -> String {
             syllable = syllable.after(character);
         }
     }
-    safe
+    declustered(safe)
 }
 
 /// One line of foreign text read as text, with nothing left in it a terminal
-/// would obey or reorder, and nothing a terminal may draw where xfx counts no
-/// cells: every default-ignorable code point is named ([`default_ignorable`]),
-/// and every other character xfx counts as none that is not a combining mark
-/// ([`uncounted`]) -- except where an emoji every measured terminal agrees on
+/// would obey or reorder: every default-ignorable code point is named
+/// ([`default_ignorable`]), every other character xfx counts as none on its
+/// own that is not a combining mark ([`uncounted`]), and the rest of every
+/// cluster xfx counts as fewer cells than its characters take one by one
+/// ([`squeezed`]) -- except where an emoji every measured terminal agrees on
 /// carries one (inside an RGI emoji sequence, and `U+FE0F` after a character
 /// that takes an emoji presentation) and a Hangul syllable's own jamo
-/// ([`Syllable`]). What xfx counts as one cell or more is left as it is, so a
-/// terminal that draws an East Asian ambiguous character as two still can.
+/// ([`Syllable`]). Measured against tmux 3.7b and herdr's libghostty-vt, not
+/// every terminal: what xfx counts as one cell or more is left as it is, so a
+/// terminal that draws an East Asian ambiguous character as two still can,
+/// and a combining mark is trusted to take no cell of its own.
 ///
 /// Upstream names only its non-printing set in this text and shows the rest as
 /// it is; this is xfx's own, for the reason [`default_ignorable`] gives.
@@ -1945,6 +2010,33 @@ mod tests {
     }
 
     #[test]
+    fn a_cluster_xfx_counts_as_less_than_its_characters_keeps_only_its_first() {
+        // SEC-A4d. The Khmer coeng chain is one cluster xfx counts as one
+        // cell; its first consonant stays and the rest is named.
+        let chain = "\u{1780}\u{17d2}\u{1780}\u{17d2}\u{1780}";
+        let spelled = "\u{1780}\\u{17D2}\\u{1780}\\u{17D2}\\u{1780}";
+        assert_eq!(tamed(&format!("x {chain}")), format!("x {spelled}"));
+        assert_eq!(named(chain), spelled);
+        assert_eq!(tamed(spelled), spelled, "spelling is its own answer");
+        assert_eq!(
+            tamed("\u{16d67}\u{16d67}\u{16d67}"),
+            "\u{16d67}\\u{16D67}\\u{16D67}"
+        );
+        // A cluster xfx counts as its characters is kept: a Devanagari
+        // conjunct, a mark on its letter, a decomposed Hangul syllable, and an
+        // RGI emoji the terminals agree on.
+        for kept in [
+            "\u{915}\u{94d}\u{937}",
+            "e\u{301}",
+            "\u{1100}\u{1161}\u{11a8}",
+            "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+            "\u{1f44d}\u{1f3fd}",
+        ] {
+            assert_eq!(tamed(kept), kept);
+        }
+    }
+
+    #[test]
     fn a_decomposed_korean_name_is_shown_as_it_is_and_a_lone_jamo_is_named() {
         use super::wider_terminal::NFD_KOREAN;
         assert_eq!(tamed(NFD_KOREAN), NFD_KOREAN);
@@ -1972,6 +2064,11 @@ mod tests {
         assert_eq!(tamed("\u{115f}\u{1161}"), "\\u{115F}\\u{1161}");
         assert_eq!(tamed("\u{1100}\u{11a8}"), "\u{1100}\\u{11A8}");
         assert_eq!(command_text("x\u{11a8}"), "x\\u{11a8}");
+        // A syllable takes one trailing consonant: a second is named.
+        assert_eq!(
+            tamed("\u{1100}\u{1161}\u{11a8}\u{11a8}"),
+            "\u{1100}\u{1161}\u{11a8}\\u{11A8}"
+        );
     }
 
     #[test]
@@ -2041,6 +2138,16 @@ mod tests {
                 ),
             ),
         ];
+        // An edit whose subject is not a path names its target the same way.
+        let mut target = asked("edit_file", ApprovalSubject::Call("c".into()), ".");
+        target.target = text.clone();
+        let cases: Vec<(&str, Vec<String>)> = cases
+            .into_iter()
+            .chain([(
+                "edit target",
+                subject_rows(Kind::Edit, &target, 120, &Styles::PLAIN),
+            )])
+            .collect();
         for (what, rows) in cases {
             assert!(
                 rows.iter()
@@ -2300,6 +2407,20 @@ pub(crate) mod wider_terminal {
             ("\u{1161}".repeat(120), '\u{1161}', 1),
             ("\u{11a8}".repeat(120), '\u{11a8}', 1),
             ("\u{d7c6}".repeat(120), '\u{d7c6}', 1),
+            // SEC-A4d: what xfx counts as fewer cells *inside one cluster* than
+            // its characters take on their own. A Khmer coeng chain is one
+            // cluster (GB9c) that xfx counts as one cell; tmux 3.7b draws each
+            // consonant (`U+1780 U+17D2 U+1780 U+17D2 U+1780`: 3 cells, xfx 1).
+            // A run of Kirat Rai vowels is one cluster xfx counts as half its
+            // signs; tmux draws each (`U+16D67` x3: 3 cells, xfx 2). The
+            // character the model counts is the one drawn as nothing in the
+            // chain (the coeng) and the vowel itself.
+            (
+                "\u{1780}".to_string() + &"\u{17d2}\u{1780}".repeat(119),
+                '\u{17d2}',
+                0,
+            ),
+            ("\u{16d67}".repeat(120), '\u{16d67}', 1),
         ]
     }
 

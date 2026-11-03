@@ -289,7 +289,9 @@ mod tests {
         }
         assert!(hidden.is_empty(), "{hidden:#?}");
         let mut confirmation = remember().confirmation().clone();
-        confirmation.display = "write_file \u{1f468}\u{200d}\u{1f469}.txt".to_string();
+        // The RGI three-person family, which text keeps and a grant names.
+        confirmation.display =
+            "write_file \u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}.txt".to_string();
         let rows = RuleConfirm::new(confirmation).rows(120, 40, None);
         assert!(rows.concat().contains("\\u{200D}"), "{rows:?}");
     }

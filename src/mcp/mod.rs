@@ -123,8 +123,11 @@ pub fn terminal_safe(text: &str) -> String {
 /// and -- where the TUI's approval view is built -- every default-ignorable
 /// code point it names as well (SEC-A4, `approval_view::command_text`:
 /// `U+00AD`, `U+3164`, `U+FFA0` and the rest a terminal may draw as nothing
-/// and so hide text behind). A line break is `\x0a` here, where the approval
-/// view keeps it: a name is one row.
+/// and so hide text behind), and everything else it counts as no cells but a
+/// combining mark (SEC-A4c). One character at a time has no syllable to
+/// complete, so a decomposed Hangul name's vowels and trailing consonants are
+/// named here, where the approval view shows them as text. A line break is
+/// `\x0a` here, where the approval view keeps it: a name is one row.
 #[cfg(unix)]
 fn terminal_safe_token<'a>(character: char, buf: &'a mut [u8; 4]) -> std::borrow::Cow<'a, str> {
     if character == '\n' {
