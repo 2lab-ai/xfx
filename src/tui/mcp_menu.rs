@@ -152,6 +152,9 @@ pub(crate) struct McpMenu {
     /// once it has been shown whole. Set while drawing, which takes `&self`;
     /// a key reads it against the entry as it is now.
     drawn: std::cell::RefCell<Option<Drawn>>,
+    /// The pending servers the approve-all confirmation was drawn over, each
+    /// with its digest: what its Enter approves. Set while drawing.
+    listed: std::cell::RefCell<Option<Vec<(String, String)>>>,
 }
 
 /// A project entry the details screen drew.
@@ -159,9 +162,17 @@ pub(crate) struct McpMenu {
 struct Drawn {
     name: String,
     digest: String,
-    /// Every row of it was on the screen, or `v` wrote it into the
-    /// transcript.
-    whole: bool,
+    /// Every row of it was in the last frame drawn, and nothing has written
+    /// over the screen since.
+    on_screen: bool,
+    /// `v` wrote it whole into the transcript, which no later frame undoes.
+    by_v: bool,
+}
+
+impl Drawn {
+    fn whole(&self) -> bool {
+        self.on_screen || self.by_v
+    }
 }
 
 /// What the details screen says when `a` meets an entry other than the one
@@ -188,6 +199,16 @@ impl McpMenu {
             feedback: None,
             filter: None,
             drawn: std::cell::RefCell::new(None),
+            listed: std::cell::RefCell::new(None),
+        }
+    }
+
+    /// Something wrote over the screen, or a frame did not land: what the
+    /// details last drew is no longer known to be on it. What `v` wrote into
+    /// the transcript still was.
+    pub(crate) fn forget_drawn(&self) {
+        if let Some(drawn) = self.drawn.borrow_mut().as_mut() {
+            drawn.on_screen = false;
         }
     }
 
@@ -345,13 +366,27 @@ impl McpMenu {
             }
             Screen::Details => rows.extend(self.details_rows(servers, width, body, palette)),
             Screen::Info => rows.extend(info_rows(width, palette)),
-            Screen::Confirm(confirm) => rows.push(text_row(
-                confirm.text(),
-                width,
-                palette.notice_label(),
-                0,
-                palette,
-            )),
+            Screen::Confirm(confirm) => {
+                if confirm == Confirm::ApproveAll {
+                    *self.listed.borrow_mut() = Some(
+                        servers
+                            .iter()
+                            .filter(|server| server.admission == Some(Admission::Pending))
+                            .filter_map(|server| {
+                                let entry = server.entry.as_ref()?;
+                                Some((server.name.clone(), entry.digest.clone()))
+                            })
+                            .collect(),
+                    );
+                }
+                rows.push(text_row(
+                    confirm.text(),
+                    width,
+                    palette.notice_label(),
+                    0,
+                    palette,
+                ))
+            }
         }
         rows.truncate(usize::from(row_count));
         rows
@@ -561,23 +596,26 @@ impl McpMenu {
             .into_iter()
             .map(|row| format!("{}{row}{}", palette.subtitle(), palette.reset()))
             .collect();
-        let mut room = body.saturating_sub(rows.len());
+        // The facts cut to the rows the panel has, so nothing below is cut
+        // again by the menu's own truncation; then an entry that does not fit
+        // gets its row saying how to see it -- whenever the panel has a row
+        // at all -- in place of the last fact if it must.
+        rows.truncate(body);
+        let mut room = body - rows.len();
         let fits = entry.len() <= room;
-        // An entry that does not fit always gets its row saying how to see
-        // it: on a screen with no room left, in place of the last fact.
-        while !fits && room == 0 && rows.len() > 1 {
-            rows.pop();
-            room += 1;
+        if !fits && room == 0 && rows.pop().is_some() {
+            room = 1;
         }
         let mut drawn = self.drawn.borrow_mut();
         *drawn = server.entry.as_ref().map(|entry| {
-            let seen = drawn.as_ref().is_some_and(|drawn| {
-                drawn.whole && drawn.name == server.name && drawn.digest == entry.digest
+            let by_v = drawn.as_ref().is_some_and(|drawn| {
+                drawn.by_v && drawn.name == server.name && drawn.digest == entry.digest
             });
             Drawn {
                 name: server.name.clone(),
                 digest: entry.digest.clone(),
-                whole: fits || seen,
+                on_screen: fits,
+                by_v,
             }
         });
         drop(drawn);
@@ -606,13 +644,24 @@ impl McpMenu {
         visible: usize,
     ) -> Effect {
         match (self.screen, action) {
+            // The servers the confirmation was drawn over, as they were drawn:
+            // one a reload read after the frame is not in it.
+            (Screen::Confirm(Confirm::ApproveAll), KeyAction::Enter) => {
+                let Some(listed) = self.listed.borrow_mut().take() else {
+                    return Effect::Ignored;
+                };
+                self.screen = Screen::Browse;
+                Effect::Trust {
+                    action: crate::mcp::config::TrustAction::ApproveListed(listed),
+                    body: "Approving all project MCP servers for this workspace.".to_string(),
+                }
+            }
             (Screen::Confirm(confirm), KeyAction::Enter) => {
                 let name = self.server(servers).map(|server| server.name.clone());
                 self.screen = Screen::Browse;
                 let command = match (confirm, name) {
                     (Confirm::Remove, Some(name)) => format!("remove {name}"),
                     (Confirm::Reject, Some(name)) => format!("trust reject {name}"),
-                    (Confirm::ApproveAll, _) => "trust approve-all".to_string(),
                     (Confirm::Reset, _) => "trust reset".to_string(),
                     _ => return Effect::Repaint,
                 };
@@ -709,6 +758,7 @@ impl McpMenu {
                 Effect::Repaint
             }
             (Section::Servers, 'p') => {
+                *self.listed.borrow_mut() = None;
                 self.screen = Screen::Confirm(Confirm::ApproveAll);
                 Effect::Repaint
             }
@@ -743,7 +793,6 @@ impl McpMenu {
                 self.screen = Screen::Confirm(Confirm::Reject);
                 Effect::Repaint
             }
-            // The entry this screen drew, whatever the file says by now.
             // The entry this screen last drew -- and only while it is still
             // the entry: one a reload read after the frame was never seen,
             // so `a` approves nothing and the next frame shows it.
@@ -754,7 +803,7 @@ impl McpMenu {
                 let drawn = self.drawn.borrow().clone();
                 match drawn {
                     Some(drawn) if drawn.name == server.name && drawn.digest == entry.digest => {
-                        if !drawn.whole {
+                        if !drawn.whole() {
                             self.feedback = Some(ENTRY_NOT_SHOWN.to_string());
                             return Effect::Repaint;
                         }
@@ -784,11 +833,17 @@ impl McpMenu {
             // Written whole into the transcript: shown, so `a` may approve it.
             'v' => match &server.entry {
                 Some(entry) => {
-                    *self.drawn.borrow_mut() = Some(Drawn {
+                    let mut drawn = self.drawn.borrow_mut();
+                    let on_screen = drawn.as_ref().is_some_and(|drawn| {
+                        drawn.on_screen && drawn.name == server.name && drawn.digest == entry.digest
+                    });
+                    *drawn = Some(Drawn {
                         name: server.name.clone(),
                         digest: entry.digest.clone(),
-                        whole: true,
+                        on_screen,
+                        by_v: true,
                     });
+                    drop(drawn);
                     Effect::Show(format!(
                         "Project MCP server '{}' in .mcp.json:\n  {}\n",
                         crate::mcp::terminal_safe(&server.name),
@@ -1421,10 +1476,13 @@ mod tests {
         };
         write("first");
         runtime.start();
-        runtime.run(Job::Trust {
-            action: TrustAction::Approve("proj".into()),
-            body: "Approving project MCP server 'proj'.".into(),
-        });
+        bounded_run(
+            &runtime,
+            Job::Trust {
+                action: TrustAction::Approve("proj".into()),
+                body: "Approving project MCP server 'proj'.".into(),
+            },
+        );
         assert_eq!(proj(&runtime).status(), Status::Ready);
         assert_eq!(
             proj(&runtime).entry,
@@ -1433,7 +1491,7 @@ mod tests {
         );
         runtime.suppress_prompts();
         write("second");
-        runtime.run(Job::Command("reload".into()));
+        bounded_run(&runtime, Job::Command("reload".into()));
         assert_eq!(proj(&runtime).state_label(), "Pending trust");
 
         let views = runtime.views();
@@ -1466,8 +1524,8 @@ mod tests {
         // The file changes again before the answer is saved: the approval is
         // for what the screen drew, and the newer entry still asks.
         write("third");
-        runtime.run(Job::Command("reload".into()));
-        runtime.run(Job::Trust { action, body });
+        bounded_run(&runtime, Job::Command("reload".into()));
+        bounded_run(&runtime, Job::Trust { action, body });
         assert_eq!(proj(&runtime).state_label(), "Pending trust");
         let saved: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings"))
@@ -1553,7 +1611,10 @@ mod tests {
                 Effect::Trust { .. }
             )
         };
-        for (row_count, room) in [(9u16, 0usize), (10, 1)] {
+        // Every height from one row up: below nine the facts themselves are
+        // cut to the panel, and the row saying how to see the entry is still
+        // the last one drawn.
+        for (row_count, room) in (1u16..=9).map(|rows| (rows, 0usize)).chain([(10, 1)]) {
             let mut menu = McpMenu::open();
             menu.key(KeyAction::Enter, &servers, 5);
             let rows: Vec<String> = menu
@@ -1576,17 +1637,21 @@ mod tests {
                 .iter()
                 .map(|row| plain(row))
                 .collect();
-            assert_eq!(
-                said[1],
-                format!("  {ENTRY_NOT_SHOWN}"),
-                "room {room}: {said:#?}"
-            );
-            // `v` shows it whole; then `a` approves it.
+            if row_count > 2 {
+                assert_eq!(
+                    said[1],
+                    format!("  {ENTRY_NOT_SHOWN}"),
+                    "room {room}: {said:#?}"
+                );
+            }
+            // `v` shows it whole, a frame is drawn, and `a` approves it: what
+            // `v` showed outlasts the frames after it.
             assert!(matches!(
                 menu.key(KeyAction::Char('v'), &servers, 5),
                 Effect::Show(_)
             ));
-            assert!(approves(&mut menu), "room {room}: `a` after `v`");
+            menu.rows(&servers, &[], 80, row_count, PALETTE);
+            assert!(approves(&mut menu), "rows {row_count}: `a` after `v`");
         }
         // Drawn whole on a screen with the rows: `a` approves it at once.
         let mut menu = McpMenu::open();
@@ -1597,5 +1662,221 @@ mod tests {
             assert!(menu.key_help(&servers, cols).contains('v'), "{cols}");
         }
         assert!(approves(&mut menu));
+    }
+
+    /// `runtime.run(job)`, failing the case loudly if it has not returned
+    /// within a minute rather than hanging the whole run.
+    fn bounded_run(
+        runtime: &std::sync::Arc<crate::mcp::McpRuntime>,
+        job: crate::mcp::runtime::Job,
+    ) {
+        let (done, finished) = std::sync::mpsc::channel();
+        let runtime = std::sync::Arc::clone(runtime);
+        std::thread::spawn(move || {
+            runtime.run(job);
+            let _ = done.send(());
+        });
+        finished
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("an MCP job did not finish within a minute");
+    }
+
+    /// A runtime over a temporary workspace whose `.mcp.json` the case
+    /// rewrites, and the settings file the choices land in.
+    struct Workspace {
+        _home: tempfile::TempDir,
+        root: std::path::PathBuf,
+        settings: std::path::PathBuf,
+        runtime: std::sync::Arc<crate::mcp::McpRuntime>,
+    }
+
+    impl Workspace {
+        fn new() -> Self {
+            let home = tempfile::tempdir().expect("home");
+            let root = home.path().join("work");
+            std::fs::create_dir_all(&root).expect("workspace");
+            let settings = home.path().join(".xfx").join("settings.json");
+            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+                profile: Some(home.path().join(".xfx").join("mcp.json")),
+                settings: Some(settings.clone()),
+                workspace: root.clone(),
+            });
+            Self {
+                _home: home,
+                root,
+                settings,
+                runtime,
+            }
+        }
+
+        /// Writes `servers` as the workspace's `.mcp.json` and reads it.
+        fn write(&self, servers: serde_json::Value) {
+            std::fs::write(
+                self.root.join(".mcp.json"),
+                serde_json::json!({"mcpServers": servers}).to_string(),
+            )
+            .expect("write .mcp.json");
+            bounded_run(
+                &self.runtime,
+                crate::mcp::runtime::Job::Command("reload".into()),
+            );
+        }
+
+        /// The approvals saved, by name.
+        fn approved(&self) -> serde_json::Value {
+            let saved: serde_json::Value = std::fs::read_to_string(&self.settings)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
+            saved["workspaces"][self.root.to_str().unwrap()]["enabledMcpjsonServerDigests"].clone()
+        }
+
+        /// Runs what the menu asked for, as the shell would.
+        fn apply(&self, effect: Effect) {
+            use crate::mcp::runtime::Job;
+            match effect {
+                Effect::Command(line) => bounded_run(&self.runtime, Job::Command(line)),
+                Effect::Trust { action, body } => {
+                    bounded_run(&self.runtime, Job::Trust { action, body })
+                }
+                other => panic!("not a trust choice: {other:?}"),
+            }
+        }
+
+        fn notices(&self) -> Vec<String> {
+            self.runtime
+                .take_events()
+                .into_iter()
+                .filter_map(|event| match event {
+                    crate::mcp::runtime::Event::Notice { body, .. } => Some(body),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    /// An entry that never starts: `exit 0` with a mark in its arguments.
+    fn quiet(mark: &str) -> serde_json::Value {
+        serde_json::json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]})
+    }
+
+    #[test]
+    fn approve_all_approves_the_servers_its_confirmation_drew_not_ones_read_after() {
+        use crate::mcp::config::entry_digest;
+        for between in ["draw and enter", "enter and execution"] {
+            let workspace = Workspace::new();
+            workspace.write(serde_json::json!({"a": quiet("a1")}));
+            let mut menu = McpMenu::open();
+            let drawn = workspace.runtime.views();
+            assert_eq!(menu.key(KeyAction::Char('p'), &drawn, 5), Effect::Repaint);
+            let rows: Vec<String> = menu
+                .rows(&drawn, &[], 120, 12, PALETTE)
+                .iter()
+                .map(|row| plain(row))
+                .collect();
+            assert!(
+                rows.iter().any(|row| row.contains("Approve all")),
+                "{rows:#?}"
+            );
+            // `a` is rewritten and `b` added: neither was in what was drawn.
+            let rewrite =
+                || workspace.write(serde_json::json!({"a": quiet("a2"), "b": quiet("b1")}));
+            if between == "draw and enter" {
+                rewrite();
+            }
+            let effect = menu.key(KeyAction::Enter, &workspace.runtime.views(), 5);
+            if between == "enter and execution" {
+                rewrite();
+            }
+            let _ = workspace.notices();
+            workspace.apply(effect);
+            assert_eq!(
+                workspace.approved(),
+                serde_json::Value::Null,
+                "{between}: approved what the confirmation never drew"
+            );
+            let said = workspace.notices();
+            assert!(
+                said.iter()
+                    .any(|body| body.contains("'a' changed since it was listed")),
+                "{between}: {said:?}"
+            );
+            // Drawn as it is now, it approves what it drew.
+            let drawn = workspace.runtime.views();
+            menu.key(KeyAction::Char('p'), &drawn, 5);
+            menu.rows(&drawn, &[], 120, 12, PALETTE);
+            let effect = menu.key(KeyAction::Enter, &drawn, 5);
+            workspace.apply(effect);
+            assert_eq!(
+                workspace.approved(),
+                serde_json::json!({
+                    "a": entry_digest(&quiet("a2")),
+                    "b": entry_digest(&quiet("b1")),
+                }),
+                "{between}"
+            );
+            workspace.runtime.shutdown();
+        }
+    }
+
+    #[test]
+    fn a_resize_keeps_an_entry_still_drawn_whole_and_a_reload_after_v_does_not() {
+        let entry = |digest: &str| {
+            let mut server = view(
+                "p",
+                Source::Workspace,
+                Connection::Disabled,
+                Some(Admission::Pending),
+            );
+            server.entry = Some(std::sync::Arc::new(crate::mcp::runtime::ShownEntry {
+                rows: vec![format!("command: /bin/sh -c '{}'", "w ".repeat(30))],
+                digest: digest.into(),
+            }));
+            [server]
+        };
+        let approves = |menu: &mut McpMenu, servers: &[ServerView]| {
+            matches!(
+                menu.key(KeyAction::Char('a'), servers, 5),
+                Effect::Trust { .. }
+            )
+        };
+        let servers = entry("sha256:a");
+        let open = || {
+            let mut menu = McpMenu::open();
+            menu.key(KeyAction::Enter, &servers, 5);
+            menu
+        };
+        // Drawn whole, then redrawn at another size that still fits it: the
+        // digest has not changed, so `a` approves.
+        let mut menu = open();
+        menu.rows(&servers, &[], 120, 30, PALETTE);
+        menu.rows(&servers, &[], 60, 30, PALETTE);
+        assert!(approves(&mut menu, &servers));
+        // Redrawn at a size that cuts it: no longer on the screen whole.
+        let mut menu = open();
+        menu.rows(&servers, &[], 120, 30, PALETTE);
+        menu.rows(&servers, &[], 120, 9, PALETTE);
+        assert!(!approves(&mut menu, &servers));
+        // Something wrote over the screen: what was drawn is not known to be
+        // there any more.
+        let mut menu = open();
+        menu.rows(&servers, &[], 120, 30, PALETTE);
+        menu.forget_drawn();
+        assert!(!approves(&mut menu, &servers));
+        // `v`, then a reload reads a different entry: `a` refuses it.
+        let mut menu = open();
+        menu.rows(&servers, &[], 120, 9, PALETTE);
+        assert!(matches!(
+            menu.key(KeyAction::Char('v'), &servers, 5),
+            Effect::Show(_)
+        ));
+        let reread = entry("sha256:b");
+        assert!(!approves(&mut menu, &reread));
+        let rows: Vec<String> = menu
+            .rows(&reread, &[], 120, 9, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert_eq!(rows[1], format!("  {ENTRY_CHANGED}"), "{rows:#?}");
     }
 }

@@ -263,8 +263,16 @@ pub enum Event {
     /// project trust prompt (`presentProjectMcpPrompt`, `main.zig:1818-1832`).
     Raw(String),
     /// The trust prompt is up for this server, showing the entry whose
-    /// [`config::entry_digest`] this is: what `1` approves.
-    TrustPrompt { name: String, digest: String },
+    /// [`config::entry_digest`] this is: what `1` approves. `listed` is every
+    /// pending server as the prompt went up, each with its digest: what `2`
+    /// approves. `whole` is whether every row of the entry fit the prompt
+    /// ([`PROMPT_ROW_MAX_BYTES`]); `1` approves only an entry shown whole.
+    TrustPrompt {
+        name: String,
+        digest: String,
+        listed: Vec<(String, String)>,
+        whole: bool,
+    },
     /// The menu's feedback row.
     MenuFeedback(String),
     /// What a menu catalog read found, for the read that asked.
@@ -1196,6 +1204,20 @@ impl McpRuntime {
         Some((server.config.clone(), digest))
     }
 
+    /// Every pending project server the last read found, with the digest of
+    /// its entry: what an approve-all binds.
+    fn pending_entries(&self) -> Vec<(String, String)> {
+        self.state()
+            .servers
+            .iter()
+            .filter(|server| server.config.admission == Some(Admission::Pending))
+            .filter_map(|server| {
+                let entry = server.entry.as_ref()?;
+                Some((server.config.name.clone(), entry.digest.clone()))
+            })
+            .collect()
+    }
+
     /// Puts the trust prompt up for the next pending server, when one is
     /// pending and none is up for that entry. Upstream's two rows, with what
     /// the entry runs or reaches between them ([`what_it_runs`]): the name is
@@ -1218,7 +1240,16 @@ impl McpRuntime {
             prompt_value(&super::terminal_safe(&name)),
             what_it_runs(&config)
         )));
-        self.say(Event::TrustPrompt { name, digest });
+        let listed = self.pending_entries();
+        let whole = entry_rows(&config)
+            .iter()
+            .all(|row| row.len() <= PROMPT_ROW_MAX_BYTES);
+        self.say(Event::TrustPrompt {
+            name,
+            digest,
+            listed,
+            whole,
+        });
     }
 
     /// The prompt has been answered or overtaken: the next reload may put
@@ -1246,24 +1277,51 @@ impl McpRuntime {
             self.present_prompt();
             return;
         };
-        let loaded = {
-            let state = self.state();
-            config::Loaded {
-                entries: state.digests.clone(),
-                pending: state
-                    .servers
-                    .iter()
-                    .filter_map(|server| {
-                        let entry = server.entry.as_ref()?;
-                        (server.config.admission == Some(Admission::Pending))
-                            .then(|| (server.config.name.clone(), entry.digest.clone()))
-                    })
-                    .collect(),
+        // Two reads, one lock each: a guard held across both would be taken
+        // twice, and the state lock is not reentrant.
+        let entries = self.state().digests.clone();
+        let loaded = config::Loaded {
+            entries,
+            pending: self.pending_entries(),
+        };
+        // An approve-all of what was drawn: the entries no longer pending as
+        // drawn are left waiting, and said so.
+        let changed: Vec<String> = match &action {
+            TrustAction::ApproveListed(listed) => listed
+                .iter()
+                .filter(|entry| !loaded.pending.contains(entry))
+                .map(|(name, _)| name.clone())
+                .collect(),
+            _ => Vec::new(),
+        };
+        let say_changed = |runtime: &Self| {
+            for name in &changed {
+                runtime.notice(
+                    true,
+                    format!(
+                        "Project MCP server '{}' changed since it was listed; it is still waiting for approval.",
+                        super::terminal_safe(name)
+                    ),
+                );
             }
         };
+        if let TrustAction::ApproveListed(listed) = &action {
+            if listed.is_empty() {
+                // fx v0.0.16's sentence (`mcp_host/verbs.zig:645-650@481104fd`).
+                self.notice(false, "No project servers are waiting for approval.");
+                self.present_prompt();
+                return;
+            }
+            if changed.len() == listed.len() {
+                say_changed(self);
+                self.present_prompt();
+                return;
+            }
+        }
         match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
                 self.notice(false, body);
+                say_changed(self);
                 self.reload(Origin::Transcript);
             }
             Err(err) => {

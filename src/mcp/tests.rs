@@ -73,6 +73,20 @@ fn settled(runtime: &McpRuntime, name: &str) -> super::runtime::ServerView {
     }
 }
 
+/// `runtime.run(job)`, failing the case loudly if it has not returned within
+/// a minute rather than hanging the whole run.
+fn bounded_run(runtime: &Arc<McpRuntime>, job: Job) {
+    let (done, finished) = std::sync::mpsc::channel();
+    let runtime = Arc::clone(runtime);
+    std::thread::spawn(move || {
+        runtime.run(job);
+        let _ = done.send(());
+    });
+    finished
+        .recv_timeout(WAIT)
+        .expect("an MCP job did not finish within the case's deadline");
+}
+
 fn notices(runtime: &McpRuntime) -> Vec<String> {
     runtime
         .take_events()
@@ -201,6 +215,8 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     assert!(events.contains(&Event::TrustPrompt {
         name: "proj".into(),
         digest: digest.clone(),
+        listed: vec![("proj".into(), digest.clone())],
+        whole: true,
     }));
     let view = settled(&runtime, "proj");
     assert_eq!(view.state_label(), "Pending trust");
@@ -208,10 +224,13 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
         runtime.list_resources("proj", false, None),
         Err(super::McpError::Named("McpWorkspaceApprovalRequired"))
     );
-    runtime.run(Job::Trust {
-        action: TrustAction::Approve("proj".into()),
-        body: "Approving project MCP server 'proj'.".into(),
-    });
+    bounded_run(
+        &runtime,
+        Job::Trust {
+            action: TrustAction::Approve("proj".into()),
+            body: "Approving project MCP server 'proj'.".into(),
+        },
+    );
     assert_eq!(
         notices(&runtime),
         [
@@ -272,6 +291,13 @@ fn a_pending_entry_is_spelled_once_per_read_and_shared_by_every_view() {
     let runtime = home.runtime();
     runtime.start();
     settled(&runtime, "proj");
+    // The startup reload builds the servers again once: wait for it, so the
+    // two views below are of one read.
+    let deadline = Instant::now() + WAIT;
+    while runtime.generation() < 1 {
+        assert!(Instant::now() < deadline, "the startup reload never ran");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let entry = |runtime: &McpRuntime| {
         runtime
             .views()
@@ -308,10 +334,13 @@ fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_erro
     runtime.start();
     assert_eq!(settled(&runtime, "shown").state_label(), "Pending trust");
     assert_eq!(runtime.issues(), ["templated: McpConfigInvalidType"]);
-    runtime.run(Job::Trust {
-        action: TrustAction::ApproveAll,
-        body: "Approving all project MCP servers for this workspace.".into(),
-    });
+    bounded_run(
+        &runtime,
+        Job::Trust {
+            action: TrustAction::ApproveAll,
+            body: "Approving all project MCP servers for this workspace.".into(),
+        },
+    );
     assert_eq!(settled(&runtime, "shown").status(), Status::Ready);
     assert!(
         runtime.views().iter().all(|view| view.name != "templated"),
@@ -347,10 +376,13 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     let runtime = home.runtime();
     runtime.start();
     settled(&runtime, "proj");
-    runtime.run(Job::Trust {
-        action: TrustAction::Approve("proj".into()),
-        body: "Approving project MCP server 'proj'.".into(),
-    });
+    bounded_run(
+        &runtime,
+        Job::Trust {
+            action: TrustAction::Approve("proj".into()),
+            body: "Approving project MCP server 'proj'.".into(),
+        },
+    );
     assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
     let _ = runtime.take_events();
 
@@ -391,7 +423,7 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     let wrote = write(PermissionMode::Auto, rules);
     assert!(wrote.ok, "{wrote:?}");
 
-    runtime.run(Job::Command("reload".into()));
+    bounded_run(&runtime, Job::Command("reload".into()));
     let view = settled(&runtime, "proj");
     assert!(
         !ran.exists(),
@@ -420,23 +452,29 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     // which is no longer there.
     let first = config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}));
     assert_ne!(*digest, first);
-    runtime.run(Job::Trust {
-        action: TrustAction::ApproveShown {
-            name: "proj".into(),
-            digest: first,
+    bounded_run(
+        &runtime,
+        Job::Trust {
+            action: TrustAction::ApproveShown {
+                name: "proj".into(),
+                digest: first,
+            },
+            body: "Approving project MCP server 'proj'.".into(),
         },
-        body: "Approving project MCP server 'proj'.".into(),
-    });
+    );
     assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
     assert!(!ran.exists());
     // The person approving the entry they were shown runs it.
-    runtime.run(Job::Trust {
-        action: TrustAction::ApproveShown {
-            name: "proj".into(),
-            digest: digest.clone(),
+    bounded_run(
+        &runtime,
+        Job::Trust {
+            action: TrustAction::ApproveShown {
+                name: "proj".into(),
+                digest: digest.clone(),
+            },
+            body: "Approving project MCP server 'proj'.".into(),
         },
-        body: "Approving project MCP server 'proj'.".into(),
-    });
+    );
     assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
     assert!(ran.exists());
     runtime.shutdown();
