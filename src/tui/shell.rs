@@ -13971,6 +13971,123 @@ mod tests {
     }
 
     #[test]
+    fn a_on_mcp_details_approves_the_entry_drawn_and_not_one_read_since() {
+        // Details draw entry A; a reload reads entry B before the next frame;
+        // `a` must not approve B, which nobody has seen. It approves nothing,
+        // the next frame shows B and says it changed, and a second `a`
+        // approves B -- the entry that frame drew -- only.
+        use crate::mcp::config::entry_digest;
+        use crate::mcp::runtime::{Connection, Event, Job};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let ran = home.path().join("b-ran");
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/mcp_fixture.sh")
+            .to_string_lossy()
+            .into_owned();
+        let a = serde_json::json!({"command": "/bin/sh", "args": [fixture, "entry-a"]});
+        let b = serde_json::json!({"command": "/bin/sh", "args": [
+            "-c", ": > \"$0\"; exec /bin/sh \"$1\" entry-b", ran, fixture,
+        ]});
+        let write = |entry: &serde_json::Value| {
+            std::fs::write(
+                workspace.join(".mcp.json"),
+                serde_json::json!({"mcpServers": {"proj": entry}}).to_string(),
+            )
+            .expect("write .mcp.json")
+        };
+        write(&a);
+        let settings = home.path().join(".xfx").join("settings.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(settings.clone()),
+            workspace: workspace.clone(),
+        });
+        runtime.start();
+        runtime.suppress_prompts();
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(40, 200, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        // Every job the runtime was handed before this one has run once it
+        // answers; what they said, in order.
+        let drained =
+            |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
+                runtime.submit(Job::Command("path".into()));
+                let deadline = std::time::Instant::now() + Duration::from_secs(60);
+                let mut said = Vec::new();
+                loop {
+                    said.extend(runtime.take_events().into_iter().filter_map(
+                        |event| match event {
+                            Event::Notice { body, .. } => Some(body),
+                            _ => None,
+                        },
+                    ));
+                    if said.iter().any(|body| body.contains("mcp.json")) {
+                        return said;
+                    }
+                    assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            };
+        let screen = |shell: &Shell| shell.band_rows().join("\n");
+        let proj = |runtime: &crate::mcp::McpRuntime| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(60);
+            loop {
+                let view = runtime
+                    .views()
+                    .into_iter()
+                    .find(|view| view.name == "proj")
+                    .expect("proj");
+                if view.connection != Connection::Connecting {
+                    return view;
+                }
+                assert!(std::time::Instant::now() < deadline, "proj never settled");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        assert_eq!(proj(&runtime).state_label(), "Pending trust");
+
+        shell.mcp("");
+        shell.offer_to_mcp(Input::Action(Action::Submit));
+        assert!(screen(&shell).contains("entry-a"), "{}", screen(&shell));
+        write(&b);
+        runtime.run(Job::Command("reload".into()));
+        let _ = runtime.take_events();
+        shell.offer_to_mcp(Input::Text('a'));
+        let said = drained(&runtime);
+        assert!(
+            !said.iter().any(|body| body.starts_with("Approving")),
+            "`a` approved an entry the screen never drew: {said:?}"
+        );
+        assert_eq!(proj(&runtime).state_label(), "Pending trust");
+        assert!(!ran.exists(), "the entry read after the frame ran");
+
+        let redrawn = screen(&shell);
+        assert!(redrawn.contains("entry-b"), "{redrawn}");
+        assert!(redrawn.contains("changed since it was drawn"), "{redrawn}");
+        shell.offer_to_mcp(Input::Text('a'));
+        let said = drained(&runtime);
+        assert_eq!(said[0], "Approving project MCP server 'proj'.", "{said:?}");
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings"))
+                .expect("json");
+        assert_eq!(
+            saved["workspaces"][workspace.to_str().unwrap()]["enabledMcpjsonServerDigests"]["proj"],
+            serde_json::json!(entry_digest(&b)),
+            "{saved:#}"
+        );
+        assert_eq!(proj(&runtime).status(), crate::mcp::runtime::Status::Ready);
+        runtime.shutdown();
+    }
+
+    #[test]
     fn one_at_the_trust_prompt_approves_the_entry_it_showed_not_one_read_since() {
         // `1` answers the prompt on the screen. If the file changed after it
         // went up -- a reload read the new entry before the shell drew the
