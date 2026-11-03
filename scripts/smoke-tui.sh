@@ -7587,6 +7587,12 @@ def walk_menu(trial, count, what):
     return seen, marked_entry(trial.peek())
 
 
+# What the inline model column says once its catalog read has failed
+# (`src/tui/model_column.rs`'s `Known::Failed` row), as opposed to the
+# `loading models...` it says while the read is out.
+COLUMN_UNLOADED = "unable to load models"
+
+
 def scenario_16(run):
     """Typing a slash opens a ranked menu that completes without taking focus.
 
@@ -7837,6 +7843,20 @@ def scenario_16(run):
         "the menu outlived the completion it wrote: %r" % offered(completed),
     )
     before = len(fixture.bodies())
+    # **The inline column's own read answers first.** A completed `/model `
+    # opens the inline model column, and since D2c round 6 (`9aa666c7`) that
+    # column asks a catalog that failed again, from its own frames, and says
+    # `loading models...` until the read lands -- and an Enter on an empty
+    # query while it is loading is spent, as fx's `submitModelPicker` spends
+    # it (`src/tui/shell.rs`'s `submit_column`, D2b;
+    # `input_completion_runtime.zig:1161-1210`). This row sent its Enter
+    # straight after the completion and lost that race on 1 run in 3 at plan
+    # `de6618de`. With no catalog to give the read fails, the column says so,
+    # and only then is the Enter the command's.
+    trial.wait_until(
+        "the inline model column's catalog read to answer",
+        lambda _t: trial.peek().find(COLUMN_UNLOADED) is not None,
+    )
     trial.send("\r")
     # `/model` answers with its own menu (`.prd/tui-phase4/receipts/d2a`),
     # which is the session's answer and nothing a model was asked for: the
