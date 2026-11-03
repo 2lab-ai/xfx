@@ -19,7 +19,10 @@ TMPDIR=<tmp>                                  scripts/fxcap/capture.sh xfx <scen
 `fx-c1db919` is sha256 `7b76319a…` (banner `v0.0.13`), `fx-v0.0.16` is
 `8e6cda2e…` (stamp `481104fdbc24`). The xfx binary is `target/debug/xfx`
 built at `72bf024`, this branch with `plan/tui-phase4` `bcda7a5d` merged, as
-its banner says. Taken 2026-11-03 with the harness of that commit. Each
+its banner says. Taken 2026-11-03 with the harness of that commit. The
+`plan/tui-phase4` `1a94cdff` merged after the take (`67bd847`) changed
+product code and added three scenarios, not the harness; `h1-resize` taken
+again there on all three gives the same snaps below the banner. Each
 directory's `runs.log` is every run's own output, in order: the files it
 wrote, the lines the new verbs print (`resize:`, `signal …`, `rehomefile …`,
 `… socket(s)`), fx's `guards:` line, and the exit status.
