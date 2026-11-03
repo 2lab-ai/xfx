@@ -369,9 +369,9 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     // became the canonical name of the same command with `/setup` as its
     // alias, `/resume` and `/rename` after those, `/undo` after them, and
     // `/image`, `/images` and `/paste` after that, and `/usage` with its
-    // dashboard, and `/mcp` with its client; `/models` did not, because the
-    // catalog browser is reached by a bare `/model` rather than by a command
-    // of its own.
+    // dashboard, and `/mcp` with its client, and `/alias`; `/models` did not,
+    // because the catalog browser is reached by a bare `/model` rather than by
+    // a command of its own.
     assert!(
         text.contains("(also /img)"),
         "the image command's alias is not advertised: {text}"
@@ -393,6 +393,26 @@ fn slash_usage_on_the_line_shell_says_where_the_dashboard_is() {
     // `/cost` is the same command.
     session.type_line("/cost");
     session.wait_for_count("xfx: /usage shows its dashboard", 2);
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_alias_on_the_line_shell_says_upstreams_sentence_for_every_form() {
+    // fx c1db919 answers `/alias`, `/alias <name>` and `/alias <name> <command>`
+    // alike (`commandHandleAlias`, `app_commands.zig:2043-2050`): each is the
+    // command, with the rest of the line dropped, and none of them a prompt.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    let said = "[shell] aliases: Aliases are not yet configurable.";
+    for (times, line) in [
+        (1, "/alias"),
+        (2, "/alias build"),
+        (3, "/alias build zig build"),
+    ] {
+        session.type_line(line);
+        session.wait_for_count(said, times);
+    }
     assert_eq!(session.quit().code(), Some(0));
 }
 

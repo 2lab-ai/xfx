@@ -83,6 +83,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/trace",
     "/compact",
     "/settings",
+    "/alias",
     "/credits",
     "/paste",
     "/fast",
@@ -363,6 +364,19 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         // caret past a space as upstream's popup does.
         summary: "browse and update settings",
         category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Alias,
+        name: "/alias",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:489`): its words, its place
+        // between `/settings` and `/credits`, and the Extensions tab. It takes
+        // the rest of the line there (`/alias [name] [command]` is its help
+        // entry) and the answer is the same sentence whatever that is
+        // (`commandHandleAlias`, `app_commands.zig:2043-2050`).
+        summary: "show alias availability",
+        category: "Extensions",
         has_args: true,
     },
     SlashSpec {
@@ -668,6 +682,16 @@ pub const MCP_ON_THE_LINE_SHELL: &str = "xfx: /mcp manages MCP servers in the fu
      shell, which starts and connects them; this line-oriented shell runs none. Without \
      XFX_TUI=0, xfx opens the full-screen one";
 
+/// What `/alias` is filed under, on both surfaces: upstream's topic, which is
+/// the plural (`commandHandleAlias`, `app_commands.zig:2046`).
+pub const ALIAS_TOPIC: &str = "aliases";
+
+/// What `/alias` says, bare or with anything after it: upstream's sentence,
+/// a neutral notice (`app_commands.zig:2047-2048`). Upstream answers every form
+/// of `/alias [name] [command]` with it and keeps nothing, and so does xfx --
+/// there is no alias table on either side for a name to go into.
+pub const ALIASES_NOT_CONFIGURABLE: &str = "Aliases are not yet configurable.";
+
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
 
@@ -834,6 +858,10 @@ pub enum Slash {
     /// that changes each in place: the TUI's settings menu
     /// (`commandHandleSettings`, `app_commands.zig:2022-2041`).
     Settings,
+    /// Upstream's `/alias [name] [command]`, which says aliases cannot be
+    /// configured yet and keeps nothing (`commandHandleAlias`,
+    /// `app_commands.zig:2043-2050`).
+    Alias,
     /// The directories a session may work in besides the workspace, saved in
     /// the profile: a picker in the TUI, `list`, `add`, `remove` and `clear`
     /// on either surface ([`crate::workspace::access`]).
@@ -1451,6 +1479,15 @@ pub async fn run(
                     }
                     Slash::Mcp => {
                         writeln!(io::stderr(), "{MCP_ON_THE_LINE_SHELL}")?;
+                    }
+                    // Upstream's sentence under its topic, in this shell's
+                    // `[shell] <topic>:` shape; whatever follows the name is
+                    // dropped, as upstream drops it.
+                    Slash::Alias => {
+                        writeln!(
+                            io::stdout(),
+                            "[shell] {ALIAS_TOPIC}: {ALIASES_NOT_CONFIGURABLE}"
+                        )?;
                     }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
@@ -2656,10 +2693,10 @@ mod tests {
         // since `/settings`, twenty-four since `/image`, `/images` and
         // `/paste`, twenty-five since `/allowlist`, twenty-six since
         // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
-        // `/fast` and `/ultrafast`, thirty since `/mcp`, and thirty-one since
-        // `/skills`; `/provider` took `/setup`'s place rather than adding one, and
-        // `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 31);
+        // `/fast` and `/ultrafast`, thirty since `/mcp`, thirty-one since
+        // `/skills`, and thirty-two since `/alias`; `/provider` took `/setup`'s
+        // place rather than adding one, and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 32);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2950,9 +2987,10 @@ mod tests {
         // `/settings` is declared to take one as upstream's row is
         // (`commands.zig:488`), so completing it leaves the caret past a
         // space; every argument it is given is its usage line, since
-        // upstream's only form names a setting xfx does not have. Every other
-        // name is the whole command -- `/fast` among them, a toggle
-        // (`commands.zig:492`).
+        // upstream's only form names a setting xfx does not have. `/alias` is
+        // declared to take one as upstream's row is (`commands.zig:489`), and
+        // answers every form with the same sentence. Every other name is the
+        // whole command -- `/fast` among them, a toggle (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
@@ -2970,6 +3008,7 @@ mod tests {
                     | "/workspace"
                     | "/mcp"
                     | "/skills"
+                    | "/alias"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
@@ -3190,6 +3229,59 @@ mod tests {
             help.contains("(also /cost)") && help.contains("(also /balance)"),
             "{help}"
         );
+    }
+
+    #[test]
+    fn alias_is_upstreams_extensions_row_and_takes_the_rest_of_the_line() {
+        // `commands.zig:489`: the sentence the menu shows, the Extensions tab,
+        // no alias of its own, and `has_args` with `accepts_payload` -- so a
+        // name and a command after it are the command's argument rather than
+        // an unknown command.
+        let alias = slash_spec(Slash::Alias);
+        assert_eq!(
+            (
+                alias.name,
+                alias.aliases,
+                alias.summary,
+                alias.category,
+                alias.has_args
+            ),
+            (
+                "/alias",
+                &[][..],
+                "show alias availability",
+                "Extensions",
+                true
+            )
+        );
+        for (line, argument) in [
+            ("/alias", ""),
+            ("/alias build", "build"),
+            ("/alias build zig build", "build zig build"),
+        ] {
+            assert_eq!(
+                classify(line),
+                Submitted::Command {
+                    command: Slash::Alias,
+                    argument: argument.to_string()
+                },
+                "{line:?}"
+            );
+        }
+        // Upstream's order: `/settings`, `/alias`, `/credits`
+        // (`commands.zig:488-490`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/settings") + 1 == at("/alias") && at("/alias") + 1 == at("/credits"));
+        // Upstream's sentence under upstream's topic, the same words on both
+        // surfaces (`app_commands.zig:2046-2048`).
+        assert_eq!(ALIAS_TOPIC, "aliases");
+        assert_eq!(
+            ALIASES_NOT_CONFIGURABLE,
+            "Aliases are not yet configurable."
+        );
+        assert!(help_text()
+            .lines()
+            .any(|line| line == "  /alias    show alias availability"));
     }
 
     #[test]
