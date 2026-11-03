@@ -46,6 +46,8 @@
 pub mod allowlist;
 pub mod authority;
 pub mod command;
+mod git_attributes;
+mod gitconfig;
 mod links;
 pub mod policy;
 pub mod rules;

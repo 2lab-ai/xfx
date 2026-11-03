@@ -590,8 +590,9 @@ fn link_bases(context: &ToolContext) -> Vec<crate::permission::LinkBase> {
         .chain(context.link_bases().iter().cloned())
         .collect();
     for root in context.scope().roots() {
-        let root = LinkBase::Home(root.to_path_buf());
-        if !bases.contains(&root) {
+        let home = LinkBase::Home(root.to_path_buf());
+        let root = LinkBase::Root(root.to_path_buf());
+        if !bases.contains(&root) && !bases.contains(&home) {
             bases.push(root);
         }
     }

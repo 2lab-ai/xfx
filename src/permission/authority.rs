@@ -1176,6 +1176,17 @@ impl CommandPlan {
             }
             denied => denied,
         };
+        // The one attribute source the hardened argv cannot switch off
+        // ([`super::git_attributes`]).
+        let effect = match effect {
+            CommandEffect::DirectReadOnly { argv }
+                if argv.first().map(String::as_str) == Some("git")
+                    && super::git_attributes::driver_hold(&resolved_cwd).is_some() =>
+            {
+                CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+            }
+            other => other,
+        };
         let route = match &effect {
             CommandEffect::DirectReadOnly { argv } => CommandRoute::Direct {
                 argv: hardened(argv),
@@ -1185,7 +1196,14 @@ impl CommandPlan {
             },
         };
 
-        let environment = minimal_environment();
+        let mut environment = minimal_environment();
+        if let CommandRoute::Direct { argv } = &route {
+            if argv.first().map(String::as_str) == Some("git") {
+                // The system attributes file, which no `-c` switches off.
+                environment.push(("GIT_ATTR_NOSYSTEM".to_string(), "1".to_string()));
+                environment.sort();
+            }
+        }
         let mut hasher = Sha256::new();
         hasher.update(trimmed.as_bytes());
         hasher.update([0u8]);
@@ -1294,10 +1312,13 @@ impl PreparedCommand {
 ///   attribute, no `filter`, `diff` or `merge` driver is selected, so a
 ///   `filter.<driver>.clean` configured anywhere is never run -- and `git diff`
 ///   and `git status` run one on any work-tree file an attribute selects.
-///   `$GIT_DIR/info/attributes` is still read; the file tools never write
-///   below `.git`. Git older than 2.40 does not know `--attr-source`, refuses
-///   it, and runs nothing, which is the safe way for it to fail; a SHA-256
-///   repository has no object by this name, and git refuses that too.
+///   The system attributes file is dropped by `GIT_ATTR_NOSYSTEM` in the
+///   plan's environment. `$GIT_DIR/info/attributes` is still read, and no
+///   option skips it: a repository whose file selects a driver is not run in
+///   auto at all ([`super::git_attributes`]). Git older than 2.40 does not
+///   know `--attr-source`, refuses it, and runs nothing, which is the safe way
+///   for it to fail; a SHA-256 repository has no object by this name, and git
+///   refuses that too.
 /// - `log.showSignature` makes `log` and `show` run `gpg.program` on every
 ///   signed commit.
 ///
@@ -2180,89 +2201,263 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_admitted_git_selects_no_driver_a_file_auto_can_write_defines() {
-        // The chain: the user's `~/.gitconfig` includes `~/.gitconfig.local`,
-        // which no list protects; auto writes a `filter.x.clean` into it and
-        // `* filter=x` into the workspace's `.gitattributes`, then runs its own
-        // `git diff`. A global `core.attributesFile` auto can write is the
-        // same chain without the workspace file.
-        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-            .map(|dir| dir.join("git"))
-            .find(|git| git.is_file());
-        let Some(git) = git else {
-            return;
-        };
-        let home = tempfile::tempdir().expect("a home");
-        let home = home.path().canonicalize().expect("canonical");
-        let (_dir, scope) = scope();
-        let repo = scope.primary().to_path_buf();
-        let ran = home.join("RAN");
-        let run = |argv: &[String]| {
-            std::process::Command::new(&git)
+    /// A repository with one committed file changed since, and a home whose
+    /// `~/.gitconfig` includes `~/.gitconfig.local`, which defines
+    /// `filter.x.clean` as a command that leaves a marker -- the chain the
+    /// git tests below run, with the real git.
+    struct GitFixture {
+        git: PathBuf,
+        _home_dir: tempfile::TempDir,
+        home: PathBuf,
+        _repo_dir: tempfile::TempDir,
+        scope: AccessScope,
+        ran: PathBuf,
+    }
+
+    impl GitFixture {
+        fn new() -> Self {
+            // Required, not skipped: a test that passes because git was not
+            // there proves nothing about the git that is.
+            let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .map(|dir| dir.join("git"))
+                .find(|git| git.is_file())
+                .expect("git on PATH: these tests run the real one");
+            let home_dir = tempfile::tempdir().expect("a home");
+            let home = home_dir.path().canonicalize().expect("canonical");
+            let (repo_dir, scope) = scope();
+            let ran = home.join("RAN");
+            let fixture = Self {
+                git,
+                _home_dir: home_dir,
+                home,
+                _repo_dir: repo_dir,
+                scope,
+                ran,
+            };
+            let words =
+                |line: &str| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
+            assert!(fixture.run(&words("git init -q")).success());
+            std::fs::write(fixture.repo().join("a.txt"), "one\n").expect("a file");
+            assert!(fixture.run(&words("git add a.txt")).success());
+            assert!(fixture
+                .run(&words(
+                    "git -c user.email=a@b -c user.name=a commit -q -m a"
+                ))
+                .success());
+            std::fs::write(
+                fixture.home.join(".gitconfig"),
+                "[include]\n\tpath = ~/.gitconfig.local\n",
+            )
+            .expect("the global config");
+            std::fs::write(
+                fixture.home.join(".gitconfig.local"),
+                format!(
+                    "[filter \"x\"]\n\tclean = \"touch {}; cat\"\n[diff \"x\"]\n\ttextconv = \"touch {}; cat\"\n",
+                    fixture.ran.display(),
+                    fixture.ran.display()
+                ),
+            )
+            .expect("the included file");
+            std::fs::write(fixture.repo().join("a.txt"), "two\n").expect("a change");
+            fixture
+        }
+
+        fn repo(&self) -> &Path {
+            self.scope.primary()
+        }
+
+        /// Runs `argv` in the repository with the environment a direct plan
+        /// gets, the fixture's home standing in for `$HOME`.
+        fn run(&self, argv: &[String]) -> std::process::ExitStatus {
+            self.run_with(argv, &[])
+        }
+
+        fn run_with(&self, argv: &[String], extra: &[(&str, &str)]) -> std::process::ExitStatus {
+            let mut command = std::process::Command::new(&self.git);
+            command
                 .args(&argv[1..])
-                .current_dir(&repo)
+                .current_dir(self.repo())
                 .env_clear()
-                .env("HOME", &home)
+                .env("HOME", &self.home)
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .env("PATH", std::env::var_os("PATH").unwrap_or_default())
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .expect("git runs")
-        };
-        let words = |line: &str| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
-        for setup in [
-            "git init -q",
-            "git -c user.email=a@b -c user.name=a commit -q --allow-empty -m init",
-        ] {
-            assert!(run(&words(setup)).success(), "{setup}");
+                .stderr(std::process::Stdio::null());
+            for (name, value) in extra {
+                command.env(name, value);
+            }
+            command.status().expect("git runs")
         }
-        std::fs::write(repo.join("a.txt"), "one\n").expect("a file");
-        assert!(run(&words("git add a.txt")).success());
-        assert!(run(&words(
-            "git -c user.email=a@b -c user.name=a commit -q -m a"
-        ))
-        .success());
-        std::fs::write(
-            home.join(".gitconfig"),
-            format!(
-                "[include]\n\tpath = {}\n",
-                home.join(".gitconfig.local").display()
-            ),
-        )
-        .expect("the global config");
-        std::fs::write(
-            home.join(".gitconfig.local"),
-            format!(
-                "[filter \"x\"]\n\tclean = \"touch {}; cat\"\n[core]\n\tattributesFile = {}\n",
-                ran.display(),
-                home.join("attributes").display()
-            ),
-        )
-        .expect("the included file");
-        std::fs::write(repo.join("a.txt"), "two\n").expect("a change");
-        let limits = ToolLimits::default();
+
+        /// Whether the filter ran, clearing the marker for the next run.
+        fn filter_ran(&self) -> bool {
+            let ran = self.ran.exists();
+            let _ = std::fs::remove_file(&self.ran);
+            ran
+        }
+
+        fn plan(&self, command: &str) -> CommandPlan {
+            CommandPlan::prepare(command, &self.scope, None, &ToolLimits::default())
+                .expect("a plan")
+        }
+    }
+
+    fn direct_argv(plan: &CommandPlan) -> &[String] {
+        let CommandRoute::Direct { argv } = plan.route() else {
+            panic!("`{}` is a direct plan", plan.command());
+        };
+        argv
+    }
+
+    #[test]
+    fn an_admitted_git_selects_no_driver_a_file_auto_can_write_defines() {
+        // The chain: `~/.gitconfig` includes `~/.gitconfig.local`; a filter
+        // defined there is selected by the workspace's `.gitattributes`, or by
+        // a global `core.attributesFile` the included file names.
+        let fixture = GitFixture::new();
+        let attributes_file = fixture.home.join("attributes");
         for (attributes, where_) in [
-            (repo.join(".gitattributes"), "the workspace"),
-            (home.join("attributes"), "the global attributes file"),
+            (fixture.repo().join(".gitattributes"), "the workspace"),
+            (attributes_file.clone(), "the global attributes file"),
         ] {
+            if attributes == attributes_file {
+                let mut local = std::fs::read_to_string(fixture.home.join(".gitconfig.local"))
+                    .expect("the included file");
+                local.push_str(&format!(
+                    "[core]\n\tattributesFile = {}\n",
+                    attributes.display()
+                ));
+                std::fs::write(fixture.home.join(".gitconfig.local"), local).expect("written");
+            }
             std::fs::write(&attributes, "* filter=x\n").expect("attributes");
+            // The control: unhardened, git runs the filter.
+            assert!(fixture
+                .run(&["git".into(), "diff".into(), "--stat".into()])
+                .success());
+            assert!(
+                fixture.filter_ran(),
+                "the control did not run the filter ({where_})"
+            );
             for command in ["git diff --stat", "git status --short"] {
-                let _ = std::fs::remove_file(&ran);
-                let plan = CommandPlan::prepare(command, &scope, None, &limits).expect("a plan");
-                let CommandRoute::Direct { argv } = plan.route() else {
-                    panic!("`{command}` is a direct plan");
-                };
-                run(argv);
+                let plan = fixture.plan(command);
+                let status = fixture.run(direct_argv(&plan));
+                assert!(status.success(), "`{command}` failed: {status}");
                 assert!(
-                    !ran.exists(),
-                    "`{command}` ran a filter that {where_} selected: {argv:?}"
+                    !fixture.filter_ran(),
+                    "`{command}` ran a filter that {where_} selected"
                 );
             }
             std::fs::remove_file(&attributes).expect("attributes");
         }
+    }
+
+    #[test]
+    fn a_git_that_does_not_know_an_option_it_is_given_runs_nothing() {
+        // Git older than 2.40 has no `--attr-source`. What it does with a
+        // global option it does not know is what any git does: refuse it and
+        // run nothing. Shown with this git and an option no git has.
+        let fixture = GitFixture::new();
+        std::fs::write(fixture.repo().join(".gitattributes"), "* filter=x\n").expect("attributes");
+        let plan = fixture.plan("git diff --stat");
+        let argv: Vec<String> = direct_argv(&plan)
+            .iter()
+            .map(|word| {
+                if word.starts_with("--attr-source=") {
+                    "--no-such-global-option".to_string()
+                } else {
+                    word.clone()
+                }
+            })
+            .collect();
+        let status = fixture.run(&argv);
+        assert_eq!(status.code(), Some(129), "{argv:?}");
+        assert!(
+            !fixture.filter_ran(),
+            "an unknown option still ran the filter"
+        );
+    }
+
+    #[test]
+    fn auto_does_not_run_git_where_the_repositorys_own_attributes_select_a_driver() {
+        // `$GIT_DIR/info/attributes` is the attribute source `--attr-source`
+        // leaves in place. Auto cannot write it; a repository can already
+        // have it, and then the included filter runs on auto's own git.
+        let fixture = GitFixture::new();
+        let info = fixture.repo().join(".git/info");
+        std::fs::create_dir_all(&info).expect("info");
+        std::fs::write(info.join("attributes"), "* filter=x\n").expect("attributes");
+        // Why: the hardened argv alone still runs it.
+        assert!(fixture
+            .run(&hardened(&["git".into(), "diff".into(), "--stat".into()]))
+            .success());
+        assert!(
+            fixture.filter_ran(),
+            "the hardened argv did not run the filter"
+        );
+        for command in ["git diff --stat", "git status --short", "git log --oneline"] {
+            let plan = fixture.plan(command);
+            assert_eq!(
+                plan.effect(),
+                &CommandEffect::Denied(DeniedEffect::RepositoryAttributes),
+                "{command}"
+            );
+        }
+        // A driver named any of the three ways, or a macro that names one.
+        for selects in ["*.txt diff=x\n", "* merge=x\n", "[attr]m filter=x\n* m\n"] {
+            std::fs::write(info.join("attributes"), selects).expect("attributes");
+            assert_eq!(
+                fixture.plan("git diff").effect(),
+                &CommandEffect::Denied(DeniedEffect::RepositoryAttributes),
+                "{selects:?}"
+            );
+        }
+        // Attributes that select nothing are no reason to ask.
+        std::fs::write(
+            info.join("attributes"),
+            "# none\n*.png binary\n*.c text eol=lf\n",
+        )
+        .expect("attributes");
+        assert!(matches!(
+            fixture.plan("git diff").effect(),
+            CommandEffect::DirectReadOnly { .. }
+        ));
+        // Unreadable is not "selects nothing".
+        std::fs::set_permissions(
+            info.join("attributes"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o000),
+        )
+        .expect("chmod");
+        let unreadable = fixture.plan("git diff").effect().clone();
+        std::fs::set_permissions(
+            info.join("attributes"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o644),
+        )
+        .expect("chmod");
+        assert_eq!(
+            unreadable,
+            CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+        // A linked worktree reads its common directory's.
+        std::fs::write(info.join("attributes"), "").expect("attributes");
+        let linked = fixture.home.join("linked");
+        assert!(fixture
+            .run(&[
+                "git".into(),
+                "worktree".into(),
+                "add".into(),
+                "-q".into(),
+                linked.display().to_string(),
+            ])
+            .success());
+        std::fs::write(info.join("attributes"), "* diff=x\n").expect("attributes");
+        let linked_scope = AccessScope::primary_only(&linked).expect("a root");
+        let plan = CommandPlan::prepare("git diff", &linked_scope, None, &ToolLimits::default())
+            .expect("a plan");
+        assert_eq!(
+            plan.effect(),
+            &CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
     }
 
     #[test]

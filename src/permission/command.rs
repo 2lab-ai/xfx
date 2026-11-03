@@ -70,6 +70,13 @@ pub enum DeniedEffect {
     /// about the command text, so only [`crate::permission::CommandPlan::prepare`]
     /// -- which holds the scope -- can establish it.
     OperandOutsideWorkspace,
+    /// A `git` whose repository's own attribute file -- `$GIT_DIR/info/attributes`,
+    /// the one source the hardened argv cannot switch off -- selects a filter,
+    /// diff or merge driver, or could not be read.
+    ///
+    /// Like [`Self::OperandOutsideWorkspace`], a fact about the filesystem that
+    /// only [`crate::permission::CommandPlan::prepare`] establishes.
+    RepositoryAttributes,
     /// There was no command.
     Empty,
     /// The command is longer than the classifier will consider.
@@ -95,6 +102,9 @@ impl DeniedEffect {
             }
             Self::OperandOutsideWorkspace => {
                 "one of its operands resolves outside the authorized workspace roots"
+            }
+            Self::RepositoryAttributes => {
+                "the repository's own attributes ($GIT_DIR/info/attributes) select a filter, diff or merge driver that git would run, or could not be read"
             }
             Self::Empty => "there is no command",
             Self::TooLong => "it is longer than the classifier will consider",
