@@ -298,3 +298,19 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - A4's review ran four more rounds after round 3 (A4d–A4h); the fixes moved from naming instances to a measured allowlist (every scalar on both terminals) enforced as a postcondition with a property test. Reports: zbrain `p2-sec/round{4,5,6}/reviews/A4*`.
+
+## R42–R43 — closed 2026-11-04
+
+- result: batch 42 (`62146228`: SEC-A4i) and batch 43 (`cdad7609`: SEC-C4j–C4l) lib 3649→3653 / FI 3656→3660, permissions 158, tui 163 / FI 177, 0 failed, clippy 0 both. Every round-1 security unit is closed.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| SEC-C4 | ✅ | MCP trust bound to the entry's digest; `a` approves only the drawn entry shown whole; approve-all and `2` approve only the set they drew, fixed at `p` from the servers tab's last frame; `p` before any frame does nothing; `2` never stuck; the prompt's text and authority are one event, so the armed prompt is the last printed — batches 30–43 | `fix/p2sec-mcp-approval-bind-e` @ `02480285` | **closed round 7** (both engines MUST none on `a7c0ef7c`); the reproduced publication race fixed in C4j–C4k and confirmed in round 8 (both MUST none on `ac483a4c`); C4l tests and a dead variant removed |
+| SEC-R3 | ✅ | round 3 closed A1, B1, C2, C3, D2 (both engines); C3d test determinism landed batch 30 | zbrain `p2-sec/round3/STATUS.md` | all closed: C5 round 6, A4 round 6, C4 rounds 7–8 |
+
+### Round section (as it was in loop.md)
+
+- 2026-11-04: batch 41 (`2f0759be`: SEC-C4h+C4i) lib 3648 / FI 3655, tui 163 / FI 177, 0 failed, clippy 0 both. SEC-A4d closed in review round 6.
+- 2026-11-04: preliminary receipt at `62146228`: SM1 37 scenarios + oracle 1091/1091; sweep vs `c1db919` 679/917 (74.0%), 0 failed/timeout; 0 snap regressions against the round-2 floor (861 snaps), 22 improvements.
