@@ -1171,11 +1171,27 @@ pub trait EventSink {
 /// Emits one newline-terminated JSON object per event.
 pub struct JsonlSink<W: Write> {
     writer: W,
+    /// Whether the stream is written to a terminal, and so carries no code
+    /// point raw that a terminal hides or obeys ([`json_for_a_terminal`]).
+    terminal: bool,
 }
 
 impl<W: Write> JsonlSink<W> {
     pub fn new(writer: W) -> Self {
-        Self { writer }
+        Self {
+            writer,
+            terminal: false,
+        }
+    }
+
+    /// The same sink, told whether its stream is a terminal.
+    ///
+    /// `ask --json` on a terminal still asks on it, after the stream: on one,
+    /// every line is [`json_for_a_terminal`]; anywhere else it is exactly what
+    /// serde_json wrote.
+    pub fn on_terminal(mut self, terminal: bool) -> Self {
+        self.terminal = terminal;
+        self
     }
 
     pub fn into_inner(self) -> W {
@@ -1183,9 +1199,72 @@ impl<W: Write> JsonlSink<W> {
     }
 }
 
+/// Whether a terminal would obey `character`, reorder text around it, or draw
+/// nothing for it: `DEL`, the C1 controls (a single `U+009B` is a `CSI` to a
+/// terminal that decodes it), the line and paragraph separators, and every
+/// default-ignorable code point -- the bidirectional controls among them.
+fn hidden_from_a_reader(character: char) -> bool {
+    matches!(
+        u32::from(character),
+        0x7f..=0x9f
+            | 0xad
+            | 0x34f
+            | 0x61c
+            | 0x115f..=0x1160
+            | 0x17b4..=0x17b5
+            | 0x180b..=0x180f
+            | 0x200b..=0x200f
+            | 0x2028..=0x202e
+            | 0x2060..=0x206f
+            | 0x3164
+            | 0xfe00..=0xfe0f
+            | 0xfeff
+            | 0xffa0
+            | 0xfff0..=0xfff8
+            | 0x1bca0..=0x1bca3
+            | 0x1d173..=0x1d17a
+            | 0xe0000..=0xe0fff
+    )
+}
+
+/// A serialized JSON line with every [`hidden_from_a_reader`] code point
+/// written as its JSON escape, `\u009b` for `U+009B` (a surrogate pair past
+/// the BMP).
+///
+/// **The same JSON**: those code points can only stand inside a string, and an
+/// escape there decodes to the very character it replaces, so every reader
+/// parses the line it would have parsed. serde_json already escapes C0; this
+/// is the rest of what a terminal would act on or hide, which serde_json
+/// writes as raw UTF-8 -- and on a terminal the stream comes before the
+/// approval question, so none of it may be left in force there. Nothing in
+/// the set is part of JSON's own syntax or of an escape serde_json wrote, so
+/// nothing it wrote is rewritten.
+fn json_for_a_terminal(line: &str) -> Cow<'_, str> {
+    if !line.chars().any(hidden_from_a_reader) {
+        return Cow::Borrowed(line);
+    }
+    let mut safe = String::with_capacity(line.len() + 16);
+    for character in line.chars() {
+        if hidden_from_a_reader(character) {
+            let mut units = [0u16; 2];
+            for unit in character.encode_utf16(&mut units) {
+                safe.push_str(&format!("\\u{unit:04x}"));
+            }
+        } else {
+            safe.push(character);
+        }
+    }
+    Cow::Owned(safe)
+}
+
 impl<W: Write> EventSink for JsonlSink<W> {
     fn emit(&mut self, event: &Event) -> io::Result<()> {
         let line = serde_json::to_string(event).expect("events are always serializable");
+        let line = if self.terminal {
+            json_for_a_terminal(&line)
+        } else {
+            Cow::Borrowed(line.as_str())
+        };
         self.writer.write_all(line.as_bytes())?;
         self.writer.write_all(b"\n")?;
         self.writer.flush()
@@ -1405,9 +1484,16 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                     ))
                 }
             }
+            // **Flattened, on any stream.** A failure quotes what it failed
+            // on, and that is often the model's -- a tool name it invented, a
+            // call id it reused -- or a server's. Raw, a conceal or a scroll
+            // region in it would outlive the turn and be in force when the
+            // next one asks a question; a line break would forge a line of
+            // xfx's own. xfx's own sentences carry no control, so blanking the
+            // class ([`one_line`]) changes nothing a person was meant to read.
             Event::Error { message } => {
                 self.end_line()?;
-                self.diagnostics.write_all(message.as_bytes())?;
+                self.diagnostics.write_all(one_line(message).as_bytes())?;
                 self.diagnostics.write_all(b"\n")?;
                 self.diagnostics.flush()
             }
@@ -1863,11 +1949,43 @@ mod tests {
     }
 
     #[test]
+    fn a_json_stream_on_a_terminal_spells_what_a_terminal_would_hide_as_the_same_json() {
+        // DEL, the C1 CSI, a right-to-left override, a soft hyphen, a variation
+        // selector and a tag past the BMP -- all raw UTF-8 from serde_json --
+        // beside the C0 it already escapes and a payload backslash.
+        let text = "a\u{7f}\u{9b}8m\u{202e}b\u{ad}\u{fe0f}\u{e0041}\u{1b}\\u0041 \u{d55c}";
+        let delta = Event::AssistantDelta {
+            text: text.to_string(),
+        };
+
+        let mut terminal = JsonlSink::new(Vec::new()).on_terminal(true);
+        terminal.emit(&delta).unwrap();
+        let shown = String::from_utf8(terminal.into_inner()).unwrap();
+        assert_eq!(
+            shown,
+            "{\"kind\":\"assistant_delta\",\"text\":\"a\\u007f\\u009b8m\\u202eb\\u00ad\\ufe0f\\udb40\\udc41\\u001b\\\\u0041 \u{d55c}\"}\n"
+        );
+        let decoded: serde_json::Value = serde_json::from_str(&shown).unwrap();
+        assert_eq!(decoded["text"], text, "the escapes changed the string");
+
+        let mut piped = JsonlSink::new(Vec::new());
+        piped.emit(&delta).unwrap();
+        assert_eq!(
+            String::from_utf8(piped.into_inner()).unwrap(),
+            format!("{}\n", serde_json::to_string(&delta).unwrap()),
+            "a stream off a terminal was changed"
+        );
+    }
+
+    #[test]
     fn an_answer_reaches_a_terminal_inert_and_anything_else_byte_for_byte() {
         // Conceal, a colour, a scroll region, a title with its BEL, the C1
-        // CSI and a DEL: state a terminal would keep. The line break, the
-        // CRLF's carriage return and the tab are a reader's text and stay.
-        let answer = "a\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\u{1b}]0;t\u{7}\u{9b}8m\u{7f}\n\tb\r\n";
+        // CSI, a DEL, shift-out (G1), and the C1 DCS and OSC with their ST:
+        // state a terminal would keep. A list of known sequences would miss
+        // the next one; the whole class goes. The line break, the CRLF's
+        // carriage return and the tab are a reader's text and stay.
+        let answer = "a\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\u{1b}]0;t\u{7}\u{9b}8m\u{7f}\
+                      \u{e}\u{90}q\u{9c}\u{9d}2;t\u{9c}\n\tb\r\n";
         let delta = Event::AssistantDelta {
             text: answer.to_string(),
         };
@@ -1877,7 +1995,7 @@ mod tests {
         let (shown, _) = terminal.into_inner();
         assert_eq!(
             String::from_utf8(shown).unwrap(),
-            "a [8m [30;40m [2;3r ]0;t  8m \n\tb\r\n"
+            "a [8m [30;40m [2;3r ]0;t  8m   q  2;t \n\tb\r\n"
         );
 
         let (piped, _) = text_sink_output(&[delta]);

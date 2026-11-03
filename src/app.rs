@@ -392,7 +392,7 @@ async fn run_ask(
         Ok(scope) => scope,
         Err(err) => {
             let mut sink: Box<dyn EventSink> = if request.json {
-                Box::new(JsonlSink::new(stdout))
+                Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
@@ -410,7 +410,7 @@ async fn run_ask(
         Ok(bundle) => bundle,
         Err(message) => {
             let mut sink: Box<dyn EventSink> = if request.json {
-                Box::new(JsonlSink::new(stdout))
+                Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
@@ -424,7 +424,7 @@ async fn run_ask(
         Ok(opened) => opened,
         Err(err) => {
             let mut sink: Box<dyn EventSink> = if request.json {
-                Box::new(JsonlSink::new(stdout))
+                Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
@@ -441,7 +441,7 @@ async fn run_ask(
     // answer arrives inert: the approval question is asked on the same one,
     // after it, and must not find a state the model left there.
     let mut sink: Box<dyn EventSink + '_> = if request.json {
-        Box::new(JsonlSink::new(stdout))
+        Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
     } else {
         Box::new(TextSink::new(stdout, stderr).on_terminal(stdout_is_terminal))
     };

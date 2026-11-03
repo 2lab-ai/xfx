@@ -1590,6 +1590,33 @@ fn ask_json_streams_deltas_then_exactly_one_final() {
 }
 
 #[test]
+fn ask_json_to_a_pipe_is_serde_json_byte_for_byte() {
+    // Only a terminal gets C1, bidirectional and default-ignorable code points
+    // spelled as `\uXXXX`. A pipe gets the stream as serde_json writes it --
+    // those code points as raw UTF-8 -- and either way a reader decodes the
+    // same string.
+    let text = "go\u{9b}8m\u{202e}gone\u{ad}\u{e0041}";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[text]))]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "hello"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    let first = run.stdout.lines().next().expect("a delta line");
+    assert_eq!(
+        first,
+        format!(r#"{{"kind":"assistant_delta","text":"{text}"}}"#),
+        "stdout={:?}",
+        run.stdout
+    );
+    assert_eq!(run.events()[0]["text"], text);
+}
+
+#[test]
 fn ask_sends_the_bearer_credential_and_the_xfx_source_headers() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
     let sandbox = Sandbox::new();

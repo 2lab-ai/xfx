@@ -1752,6 +1752,32 @@ fn a_command_cannot_paint_on_the_terminal_through_the_approval_question() {
     assert_eq!(session.quit().code(), Some(0));
 }
 
+/// What xfx writes immediately before every line-mode question: attributes
+/// off, then the scroll region reset with the cursor saved and restored
+/// around it (`DECSTBM` homes the cursor). Whatever another writer left in
+/// force -- a relay, a JSONL stream, an earlier turn -- is cleared there.
+const QUESTION_RESET: &str = "\u{1b}[0m\u{1b}7\u{1b}[r\u{1b}8";
+
+/// No control reached the terminal in `text` but xfx's own reset before each
+/// question, and that reset sits right before the question.
+fn assert_no_foreign_control(text: &str) {
+    let foreign = text.replace(QUESTION_RESET, "");
+    for (character, name) in [
+        ('\u{1b}', "an ESC"),
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{7}', "a BEL"),
+    ] {
+        assert!(
+            !foreign.contains(character),
+            "{name} xfx did not write reached the terminal before the question: {text:?}"
+        );
+    }
+    assert!(
+        text.contains(&format!("{QUESTION_RESET}\r\nxfx wants to")),
+        "the question was not preceded by its reset: {text:?}"
+    );
+}
+
 /// A turn whose answer, written before it asks to run a command, carries the
 /// state a terminal keeps: conceal (SGR 8), black on black, a scroll region
 /// pinned to two rows, a window title with its BEL, and the one-scalar C1
@@ -1778,16 +1804,7 @@ fn an_answer_then_a_command() -> FakeGateway {
 /// is drawn -- and the answer still arrived, as text, a blank where each
 /// control was.
 fn assert_nothing_left_in_force(asked: &str) {
-    for (character, name) in [
-        ('\u{1b}', "an ESC"),
-        ('\u{9b}', "the C1 CSI"),
-        ('\u{7}', "a BEL"),
-    ] {
-        assert!(
-            !asked.contains(character),
-            "{name} the model wrote reached the terminal before the question: {asked:?}"
-        );
-    }
+    assert_no_foreign_control(asked);
     assert!(asked.contains("Running the check now."), "{asked:?}");
     assert!(asked.contains(" [8m [30;40m [2;3r ]0;xfx  8m"), "{asked:?}");
     assert!(
@@ -1839,6 +1856,108 @@ fn an_ask_answer_on_a_terminal_cannot_hide_its_approval_question_either() {
         !sandbox.workspace.join("marker").exists(),
         "a refused command ran"
     );
+}
+
+#[test]
+fn a_failed_turn_cannot_leave_terminal_state_for_the_next_turns_question() {
+    // A turn that fails on a tool xfx did not offer quotes the tool's name in
+    // its refusal -- and the name is the model's. Raw, a conceal and a scroll
+    // region in it stay in force into the next turn, which asks.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "bad-0",
+                "x\u{1b}[8m\u{1b}[1;2r\u{9b}8m",
+                serde_json::json!({}),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    type_and_wait(&session, "first", "does not advertise");
+    session.type_line("second");
+    let asked = session.wait_for("[n] no");
+    assert_no_foreign_control(&asked);
+    assert!(
+        asked.contains("the model asked to run the `x [8m [1;2r 8m` tool"),
+        "the refusal does not show the name as text: {asked:?}"
+    );
+    assert!(
+        last_question(&asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn an_ask_json_answer_on_a_terminal_carries_no_c1_or_invisible_code_point_raw() {
+    // `ask --json` on a terminal still asks on it (`TtyPrompter`, stderr), after
+    // the JSONL stream has been written to the same terminal. JSON's own
+    // escaping covers C0 only: a C1 `CSI` (`U+009B`), a bidirectional override
+    // and a default-ignorable would otherwise reach the terminal as raw UTF-8.
+    // Escaped as `\uXXXX` they are the same JSON string to any reader.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", "go\u{9b}8m\u{202e}gone\u{ad}\u{e0041}"),
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "--json", "--no-save", "run it"]);
+    let mut session = Session::spawn(&pty, command);
+
+    let asked = session.wait_for("[n] no");
+    for (character, name) in [
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{202e}', "a right-to-left override"),
+        ('\u{ad}', "a soft hyphen"),
+        ('\u{e0041}', "a tag character"),
+    ] {
+        assert!(
+            !asked.contains(character),
+            "{name} reached the terminal raw through the JSONL stream: {asked:?}"
+        );
+    }
+    assert!(
+        asked.contains(r#""text":"go\u009b8m\u202egone\u00ad\udb40\udc41""#),
+        "{asked:?}"
+    );
+    assert!(
+        last_question(&asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
