@@ -1,0 +1,12 @@
+# H1 a `refuse` turn: the turn's connection is cut and, for 10 s, nothing
+# listens on the gateway's port, so every retry is refused (fx's
+# `connectivity_lost`); then it listens again and the next turn answers.
+gateway h1-refuse-turns.json
+wait 4
+type say something
+key Enter
+wait 3
+snap refused
+wait 12
+snap back
+gwlog

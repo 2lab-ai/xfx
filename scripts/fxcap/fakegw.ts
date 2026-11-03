@@ -1,11 +1,42 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
 // Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
+//        [FAKEGW_MODELS2=<catalog.json> FAKEGW_MODELS2_MS=<ms>] [FAKEGW_USAGE=<usage.json>]
 //        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
 //    status?: number, body?: string, hangMs?: number, serviceTier?: string,
+//    reset?: true, refuse?: number,
 //    billing?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?},
 //    deferred?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?, notYet?}}
+// Every request, whatever its path, gets one line once it is answered:
+//   [fakegw] request <METHOD> <path><?query> at=<ms>ms -> <status> at=<ms>ms headers=<names>
+// the two times in ms since the gateway started (when it was asked, when it was answered), and
+// which of `authorization`, `x-vercel-ai-gateway-team`, `chatgpt-account-id` and `x-userid` it
+// carried -- the names only, never a value. A GET for a path nothing here knows is answered 404
+// (a POST is a completion, as it always was) and logged like any other, so a request nobody
+// planned for still leaves a line.
+// `reset` cuts the connection instead of finishing the turn: the Gateway stream sends the turn's
+// text (none, if it has no `chunks`) and the connection closes before the finish, a reset
+// mid-stream; on the llmux and Codex wires it closes before any byte. `refuse: <ms>` cuts the
+// connection before any byte and then refuses every connection for <ms> -- nothing listens on
+// the port -- so a retry meets a refused connect, which is what fx calls `connectivity_lost`
+// (vercel-labs/fx@481104fd src/gateway/client.zig:39-49); after it the same port listens again.
+// Bun.serve has no way to close one connection, so a cut closes every connection open at that
+// moment (`server.stop(true)`): a turn that cuts should not share the moment with another stream.
+// FAKEGW_MODELS2 is a second catalog the models path serves instead once FAKEGW_MODELS2_MS have
+// passed since the gateway started: a model released while the binary runs.
+// FAKEGW_USAGE names a file read on every request (`capture.sh`'s `usage` verb swaps it): while it
+// exists, the usage reads fx v0.0.16 makes are answered from it, in the shapes of its own e2e fake
+// (vercel-labs/fx@481104fd tests/e2e/usage-fakes.ts) -- GET /v1/report (`{"results":[rows]}`),
+// /ai-gateway/usage-report (`{"users":[...]}`), /backend-api/wham/usage, /backend-api/wham/profiles/me,
+// /backend-api/wham/usage/daily-token-usage-breakdown, /billing and /settings. The file is an
+// object keyed by those paths; each value is
+//   {json?: any, status?: number, body?: string, delayMs?: number}
+// and /v1/report's may also carry `rows` (the default), `byStart: {<start_date>: rows}` and
+// `byRange: {"<start_date>..<end_date>": rows}`, chosen most specific first. A path the file does
+// not name answers as upstream's fake does: /v1/report no rows, /ai-gateway/usage-report no users,
+// the others 404. `status` with no `json`/`body` answers `fake status <n>`; `delayMs` holds the
+// answer that long. Without the file every one of those paths is unknown here, and answers 404.
 // `billing` is what the Gateway sends for a turn it billed, and what both binaries need before
 // they count one: a `response-metadata` event with the billing time ahead of the text, and a
 // finish whose usage has the cache and reasoning counts and whose `providerMetadata.gateway`
@@ -114,12 +145,102 @@ async function keep(kind: string, body: string) {
   await Bun.write(`${bodies}/${String(seq).padStart(3, "0")}-${kind}.json`, body);
 }
 
-const server = Bun.serve({
-  port,
+// The headers whose presence the request line names: the credential, the team, the ChatGPT
+// account and the Grok user each usage read carries (usage-fakes.ts:21-28). Never their values.
+const watched = ["authorization", "x-vercel-ai-gateway-team", "chatgpt-account-id", "x-userid"];
+
+function request(req: Request, asked: number, answer: string) {
+  const url = new URL(req.url);
+  const carried = watched.filter((name) => req.headers.has(name)).join(",") || "-";
+  log(`request ${req.method} ${url.pathname}${url.search} at=${asked - started}ms -> ${answer} at=${Date.now() - started}ms headers=${carried}`);
+}
+
+// Closes every open connection and stops listening, then listens again on the same port --
+// at once for a reset, after `refuseMs` for a refusal. The first `listening` line is the one
+// capture.sh reads the port from; this one is worded so it cannot be taken for it.
+function cut(refuseMs: number) {
+  const same = server.port;
+  // Not awaited: the stop settles only once every request has, and a request being cut never
+  // does -- awaited, nothing else would be left to run and the process would exit.
+  void server.stop(true);
+  if (refuseMs > 0) log(`refusing connections for ${refuseMs}ms`);
+  setTimeout(() => {
+    try {
+      server = Bun.serve({ ...options, port: same });
+      log(`accepting again on ${same}`);
+    } catch (e) {
+      log(`could not listen again on ${same}: ${e}`);
+      process.exit(1);
+    }
+  }, refuseMs);
+}
+
+// A request this turn answers by cutting its connection: never answered, so its line is
+// written here, before the cut.
+function cutNow(req: Request, asked: number, refuseMs: number): Promise<Response> {
+  request(req, asked, refuseMs > 0 ? `cut, refusing ${refuseMs}ms` : "cut");
+  setTimeout(() => cut(refuseMs), 0);
+  return new Promise(() => {});
+}
+
+const usagePaths = new Set([
+  "/v1/report",
+  "/ai-gateway/usage-report",
+  "/backend-api/wham/usage",
+  "/backend-api/wham/profiles/me",
+  "/backend-api/wham/usage/daily-token-usage-breakdown",
+  "/billing",
+  "/settings",
+]);
+
+// A usage read answered from FAKEGW_USAGE, or null while that file is absent (the path is then
+// unknown here) or for a path that is not one of them.
+async function usage(url: URL): Promise<Response | null> {
+  if (!process.env.FAKEGW_USAGE || !usagePaths.has(url.pathname)) return null;
+  const file = Bun.file(process.env.FAKEGW_USAGE);
+  if (!(await file.exists())) return null;
+  const route: any = JSON.parse(await file.text())[url.pathname] ?? {};
+  if (route.delayMs) await Bun.sleep(route.delayMs);
+  let json = route.json;
+  let what = "";
+  if (json === undefined && route.body === undefined && url.pathname === "/v1/report") {
+    const from = url.searchParams.get("start_date") ?? "", to = url.searchParams.get("end_date") ?? "";
+    const rows = route.byRange?.[`${from}..${to}`] ?? route.byStart?.[from] ?? route.rows ?? [];
+    json = { results: rows };
+    what = ` rows=${rows.length}`;
+  }
+  if (json === undefined && route.body === undefined && url.pathname === "/ai-gateway/usage-report") json = { users: [] };
+  const status = route.status ?? (json === undefined && route.body === undefined ? 404 : 200);
+  log(`usage ${url.pathname} -> ${status}${what}${route.delayMs ? ` held ${route.delayMs}ms` : ""}`);
+  if (route.body !== undefined) return new Response(route.body, { status });
+  if (json !== undefined) return Response.json(json, { status });
+  return new Response(status === 404 ? "not found" : `fake status ${status}`, { status });
+}
+
+const options = {
   hostname: "127.0.0.1",
   idleTimeout: 0,
-  async fetch(req) {
+  fetch(req: Request): Promise<Response> {
+    const asked = Date.now();
+    return answer(req, asked).then(
+      (res) => {
+        request(req, asked, String(res.status));
+        return res;
+      },
+      (e) => {
+        request(req, asked, `500 (fakegw: ${e})`);
+        return new Response(`fakegw: ${e}`, { status: 500 });
+      },
+    );
+  },
+};
+let server = Bun.serve({ ...options, port });
+log(`listening ${server.port}`);
+
+async function answer(req: Request, asked: number): Promise<Response> {
     const url = new URL(req.url);
+    const read = await usage(url);
+    if (read) return read;
     if (req.method === "GET" && url.pathname === "/") {
       log("GET / (llmux probe)");
       return new Response("llmux");
@@ -144,6 +265,7 @@ const server = Bun.serve({
       const turn = script.shift();
       log(`llmux ${url.pathname} -> ${turn ? describe(turn) : "EMPTY"}`);
       if (!turn) return new Response("unexpected request", { status: 500 });
+      if (turn.reset || turn.refuse) return cutNow(req, asked, turn.refuse ?? 0);
       if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
       return anthropic(turn);
     }
@@ -158,6 +280,7 @@ const server = Bun.serve({
       const turn = script.shift();
       log(`codex ${url.pathname} -> ${turn ? describe(turn) : "EMPTY"}`);
       if (!turn) return new Response("unexpected request", { status: 500 });
+      if (turn.reset || turn.refuse) return cutNow(req, asked, turn.refuse ?? 0);
       if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
       return responses(responsesEvents(turn));
     }
@@ -192,6 +315,11 @@ const server = Bun.serve({
           log(`GET ${url.pathname} -> 503 (down)`);
           return new Response("unavailable", { status: 503 });
         }
+        // FAKEGW_MODELS2 (`models2`): the second catalog, once FAKEGW_MODELS2_MS have passed.
+        if (process.env.FAKEGW_MODELS2 && Date.now() - started >= Number(process.env.FAKEGW_MODELS2_MS || 0)) {
+          log(`GET ${url.pathname} -> second catalog`);
+          return new Response(await Bun.file(process.env.FAKEGW_MODELS2).text(), { headers: { "content-type": "application/json" } });
+        }
         if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
         return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
       }
@@ -217,8 +345,9 @@ const server = Bun.serve({
     }
     await keep("completion", body);
     const turn = script.shift();
-    log(`completion ${url.pathname} -> ${turn ? (turn.status ? "status " + turn.status : turn.tool || turn.tools ? "tool " + (turn.tools ?? [turn.tool]).map((t: any) => t.name).join(",") : turn.deferred ? "text, bill deferred" : "text") : "EMPTY"}`);
+    log(`completion ${url.pathname} -> ${turn ? (turn.refuse ? `refuse ${turn.refuse}ms` : turn.reset ? "reset" : turn.status ? "status " + turn.status : turn.tool || turn.tools ? "tool " + (turn.tools ?? [turn.tool]).map((t: any) => t.name).join(",") : turn.deferred ? "text, bill deferred" : "text") : "EMPTY"}`);
     if (!turn) return new Response("unexpected request", { status: 500 });
+    if (turn.refuse) return cutNow(req, asked, turn.refuse);
     if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
     const events: object[] = [];
     const billedAt = new Date().toISOString();
@@ -235,14 +364,36 @@ const server = Bun.serve({
     if (turn.serviceTier) {
       done.providerMetadata = { ...(done.providerMetadata ?? {}), gateway: { ...(done.providerMetadata?.gateway ?? {}), serviceTier: turn.serviceTier } };
     }
+    if (turn.reset) return resetStream(events, turn.delayMs ?? 0);
     events.push(done);
     return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
-  },
-});
-log(`listening ${server.port}`);
+}
 
 function describe(turn: any) {
+  if (turn.refuse) return `refuse ${turn.refuse}ms`;
+  if (turn.reset) return "reset";
   return turn.tool || turn.tools ? "tool " + (turn.tools ?? [turn.tool]).map((t: any) => t.name).join(",") : "text";
+}
+
+// A Gateway turn that resets mid-stream: its events up to the finish, then the connection cut.
+// Its request line says 200, the status its headers carried; the cut has a line of its own.
+function resetStream(events: object[], delayMs: number) {
+  const enc = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      async start(ctl) {
+        for (const event of events) {
+          ctl.enqueue(enc.encode(`data: ${JSON.stringify(event)}\n\n`));
+          if (delayMs) await Bun.sleep(delayMs);
+        }
+        // Long enough for what was enqueued to be written before the connection goes.
+        await Bun.sleep(100);
+        log(`reset after ${events.length} event(s)`);
+        cut(0);
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 }
 
 // A turn as the Anthropic Messages stream a llmux daemon writes (the frames of

@@ -1,0 +1,17 @@
+# H1 `usage`, the Codex scope: fx v0.0.16 on the Codex provider, signed in
+# with the synthetic ChatGPT login the P1 scenarios use, reads the plan's
+# limits, profile and daily breakdown from the three /backend-api/wham paths
+# (fx's own test bodies, at its own e2e time), each carrying the account
+# header -- named in the gateway log, never its value.
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_PROVIDER=codex FX_MODEL=gpt-5.6-sol FX_E2E_CHATGPT_ORIGIN=http://127.0.0.1:@PORT@ FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses
+clock 1791819000000
+usage h1-usage-codex.json
+wait 5
+type /usage
+key Enter
+wait 4
+snap codex
+key Escape
+wait 0.5
+gwlog

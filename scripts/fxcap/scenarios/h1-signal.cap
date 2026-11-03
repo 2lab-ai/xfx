@@ -1,0 +1,31 @@
+# H1 `jobctl` and `signal`: real stops and continues, with the binary in a
+# foreground group of its own. Ctrl-Z first -- the binary's own suspend, its
+# restore and then a SIGTSTP it raises, which now stops it -- and SIGCONT to
+# its pid, as `fg` would send; then a SIGTSTP from outside and SIGCONT again;
+# then SIGTERM, with `keep` so the pane's dead status says which signal ended
+# it. `wire` after each stop and at the end has the bytes in between.
+jobctl
+keep
+wait 4
+snap start
+key C-z
+wait 1
+snap ctrlz
+wire ctrlz
+signal SIGCONT
+wait 1.5
+snap ctrlz-continued
+signal SIGTSTP
+wait 1
+snap stopped
+wire stopped
+signal SIGCONT
+wait 1.5
+snap continued
+type still here
+wait 0.7
+snap typed
+signal SIGTERM
+wait 1
+snap terminated
+wire end

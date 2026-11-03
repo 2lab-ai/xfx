@@ -1,0 +1,31 @@
+# H1 `usage` and `clock`, the API-key scope: fx v0.0.16's /usage reads
+# /v1/report for today, the week and the month, by the pinned clock
+# (2026-10-12 15:30 UTC, fx's own e2e time). First with no usage answers --
+# the read is an unknown path, 404, and still a line in the gateway log --
+# then, on `r`, answered 2.5 s late with fx's own test rows, then refused 429
+# on `r` again. fx c1db919 and xfx answer /usage from their own tracking and
+# read nothing over the network: on them the gateway log has no usage line.
+clock 1791819000000
+usage off
+wait 4
+type /usage
+key Enter
+wait 3
+snap unknown
+usage h1-usage-key-slow.json
+type r
+wait 1
+snap fetching
+wait 8
+snap month
+key Tab
+wait 1
+snap today
+usage h1-usage-key-429.json
+type r
+wait 2
+snap refused
+key Escape
+wait 0.5
+home end
+gwlog

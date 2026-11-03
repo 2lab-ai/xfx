@@ -1,0 +1,17 @@
+# H1 a `refuse` turn stopped by the user: while the gateway's port refuses
+# every connection (15 s), Escape pauses the recovery -- fx's paused, then
+# idle -- and the port is back before anything is asked again.
+gateway h1-refuse-turns-long.json
+wait 4
+type say something
+key Enter
+wait 3
+snap refused
+key Escape
+wait 1
+snap paused
+wait 3
+snap after-pause
+wait 12
+snap end
+gwlog
