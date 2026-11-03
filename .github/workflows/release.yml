@@ -22,7 +22,10 @@ jobs:
   package:
     name: package (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    # The x86_64 macOS runner needs about 32-33 minutes for the full gate
+    # (measured 2026-11-04, PR #29), so 45 leaves headroom. The timeout is here
+    # to stop a hung job, not to bound a slow runner.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       # The same four native runners CI uses. An archive is only published for
