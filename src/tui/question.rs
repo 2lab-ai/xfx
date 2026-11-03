@@ -1428,6 +1428,13 @@ impl QuestionRequester for TuiQuestioner {
                         self.control.defer_rename(title, false, announced);
                         continue;
                     }
+                    // `/model`'s menu asking for the catalog: handed back to the
+                    // work's own loop, as the approval prompter does
+                    // (`super::approval`), and the batch stays up.
+                    Some(TurnControl::Catalog) => {
+                        self.control.give_back(TurnControl::Catalog);
+                        continue;
+                    }
                     // The interrupt and the shutdown belong to the loop that can
                     // act on them (`super::approval::ControlChannel::put_back`);
                     // `give_back` rearms.

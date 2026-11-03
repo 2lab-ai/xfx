@@ -1180,7 +1180,9 @@ pub struct ModelSelector {
 /// A catalog load running beside whatever else the thread does. Dropped
 /// with its selector -- a provider switch replaces both -- it is stopped
 /// rather than left to finish for nobody.
-struct PendingLoad(tokio::task::JoinHandle<Loaded>);
+///
+/// `None` only once it has been let go ([`PendingLoad::detach`]).
+struct PendingLoad(Option<tokio::task::JoinHandle<Loaded>>);
 
 /// What a load leaves the selector holding: the catalog's state, and whether
 /// asking again could change a failure ([`ModelSelector::failure_retry`]).
@@ -1202,7 +1204,71 @@ fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
 
 impl Drop for PendingLoad {
     fn drop(&mut self) {
-        self.0.abort();
+        if let Some(handle) = self.0.take() {
+            handle.abort();
+        }
+    }
+}
+
+impl PendingLoad {
+    /// Starts `fetcher`'s read as a local task, telling `told` its answer the
+    /// moment it arrives ([`ModelSelector::begin_load`]).
+    fn start<Told, Telling>(fetcher: std::rc::Rc<dyn ModelCatalog>, told: Told) -> Self
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
+        Telling: std::future::Future<Output = ()> + 'static,
+    {
+        Self(Some(tokio::task::spawn_local(async move {
+            let answer = loaded(fetcher.fetch().await);
+            told(answer.0.clone(), answer.1).await;
+            answer
+        })))
+    }
+
+    /// Lets the load finish -- and tell its answer -- for nobody to take.
+    fn detach(mut self) {
+        drop(self.0.take());
+    }
+}
+
+/// What starts a read of the selector's catalog **without the selector**:
+/// for a thread that is running work which holds the selector, when the
+/// interface asks for the catalog again meanwhile, as upstream's starts a
+/// load on a thread of its own whatever its worker is doing
+/// (`ensureModelCache` from `openModelBrowseCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
+/// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`). The read
+/// it starts is handed back to the selector afterwards
+/// ([`ModelSelector::adopt_load`]).
+#[derive(Clone)]
+pub(crate) struct CatalogReader {
+    fetcher: Option<std::rc::Rc<dyn ModelCatalog>>,
+}
+
+/// A read a [`CatalogReader`] started, for the selector to take.
+pub(crate) struct StartedLoad(PendingLoad);
+
+impl StartedLoad {
+    /// Whether it has answered -- and told its answer -- already.
+    pub(crate) fn is_finished(&self) -> bool {
+        self.0
+             .0
+            .as_ref()
+            .is_none_or(tokio::task::JoinHandle::is_finished)
+    }
+}
+
+impl CatalogReader {
+    /// Starts the read, telling `told` its answer the moment it arrives, as
+    /// [`ModelSelector::begin_load`] does; `None` when the provider has no
+    /// catalog to read. **Inside a [`tokio::task::LocalSet`]**, as that.
+    pub(crate) fn begin<Told, Telling>(&self, told: Told) -> Option<StartedLoad>
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
+        Telling: std::future::Future<Output = ()> + 'static,
+    {
+        let fetcher = self.fetcher.clone()?;
+        Some(StartedLoad(PendingLoad::start(fetcher, told)))
     }
 }
 
@@ -1309,11 +1375,32 @@ impl ModelSelector {
         let Some(fetcher) = self.catalog_fetcher.clone() else {
             return;
         };
-        self.pending = Some(PendingLoad(tokio::task::spawn_local(async move {
-            let answer = loaded(fetcher.fetch().await);
-            told(answer.0.clone(), answer.1).await;
-            answer
-        })));
+        self.pending = Some(PendingLoad::start(fetcher, told));
+    }
+
+    /// What starts a read of this selector's catalog while the selector is
+    /// held elsewhere ([`CatalogReader`]).
+    pub(crate) fn reader(&self) -> CatalogReader {
+        CatalogReader {
+            fetcher: self.catalog_fetcher.clone(),
+        }
+    }
+
+    /// Takes a read a [`CatalogReader`] started as this selector's own
+    /// background load: its answer, told already or about to be, is the
+    /// catalog from here on, and the first thing to need it waits for it
+    /// ([`Self::ensure_catalog`]). A read of the selector's own still on its
+    /// way stands, and so does a catalog it holds already; this one is then
+    /// let finish for nobody -- it tells its answer still, to an interface
+    /// that may be waiting on it -- and its answer is not taken.
+    pub(crate) fn adopt_load(&mut self, load: StartedLoad) {
+        if self.pending.is_some() || matches!(self.catalog_state, CatalogState::Loaded(_)) {
+            load.0.detach();
+            return;
+        }
+        self.catalog_state = CatalogState::NotLoaded;
+        self.failure_retry = None;
+        self.pending = Some(load.0);
     }
 
     /// Whether a background load is on its way, or has ended and not been
@@ -1328,7 +1415,7 @@ impl ModelSelector {
     /// Cancel-safe: dropped before the load ends, it leaves the load running
     /// and still pending.
     pub(crate) async fn settle_load(&mut self) {
-        let Some(PendingLoad(handle)) = self.pending.as_mut() else {
+        let Some(PendingLoad(Some(handle))) = self.pending.as_mut() else {
             return;
         };
         let answer = handle.await;
