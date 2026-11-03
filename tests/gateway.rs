@@ -2096,6 +2096,114 @@ fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
     assert!(message.contains("delete_file"), "got {message}");
 }
 
+/// What one `ask` turn with a scripted read of `secrets/key` and write of
+/// `pwned.txt` did under `profile` -- `None` for a profile that is there and
+/// cannot be read -- as (the run, every request body, the file written).
+#[cfg(unix)]
+fn a_tool_attempt_under(profile: Option<&str>) -> Option<(Run, Vec<String>, bool)> {
+    use std::os::unix::fs::PermissionsExt;
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("c1", "read_file", json!({ "path": "secrets/key" })),
+            tool_call(
+                "c2",
+                "write_file",
+                json!({ "path": "pwned.txt", "content": "x" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["done"])),
+    ]);
+    let sandbox = Sandbox::new();
+    fs::create_dir_all(sandbox.workspace.join("secrets")).unwrap();
+    fs::write(sandbox.workspace.join("secrets/key"), SECRET).unwrap();
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    let key = serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap();
+    match profile {
+        Some(text) => fs::write(&settings, text.replace("{ROOT}", &key)).unwrap(),
+        None => {
+            fs::write(&settings, r#"{"permission":{"read":"allow"}}"#).unwrap();
+            fs::set_permissions(&settings, fs::Permissions::from_mode(0o000)).unwrap();
+            // A reader the mode bits do not stop (root) cannot make this case.
+            if fs::read(&settings).is_ok() {
+                return None;
+            }
+        }
+    }
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "go"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    let bodies = gateway
+        .requests()
+        .into_iter()
+        .map(|request| request.body)
+        .collect();
+    let written = sandbox.workspace.join("pwned.txt").exists();
+    let _ = fs::set_permissions(&settings, fs::Permissions::from_mode(0o600));
+    Some((run, bodies, written))
+}
+
+/// What the scripted read would carry into the next request.
+#[cfg(unix)]
+const SECRET: &str = "xfx-test-secret-the-read-must-not-carry";
+
+#[cfg(unix)]
+#[test]
+fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
+    // The stderr line alone would pass a session built from the wrong rules,
+    // so the turn is run: each profile leaves an allow readable beside what
+    // did not read (or nothing readable, so auto alone would decide), and a
+    // session that took that for the table would read the secret into the
+    // next request and write the file. First the control: with no table, auto
+    // does both, so the probe can see them.
+    let (_, bodies, written) =
+        a_tool_attempt_under(Some(r#"{"permission_mode":"auto"}"#)).expect("readable");
+    assert!(
+        bodies.iter().any(|body| body.contains(SECRET)),
+        "{bodies:?}"
+    );
+    assert!(written, "the control's write ran");
+    for profile in [
+        Some(r#"{"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#),
+        Some(
+            r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+        ),
+        Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
+        Some("{ this is not json"),
+        // A real read error, not a parse error.
+        None,
+    ] {
+        let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
+            eprintln!("skipped the unreadable profile: the mode bits do not stop this reader");
+            continue;
+        };
+        assert!(
+            run.stderr.contains(
+                "xfx ask: permissions: every tool is refused: a permission table did not read ("
+            ),
+            "{profile:?}: {}",
+            run.stderr
+        );
+        assert!(!written, "{profile:?}: the write ran; {}", run.stdout);
+        assert!(
+            !bodies.iter().any(|body| body.contains(SECRET)),
+            "{profile:?}: the secret reached the provider"
+        );
+        // And the model was offered no tool at all.
+        let first: Value = serde_json::from_str(&bodies[0]).expect("a JSON request");
+        assert!(
+            first["tools"].as_array().is_none_or(Vec::is_empty),
+            "{profile:?}: {}",
+            first["tools"]
+        );
+    }
+}
+
 #[test]
 fn ask_applies_the_configured_model() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);

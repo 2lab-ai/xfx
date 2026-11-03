@@ -148,14 +148,25 @@ impl PermissionTables {
         }
     }
 
-    /// What a launch says while a table did not read: one line, safe for a
-    /// terminal.
-    pub fn refusal(&self) -> Option<String> {
+    /// What a launch in `mode` says while a table did not read: one line, safe
+    /// for a terminal.
+    ///
+    /// Full access consults no table at all (`PermissionSession::evaluate_with`
+    /// returns before the rules), so there the line says the table is not
+    /// applied rather than that anything is refused -- and that every other
+    /// mode, the one a Shift-Tab or `/permissions` moves to included, refuses
+    /// every tool.
+    pub fn refusal(&self, mode: PermissionMode) -> Option<String> {
         self.unreadable.as_ref().map(|reason| {
-            crate::output::safe_one_line(
-                &format!("every tool is refused: a permission table did not read ({reason})"),
-                STARTUP_LINE_BYTES,
-            )
+            let head = if mode == PermissionMode::Yolo {
+                "full access consults no table, so it is not applied; every other mode refuses every tool"
+            } else {
+                "every tool is refused"
+            };
+            // The bound is on what the file can put in the line, not on the
+            // sentence around it.
+            let reason = crate::output::safe_one_line(reason, STARTUP_LINE_BYTES);
+            format!("{head}: a permission table did not read ({reason})")
         })
     }
 
@@ -3579,6 +3590,14 @@ mod tests {
                 r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":["x"]}"#,
                 PermissionMode::Ask,
             ),
+            // A broken user table under a readable workspace table that
+            // shadows it: the workspace's table is read, and still not the one
+            // in force -- what did not read may be what it was written to
+            // replace, and `effective` must not pick the half that read.
+            (
+                r#"{"permission_mode":"ask","permission":{"bash":"sure"},"workspaces":{"{ROOT}":{"permission":{"read":"allow"}}}}"#,
+                PermissionMode::Ask,
+            ),
             // A file that does not read at all: its mode goes with it.
             ("{not json", PermissionMode::Auto),
         ] {
@@ -3613,13 +3632,35 @@ mod tests {
                 "{profile}: {reason}"
             );
         }
+        let shadowed = loaded_tables(
+            r#"{"permission":{"bash":"sure"},"workspaces":{"{ROOT}":{"permission":{"read":"allow"}}}}"#,
+            None,
+        );
+        assert!(shadowed.permission.user_shadowed_by_local);
+        assert!(!shadowed.permission.local.is_empty());
+        assert_eq!(shadowed.permission.effective(), refuse_every_tool());
         let broken = loaded_tables(r#"{"permission":{"bash":"sure"}}"#, None);
+        let reason = "a permission table did not read (user config diagnostic: \
+                      invalid_value key=permission `sure` is not a permission action; use allow, ask or deny)";
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            assert_eq!(
+                broken.permission.refusal(mode),
+                Some(format!("every tool is refused: {reason}"))
+            );
+        }
+        // Full access consults no table, so nothing is refused there; the
+        // line says so rather than claim a refusal that does not happen.
         assert_eq!(
-            broken.permission.refusal().as_deref(),
-            Some(
-                "every tool is refused: a permission table did not read (user config diagnostic: \
-                 invalid_value key=permission `sure` is not a permission action; use allow, ask or deny)"
-            )
+            broken.permission.refusal(PermissionMode::Yolo),
+            Some(format!(
+                "full access consults no table, so it is not applied; every other mode refuses every tool: {reason}"
+            ))
+        );
+        assert_eq!(
+            loaded_tables(r#"{"permission":{"bash":"allow"}}"#, None)
+                .permission
+                .refusal(PermissionMode::Ask),
+            None
         );
         assert_eq!(
             broken.diagnostics[0].startup_line(),
@@ -3640,12 +3681,27 @@ mod tests {
         assert!(!line.chars().any(char::is_control), "{line:?}");
         assert!(line.len() <= STARTUP_LINE_BYTES + 3, "{}", line.len());
         assert!(line.ends_with('\u{2026}'), "{line:?}");
-        let refusal = config.permission.refusal().expect("a refusal");
-        assert!(!refusal.chars().any(char::is_control), "{refusal:?}");
+        for mode in [PermissionMode::Ask, PermissionMode::Yolo] {
+            let refusal = config.permission.refusal(mode).expect("a refusal");
+            assert!(!refusal.chars().any(char::is_control), "{refusal:?}");
+            assert!(
+                refusal.len() <= 200 + STARTUP_LINE_BYTES,
+                "{}",
+                refusal.len()
+            );
+        }
         // A file that does not read at all is said by its cause alone.
         assert_eq!(
             loaded_tables("{not json", None).diagnostics[0].startup_line(),
             "user: malformed_settings"
+        );
+    }
+
+    #[test]
+    fn the_table_a_launch_refuses_with_is_the_one_permission_deny_means() {
+        assert_eq!(
+            Ok(refuse_every_tool().clone()),
+            crate::permission::rules::RuleSet::parse(&serde_json::json!("deny"))
         );
     }
 

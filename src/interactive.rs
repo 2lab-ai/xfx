@@ -1378,7 +1378,7 @@ pub async fn run(
     for diagnostic in &config.diagnostics {
         writeln!(diagnostics, "xfx: config {}", diagnostic.startup_line())?;
     }
-    if let Some(refusal) = config.permission.refusal() {
+    if let Some(refusal) = config.permission.refusal(config.permission_mode) {
         writeln!(
             diagnostics,
             "xfx: permissions: {refusal}; fix it, then /allowlist reads it again"
