@@ -1,0 +1,7 @@
+[
+ {"tool":{"id":"call_search","name":"capability_search","input":{"query":"echo text through the fixture"}}},
+ {"tool":{"id":"call_echo","name":"mcp_fixture_echo","input":{"text":"hi"}}},
+ {"tool":{"id":"call_features","name":"mcp_features","input":{"action":"resource_list","server":"fixture"}}},
+ {"tool":{"id":"call_select","name":"mcp_select_tool","input":{"name":"mcp_fixture_echo"}}},
+ {"chunks":["done."]}
+]

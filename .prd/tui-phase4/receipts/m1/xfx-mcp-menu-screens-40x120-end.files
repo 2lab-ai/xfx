@@ -1,0 +1,9 @@
+=== ~/.xfx/history.jsonl (431 bytes)
+{"schema_version":1,"timestamp_ms":1793702702242,"workspace_root":"<scratch>/work","text":"/mcp add --transport http remote http://127.0.0.1:9/mcp"}
+{"schema_version":1,"timestamp_ms":1793702706265,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1793702715673,"workspace_root":"<scratch>/work","text":"/mcp list"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (136 bytes)
+{"mcp":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000}}}
+=== ~/.xfx/mcp.lock (0 bytes)

@@ -1,0 +1,1 @@
+{"mcpServers":{"proj":{"command":"/opt/homebrew/bin/bun","args":["<fixtures>/mcp-legacy-stdio.mjs"]}}}

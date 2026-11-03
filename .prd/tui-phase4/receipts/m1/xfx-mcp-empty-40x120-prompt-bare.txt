@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3776cad [debug] · Run /help for commands
+
+* mcp: <scratch>/home/.xfx/mcp.json
+
+* mcp: MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: MCP configuration reloaded. No servers are configured.
+
+* usage: /mcp auth <name> [--open]
+
+* mcp: MCP authentication for 'nope' failed: McpServerNotFound.
+
+* mcp: MCP logout for 'nope' failed: McpServerNotFound.
+
+* mcp: MCP server 'nope' not found.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* mcp: MCP resource listing failed: McpRuntimeUnavailable.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
