@@ -11,8 +11,11 @@
 //!   standard streams, one reader thread routing each answer to the caller
 //!   waiting on its id. A request the server sends back is answered -- `ping`
 //!   with an empty result, everything else with `Method not found` -- so a
-//!   server that asks never hangs on xfx. Stopped by its own group, never by
-//!   name: the end of standard input first, then `SIGTERM`, then `SIGKILL`.
+//!   server that asks never hangs on xfx. No write waits past its deadline,
+//!   and none holds a lock while it waits, so a server that stops reading
+//!   its input holds up neither a call nor its own stop. Stopped by its own
+//!   group, never by name: the end of standard input first, then `SIGTERM`,
+//!   then `SIGKILL`.
 //! - **streamable HTTP** without OAuth (`legacy_streamable_http.zig`): one
 //!   `POST` per message, answered as JSON or as an event stream, the session
 //!   id the server hands out sent back on every later request. It runs on a
@@ -21,11 +24,11 @@
 //!   panic.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
@@ -47,6 +50,18 @@ const CANCEL_POLL: Duration = Duration::from_millis(20);
 
 /// How long a stopping server is given after `SIGTERM` before `SIGKILL`.
 const STOP_GRACE: Duration = Duration::from_millis(500);
+
+/// How long a frame no answer comes back for -- a notification, or the answer
+/// to a request the server sent -- may wait for the server to take it: fx's
+/// bound for such an answer (`server_request_write_timeout_ms`,
+/// `stdio_dispatcher.zig:19`, `:1651`). fx gives `notifications/initialized`
+/// its startup timeout instead (`server_transport.zig:900-906`); a frame that
+/// small, to a server that has just read `initialize`, does not wait.
+const FRAME_WRITE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// How long a call's cancellation may wait for the server to take it
+/// (`cancellation_write_timeout_ms`, `stdio_dispatcher.zig:18`).
+const CANCEL_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 type Pending = Arc<Mutex<HashMap<u64, mpsc::Sender<Result<Value, McpError>>>>>;
 
@@ -119,7 +134,15 @@ fn wait(
     timeout: Duration,
     cancel: Option<&CancelToken>,
 ) -> Result<Value, McpError> {
-    let deadline = Instant::now() + timeout;
+    wait_until(receiver, Instant::now() + timeout, cancel)
+}
+
+/// Waits for an answer on `receiver` until `deadline`, or until `cancel`.
+fn wait_until(
+    receiver: &mpsc::Receiver<Result<Value, McpError>>,
+    deadline: Instant,
+    cancel: Option<&CancelToken>,
+) -> Result<Value, McpError> {
     loop {
         if cancel.is_some_and(CancelToken::is_cancelled) {
             return Err(McpError::Named("Cancelled"));
@@ -144,8 +167,10 @@ fn wait(
 
 /// A server that is a child process.
 pub struct StdioTransport {
-    stdin: Arc<Mutex<Option<ChildStdin>>>,
-    child: Mutex<Option<Child>>,
+    stdin: Arc<Input>,
+    /// Uncollected while it is here: only [`Transport::close`] takes it out,
+    /// to collect it. So its id is still its group's.
+    child: Arc<Mutex<Option<Child>>>,
     pending: Pending,
     next_id: AtomicU64,
     alive: Arc<AtomicBool>,
@@ -189,8 +214,8 @@ impl StdioTransport {
         let stdout = child.stdout.take();
         let stderr_pipe = child.stderr.take();
         let transport = Self {
-            stdin: Arc::new(Mutex::new(stdin)),
-            child: Mutex::new(Some(child)),
+            stdin: Arc::new(Input::new(stdin)),
+            child: Arc::new(Mutex::new(Some(child))),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicU64::new(0),
             alive: Arc::new(AtomicBool::new(true)),
@@ -213,6 +238,7 @@ impl StdioTransport {
                 pending: Arc::clone(&transport.pending),
                 alive: Arc::clone(&transport.alive),
                 stdin: Arc::clone(&transport.stdin),
+                child: Arc::clone(&transport.child),
                 notifications,
             };
             std::thread::Builder::new()
@@ -223,22 +249,247 @@ impl StdioTransport {
         Ok(transport)
     }
 
-    fn write(&self, frame: &Value) -> Result<(), McpError> {
-        write_line(&self.stdin, frame)
+    /// Writes `frame` by `deadline`, ending the connection when the server
+    /// would not take it.
+    fn write(
+        &self,
+        frame: &Value,
+        deadline: Instant,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError> {
+        self.stdin
+            .send(frame, deadline, cancel)
+            .map_err(|unsent| match unsent {
+                Unsent::Held(err) => err,
+                Unsent::Cut(err) => {
+                    abandon(&self.child, &self.alive, &self.pending);
+                    err
+                }
+                Unsent::Closed => McpError::Named("McpConnectionClosed"),
+            })
     }
 }
 
-fn write_line(stdin: &Mutex<Option<ChildStdin>>, frame: &Value) -> Result<(), McpError> {
-    let mut line = frame.to_string();
-    line.push('\n');
-    let mut guard = stdin.lock().unwrap_or_else(PoisonError::into_inner);
-    let Some(stdin) = guard.as_mut() else {
-        return Err(McpError::Named("McpConnectionClosed"));
-    };
-    stdin
-        .write_all(line.as_bytes())
-        .and_then(|()| stdin.flush())
-        .map_err(|_| McpError::Named("McpConnectionClosed"))
+/// The server's standard input, one frame at a time, and no lock held while
+/// one is written: a writer takes the pipe out, writes to it without blocking
+/// -- waiting for room in slices of [`CANCEL_POLL`], each time looking at its
+/// deadline, its cancellation and [`Input::close`] -- and puts it back. A
+/// server that stops reading holds up the frame being written until its
+/// deadline, and the frames behind it until theirs; never the close. fx
+/// races the write against the deadline and the cancellation instead, and its
+/// close kills the child when a writer has the pipe (`writeBodyBounded`,
+/// `closeStdin`, `stdio_dispatcher.zig:754-879`, `:1702-1717`).
+struct Input {
+    slot: Mutex<Slot>,
+    /// Told whenever the pipe is put back, and at the close.
+    free: Condvar,
+    closed: AtomicBool,
+}
+
+struct Slot {
+    pipe: Option<ChildStdin>,
+    /// Whether a writer has the pipe out.
+    taken: bool,
+}
+
+/// Why a frame was not written.
+enum Unsent {
+    /// Its deadline or its cancellation came while another frame was being
+    /// written: none of it went, and the connection is as it was.
+    Held(McpError),
+    /// Its deadline or its cancellation came while it was being written: the
+    /// server is not taking its input, and what it would read next may be
+    /// half a frame. fx ends the connection here too (`taint_connection`,
+    /// `stdio_dispatcher.zig:668`, `:743-748`).
+    Cut(McpError),
+    /// The input is closed -- by [`Input::close`], by a frame cut before, or
+    /// by the server.
+    Closed,
+}
+
+impl Input {
+    fn new(pipe: Option<ChildStdin>) -> Self {
+        // A pipe that cannot be written without blocking is not written at
+        // all: a write to it could wait past every deadline.
+        let pipe = pipe.filter(|pipe| nonblocking(pipe).is_ok());
+        Self {
+            slot: Mutex::new(Slot { pipe, taken: false }),
+            free: Condvar::new(),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    fn send(
+        &self,
+        frame: &Value,
+        deadline: Instant,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), Unsent> {
+        let mut line = frame.to_string();
+        line.push('\n');
+        let mut pipe = self.take(deadline, cancel)?;
+        let sent = self.push(&mut pipe, line.as_bytes(), deadline, cancel);
+        let intact = matches!(sent, Ok(()) | Err(Unsent::Held(_)));
+        self.put_back(intact.then_some(pipe));
+        sent
+    }
+
+    /// The pipe, once no other writer has it.
+    fn take(&self, deadline: Instant, cancel: Option<&CancelToken>) -> Result<ChildStdin, Unsent> {
+        let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(Unsent::Closed);
+            }
+            if !slot.taken {
+                let pipe = slot.pipe.take().ok_or(Unsent::Closed)?;
+                slot.taken = true;
+                return Ok(pipe);
+            }
+            if let Some(err) = stopped(deadline, cancel) {
+                return Err(Unsent::Held(err));
+            }
+            let slice = deadline
+                .saturating_duration_since(Instant::now())
+                .min(CANCEL_POLL);
+            slot = self
+                .free
+                .wait_timeout(slot, slice)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    fn push(
+        &self,
+        pipe: &mut ChildStdin,
+        line: &[u8],
+        deadline: Instant,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), Unsent> {
+        let mut written = 0;
+        while written < line.len() {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(Unsent::Closed);
+            }
+            match pipe.write(&line[written..]) {
+                Ok(0) => return Err(Unsent::Closed),
+                Ok(count) => written += count,
+                Err(err) if err.kind() == ErrorKind::Interrupted => {}
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    if let Some(err) = stopped(deadline, cancel) {
+                        return Err(Unsent::Cut(err));
+                    }
+                    writable(
+                        pipe,
+                        deadline
+                            .saturating_duration_since(Instant::now())
+                            .min(CANCEL_POLL),
+                    );
+                }
+                // The server closed its input, or has gone.
+                Err(_) => return Err(Unsent::Closed),
+            }
+        }
+        Ok(())
+    }
+
+    /// Gives the pipe back for the next writer, or, when `pipe` is `None` or
+    /// the input has been closed, lets it go.
+    fn put_back(&self, pipe: Option<ChildStdin>) {
+        let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.taken = false;
+        if !self.closed.load(Ordering::Acquire) {
+            slot.pipe = pipe;
+        }
+        drop(slot);
+        self.free.notify_all();
+    }
+
+    /// The end of the server's input. A writer that has the pipe out is not
+    /// waited for: it sees the close at its next look and lets the pipe go.
+    fn close(&self) {
+        let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        self.closed.store(true, Ordering::Release);
+        let pipe = slot.pipe.take();
+        drop(slot);
+        self.free.notify_all();
+        drop(pipe);
+    }
+}
+
+/// Why a write stops waiting for room: its cancellation, then its deadline.
+fn stopped(deadline: Instant, cancel: Option<&CancelToken>) -> Option<McpError> {
+    if cancel.is_some_and(CancelToken::is_cancelled) {
+        Some(McpError::Named("Cancelled"))
+    } else if Instant::now() >= deadline {
+        Some(McpError::Named("McpRequestTimedOut"))
+    } else {
+        None
+    }
+}
+
+/// Makes writes to `pipe` answer at once, with what fitted. Only xfx's end:
+/// the server's end of the pipe is a description of its own.
+#[cfg(unix)]
+fn nonblocking(pipe: &ChildStdin) -> std::io::Result<()> {
+    let flags = rustix::fs::fcntl_getfl(pipe)?;
+    rustix::fs::fcntl_setfl(pipe, flags | rustix::fs::OFlags::NONBLOCK)?;
+    Ok(())
+}
+
+/// Elsewhere a write blocks, and a full pipe holds the writer until the
+/// server reads or is stopped. The release targets are all Unix.
+#[cfg(not(unix))]
+fn nonblocking(_: &ChildStdin) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Waits up to `wait` for room in `pipe`, or for its reader to go.
+#[cfg(unix)]
+fn writable(pipe: &ChildStdin, wait: Duration) {
+    let mut ready = [rustix::event::PollFd::new(
+        pipe,
+        rustix::event::PollFlags::OUT,
+    )];
+    // At most one slice, which always fits.
+    let wait = rustix::event::Timespec::try_from(wait.min(CANCEL_POLL)).unwrap_or_default();
+    let _ = rustix::event::poll(&mut ready, Some(&wait));
+}
+
+#[cfg(not(unix))]
+fn writable(_: &ChildStdin, wait: Duration) {
+    std::thread::sleep(wait);
+}
+
+/// Ends a connection whose server would not take a frame: every caller
+/// waiting on it is told, and the server is killed with its group rather
+/// than left to read half a message (`failConnection`, `terminateChild`,
+/// `stdio_dispatcher.zig:687-690`). It is collected by
+/// [`Transport::close`], which every connection ends with.
+fn abandon(child: &Mutex<Option<Child>>, alive: &AtomicBool, pending: &Pending) {
+    alive.store(false, Ordering::Release);
+    fail_all(pending, "McpConnectionClosed");
+    let mut child = child.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(child) = child.as_mut() {
+        #[cfg(unix)]
+        if let Some(group) = rustix::process::Pid::from_raw(child.id() as i32) {
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        }
+        let _ = child.kill();
+    }
+}
+
+/// Tells every caller waiting on `pending` that its answer will not come.
+fn fail_all(pending: &Pending, name: &'static str) {
+    let waiters: Vec<_> = pending
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .drain()
+        .collect();
+    for (_, waiter) in waiters {
+        let _ = waiter.send(Err(McpError::Named(name)));
+    }
 }
 
 /// Keeps the last [`STDERR_TAIL_BYTES`] of what the server wrote to its
@@ -265,7 +516,8 @@ fn keep_tail(mut pipe: impl Read, tail: &Mutex<String>) {
 struct Reader {
     pending: Pending,
     alive: Arc<AtomicBool>,
-    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    stdin: Arc<Input>,
+    child: Arc<Mutex<Option<Child>>>,
     notifications: Option<NotificationSink>,
 }
 
@@ -315,7 +567,12 @@ impl Reader {
                 } else {
                     json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found"}})
                 };
-                let _ = write_line(&self.stdin, &reply);
+                // Bounded, so a server that asks and does not read cannot
+                // stop this thread for longer than that.
+                let deadline = Instant::now() + FRAME_WRITE_TIMEOUT;
+                if let Err(Unsent::Cut(_)) = self.stdin.send(&reply, deadline, None) {
+                    abandon(&self.child, &self.alive, &self.pending);
+                }
             }
             (Some(method), None) => {
                 if let Some(sink) = &self.notifications {
@@ -340,15 +597,7 @@ impl Reader {
     }
 
     fn fail_all(&self, name: &'static str) {
-        let waiters: Vec<_> = self
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .drain()
-            .collect();
-        for (_, waiter) in waiters {
-            let _ = waiter.send(Err(McpError::Named(name)));
-        }
+        fail_all(&self.pending, name);
     }
 }
 
@@ -363,6 +612,10 @@ impl Transport for StdioTransport {
         if !self.alive() {
             return Err(McpError::Named("McpConnectionClosed"));
         }
+        // The deadline covers the write as well as the wait for the answer
+        // (`commit_deadline`, `stdio_dispatcher.zig:553-572`): a server that
+        // stops reading cannot hold a call past it.
+        let deadline = Instant::now() + timeout;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let params = with_progress_token(method, params, id);
         let (sender, receiver) = mpsc::channel();
@@ -370,14 +623,14 @@ impl Transport for StdioTransport {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(id, sender);
-        if let Err(err) = self.write(&request_frame(id, method, params)) {
+        if let Err(err) = self.write(&request_frame(id, method, params), deadline, cancel) {
             self.pending
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .remove(&id);
             return Err(err);
         }
-        let result = wait(&receiver, timeout, cancel);
+        let result = wait_until(&receiver, deadline, cancel);
         if result.is_err() {
             self.pending
                 .lock()
@@ -389,9 +642,13 @@ impl Transport for StdioTransport {
                 result,
                 Err(McpError::Named("Cancelled" | "McpRequestTimedOut"))
             ) {
-                let _ = self.notify(
-                    "notifications/cancelled",
-                    Some(json!({"requestId": id, "reason": "cancelled"})),
+                let _ = self.write(
+                    &notification_frame(
+                        "notifications/cancelled",
+                        Some(json!({"requestId": id, "reason": "cancelled"})),
+                    ),
+                    Instant::now() + CANCEL_WRITE_TIMEOUT,
+                    None,
                 );
             }
         }
@@ -399,7 +656,11 @@ impl Transport for StdioTransport {
     }
 
     fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError> {
-        self.write(&notification_frame(method, params))
+        self.write(
+            &notification_frame(method, params),
+            Instant::now() + FRAME_WRITE_TIMEOUT,
+            None,
+        )
     }
 
     fn alive(&self) -> bool {
@@ -422,11 +683,10 @@ impl Transport for StdioTransport {
     }
 
     fn close(&self) {
-        // End of input first: a well-behaved server leaves on it.
-        self.stdin
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        // End of input first: a well-behaved server leaves on it. A write
+        // under way is not waited for (`Input::close`), so a server that
+        // stopped reading is stopped all the same.
+        self.stdin.close();
         let child = self
             .child
             .lock()
@@ -454,34 +714,93 @@ impl Drop for StdioTransport {
 }
 
 /// Stops `child` and its process group: `SIGTERM`, a short grace, `SIGKILL`,
-/// and the child reaped. Only this child's own group is signalled.
+/// and the child reaped. Only this child's own group is signalled, and only
+/// while its leader is uncollected: the group's id is the leader's, and it is
+/// not handed out again until the leader is collected -- `terminal.rs`'s rule
+/// (`exited_uncollected`), and fx v0.0.16's (`src/mcp/io/process.zig:9-11`,
+/// `:557-559`). c1db9191 means the same when it signals only a child its
+/// reader has not reaped (`childMayBeRunning`, `stdio_dispatcher.zig:1178-1182`).
 fn stop_child(child: &mut Child) {
-    #[cfg(unix)]
-    let group = rustix::process::Pid::from_raw(child.id() as i32);
+    stop(&mut Server(child), STOP_GRACE);
+}
+
+/// A signal stopping a server sends its group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stop {
+    Term,
+    Kill,
+}
+
+/// The steps of stopping a server, apart from their order so that the order
+/// can be tested: a group id is only free of reuse while its leader is not yet
+/// collected, which no test of a real process can catch going wrong.
+trait Stopping {
+    /// Signals the server's group.
+    fn signal(&mut self, signal: Stop);
+    /// Whether the leader has exited, without collecting it.
+    fn exited(&mut self) -> bool;
+    /// Collects the leader.
+    fn collect(&mut self);
+}
+
+/// `SIGTERM`, up to `grace` for the leader to exit, `SIGKILL`, and only then
+/// the leader collected.
+fn stop(server: &mut impl Stopping, grace: Duration) {
     let started = Instant::now();
-    if let Ok(Some(_)) = child.try_wait() {
-        #[cfg(unix)]
-        if let Some(group) = group {
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-        }
-        return;
-    }
-    #[cfg(unix)]
-    if let Some(group) = group {
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::TERM);
-    }
-    while started.elapsed() < STOP_GRACE {
-        if let Ok(Some(_)) = child.try_wait() {
-            break;
-        }
+    server.signal(Stop::Term);
+    while started.elapsed() < grace && !server.exited() {
         std::thread::sleep(Duration::from_millis(10));
     }
-    #[cfg(unix)]
-    if let Some(group) = group {
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    server.signal(Stop::Kill);
+    server.collect();
+}
+
+/// A real server, by its leader.
+struct Server<'a>(&'a mut Child);
+
+impl Stopping for Server<'_> {
+    fn signal(&mut self, signal: Stop) {
+        #[cfg(unix)]
+        if let Some(group) = rustix::process::Pid::from_raw(self.0.id() as i32) {
+            let signal = match signal {
+                Stop::Term => rustix::process::Signal::TERM,
+                Stop::Kill => rustix::process::Signal::KILL,
+            };
+            let _ = rustix::process::kill_process_group(group, signal);
+        }
+        #[cfg(not(unix))]
+        if signal == Stop::Kill {
+            let _ = self.0.kill();
+        }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+
+    #[cfg(unix)]
+    fn exited(&mut self) -> bool {
+        use rustix::process::{waitid, WaitId, WaitIdOptions};
+        let Some(leader) = rustix::process::Pid::from_raw(self.0.id() as i32) else {
+            return true;
+        };
+        // `NOWAIT` reports the exit and leaves the leader to be collected.
+        !matches!(
+            waitid(
+                WaitId::Pid(leader),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            ),
+            Ok(None) | Err(rustix::io::Errno::INTR)
+        )
+    }
+
+    /// No group is signalled here, so collecting early costs nothing.
+    #[cfg(not(unix))]
+    fn exited(&mut self) -> bool {
+        matches!(self.0.try_wait(), Ok(Some(_)) | Err(_))
+    }
+
+    fn collect(&mut self) {
+        // The leader alone, should it have left its group; still uncollected.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// `tools/call` carries a progress token, the request's own id, first in its
@@ -1001,6 +1320,282 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             transport.request("x", json!({}), Duration::from_secs(60), Some(&cancel)),
             Err(McpError::Named("Cancelled"))
         );
+    }
+
+    /// A server that stays up and never reads its input: its leader and a
+    /// grandchild in its group, their ids as `(leader, grandchild)`.
+    #[cfg(unix)]
+    fn deaf_server(script: &str) -> (Arc<StdioTransport>, (i32, i32), tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("dir");
+        let pids = dir.path().join("pids");
+        let transport = StdioTransport::spawn(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                pids.to_string_lossy().into_owned(),
+            ],
+            &[],
+            None,
+        )
+        .expect("spawned");
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let ids = loop {
+            let text = std::fs::read_to_string(&pids).unwrap_or_default();
+            let ids: Vec<i32> = text
+                .split_whitespace()
+                .filter_map(|id| id.parse().ok())
+                .collect();
+            if text.ends_with('\n') && ids.len() == 2 {
+                break (ids[0], ids[1]);
+            }
+            assert!(Instant::now() < deadline, "the server never started");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        (Arc::new(transport), ids, dir)
+    }
+
+    /// The script of a server that never reads: a grandchild, both ids, and
+    /// then a leader that holds its input open and asleep.
+    #[cfg(unix)]
+    const DEAF: &str = r#"sleep 30 & echo "$$ $!" > "$1"; exec sleep 30"#;
+
+    /// More than any pipe buffer holds (64 KiB on Linux and macOS).
+    #[cfg(unix)]
+    fn oversized_call() -> Value {
+        json!({"name": "echo", "arguments": {"text": "x".repeat(2 * 1024 * 1024)}})
+    }
+
+    /// `f` on a thread of its own, and what it returned and how long it took,
+    /// or `None` if it had not returned after `bound`.
+    #[cfg(unix)]
+    fn within<T: Send + 'static>(
+        bound: Duration,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<(T, Duration)> {
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let value = f();
+            let _ = done.send((value, started.elapsed()));
+        });
+        finished.recv_timeout(bound).ok()
+    }
+
+    #[cfg(unix)]
+    fn assert_gone(pid: i32, what: &str) {
+        let pid = rustix::process::Pid::from_raw(pid).expect("pid");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while rustix::process::test_kill_process(pid).is_ok() {
+            assert!(Instant::now() < deadline, "{what} outlived close");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_request_to_a_server_that_never_reads_ends_at_its_deadline_and_close_stops_it() {
+        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
+        let caller = Arc::clone(&transport);
+        let timeout = Duration::from_millis(300);
+        let (result, took) = within(Duration::from_secs(20), move || {
+            caller.request("tools/call", oversized_call(), timeout, None)
+        })
+        .expect("the request outlived its deadline: its write to the full pipe is not under it");
+        assert_eq!(result, Err(McpError::Named("McpRequestTimedOut")));
+        assert!(took < timeout + Duration::from_secs(5), "took {took:?}");
+        // The server would not take the frame, and what it would read next
+        // is half of one: the connection is over.
+        assert!(!transport.alive());
+        let closer = Arc::clone(&transport);
+        let ((), took) =
+            within(Duration::from_secs(20), move || closer.close()).expect("close never returned");
+        assert!(took < STOP_GRACE + Duration::from_secs(5), "took {took:?}");
+        assert_gone(leader, "the server");
+        assert_gone(grandchild, "the server's grandchild");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_request_to_a_server_that_never_reads_stops_at_its_cancellation() {
+        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
+        let cancel = CancelToken::new();
+        let caller = Arc::clone(&transport);
+        let token = cancel.clone();
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = caller.request(
+                "tools/call",
+                oversized_call(),
+                Duration::from_secs(120),
+                Some(&token),
+            );
+            let _ = done.send(result);
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        cancel.cancel();
+        let result = finished.recv_timeout(Duration::from_secs(20)).expect(
+            "the request outlived its cancellation: its write to the full pipe does not look",
+        );
+        assert_eq!(result, Err(McpError::Named("Cancelled")));
+        transport.close();
+        assert_gone(leader, "the server");
+        assert_gone(grandchild, "the server's grandchild");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn close_stops_a_server_that_never_reads_while_a_write_to_it_is_blocked() {
+        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
+        let caller = Arc::clone(&transport);
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = caller.request(
+                "tools/call",
+                oversized_call(),
+                Duration::from_secs(120),
+                None,
+            );
+            let _ = done.send(result);
+        });
+        // The request is registered, and then a moment for its write to fill
+        // the pipe and block.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while transport
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty()
+        {
+            assert!(Instant::now() < deadline, "the request never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        let closer = Arc::clone(&transport);
+        let ((), took) = within(Duration::from_secs(20), move || closer.close()).expect(
+            "close never returned: it waits for the input a blocked write holds, and the server runs on",
+        );
+        assert!(took < STOP_GRACE + Duration::from_secs(5), "took {took:?}");
+        assert_gone(leader, "the server");
+        assert_gone(grandchild, "the server's grandchild");
+        let result = finished
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the request outlived close");
+        assert_eq!(result, Err(McpError::Named("McpConnectionClosed")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_that_asks_and_never_reads_the_answers_cannot_hold_close() {
+        // Thousands of `ping`s, whose answers are more than the pipe holds,
+        // and the input never read.
+        let script = r#"sleep 30 & echo "$$ $!" > "$1"; i=0; while [ "$i" -lt 4000 ]; do printf '{"jsonrpc":"2.0","id":%d,"method":"ping"}\n' "$i"; i=$((i+1)); done; exec sleep 30"#;
+        let (transport, (leader, grandchild), _dir) = deaf_server(script);
+        // An answer it does not take within its bound ends the connection,
+        // rather than stopping the reader for a second per question.
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while transport.alive() {
+            assert!(
+                Instant::now() < deadline,
+                "a server that asks and never reads kept its connection"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let closer = Arc::clone(&transport);
+        let ((), took) = within(Duration::from_secs(20), move || closer.close())
+            .expect("close never returned: it waits for the input an answer to the server holds");
+        assert!(took < STOP_GRACE + Duration::from_secs(5), "took {took:?}");
+        assert_gone(leader, "the server");
+        assert_gone(grandchild, "the server's grandchild");
+    }
+
+    /// A server whose leader exits at its `exits_at`-th look, and every step
+    /// taken on it, in order.
+    struct Scripted {
+        exits_at: usize,
+        looks: usize,
+        exited: bool,
+        steps: Vec<&'static str>,
+    }
+
+    impl Stopping for Scripted {
+        fn signal(&mut self, signal: Stop) {
+            self.steps.push(match signal {
+                Stop::Term => "TERM",
+                Stop::Kill => "KILL",
+            });
+        }
+        fn exited(&mut self) -> bool {
+            self.looks += 1;
+            self.exited |= self.looks >= self.exits_at;
+            self.exited
+        }
+        fn collect(&mut self) {
+            self.steps.push("collect");
+        }
+    }
+
+    #[test]
+    fn every_signal_reaches_the_group_before_its_leader_is_collected() {
+        // Gone before the stop, gone during the grace, and never gone.
+        for (exits_at, grace) in [
+            (1, Duration::from_secs(60)),
+            (3, Duration::from_secs(60)),
+            (usize::MAX, Duration::from_millis(50)),
+        ] {
+            let mut server = Scripted {
+                exits_at,
+                looks: 0,
+                exited: false,
+                steps: Vec::new(),
+            };
+            stop(&mut server, grace);
+            let collected = server
+                .steps
+                .iter()
+                .position(|step| *step == "collect")
+                .expect("the leader was never collected");
+            assert_eq!(
+                &server.steps[collected..],
+                ["collect"],
+                "a signal after the leader was collected, whose id is then free \
+                 for another group (leader exits at look {exits_at}): {:?}",
+                server.steps
+            );
+            assert_eq!(
+                server.steps[..collected].last(),
+                Some(&"KILL"),
+                "{:?}",
+                server.steps
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_whose_leader_has_gone_has_the_rest_of_its_group_stopped() {
+        let (transport, (leader, grandchild), _dir) =
+            deaf_server(r#"sleep 30 & echo "$$ $!" > "$1"; exit 0"#);
+        let pid = rustix::process::Pid::from_raw(leader).expect("pid");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        // Exited, and not collected until the close.
+        while rustix::process::waitid(
+            rustix::process::WaitId::Pid(pid),
+            rustix::process::WaitIdOptions::EXITED
+                | rustix::process::WaitIdOptions::NOWAIT
+                | rustix::process::WaitIdOptions::NOHANG,
+        )
+        .ok()
+        .flatten()
+        .is_none()
+        {
+            assert!(Instant::now() < deadline, "the leader never exited");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        transport.close();
+        assert_gone(leader, "the leader");
+        assert_gone(grandchild, "the leader's grandchild");
     }
 
     #[cfg(unix)]
