@@ -421,17 +421,22 @@ fn last_frame(text: &str) -> Option<&str> {
     Some(&text[begins..ends])
 }
 
-/// The band's part of an update, from where it retitles the window.
+/// The band's part of an update: from the `CUP` in front of its first `ED`.
 ///
 /// An update that grows the document carries the document's rows first and
 /// the band's frame behind them (upstream's order, `composeWireFrame`,
-/// `render_engine/terminal_diff.zig:604-645`), and a band frame writes the
-/// window title at its head whenever the terminal has not been told it yet --
-/// which the session's first frame always has not. So on the first update the
-/// title is where the document's rows end and the band's begin; an update with
-/// no title in it is taken whole.
+/// `render_engine/terminal_diff.zig:604-645`), and the session's first frame
+/// is a whole one, which opens by erasing from the band's top row down
+/// (`CUP(top,1) ED`) -- a sequence no document row is written with. So on the
+/// first update that erase is where the document's rows end and the band's
+/// begin; an update with no erase in it is taken whole.
 fn band_part(update: &str) -> &str {
-    update.find("\u{1b}]2;").map_or(update, |at| &update[at..])
+    let Some(erase) = update.find("\u{1b}[J") else {
+        return update;
+    };
+    update[..erase]
+        .rfind("\u{1b}[")
+        .map_or(update, |cup| &update[cup..])
 }
 
 /// The end of a frame that leaves the cursor off: the full transcript's,
@@ -457,23 +462,26 @@ const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?203
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
 const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
-/// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`): the
-/// window title cleared, as upstream's exit clears it (`render.zig:780-792`),
-/// and then the pushed one popped back.
-const RESTORE: &str = "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
-                       \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+/// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`): an
+/// update a torn frame may have left open closed first, as upstream's restores
+/// both begin (`app_lifecycle.zig:41`, `:44`), then the window title cleared, as
+/// upstream's exit clears it (`render.zig:780-792`), and the pushed one popped
+/// back.
+const RESTORE: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\
+                       \u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
-const RESTORE_TMUX: &str =
-    "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE_TMUX: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\
+                            \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
-/// `1049l` defensively (`app_lifecycle.zig:36-38`).
+/// `1049l` defensively (`app_lifecycle.zig:36-38`), behind only the close of an
+/// update (`app_lifecycle.zig:41`).
 ///
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
-const ABNORMAL_RESTORE: &str = "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
-                               \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+const ABNORMAL_RESTORE: &str = "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\
+                               \u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
@@ -2251,13 +2259,23 @@ fn the_band_is_painted_under_the_welcome_inside_one_synchronized_frame() {
         "the frame did not paint the composer's rail: {frame:?}"
     );
     assert!(frame.contains('\u{2503}'), "no rail: {frame:?}");
-    // And the window title, inside the same synchronized frame as everything
-    // else: it is frame metadata rather than a second writer's business.
-    // Upstream's `fx v<version> | <workspace>` before the session has a title
-    // of its own (`app_session_runtime.zig:3608-3629`).
+    // And the window title, in the frame's own write but **ahead of** its
+    // update, where upstream writes a title -- by a write of its own between
+    // two frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`)
+    // -- and not inside it. Upstream's `fx v<version> | <workspace>` before the
+    // session has a title of its own.
+    let title_at = text[..begins].rfind("\u{1b}]2;").expect("a window title");
+    let title = &text[title_at..begins];
     assert!(
-        frame.contains(&format!("\u{1b}]2;xfx v{} | ", env!("CARGO_PKG_VERSION"))),
-        "the frame did not set the window title: {frame:?}"
+        title.starts_with(&format!("\u{1b}]2;xfx v{} | ", env!("CARGO_PKG_VERSION")))
+            && title.ends_with('\u{7}')
+            && title.matches('\u{1b}').count() == 1,
+        "the window title is not the write right ahead of the first update: {:?}",
+        &text[..begins]
+    );
+    assert!(
+        !frame.contains("\u{1b}]2;"),
+        "the window title was written inside the update: {frame:?}"
     );
     for (row, what) in [
         ("\u{1b}[3;1H", "the composer"),
@@ -6158,7 +6176,7 @@ fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with
 #[test]
 fn sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
     // A supervisor's signal at the worst moment there is. The handler writes
-    // the abnormal restore -- which leads with `1049l` for exactly this case --
+    // the abnormal restore -- which writes `1049l` for exactly this case --
     // and re-raises, so the user is left on their own buffer with a cooked
     // terminal rather than on an approval screen nobody will ever answer.
     let sandbox = Sandbox::new();
@@ -6236,7 +6254,7 @@ fn sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
 fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() {
     // The one path on which the terminal changes plane without a frame saying
     // so, driven at a real process. `SIGTSTP` runs the stop handler, which
-    // writes the abnormal restore -- `1049l` first -- and stops with the user's
+    // writes the abnormal restore -- `1049l` unconditionally -- and stops with the user's
     // own buffer back; `SIGCONT` re-announces the mode set, which carries no
     // `1049h`. So the session comes back owing a question on a plane the
     // terminal is no longer showing, and it has to take that plane again before
@@ -6524,7 +6542,7 @@ mod faults {
 
         let text = session.settled_text();
         // The two restores are distinguishable, which is what makes this
-        // assertion sharp: only the abnormal one leads with `1049l`, and the
+        // assertion sharp: only the abnormal one carries `1049l`, and the
         // owner's ordinary exit never writes it. Its presence anywhere in the
         // whole settled stream means something restored that owned nothing.
         assert!(
@@ -6838,6 +6856,67 @@ mod faults {
         assert!(
             !body.contains("accepted"),
             "the independent report leaked the terminal's own human-readable sentence: {body:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_torn_inside_its_rows_with_its_cleanup_refused_is_closed_by_the_exit() {
+        // The worst state a torn write can leave: the terminal took the opener
+        // of the launch's update -- `?2026h`, so it is holding an update open
+        // -- and part of the welcome rows inside it, and then refused the
+        // cleanup vector that would have closed it (`partial-rows`). The rows
+        // may already be in its scrollback, so the session ends on it
+        // (upstream's `DocumentAppendInterrupted`,
+        // `render_engine/terminal_diff.zig:648-689`). What it must not do is
+        // leave the user's terminal in synchronized-update mode, where nothing
+        // it shows moves until the terminal's own timeout: the exit's restore
+        // closes the update first, as upstream's restores both begin
+        // (`app_lifecycle.zig:41`, `:44`).
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "partial-rows"));
+
+        let status = session.wait_exit();
+        assert_eq!(
+            status.code(),
+            Some(1),
+            "a terminal that took part of an update's rows was not the end of the session"
+        );
+        let text = session.settled_text();
+        let opened = text
+            .find("\u{1b}[?2026h")
+            .expect("the update the terminal took part of");
+        let restore = text
+            .find(RESTORE)
+            .unwrap_or_else(|| panic!("the exit did not write the restore: {text:?}"));
+        let torn = &text[opened..restore];
+        assert!(
+            torn.contains("\u{1b}[1;1H") && !torn.contains("\u{1b}[?2026l"),
+            "the tear is not inside the update's rows, still open: {torn:?}"
+        );
+        assert!(
+            !torn.contains("\u{18}"),
+            "the cleanup this fault refuses reached the terminal: {torn:?}"
+        );
+        // The update the tear left open is closed by the restore's first bytes,
+        // and every update on the wire is closed: nothing is left holding.
+        assert!(RESTORE.starts_with("\u{1b}[?2026l"));
+        assert_eq!(
+            text.matches("\u{1b}[?2026h").count(),
+            text.matches("\u{1b}[?2026l").count(),
+            "an update was left open on the terminal: {text:?}"
+        );
+        assert!(
+            text.contains("accepted"),
+            "the session did not say how much the terminal took: {text:?}"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
         );
     }
 
