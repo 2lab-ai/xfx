@@ -1,3 +1,5 @@
+SAME effort-ctrlc-40x120-ctrlc-later.ansi
+SAME effort-ctrlc-40x120-ctrlc.ansi
 SAME effort-down-40x120-early.ansi
 SAME effort-down-40x120-later.ansi
 SAME effort-loading-40x120-early.ansi

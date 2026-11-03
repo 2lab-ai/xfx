@@ -8,22 +8,22 @@ E7-E10). The `/effort ` inline column (E6) is P5-EF2's and is not driven here.
 
 ## How it was captured
 
-Five scenarios, from the research branch's `p5-effort-fork-*` set:
+Six scenarios, five of them from the research branch's `p5-effort-fork-*` set:
 
 ```
 FX_BIN=<fx v0.0.16, sha256 8e6cda2e…> scripts/fxcap/capture.sh fx  p5-effort-fork-<s> <size> <dir>
 XFX_BIN=<this branch's target/debug/xfx>  scripts/fxcap/capture.sh xfx p5-effort-fork-<s> <size> <dir>
 ```
 
-- `effort-menu`, `effort-nolevels`, `effort-down` and `effort-loading` run at
-  40x120. `effort-short` runs at 12x120.
+- `effort-menu`, `effort-nolevels`, `effort-down`, `effort-loading` and
+  `effort-ctrlc` run at 40x120. `effort-short` runs at 12x120.
 - Both binaries were run with the same `TMPDIR`, outside the repository.
 - `capture.sh` launches fx with `FX_AUTO_UPGRADE=0` and checked after each
   run that the reference binary's bytes had not changed (sha256 `8e6cda2e…`
   before and after).
 
 `effort-nolevels`, `effort-down` and `effort-short` are the research's
-scenarios unchanged. Two scenarios differ from the research:
+scenarios unchanged. Three differ from the research:
 
 - **`effort-menu` is EF1's copy.** It drops the research run's `col-*` block
   (the `/effort ` column is EF2's) and its `level-upper` snap. fx applies
@@ -39,11 +39,15 @@ scenarios unchanged. Two scenarios differ from the research:
   answers 4 s after it is asked. It reaches the loading notice
   (`session_commands.zig:1004-1006`), then the menu once the launch's read
   has landed. The harness verb existed on this base (`capture.sh:38`).
+- **`effort-ctrlc` is new.** A first Ctrl-C over the menu: the menu stays,
+  and its key help gives way to `press ctrl+c again to exit`
+  (`composeEffortMenuHintRow`'s `ctrl_c_pending`,
+  `input_presentation.zig:671-679`), still so 2.8 s later.
 
 ## RED (the base, `e0d97bd5`)
 
 `red/` holds the base binary's screens. `red.txt` is `cells.py` over every
-pair. 29 of the 30 snaps differ. Only `launch` matches.
+pair. 31 of the 32 snaps differ. Only `launch` matches.
 
 - Bare `/effort` answers `✗ command: Unknown command. Try /help.`
   (`red/xfx-…-menu.txt`, row 3).
@@ -54,7 +58,7 @@ pair. 29 of the 30 snaps differ. Only `launch` matches.
 ## GREEN
 
 `green.txt` is `cells.py` (`.prd/tui-phase4/receipts/m1/cells.py`) over
-every `fx/` and `xfx/` pair. All 30 are identical, row 1 (each product's
+every `fx/` and `xfx/` pair. All 32 are identical, row 1 (each product's
 banner) left out.
 
 | scenario | snaps, all identical |
@@ -64,15 +68,17 @@ banner) left out.
 | `effort-down` | `early`, `later` |
 | `effort-short` | `menu`, `menu-down5`, `menu-down6` |
 | `effort-loading` | `early`, `later` |
+| `effort-ctrlc` | `ctrlc`, `ctrlc-later` |
 
 The xfx binary is `target/debug/xfx` built from this branch's tree before
 its commit, so its banner names the base revision `e0d97bd`; after that
-build only doc comments changed. `effort-menu` on xfx is the third take. The
+build only doc comments and tests changed. `effort-menu` on xfx is the third take. The
 second take's `midturn` read `Generating (2s) (↑4 ↓6)` where fx's read
 `↓7`: that is the running turn's live output count, snapped while the slow
 turn's chunks arrive 700 ms apart. Every other cell of that take matched.
-The first and third takes match whole. The other four scenarios are the
-second take, which matched whole.
+The first and third takes match whole. `effort-nolevels`, `effort-down`,
+`effort-short` and `effort-loading` are the second take, which matched
+whole; `effort-ctrlc` was taken once.
 
 In this fx run, `slash-ef` lists `/effort` alone (`Commands 1`). The
 research's capture listed `/fork` too. Both pair here.

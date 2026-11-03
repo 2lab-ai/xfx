@@ -36160,6 +36160,43 @@ mod tests {
     }
 
     #[test]
+    fn the_effort_menu_stays_under_a_first_ctrl_c_and_says_the_next_one_leaves() {
+        // `fx-p5-effort-fork-effort-ctrlc-40x120-ctrlc`: the menu stays up,
+        // and its key help gives way to the warning in the statusline grey
+        // until the window closes (`composeEffortMenuHintRow`,
+        // `input_presentation.zig:671-679@481104fd`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.settle_band(now);
+        assert!(
+            shell.effort_menu.is_some(),
+            "a first Ctrl-C closed the menu"
+        );
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{EXIT_ARMED}{}",
+                PALETTE.statusline(),
+                PALETTE.reset()
+            ))
+        );
+        shell.settle_band(now + EXIT_WINDOW);
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{}{}",
+                PALETTE.dim(),
+                effort_menu::key_help(120),
+                PALETTE.reset()
+            ))
+        );
+        assert!(!shell.leaving());
+    }
+
+    #[test]
     fn an_edit_closes_the_effort_menu_and_the_edit_stands() {
         // `fx-p5-effort-fork-effort-menu-40x120-menu-edit`: `x` typed over
         // the menu is in the composer, and the menu is gone.
