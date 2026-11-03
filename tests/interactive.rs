@@ -1721,6 +1721,95 @@ fn a_command_cannot_paint_on_the_terminal_through_the_approval_question() {
     assert_eq!(session.quit().code(), Some(0));
 }
 
+/// A turn whose answer, written before it asks to run a command, carries the
+/// state a terminal keeps: conceal (SGR 8), black on black, a scroll region
+/// pinned to two rows, a window title with its BEL, and the one-scalar C1
+/// `CSI` -- and a line drawn to look like one of xfx's choices.
+fn an_answer_then_a_command() -> FakeGateway {
+    let answer = "Running the check now.\n  [y] yes, once\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\
+                  \u{1b}]0;xfx\u{7}\u{9b}8m";
+    FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", answer),
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "touch marker" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ])
+}
+
+/// Everything the terminal received up to the question's last choice: no
+/// control the model wrote reached it, so none is in force when the question
+/// is drawn -- and the answer still arrived, as text, a blank where each
+/// control was.
+fn assert_nothing_left_in_force(asked: &str) {
+    for (character, name) in [
+        ('\u{1b}', "an ESC"),
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{7}', "a BEL"),
+    ] {
+        assert!(
+            !asked.contains(character),
+            "{name} the model wrote reached the terminal before the question: {asked:?}"
+        );
+    }
+    assert!(asked.contains("Running the check now."), "{asked:?}");
+    assert!(asked.contains(" [8m [30;40m [2;3r ]0;xfx  8m"), "{asked:?}");
+    assert!(
+        last_question(asked).contains("xfx wants to run `touch marker` in ."),
+        "{asked:?}"
+    );
+}
+
+#[test]
+fn an_answer_cannot_leave_terminal_state_that_hides_the_next_approval_question() {
+    // The question's own bytes are spelled, but the model writes its answer
+    // *before* it asks for the tool, to the same terminal. Raw, that state is
+    // still in force when xfx prints the question, so a person answers a
+    // question they cannot see, under one the model drew above it.
+    let gateway = an_answer_then_a_command();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("run it");
+    assert_nothing_left_in_force(&session.wait_for("[n] no"));
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn an_ask_answer_on_a_terminal_cannot_hide_its_approval_question_either() {
+    // `xfx ask` on a terminal asks on it too (`TtyPrompter`), after the answer.
+    let gateway = an_answer_then_a_command();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "--no-save", "run it"]);
+    let mut session = Session::spawn(&pty, command);
+
+    assert_nothing_left_in_force(&session.wait_for("[n] no"));
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+}
+
 #[test]
 fn an_always_answered_on_the_terminal_is_written_where_a_resume_will_read_it() {
     // The durable half of `[a] always`. The prompt promises the approval lasts

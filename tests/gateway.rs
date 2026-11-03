@@ -1708,6 +1708,28 @@ fn ask_streams_plain_text_for_a_human() {
 }
 
 #[test]
+fn ask_writes_an_answer_to_a_pipe_byte_for_byte() {
+    // An answer on a terminal reaches it with its controls blanked, so it
+    // cannot leave state behind for the question that follows. An answer on a
+    // pipe or in a file is data for a program, and arrives exactly as the
+    // model wrote it -- escape sequences, a bell, a tab and a carriage return
+    // included.
+    let answer = "\u{1b}[1mbold\u{1b}[0m\tand\u{7} done\r\n";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[answer]))]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--no-save", "hello"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.stdout, answer);
+    assert_eq!(run.stderr, "");
+}
+
+#[test]
 fn an_sse_event_split_across_transport_writes_still_decodes() {
     let body = content_only(&["one ", "two"]);
     let pieces: Vec<String> = body

@@ -18,6 +18,7 @@
 //! the model was asked to read reaches the terminal, not whether any of it
 //! does; README's "Safety, in plain terms" says what to do about that.
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 
 use serde::Serialize;
@@ -1205,6 +1206,42 @@ pub struct TextSink<W: Write, D: Write> {
     pending_newline: bool,
     /// Whether tool activity is announced on the diagnostic stream.
     tool_notices: bool,
+    /// Whether the answer is written to a terminal, and so reaches it inert
+    /// ([`inert_answer`]) rather than byte for byte.
+    terminal: bool,
+}
+
+/// An answer as a terminal may receive it: every control character blanked to
+/// a space but the three a reader's text is made of -- the line break, the
+/// carriage return of a `CRLF`, and the tab of an indented code block.
+///
+/// **Why the answer at all.** On the line surfaces (`xfx ask` on a terminal,
+/// the interactive shell) the answer and the approval question share one
+/// terminal, and the answer is written first. A control sequence in it is not
+/// text but state, and it is still in force when the question is printed: a
+/// conceal (`SGR 8`) or a black-on-black colour hides the question, a scroll
+/// region pins it out of view, and the person answers a question they cannot
+/// see under one the model drew above it. Spelling the question's own bytes
+/// cannot reach state set before it was written.
+///
+/// The TUI channel's rule (`crate::tui::bridge`'s `inert`: the whole control
+/// class becomes a space, `\n` and `\r` survive), with the tab kept too: a tab
+/// moves the cursor across cells without drawing on them, so it can neither
+/// hide nor forge anything, and blanking it would flatten every indented code
+/// block an answer carries. A space rather than a deletion, so the reader is
+/// shown where a control was; the C1 range is in the class, so the one-scalar
+/// `CSI` goes with `ESC`.
+fn inert_answer(text: &str) -> Cow<'_, str> {
+    let obeyed =
+        |character: char| character.is_control() && !matches!(character, '\n' | '\r' | '\t');
+    if !text.chars().any(obeyed) {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(
+        text.chars()
+            .map(|character| if obeyed(character) { ' ' } else { character })
+            .collect(),
+    )
 }
 
 /// How much of a failed tool's report is echoed beside its notice.
@@ -1230,7 +1267,19 @@ impl<W: Write, D: Write> TextSink<W, D> {
             diagnostics,
             pending_newline: false,
             tool_notices: false,
+            terminal: false,
         }
+    }
+
+    /// The same sink, told whether its answer stream is a terminal.
+    ///
+    /// On one, the answer arrives inert ([`inert_answer`]); anywhere else --
+    /// a pipe, a file -- it is a program's input and arrives exactly as the
+    /// model wrote it. Off by default, so a sink that was not told writes
+    /// bytes, which is what every in-memory writer wants.
+    pub fn on_terminal(mut self, terminal: bool) -> Self {
+        self.terminal = terminal;
+        self
     }
 
     /// The same sink, announcing each tool call as it starts and finishes.
@@ -1304,7 +1353,11 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                 if text.is_empty() {
                     return Ok(());
                 }
-                self.writer.write_all(text.as_bytes())?;
+                if self.terminal {
+                    self.writer.write_all(inert_answer(text).as_bytes())?;
+                } else {
+                    self.writer.write_all(text.as_bytes())?;
+                }
                 self.pending_newline = !text.ends_with('\n');
                 self.writer.flush()
             }
@@ -1807,6 +1860,28 @@ mod tests {
             String::from_utf8(stdout).unwrap(),
             String::from_utf8(stderr).unwrap(),
         )
+    }
+
+    #[test]
+    fn an_answer_reaches_a_terminal_inert_and_anything_else_byte_for_byte() {
+        // Conceal, a colour, a scroll region, a title with its BEL, the C1
+        // CSI and a DEL: state a terminal would keep. The line break, the
+        // CRLF's carriage return and the tab are a reader's text and stay.
+        let answer = "a\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\u{1b}]0;t\u{7}\u{9b}8m\u{7f}\n\tb\r\n";
+        let delta = Event::AssistantDelta {
+            text: answer.to_string(),
+        };
+
+        let mut terminal = TextSink::new(Vec::new(), Vec::new()).on_terminal(true);
+        terminal.emit(&delta).unwrap();
+        let (shown, _) = terminal.into_inner();
+        assert_eq!(
+            String::from_utf8(shown).unwrap(),
+            "a [8m [30;40m [2;3r ]0;t  8m \n\tb\r\n"
+        );
+
+        let (piped, _) = text_sink_output(&[delta]);
+        assert_eq!(piped, answer, "an answer off a terminal was changed");
     }
 
     #[test]
