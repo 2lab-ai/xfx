@@ -282,7 +282,13 @@ Every comparison of the first round holds on this tree, the same way:
   document and Ctrl-O paint no sequence of its own (`src/tui/shell.rs`
   `a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript`);
   a rename holding one refuses its log (`src/session/store.rs`
-  `a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote`).
+  `a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote`); a recorded
+  model holding one is not restored into the hint row and `/settings`
+  (`src/tui/worker.rs`
+  `a_resume_never_restores_a_model_with_a_control_character_in_it`), and a
+  catalog id holding one is never adopted, so never logged
+  (`src/provider/model.rs`
+  `a_catalog_id_with_a_control_character_is_refused_when_a_query_resolves_to_it`).
 - **A turn stopped while its automatic compaction ran** replays as its card
   alone, as fx's (`cancellation_origin: compaction`; e2e
   `tui-compaction-activity.test.ts:481-488`): `tests/tui.rs`
