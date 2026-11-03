@@ -251,3 +251,16 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - Batch 26 landed the last two first-round fixes; no row closed this round because round 2 reopened both.
+
+## R27–R29 — closed 2026-11-04
+
+- result: batch 27 (`41ad4c21`: SEC-D1b, D2b, SIGINTb, A1c, A2b, C2c), batch 28 (`7c6f0c73`: RESUMEb, A4c, C5c, C3c), batch 29 (`552c04fb`: B1c, C4c). Gates: `41ad4c21` lib 3579 tui 163 / FI 3586 177; `7c6f0c73` lib 3598 tui 163 / FI 3605 177; `552c04fb` lib 3608 tui 163 / FI 3615 177; 0 failed, clippy 0 throughout. Round-2 reviews (two engines per unit) and their follow-ups; round 3 under way.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+
+### Round section (as it was in loop.md)
+
+- Measured on this Mac during the follow-ups: `std::env::var("HOME=")` returns HOME's value (C2c, a real credential read through `${AI_GATEWAY_API_KEY=}`); tmux and herdr draw U+FF9E/U+A8FA/U+0D4E one cell where xfx counted zero (A4c); `ps -E` lets a same-user child read xfx's launch environment (C2c docs); the TUI file index ran a repo's fsmonitor hook (C5c).
