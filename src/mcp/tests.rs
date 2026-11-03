@@ -289,8 +289,8 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     }}})
     .to_string();
     // As the model would: read the file, then replace it.
-    let write = |mode| {
-        let context = context(&home, &runtime, mode, RuleSet::default());
+    let write = |mode, rules| {
+        let context = context(&home, &runtime, mode, rules);
         let read = call(&context, "read_file", json!({"path": ".mcp.json"}));
         assert!(read.ok, "{read:?}");
         call(
@@ -299,11 +299,25 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
             json!({"path": ".mcp.json", "content": replaced}),
         )
     };
-    // `ask` with nobody to ask refuses: in the TUI the person sees the diff.
-    let asked = write(PermissionMode::Ask);
+    // The first defence: `ask` with nobody to ask refuses (in the TUI the
+    // person sees the diff), and `auto` does not change the file on its own,
+    // because it decides what runs (SEC-C5).
+    let asked = write(PermissionMode::Ask, RuleSet::default());
     assert_eq!(asked.outcome, crate::tools::Outcome::Denied, "{asked:?}");
-    // `auto` writes it on its own.
-    let wrote = write(PermissionMode::Auto);
+    let held = write(PermissionMode::Auto, RuleSet::default());
+    assert_eq!(held.outcome, crate::tools::Outcome::Denied, "{held:?}");
+    assert!(
+        held.output
+            .contains("auto mode does not change `.mcp.json` on its own"),
+        "{}",
+        held.output
+    );
+    // The second, this one: the write gets through the way a person lets it,
+    // with their own rule that allows file edits (a configured allow still
+    // admits what auto holds), and permission to edit a file is still no
+    // approval of what the edited entry starts.
+    let rules = RuleSet::parse(&json!({"edit": "allow"})).expect("rules");
+    let wrote = write(PermissionMode::Auto, rules);
     assert!(wrote.ok, "{wrote:?}");
 
     runtime.run(Job::Command("reload".into()));

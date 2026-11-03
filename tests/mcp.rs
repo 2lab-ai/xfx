@@ -196,9 +196,10 @@ fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
 #[test]
 fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_again() {
     // `1` approves the entry the prompt showed. The model then replaces that
-    // entry's command with a plain file write -- `auto`, the default, admits
-    // it -- and the reload that follows asks again, showing the new command,
-    // instead of running it.
+    // entry's command with a plain file write -- which `auto` would hold
+    // (SEC-C5), so the person's own rule allows file edits -- and
+    // the reload that follows asks again, showing the new command, instead
+    // of running it.
     let sandbox = Sandbox::new();
     let ran = sandbox.home.join("replacement-ran");
     let replaced = json!({"mcpServers": {"proj": {
@@ -221,7 +222,11 @@ fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_a
         ])),
         Reply::Sse(content_only(&["MARKER-MCP-REWRITTEN"])),
     ]);
-    profile(&sandbox, &json!({"mcp": {}}), &json!({}));
+    profile(
+        &sandbox,
+        &json!({"mcp": {}}),
+        &json!({"permission": {"edit": "allow"}}),
+    );
     std::fs::write(
         sandbox.workspace.join(".mcp.json"),
         json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
