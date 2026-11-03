@@ -1174,9 +1174,9 @@ impl McpRuntime {
     }
 
     /// Puts the trust prompt up for the next pending server, when one is
-    /// pending and none is up for that entry. Upstream's two rows, with the
-    /// command line or address between them: the name is the repository's
-    /// to choose, so it says nothing about what would run.
+    /// pending and none is up for that entry. Upstream's two rows, with what
+    /// the entry runs or reaches between them ([`what_it_runs`]): the name is
+    /// the repository's to choose, so it says nothing about what would run.
     fn present_prompt(&self) {
         let Some((config, digest)) = self.pending_prompt() else {
             self.state().prompting = None;
@@ -1610,21 +1610,54 @@ impl Drop for McpRuntime {
     }
 }
 
-/// The trust prompt's row that says what approving lets run or reach: a
-/// stdio server's command line, or a remote server's address, as the entry
-/// has it (`${VAR}` and all: a pending entry is not expanded), through
-/// [`super::terminal_safe`].
+/// The trust prompt's rows that say what approving lets run or reach, as the
+/// entry has it (`${VAR}` and all: a pending entry is not expanded), through
+/// [`super::terminal_safe`]: a stdio server's command line and the names of
+/// the variables it sets, or a remote server's address and the headers it
+/// sends with where each value comes from. Names, never values: a value can
+/// be a credential written into the file, and these rows stay in the
+/// transcript. A changed environment or credential source is a changed entry
+/// ([`config::entry_digest`]), and these rows are how its prompt differs from
+/// the one already answered.
 fn what_it_runs(config: &ServerConfig) -> String {
-    match config.transport {
+    let mut rows = match config.transport {
         Kind::Stdio => {
             let words: Vec<String> = std::iter::once(&config.command)
                 .chain(&config.args)
                 .map(|word| shell_word(word))
                 .collect();
-            format!("command: {}", super::terminal_safe(&words.join(" ")))
+            vec![format!("command: {}", words.join(" "))]
         }
-        Kind::Http | Kind::Sse => format!("url: {}", super::terminal_safe(&config.url)),
+        Kind::Http | Kind::Sse => vec![format!("url: {}", config.url)],
+    };
+    let names: Vec<String> = config.env.iter().map(|(name, _)| name.clone()).collect();
+    if !names.is_empty() {
+        rows.push(format!("env: {}", names.join(", ")));
     }
+    let headers: Vec<String> = config
+        .headers
+        .iter()
+        .map(|(name, _)| name.clone())
+        .chain(
+            config
+                .header_env
+                .iter()
+                .map(|(name, variable)| format!("{name} from ${variable}")),
+        )
+        .chain(
+            config
+                .bearer_token_env
+                .iter()
+                .map(|variable| format!("Authorization from ${variable}")),
+        )
+        .collect();
+    if !headers.is_empty() {
+        rows.push(format!("headers: {}", headers.join(", ")));
+    }
+    rows.iter()
+        .map(|row| super::terminal_safe(row))
+        .collect::<Vec<_>>()
+        .join("\n  ")
 }
 
 /// One word of a command line as a POSIX shell would read it back: bare when
@@ -1675,8 +1708,25 @@ mod tests {
             what_it_runs(&config),
             r"command: /usr/bin/env node 'it'\''s here' '' $'line\nbreak\u001B[2J'"
         );
+        // The variables it sets are named; their values are not shown.
+        config.env = vec![
+            ("NODE_OPTIONS".into(), "--require ./x.js".into()),
+            ("API_KEY".into(), "literal-secret".into()),
+        ];
+        assert_eq!(
+            what_it_runs(&config),
+            "command: /usr/bin/env node 'it'\\''s here' '' $'line\\nbreak\\u001B[2J'\n  env: NODE_OPTIONS, API_KEY"
+        );
+        config.env.clear();
         config.transport = Kind::Http;
         config.url = "https://example.test/mcp?x=\u{7}1".into();
         assert_eq!(what_it_runs(&config), "url: https://example.test/mcp?x=1");
+        config.headers = vec![("X-A".into(), "static-secret".into())];
+        config.header_env = vec![("X-Team".into(), "TEAM".into())];
+        config.bearer_token_env = Some("TOKEN".into());
+        assert_eq!(
+            what_it_runs(&config),
+            "url: https://example.test/mcp?x=1\n  headers: X-A, X-Team from $TEAM, Authorization from $TOKEN"
+        );
     }
 }
