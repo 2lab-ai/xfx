@@ -1126,10 +1126,11 @@ pub(crate) struct Shell {
     skills: HeldSkills,
     /// `/mcp`'s menu, while it is up ([`super::mcp_menu`]).
     mcp_menu: Option<super::mcp_menu::McpMenu>,
-    /// The project server the trust prompt is up for, while it is: the
-    /// person's next `1`, `2`, `3` or Escape answers it (`routeProjectMcpPromptByte`,
-    /// `app_input_runtime.zig:884-937`).
-    mcp_prompt: Option<String>,
+    /// The project server the trust prompt is up for, while it is, and the
+    /// digest of the entry it showed: the person's next `1`, `2`, `3` or
+    /// Escape answers it (`routeProjectMcpPromptByte`,
+    /// `app_input_runtime.zig:884-937`), and `1` approves that entry.
+    mcp_prompt: Option<(String, String)>,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -6452,14 +6453,15 @@ impl Shell {
     fn offer_to_trust_prompt(&mut self, event: &Input) -> bool {
         use crate::mcp::config::TrustAction;
         use crate::mcp::runtime::Job;
-        let Some(name) = self.mcp_prompt.clone() else {
+        let Some((name, digest)) = self.mcp_prompt.clone() else {
             return false;
         };
         let shown = crate::mcp::terminal_safe(&name);
         let job = match event {
+            // The entry the prompt showed, whatever the file says by now.
             Input::Text('1') => Job::Trust {
                 body: format!("Approving project MCP server '{shown}'."),
-                action: TrustAction::Approve(name),
+                action: TrustAction::ApproveShown { name, digest },
             },
             Input::Text('2') => Job::Trust {
                 action: TrustAction::ApproveAll,
@@ -6525,7 +6527,7 @@ impl Shell {
                         self.write_document_line(line, Role::Plain);
                     }
                 }
-                Event::TrustPrompt { name } => self.mcp_prompt = Some(name),
+                Event::TrustPrompt { name, digest } => self.mcp_prompt = Some((name, digest)),
                 Event::MenuFeedback(text) => {
                     if let Some(menu) = self.mcp_menu.as_mut() {
                         menu.tell(super::bridge::inert(&text).into_owned());

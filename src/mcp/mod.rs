@@ -79,8 +79,40 @@ impl fmt::Display for McpError {
 
 impl std::error::Error for McpError {}
 
-/// A server-supplied name made safe to put on a terminal row: control
-/// characters dropped (`encodeTerminalSafe`).
+/// The most bytes [`terminal_safe`] returns, upstream's for the trust
+/// prompt's name (`encodeTerminalSafe(alloc, name, 256)`,
+/// `src/core/app/app_mcp_runtime.zig:1694@c1db9191`).
+pub const TERMINAL_SAFE_MAX_BYTES: usize = 256;
+
+/// A name or text a server or a repository supplied, made safe to put on a
+/// terminal row: upstream's `encodeTerminalSafe(.., 256)`
+/// (`src/core/shared/text_utils.zig:343-380@c1db9191`). Every C0 control and
+/// `DEL` -- a line break included -- is `\xNN`, and the C1 controls and the
+/// zero-width, line-separator, bidirectional and byte-order-mark code points
+/// (`isNonPrintingCodepoint`, `:620-626`) are `\u{NNNN}`, spelled out rather
+/// than dropped, so a name with a character in it is not shown as a
+/// different name ([`crate::tools::question::terminal_safe`], the same
+/// tokens). At most [`TERMINAL_SAFE_MAX_BYTES`]: past that the text is cut at
+/// a token boundary and ends `...`, as upstream's does, so a repository
+/// cannot fill a row, or the screen, with one name.
 pub fn terminal_safe(text: &str) -> String {
-    text.chars().filter(|c| !c.is_control()).collect()
+    const MARKER: &str = "...";
+    let max = TERMINAL_SAFE_MAX_BYTES;
+    let content_limit = max - MARKER.len();
+    let mut out = String::new();
+    let mut boundary = 0;
+    let mut buf = [0u8; 4];
+    for character in text.chars() {
+        let token = crate::tools::question::terminal_safe(character.encode_utf8(&mut buf));
+        if out.len() + token.len() > max {
+            out.truncate(boundary);
+            out.push_str(MARKER);
+            return out;
+        }
+        out.push_str(&token);
+        if out.len() <= content_limit {
+            boundary = out.len();
+        }
+    }
+    out
 }

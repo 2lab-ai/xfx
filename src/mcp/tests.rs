@@ -181,22 +181,26 @@ fn a_server_that_cannot_start_is_tried_once_more_and_then_failed() {
 #[test]
 fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     let home = Home::new();
+    let entry = json!({"command": "/bin/sh", "args": [fixture()]});
     std::fs::write(
         home.workspace().join(".mcp.json"),
-        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+        json!({"mcpServers": {"proj": entry}}).to_string(),
     )
     .unwrap();
     let runtime = home.runtime();
     runtime.start();
     let events = runtime.take_events();
     assert!(
-        events.contains(&Event::Raw(
-            "Project MCP server 'proj' is defined in .mcp.json.\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n".into()
-        )),
+        events.contains(&Event::Raw(format!(
+            "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+            fixture().display()
+        ))),
         "{events:?}"
     );
+    let digest = config::entry_digest(&entry);
     assert!(events.contains(&Event::TrustPrompt {
-        name: "proj".into()
+        name: "proj".into(),
+        digest: digest.clone(),
     }));
     let view = settled(&runtime, "proj");
     assert_eq!(view.state_label(), "Pending trust");
@@ -218,10 +222,138 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
     let document: Value =
         serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
+    let entry = &document["workspaces"][home.workspace().to_str().unwrap()];
+    assert_eq!(entry["enabledMcpjsonServers"], json!(["proj"]));
     assert_eq!(
-        document["workspaces"][home.workspace().to_str().unwrap()]["enabledMcpjsonServers"],
-        json!(["proj"])
+        entry["enabledMcpjsonServerDigests"],
+        json!({"proj": digest})
     );
+    runtime.shutdown();
+}
+
+#[test]
+fn an_approval_an_older_xfx_saved_by_name_alone_asks_once_more() {
+    let home = Home::new();
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(home.settings().parent().unwrap()).unwrap();
+    std::fs::write(
+        home.settings(),
+        json!({"workspaces": {home.workspace().to_str().unwrap(): {
+            "enabledMcpjsonServers": ["proj"],
+            "enableAllProjectMcpServers": true,
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
+    assert!(runtime
+        .take_events()
+        .iter()
+        .any(|event| matches!(event, Event::TrustPrompt { name, .. } if name == "proj")));
+    runtime.shutdown();
+}
+
+#[test]
+fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it_runs() {
+    // The approval is for the server the person was shown. `.mcp.json` is an
+    // ordinary workspace file -- `auto`, the default mode, writes it without
+    // asking, as upstream's does (`sensitiveAutoWriteTarget`,
+    // `tool_admission.zig:679-693`) -- so a write that swaps an approved
+    // entry's command must not inherit the approval on the next reload.
+    let home = Home::new();
+    let ran = home.dir.path().join("replacement-ran");
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "proj");
+    runtime.run(Job::Trust {
+        action: TrustAction::Approve("proj".into()),
+        body: "Approving project MCP server 'proj'.".into(),
+    });
+    assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
+    let _ = runtime.take_events();
+
+    let replaced = json!({"mcpServers": {"proj": {
+        "command": "/bin/sh",
+        "args": ["-c", ": > \"$0\"; exec /bin/sh \"$1\"", ran, fixture()],
+    }}})
+    .to_string();
+    // As the model would: read the file, then replace it.
+    let write = |mode| {
+        let context = context(&home, &runtime, mode, RuleSet::default());
+        let read = call(&context, "read_file", json!({"path": ".mcp.json"}));
+        assert!(read.ok, "{read:?}");
+        call(
+            &context,
+            "write_file",
+            json!({"path": ".mcp.json", "content": replaced}),
+        )
+    };
+    // `ask` with nobody to ask refuses: in the TUI the person sees the diff.
+    let asked = write(PermissionMode::Ask);
+    assert_eq!(asked.outcome, crate::tools::Outcome::Denied, "{asked:?}");
+    // `auto` writes it on its own.
+    let wrote = write(PermissionMode::Auto);
+    assert!(wrote.ok, "{wrote:?}");
+
+    runtime.run(Job::Command("reload".into()));
+    let view = settled(&runtime, "proj");
+    assert!(
+        !ran.exists(),
+        "the rewritten entry ran without a new prompt"
+    );
+    assert_eq!(
+        view.state_label(),
+        "Pending trust",
+        "the rewritten entry kept the approval: {view:?}"
+    );
+    // The prompt names what would run, not only the name.
+    let events = runtime.take_events();
+    let shown = format!(
+        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c ': > \"$0\"; exec /bin/sh \"$1\"' {} {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+        ran.display(),
+        fixture().display()
+    );
+    assert!(events.contains(&Event::Raw(shown)), "{events:?}");
+    let Some(Event::TrustPrompt { digest, .. }) = events
+        .iter()
+        .find(|event| matches!(event, Event::TrustPrompt { .. }))
+    else {
+        panic!("no prompt: {events:?}")
+    };
+    // An answer to a prompt that showed the old entry approves the old entry,
+    // which is no longer there.
+    let first = config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}));
+    assert_ne!(*digest, first);
+    runtime.run(Job::Trust {
+        action: TrustAction::ApproveShown {
+            name: "proj".into(),
+            digest: first,
+        },
+        body: "Approving project MCP server 'proj'.".into(),
+    });
+    assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
+    assert!(!ran.exists());
+    // The person approving the entry they were shown runs it.
+    runtime.run(Job::Trust {
+        action: TrustAction::ApproveShown {
+            name: "proj".into(),
+            digest: digest.clone(),
+        },
+        body: "Approving project MCP server 'proj'.".into(),
+    });
+    assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
+    assert!(ran.exists());
     runtime.shutdown();
 }
 
@@ -270,6 +402,73 @@ fn every_feature_command_answers_in_upstreams_shape() {
         assert_eq!(notices(&runtime), [expected], "{line}");
     }
     runtime.shutdown();
+}
+
+#[test]
+fn a_hostile_name_is_spelled_out_and_cut_at_upstreams_256_bytes() {
+    use super::terminal_safe;
+    // `encodeTerminalSafe(.., 256)` (`text_utils.zig:343-380@c1db9191`): a
+    // name that would retitle the window, clear the screen and reverse what
+    // follows is shown as the characters it is made of.
+    assert_eq!(
+        terminal_safe("ok\u{1b}]0;owned\u{7}\u{1b}[2J\u{202e}x\u{2066}\u{200b}\u{feff}\u{9b}\n"),
+        r"ok\x1b]0;owned\x07\x1b[2J\u{202e}x\u{2066}\u{200b}\u{feff}\u{009b}\x0a"
+    );
+    assert_eq!(
+        terminal_safe("plain-name_1 \u{65e5}"),
+        "plain-name_1 \u{65e5}"
+    );
+    // Spelled text is spelled the same again.
+    let once = terminal_safe("x\u{202e}\u{7}");
+    assert_eq!(terminal_safe(&once), once);
+    // At most 256 bytes, cut at a token boundary and marked as upstream's is.
+    assert_eq!(terminal_safe(&"a".repeat(256)), "a".repeat(256));
+    let cut = terminal_safe(&"a".repeat(300));
+    assert_eq!(cut, format!("{}...", "a".repeat(253)));
+    assert_eq!(cut.len(), super::TERMINAL_SAFE_MAX_BYTES);
+    // Never half an escape: the override that would not fit goes whole.
+    assert_eq!(
+        terminal_safe(&format!("{}{}", "a".repeat(250), "\u{202e}".repeat(10))),
+        format!("{}...", "a".repeat(250))
+    );
+}
+
+#[test]
+fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it() {
+    let home = Home::new();
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {
+            "command": "/bin/sh",
+            "args": ["-c", "true \u{202e}hs.live cexe\u{200b}"],
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    let events = runtime.take_events();
+    let prompt = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Raw(text) => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no prompt: {events:?}"));
+    assert_eq!(
+        prompt,
+        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c 'true \\u{202e}hs.live cexe\\u{200b}'\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+    );
+    runtime.shutdown();
+}
+
+/// Every entry of the workspace file in `root` approved as it is written --
+/// what pressing `2` at its prompt saves.
+fn approving_every_entry(root: &Path) -> config::Choices {
+    config::Choices {
+        approved: config::load_workspace(root, &config::Choices::default(), &|_| None).digests,
+        ..config::Choices::default()
+    }
 }
 
 /// A context over `runtime` in `mode`, with `rules`.
@@ -732,8 +931,9 @@ fn an_http_server_is_sent_its_headers_then_its_environment_headers_then_its_bear
 }
 
 /// A repository's `.mcp.json` names xfx's own credentials every way it can.
-/// Approval is by name, and an HTTP server runs no code of the repository's,
-/// so nothing it is sent may carry the gateway credential: `${VAR}` never
+/// An approval is one answer to one prompt, and an HTTP server runs no code
+/// of the repository's, so nothing it is sent may carry the gateway
+/// credential: `${VAR}` never
 /// resolves one, and `header_env` / `bearer_token_env` naming one is refused
 /// where the person can see it. A profile entry, which the person wrote, may.
 #[test]
@@ -772,10 +972,7 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
         "FIXTURE_TEAM" => Some("blue".to_string()),
         _ => None,
     };
-    let approved = config::Choices {
-        enable_all: true,
-        ..config::Choices::default()
-    };
+    let approved = approving_every_entry(dir.path());
     let loaded = config::load_workspace(dir.path(), &approved, &environment);
     for server in &loaded.servers {
         let mut sent: Vec<String> = vec![server.command.clone(), server.url.clone()];
@@ -881,10 +1078,7 @@ fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstrea
     )
     .unwrap();
     let environment = |name: &str| (name == "SET_EMPTY").then(String::new);
-    let approved = config::Choices {
-        enable_all: true,
-        ..config::Choices::default()
-    };
+    let approved = approving_every_entry(dir.path());
     let loaded = config::load_workspace(dir.path(), &approved, &environment);
     let mut names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
     names.sort_unstable();
@@ -904,8 +1098,9 @@ fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstrea
             missing("arg", "argument", "UNSET_ARG"),
             missing("array", "argument", "UNSET_ARRAY"),
             missing("cmd", "command", "UNSET_CMD"),
-            // A control byte in the name is not put on the terminal.
-            missing("control", "command", "UNSET[2J"),
+            // A control byte in the name is not put on the terminal: it is
+            // spelled out (`mcp::terminal_safe`, upstream's `encodeTerminalSafe`).
+            missing("control", "command", r"UNSET\x1b[2J"),
             missing("env", "environment", "UNSET_ENV"),
             missing("header", "http_header", "UNSET_HEADER"),
             missing("url", "url", "UNSET_HOST"),

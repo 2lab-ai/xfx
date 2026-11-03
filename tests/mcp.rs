@@ -192,3 +192,79 @@ fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
         "a trust answer is never a prompt"
     );
 }
+
+#[test]
+fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_again() {
+    // `1` approves the entry the prompt showed. The model then replaces that
+    // entry's command with a plain file write -- `auto`, the default, admits
+    // it -- and the reload that follows asks again, showing the new command,
+    // instead of running it.
+    let sandbox = Sandbox::new();
+    let ran = sandbox.home.join("replacement-ran");
+    let replaced = json!({"mcpServers": {"proj": {
+        "command": "/bin/sh",
+        "args": ["-c", ": > \"$0\"; exec /bin/sh \"$1\"", ran, fixture()],
+    }}})
+    .to_string();
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("r1", "read_file", json!({"path": ".mcp.json"})),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "w1",
+                "write_file",
+                json!({"path": ".mcp.json", "content": replaced}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-MCP-REWRITTEN"])),
+    ]);
+    profile(&sandbox, &json!({"mcp": {}}), &json!({}));
+    std::fs::write(
+        sandbox.workspace.join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .expect("project config");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
+    session.wait_for("Project MCP server 'proj' is defined in .mcp.json.");
+    session.wait_for("command: /bin/sh /");
+    session.wait_for("[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts");
+    session.type_bytes(b"1");
+    session.wait_for("Approving project MCP server 'proj'.");
+    session.wait_for("MCP configuration reloaded successfully.");
+
+    session.type_bytes(b"tidy the MCP config\r");
+    session.wait_for("MARKER-MCP-REWRITTEN");
+    assert!(
+        std::fs::read_to_string(sandbox.workspace.join(".mcp.json"))
+            .expect("the file")
+            .contains("exec /bin/sh"),
+        "the model's write did not land"
+    );
+    session.type_bytes(b"/mcp reload\r");
+    session.wait_for("command: /bin/sh -c");
+    session.type_bytes(b"3");
+    session.wait_for("Rejecting project MCP server 'proj'.");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(
+        !ran.exists(),
+        "the rewritten entry ran without being asked about"
+    );
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(sandbox.home.join(".xfx/settings.json")).expect("settings"),
+    )
+    .expect("json");
+    let entry = &settings["workspaces"][sandbox.workspace.to_str().unwrap()];
+    assert_eq!(
+        entry["disabledMcpjsonServers"],
+        json!(["proj"]),
+        "{settings:#}"
+    );
+    assert_eq!(entry.get("enabledMcpjsonServers"), None, "{settings:#}");
+    assert_eq!(gateway.requests().len(), 3, "one request per step");
+}
