@@ -656,8 +656,6 @@ impl McpMenu {
         visible: usize,
     ) -> Effect {
         match (self.screen, action) {
-            // The servers the confirmation was drawn over, as they were drawn:
-            // one a reload read after the frame is not in it.
             // What the confirmation was opened over -- unless a frame of it,
             // or the servers as they are now, found the pending set changed:
             // then it approves nothing and goes back to the list.
@@ -2017,6 +2015,34 @@ mod tests {
         if matches!(effect, Effect::Trust { .. } | Effect::Command(_)) {
             workspace.apply(effect);
         }
+        assert_eq!(workspace.approved(), serde_json::Value::Null);
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
+    fn enter_compares_the_pending_servers_itself_when_no_frame_came_after_the_reload() {
+        // A reload between the confirmation's frame and Enter, with no frame
+        // after it: no frame said the set changed, so Enter's own comparison
+        // is what refuses.
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"a": quiet("a1")}));
+        let mut menu = McpMenu::open();
+        let drawn = workspace.runtime.views();
+        menu.rows(&drawn, &[], 120, 12, PALETTE);
+        assert_eq!(menu.key(KeyAction::Char('p'), &drawn, 5), Effect::Repaint);
+        let rows: Vec<String> = menu
+            .rows(&drawn, &[], 120, 12, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert!(
+            !rows.iter().any(|row| row.contains(PENDING_CHANGED)),
+            "{rows:#?}"
+        );
+        workspace.write(serde_json::json!({"a": quiet("a2")}));
+        let effect = menu.key(KeyAction::Enter, &workspace.runtime.views(), 5);
+        assert_eq!(effect, Effect::Repaint, "{effect:?}");
+        assert_eq!(menu.screen(), Screen::Browse);
         assert_eq!(workspace.approved(), serde_json::Value::Null);
         workspace.runtime.shutdown();
     }

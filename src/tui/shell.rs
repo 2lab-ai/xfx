@@ -6524,10 +6524,14 @@ impl Shell {
                 .filter_map(|view| Some((view.name, view.entry?.digest.clone())))
                 .collect();
             if now != listed {
+                // Approves nothing, and puts the prompt up again over the
+                // servers as they are now, so the next `2` is about them.
+                self.mcp_prompt = None;
                 self.write_notice(&notice::Notice::warning(
                     "mcp",
-                    "The pending servers changed since this prompt. Open /mcp to review them.",
+                    "The pending servers changed since this prompt; it is shown again as they are now.",
                 ));
+                self.work.mcp().prompt_again();
                 return true;
             }
         }
@@ -14107,6 +14111,104 @@ mod tests {
                 "{}",
                 shell.band_rows().join("\n")
             );
+        }
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn two_after_a_change_to_another_pending_server_is_asked_again_and_not_stuck() {
+        // The prompt is about the first pending server; `2` is about all of
+        // them. A reload that changes another one -- not the first -- puts
+        // the prompt up again over the new set, and a `2` pressed over the
+        // old one refuses and does the same, so `2` is never stuck refusing.
+        use crate::mcp::config::entry_digest;
+        use crate::mcp::runtime::Job;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let quiet =
+            |mark: &str| serde_json::json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]});
+        let write = |b: &str| {
+            std::fs::write(
+                workspace.join(".mcp.json"),
+                serde_json::json!({"mcpServers": {"a": quiet("a1"), "b": quiet(b)}}).to_string(),
+            )
+            .expect("write .mcp.json")
+        };
+        write("b1");
+        let settings = home.path().join(".xfx").join("settings.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(settings.clone()),
+            workspace: workspace.clone(),
+        });
+        runtime.start();
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        shell.settle_mcp();
+        assert_eq!(
+            shell.mcp_prompt.clone().expect("the prompt is up").name,
+            "a"
+        );
+        write("b2");
+        {
+            let (done, finished) = std::sync::mpsc::channel();
+            let runtime = Arc::clone(&runtime);
+            std::thread::spawn(move || {
+                runtime.run(Job::Command("reload".into()));
+                let _ = done.send(());
+            });
+            finished
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the reload did not finish within a minute");
+        }
+        let b2 = entry_digest(&quiet("b2"));
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while !runtime.views().iter().any(|view| {
+            view.name == "b"
+                && view.entry.as_ref().map(|entry| entry.digest.clone()) == Some(b2.clone())
+        }) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the runtime never read b2"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Pressed over the old prompt: it refuses, and the prompt comes back.
+        assert!(shell.offer_to_trust_prompt(&Input::Text('2')));
+        shell.settle_mcp();
+        let prompt = shell.mcp_prompt.clone().expect("the prompt is up again");
+        assert_eq!(
+            prompt.listed,
+            [
+                ("a".to_string(), entry_digest(&quiet("a1"))),
+                ("b".to_string(), b2.clone())
+            ]
+        );
+        // And `2` over the new one approves the set as it is now.
+        assert!(shell.offer_to_trust_prompt(&Input::Text('2')));
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let want = serde_json::json!({"a": entry_digest(&quiet("a1")), "b": b2});
+        loop {
+            let saved: serde_json::Value = std::fs::read_to_string(&settings)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
+            let got = saved["workspaces"][workspace.to_str().unwrap()]
+                ["enabledMcpjsonServerDigests"]
+                .clone();
+            if got == want {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "never saved: {got}");
+            std::thread::sleep(Duration::from_millis(10));
         }
         runtime.shutdown();
     }
