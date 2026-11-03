@@ -830,6 +830,11 @@ pub enum TrustAction {
     /// servers there now, not ones added later, as fx v0.0.16 does
     /// (`CHANGELOG.md:165@481104fd`, `src/core/mcp_host/verbs.zig:641-655@481104fd`).
     ApproveAll,
+    /// Approve these entries, each by its name and the [`entry_digest`] it
+    /// had when a prompt or the menu's confirmation drew it -- the
+    /// approve-all a person was shown. An entry that is no longer pending
+    /// with that digest is left as it is.
+    ApproveListed(Vec<(String, String)>),
     Reset,
 }
 
@@ -1272,6 +1277,16 @@ pub fn apply_action(current: &Choices, action: &TrustAction, loaded: &Loaded) ->
                 next.rejected.push(name.clone());
             }
             reduced
+        }
+        TrustAction::ApproveListed(listed) => {
+            for (name, digest) in listed {
+                if loaded.pending.contains(&(name.clone(), digest.clone()))
+                    && !current.rejected.contains(name)
+                {
+                    approve(&mut next, name, Some(digest));
+                }
+            }
+            false
         }
         TrustAction::ApproveAll => {
             for (name, digest) in &loaded.pending {

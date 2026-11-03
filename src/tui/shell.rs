@@ -609,6 +609,17 @@ pub(crate) struct StagedDocument {
     tail_unknown: bool,
 }
 
+/// The project trust prompt as it is up: the server, the digest of the entry
+/// it showed (what `1` approves), every server pending as it went up with its
+/// digest (what `2` approves), and whether it showed the entry whole.
+#[derive(Debug, Clone)]
+struct TrustPromptUp {
+    name: String,
+    digest: String,
+    listed: Vec<(String, String)>,
+    whole: bool,
+}
+
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
     pub(crate) geometry: Geometry,
@@ -1141,7 +1152,7 @@ pub(crate) struct Shell {
     /// digest of the entry it showed: the person's next `1`, `2`, `3` or
     /// Escape answers it (`routeProjectMcpPromptByte`,
     /// `app_input_runtime.zig:884-937`), and `1` approves that entry.
-    mcp_prompt: Option<(String, String)>,
+    mcp_prompt: Option<TrustPromptUp>,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -4431,11 +4442,17 @@ impl Shell {
     /// A write the screen refused: it may have left half a frame.
     pub(crate) fn approval_write_failed(&mut self) {
         self.readiness.write_failed();
+        if let Some(menu) = self.mcp_menu.as_ref() {
+            menu.forget_drawn();
+        }
     }
 
     /// Everything the screen said is no longer true.
     pub(crate) fn invalidate_approval(&mut self) {
         self.readiness.invalidate();
+        if let Some(menu) = self.mcp_menu.as_ref() {
+            menu.forget_drawn();
+        }
     }
 
     /// The post-write check, one tick after the write
@@ -6474,18 +6491,36 @@ impl Shell {
     fn offer_to_trust_prompt(&mut self, event: &Input) -> bool {
         use crate::mcp::config::TrustAction;
         use crate::mcp::runtime::Job;
-        let Some((name, digest)) = self.mcp_prompt.clone() else {
+        let Some(TrustPromptUp {
+            name,
+            digest,
+            listed,
+            whole,
+        }) = self.mcp_prompt.clone()
+        else {
             return false;
         };
         let shown = crate::mcp::terminal_safe(&name);
+        // A prompt that had to cut a row of the entry did not show it whole:
+        // `1` approves only what was shown, so it points to where it is.
+        if !whole && *event == Input::Text('1') {
+            self.write_notice(&notice::Notice::warning(
+                "mcp",
+                format!(
+                    "The prompt could not show '{shown}' whole. Open /mcp, press Enter on it, then v to see all of it, and approve it there with a."
+                ),
+            ));
+            return true;
+        }
         let job = match event {
             // The entry the prompt showed, whatever the file says by now.
             Input::Text('1') => Job::Trust {
                 body: format!("Approving project MCP server '{shown}'."),
                 action: TrustAction::ApproveShown { name, digest },
             },
+            // The servers pending as the prompt went up, as they were then.
             Input::Text('2') => Job::Trust {
-                action: TrustAction::ApproveAll,
+                action: TrustAction::ApproveListed(listed),
                 body: "Approving all project MCP servers for this workspace.".to_string(),
             },
             Input::Text('3') => Job::Trust {
@@ -6553,7 +6588,19 @@ impl Shell {
                     self.write_notice(&notice);
                 }
                 Event::Raw(text) => self.write_raw_rows(&text),
-                Event::TrustPrompt { name, digest } => self.mcp_prompt = Some((name, digest)),
+                Event::TrustPrompt {
+                    name,
+                    digest,
+                    listed,
+                    whole,
+                } => {
+                    self.mcp_prompt = Some(TrustPromptUp {
+                        name,
+                        digest,
+                        listed,
+                        whole,
+                    })
+                }
                 Event::MenuFeedback(text) => {
                     if let Some(menu) = self.mcp_menu.as_mut() {
                         menu.tell(super::bridge::inert(&text).into_owned());
@@ -13971,6 +14018,67 @@ mod tests {
     }
 
     #[test]
+    fn one_at_a_prompt_that_cut_a_row_approves_nothing_and_says_where_it_is_whole() {
+        // A row over the prompt's limit is shown by its two ends: the entry
+        // was not shown whole, so `1` approves nothing and says where it is.
+        use crate::mcp::runtime::{Event, Job};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        std::fs::write(
+            workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": {
+                "command": "/bin/sh",
+                "args": ["-c", format!("true {}", "m".repeat(3000))],
+            }}})
+            .to_string(),
+        )
+        .expect("write .mcp.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(home.path().join(".xfx").join("settings.json")),
+            workspace: workspace.clone(),
+        });
+        runtime.start();
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        shell.settle_mcp();
+        let whole = shell.mcp_prompt.clone().expect("the prompt is up").whole;
+        assert!(!whole, "a 3000-byte row fit the prompt");
+        assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
+        assert!(shell.mcp_prompt.is_some(), "the prompt is still up");
+        // Nothing was handed to the runtime: a job behind it answers first.
+        runtime.submit(Job::Command("path".into()));
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut said: Vec<String> = Vec::new();
+        while !said.iter().any(|body| body.contains("mcp.json")) {
+            said.extend(
+                runtime
+                    .take_events()
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        Event::Notice { body, .. } => Some(body),
+                        _ => None,
+                    }),
+            );
+            assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !said.iter().any(|body| body.starts_with("Approving")),
+            "{said:?}"
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
     fn a_on_mcp_details_approves_the_entry_drawn_and_not_one_read_since() {
         // Details draw entry A; a reload reads entry B before the next frame;
         // `a` must not approve B, which nobody has seen. It approves nothing,
@@ -14058,7 +14166,29 @@ mod tests {
         shell.offer_to_mcp(Input::Action(Action::Submit));
         assert!(screen(&shell).contains("entry-a"), "{}", screen(&shell));
         write(&b);
-        runtime.run(Job::Command("reload".into()));
+        {
+            // Bounded: a job that never returns fails the case instead of
+            // hanging the run.
+            let (done, finished) = std::sync::mpsc::channel();
+            let runtime = Arc::clone(&runtime);
+            std::thread::spawn(move || {
+                runtime.run(Job::Command("reload".into()));
+                let _ = done.send(());
+            });
+            finished
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the reload did not finish within a minute");
+        }
+        // A reload asked for while the startup one runs is queued behind it:
+        // the case is only the case once the runtime holds entry B.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while proj(&runtime).entry.map(|entry| entry.digest.clone()) != Some(entry_digest(&b)) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the runtime never read entry B"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let _ = runtime.take_events();
         shell.offer_to_mcp(Input::Text('a'));
         let said = drained(&runtime);
@@ -14125,10 +14255,22 @@ mod tests {
         )
         .anchored();
         shell.settle_mcp();
-        let (_, shown) = shell.mcp_prompt.clone().expect("the prompt is up");
+        let shown = shell.mcp_prompt.clone().expect("the prompt is up").digest;
 
         write(serde_json::json!(["-c", ": > \"$0\"", ran]));
-        runtime.run(Job::Command("reload".into()));
+        {
+            // Bounded: a job that never returns fails the case instead of
+            // hanging the run.
+            let (done, finished) = std::sync::mpsc::channel();
+            let runtime = Arc::clone(&runtime);
+            std::thread::spawn(move || {
+                runtime.run(Job::Command("reload".into()));
+                let _ = done.send(());
+            });
+            finished
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the reload did not finish within a minute");
+        }
         // A reload asked for while the startup one still runs is queued
         // behind it, so `run` can return first: the case is only the case
         // once the runtime holds the new entry.
