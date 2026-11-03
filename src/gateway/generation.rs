@@ -68,19 +68,20 @@ pub fn classify(status: u16) -> Lookup {
 ///
 /// **No redirect is followed**, as upstream's `redirect_behavior = .unhandled`
 /// (`client.zig:353-357`): the origin was judged trusted and the key goes to
-/// it alone. A transport failure, a timeout and an answer too long to be a
-/// record are asked again, as upstream's lookup error is
-/// (`generation_usage.zig:28-39`).
+/// it alone -- and so to no proxy over cleartext (`super::bearer_rules`). A
+/// transport failure, a timeout and an answer too long to be a record are
+/// asked again, as upstream's lookup error is (`generation_usage.zig:28-39`).
 pub async fn lookup(origin: &str, secret: &str, id: &str) -> Lookup {
     if !is_trusted_generation_origin(origin) || !super::sse::is_generation_id(id) {
         return Lookup::Reject;
     }
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(USER_AGENT)
-        .build()
-    else {
+    let Ok(client) = super::bearer_rules(
+        reqwest::Client::builder()
+            .timeout(TIMEOUT)
+            .user_agent(USER_AGENT),
+        origin,
+    )
+    .build() else {
         return Lookup::Retry;
     };
     let Ok(mut authorization) = reqwest::header::HeaderValue::from_str(&format!("Bearer {secret}"))

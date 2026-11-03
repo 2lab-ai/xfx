@@ -1258,6 +1258,95 @@ mod tests {
         assert_eq!(outcome, Outcome::Unavailable(Unavailable::Provider(429)));
     }
 
+    /// A second Gateway on another loopback port, one a redirect could name:
+    /// it answers a title to whatever reaches it, and its handle says what
+    /// did once `stop` is set.
+    fn a_gateway_elsewhere() -> (
+        String,
+        Arc<std::sync::atomic::AtomicBool>,
+        std::thread::JoinHandle<Option<String>>,
+    ) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        listener.set_nonblocking(true).expect("a polled listener");
+        let url = format!(
+            "http://127.0.0.1:{}/v4/ai/language-model",
+            listener.local_addr().expect("an address").port()
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::clone(&stop);
+        let server = std::thread::spawn(move || {
+            let mut connection = loop {
+                match listener.accept() {
+                    Ok((connection, _)) => break connection,
+                    Err(_) if stopped.load(Ordering::SeqCst) => return None,
+                    Err(_) => std::thread::sleep(Duration::from_millis(5)),
+                }
+            };
+            connection
+                .set_nonblocking(false)
+                .expect("a blocking connection");
+            connection
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("a read timeout");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                match connection.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => request.extend_from_slice(&buffer[..read]),
+                }
+            }
+            let answer = stream(&[
+                r#"{"type":"text-delta","id":"t1","delta":"Stolen"}"#,
+                FINISH,
+            ]);
+            let _ = connection.write_all(answer.as_bytes());
+            Some(String::from_utf8_lossy(&request).into_owned())
+        });
+        (url, stop, server)
+    }
+
+    #[test]
+    fn a_question_never_follows_a_redirect_with_the_prompt_or_the_key() {
+        // Upstream's title call is a completion like a turn's, on the client
+        // that never follows a redirect (`session_title_generation.zig:161`,
+        // `vercel-labs/fx@c1db9191 src/gateway/client.zig:1561`). A 307 or a
+        // 308 replays the body -- the first prompt -- to the `Location`; the
+        // answer is a provider status, upstream's `provider_error`.
+        for status in [307u16, 308] {
+            let (elsewhere, stop, trap) = a_gateway_elsewhere();
+            let (endpoint, server) = one_exchange(format!(
+                "HTTP/1.1 {status} Redirect\r\nlocation: {elsewhere}\r\ncontent-length: 0\r\n\
+                 connection: close\r\n\r\n"
+            ));
+            let (outcome, call) = on_a_runtime(ask_gateway(Question {
+                endpoint,
+                credential: credential(),
+                excerpt: "a secret prompt".to_string(),
+                cancel: CancelToken::new(),
+            }));
+            stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            let reached = trap.join().expect("the second gateway");
+            server.join().expect("the first gateway");
+            assert_eq!(
+                reached, None,
+                "a {status} took the title question to another port"
+            );
+            assert_eq!(outcome, Outcome::Unavailable(Unavailable::Provider(status)));
+            assert_eq!(failure_kind(status), "provider_error");
+            // What the user is shown of it: the refusal, in `/trace`.
+            let call = call.expect("a refused redirect is a request made");
+            assert_eq!(call.tone, Tone::Warning);
+            assert!(
+                call.body.ends_with("\nfailed: provider_error"),
+                "{}",
+                call.body
+            );
+        }
+    }
+
     #[test]
     fn a_question_records_its_request_as_a_turns_network_record_would() {
         // Upstream's ring records the title's model call with the turns'

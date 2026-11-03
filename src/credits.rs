@@ -174,20 +174,22 @@ pub async fn fetch(config: &RuntimeConfig) -> Answer {
 ///
 /// **No redirect is followed**: the URL was judged by the bearer rule and the
 /// key goes to it alone, so a `3xx` is an answer that is not a credits answer
-/// rather than a second host the key is replayed to.
+/// rather than a second host the key is replayed to; nor is a proxy used over
+/// cleartext (`crate::gateway::bearer_rules`).
 pub async fn ask(question: &Question) -> Answer {
     ask_at(&question.url, question.credential.secret()).await
 }
 
 async fn ask_at(url: &str, secret: &str) -> Answer {
     let failed = || Answer::Failed(FETCH_FAILED.to_string());
-    let Ok(client) = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(USER_AGENT)
-        .build()
-    else {
+    let Ok(client) = crate::gateway::bearer_rules(
+        reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(TIMEOUT)
+            .user_agent(USER_AGENT),
+        url,
+    )
+    .build() else {
         return failed();
     };
     let Ok(mut authorization) = reqwest::header::HeaderValue::from_str(&format!("Bearer {secret}"))
