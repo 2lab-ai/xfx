@@ -1675,7 +1675,8 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     fn a_request_the_server_never_answers_times_out_and_a_cancelled_one_stops_at_once() {
         let transport = StdioTransport::spawn(
             "/bin/sh",
-            &["-c".into(), "cat > /dev/null".into()],
+            // `; :` so that no shell `exec`s `cat` and closes the output.
+            &["-c".into(), "cat > /dev/null; :".into()],
             &[],
             None,
         )
@@ -2119,15 +2120,16 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[cfg(unix)]
     #[test]
     fn a_cancelled_or_expired_call_puts_nothing_on_the_wire() {
-        // A server that records every byte it is sent. Not `exec`: the shell
-        // keeps the server's output open, as a live server does.
+        // A server that records every byte it is sent. The `:` after it keeps
+        // a shell that would `exec` its last command (dash) from doing so: the
+        // shell holds the server's output open, as a live server does.
         let dir = tempfile::tempdir().expect("dir");
         let wire = dir.path().join("wire");
         let transport = StdioTransport::spawn(
             "/bin/sh",
             &[
                 "-c".into(),
-                r#"cat > "$1""#.into(),
+                r#"cat > "$1"; :"#.into(),
                 "sh".into(),
                 wire.to_string_lossy().into_owned(),
             ],

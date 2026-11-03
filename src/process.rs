@@ -450,6 +450,30 @@ mod tests {
             "a child process made without crate::process::command: {found:?}"
         );
     }
+
+    #[test]
+    fn main_takes_back_sigchld_before_anything_else() {
+        // The reset protects every child xfx makes, so it is the first thing
+        // `main` does: read off the source, as the case above reads it.
+        let main = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs"),
+        )
+        .expect("main.rs");
+        let body = main
+            .split_once("fn main() -> ExitCode {")
+            .expect("fn main")
+            .1;
+        let first = body
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with("#["));
+        assert_eq!(
+            first,
+            Some("if let Err(err) = xfx::process::collect_own_children() {"),
+            "main no longer puts SIGCHLD back first"
+        );
+    }
+
     /// Set in the test process the case below starts, which runs only the
     /// probe half.
     const SIGCHLD_PROBE: &str = "XFX_TEST_SIGCHLD_PROBE";
