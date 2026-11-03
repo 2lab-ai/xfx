@@ -1700,7 +1700,10 @@ async fn one_turn(
         &[],
         window,
     );
-    let mut tools = conversation.tools.clone();
+    let mut tools = conversation
+        .tools
+        .clone()
+        .with_link_bases(crate::permission::LinkBase::from_environment());
     tools.set_skills(
         Some(std::sync::Arc::new(skills.catalog.locations.clone())),
         config.home().map(std::path::Path::to_path_buf),

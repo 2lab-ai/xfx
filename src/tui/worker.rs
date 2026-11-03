@@ -5472,10 +5472,14 @@ async fn one_turn(
         // The same token the tools were given when the conversation was
         // opened, reset by `Cancellation::turn` for this turn.
         cancel: turn.mirror.clone(),
-        tools: conversation.tools.clone().with_skills(
-            Some(std::sync::Arc::new(skills.catalog.locations.clone())),
-            state.config.home().map(std::path::Path::to_path_buf),
-        ),
+        tools: conversation
+            .tools
+            .clone()
+            .with_skills(
+                Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+                state.config.home().map(std::path::Path::to_path_buf),
+            )
+            .with_link_bases(crate::permission::LinkBase::from_environment()),
     };
     let mut sink = UiEventSink::new(events.clone(), turn.token.clone());
     // The recorder, with what the full transcript shows of each call -- its

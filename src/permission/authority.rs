@@ -359,8 +359,8 @@ pub enum TargetScope {
 /// - git's global configuration, `.gitconfig` and `.config/git`: the same
 ///   executable input `.git/config` is, and closer to hand -- a
 ///   `filter.<driver>.clean` there is a shell command that auto's own
-///   `git diff` runs for every file a `.gitattributes` selects, and neither
-///   [`GIT_CONFIG_OVERRIDES`] nor [`GIT_DIFF_SAFETY`] switches it off;
+///   `git diff` runs for every file a `.gitattributes` selects (auto's own
+///   git selects none, [`GIT_CONFIG_OVERRIDES`]; the user's git does);
 /// - `.config/systemd`: a user unit is Linux's launch agent;
 /// - `.xfx`: xfx's profile home -- its permission mode, its rules and its
 ///   `mcp.json` -- when a root is at or inside it, so that the protected
@@ -373,8 +373,15 @@ pub enum TargetScope {
 ///   `.config/nvim/` (`init.lua` is Lua), emacs's `.emacs`, `.emacs.d/` and
 ///   `.config/emacs/` (`init.el` is Lisp, `shell-command` included), tmux's
 ///   `.tmux.conf` and `.config/tmux/` (`run-shell` at server start).
-///   `Library/LaunchAgents` and `.config/autostart` are upstream's already.
-const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
+///   `Library/LaunchAgents` and `.config/autostart` are upstream's already;
+/// - the command hooks other tools run on their next start, with no build or
+///   action of the user's in between: the AWS CLI's `.aws/config`
+///   (`credential_process`), kubectl's `.kube/config` (an `exec` credential
+///   plugin), and Claude Code's `.claude/settings.json` and
+///   `.claude/settings.local.json` (`hooks`). Not `.cargo/config.toml`: a
+///   project's cargo configuration is project content, like its `build.rs`,
+///   and runs only when the user builds -- auto never does.
+pub(super) const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
     &[".git", "hooks"],
     &[".git", "config"],
     &[".git", "config.worktree"],
@@ -409,6 +416,10 @@ const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
     &[".config", "emacs"],
     &[".tmux.conf"],
     &[".config", "tmux"],
+    &[".aws", "config"],
+    &[".kube", "config"],
+    &[".claude", "settings.json"],
+    &[".claude", "settings.local.json"],
 ];
 
 /// The first of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] that appears in `path` as
@@ -443,83 +454,6 @@ fn sensitive_sequence(path: &Path) -> Option<String> {
             false
         })
         .map(|expected| expected.join("/"))
-}
-
-/// The protected entry below one of `bases` that `target` is, or is inside,
-/// once that entry's links are followed, named by the entry's own path -- or
-/// `None`.
-///
-/// **The dotfiles case.** `~/.zshenv` is often a link to `~/dotfiles/zshenv`,
-/// `~/.config/fish` to a directory in a repository. The written path then has
-/// no component [`sensitive_sequence`] knows, and the next shell reads exactly
-/// the bytes written. So every entry of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] is
-/// looked up below each base -- the home directory and every authorized root
-/// (a repository's `.git/hooks` linked to its tracked `githooks/`) -- and
-/// resolved, read-only, at the moment the write is planned; a target equal to
-/// or below what one resolves to is that entry. A link whose target is not
-/// there yet -- nor its directory -- resolves to where it points, because
-/// that is where the shell will look once the write has created it.
-///
-/// Compared component by component under [`crate::workspace::fold_case`], as
-/// the direct check is. `target` is canonical up to case (the executor never
-/// follows a link and refuses `..`); an entry that does not exist, or whose
-/// link cannot be read, names nothing.
-pub fn sensitive_link_source(target: &Path, bases: &[&Path]) -> Option<String> {
-    let target = folded_components(target);
-    for base in bases {
-        for sequence in SENSITIVE_AUTO_WRITE_SEQUENCES {
-            let entry = sequence
-                .iter()
-                .fold(base.to_path_buf(), |path, part| path.join(part));
-            let Some(resolved) = resolve_entry(&entry, MAX_LINK_HOPS) else {
-                continue;
-            };
-            let resolved = folded_components(&resolved);
-            if target.len() >= resolved.len()
-                && target
-                    .iter()
-                    .zip(&resolved)
-                    .all(|(written, protected)| written == protected)
-            {
-                return Some(entry.display().to_string());
-            }
-        }
-    }
-    None
-}
-
-/// How many links in a row [`resolve_entry`] follows past the last one
-/// `canonicalize` could not: the kernel's own bound for a path.
-const MAX_LINK_HOPS: u8 = 32;
-
-/// Where `entry` leads: its canonical path when everything on the way exists,
-/// and when it is a link to something not there yet, where that link points.
-fn resolve_entry(entry: &Path, hops: u8) -> Option<std::path::PathBuf> {
-    if let Ok(real) = std::fs::canonicalize(entry) {
-        return Some(real);
-    }
-    // Not there, or a dangling link. Only the second leads anywhere.
-    let link = std::fs::read_link(entry).ok()?;
-    let parent = std::fs::canonicalize(entry.parent()?).ok()?;
-    let pointed = parent.join(link);
-    if hops == 0 {
-        return None;
-    }
-    // Some of where it points may be missing, directories included: the
-    // write that creates them lands there. The part that exists is followed
-    // like any path, through a further dangling link too; the rest is joined
-    // on as named, and a `..` in it names nothing.
-    let mut existing = pointed.as_path();
-    let mut missing = Vec::new();
-    while std::fs::symlink_metadata(existing).is_err() {
-        missing.push(existing.file_name()?);
-        existing = existing.parent()?;
-    }
-    let mut resolved = resolve_entry(existing, hops - 1)?;
-    for name in missing.iter().rev() {
-        resolved.push(name);
-    }
-    Some(resolved)
 }
 
 /// `path`'s normal components, each folded ([`crate::workspace::fold_case`]).
@@ -954,11 +888,11 @@ pub struct MutationPlan {
     /// made in ([`super::policy::ProposedAction::state_key`]). Set by the
     /// executor; a plan without it matches no saved rule.
     state_binding: Option<Vec<u8>>,
-    /// The protected entry a link resolves to this target from, named as the
-    /// link is ([`sensitive_link_source`]). Set by the executor, which knows
-    /// the home directory and the roots; not part of the fingerprint, as it
-    /// is a reading of the same target, for policy.
-    linked_from: Option<String>,
+    /// The directories a protected entry is looked for below when auto asks
+    /// whether a link leads here -- the home directory and every root
+    /// ([`super::links`]). Set by the executor, which knows them; not part of
+    /// the fingerprint, as it is a reading of the same target, for policy.
+    link_bases: Vec<super::LinkBase>,
     fingerprint: ContentHash,
 }
 
@@ -999,15 +933,15 @@ impl MutationPlan {
             diff: None,
             rule_targets: None,
             state_binding: None,
-            linked_from: None,
+            link_bases: Vec::new(),
             fingerprint,
         }
     }
 
-    /// The same plan, known to be what the protected entry `linked_from`
-    /// resolves to ([`Self::sensitive_auto_write_target`]).
-    pub fn with_sensitive_link(mut self, linked_from: Option<String>) -> Self {
-        self.linked_from = linked_from;
+    /// The same plan, checked for protected links below `bases`
+    /// ([`Self::sensitive_auto_write_target`]).
+    pub fn with_link_bases(mut self, bases: Vec<super::LinkBase>) -> Self {
+        self.link_bases = bases;
         self
     }
 
@@ -1103,14 +1037,23 @@ impl MutationPlan {
         self.scope
     }
 
-    /// The configuration file this plan would change that auto does not
-    /// change on its own, named as the components that make it one -- `.zshrc`,
-    /// `.git/hooks` -- or, when the target is one only because a protected
-    /// entry links to it, as that entry's path; `None` for an ordinary file.
-    /// Judged on the canonical target, in whichever root it is
-    /// ([`TargetScope`]).
+    /// Why auto does not change this target on its own, as a clause that
+    /// finishes "because", or `None` for an ordinary file: the components that
+    /// make it a file deciding what runs later -- `.zshrc`, `.git/hooks` --
+    /// or a protected entry that leads to it through a link, or the entry xfx
+    /// could not check for one ([`super::links`]). Judged on the canonical
+    /// target, in whichever root it is ([`TargetScope`]).
+    ///
+    /// **Reads the filesystem** for the links, so only auto asks it, at the
+    /// moment it would admit the write.
     pub fn sensitive_auto_write_target(&self) -> Option<String> {
-        sensitive_sequence(&self.target).or_else(|| self.linked_from.clone())
+        if let Some(sequence) = sensitive_sequence(&self.target) {
+            return Some(format!("`{sequence}` decides what runs later"));
+        }
+        if self.link_bases.is_empty() {
+            return None;
+        }
+        super::links::link_hold(&self.target, &self.link_bases)
     }
 
     pub fn preimage(&self) -> &Preimage {
@@ -1337,12 +1280,37 @@ impl PreparedCommand {
 
 /// Overrides prepended to an admitted `git`, before its subcommand.
 ///
-/// `core.fsmonitor` names a command git runs through a shell on `status` and on
-/// anything else that refreshes the index, so a repository whose `.git/config`
-/// already carries one would execute it on the route `auto` admits without
-/// asking. `-c` outranks every configuration file, and `false` is the value that
-/// disables both the built-in monitor and the hook form.
-const GIT_CONFIG_OVERRIDES: &[&str] = &["-c", "core.fsmonitor=false"];
+/// Each switches off a command git would otherwise run from configuration --
+/// and git's configuration is not only the files the protected list names: a
+/// `[include] path = ~/.gitconfig.local` in the user's own `~/.gitconfig`
+/// makes any file auto can write part of it.
+///
+/// - `core.fsmonitor` names a command git runs through a shell on `status` and
+///   on anything else that refreshes the index. `false` disables both the
+///   built-in monitor and the hook form.
+/// - `--attr-source=<the empty tree>` reads `.gitattributes` from a tree with
+///   none in it rather than from the work tree, and `core.attributesFile`
+///   pointed at `/dev/null` drops the global attributes file: with no
+///   attribute, no `filter`, `diff` or `merge` driver is selected, so a
+///   `filter.<driver>.clean` configured anywhere is never run -- and `git diff`
+///   and `git status` run one on any work-tree file an attribute selects.
+///   `$GIT_DIR/info/attributes` is still read; the file tools never write
+///   below `.git`. Git older than 2.40 does not know `--attr-source`, refuses
+///   it, and runs nothing, which is the safe way for it to fail; a SHA-256
+///   repository has no object by this name, and git refuses that too.
+/// - `log.showSignature` makes `log` and `show` run `gpg.program` on every
+///   signed commit.
+///
+/// `-c` outranks every configuration file, include or not.
+const GIT_CONFIG_OVERRIDES: &[&str] = &[
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.attributesFile=/dev/null",
+    "-c",
+    "log.showSignature=false",
+    "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+];
 
 /// Options inserted directly after a `git` subcommand that accepts them.
 ///
@@ -1363,16 +1331,9 @@ const GIT_DIFF_SUBCOMMANDS: &[&str] = &["diff", "log", "show"];
 /// is keyed on, and what the user is shown -- so this changes what runs, not
 /// what was agreed.
 ///
-/// # What this does not cover
-///
-/// A `filter.<driver>.clean` selected by a `.gitattributes` entry is also a
-/// shell command, and `git diff` runs it on a worktree file. Git offers no
-/// single switch for it, and enumerating drivers is not a boundary. The real
-/// control for that is the other half of this change: the typed file tools
-/// refuse to write `.git` at all, so xfx cannot be the thing that installs one.
-/// A repository that already carries a hostile `.gitattributes` and a matching
-/// `.git/config` is a repository whose contents the user has already chosen to
-/// open.
+/// A `filter.<driver>.clean` is selected by an attribute and configured
+/// anywhere git reads configuration, includes included; with no attribute
+/// read ([`GIT_CONFIG_OVERRIDES`]) none is selected, so none runs.
 fn hardened(argv: &[String]) -> Vec<String> {
     if argv.first().map(String::as_str) != Some("git") {
         return argv.to_vec();
@@ -2220,6 +2181,91 @@ mod tests {
     }
 
     #[test]
+    fn an_admitted_git_selects_no_driver_a_file_auto_can_write_defines() {
+        // The chain: the user's `~/.gitconfig` includes `~/.gitconfig.local`,
+        // which no list protects; auto writes a `filter.x.clean` into it and
+        // `* filter=x` into the workspace's `.gitattributes`, then runs its own
+        // `git diff`. A global `core.attributesFile` auto can write is the
+        // same chain without the workspace file.
+        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .map(|dir| dir.join("git"))
+            .find(|git| git.is_file());
+        let Some(git) = git else {
+            return;
+        };
+        let home = tempfile::tempdir().expect("a home");
+        let home = home.path().canonicalize().expect("canonical");
+        let (_dir, scope) = scope();
+        let repo = scope.primary().to_path_buf();
+        let ran = home.join("RAN");
+        let run = |argv: &[String]| {
+            std::process::Command::new(&git)
+                .args(&argv[1..])
+                .current_dir(&repo)
+                .env_clear()
+                .env("HOME", &home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("git runs")
+        };
+        let words = |line: &str| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
+        for setup in [
+            "git init -q",
+            "git -c user.email=a@b -c user.name=a commit -q --allow-empty -m init",
+        ] {
+            assert!(run(&words(setup)).success(), "{setup}");
+        }
+        std::fs::write(repo.join("a.txt"), "one\n").expect("a file");
+        assert!(run(&words("git add a.txt")).success());
+        assert!(run(&words(
+            "git -c user.email=a@b -c user.name=a commit -q -m a"
+        ))
+        .success());
+        std::fs::write(
+            home.join(".gitconfig"),
+            format!(
+                "[include]\n\tpath = {}\n",
+                home.join(".gitconfig.local").display()
+            ),
+        )
+        .expect("the global config");
+        std::fs::write(
+            home.join(".gitconfig.local"),
+            format!(
+                "[filter \"x\"]\n\tclean = \"touch {}; cat\"\n[core]\n\tattributesFile = {}\n",
+                ran.display(),
+                home.join("attributes").display()
+            ),
+        )
+        .expect("the included file");
+        std::fs::write(repo.join("a.txt"), "two\n").expect("a change");
+        let limits = ToolLimits::default();
+        for (attributes, where_) in [
+            (repo.join(".gitattributes"), "the workspace"),
+            (home.join("attributes"), "the global attributes file"),
+        ] {
+            std::fs::write(&attributes, "* filter=x\n").expect("attributes");
+            for command in ["git diff --stat", "git status --short"] {
+                let _ = std::fs::remove_file(&ran);
+                let plan = CommandPlan::prepare(command, &scope, None, &limits).expect("a plan");
+                let CommandRoute::Direct { argv } = plan.route() else {
+                    panic!("`{command}` is a direct plan");
+                };
+                run(argv);
+                assert!(
+                    !ran.exists(),
+                    "`{command}` ran a filter that {where_} selected: {argv:?}"
+                );
+            }
+            std::fs::remove_file(&attributes).expect("attributes");
+        }
+    }
+
+    #[test]
     fn an_admitted_git_runs_with_the_repositorys_own_hooks_and_diff_drivers_off() {
         let (_dir, scope) = scope();
         let limits = ToolLimits::default();
@@ -2229,10 +2275,23 @@ mod tests {
         let CommandRoute::Direct { argv } = status.route() else {
             panic!("`git status` is a direct plan");
         };
-        assert_eq!(
-            argv,
-            &["git", "-c", "core.fsmonitor=false", "status", "--short"]
-        );
+        let overrides = [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.attributesFile=/dev/null",
+            "-c",
+            "log.showSignature=false",
+            "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        ];
+        let expected = |rest: &[&str]| -> Vec<String> {
+            std::iter::once("git")
+                .chain(overrides)
+                .chain(rest.iter().copied())
+                .map(str::to_string)
+                .collect()
+        };
+        assert_eq!(argv, &expected(&["status", "--short"]));
 
         // The diff family gets the two options that turn off the commands a
         // repository can configure for it.
@@ -2242,15 +2301,7 @@ mod tests {
         };
         assert_eq!(
             argv,
-            &[
-                "git",
-                "-c",
-                "core.fsmonitor=false",
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--stat"
-            ]
+            &expected(&["diff", "--no-ext-diff", "--no-textconv", "--stat"])
         );
 
         // The agreement is unchanged: the text a rule or a grant is keyed on,

