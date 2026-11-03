@@ -284,7 +284,7 @@ impl StdioTransport {
     }
 
     /// Writes `frame` by `deadline`, ending the connection when the server
-    /// would not take it.
+    /// would not take it or failed it.
     fn write(
         &self,
         frame: &Value,
@@ -298,6 +298,10 @@ impl StdioTransport {
                 Unsent::Cut(err) => {
                     abandon(&self.child, &self.alive, &self.pending);
                     err
+                }
+                Unsent::Broken => {
+                    abandon(&self.child, &self.alive, &self.pending);
+                    McpError::Named("McpConnectionClosed")
                 }
                 Unsent::Closed => McpError::Named("McpConnectionClosed"),
             })
@@ -328,17 +332,22 @@ struct Slot {
 
 /// Why a frame was not written.
 enum Unsent {
-    /// Its deadline or its cancellation came while another frame was being
-    /// written: none of it went, and the connection is as it was.
+    /// Its deadline or its cancellation came before any of it was written:
+    /// none of it went, and the connection is as it was.
     Held(McpError),
-    /// Its deadline or its cancellation came while it was being written: the
-    /// server is not taking its input, and what it would read next may be
-    /// half a frame. fx ends the connection here too (`taint_connection`,
-    /// `stdio_dispatcher.zig:668`, `:743-748`).
+    /// Its deadline or its cancellation came while it was being written --
+    /// after part of it went, or after the server refused it: what the server
+    /// would read next may be half a frame. fx ends the connection here too
+    /// (`taint_connection`, `stdio_dispatcher.zig:668`, `:743-748`).
     Cut(McpError),
-    /// The input is closed -- by [`Input::close`], by a frame cut before, or
-    /// by the server.
+    /// The input was closed by xfx -- by [`Input::close`] or by a frame cut
+    /// before -- and whatever ends the connection is already under way.
     Closed,
+    /// The server failed the write: it closed its input, or it has gone.
+    /// Nothing more can be said to it, so the connection ends and its group
+    /// is killed, as fx kills a child it can no longer write to
+    /// (`stdio_dispatcher.zig:585-594`, `:743-751`).
+    Broken,
 }
 
 impl Input {
@@ -368,20 +377,21 @@ impl Input {
         sent
     }
 
-    /// The pipe, once no other writer has it.
+    /// The pipe, once no other writer has it -- and never for a frame whose
+    /// deadline has passed or whose call was cancelled, even when it is free.
     fn take(&self, deadline: Instant, cancel: Option<&CancelToken>) -> Result<ChildStdin, Unsent> {
         let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(Unsent::Closed);
             }
+            if let Some(err) = stopped(deadline, cancel) {
+                return Err(Unsent::Held(err));
+            }
             if !slot.taken {
                 let pipe = slot.pipe.take().ok_or(Unsent::Closed)?;
                 slot.taken = true;
                 return Ok(pipe);
-            }
-            if let Some(err) = stopped(deadline, cancel) {
-                return Err(Unsent::Held(err));
             }
             let slice = deadline
                 .saturating_duration_since(Instant::now())
@@ -394,35 +404,48 @@ impl Input {
         }
     }
 
+    /// Writes `line`, looking at the close, the cancellation and the deadline
+    /// before every attempt: a frame stopped before any of it went, and before
+    /// the server refused any of it, leaves the connection as it was; one
+    /// stopped after is [`Unsent::Cut`]. fx looks at the cancellation before a
+    /// request's first byte (`stdio_dispatcher.zig:549-551`) and at both once
+    /// its write has ended (`:814-826`), racing the deadline in between.
     fn push(
         &self,
-        pipe: &mut ChildStdin,
+        pipe: &mut impl Sink,
         line: &[u8],
         deadline: Instant,
         cancel: Option<&CancelToken>,
     ) -> Result<(), Unsent> {
         let mut written = 0;
+        // Whether the server has refused any of it: the write is under way,
+        // fx's `.writing` (`:668`), even with nothing sent.
+        let mut refused = false;
         while written < line.len() {
             if self.closed.load(Ordering::Acquire) {
                 return Err(Unsent::Closed);
             }
+            if let Some(err) = stopped(deadline, cancel) {
+                return Err(if written == 0 && !refused {
+                    Unsent::Held(err)
+                } else {
+                    Unsent::Cut(err)
+                });
+            }
             match pipe.write(&line[written..]) {
-                Ok(0) => return Err(Unsent::Closed),
+                Ok(0) => return Err(Unsent::Broken),
                 Ok(count) => written += count,
                 Err(err) if err.kind() == ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    if let Some(err) = stopped(deadline, cancel) {
-                        return Err(Unsent::Cut(err));
-                    }
-                    writable(
-                        pipe,
+                    refused = true;
+                    pipe.wait_writable(
                         deadline
                             .saturating_duration_since(Instant::now())
                             .min(CANCEL_POLL),
                     );
                 }
                 // The server closed its input, or has gone.
-                Err(_) => return Err(Unsent::Closed),
+                Err(_) => return Err(Unsent::Broken),
             }
         }
         Ok(())
@@ -449,6 +472,19 @@ impl Input {
         drop(slot);
         self.free.notify_all();
         drop(pipe);
+    }
+}
+
+/// Where [`Input::push`] writes: the server's input, or a test's stand-in for
+/// it.
+trait Sink: Write {
+    /// Waits up to `wait` for room, or for the reader to go.
+    fn wait_writable(&self, wait: Duration);
+}
+
+impl Sink for ChildStdin {
+    fn wait_writable(&self, wait: Duration) {
+        writable(self, wait);
     }
 }
 
@@ -496,11 +532,12 @@ fn writable(_: &ChildStdin, wait: Duration) {
     std::thread::sleep(wait);
 }
 
-/// Ends a connection whose server would not take a frame: every caller
-/// waiting on it is told, and the server is killed with its group rather
-/// than left to read half a message (`failConnection`, `terminateChild`,
-/// `stdio_dispatcher.zig:687-690`). It is collected by
-/// [`Transport::close`], which every connection ends with.
+/// Ends a connection whose server would not take a frame, or failed one:
+/// every caller waiting on it is told, and the server is killed with its
+/// group rather than left to read half a message or to run on unreachable
+/// (`failConnection`, `terminateChild`, `stdio_dispatcher.zig:687-690`). It
+/// is collected by [`Transport::close`], which every connection ends with;
+/// until then its id is still its group's.
 fn abandon(child: &Mutex<Option<Child>>, alive: &AtomicBool, pending: &Pending) {
     alive.store(false, Ordering::Release);
     fail_all(pending, "McpConnectionClosed");
@@ -604,7 +641,9 @@ impl Reader {
                 // Bounded, so a server that asks and does not read cannot
                 // stop this thread for longer than that.
                 let deadline = Instant::now() + FRAME_WRITE_TIMEOUT;
-                if let Err(Unsent::Cut(_)) = self.stdin.send(&reply, deadline, None) {
+                if let Err(Unsent::Cut(_) | Unsent::Broken) =
+                    self.stdin.send(&reply, deadline, None)
+                {
                     abandon(&self.child, &self.alive, &self.pending);
                 }
             }
@@ -1683,9 +1722,10 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     }
 
     /// The script of a server that never reads: a grandchild, both ids, and
-    /// then a leader that holds its input open and asleep.
+    /// then a leader that holds its input open and asleep -- both for longer
+    /// than [`assert_gone`] waits, so only a signal ends them in time.
     #[cfg(unix)]
-    const DEAF: &str = r#"sleep 30 & echo "$$ $!" > "$1"; exec sleep 30"#;
+    const DEAF: &str = r#"sleep 120 & echo "$$ $!" > "$1"; exec sleep 120"#;
 
     /// More than any pipe buffer holds (64 KiB on Linux and macOS).
     #[cfg(unix)]
@@ -1714,7 +1754,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         let pid = rustix::process::Pid::from_raw(pid).expect("pid");
         let deadline = Instant::now() + Duration::from_secs(30);
         while rustix::process::test_kill_process(pid).is_ok() {
-            assert!(Instant::now() < deadline, "{what} outlived close");
+            assert!(Instant::now() < deadline, "{what} outlived its stop");
             std::thread::sleep(Duration::from_millis(20));
         }
     }
@@ -1732,8 +1772,25 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         assert_eq!(result, Err(McpError::Named("McpRequestTimedOut")));
         assert!(took < timeout + Duration::from_secs(5), "took {took:?}");
         // The server would not take the frame, and what it would read next
-        // is half of one: the connection is over.
+        // is half of one: the connection is over, and its whole group is
+        // killed there and then -- before any close -- while its leader is
+        // left for the close to collect.
         assert!(!transport.alive());
+        assert_gone(grandchild, "the server's grandchild, at the cut,");
+        assert!(
+            matches!(
+                rustix::process::waitid(
+                    rustix::process::WaitId::Pid(
+                        rustix::process::Pid::from_raw(leader).expect("pid")
+                    ),
+                    rustix::process::WaitIdOptions::EXITED
+                        | rustix::process::WaitIdOptions::NOWAIT
+                        | rustix::process::WaitIdOptions::NOHANG,
+                ),
+                Ok(Some(_))
+            ),
+            "the leader was not killed, or was collected, before the close"
+        );
         let closer = Arc::clone(&transport);
         let ((), took) =
             within(Duration::from_secs(20), move || closer.close()).expect("close never returned");
@@ -1765,6 +1822,12 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             "the request outlived its cancellation: its write to the full pipe does not look",
         );
         assert_eq!(result, Err(McpError::Named("Cancelled")));
+        // Part of the frame went: the connection is over.
+        assert!(!transport.alive());
+        assert_eq!(
+            transport.request("ping", json!({}), Duration::from_secs(1), None),
+            Err(McpError::Named("McpConnectionClosed"))
+        );
         transport.close();
         assert_gone(leader, "the server");
         assert_gone(grandchild, "the server's grandchild");
@@ -1816,7 +1879,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     fn a_server_that_asks_and_never_reads_the_answers_cannot_hold_close() {
         // Thousands of `ping`s, whose answers are more than the pipe holds,
         // and the input never read.
-        let script = r#"sleep 30 & echo "$$ $!" > "$1"; i=0; while [ "$i" -lt 4000 ]; do printf '{"jsonrpc":"2.0","id":%d,"method":"ping"}\n' "$i"; i=$((i+1)); done; exec sleep 30"#;
+        let script = r#"sleep 120 & echo "$$ $!" > "$1"; i=0; while [ "$i" -lt 4000 ]; do printf '{"jsonrpc":"2.0","id":%d,"method":"ping"}\n' "$i"; i=$((i+1)); done; exec sleep 120"#;
         let (transport, (leader, grandchild), _dir) = deaf_server(script);
         // An answer it does not take within its bound ends the connection,
         // rather than stopping the reader for a second per question.
@@ -1902,7 +1965,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[test]
     fn a_server_whose_leader_has_gone_has_the_rest_of_its_group_stopped() {
         let (transport, (leader, grandchild), _dir) =
-            deaf_server(r#"sleep 30 & echo "$$ $!" > "$1"; exit 0"#);
+            deaf_server(r#"sleep 120 & echo "$$ $!" > "$1"; exit 0"#);
         let pid = rustix::process::Pid::from_raw(leader).expect("pid");
         let deadline = Instant::now() + Duration::from_secs(30);
         // Exited, and not collected until the close.
@@ -1924,30 +1987,238 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         assert_gone(grandchild, "the leader's grandchild");
     }
 
+    /// A server's input that takes `piece` bytes per write, and does `then`
+    /// at each attempt, before it answers.
+    struct Pieces<F: FnMut(usize) -> Option<ErrorKind>> {
+        piece: usize,
+        attempts: usize,
+        received: Vec<u8>,
+        then: F,
+    }
+
+    impl<F: FnMut(usize) -> Option<ErrorKind>> Write for Pieces<F> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.attempts += 1;
+            if let Some(kind) = (self.then)(self.attempts) {
+                return Err(kind.into());
+            }
+            let count = bytes.len().min(self.piece);
+            self.received.extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<F: FnMut(usize) -> Option<ErrorKind>> Sink for Pieces<F> {
+        fn wait_writable(&self, _: Duration) {}
+    }
+
+    fn pieces<F: FnMut(usize) -> Option<ErrorKind>>(then: F) -> Pieces<F> {
+        Pieces {
+            piece: 4,
+            attempts: 0,
+            received: Vec::new(),
+            then,
+        }
+    }
+
+    #[test]
+    fn a_cancellation_between_two_pieces_of_a_frame_ends_it_there() {
+        let input = Input::new(None);
+        let cancel = CancelToken::new();
+        let token = cancel.clone();
+        // The cancellation comes while the first piece is being taken.
+        let mut sink = pieces(move |attempt| {
+            if attempt == 1 {
+                token.cancel();
+            }
+            None
+        });
+        let sent = input.push(
+            &mut sink,
+            b"0123456789abcdef\n",
+            Instant::now() + Duration::from_secs(60),
+            Some(&cancel),
+        );
+        assert!(
+            matches!(sent, Err(Unsent::Cut(McpError::Named("Cancelled")))),
+            "a cancelled frame was written on to its end: {:?}",
+            String::from_utf8_lossy(&sink.received)
+        );
+        assert_eq!(sink.received, b"0123");
+    }
+
+    #[test]
+    fn a_cancellation_during_an_interrupted_write_sends_nothing() {
+        let input = Input::new(None);
+        let cancel = CancelToken::new();
+        let token = cancel.clone();
+        let mut sink = pieces(move |attempt| {
+            (attempt == 1).then(|| {
+                token.cancel();
+                ErrorKind::Interrupted
+            })
+        });
+        let sent = input.push(
+            &mut sink,
+            b"0123456789abcdef\n",
+            Instant::now() + Duration::from_secs(60),
+            Some(&cancel),
+        );
+        assert!(
+            matches!(sent, Err(Unsent::Held(McpError::Named("Cancelled")))),
+            "a write retried after an interruption ignored its cancellation: {:?}",
+            String::from_utf8_lossy(&sink.received)
+        );
+        assert!(sink.received.is_empty());
+    }
+
+    #[test]
+    fn a_deadline_that_passes_between_two_pieces_ends_the_frame_there() {
+        let input = Input::new(None);
+        let deadline = Instant::now() + Duration::from_millis(30);
+        let mut sink = pieces(move |attempt| {
+            if attempt == 1 {
+                std::thread::sleep(Duration::from_millis(60));
+            }
+            None
+        });
+        let sent = input.push(&mut sink, b"0123456789abcdef\n", deadline, None);
+        assert!(
+            matches!(
+                sent,
+                Err(Unsent::Cut(McpError::Named("McpRequestTimedOut")))
+            ),
+            "a frame was written on past its deadline: {:?}",
+            String::from_utf8_lossy(&sink.received)
+        );
+        assert_eq!(sink.received, b"0123");
+    }
+
     #[cfg(unix)]
     #[test]
-    fn a_server_that_shut_its_input_is_diagnosed_by_what_it_says_on_its_way_out() {
-        // The request fails at the write, with the server's output still
-        // open: the connection is not known to be gone yet, and its last
-        // words come after.
+    fn a_cancelled_or_expired_call_puts_nothing_on_the_wire() {
+        // A server that records every byte it is sent. Not `exec`: the shell
+        // keeps the server's output open, as a live server does.
+        let dir = tempfile::tempdir().expect("dir");
+        let wire = dir.path().join("wire");
         let transport = StdioTransport::spawn(
             "/bin/sh",
             &[
                 "-c".into(),
-                "exec 0<&-; sleep 0.3; echo 'npm error code E401' >&2; exit 7".into(),
+                r#"cat > "$1""#.into(),
+                "sh".into(),
+                wire.to_string_lossy().into_owned(),
             ],
             &[],
             None,
         )
         .expect("spawned");
-        std::thread::sleep(Duration::from_millis(100));
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        assert_eq!(
+            transport.request(
+                "tools/call",
+                json!({"name": "rm", "arguments": {}}),
+                Duration::from_secs(60),
+                Some(&cancel)
+            ),
+            Err(McpError::Named("Cancelled"))
+        );
+        assert_eq!(
+            transport.request("tools/list", json!({}), Duration::ZERO, None),
+            Err(McpError::Named("McpRequestTimedOut"))
+        );
+        // Whatever went before this reaches the server before it.
+        transport
+            .notify("notifications/sentinel", None)
+            .expect("the sentinel");
+        let sentinel = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/sentinel\"}\n";
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let received = loop {
+            let received = std::fs::read_to_string(&wire).unwrap_or_default();
+            if received.ends_with(sentinel) {
+                break received;
+            }
+            assert!(Instant::now() < deadline, "the sentinel never arrived");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(
+            received, sentinel,
+            "a cancelled or expired call reached the server"
+        );
+        assert!(transport.alive(), "nothing was sent, so nothing was cut");
+        transport.close();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn looking_for_a_leader_s_exit_leaves_it_to_be_collected() {
+        // `true` from the path: `/bin/true` is `/usr/bin/true` on macOS.
+        let mut child = crate::process::command("true").spawn().expect("spawned");
+        let leader = rustix::process::Pid::from_raw(child.id() as i32).expect("pid");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !Server(&mut child).exited() {
+            assert!(Instant::now() < deadline, "the leader never exited");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Still there to be collected: its id is still its group's.
+        assert!(
+            matches!(
+                rustix::process::waitid(
+                    rustix::process::WaitId::Pid(leader),
+                    rustix::process::WaitIdOptions::EXITED
+                        | rustix::process::WaitIdOptions::NOWAIT
+                        | rustix::process::WaitIdOptions::NOHANG,
+                ),
+                Ok(Some(_))
+            ),
+            "looking for the exit collected the leader"
+        );
+        assert!(child.wait().expect("collected").success());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_that_shut_its_input_is_diagnosed_by_what_it_says_on_its_way_out() {
+        // The request fails at the write, with the server's output still
+        // open: the connection is not known to be gone until the write says
+        // so. fx ends a child it can no longer write to, and its last words
+        // still arrive (`stdio_dispatcher.zig:2897-2928`).
+        let transport = StdioTransport::spawn(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "exec 0<&-; echo 'npm error code E401' >&2; exec sleep 30".into(),
+            ],
+            &[],
+            None,
+        )
+        .expect("spawned");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !transport
+            .stderr
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains("E401")
+        {
+            assert!(Instant::now() < deadline, "the server never spoke");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert_eq!(
             transport.request("initialize", json!({}), Duration::from_secs(60), None),
             Err(McpError::Named("McpConnectionClosed"))
+        );
+        assert!(
+            !transport.alive(),
+            "a server xfx can no longer write to kept its connection, so it is never started again"
         );
         assert_eq!(
             transport.diagnostic().as_deref(),
             Some("npm error code E401")
         );
+        transport.close();
     }
 }

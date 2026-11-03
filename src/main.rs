@@ -14,6 +14,12 @@ use xfx::app;
 use xfx::cli::Cli;
 
 fn main() -> ExitCode {
+    // Before any child: every stop signals a group while its leader is still
+    // there to be collected, which an inherited `SIGCHLD` ignore undoes.
+    #[cfg(unix)]
+    if let Err(err) = xfx::process::collect_own_children() {
+        return fail(&format!("cannot take back SIGCHLD: {err}"));
+    }
     let cli = Cli::from_process_args();
     // The UI thread must be the process's main thread and must not be inside a
     // runtime: it blocks in `poll(2)` and owns the terminal. The runtime a turn
