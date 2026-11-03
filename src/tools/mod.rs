@@ -107,14 +107,16 @@ pub struct RuleAction {
 /// (`preparePermissionStateAction`, `vercel-labs/fx@c1db9191
 /// src/core/tooling/tool_admission.zig:2257-2302`).
 ///
-/// The tools a rule can be about are the ones a decision is made for: the
-/// three changes, the command and the four reads. A change is refused when a
+/// The tools a rule can be about are the ones a decision is made for: every
+/// one -- the three changes, the command, the four reads and the tools judged
+/// by their name ([`JUDGED_BY_NAME`]). A change is refused when a
 /// configured rule denies it (upstream's `PermissionStatePreparationDenied`)
 /// -- which the caller's session must be in `ask` to see, as upstream's
 /// preflight is, since full access consults no table -- and a change that
 /// would do nothing -- a folder already there -- has nothing to prepare. A
-/// read is prepared as upstream prepares a structured call: its key and its
-/// label, with no rule consulted (`:2261-2267`).
+/// read, or a tool judged by its name, is prepared as upstream prepares a
+/// structured call: its key and its label, with no rule consulted
+/// (`:2262-2267`).
 /// Every refusal is a sentence for the log; the person is told upstream's one
 /// line ([`crate::permission::slash::NOT_PREPARED`]).
 pub fn prepare_rule_action(
@@ -165,7 +167,29 @@ pub fn prepare_rule_action(
                 display: action.state_display(),
             });
         }
-        _ => return Err(format!("`{name}` asks for no permission")),
+        // A tool judged by its name is prepared as upstream prepares every
+        // call that is neither a change nor a command: its question's label
+        // and its key, no rule consulted (`preparePermissionStateAction`,
+        // `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:
+        // 2262-2267`). The key is the one [`run_judged_by_name`] decides by.
+        ToolInput::AskUserQuestion(_)
+        | ToolInput::CapabilitySearch(_)
+        | ToolInput::McpSelectTool(_)
+        | ToolInput::McpFeatures(_) => {
+            let plan = crate::permission::ToolCallPlan {
+                tool: spec.name(),
+                label: label_of(spec.name(), arguments),
+                arguments: arguments.to_string(),
+            };
+            let action = ProposedAction::Tool(&plan);
+            let key = action
+                .state_key()
+                .ok_or_else(|| "the call has no key".to_string())?;
+            return Ok(RuleAction {
+                key,
+                display: action.state_display(),
+            });
+        }
     };
     let prepared = prepared_change.map_err(|result| result.output)?;
     let action = ProposedAction::Mutation(&prepared.plan);
@@ -294,6 +318,10 @@ impl Registry {
     /// What is asserted here instead is that every [`PermissionKind`] that
     /// requires an authority belongs to a spec whose executor mints one; see
     /// `every_mutating_spec_goes_through_a_permission_decision`.
+    ///
+    /// The one exception is a tool with nothing to prepare -- no file, no
+    /// command: [`JUDGED_BY_NAME`]. Its plan is its name and its arguments,
+    /// which this level has, so it is judged here ([`run_judged_by_name`]).
     pub fn execute(
         &self,
         call: &ToolCall,
@@ -304,7 +332,11 @@ impl Registry {
                 name: call.name.clone(),
             });
         };
-        let mut result = spec.run(&call.input, context);
+        let mut result = if JUDGED_BY_NAME.contains(&spec.name()) {
+            run_judged_by_name(spec, call, context)
+        } else {
+            spec.run(&call.input, context)
+        };
         // A backstop, not the bound. Each executor caps its own output; this
         // guarantees the property for all of them in one place, and says so
         // rather than truncating quietly.
@@ -316,6 +348,76 @@ impl Registry {
         }
         Ok(result)
     }
+}
+
+/// The tools that name no file and run no command, which upstream judges
+/// against the table under their own name: every tool it registers has a
+/// permission contract (`toolHasPermissionContract`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:101-103`), and one whose target kind is
+/// `none` is matched at its own name (`permissions.zig:226`). So `*: deny`, or
+/// a deny on the name, refuses the call at admission; a rule that asks puts
+/// it to the person first, in auto too (`:1389-1442`); and with no rule it
+/// runs in every mode, needing no approval of its own (`:1123-1125`).
+///
+/// Every other spec is judged by its own executor, against the plan it
+/// prepared; `every_spec_is_judged_somewhere` keeps the two lists whole.
+pub const JUDGED_BY_NAME: &[&str] = &[
+    "capability_search",
+    "mcp_select_tool",
+    "mcp_features",
+    "ask_user_question",
+];
+
+/// Decodes `call`, judges it under its tool's own name, and runs it only if
+/// the session admits it. Decoded first, so a malformed call is refused for
+/// what it is and nobody is asked about it.
+fn run_judged_by_name(spec: &ToolSpec, call: &ToolCall, context: &ToolContext) -> ToolResult {
+    use crate::permission::{Decided, PolicyDecision, ProposedAction, ToolCallPlan};
+    if let Err(reason) = spec.decode(&call.input) {
+        return ToolResult::failure(reason);
+    }
+    let plan = ToolCallPlan {
+        tool: spec.name(),
+        label: label_of(spec.name(), &call.input),
+        arguments: call.input.to_string(),
+    };
+    // Its own statement, so the session is not held while the tool runs:
+    // the MCP meta-tools read its table themselves.
+    let Decided { decision, feedback } = context
+        .permissions()
+        .decide_with_feedback(ProposedAction::Tool(&plan));
+    let result = match decision {
+        PolicyDecision::Allow { .. } => spec.run(&call.input, context),
+        PolicyDecision::Deny { reason, .. } => ToolResult::refused(spec.name(), &reason),
+        // `decide_with_feedback` resolves every question; this arm keeps a
+        // future decision from being read as a yes.
+        PolicyDecision::Prompt => {
+            ToolResult::refused(spec.name(), "the approval was never resolved")
+        }
+    };
+    match feedback {
+        Some(_) => result.with_feedback(feedback),
+        None => result,
+    }
+}
+
+/// The argument upstream's question shows after a [`JUDGED_BY_NAME`] tool
+/// (`label_arg_kind`, `vercel-labs/fx@c1db9191 src/builtins/tools.zig`:
+/// `.query`, `.name`, `.action`, and `.none` for `ask_user_question`;
+/// `labelValueForKind`, `src/core/tooling/tool_dispatch.zig:597-614`), or
+/// nothing when the call has none.
+fn label_of(tool: &str, input: &Value) -> String {
+    let field = match tool {
+        "capability_search" => "query",
+        "mcp_select_tool" => "name",
+        "mcp_features" => "action",
+        _ => return String::new(),
+    };
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// The name upstream's projection judges a spec by.
@@ -495,6 +597,132 @@ mod tests {
             offered(PermissionMode::Yolo, &[("*", "*", Deny)]),
             ADVERTISED_TOOLS
         );
+    }
+
+    #[test]
+    fn every_spec_is_judged_somewhere() {
+        // Upstream judges every tool it registers (`toolHasPermissionContract`,
+        // `tool_admission.zig:101-103`). Each spec here is judged either by
+        // its executor, against the plan it prepares, or by its name in
+        // `Registry::execute`; a new spec fails here until someone says which.
+        for spec in Registry::builtin().specs() {
+            let by_name = JUDGED_BY_NAME.contains(&spec.name());
+            let by_executor = match spec.name() {
+                "list_files" | "glob_files" | "grep_files" | "read_file" => true,
+                "write_file" | "edit_file" | "create_folder" => true,
+                "terminal" => true,
+                name if by_name => {
+                    assert!(
+                        !spec.permission().requires_authority(),
+                        "{name} mints an authority, so it has a plan to judge"
+                    );
+                    false
+                }
+                other => panic!("{other} is judged nowhere"),
+            };
+            assert!(by_name != by_executor, "{}", spec.name());
+        }
+    }
+
+    #[test]
+    fn a_tool_judged_by_its_name_is_refused_by_a_rule_that_covers_it_and_runs_without_one() {
+        use crate::permission::{
+            ConfiguredRule, PermissionMode, PermissionSession, RuleAction, RuleSet,
+        };
+        let run = |mode: PermissionMode, rows: &[(&str, &str, RuleAction)], name: &str| {
+            let dir = tempfile::tempdir().expect("temporary workspace");
+            let scope = AccessScope::primary_only(dir.path()).expect("scope");
+            let rules = RuleSet::new(
+                rows.iter()
+                    .map(|(permission, pattern, action)| {
+                        ConfiguredRule::new(*permission, *pattern, *action)
+                    })
+                    .collect(),
+            );
+            // `ask` with nobody to ask, so a question anybody would have
+            // had to answer is a refusal here.
+            let context = ToolContext::new(scope)
+                .with_permissions(PermissionSession::new(mode).with_rules(rules));
+            let input = match name {
+                "capability_search" => json!({ "query": "anything" }),
+                "mcp_select_tool" => json!({ "name": "mcp_some_tool" }),
+                "mcp_features" => json!({ "server": "s", "action": "prompt_list" }),
+                _ => json!({ "questions": [{ "question": "q", "options": [{ "label": "a" }, { "label": "b" }] }] }),
+            };
+            let call = ToolCall {
+                id: "c1".into(),
+                name: name.into(),
+                input,
+            };
+            Registry::builtin()
+                .execute(&call, &context)
+                .expect("a registered tool")
+        };
+        use RuleAction::*;
+        for name in JUDGED_BY_NAME {
+            // A deny that covers it -- everything, or its own name -- refuses
+            // it at admission, in every mode but full access.
+            for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+                for rows in [&[("*", "*", Deny)][..], &[(*name, "*", Deny)][..]] {
+                    let refused = run(mode, rows, name);
+                    assert_eq!(refused.outcome, Outcome::Denied, "{name} {mode:?} {rows:?}");
+                    assert!(
+                        refused
+                            .output
+                            .contains(&format!("a configured permission rule denies `{name}`")),
+                        "{name}: {}",
+                        refused.output
+                    );
+                }
+            }
+            // A rule that asks: nobody to ask, so refused, naming the rule --
+            // in auto too.
+            let asked = run(PermissionMode::Auto, &[(name, "*", Ask)], name);
+            assert_eq!(asked.outcome, Outcome::Denied, "{name}");
+            assert!(
+                asked
+                    .output
+                    .contains(&format!("a configured permission rule asks before `{name}`")),
+                "{name}: {}",
+                asked.output
+            );
+            // Not a refusal: no rule, a narrower one, an allow, full access.
+            for (mode, rows) in [
+                (PermissionMode::Ask, &[][..]),
+                (PermissionMode::Ask, &[("edit", "*", Deny)][..]),
+                (PermissionMode::Ask, &[("*", "*", Deny), (*name, "*", Allow)][..]),
+                (PermissionMode::Yolo, &[("*", "*", Deny)][..]),
+            ] {
+                let ran = run(mode, rows, name);
+                assert_ne!(
+                    ran.outcome,
+                    Outcome::Denied,
+                    "{name} {mode:?} {rows:?}: {}",
+                    ran.output
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_malformed_call_of_a_tool_judged_by_name_is_refused_for_what_it_is() {
+        use crate::permission::{PermissionMode, PermissionSession};
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        let scope = AccessScope::primary_only(dir.path()).expect("scope");
+        // `ask` with nobody to ask: a call that reached a question would be
+        // refused as one. This one never gets that far.
+        let context = ToolContext::new(scope)
+            .with_permissions(PermissionSession::new(PermissionMode::Ask).with_rules(
+                crate::permission::RuleSet::parse(&json!({ "*": "ask" })).expect("rules"),
+            ));
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "capability_search".into(),
+            input: json!({}),
+        };
+        let result = Registry::builtin().execute(&call, &context).expect("registered");
+        assert_ne!(result.outcome, Outcome::Denied, "{}", result.output);
+        assert!(!result.output.contains("asks before"), "{}", result.output);
     }
 
     #[test]

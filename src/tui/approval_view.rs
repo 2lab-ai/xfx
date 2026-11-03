@@ -214,9 +214,11 @@ pub(crate) enum Kind {
     /// `terminal`: `Would you like to run the following command?`.
     Command,
     /// A read a configured rule asks about -- `read_file`, `list_files`,
-    /// `glob_files`, `grep_files` -- as upstream asks about any tool its label
-    /// does not name a kind for: the generic question, the generic reason, and
-    /// the tool with its argument (`approval_ui.zig:1842-1913`;
+    /// `glob_files`, `grep_files` -- or a tool judged by its name
+    /// ([`crate::tools::JUDGED_BY_NAME`]), as upstream asks about any tool its
+    /// label does not name a kind for: the generic question, the generic
+    /// reason, and the tool with its argument (`approvalQuestion` and
+    /// `approvalReasonLine`, `approval_ui.zig:1842-1920`;
     /// `fx-rules-read-40x120-ask`).
     Read,
     /// Anything else -- today `create_folder` -- in upstream's generic words.
@@ -230,6 +232,7 @@ impl Kind {
             "write_file" => Self::Write,
             "terminal" => Self::Command,
             "read_file" | "list_files" | "glob_files" | "grep_files" => Self::Read,
+            tool if crate::tools::JUDGED_BY_NAME.contains(&tool) => Self::Read,
             _ => Self::Other,
         }
     }
@@ -711,9 +714,16 @@ pub(crate) fn subject_rows(
                 ),
             ];
             // Wrapped whole rather than cut at the edge, as every subject on
-            // this panel is: the readiness receipt is about all of it.
+            // this panel is: the readiness receipt is about all of it. A tool
+            // that shows no argument is its name alone (`formatPermissionLabel`
+            // returns `call.name`, `tool_presentation.zig:707`).
+            let label = if argument.is_empty() {
+                request.tool.to_string()
+            } else {
+                format!("{} {argument}", request.tool)
+            };
             rows.extend(
-                safe_rows(&format!("{} {argument}", request.tool), budget)
+                safe_rows(&label, budget)
                     .iter()
                     .map(|segment| styles.finish(&format!("{inset}{segment}"), cols)),
             );

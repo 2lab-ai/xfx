@@ -458,6 +458,43 @@ fn a_rule_that_asks_about_an_mcp_tool_asks_in_auto_before_auto_holds_it() {
     runtime.shutdown();
 }
 
+#[test]
+fn a_global_deny_hides_the_mcp_meta_tools_and_refuses_a_call_to_one_anyway() {
+    // The meta-tools are builtins upstream projects and admits like any
+    // other (`tool_projection.zig:563-566`; `toolHasPermissionContract`,
+    // `tool_admission.zig:101-103`): under `*: deny` none is offered, and a
+    // search called anyway selects nothing.
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let rules = RuleSet::parse(&json!({"*": "deny"})).expect("rules");
+    let denied = context(&home, &runtime, PermissionMode::Auto, rules);
+    assert!(crate::tools::Registry::builtin()
+        .advertisement_for(&denied)
+        .is_empty());
+    let searched = call(&denied, "capability_search", json!({"query": "echo text back"}));
+    assert_eq!(searched.outcome, crate::tools::Outcome::Denied, "{searched:?}");
+    assert!(denied.mcp_selected().is_empty());
+    // Full access offers all three, and the search runs.
+    let full = context(
+        &home,
+        &runtime,
+        PermissionMode::Yolo,
+        RuleSet::parse(&json!({"capability_search": "deny"})).expect("rules"),
+    );
+    let names: Vec<String> = crate::tools::Registry::builtin()
+        .advertisement_for(&full)
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_string))
+        .collect();
+    for name in crate::tools::mcp::META_TOOLS {
+        assert!(names.contains(&name.to_string()), "{name}: {names:?}");
+    }
+    runtime.shutdown();
+}
+
 /// What the server saw: each method, and the session id it came with.
 type Seen = Arc<Mutex<Vec<(String, Option<String>)>>>;
 

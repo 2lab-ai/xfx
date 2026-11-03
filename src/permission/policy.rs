@@ -188,6 +188,47 @@ pub enum ProposedAction<'a> {
     Read(&'a ReadPlan),
     /// A call of an MCP server's tool ([`McpCallPlan`]).
     Mcp(&'a McpCallPlan),
+    /// A call of a tool that names no file and runs no command -- the
+    /// model's question to the user, the three MCP meta-tools
+    /// ([`ToolCallPlan`]).
+    Tool(&'a ToolCallPlan),
+}
+
+/// A call of a registered tool with no target of its own, as policy judges
+/// it: under its own name, with that name as its one target.
+///
+/// Upstream judges every tool it registers against the table
+/// (`toolHasPermissionContract`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:101-103`), and a tool whose target
+/// kind is `none` is matched at its own name (`permissions.zig:226`): so
+/// `*: deny` refuses `ask_user_question` at admission, and an ask rule puts
+/// it to the person first, in auto too (`:1389-1442`). No rule: it needs no
+/// approval of its own and runs, in every mode (`toolRequiresApproval`,
+/// `:1123-1125`; `.requires_approval = false`, `src/builtins/tools.zig`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCallPlan {
+    /// The tool, as the model called it.
+    pub tool: &'static str,
+    /// The argument upstream's question shows after the tool -- a search's
+    /// query, a selection's name, a feature's action -- or empty for a tool
+    /// that shows none (`formatPermissionLabel`, `tool_presentation.zig:
+    /// 683-718`; `labelValueForKind`, `tool_dispatch.zig:597-614`).
+    pub label: String,
+    /// The call's arguments, whole, as compact JSON: what a saved-session
+    /// rule about exactly this call is keyed by (`permissionStateKeyForCall`,
+    /// `tool_admission.zig:2219-2231`, keys the call's own arguments).
+    pub arguments: String,
+}
+
+impl ToolCallPlan {
+    /// `tool label`, or the tool alone when it shows no argument.
+    pub fn label_line(&self) -> String {
+        if self.label.is_empty() {
+            self.tool.to_string()
+        } else {
+            format!("{} {}", self.tool, self.label)
+        }
+    }
 }
 
 /// One MCP tool call, as policy judges it: the tool by the name the model
@@ -222,6 +263,7 @@ impl<'a> ProposedAction<'a> {
             Self::Command(_) => "terminal",
             Self::Read(plan) => plan.tool,
             Self::Mcp(_) => "mcp",
+            Self::Tool(plan) => plan.tool,
         }
     }
 
@@ -264,6 +306,13 @@ impl<'a> ProposedAction<'a> {
                 plan.tool,
                 Some(vec![plan.candidate.clone()]),
             ),
+            // Its own name is its category and its one target
+            // (`permissions.zig:226`).
+            Self::Tool(plan) => (
+                super::rules::permission_name_for_tool(plan.tool),
+                plan.tool,
+                Some(vec![plan.tool.as_bytes().to_vec()]),
+            ),
         }
     }
 
@@ -303,7 +352,13 @@ impl<'a> ProposedAction<'a> {
                 field(&mut canonical, plan.key.as_bytes());
                 RuleKey::new(KeyKind::StructuredTool, canonical)
             }
-
+            Self::Tool(plan) => {
+                let mut canonical = Vec::new();
+                field(&mut canonical, b"xfx-permission-state-tool-v1");
+                field(&mut canonical, plan.tool.as_bytes());
+                field(&mut canonical, plan.arguments.as_bytes());
+                RuleKey::new(KeyKind::StructuredTool, canonical)
+            }
             Self::Mutation(plan) => {
                 let binding = plan.state_binding()?;
                 let targets = plan.rule_targets()?;
@@ -344,6 +399,7 @@ impl<'a> ProposedAction<'a> {
             // label (`preparePermissionStateAction`, `:2261-2267`).
             Self::Read(plan) => format!("{} {}", plan.tool, plan.argument),
             Self::Mcp(plan) => format!("{} {}", plan.alias, plan.arguments),
+            Self::Tool(plan) => plan.label_line(),
             Self::Mutation(plan) => {
                 let after = &plan.after_hash().hex()[..16];
                 match plan.preimage() {
@@ -392,6 +448,9 @@ impl<'a> ProposedAction<'a> {
             // The file it resolved, for the reason a mutation's is.
             Self::Read(plan) => plan.target.to_string_lossy().into_owned(),
             Self::Mcp(plan) => plan.alias.clone(),
+            // Its one target, its own name: an "always" is for every later
+            // call of the tool, as the always-scope says.
+            Self::Tool(plan) => plan.tool.to_string(),
         }
     }
 
@@ -456,6 +515,7 @@ impl<'a> ProposedAction<'a> {
                 "call the MCP tool `{}` on server `{}` with {}",
                 plan.alias, plan.server, plan.arguments
             ),
+            Self::Tool(plan) => format!("call `{}`", plan.label_line()),
         }
     }
 
@@ -471,7 +531,7 @@ impl<'a> ProposedAction<'a> {
             // A command has no before and after. What it would do is the command
             // itself, and [`Self::summary`] quotes that whole. A read changes
             // nothing, and an MCP call's effect is the server's, not a file's.
-            Self::Command(_) | Self::Read(_) | Self::Mcp(_) => None,
+            Self::Command(_) | Self::Read(_) | Self::Mcp(_) | Self::Tool(_) => None,
         }
     }
 
@@ -508,6 +568,10 @@ impl<'a> ProposedAction<'a> {
                 "allow every future call of the MCP tool `{}` for the rest of this session, whatever its arguments",
                 plan.alias
             ),
+            Self::Tool(plan) => format!(
+                "allow every future call of `{}` for the rest of this session, whatever its arguments",
+                plan.tool
+            ),
         }
     }
 
@@ -525,6 +589,9 @@ impl<'a> ProposedAction<'a> {
             // The generic review (`Would you like to allow this action?`,
             // then `mcp <tool> <arguments>`): what is asked is the call.
             Self::Mcp(plan) => ApprovalSubject::Path(format!("{} {}", plan.alias, plan.arguments)),
+            // Upstream's generic question shows the tool and its label
+            // argument (`formatPermissionLabel`), as a read's does.
+            Self::Tool(plan) => ApprovalSubject::Call(plan.label.clone()),
         }
     }
 
@@ -553,9 +620,10 @@ impl<'a> ProposedAction<'a> {
                     effect.describe()
                 )),
             },
-            // Never consulted: a read no rule decides is admitted before the
-            // mode is ([`PermissionSession::evaluate_with`]).
-            Self::Read(_) => Ok(()),
+            // Never consulted: a read, or a tool with no approval of its own,
+            // that no rule decides is admitted before the mode is
+            // ([`PermissionSession::evaluate_with`]).
+            Self::Read(_) | Self::Tool(_) => Ok(()),
             // Upstream sends an unresolved MCP call in auto mode to its
             // safety reviewer, and an unavailable reviewer holds the action
             // (`resolveOrdinaryPermissionOutcome`, `tool_admission.zig:
@@ -591,6 +659,9 @@ pub enum AllowSource {
     AutoMode,
     /// A read no rule decided: reading is free, in every mode.
     FreeRead,
+    /// A call of a tool with no approval requirement of its own -- the
+    /// model's question, an MCP meta-tool -- that no rule decided.
+    NoApprovalNeeded,
     /// No check ran.
     Yolo,
 }
@@ -1234,6 +1305,14 @@ impl PermissionSession {
         if let ProposedAction::Read(_) = action {
             return PolicyDecision::Allow {
                 source: AllowSource::FreeRead,
+            };
+        }
+        // So is a tool that names no file and runs no command, for the same
+        // reason (`.requires_approval = false`): the table above is all that
+        // stands between the model and it.
+        if let ProposedAction::Tool(_) = action {
+            return PolicyDecision::Allow {
+                source: AllowSource::NoApprovalNeeded,
             };
         }
 
@@ -2095,12 +2174,104 @@ mod tests {
         );
     }
 
+    fn tool_call(tool: &'static str, label: &str, arguments: &str) -> ToolCallPlan {
+        ToolCallPlan {
+            tool,
+            label: label.to_string(),
+            arguments: arguments.to_string(),
+        }
+    }
+
     #[test]
-    fn a_saved_rule_about_an_mcp_call_is_keyed_by_its_whole_arguments() {
+    fn a_tool_with_no_target_is_judged_at_its_own_name_and_free_unless_a_rule_decides() {
+        // `toolHasPermissionContract` (`tool_admission.zig:101-103`), its
+        // name as its one target (`permissions.zig:226`), and no approval of
+        // its own (`:1123-1125`).
+        let question = tool_call("ask_user_question", "", r#"{"questions":[]}"#);
+        let action = ProposedAction::Tool(&question);
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            assert_eq!(
+                PermissionSession::new(mode).evaluate(action),
+                PolicyDecision::Allow {
+                    source: AllowSource::NoApprovalNeeded
+                },
+                "{mode:?}"
+            );
+            for rows in [
+                &[("*", "*", RuleAction::Deny)][..],
+                &[("ask_user_question", "*", RuleAction::Deny)][..],
+                &[("ask_user_question", "ask_user_question", RuleAction::Deny)][..],
+                &[("ask_*", "*", RuleAction::Deny)][..],
+            ] {
+                assert!(
+                    matches!(
+                        PermissionSession::new(mode)
+                            .with_rules(table(rows))
+                            .evaluate(action),
+                        PolicyDecision::Deny {
+                            cause: DenyCause::ConfiguredRule,
+                            ..
+                        }
+                    ),
+                    "{mode:?} {rows:?}"
+                );
+            }
+            // A rule that asks is put to the person, in auto too.
+            assert_eq!(
+                PermissionSession::new(mode)
+                    .with_rules(table(&[("ask_user_question", "*", RuleAction::Ask)]))
+                    .evaluate(action),
+                PolicyDecision::Prompt,
+                "{mode:?}"
+            );
+            // A rule about another tool, or another target, decides nothing.
+            assert!(matches!(
+                PermissionSession::new(mode)
+                    .with_rules(table(&[
+                        ("edit", "*", RuleAction::Deny),
+                        ("ask_user_question", "other", RuleAction::Deny),
+                    ]))
+                    .evaluate(action),
+                PolicyDecision::Allow { .. }
+            ));
+        }
+        assert_eq!(
+            PermissionSession::new(PermissionMode::Yolo)
+                .with_rules(table(&[("*", "*", RuleAction::Deny)]))
+                .evaluate(action),
+            PolicyDecision::Allow {
+                source: AllowSource::Yolo
+            }
+        );
+        // What a question about it says, and what "always" buys: every later
+        // call of the tool, whatever it asks.
+        let search = tool_call("capability_search", "github issues", r#"{"query":"github issues"}"#);
+        let action = ProposedAction::Tool(&search);
+        assert_eq!(action.target(), "capability_search");
+        assert_eq!(
+            action.subject(),
+            ApprovalSubject::Call("github issues".to_string())
+        );
+        assert_eq!(action.state_display(), "capability_search github issues");
+        assert_eq!(question.label_line(), "ask_user_question");
+        assert_eq!(
+            action.always_scope(),
+            "allow every future call of `capability_search` for the rest of this session, whatever its arguments"
+        );
+    }
+
+    #[test]
+    fn a_saved_rule_about_a_call_is_keyed_by_its_whole_arguments() {
         // A saved-session rule is about exactly one call (`permissionStateKeyForCall`
         // keys its arguments whole, `tool_admission.zig:2219-2231`): two calls
-        // of a server's tool that differ only past the bound its question
-        // shows are two keys.
+        // that differ anywhere are two keys -- for a tool judged by its name,
+        // and for a server's tool past the bound its question shows.
+        let one = tool_call("capability_search", "a", r#"{"query":"a"}"#);
+        let two = tool_call("capability_search", "a", r#"{"query":"a","server":"s"}"#);
+        assert_ne!(
+            ProposedAction::Tool(&one).state_key(),
+            ProposedAction::Tool(&two).state_key()
+        );
         // Past the shown bound, inside the bound a key may have
         // (`session_rules::MAX_IDENTITY_BYTES`).
         let long = "x".repeat(3000);

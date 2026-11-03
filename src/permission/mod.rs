@@ -69,7 +69,8 @@ pub use command::{classify, CommandEffect, DeniedEffect};
 pub use policy::{
     AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
     ApprovalSubject, Decided, DenyCause, Grant, LiveAuthority, LiveRules, McpCallPlan,
-    PermissionSession, PolicyDecision, ProposedAction, ReadPlan, TtyPrompter, YOLO_WARNING,
+    PermissionSession, PolicyDecision, ProposedAction, ReadPlan, ToolCallPlan, TtyPrompter,
+    YOLO_WARNING,
 };
 pub use rules::{ConfiguredRule, RuleAction, RuleSet};
 

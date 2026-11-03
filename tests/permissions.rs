@@ -3365,6 +3365,108 @@ async fn full_access_offers_every_tool_whatever_the_table_says() {
     assert_eq!(offered(&provider.requests()[0]), everything);
 }
 
+/// One well-formed `ask_user_question` call's arguments.
+fn one_question() -> Value {
+    json!({ "questions": [{ "question": "Which one?", "options": [{ "label": "A" }, { "label": "B" }] }] })
+}
+
+#[tokio::test]
+async fn a_question_a_rule_covers_is_refused_at_admission_and_never_put_to_the_user() {
+    // Upstream judges every tool it registers against the table, under its
+    // own name with that name as its one target (`toolHasPermissionContract`,
+    // `tool_admission.zig:101-103`; `permissions.zig:226`): the model's
+    // question too. `*: deny` leaves it out of the request and refuses a
+    // call to it anyway, before anybody is asked anything.
+    for rows in [
+        &[("*", "*", RuleAction::Deny)][..],
+        &[("ask_user_question", "*", RuleAction::Deny)][..],
+    ] {
+        let tree = Tree::new();
+        let context = ruled(&tree, PermissionMode::Auto, rows);
+        let provider = ScriptedProvider::new(vec![
+            calls_step(vec![ToolCall {
+                id: "q1".to_string(),
+                name: "ask_user_question".to_string(),
+                input: one_question(),
+            }]),
+            answer_step("refused"),
+        ]);
+        let mut sink = RecordingSink::new();
+        run_turn(turn("ask me", context), &provider, &mut sink)
+            .await
+            .expect("a refused call is a result, not the end of the turn");
+        assert!(
+            !offered(&provider.requests()[0]).contains(&"ask_user_question".to_string()),
+            "{rows:?}"
+        );
+        let (outcome, detail) = sink
+            .events()
+            .iter()
+            .find_map(|event| match event {
+                Event::ToolResult {
+                    outcome, detail, ..
+                } => Some((*outcome, detail.clone())),
+                _ => None,
+            })
+            .expect("the call was answered");
+        assert_eq!(outcome, Outcome::Denied, "{rows:?}: {detail}");
+        assert!(
+            detail.contains("a configured permission rule denies `ask_user_question`"),
+            "{rows:?}: {detail}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_rule_that_asks_before_a_question_asks_in_auto_and_with_nobody_to_ask_refuses_it() {
+    // An ask rule comes before the mode (`configured_ask`,
+    // `tool_admission.zig:1426-1442`), so `auto` puts the call to the person
+    // too; with nobody to ask, the refusal names the rule (`:1426-1431`).
+    let tree = Tree::new();
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("ask_user_question", "*", RuleAction::Ask)],
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![ToolCall {
+            id: "q1".to_string(),
+            name: "capability_search".to_string(),
+            input: json!({ "query": "anything" }),
+        }, ToolCall {
+            id: "q2".to_string(),
+            name: "ask_user_question".to_string(),
+            input: one_question(),
+        }]),
+        answer_step("refused"),
+    ]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("ask me", context), &provider, &mut sink)
+        .await
+        .expect("a turn");
+    let results: Vec<(Outcome, String)> = sink
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            Event::ToolResult {
+                outcome, detail, ..
+            } => Some((*outcome, detail.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(results.len(), 2, "{results:?}");
+    // No rule covers the search, which needs no approval of its own: it
+    // runs, in auto, and answers that no MCP client runs here.
+    assert_ne!(results[0].0, Outcome::Denied, "{results:?}");
+    assert_eq!(results[1].0, Outcome::Denied, "{results:?}");
+    assert!(
+        results[1]
+            .1
+            .contains("a configured permission rule asks before `ask_user_question`"),
+        "{results:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_terminal_hidden_by_a_shell_deny_and_called_anyway_is_judged_as_a_command_and_never_runs_unasked(
 ) {
@@ -4426,6 +4528,48 @@ fn a_remembered_read_decides_before_the_question_and_a_broken_store_refuses_a_re
     );
 }
 
+#[test]
+fn a_remembered_rule_decides_exactly_one_call_of_a_tool_judged_by_its_name() {
+    // The saved state is consulted for every registered tool, after a
+    // configured deny and before an ask (`tool_admission.zig:1405-1424`).
+    let tree = Tree::new();
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    remember(
+        &tree,
+        &rules,
+        Decision::Deny,
+        "capability_search",
+        json!({"query": "issues"}),
+    );
+    let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Auto)
+                .with_rules(table(&[("capability_search", "*", RuleAction::Allow)]))
+                .with_session_rules(&rules),
+        );
+    let refused = call(&context, "capability_search", json!({"query": "issues"}));
+    assert_eq!(refused.outcome, Outcome::Denied);
+    assert!(
+        refused
+            .output
+            .contains("a saved-session permission rule denies `capability_search issues`"),
+        "{}",
+        refused.output
+    );
+    // Another query is another call: the rule does not reach it.
+    let other = call(&context, "capability_search", json!({"query": "pull requests"}));
+    assert_ne!(other.outcome, Outcome::Denied, "{}", other.output);
+
+    // A store that does not read refuses it too, as it refuses everything.
+    let broken = TempDir::new().unwrap();
+    let broken_rules = broken.path().join("permissions.json");
+    fs::write(&broken_rules, "{broken").unwrap();
+    let context = remembering(&tree, PermissionMode::Auto, &broken_rules);
+    let refused = call(&context, "ask_user_question", one_question());
+    assert_eq!(refused.outcome, Outcome::Denied, "{}", refused.output);
+}
+
 /// A context over `tree` plus the added root `added`, in `mode`, deciding
 /// with `rows`.
 fn ruled_with_root(
@@ -4802,7 +4946,7 @@ fn a_store_that_cannot_be_read_refuses_the_call_rather_than_letting_a_deny_lapse
 }
 
 #[test]
-fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_that_asks_nothing() {
+fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_and_a_question_is_prepared_by_its_label() {
     let tree = Tree::new();
     let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
         .with_permissions(session(PermissionMode::Ask).with_rules(table(&[(
@@ -4819,10 +4963,6 @@ fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_tha
         .unwrap_err()
         .starts_with("a configured permission rule denies"));
     for (tool, arguments) in [
-        (
-            "ask_user_question",
-            json!({"questions": [{"question": "q?", "options": [{"label": "a"}, {"label": "b"}]}]}),
-        ),
         ("bash", json!({"command": "ls"})),
         ("write_file", json!({"path": "../escape", "content": "x"})),
         ("terminal", json!({"action": "exec"})),
@@ -4835,15 +4975,25 @@ fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_tha
             "{tool}"
         );
     }
-    assert_eq!(
-        xfx::tools::prepare_rule_action(
-            "ask_user_question",
-            &json!({"questions": [{"question": "q?", "options": [{"label": "a"}, {"label": "b"}]}]}),
-            &context,
-        )
-        .unwrap_err(),
-        "`ask_user_question` asks for no permission"
-    );
+    // The model's question is judged by the table under its own name, so a
+    // rule can be about exactly one call of it, as upstream's can
+    // (`preparePermissionStateAction`, `tool_admission.zig:2262-2267`): shown
+    // by its question's label, which for it is its name alone.
+    let question = xfx::tools::prepare_rule_action(
+        "ask_user_question",
+        &json!({"questions": [{"question": "q?", "options": [{"label": "a"}, {"label": "b"}]}]}),
+        &context,
+    )
+    .expect("a question is prepared");
+    assert_eq!(question.display, "ask_user_question");
+    let search = xfx::tools::prepare_rule_action(
+        "capability_search",
+        &json!({"query": "issues"}),
+        &context,
+    )
+    .expect("a search is prepared");
+    assert_eq!(search.display, "capability_search issues");
+    assert_ne!(question.key, search.key);
     // Preparing ran nothing.
     assert!(tree.entries(".").is_empty());
 }
