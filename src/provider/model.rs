@@ -926,20 +926,24 @@ impl ModelCatalog for GatewayCatalog {
     ///
     /// **No redirect is followed**: the URL was judged by the bearer rule and
     /// the key goes to it alone, so a `3xx` is a failure rather than a second
-    /// host the key is replayed to. The system proxy is honoured, as it is for
-    /// a turn: reaching a remote endpoint may need one.
+    /// host the key is replayed to. A proxy from the environment is honoured
+    /// over https only, as it is for a turn (`crate::gateway::bearer_rules`):
+    /// reaching a remote endpoint may need one, and a cleartext loopback one
+    /// must not hand the key to it.
     async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
         let failed = |detail: String| CatalogError::Gateway {
             detail,
             retry: None,
         };
-        let client = reqwest::Client::builder()
-            .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
-            .timeout(GATEWAY_CATALOG_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|err| failed(format!("could not build HTTP client: {err}")))?;
+        let client = crate::gateway::bearer_rules(
+            reqwest::Client::builder()
+                .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
+                .timeout(GATEWAY_CATALOG_TIMEOUT)
+                .user_agent(USER_AGENT),
+            &self.url,
+        )
+        .build()
+        .map_err(|err| failed(format!("could not build HTTP client: {err}")))?;
         let mut authorization =
             reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.credential.secret()))
                 .map_err(|_| failed("the credential is not a valid header value".to_string()))?;
@@ -1713,6 +1717,20 @@ impl ModelSelector {
                     ModelRequest::Exact(id) => id.to_string(),
                     _ => self.resolve(query),
                 };
+                // And the id a query resolved to, by the same rule: the
+                // catalog is the provider's document and its parser takes any
+                // non-empty id, and the id adopted here is written to the
+                // session log and the profile, from which a later launch
+                // paints it. Upstream adopts it and refuses it only when it
+                // persists (`session_codec.zig:433,3165`); refused here, before
+                // anything holds it. The id is not quoted back.
+                if let Some(problem) = model_id_problem(&id) {
+                    return ModelOutcome::Refused {
+                        reason: format!(
+                            "the catalog's match for that query is unusable: {problem}"
+                        ),
+                    };
+                }
 
                 // If already the current model, say so.
                 if id == self.model {
@@ -1973,6 +1991,35 @@ mod tests {
             selector.apply(ModelRequest::Select("nonexistent-xyz")),
             ModelOutcome::Unchanged { .. }
         ));
+    }
+
+    #[test]
+    fn a_catalog_id_with_a_control_character_is_refused_when_a_query_resolves_to_it() {
+        // A catalog is the provider's document, and its parser takes any
+        // non-empty id. A clean query that fuzzy-matches an id carrying an
+        // escape must not adopt it: the adopted id is written to the session
+        // log and the profile, and a resume paints it in the footer. Red
+        // before: `evil` was selected as the id with the escape in it.
+        for hostile in [
+            "evil\u{1b}[31m-x",
+            "evil\u{1b}]8;;mailto:a@b\u{1b}\\-x",
+            "evil\u{9b}31m-x",
+        ] {
+            let mut selector =
+                ModelSelector::for_test(ProviderId::Llmux, "good", SettingSource::UserGlobal);
+            selector.set_catalog_for_test(CatalogState::Loaded(vec![
+                entry("good", &[]),
+                entry(hostile, &[]),
+            ]));
+            match selector.apply(ModelRequest::Select("evil")) {
+                ModelOutcome::Refused { reason } => {
+                    assert!(!reason.chars().any(char::is_control), "{reason:?}");
+                    assert!(!reason.contains("evil"), "the id is not quoted: {reason:?}");
+                }
+                other => panic!("{hostile:?}: expected a refusal, got {other:?}"),
+            }
+            assert_eq!(selector.model(), "good", "{hostile:?}");
+        }
     }
 
     #[test]

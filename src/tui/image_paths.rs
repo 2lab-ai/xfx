@@ -9,6 +9,12 @@
 //! words are paths, and how each is loaded; what a failure says differs
 //! between the two, and that is the shell's.
 //!
+//! A path in the text is no permission to read the file: what the configured
+//! read table denies is refused before the file is opened, as `/image`
+//! refuses it ([`crate::image::load`]), and stays the words it is. Upstream
+//! asks no rule here; that is the divergence `docs/parity.md` records under
+//! `/image`.
+//!
 //! A word is cut as a shell would cut it, quotes and backslash escapes holding
 //! it together (`token_end`, `file_picker_path.zig:36-52`), and it is a path
 //! to an image by its spelling alone, before anything is asked of the
@@ -31,6 +37,7 @@ use std::path::{Path, PathBuf};
 use super::file_index::is_terminal_safe;
 use super::file_picker::{parse_at, token_end, Status};
 use crate::image::{AttachError, MediaType};
+use crate::permission::RuleSet;
 
 /// One word of a prompt that names an image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,16 +107,18 @@ pub(crate) fn any(text: &str) -> bool {
 
 /// The file `word` names, and its bytes: `/image`'s loader, given the path
 /// with its `@` and its punctuation taken off
-/// (`load_inline_image_attachment`, `image_attachments.zig:1880-1885`).
+/// (`load_inline_image_attachment`, `image_attachments.zig:1880-1885`), and
+/// the configured read table `rules` it asks before opening the file.
 pub(crate) fn load(
     workspace: &Path,
     home: Option<&Path>,
+    rules: &RuleSet,
     word: &ImagePath,
 ) -> Result<(PathBuf, MediaType, Vec<u8>), AttachError> {
     if word.literal {
-        crate::image::load_literal(workspace, home, &word.path)
+        crate::image::load_literal(workspace, home, rules, &word.path)
     } else {
-        crate::image::load(workspace, home, &word.path)
+        crate::image::load(workspace, home, rules, &word.path)
     }
 }
 
@@ -118,6 +127,10 @@ pub(crate) fn load(
 /// `image_attachments.zig:1728-1738`): a file that is not there, is not an
 /// image, is not a file, or a path that means nothing. Anything else -- too
 /// large, outside the workspace, unreadable -- is said, and the prompt waits.
+///
+/// A path the read table denies ([`AttachError::Denied`]) is neither: the
+/// shell says so and sends it as the words it is, since nothing the person
+/// can fix in the draft would make the rule allow it.
 pub(crate) fn passed_over_at_submit(problem: &AttachError) -> bool {
     matches!(
         problem,
@@ -374,7 +387,8 @@ mod tests {
             "look this @\"CleanShot 2026.png\" now",
         ] {
             let word = &find(text)[0];
-            let (path, media_type, bytes) = load(&workspace, None, word).expect(text);
+            let (path, media_type, bytes) =
+                load(&workspace, None, &RuleSet::default(), word).expect(text);
             assert!(path.starts_with(&workspace), "{text}: {path:?}");
             assert_eq!(media_type, MediaType::Png);
             assert_eq!(bytes, shot);
@@ -389,7 +403,8 @@ mod tests {
         let root = workspace_with(&[("notes.png", b"not an image")]);
         std::fs::create_dir(root.path().join("photos.png")).expect("a directory");
         let workspace = root.path().canonicalize().expect("real");
-        let outcome = |text: &str| load(&workspace, None, &find(text)[0]).map(|_| ());
+        let outcome =
+            |text: &str| load(&workspace, None, &RuleSet::default(), &find(text)[0]).map(|_| ());
         for text in [
             "missing.png",
             "notes.png",
@@ -405,5 +420,6 @@ mod tests {
             "PathOutsideWorkspace"
         )));
         assert!(!passed_over_at_submit(&AttachError::Other("AccessDenied")));
+        assert!(!passed_over_at_submit(&AttachError::Denied("a.png".into())));
     }
 }

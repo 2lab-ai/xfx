@@ -43,6 +43,16 @@ const CONTROLLED_VARS: &[&str] = &[
     "XFX_PERMISSION_MODE",
     "XFX_MAX_AGENT_STEPS",
     "XFX_GATEWAY_URL",
+    // A proxy, or an exemption from one, in the developer's shell would decide
+    // where a request goes; the proxy test sets these itself.
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
 ];
 
 /// A test secret that must never appear on stdout or stderr.
@@ -1708,6 +1718,28 @@ fn ask_streams_plain_text_for_a_human() {
 }
 
 #[test]
+fn ask_writes_an_answer_to_a_pipe_byte_for_byte() {
+    // An answer on a terminal reaches it with its controls blanked, so it
+    // cannot leave state behind for the question that follows. An answer on a
+    // pipe or in a file is data for a program, and arrives exactly as the
+    // model wrote it -- escape sequences, a bell, a tab and a carriage return
+    // included.
+    let answer = "\u{1b}[1mbold\u{1b}[0m\tand\u{7} done\r\n";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[answer]))]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--no-save", "hello"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.stdout, answer);
+    assert_eq!(run.stderr, "");
+}
+
+#[test]
 fn an_sse_event_split_across_transport_writes_still_decodes() {
     let body = content_only(&["one ", "two"]);
     let pieces: Vec<String> = body
@@ -1810,6 +1842,121 @@ fn ask_reports_a_gateway_error_status_as_one_error_event() {
     assert_eq!(gateway.request_count(), 1, "401 is not retryable");
     let message = run.error_message();
     assert!(message.contains("401"), "got {message}");
+}
+
+#[test]
+fn a_redirect_from_the_gateway_never_replays_the_prompt_elsewhere() {
+    // The endpoint rule judges the URL xfx names; it cannot see where a reply
+    // points. A client on reqwest's default policy replays a 307/308's body --
+    // the prompt and the project context -- to the `Location`, wherever it is.
+    // Upstream never follows one on a completion (`redirect_behavior =
+    // .unhandled`, `vercel-labs/fx@c1db9191 src/gateway/client.zig:1561`).
+    for status in [307, 308] {
+        let elsewhere = FakeGateway::start(vec![Reply::Sse(content_only(&["stolen"]))]);
+        let gateway = FakeGateway::start(vec![Reply::Redirect {
+            status,
+            location: elsewhere.chat_url(),
+        }]);
+        let sandbox = Sandbox::new();
+        let run = sandbox.run(
+            &["ask", "--json", "--no-save", "a secret prompt"],
+            &[
+                ("AI_GATEWAY_API_KEY", TEST_KEY),
+                ("XFX_GATEWAY_URL", &gateway.chat_url()),
+            ],
+        );
+        let replayed = elsewhere.requests();
+        assert!(
+            replayed.is_empty(),
+            "a {status} replayed the request to another port (path, bearer, prompt): {:?}",
+            replayed
+                .iter()
+                .map(|request| (
+                    &request.path,
+                    request.header("authorization").is_some(),
+                    request.body.contains("a secret prompt"),
+                ))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+        run.assert_no_secret();
+        assert_eq!(gateway.request_count(), 1, "a {status} is not retryable");
+        let message = run.error_message();
+        assert!(message.contains(&status.to_string()), "got {message}");
+    }
+}
+
+#[test]
+fn a_redirect_to_the_same_host_never_replays_the_bearer() {
+    // reqwest drops `Authorization` only when the host or port changes, so a
+    // redirect that keeps them -- another path here; `https` to `http` on the
+    // same port in the wild -- carries the credential to a URL nobody named.
+    let gateway = FakeGateway::start(vec![
+        Reply::Redirect {
+            status: 307,
+            location: "/elsewhere".to_string(),
+        },
+        Reply::Sse(content_only(&["stolen"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "a secret prompt"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    let requests = gateway.requests();
+    assert_eq!(
+        requests.len(),
+        1,
+        "the redirect was followed with the bearer: {:?}",
+        requests
+            .iter()
+            .map(|request| (&request.path, request.header("authorization").is_some()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    run.assert_no_secret();
+    assert!(run.error_message().contains("307"), "{:?}", run.stdout);
+}
+
+#[test]
+fn a_proxy_in_the_environment_never_carries_the_bearer_to_a_loopback_gateway() {
+    // A loopback Gateway is spoken to in cleartext; the only thing keeping
+    // the bearer private is that it does not leave the machine. reqwest
+    // honours `HTTP_PROXY`/`ALL_PROXY` with no loopback exemption, so either
+    // would hand the key and the prompt to the proxy in the clear. Upstream
+    // has no proxy path at all.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["direct"]))]);
+    // A listener that records whatever reaches it and answers nothing usable.
+    let proxy = FakeGateway::start(Vec::new());
+    let proxy_url = format!("http://127.0.0.1:{}", proxy.port());
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "a secret prompt"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+            ("HTTP_PROXY", &proxy_url),
+            ("http_proxy", &proxy_url),
+            ("ALL_PROXY", &proxy_url),
+            ("all_proxy", &proxy_url),
+        ],
+    );
+    let leaked = proxy.requests();
+    assert!(
+        leaked.is_empty(),
+        "the proxy received {} request(s), bearer attached: {:?}",
+        leaked.len(),
+        leaked
+            .iter()
+            .map(|request| request.header("authorization").is_some())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(run.code, Some(0), "stdout={:?}", run.stdout);
+    assert_eq!(gateway.request_count(), 1);
+    assert_eq!(run.events().last().unwrap()["output"], "direct");
 }
 
 #[test]

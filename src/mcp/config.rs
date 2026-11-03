@@ -136,12 +136,15 @@ pub struct ServerConfig {
     /// The program, for a stdio server.
     pub command: String,
     pub args: Vec<String>,
-    /// Added to the inherited environment (`server_transport.zig:107-124`).
+    /// A stdio server's own variables, set over the few of xfx's it is given
+    /// ([`super::transport::server_environment`]).
     pub env: Vec<(String, String)>,
     /// The endpoint, for an HTTP or SSE server.
     pub url: String,
     pub headers: Vec<(String, String)>,
-    /// Kept verbatim so a profile written back keeps them; never sent.
+    /// Header names and the variables whose values they are sent with
+    /// (`runtime::http_headers`); kept verbatim so a profile written back
+    /// keeps them.
     pub header_env: Vec<(String, String)>,
     pub bearer_token_env: Option<String>,
     pub oauth: Option<Value>,
@@ -472,6 +475,15 @@ fn string_map(
             _ => Err(ConfigError(error)),
         })
         .collect()
+}
+
+/// xfx's own credentials, the two variables the gateway key is read from
+/// ([`crate::config::CREDENTIAL_VARIABLES`]). A workspace server never resolves them: approval is by
+/// name and an HTTP server runs none of the repository's code, so an approved
+/// entry naming one would send the key to whatever host it names. Upstream
+/// resolves them like any other variable (`docs/parity.md`).
+fn is_credential_variable(name: &str) -> bool {
+    crate::config::CREDENTIAL_VARIABLES.contains(&name)
 }
 
 fn is_env_name(name: &str) -> bool {
@@ -894,9 +906,11 @@ fn canonical(value: &Value, out: &mut String) {
 }
 
 /// Reads `<root>/.mcp.json` under `choices`, each entry admitted by its name
-/// and its [`entry_digest`]. An approved server's `${VAR}` and
-/// `${VAR:-default}` are expanded from `environment`; a pending or rejected
-/// one is kept as written, since it will not run
+/// and its [`entry_digest`], taken over the entry as written, before any
+/// expansion. An approved server's `${VAR}` and `${VAR:-default}` are then
+/// expanded from `environment`, in which xfx's own credentials are never set
+/// (`is_credential_variable`), and one left without a value does not start; a
+/// pending or rejected one is kept as written, since it will not run
 /// (`expandApprovedWorkspaceConfigs`, `project_config.zig:501-575`).
 pub fn load_workspace(
     root: &Path,
@@ -926,6 +940,13 @@ pub fn load_workspace(
     let Some(servers) = document.get("mcpServers").and_then(Value::as_object) else {
         return WorkspaceServers::default();
     };
+    let lookup = |variable: &str| {
+        if is_credential_variable(variable) {
+            None
+        } else {
+            environment(variable)
+        }
+    };
     let mut result = WorkspaceServers::default();
     for (name, value) in servers {
         if !is_valid_server_name(name) {
@@ -936,36 +957,161 @@ pub fn load_workspace(
         let admission = choices.admission(name, &digest);
         result.digests.push((name.clone(), digest));
         let value = if admission == Admission::Approved {
-            expand(value, environment)
+            match expand_entry(value, &lookup) {
+                Ok(value) => value,
+                Err(unresolved) => {
+                    result.issues.push(unresolved.issue(name));
+                    continue;
+                }
+            }
         } else {
             value.clone()
         };
         match parse_entry(name, &value, Source::Workspace, Some(admission)) {
-            Ok(config) => result.servers.push(config),
+            Ok(config) => match withheld_source(&config) {
+                Some((field, variable)) => result.issues.push(withheld(name, field, variable)),
+                None => result.servers.push(config),
+            },
             Err(err) => result.issues.push(format!("{name}: {err}")),
         }
     }
     result
 }
 
-/// `${VAR}` and `${VAR:-default}` in every string of `value`.
-fn expand(value: &Value, environment: &dyn Fn(&str) -> Option<String>) -> Value {
-    match value {
-        Value::String(text) => Value::String(expand_text(text, environment)),
-        Value::Array(items) => {
-            Value::Array(items.iter().map(|item| expand(item, environment)).collect())
+/// A workspace server's `header_env` or `bearer_token_env` that names one of
+/// xfx's credentials, by its field. Checked after expansion, so a `${VAR}`
+/// that spells one is caught too.
+fn withheld_source(config: &ServerConfig) -> Option<(&'static str, &str)> {
+    config
+        .header_env
+        .iter()
+        .map(|(_, variable)| ("header_env", variable.as_str()))
+        .chain(
+            config
+                .bearer_token_env
+                .as_deref()
+                .map(|variable| ("bearer_token_env", variable)),
+        )
+        .find(|(_, variable)| is_credential_variable(variable))
+}
+
+/// Why a workspace server that names one of xfx's credentials does not
+/// start: deliberate, and what to do instead. xfx's own sentence, in the
+/// shape of upstream's below.
+fn withheld(server: &str, field: &str, variable: &str) -> String {
+    format!(
+        ".mcp.json server '{server}' field {field} uses '{variable}', which xfx withholds \
+         from project servers; a server in ~/.xfx/mcp.json may use it."
+    )
+}
+
+/// The most of a variable's name a sentence carries
+/// (`max_rendered_environment_name_bytes`, `project_config.zig:549`).
+const MAX_RENDERED_VARIABLE: usize = 128;
+
+/// A `${VAR}` an approved workspace server has no value for: unset with no
+/// default, or one of xfx's credentials, which it never gets. The server is
+/// dropped, as upstream drops it (`expandApprovedWorkspaceConfigs`,
+/// `project_config.zig:526-545`).
+struct Unresolved {
+    /// Upstream's name for the field (`WorkspaceEnvironmentField`, `:126-131`).
+    field: &'static str,
+    variable: String,
+}
+
+impl Unresolved {
+    /// What the menu says (`renderWorkspaceDiagnostic`, `:156-176`).
+    fn issue(&self, server: &str) -> String {
+        let variable: String = crate::mcp::terminal_safe(&self.variable)
+            .chars()
+            .take(MAX_RENDERED_VARIABLE)
+            .collect();
+        if is_credential_variable(&self.variable) {
+            return withheld(server, self.field, &variable);
         }
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| (key.clone(), expand(value, environment)))
-                .collect(),
-        ),
-        other => other.clone(),
+        format!(
+            ".mcp.json server '{server}' field {} requires environment variable \
+             '{variable}'; set it or use ${{{variable}:-default}}.",
+            self.field
+        )
     }
 }
 
-fn expand_text(text: &str, environment: &dyn Fn(&str) -> Option<String>) -> String {
+/// The field a top-level key's `${VAR}` is reported in: upstream's four
+/// (`WorkspaceEnvironmentField`), `url` (which xfx expands and upstream does
+/// not), and upstream's `value` for the rest.
+fn expansion_field(key: &str) -> &'static str {
+    match key {
+        "command" => "command",
+        "args" => "argument",
+        "env" | "environment" => "environment",
+        "headers" => "http_header",
+        "url" => "url",
+        _ => "value",
+    }
+}
+
+/// `expand` over one entry, each field under its own name; `command` as one
+/// array is the program and then its arguments (`command_spec`).
+fn expand_entry(
+    value: &Value,
+    environment: &dyn Fn(&str) -> Option<String>,
+) -> Result<Value, Unresolved> {
+    let Value::Object(object) = value else {
+        return Ok(value.clone());
+    };
+    object
+        .iter()
+        .map(|(key, item)| {
+            let expanded = match (key.as_str(), item) {
+                ("command", Value::Array(words)) => Value::Array(
+                    words
+                        .iter()
+                        .enumerate()
+                        .map(|(index, word)| {
+                            let field = if index == 0 { "command" } else { "argument" };
+                            expand(word, field, environment)
+                        })
+                        .collect::<Result<_, _>>()?,
+                ),
+                _ => expand(item, expansion_field(key), environment)?,
+            };
+            Ok((key.clone(), expanded))
+        })
+        .collect::<Result<Map<_, _>, _>>()
+        .map(Value::Object)
+}
+
+/// `${VAR}` and `${VAR:-default}` in every string of `value`, all of it in
+/// `field`.
+fn expand(
+    value: &Value,
+    field: &'static str,
+    environment: &dyn Fn(&str) -> Option<String>,
+) -> Result<Value, Unresolved> {
+    Ok(match value {
+        Value::String(text) => Value::String(expand_text(text, field, environment)?),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| expand(item, field, environment))
+                .collect::<Result<_, _>>()?,
+        ),
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), expand(value, field, environment)?)))
+                .collect::<Result<_, _>>()?,
+        ),
+        other => other.clone(),
+    })
+}
+
+fn expand_text(
+    text: &str,
+    field: &'static str,
+    environment: &dyn Fn(&str) -> Option<String>,
+) -> Result<String, Unresolved> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("${") {
@@ -973,21 +1119,30 @@ fn expand_text(text: &str, environment: &dyn Fn(&str) -> Option<String>) -> Stri
         let after = &rest[start + 2..];
         let Some(end) = after.find('}') else {
             out.push_str(&rest[start..]);
-            return out;
+            return Ok(out);
         };
         let inner = &after[..end];
         let (name, default) = match inner.split_once(":-") {
             Some((name, default)) => (name, Some(default)),
             None => (inner, None),
         };
-        match environment(name).filter(|value| !value.is_empty() || default.is_none()) {
-            Some(value) => out.push_str(&value),
-            None => out.push_str(default.unwrap_or_default()),
+        match (
+            environment(name).filter(|value| !value.is_empty() || default.is_none()),
+            default,
+        ) {
+            (Some(value), _) => out.push_str(&value),
+            (None, Some(default)) => out.push_str(default),
+            (None, None) => {
+                return Err(Unresolved {
+                    field,
+                    variable: name.to_string(),
+                })
+            }
         }
         rest = &after[end + 1..];
     }
     out.push_str(rest);
-    out
+    Ok(out)
 }
 
 /// The person's choices for `root` in a settings document

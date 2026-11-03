@@ -5,7 +5,7 @@
 //! a second entry point, so there is exactly one path from argument to effect.
 
 use std::fmt::{self, Write as _};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -20,6 +20,7 @@ use crate::output::{
 };
 use crate::permission::{Grant, LiveRules, PermissionSession, TtyPrompter, YOLO_WARNING};
 use crate::provider::{Bundle, ProviderId};
+use crate::session::store::DurableState;
 use crate::session::{
     ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
     SessionRecorder, SessionStore,
@@ -137,7 +138,8 @@ impl From<io::Error> for AppError {
 /// do nothing, and the second one does nothing either". Each write takes the
 /// lock for itself instead.
 pub async fn run(cli: Cli) -> Result<ExitCode, AppError> {
-    run_with(cli, &mut io::stdout(), &mut io::stderr()).await
+    let terminal = io::stdout().is_terminal();
+    run_streams(cli, &mut io::stdout(), terminal, &mut io::stderr()).await
 }
 
 /// Runs one invocation against explicit streams.
@@ -147,6 +149,20 @@ pub async fn run(cli: Cli) -> Result<ExitCode, AppError> {
 pub async fn run_with(
     cli: Cli,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExitCode, AppError> {
+    run_streams(cli, stdout, false, stderr).await
+}
+
+/// [`run_with`], told whether `stdout` is a terminal.
+///
+/// Only the process's own stdout can be one, so only [`run`] says so: a
+/// caller's buffer is bytes, and an answer written to it arrives as the model
+/// wrote it ([`crate::output::TextSink::on_terminal`]).
+async fn run_streams(
+    cli: Cli,
+    stdout: &mut dyn Write,
+    stdout_is_terminal: bool,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
     match cli.command {
@@ -193,7 +209,7 @@ pub async fn run_with(
                 mode,
                 resume,
             };
-            ask(&config, request, stdout, stderr).await
+            ask(&config, request, stdout, stdout_is_terminal, stderr).await
         }
         Command::Setup {
             provider,
@@ -307,6 +323,7 @@ async fn ask(
     config: &RuntimeConfig,
     request: AskRequest,
     stdout: &mut dyn Write,
+    stdout_is_terminal: bool,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
     // The permission mode is deliberately *not* restored from a session. It is
@@ -319,10 +336,22 @@ async fn ask(
     if mode == PermissionMode::Yolo {
         writeln!(stderr, "{YOLO_WARNING}")?;
     }
+    // Then what the configuration could not use, one line each, as upstream's
+    // headless run says it (`vercel-labs/fx@c1db9191
+    // src/core/cli/cli_ask.zig:1716-1727`) -- and, when a permission table was
+    // among it, that every tool is refused
+    // ([`crate::config::PermissionTables::unreadable`]).
+    for diagnostic in &config.diagnostics {
+        writeln!(stderr, "xfx ask: config {}", diagnostic.startup_line())?;
+    }
+    if let Some(refusal) = config.permission.refusal() {
+        writeln!(stderr, "xfx ask: permissions: {refusal}")?;
+    }
 
     // The sink borrows both streams in text mode, so the whole turn happens in
     // here and anything that still has to be said afterwards comes back out.
-    let (code, warning) = run_ask(config, request, mode, stdout, stderr).await?;
+    let (code, warning) =
+        run_ask(config, request, mode, stdout, stdout_is_terminal, stderr).await?;
     if let Some(warning) = warning {
         writeln!(stderr, "{warning}")?;
     }
@@ -335,6 +364,7 @@ async fn run_ask(
     request: AskRequest,
     mode: PermissionMode,
     stdout: &mut dyn Write,
+    stdout_is_terminal: bool,
     stderr: &mut dyn Write,
 ) -> Result<(ExitCode, Option<String>), AppError> {
     let quiet = |code: Result<ExitCode, AppError>| code.map(|code| (code, None));
@@ -407,19 +437,21 @@ async fn run_ask(
         writeln!(stderr, "{notice}")?;
     }
 
-    // Now create the sink after notices are printed.
+    // Now create the sink after notices are printed. On a terminal the
+    // answer arrives inert: the approval question is asked on the same one,
+    // after it, and must not find a state the model left there.
     let mut sink: Box<dyn EventSink + '_> = if request.json {
         Box::new(JsonlSink::new(stdout))
     } else {
-        Box::new(TextSink::new(stdout, stderr))
+        Box::new(TextSink::new(stdout, stderr).on_terminal(stdout_is_terminal))
     };
 
-    // A restored model preference applies only when nothing this run chose one:
-    // an explicit setting or override outranks what a past turn happened to use.
-    let model = match &opened.restored_model {
-        Some(model) if config.sources.model == SettingSource::CompiledDefault => model.clone(),
-        _ => config.model.clone(),
-    };
+    // A resumed session's model, by [`resumed_model`]'s rule; a fresh one's is
+    // the configuration's.
+    let model = opened
+        .restored_model
+        .clone()
+        .unwrap_or_else(|| config.model.clone());
     if let Some(recorder) = opened.recorder.as_mut() {
         let model_changed = recorder.state().model != model;
         let mode_changed = recorder.state().permission_mode != mode;
@@ -569,6 +601,35 @@ async fn run_ask(
     ))
 }
 
+/// The model a resumed `ask` is sent in.
+///
+/// **The session's**, as upstream's `ask --resume` goes on in the model the
+/// session recorded (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1035-1042`),
+/// which only a process override outranks (`XFX_MODEL`, upstream's
+/// `model_source == .process_override`, `:1810-1811`) -- never the profile's,
+/// which is the model a fresh session starts in. The TUI's resume has the same
+/// rule (`crate::tui::worker::Resumption::selection`).
+///
+/// Only on the provider the session recorded, which is the one this `ask`
+/// goes to: upstream restores the provider with the model (`:1037`), and this
+/// `ask` cannot -- its provider was built before the session was opened -- so
+/// a session recorded on another provider, or on none, keeps the launch's
+/// rule: its model only when no setting chose one.
+fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a str {
+    let recorded = state.provider.as_deref().and_then(ProviderId::parse);
+    if recorded == Some(config.provider) {
+        if config.sources.model == SettingSource::ProcessOverride {
+            &config.model
+        } else {
+            &state.model
+        }
+    } else if config.sources.model == SettingSource::CompiledDefault {
+        &state.model
+    } else {
+        &config.model
+    }
+}
+
 /// What opening a session produced for the turn that follows.
 struct OpenedSession {
     recorder: Option<SessionRecorder>,
@@ -611,15 +672,11 @@ fn open_session(
         Some(selector) => {
             let resumed = store.resume(selector, &config.workspace_root)?;
             let state = resumed.session.state();
-            // The model the turn will be sent to, by `run_ask`'s rule.
-            let model = if config.sources.model == SettingSource::CompiledDefault {
-                state.model.as_str()
-            } else {
-                config.model.as_str()
-            };
+            // The model the turn will be sent to.
+            let model = resumed_model(config, state);
             let replay = state.history_messages(config.provider.wire(), model);
             let restored_grants = state.grants.clone();
-            let restored_model = Some(state.model.clone());
+            let restored_model = Some(model.to_string());
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
                 history: replay.messages,

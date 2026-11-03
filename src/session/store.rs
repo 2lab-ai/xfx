@@ -256,9 +256,14 @@ impl fmt::Display for SessionError {
             }
             Self::AlreadyExists { id } => write!(f, "session `{id}` already exists"),
             Self::NoSession { detail } => write!(f, "{detail}"),
+            // The detail quotes what the session's files say -- a model, a
+            // workspace, a permission mode -- and is printed to a terminal
+            // (`tui::fail`, the binary's `fail`), so it is said on one line
+            // with every control character a space.
             Self::Corrupt { id, detail } => write!(
                 f,
-                "session `{id}` cannot be trusted and was not read: {detail}"
+                "session `{id}` cannot be trusted and was not read: {}",
+                crate::output::safe_one_line(detail, usize::MAX)
             ),
             Self::Busy { id } => write!(
                 f,
@@ -2176,10 +2181,19 @@ impl SessionStore {
         let replay = self.replay(&id, &manifest)?;
 
         // The tail past the boundary is not part of this session and never will
-        // be: the next append has to own the offset it starts at.
-        file.set_len(manifest.event_log_bytes)
-            .map_err(|err| io_error(&log_path, err))?;
-        file.sync_data().map_err(|err| io_error(&log_path, err))?;
+        // be: the next append has to own the offset it starts at. Only when
+        // there is one: a same-length truncate still moves the log's
+        // modification time on some filesystems (APFS does), and a session
+        // opened and left is one nobody changed.
+        let length = file
+            .metadata()
+            .map_err(|err| io_error(&log_path, err))?
+            .len();
+        if length != manifest.event_log_bytes {
+            file.set_len(manifest.event_log_bytes)
+                .map_err(|err| io_error(&log_path, err))?;
+            file.sync_data().map_err(|err| io_error(&log_path, err))?;
+        }
 
         let mut hasher = Sha256::new();
         hasher.update(&replay.bytes);
@@ -4924,6 +4938,35 @@ mod tests {
             Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
             other => panic!("a held session was not refused as busy: {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_refusal_that_quotes_a_session_file_says_it_without_its_control_characters() {
+        // The refusal is written to a terminal -- the TUI's `fail` and the
+        // binary's both print it as it displays -- and what it quotes is read
+        // from the session's files: here a manifest whose model disagrees with
+        // the log's. Red before: the escapes reached the message as written.
+        let root = tempfile::TempDir::new().expect("a profile root");
+        let (store, recorder, id, workspace) = recorder_in(root.path());
+        drop(recorder);
+        let path = store.session_dir(&id).join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("a manifest"))
+                .expect("JSON");
+        manifest["model"] =
+            serde_json::Value::String("x\u{1b}]0;pwned\u{7}\u{1b}[2J\u{9b}31m\ny".to_string());
+        std::fs::write(&path, format!("{manifest}\n")).expect("rewritten");
+
+        let refusal = match store.resume_without_waiting(&Selector::Id(id), &workspace) {
+            Err(err @ SessionError::Corrupt { .. }) => err.to_string(),
+            other => panic!("a manifest that disagrees was not refused: {other:?}"),
+        };
+        assert!(refusal.contains("model="), "{refusal:?}");
+        assert!(
+            refusal.contains("]0;pwned"),
+            "still says what it read: {refusal:?}"
+        );
+        assert!(!refusal.chars().any(char::is_control), "{refusal:?}");
     }
 
     /// A recorder on a fresh session in a private profile under `root`, and

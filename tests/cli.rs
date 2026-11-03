@@ -1840,6 +1840,35 @@ fn a_rejected_provider_from_newer_layer_poisons_at_binary_level() {
 }
 
 #[test]
+fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused() {
+    // Upstream's headless run says each diagnostic first (`cli_ask.zig:1716-1727`,
+    // `fx ask: config user: malformed_settings`); a table that did not read
+    // refuses every tool here, and the run says so.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(r#"{"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#);
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert!(
+        run.stderr.starts_with(
+            "xfx ask: config user: invalid_value; key=permission; `perhaps` is not a permission action; use allow, ask or deny\n\
+             xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny)\n"
+        ),
+        "{}",
+        run.stderr
+    );
+    // A file that does not read at all: its cause, and the same refusal.
+    sandbox.write_user_settings("{ this is not json");
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert!(
+        run.stderr.starts_with(
+            "xfx ask: config user: malformed_settings\n\
+             xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)\n"
+        ),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
 fn a_rejected_backend_from_newer_layer_poisons_at_binary_level() {
     // Test: newer workspace backend rejection refuses the turn, mirroring Task-1 poison pattern
     let sandbox = Sandbox::new();

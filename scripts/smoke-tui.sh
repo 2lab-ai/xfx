@@ -9,7 +9,8 @@
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
 # one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
 # Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 3d, 3e,
-# 10b and 23b -- against a
+# 10b and 23b, and the QA-only rows the parity program's behaviour list adds
+# (3f, 3g, 17b; `.prd/07-fx-parity-program.md` § Phase 4 close-out) -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
 # the check total is summed from what the scenarios wrote down, so neither
@@ -2209,6 +2210,20 @@ of its own instead -- inside this process's session, because POSIX discards a
 `SIGTSTP` sent to an *orphaned* group and both "inherit the runner's group" and
 "call `setsid`" produce one.
 
+**Except under job control, where the terminal is the point.** A shell runs a
+foreground job in a process group of its own that *owns* the terminal, in the
+shell's session, with the shell -- the session leader -- as its parent and
+alive. `job_control=True` builds exactly that: a leader process takes a session
+and the terminal (`setsid`, `TIOCSCTTY`), starts the binary in a group of its
+own made the terminal's foreground (`tcsetpgrp`), and relays every stop,
+continue and exit it waits for. The revocation above is the one constraint it is
+shaped by: **the leader outlives the binary** and holds the terminal until the
+harness has read `termios` off it, and only then is let go -- so the row's
+"byte-identical afterwards" is a reading of the terminal the job had, not of a
+revoked one. Like `scripts/fxcap/jobctl.pl` (H1), the leader never takes the
+terminal back while the job is stopped: a `SIGCONT` finds the job still the
+foreground, as `fg` would have made it.
+
 **The child's environment is built from nothing.** A developer with
 `XFX_PERMISSION_MODE=yolo` or a live `VERCEL_OIDC_TOKEN` exported would
 otherwise be smoke-testing their shell instead of the binary -- and on the
@@ -2221,6 +2236,7 @@ import fcntl
 import os
 import pty
 import select
+import signal
 import struct
 import termios
 import time
@@ -2276,11 +2292,19 @@ FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 # that started at the pop would count the clear as the last bytes of whatever
 # came before it -- which is how scenario 3c once measured a torn frame five
 # bytes longer than the terminal had taken.
+#
+# **And every restore opens with `?2026l`**, synchronized output off, ahead of
+# all of that (T8 round 2, `40e5ffcd`; `src/tui/term.rs:74-98`; fx's both
+# restores, `app_lifecycle.zig:41,44`): a session can end with an update open
+# -- a torn frame, a signal between a frame's two ends -- and a terminal handed
+# back holding one would keep every later byte, the user's shell included,
+# unpresented. So a restore is searched for from that byte, and what a torn
+# frame put on the wire ends where it starts.
 MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t"
 CLEAR_TITLE = "\x1b]2;\x07"
 RESTORE_MODES = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h"
-RESTORE = CLEAR_TITLE + RESTORE_MODES
-ABNORMAL_RESTORE = "\x1b[?1049l" + RESTORE_MODES
+RESTORE = FRAME_CLOSE + CLEAR_TITLE + RESTORE_MODES
+ABNORMAL_RESTORE = FRAME_CLOSE + "\x1b[?1049l" + RESTORE_MODES
 
 # The local and input modes raw mode clears (`shell_runtime.zig:108-138`).
 RAW_LOCAL_OFF = ("ECHO", "ICANON", "IEXTEN", "ISIG")
@@ -2408,11 +2432,22 @@ class Session:
         cwd,
         own_process_group=False,
         nonblocking_output=False,
+        ignored=(),
+        job_control=False,
     ):
+        """`ignored` are signals the binary is started ignoring, the way a
+        launcher hands them on: `nohup` ignores `SIGHUP`, a non-interactive
+        shell's `&` ignores `SIGINT` and `SIGQUIT`, and `exec` keeps an ignore.
+        Set in the child itself, right before the `exec`, so nothing between
+        the two can change them back."""
         self.terminal = terminal
         self.captured = bytearray()
         self.status = None  # (kind, value) once reaped
         self.reaped = False
+        self.leader = None
+        if job_control:
+            self._start_as_a_job(argv, env, cwd, ignored)
+            return
         self.pid = os.fork()
         if self.pid == 0:  # pragma: no cover - the child execs immediately
             try:
@@ -2436,6 +2471,8 @@ class Session:
                         except OSError:
                             pass
                 os.chdir(cwd)
+                for number in ignored:
+                    signal.signal(number, signal.SIG_IGN)
                 os.execve(argv[0], argv, env)
             except BaseException:  # pragma: no cover
                 os._exit(127)
@@ -2452,6 +2489,191 @@ class Session:
                 if time.time() > deadline:
                     raise AssertionError("the child never took a process group of its own")
                 time.sleep(IDLE_POLL)
+
+    # -- under job control ------------------------------------------------
+
+    def _start_as_a_job(self, argv, env, cwd, ignored):
+        """The binary as a job-control shell's foreground job (see the module).
+
+        Three processes: this one, the **leader** (a session of its own, the
+        terminal as its controlling one), and the binary, which the leader
+        starts in a process group of its own and makes the terminal's
+        foreground. The binary is not this process's child, so what it does is
+        read off the leader, one line per event over a pipe: its pid, the group
+        the terminal's foreground is once it is up -- read by the leader, the
+        one process in the job's session that can ask -- and every stop,
+        continue and end `waitpid` reports.
+
+        **The leader sends the job its signals**, as a shell's `fg` and `kill %1`
+        do, told to over a second pipe (`signal`). Not ceremony: measured on
+        macOS 26, a continue is reported to a parent waiting with `WCONTINUED`
+        when the parent sent the `SIGCONT` and not when the job's grandparent
+        did -- the job continues and the leader's `waitpid` never says so. The
+        same pipe's `release` is what the leader waits for once the job has
+        ended (`release`).
+
+        Both sides set the binary's group, so neither the `exec` nor a signal
+        can come first, as `jobctl.pl` does; `SIGTTOU` is ignored for the one
+        `tcsetpgrp` a process outside the foreground makes, and put back.
+        """
+        if not hasattr(termios, "TIOCSCTTY"):
+            raise AssertionError(
+                "this platform's termios has no TIOCSCTTY; job control cannot be built"
+            )
+        relay_read, relay_write = os.pipe()
+        orders_read, orders_write = os.pipe()
+        leader = os.fork()
+        if leader == 0:  # pragma: no cover - the leader only waits, signals and relays
+            code = 0
+            try:
+                os.close(relay_read)
+                os.close(orders_write)
+                for descriptor in (self.terminal.master, self.terminal.slave):
+                    os.close(descriptor)
+                os.setsid()
+                tty = os.open(self.terminal.path, os.O_RDWR)
+                fcntl.ioctl(tty, termios.TIOCSCTTY, 0)
+                job = os.fork()
+                if job == 0:
+                    try:
+                        os.close(relay_write)
+                        os.close(orders_read)
+                        os.setpgid(0, 0)
+                        signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+                        os.tcsetpgrp(tty, os.getpid())
+                        signal.signal(signal.SIGTTOU, signal.SIG_DFL)
+                        for descriptor in (0, 1, 2):
+                            os.dup2(tty, descriptor)
+                        if tty > 2:
+                            os.close(tty)
+                        os.chdir(cwd)
+                        for number in ignored:
+                            signal.signal(number, signal.SIG_IGN)
+                        os.execve(argv[0], argv, env)
+                    except BaseException:
+                        os._exit(127)
+                try:
+                    os.setpgid(job, job)
+                except OSError:
+                    pass  # it set its own first, or has already exec'd
+
+                def say(line):
+                    os.write(relay_write, (line + "\n").encode())
+
+                say("pid %d" % job)
+                deadline = time.time() + WAIT
+                while True:
+                    try:
+                        front = os.tcgetpgrp(tty)
+                    except OSError:
+                        front = -1
+                    if front == job or time.time() > deadline:
+                        break
+                    time.sleep(IDLE_POLL)
+                say("foreground %d" % front)
+                ended = False
+                orders = b""
+                while True:
+                    ready, _, _ = select.select([orders_read], [], [], 0.005)
+                    if ready:
+                        chunk = os.read(orders_read, 4096)
+                        if not chunk:
+                            break  # the harness is gone: nothing left to hold for
+                        orders += chunk
+                    released = False
+                    while b"\n" in orders:
+                        order, orders = orders.split(b"\n", 1)
+                        word, _, value = order.decode("ascii").partition(" ")
+                        if word == "kill" and not ended:
+                            os.kill(job, int(value))
+                        elif word == "release":
+                            released = True
+                    if released and ended:
+                        break
+                    if ended:
+                        continue
+                    got, raw = os.waitpid(job, os.WNOHANG | os.WUNTRACED | os.WCONTINUED)
+                    if got == 0:
+                        continue
+                    if os.WIFSTOPPED(raw):
+                        say("stopped %d" % os.WSTOPSIG(raw))
+                    elif os.WIFCONTINUED(raw):
+                        say("continued 0")
+                    elif os.WIFSIGNALED(raw):
+                        say("signalled %d" % os.WTERMSIG(raw))
+                        ended = True
+                    elif os.WIFEXITED(raw):
+                        say("exited %d" % os.WEXITSTATUS(raw))
+                        ended = True
+                # Held, terminal and all, until the harness had read it: this
+                # exit is what revokes it.
+            except BaseException:
+                code = 1
+            os._exit(code)
+        os.close(relay_write)
+        os.close(orders_read)
+        self.leader = leader
+        self._relay = relay_read
+        self._orders = orders_write
+        self._relayed = b""
+        self.job = ("running", None)
+        self.pid = None
+        self.foreground = None
+        deadline = time.time() + WAIT
+        while self.pid is None or self.foreground is None:
+            if time.time() > deadline:
+                raise AssertionError("the job never started under its leader (%r)" % self._relayed)
+            self._read_relay(0.05)
+
+    def _order(self, line):
+        os.write(self._orders, (line + "\n").encode("ascii"))
+
+    def _read_relay(self, timeout):
+        """Takes whatever the leader has said, and keeps the last state."""
+        ready, _, _ = select.select([self._relay], [], [], timeout)
+        if ready:
+            chunk = os.read(self._relay, 4096)
+            if not chunk and self.job[0] not in ("exited", "signalled"):
+                self.job = ("leader-gone", None)
+            self._relayed += chunk
+        while b"\n" in self._relayed:
+            line, self._relayed = self._relayed.split(b"\n", 1)
+            word, value = line.decode("ascii").split()
+            if word == "pid":
+                self.pid = int(value)
+            elif word == "foreground":
+                self.foreground = int(value)
+            elif word == "continued":
+                self.job = ("continued", None)
+            else:
+                self.job = (word, int(value))
+
+    def release(self):
+        """Lets a job's leader go, once the terminal has been read for the last time.
+
+        On BSD-derived kernels this revokes the terminal: nothing reads its
+        `termios` after this, which is why it is a step of its own rather than
+        part of the binary's exit.
+        """
+        if self.leader is None or self._orders is None:
+            return
+        try:
+            self._order("release")
+        except OSError:
+            pass
+        os.close(self._orders)
+        self._orders = None
+        deadline = time.time() + WAIT
+        while True:
+            pid, _ = os.waitpid(self.leader, os.WNOHANG)
+            if pid:
+                break
+            if time.time() > deadline:
+                os.kill(self.leader, 9)
+                os.waitpid(self.leader, 0)
+                break
+            time.sleep(IDLE_POLL)
+        os.close(self._relay)
 
     # -- reading and writing ----------------------------------------------
 
@@ -2541,6 +2763,11 @@ class Session:
         """
         if self.status is not None:
             return self.status
+        if self.leader is not None:
+            # The leader's last word, which a second reading does not consume
+            # either: it is kept until the leader says something new.
+            self._read_relay(0)
+            return self.job
         info = os.waitid(
             os.P_PID,
             self.pid,
@@ -2571,6 +2798,15 @@ class Session:
         if self.status is not None:
             return self.status
         deadline = time.time() + timeout
+        if self.leader is not None:
+            # The leader reaped it; the terminal stays held until `release`.
+            while self.state()[0] not in ("exited", "signalled", "leader-gone"):
+                if time.time() > deadline:
+                    raise Timeout("xfx to exit (job is %r)" % (self.job,), self.text())
+                self.pump(0.01)
+            self.status = self.job
+            self.reaped = True
+            return self.status
         while True:
             pid, raw = os.waitpid(self.pid, os.WNOHANG)
             if pid:
@@ -2607,9 +2843,28 @@ class Session:
         return self.text()
 
     def signal(self, number):
+        if self.leader is not None:
+            # Sent by the job's parent, as a shell sends it (`_start_as_a_job`).
+            self._order("kill %d" % number)
+            return
         os.kill(self.pid, number)
 
     def close(self):
+        if self.leader is not None:
+            if self.status is None and self.pid is not None:
+                # By pid, as everything here is killed; the leader relays the
+                # end and is then let go.
+                try:
+                    os.kill(self.pid, 9)
+                except OSError:
+                    pass
+                try:
+                    self.wait_exit()
+                except Timeout:
+                    pass
+                self.status = ("killed", 9)
+            self.release()
+            return
         if self.status is None:
             try:
                 os.kill(self.pid, 9)
@@ -2855,13 +3110,19 @@ class Trial:
         notes_text="alpha\n",
         home=None,
         tmux=False,
+        args=None,
+        workspace=None,
+        ignored=(),
+        job_control=False,
     ):
         self.run = run
         self.label = label
         self.dir = os.path.join(run.dir, label)
         os.makedirs(self.dir, exist_ok=True)
+        # A relaunch is the same profile and the same workspace as the session
+        # it continues, so both can be handed in.
         self.home = home or os.path.join(self.dir, "home")
-        self.workspace = os.path.join(self.dir, "workspace")
+        self.workspace = workspace or os.path.join(self.dir, "workspace")
         for directory in (self.home, self.workspace):
             os.makedirs(directory, exist_ok=True)
         self.notes = os.path.join(self.workspace, "notes.txt")
@@ -2897,7 +3158,7 @@ class Trial:
         self.before = self.terminal.modes()
         self._write_modes("before", self.before)
         if prior is None:
-            argv = [binary]
+            argv = [binary] + list(args or [])
         else:
             # A real shell writing real output before the launch, so "prior
             # output survived" is about a terminal's own document rather than
@@ -2910,6 +3171,8 @@ class Trial:
             self.workspace,
             own_process_group=own_process_group,
             nonblocking_output=nonblocking_output,
+            ignored=ignored,
+            job_control=job_control,
         )
         self.rows, self.cols = rows, cols
         self.snapshots = 0
@@ -3011,11 +3274,18 @@ class Trial:
             h.write(state.describe())
 
     def close(self):
-        self.session.close()
+        # A reaped child's terminal is read **before** the session is closed:
+        # under job control, closing lets the leader go and that revokes the
+        # terminal. For every other session the order changes nothing.
+        reaped = self.session.status is not None
+        if not reaped:
+            self.session.close()
         try:
             self._write_modes("after", self.terminal.modes())
         except OSError:
             pass
+        if reaped:
+            self.session.close()
         with open(os.path.join(self.dir, "raw.log"), "wb") as handle:
             handle.write(bytes(self.session.captured))
         self.terminal.close()
@@ -4072,6 +4342,81 @@ def first_frame(captured):
     return captured[begins : ends + len(FRAME_END_BYTES)]
 
 
+# The window title a write leads with: `OSC 2`, its text, `BEL`.
+TITLE_LEAD = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07\Z")
+
+
+def write_start(captured, begins):
+    """Where the write that opened the frame at `begins` started, or `None`.
+
+    **The first update carries the title ahead of it, in the same write** (T8
+    round 2, `40e5ffcd`: "the title ahead of it", as fx's; the composer's own
+    test, `event_loop.rs`'s `…torn_inside_its_band`: "the first frame owes the
+    title"). So what a terminal that tore that write had taken -- the count the
+    session reports -- starts at the title, not at the frame. Read off the wire
+    rather than assumed: the bytes right before the frame are exactly one title
+    and nothing else, or there is no lead to count.
+    """
+    lead = TITLE_LEAD.search(captured[:begins])
+    return None if lead is None else lead.start()
+
+
+def band_part_start(control, launch_frame):
+    """Where the band's part of the control's launch frame begins, or `None`.
+
+    A launch frame is the document's rows and then the band, in one update (T8;
+    `event_loop.rs`'s
+    `a_streamed_answers_rows_land_in_the_update_that_paints_the_band_under_them`).
+    Found from the screen, not from the composer's bookkeeping: the band's top
+    row as `find_band` reads it on the grid that frame painted, and the first
+    byte that addresses that row -- the rows part writes only rows above the
+    band, so nothing before the band's part can.
+    """
+    captured = bytes(control.session.captured)
+    begins = captured.find(launch_frame)
+    if begins < 0:
+        return None
+    grid = Grid(control.rows, control.cols).feed(received(captured[: begins + len(launch_frame)]))
+    band = find_band(grid)
+    if band is None:
+        return None
+    at = launch_frame.find(b"\x1b[%d;1H" % (band.top + 1))
+    return at if at > 0 else None
+
+
+def require_a_band_tear(run, what, control, launch_frame, prefix):
+    """The torn write is cut inside the band's part, at the fault's own point.
+
+    `partial-frame` and `partial-frame-once` mean a tear in the first update's
+    **band**, and that update carries the document's rows ahead of it -- so half
+    of the write, where they used to cut, is inside the rows whenever the rows
+    outweigh the band, which is a different fault. T8 round 2 (`21f194c9`) cuts
+    halfway into the band's part instead (`fault::band_tear`: the rows' end plus
+    half of what follows, rounded up). Measured from the frame's opener the
+    title lead cancels out of that arithmetic, so the point is read off the
+    control's own launch frame: past every row, short of the close, and exactly
+    there.
+    """
+    band = band_part_start(control, launch_frame) if launch_frame else None
+    run.require(
+        band is not None,
+        "%s: the control's launch frame has a band's part to tear inside" % what,
+    )
+    if band is None:
+        return
+    closes = len(launch_frame) - len(FRAME_END_BYTES)
+    run.require(
+        band < len(prefix) < closes,
+        "%s: the tear is inside the band's part, past every document row (%d, band %d..%d)"
+        % (what, len(prefix), band, closes),
+    )
+    run.require(
+        len(prefix) == band + (len(launch_frame) - band + 1) // 2,
+        "%s: the tear is halfway into the band's part, the fault's own point (%d, expected %d)"
+        % (what, len(prefix), band + (len(launch_frame) - band + 1) // 2),
+    )
+
+
 def scenario_3c(run):
     """A prefix on a real terminal: written once, never re-offered, terminal back.
 
@@ -4162,19 +4507,29 @@ def scenario_3c(run):
         bool(launch_frame) and launch_frame.startswith(prefix),
         "partial frame: those bytes are a prefix of the frame this launch paints",
     )
+    require_a_band_tear(run, "partial frame", control, launch_frame, prefix)
 
     # The count the session reports is the count on the wire. Two independent
     # measurements of one number: the product's own accounting, and the harness
-    # counting what its terminal was handed.
+    # counting what its terminal was handed -- **from the start of the write**,
+    # which is the title the first update leads with (`write_start`), not the
+    # frame's opener.
+    lead = write_start(captured, begins) if begins >= 0 else None
+    run.require(
+        lead is not None,
+        "partial frame: the torn write led with the title the first update owes: %r"
+        % captured[max(0, begins - 40) : max(0, begins)],
+    )
+    taken = restore_at - lead if lead is not None and restore_at > begins >= 0 else -1
     reported = re.search(r"accepted (\d+) bytes", text)
     run.require(
         reported is not None,
         "partial frame: the session says how much the terminal accepted: %r" % text[-200:],
     )
     run.require(
-        reported is not None and int(reported.group(1)) == len(prefix),
+        reported is not None and int(reported.group(1)) == taken,
         "partial frame: the reported count is the number of bytes on the wire (%s vs %d)"
-        % (reported.group(1) if reported else "none", len(prefix)),
+        % (reported.group(1) if reported else "none", taken),
     )
 
     # The exit's own segments. The restore went out whole -- the terminal was
@@ -4324,6 +4679,11 @@ def scenario_3d(run):
     run.require(
         FRAME_END_BYTES not in prefix, "recovery: the torn write never completed its own frame"
     )
+    # **And the tear is a band tear.** `Band::recover_primary` rebuilds the
+    # band; a tear inside the document's rows ahead of it is `partial-rows`,
+    # whose recovery is a different claim. So the premise this row's recovery
+    # rests on is asserted, with the fault's own point (T8 round 2).
+    require_a_band_tear(run, "recovery", control, launch_frame, prefix)
 
     # Two `FRAME_BEGIN`s (the tear, then the rebuild) and one `FRAME_END`
     # (only the rebuild reaches it) -- pairing the *first* begin with the
@@ -4774,6 +5134,285 @@ def scenario_3e(run):
 
 
 # ---------------------------------------------------------------------------
+# 3f. under job control
+# ---------------------------------------------------------------------------
+
+
+def scenario_3f(run):
+    """The stop, the continue and the two deaths, with xfx a shell's foreground job.
+
+    Scenario 3's signal rows give the child a process group of its own inside
+    the harness's session and no terminal of its own: enough for a stop to be
+    a stop, and not what a user's shell does. Here the session is the one a
+    job-control shell makes (`pty.Session`'s `job_control`): a leader that owns
+    the terminal, and xfx in its own group as the terminal's **foreground**, so
+    the `tcsetattr`s a stop and a resume make are a foreground job's, and a
+    resume is answered on the terminal the job really holds. The same rows as
+    3's -- the stop gives the terminal back, the continue re-takes it and
+    paints, a second stop is a stop, `SIGTERM` and `SIGHUP` restore and end the
+    process by the signal -- read off that terminal while its leader still holds
+    it, then a turn after two stops so the resumed session is shown to work.
+
+    What fx does differently here is not asserted (the K-jobctl gap in
+    `.prd/tui-phase4/loop.md`: fx writes nothing on an external `SIGTSTP`, and
+    suspends on a typed Ctrl-Z, which xfx reads as a byte); this row holds the
+    terminal-safety contract `03-tui-port.md` §"Signals" gives xfx's own stop.
+    """
+    marker = run.marker("job")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+
+    job = run.trial("foreground-job", gateway=fixture, job_control=True).settled()
+    pid = job.session.pid
+    run.require(
+        job.session.foreground == pid,
+        "the job owns the terminal: its foreground group is xfx's (%r, xfx %r)"
+        % (job.session.foreground, pid),
+    )
+    run.require(
+        os.getpgid(pid) == pid and os.getsid(pid) == job.session.leader != os.getsid(0),
+        "xfx leads a group of its own in its leader's session, not the harness's",
+    )
+    run.require(job.modes().is_raw(), "the foreground job took its terminal into raw mode")
+
+    for round_ in ("first", "second"):
+        stopped_at = len(job.session.captured)
+        job.session.signal(signal.SIGTSTP)
+        state = job.session.wait_state(
+            "the job to stop (%s)" % round_, lambda seen: seen[0] == "stopped"
+        )
+        run.require(
+            state[0] == "stopped", "%s SIGTSTP: the job is really stopped (%r)" % (round_, state)
+        )
+        run.require(
+            job.modes() == job.before,
+            "%s SIGTSTP: the terminal was given back before the stop, byte for byte" % round_,
+        )
+        job.wait_until(
+            "the stop's restore on the wire (%s)" % round_,
+            lambda text: pty.ABNORMAL_RESTORE.encode() in bytes(job.session.captured)[stopped_at:],
+        )
+        resumed_at = len(job.session.captured)
+        job.session.signal(signal.SIGCONT)
+        state = job.session.wait_state(
+            "the job to continue (%s)" % round_, lambda seen: seen[0] != "stopped"
+        )
+        run.require(
+            state[0] == "continued",
+            "%s SIGCONT: the leader saw the job continue (%r)" % (round_, state),
+        )
+        run.require(
+            job.wait_until_raw().is_raw(),
+            "%s SIGCONT: raw mode was positively re-entered on the job's terminal" % round_,
+        )
+        job.wait_until(
+            "the resumed job's mode set and repaint (%s)" % round_,
+            lambda text: pty.MODE_SET.encode() in bytes(job.session.captured)[resumed_at:]
+            and FRAME_END_BYTES in bytes(job.session.captured)[resumed_at:],
+        )
+    discriminate(run, job, fixture, marker, label="after-two-stops")
+    job.send(b"\x04")
+    run.require(job.session.wait_exit() == ("exited", 0), "after two stops the job leaves at 0")
+    job.session.settled_text()
+    run.require(job.modes() == job.before, "after two stops: termios byte-identical")
+
+    for name, number in (
+        ("foreground-sigterm", signal.SIGTERM),
+        ("foreground-sighup", signal.SIGHUP),
+    ):
+        trial = run.trial(name, gateway=fixture, job_control=True).settled()
+        run.require(
+            trial.session.foreground == trial.session.pid,
+            "%s: the job owns the terminal it is signalled on" % name,
+        )
+        trial.session.signal(number)
+        state = trial.session.wait_exit()
+        run.require(
+            state == ("signalled", int(number)),
+            "%s: the job died *by* the signal (%r)" % (name, state),
+        )
+        run.require(
+            pty.ABNORMAL_RESTORE in trial.session.settled_text(),
+            "%s: the handler wrote the abnormal restore before re-raising" % name,
+        )
+        run.require(trial.modes() == trial.before, "%s: termios byte-identical" % name)
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 3g. started ignoring SIGINT and SIGHUP
+# ---------------------------------------------------------------------------
+
+# The command the inherited-ignores row has the model run, on one line as the
+# `terminal` tool takes one. It asks each signal of its own shell whether it is
+# still ignored -- a shell that kills itself with a signal it ignores lives on to
+# say `kept`; one with the default dies before it can, as `process.rs`'s own
+# cases ask -- then ignores the three a stop could send it and parks a sleeper,
+# so only a `SIGKILL` ends the group. `ulimit -c 0` first: `SIGQUIT`'s default
+# writes a core.
+IGNORES_PROBE = (
+    "ulimit -c 0; "
+    "(sh -c 'kill -INT $$; echo kept') > int.txt 2>&1; "
+    "(sh -c 'kill -HUP $$; echo kept') > hup.txt 2>&1; "
+    "(sh -c 'kill -QUIT $$; echo kept') > quit.txt 2>&1; "
+    "trap '' INT HUP TERM; sleep 30 & echo $! > sleeper.pid; wait"
+)
+
+# How long a command that ignores every catchable stop may outlive two Escapes:
+# fx's grace for a cooperative stop (`src/tools/terminal.rs`'s
+# `TERMINATION_GRACE`, 700 ms, `command_runner.zig:85`) and then the `SIGKILL`,
+# with room for a loaded runner. The sleeper would otherwise live thirty seconds.
+IGNORED_STOP_DEADLINE = 5.0
+
+
+def scenario_3g(run):
+    """xfx started the way `nohup … &` starts it: `SIGHUP`, `SIGINT` and `SIGQUIT` ignored.
+
+    T9's rule (`src/process.rs:24-43`, merged `104ccaa2`; made exact for what
+    the TUI catches in `fix/p2-sigint-inherit`): **a signal xfx was started
+    ignoring and does not catch is left ignored** in what it runs, as a shell
+    leaves it --
+    fx's spawn sets no `POSIX_SPAWN_SETSIGDEF` (`darwin_process_spawn.zig:74-83`)
+    -- and **xfx's own stop of a command is `SIGKILL` to the command's group**,
+    which no ignore holds back. `process.rs`'s cases hold the mask half on a
+    runner started with these ignores; this row holds the rule end to end, on
+    the release build, in the TUI:
+
+    * `SIGQUIT`, which neither xfx nor fx catches, is still ignored in the
+      command.
+    * `SIGINT` is still ignored in the command. fx c1db919 catches no `SIGINT`
+      while it runs (`app_lifecycle.zig:82-84` leaves it out; its only `SIGINT`
+      action is the graceful-exit ignore around its shutdown,
+      `app_entry_runtime.zig:370`), so the launcher's ignore is what fx's
+      command inherits -- and xfx's, since its TUI leaves an inherited
+      `SIGINT` ignore alone (`src/tui/signals.rs`'s `install_handlers`).
+    * `SIGHUP` is **not**: while the TUI owns the terminal a hangup is its to
+      answer -- fx installs its restore over the launcher's ignore
+      (`installAbnormalExitHandlers`, `app_lifecycle.zig:85-104`) and xfx
+      does the same (`src/tui/signals.rs`'s `install_handlers`) -- and `exec`
+      gives a caught signal its default, so the command's `SIGHUP` is the
+      default under both.
+    * Two Escapes stop the command although it ignores `SIGINT`, `SIGHUP` and
+      `SIGTERM`, within fx's grace and the kill after it.
+    * And an external `SIGHUP` still restores the terminal and ends xfx by the
+      signal, the launcher's ignore notwithstanding, as fx's handler does.
+    """
+    marker = run.marker("ignored")
+    script = [
+        {
+            "events": [
+                fixtures.tool_call(
+                    "call-0", "terminal", {"action": "exec", "command": IGNORES_PROBE}
+                ),
+                fixtures.finish("tool-calls"),
+            ]
+        },
+        fixtures.content_only(marker),
+    ]
+    fixture = start_fixture(run, script)
+    trial = run.trial(
+        "started-ignoring",
+        gateway=fixture,
+        mode="yolo",
+        own_process_group=True,
+        ignored=(signal.SIGHUP, signal.SIGINT, signal.SIGQUIT),
+    ).settled()
+    trial.send("probe the signals " + run.nonce + "\r")
+    sleeper_file = os.path.join(trial.workspace, "sleeper.pid")
+    deadline = time.time() + pty.WAIT
+    sleeper = None
+    while sleeper is None:
+        try:
+            with open(sleeper_file, encoding="utf-8") as handle:
+                sleeper = int(handle.read().strip() or "0") or None
+        except (OSError, ValueError):
+            sleeper = None
+        if sleeper is None:
+            if time.time() > deadline:
+                raise Failure(
+                    "the probe command never parked its sleeper: %r" % trial.text()[-400:]
+                )
+            trial.session.pump(0.02)
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request that asked for the command",
+    )
+
+    def said(name):
+        try:
+            with open(os.path.join(trial.workspace, name), encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            return None
+
+    run.require(
+        said("quit.txt") == "kept\n",
+        "SIGQUIT, which xfx does not own, is still ignored in the command it runs: %r"
+        % said("quit.txt"),
+    )
+    run.require(
+        said("int.txt") == "kept\n",
+        "SIGINT, which xfx was started ignoring and fx c1db919 leaves alone while it runs, "
+        "is still ignored in the command it runs (process.rs:24-43; got %r -- the command "
+        "died of it)" % said("int.txt"),
+    )
+    # Died is "never said `kept`": a shell may report its child's signal on
+    # the same stream, in words of its own.
+    run.require(
+        said("hup.txt") is not None and "kept" not in said("hup.txt"),
+        "SIGHUP is the TUI's while it owns the terminal, as fx's, so the command has its "
+        "default and died of it: %r" % said("hup.txt"),
+    )
+
+    trial.send(b"\x1b")
+    trial.wait_until(
+        "the first Escape to arm the interrupt over the command",
+        lambda _t: interrupt_armed(hint_text(trial.peek())),
+    )
+    escaped = time.time()
+    trial.send(b"\x1b")
+    while True:
+        try:
+            os.kill(sleeper, 0)
+        except OSError:
+            break
+        if time.time() - escaped > IGNORED_STOP_DEADLINE:
+            break
+        trial.session.pump(0.01)
+    lived = time.time() - escaped
+    with open(os.path.join(trial.dir, "stop-latency.txt"), "w", encoding="utf-8") as handle:
+        handle.write("sleeper %d gone %.3fs after the second Escape\n" % (sleeper, lived))
+    run.require(
+        lived <= IGNORED_STOP_DEADLINE,
+        "a command ignoring SIGINT, SIGHUP and SIGTERM was stopped by the kill to its group "
+        "(gone %.2fs after the second Escape, deadline %.1fs)" % (lived, IGNORED_STOP_DEADLINE),
+    )
+    trial.send("next " + run.nonce + "\r")
+    grid = on_the_grid(trial, marker, "the answer after the stopped command")
+    grid = trial.grid("after-the-stop")
+    bodies = fixture.bodies()
+    run.require(
+        len(bodies) == 2 and tool_result_text(bodies[1], "call-0") == QUESTION_ABORTED,
+        "the stopped call is told to the model as fx's `aborted by user`: %r"
+        % (tool_result_text(bodies[1], "call-0") if len(bodies) > 1 else None,),
+    )
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+
+    trial.session.signal(signal.SIGHUP)
+    state = trial.session.wait_exit()
+    run.require(
+        state == ("signalled", int(signal.SIGHUP)),
+        "an external SIGHUP still ends xfx by the signal, the launcher's ignore notwithstanding "
+        "(%r)" % (state,),
+    )
+    run.require(
+        pty.ABNORMAL_RESTORE in trial.session.settled_text(),
+        "and its handler wrote the abnormal restore first",
+    )
+    run.require(trial.modes() == trial.before, "started ignoring: termios byte-identical")
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
 # 4. raw mode positively entered
 # ---------------------------------------------------------------------------
 
@@ -5121,10 +5760,15 @@ def scenario_6(run):
 
 
 def scenario_7(run):
-    """One paste is one prompt, whatever is inside it."""
+    """One paste is one prompt, whatever is inside it -- and a paste with input
+    behind its end marker in the same read is no prompt at all."""
     marker = run.marker("paste")
     big = run.marker("bigpaste")
-    fixture = start_fixture(run, [fixtures.content_only(marker), fixtures.content_only(big)])
+    suffix = run.marker("aftersuffix")
+    fixture = start_fixture(
+        run,
+        [fixtures.content_only(marker), fixtures.content_only(big), fixtures.content_only(suffix)],
+    )
     trial = run.trial("paste", gateway=fixture).settled()
 
     run.require("\x1b[?2004h" in trial.text(), "bracketed paste was enabled")
@@ -5192,9 +5836,61 @@ def scenario_7(run):
     run.require(sent == block, "the collapsed block expanded verbatim on submit")
     run.require("Pasted text #1" not in sent, "the summary was not sent instead of the text")
 
+    # -- a paste and an Enter behind its end marker, in one read -----------
+    # X1 (`bcda7a5d`; fx c1db919's paste framing, `paste_framing.zig:93-108,
+    # 160-167`, `input_paste_runtime.zig:179-193`): input that arrives behind
+    # a paste's end marker before the terminal goes quiet is the clipboard's,
+    # not the user's -- clipboard text carrying `ESC [201~` and a newline would
+    # otherwise submit the composer as if typed. The whole paste is refused,
+    # nothing behind it is read as a key, and fx says so once under `input`.
+    # A draft is typed first, so "nothing was sent" is not an empty composer
+    # that had nothing to send, and the draft is what a later Enter of its own
+    # sends: the refusal dropped the paste and kept the user's text.
+    draft = "kept draft " + run.nonce
+    trial.send(draft)
+    trial.wait_until(
+        "the draft the refused paste lands on",
+        lambda _t: composer_text(trial.peek()) == draft,
+    )
+    asked = fixture.request_count()
+    trial.send(b"\x1b[200~clipboard words\x1b[201~\r")
+    on_the_grid(trial, PASTE_REFUSED, "the refused paste's notice")
+    grid = trial.grid("paste-refused")
+    run.require(
+        composer_text(grid) == draft,
+        "a refused paste was not applied, and the draft it fell on is as it was: %r"
+        % composer_text(grid),
+    )
+    run.require(
+        fixture.request_count() == asked,
+        "the Enter behind the end marker sent nothing (%d requests, %d before)"
+        % (fixture.request_count(), asked),
+    )
+    run.require(
+        grid.find("clipboard words") is None,
+        "no part of the refused paste reached the screen",
+    )
+    run.require(
+        grid.text().count(PASTE_REFUSED) == 1, "the refusal is said once, in fx's words"
+    )
+    trial.send(b"\x0d")
+    trial.wait_for(suffix)
+    run.require(
+        fixture.request_count() == asked + 1
+        and user_messages(fixture.requests()[asked])[-1] == draft,
+        "an Enter of its own sent the draft the refusal kept, and only it: %r"
+        % (user_messages(fixture.requests()[-1])[-1:],),
+    )
+
     trial.send(b"\x04")
     run.require(trial.session.wait_exit() == ("exited", 0), "the paste session left cleanly")
     fixture.stop()
+
+
+# What a refused paste leaves in the document (`src/tui/shell.rs`'s
+# `PASTE_SUFFIX` under `input`, as an error notice; `tests/tui.rs`'s X1 case
+# reads the same row), spelled out as every needle here is.
+PASTE_REFUSED = "✗ input: Paste was not applied because extra input followed its end marker."
 
 
 # ---------------------------------------------------------------------------
@@ -5203,7 +5899,8 @@ def scenario_7(run):
 
 
 def scenario_8(run):
-    """A stream is released over frames, arrives whole, and leaks no attribute."""
+    """A stream is released over frames, arrives whole, leaks no attribute, and
+    stops on two Escapes as it does on a Ctrl-C."""
     head, tail = run.marker("head"), run.marker("tail")
     # One delta, held open, with the same three hundred characters between the
     # head and the tail -- **in paragraphs**, each ended by a blank line. The
@@ -5320,6 +6017,84 @@ def scenario_8(run):
         "the session's name: %r" % (remaining,),
     )
     ordinary_fixture.stop()
+
+    # -- Escape, twice, over a stream still arriving ----------------------
+    # fx's own stop key (`app_input_runtime.zig:3139-3143`; `src/tui/gesture.rs`'s
+    # `INTERRUPT_WINDOW`, upstream's one second): the first Escape over running
+    # work stops nothing and says on the hint row that a second would, and the
+    # second inside the window stops the turn -- the cancelled line in the
+    # document, nothing more asked of the model, and the session still there
+    # for the next prompt. The row above stops a stream with Ctrl-C; this is
+    # the key a user reaches for first.
+    escaped_head = run.marker("escapedhead")
+    after_escape = run.marker("afterescape")
+    escape_fixture = start_fixture(
+        run,
+        [
+            fixtures.hang(fixtures.text_delta("e", escaped_head + "\n\n")),
+            fixtures.content_only(after_escape),
+        ],
+        name="escape",
+    )
+    escaped = run.trial("escape-cancel", gateway=escape_fixture).settled()
+    escaped.send("stream " + run.nonce + "\r")
+    on_the_grid(escaped, escaped_head, "the head of the stream Escape is about to stop")
+    escaped.send(b"\x1b")
+    escaped.wait_until(
+        "the first Escape to arm the interrupt",
+        lambda _t: interrupt_armed(hint_text(escaped.peek())),
+    )
+    grid = escaped.grid("interrupt-armed")
+    run.require(
+        grid.find(CANCELLED_TURN) is None and grid.find(escaped_head) is not None,
+        "the first Escape stopped nothing: the stream's head is up and no cancelled line",
+    )
+    escaped.send(b"\x1b")
+    on_the_grid(escaped, CANCELLED_TURN, "the second Escape's cancelled line")
+    grid = escaped.grid("cancelled")
+    run.require(
+        not interrupt_armed(hint_text(grid)) and hint_text(grid) != EXIT_ARMED,
+        "the second Escape was the stop, not another arm or Ctrl-C's exit gesture: %r"
+        % hint_text(grid),
+    )
+    run.require(
+        escape_fixture.request_count() == 1,
+        "the cancel asked the model for nothing more (%d requests)"
+        % escape_fixture.request_count(),
+    )
+    run.require(
+        any(run.nonce in body for body in escape_fixture.bodies()),
+        "the nonce this run minted is in the request the Escapes stopped",
+    )
+    escaped.send("after " + run.nonce + "\r")
+    on_the_grid(escaped, after_escape, "the next prompt's answer after the cancel")
+    run.require(
+        escape_fixture.request_count() == 2
+        and user_messages(escape_fixture.requests()[1])[-1] == "after " + run.nonce,
+        "the session went on to the next prompt after the Escapes stopped the turn",
+    )
+    escaped.send(b"\x04")
+    run.require(
+        escaped.session.wait_exit() == ("exited", 0),
+        "a session whose turn Escape stopped leaves at 0",
+    )
+    run.require(escaped.modes() == escaped.before, "escape-cancel: termios byte-identical")
+    escape_fixture.stop()
+
+
+# What the hint row's right-hand slot says while a second Escape would stop the
+# work in hand, widest first -- the first that fits is the one shown -- and the
+# whole row when none does (`src/tui/shell.rs`'s `INTERRUPT_ARMED` and
+# `INTERRUPT_ARMED_ALONE`; `input_presentation.zig:510-525`).
+INTERRUPT_ARMED = ("esc again to interrupt", "esc esc interrupt", "esc esc")
+INTERRUPT_ARMED_ALONE = "esc esc to interrupt"
+
+
+def interrupt_armed(hint):
+    """Whether `hint` (a hint row's text) says a second Escape would interrupt."""
+    if hint is None:
+        return False
+    return hint == INTERRUPT_ARMED_ALONE or any(hint.endswith(cue) for cue in INTERRUPT_ARMED)
 
 
 # ---------------------------------------------------------------------------
@@ -6815,6 +7590,12 @@ def walk_menu(trial, count, what):
     return seen, marked_entry(trial.peek())
 
 
+# What the inline model column says once its catalog read has failed
+# (`src/tui/model_column.rs`'s `Known::Failed` row), as opposed to the
+# `loading models...` it says while the read is out.
+COLUMN_UNLOADED = "unable to load models"
+
+
 def scenario_16(run):
     """Typing a slash opens a ranked menu that completes without taking focus.
 
@@ -7065,6 +7846,20 @@ def scenario_16(run):
         "the menu outlived the completion it wrote: %r" % offered(completed),
     )
     before = len(fixture.bodies())
+    # **The inline column's own read answers first.** A completed `/model `
+    # opens the inline model column, and since D2c round 6 (`9aa666c7`) that
+    # column asks a catalog that failed again, from its own frames, and says
+    # `loading models...` until the read lands -- and an Enter on an empty
+    # query while it is loading is spent, as fx's `submitModelPicker` spends
+    # it (`src/tui/shell.rs`'s `submit_column`, D2b;
+    # `input_completion_runtime.zig:1161-1210`). This row sent its Enter
+    # straight after the completion and lost that race on 1 run in 3 at plan
+    # `de6618de`. With no catalog to give the read fails, the column says so,
+    # and only then is the Enter the command's.
+    trial.wait_until(
+        "the inline model column's catalog read to answer",
+        lambda _t: trial.peek().find(COLUMN_UNLOADED) is not None,
+    )
     trial.send("\r")
     # `/model` answers with its own menu (`.prd/tui-phase4/receipts/d2a`),
     # which is the session's answer and nothing a model was asked for: the
@@ -7344,6 +8139,149 @@ def scenario_17(run):
         trial.session.wait_exit() == ("exited", 0),
         "Ctrl-D did not leave cleanly after walking the history",
     )
+
+
+# ---------------------------------------------------------------------------
+# 17b. leave, relaunch, resume
+# ---------------------------------------------------------------------------
+
+# What a resumed launch says first (`src/tui/shell.rs`'s `resumed`: a neutral
+# notice under `session resumed`, upstream's `writeResumeNotice`,
+# `app_session_runtime.zig:4657-4672`).
+SESSION_RESUMED = "session resumed:"
+
+
+def sessions_in(home):
+    """The session ids the store under `home` holds, sorted."""
+    try:
+        return sorted(os.listdir(os.path.join(home, ".xfx", "sessions")))
+    except OSError:
+        return []
+
+
+def concluded_turns(home):
+    """How many turns the session logs under `home` say have concluded.
+
+    The exit names a session only once its log says the turn is over
+    (`tests/tui.rs`'s `wait_for_conclusions`), so a row that left straight after
+    the answer was painted would be racing the log rather than reading it.
+    """
+    count = 0
+    for session in sessions_in(home):
+        try:
+            with open(
+                os.path.join(home, ".xfx", "sessions", session, "events.jsonl"), encoding="utf-8"
+            ) as handle:
+                lines = handle.read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                frame = json.loads(line)
+            except ValueError:
+                continue  # a frame being appended as this read went past it
+            if (frame.get("event") or {}).get("kind") == "turn_concluded":
+                count += 1
+    return count
+
+
+def resume_handoff(trial):
+    """The id the exit's `Continue session with: xfx --resume <id>` row names, or `None`."""
+    grid = trial.grid("left")
+    for row in range(grid.rows):
+        text = grid.row_text(row).strip()
+        if RESUME_HANDOFF.match(text):
+            return text.rsplit(" ", 1)[1]
+    return None
+
+
+def scenario_17b(run):
+    """A session left, the binary started again with `--resume`, and the conversation goes on.
+
+    The restart half of the program's behaviour list
+    (`.prd/07-fx-parity-program.md` § Phase 4 close-out, Receipt). The exit
+    names the session (`receipts/c5`, `quit`: `Continue session with: xfx
+    --resume <id>`), and the command it names is the one this row runs: the
+    saved turn comes back on the screen -- its card and its answer, under the
+    resume notice and with no welcome line, as upstream replays one
+    (`replayHistoryToSinkIncremental`, `app_session_runtime.zig:4753-4810`) --
+    the next prompt is sent with the saved one before it, no second session is
+    made, and leaving again names the same one. `tests/tui.rs`'s
+    `quit_after_a_conversation_names_the_session_and_resume_continues_it` is
+    the same claim on the debug build; this is the release binary's.
+    """
+    first_marker = run.marker("first")
+    second_marker = run.marker("second")
+    fixture = start_fixture(
+        run, [fixtures.content_only(first_marker), fixtures.content_only(second_marker)]
+    )
+    first_prompt = "first " + run.nonce
+    before = run.trial("before-the-exit", gateway=fixture).settled()
+    discriminate(run, before, fixture, first_marker, label="first-turn", prompt=first_prompt)
+    before.wait_until(
+        "the first turn's conclusion in its log",
+        lambda _t: concluded_turns(before.home) >= 1,
+    )
+    before.send("/quit\r")
+    run.require(before.session.wait_exit() == ("exited", 0), "the first session left at 0")
+    before.session.settled_text()
+    run.require(before.modes() == before.before, "the first session: termios byte-identical")
+    named = resume_handoff(before)
+    stored = sessions_in(before.home)
+    run.require(
+        named is not None and stored == [named],
+        "the exit named the one session the store holds (%r, store %r)" % (named, stored),
+    )
+    if named is None:
+        return
+
+    resumed = run.trial(
+        "resumed",
+        gateway=fixture,
+        home=before.home,
+        workspace=before.workspace,
+        args=["--resume", named],
+    ).settled()
+    on_the_grid(resumed, first_marker, "the saved answer replayed under the resume")
+    grid = resumed.grid("replayed")
+    run.require(
+        grid.find(SESSION_RESUMED) is not None,
+        "the relaunch says it resumed a session: %r" % (rows_above_band(grid),),
+    )
+    run.require(
+        grid.find(RAIL + " " + first_prompt) is not None
+        and grid.find("  " + first_marker) is not None,
+        "the saved turn is on the screen again: its card and its answer (%r)"
+        % (rows_above_band(grid),),
+    )
+    run.require(
+        not any(is_welcome(text) for text in rows_above_band(grid) or []),
+        "a resumed launch wrote no welcome line: %r" % (rows_above_band(grid),),
+    )
+    second_prompt = "second " + run.nonce
+    resumed.send(second_prompt + "\r")
+    on_the_grid(resumed, second_marker, "the resumed session's own answer")
+    run.require(
+        fixture.request_count() == 2
+        and user_messages(fixture.requests()[1]) == [first_prompt, second_prompt],
+        "the resumed turn was sent with the saved one before it: %r"
+        % (user_messages(fixture.requests()[-1]),),
+    )
+    run.require(
+        sessions_in(before.home) == [named], "the resume opened no second session"
+    )
+    resumed.wait_until(
+        "the resumed turn's conclusion in its log",
+        lambda _t: concluded_turns(before.home) >= 2,
+    )
+    resumed.send(b"\x04")
+    run.require(resumed.session.wait_exit() == ("exited", 0), "the resumed session left at 0")
+    resumed.session.settled_text()
+    run.require(
+        resume_handoff(resumed) == named, "leaving again named the same session"
+    )
+    run.require(resumed.modes() == resumed.before, "the resumed session: termios byte-identical")
+    fixture.stop()
 
 
 # What a provider switch finishes on, the provider's own name in it
@@ -8700,7 +9638,15 @@ def message_parts(body):
     out = []
     for message in json.loads(body).get("prompt", []):
         role = message.get("role")
-        for part in message.get("content", []):
+        content = message.get("content", [])
+        # A system message's content is one string, not a list of parts
+        # (`src/gateway/protocol.rs`), and since M1 every request carries one:
+        # the MCP advertisement, `<mcp_servers>` with `<none />` when nothing is
+        # configured (`84805786`). It is one text part here, so the order this
+        # reader reports is still the whole request's.
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+        for part in content:
             if part.get("type") == "tool-result":
                 out.append((role, "tool-result", part.get("toolCallId")))
             elif part.get("type") == "text":
@@ -10638,6 +11584,8 @@ SCENARIOS = {
     "3c-partial-frame-containment": scenario_3c,
     "3d-primary-band-recovery": scenario_3d,
     "3e-alternate-repaint-recovery": scenario_3e,
+    "3f-job-control": scenario_3f,
+    "3g-inherited-ignores": scenario_3g,
     "4-raw-mode-positively-entered": scenario_4,
     "5-editor-basics": scenario_5,
     "6-soft-wrap-and-growth-cap": scenario_6,
@@ -10653,6 +11601,7 @@ SCENARIOS = {
     "15-resize-reflow": scenario_15,
     "16-slash-menu": scenario_16,
     "17-history": scenario_17,
+    "17b-quit-and-resume": scenario_17b,
     "18-provider-switch": scenario_18,
     "19-model-catalog-and-context-meter": scenario_19,
     "20-alternate-screen-approval": scenario_20,
@@ -10735,7 +11684,9 @@ export TMUX="/tmp/tmux-hostile/default,1,0"
 # plus 26, 26b and 27, QA-only additions not in that PRD's own numbered list,
 # for the band's growth-and-shrink layout contract, the composer's own yield to
 # a panel within it, and the recolour a terminal's own background report owes
-# the rows already on the screen. This
+# the rows already on the screen -- and three more for the parity program's
+# behaviour list: 3f, the stop and the deaths under real job control; 3g, a
+# launch that inherited ignored signals; 17b, a session left and resumed. This
 # list and `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
@@ -10747,6 +11698,8 @@ scenarios=(
 	3c-partial-frame-containment
 	3d-primary-band-recovery
 	3e-alternate-repaint-recovery
+	3f-job-control
+	3g-inherited-ignores
 	4-raw-mode-positively-entered
 	5-editor-basics
 	6-soft-wrap-and-growth-cap
@@ -10762,6 +11715,7 @@ scenarios=(
 	15-resize-reflow
 	16-slash-menu
 	17-history
+	17b-quit-and-resume
 	18-provider-switch
 	19-model-catalog-and-context-meter
 	20-alternate-screen-approval

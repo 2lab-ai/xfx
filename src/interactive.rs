@@ -1371,6 +1371,19 @@ pub async fn run(
     if config.permission_mode == PermissionMode::Yolo {
         writeln!(diagnostics, "{YOLO_WARNING}")?;
     }
+    // What the configuration could not use, as `xfx ask` says it
+    // ([`crate::config::Diagnostic::startup_line`]), and a table that did not
+    // read with the way back: `/allowlist` reads the file again and puts a
+    // table that reads in force.
+    for diagnostic in &config.diagnostics {
+        writeln!(diagnostics, "xfx: config {}", diagnostic.startup_line())?;
+    }
+    if let Some(refusal) = config.permission.refusal() {
+        writeln!(
+            diagnostics,
+            "xfx: permissions: {refusal}; fix it, then /allowlist reads it again"
+        )?;
+    }
 
     // Owned from here down, because `/setup` replaces it. Everything below
     // reads the configuration through this binding, so a provider switch is one
@@ -1736,7 +1749,11 @@ async fn one_turn(
             writeln!(out, "[shell] {line}")?;
         }
     }
-    let mut sink = TextSink::new(stdout, stderr).with_tool_notices();
+    // The approval question is asked on this terminal after the answer, so the
+    // answer reaches it inert: no state the model wrote is in force there.
+    let mut sink = TextSink::new(stdout, stderr)
+        .with_tool_notices()
+        .on_terminal(io::stdout().is_terminal());
 
     interrupts.begin_turn();
     // Awaited here, on this thread: when this returns there is no work left
@@ -1817,6 +1834,11 @@ fn provider_label(provider: crate::provider::ProviderId) -> &'static str {
 }
 
 /// Prints the catalog to stdout, bounded at MAX_RENDERED_MODELS.
+///
+/// Every string it prints from the catalog -- a name, the efforts, why it
+/// could not be read -- is the provider's (its parser takes any non-empty
+/// string), so each is said through [`safe_one_line`]: one line, every control
+/// character a space, nothing clipped.
 fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<()> {
     use crate::provider::model::{CatalogState, MAX_RENDERED_MODELS};
 
@@ -1846,9 +1868,9 @@ fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<(
                 writeln!(
                     io::stdout(),
                     "[shell]   {} context={} efforts={}",
-                    entry.preferred_name(),
+                    safe_one_line(entry.preferred_name(), usize::MAX),
                     context_str,
-                    efforts_str
+                    safe_one_line(&efforts_str, usize::MAX)
                 )?;
             }
             let remaining = entries.len().saturating_sub(MAX_RENDERED_MODELS);
@@ -1857,7 +1879,11 @@ fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<(
             }
         }
         CatalogState::Failed(reason) => {
-            writeln!(io::stdout(), "[shell] catalog=unread ({reason})")?;
+            writeln!(
+                io::stdout(),
+                "[shell] catalog=unread ({})",
+                safe_one_line(reason, usize::MAX)
+            )?;
         }
     }
     Ok(())

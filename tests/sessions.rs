@@ -1776,6 +1776,61 @@ fn ask_resume_replays_durable_history_in_the_next_request() {
 }
 
 #[test]
+fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs() {
+    // fx's `ask --resume` goes on in the model the session recorded
+    // (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1035-1042`), which
+    // only a process override outranks (`:1806-1815`); the profile's model is
+    // what a fresh session starts in. Red before: the profile's model was
+    // sent, and written into the session as a preference change.
+    let sandbox = Sandbox::new();
+    let first = FakeGateway::start(vec![Reply::Sse(content_only(&["saved"]))]);
+    let url = first.chat_url();
+    let mut env = gateway_env(&url, TEST_KEY);
+    env.push(("XFX_MODEL", "fake/model-b"));
+    let run = sandbox.run(&["ask", "first question"], &env);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    drop(first);
+    fs::write(
+        sandbox.profile_dir().join("settings.json"),
+        r#"{"provider":"gateway","models":{"gateway":"fake/model-a"}}"#,
+    )
+    .expect("write the profile");
+
+    let second = FakeGateway::start(vec![
+        Reply::Sse(content_only(&["continued"])),
+        Reply::Sse(content_only(&["pinned"])),
+    ]);
+    let url = second.chat_url();
+    let run = sandbox.run(
+        &["ask", "--resume", "last", "second question"],
+        &gateway_env(&url, TEST_KEY),
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(
+        second.requests()[0].header("ai-language-model-id"),
+        Some("fake/model-b"),
+        "the profile's model outranked the session's"
+    );
+    let ids = sandbox.saved_ids();
+    let log = fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join(EVENTS_FILE))
+        .expect("read the log");
+    assert!(
+        !log.contains("fake/model-a"),
+        "the profile's model was recorded: {log}"
+    );
+
+    let mut env = gateway_env(&url, TEST_KEY);
+    env.push(("XFX_MODEL", "pinned/model"));
+    let run = sandbox.run(&["ask", "--resume", "last", "third question"], &env);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(
+        second.requests()[1].header("ai-language-model-id"),
+        Some("pinned/model"),
+        "a process override did not outrank the session's model"
+    );
+}
+
+#[test]
 fn a_request_is_static_context_then_overlay_then_history_then_user_then_suffix() {
     let sandbox = Sandbox::new();
     sandbox.write("AGENTS.md", "ROOT PROJECT RULE\n");

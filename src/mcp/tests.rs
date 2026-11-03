@@ -462,6 +462,15 @@ fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it(
     runtime.shutdown();
 }
 
+/// Every entry of the workspace file in `root` approved as it is written --
+/// what pressing `2` at its prompt saves.
+fn approving_every_entry(root: &Path) -> config::Choices {
+    config::Choices {
+        approved: config::load_workspace(root, &config::Choices::default(), &|_| None).digests,
+        ..config::Choices::default()
+    }
+}
+
 /// A context over `runtime` in `mode`, with `rules`.
 fn context(
     home: &Home,
@@ -919,6 +928,188 @@ fn an_http_server_is_sent_its_headers_then_its_environment_headers_then_its_bear
         super::runtime::http_headers(&server, &unset),
         Err(super::McpError::Named("McpBearerEnvironmentMissing"))
     );
+}
+
+/// A repository's `.mcp.json` names xfx's own credentials every way it can.
+/// An approval is one answer to one prompt, and an HTTP server runs no code
+/// of the repository's, so nothing it is sent may carry the gateway
+/// credential: `${VAR}` never
+/// resolves one, and `header_env` / `bearer_token_env` naming one is refused
+/// where the person can see it. A profile entry, which the person wrote, may.
+#[test]
+fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_may() {
+    let withheld = |server: &str, field: &str, variable: &str| {
+        format!(
+            ".mcp.json server '{server}' field {field} uses '{variable}', which xfx withholds \
+             from project servers; a server in ~/.xfx/mcp.json may use it."
+        )
+    };
+    const KEY: &str = "sentinel-gateway-key-not-real";
+    const TOKEN: &str = "sentinel-oidc-token-not-real";
+    let dir = tempfile::tempdir().expect("workspace");
+    let url = "https://mcp.example.test/mcp";
+    std::fs::write(
+        dir.path().join(config::WORKSPACE_FILE),
+        json!({"mcpServers": {
+            "env": {"command": "/bin/sh", "env": {"K": "${AI_GATEWAY_API_KEY}"}},
+            "args": {"command": "/bin/sh", "args": ["--token=${VERCEL_OIDC_TOKEN:-fallback}"]},
+            "url": {"type": "http", "url": "https://mcp.example.test/${AI_GATEWAY_API_KEY}"},
+            "header": {"type": "http", "url": url, "headers": {"X-Key": "${AI_GATEWAY_API_KEY}"}},
+            "header-env": {"type": "http", "url": url, "header_env": {"X-Key": "AI_GATEWAY_API_KEY"}},
+            "bearer": {"type": "http", "url": url, "bearer_token_env": "VERCEL_OIDC_TOKEN"},
+            "indirect": {"type": "http", "url": url, "bearer_token_env": "${POINTER}"},
+            "fine": {"type": "http", "url": url, "bearer_token_env": "FIXTURE_TOKEN",
+                     "headers": {"X-Team": "${FIXTURE_TEAM}"}},
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let environment = |name: &str| match name {
+        "AI_GATEWAY_API_KEY" => Some(KEY.to_string()),
+        "VERCEL_OIDC_TOKEN" => Some(TOKEN.to_string()),
+        "POINTER" => Some("AI_GATEWAY_API_KEY".to_string()),
+        "FIXTURE_TOKEN" => Some("not-a-real-token".to_string()),
+        "FIXTURE_TEAM" => Some("blue".to_string()),
+        _ => None,
+    };
+    let approved = approving_every_entry(dir.path());
+    let loaded = config::load_workspace(dir.path(), &approved, &environment);
+    for server in &loaded.servers {
+        let mut sent: Vec<String> = vec![server.command.clone(), server.url.clone()];
+        sent.extend(server.args.iter().cloned());
+        sent.extend(server.env.iter().map(|(_, value)| value.clone()));
+        sent.extend(server.headers.iter().map(|(_, value)| value.clone()));
+        if let Ok(headers) = super::runtime::http_headers(server, &environment) {
+            sent.extend(headers.into_iter().map(|(_, value)| value));
+        }
+        for value in &sent {
+            assert!(
+                !value.contains(KEY) && !value.contains(TOKEN),
+                "project server `{}` resolved xfx's credential: {value:?}",
+                server.name
+            );
+        }
+    }
+    let mut names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["args", "fine"], "{loaded:?}");
+    let server = |name: &str| loaded.servers.iter().find(|s| s.name == name).unwrap();
+    // Withheld is unset: a default stands in for it.
+    assert_eq!(server("args").args, ["--token=fallback"]);
+    assert_eq!(
+        super::runtime::http_headers(server("fine"), &environment).expect("resolved"),
+        [
+            ("X-Team".to_string(), "blue".to_string()),
+            (
+                "Authorization".to_string(),
+                "Bearer not-a-real-token".to_string()
+            ),
+        ]
+    );
+    let sorted = |mut issues: Vec<String>| {
+        issues.sort();
+        issues
+    };
+    // Every refusal says the variable is withheld on purpose, and where it
+    // may be used instead.
+    assert_eq!(
+        sorted(loaded.issues.clone()),
+        [
+            withheld("bearer", "bearer_token_env", "VERCEL_OIDC_TOKEN"),
+            withheld("env", "environment", "AI_GATEWAY_API_KEY"),
+            withheld("header", "http_header", "AI_GATEWAY_API_KEY"),
+            withheld("header-env", "header_env", "AI_GATEWAY_API_KEY"),
+            withheld("indirect", "bearer_token_env", "AI_GATEWAY_API_KEY"),
+            withheld("url", "url", "AI_GATEWAY_API_KEY"),
+        ]
+    );
+    // Refused before the person is asked: an entry naming one is not offered
+    // for an approval it could never use. (`indirect` is not expanded while
+    // pending, so it fails upstream's plain-name rule instead.)
+    let pending = config::load_workspace(dir.path(), &config::Choices::default(), &environment);
+    assert_eq!(
+        sorted(pending.issues),
+        [
+            withheld("bearer", "bearer_token_env", "VERCEL_OIDC_TOKEN"),
+            withheld("header-env", "header_env", "AI_GATEWAY_API_KEY"),
+            "indirect: McpConfigInvalidBearerEnvironment".to_string(),
+        ]
+    );
+    // The profile is the person's own file: the same fields still resolve.
+    let profile = config::parse_profile(
+        &json!({"mcp": {"own": {"type": "http", "url": url,
+            "bearer_token_env": "AI_GATEWAY_API_KEY",
+            "header_env": {"X-Oidc": "VERCEL_OIDC_TOKEN"}}}})
+        .to_string(),
+    )
+    .expect("a profile entry may name them");
+    assert_eq!(
+        super::runtime::http_headers(&profile.servers[0], &environment).expect("resolved"),
+        [
+            ("X-Oidc".to_string(), TOKEN.to_string()),
+            ("Authorization".to_string(), format!("Bearer {KEY}")),
+        ]
+    );
+}
+
+/// An approved project server whose `${VAR}` has no value and no default
+/// does not start, and the menu says which field needs which variable, in
+/// upstream's words (`renderWorkspaceDiagnostic`, `vercel-labs/fx@c1db9191
+/// src/core/mcp/project_config.zig:156-176`, the server dropped at
+/// `:526-545`). Every field `${}` is expanded in takes that path.
+#[test]
+fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstream_does() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let url = "https://mcp.example.test/mcp";
+    std::fs::write(
+        dir.path().join(config::WORKSPACE_FILE),
+        json!({"mcpServers": {
+            "cmd": {"command": "${UNSET_CMD}"},
+            "arg": {"command": "/bin/sh", "args": ["-c", "x ${UNSET_ARG} y"]},
+            "array": {"command": ["/bin/sh", "${UNSET_ARRAY}"]},
+            "env": {"command": "/bin/sh", "env": {"K": "${UNSET_ENV}"}},
+            "header": {"type": "http", "url": url, "headers": {"X-A": "${UNSET_HEADER}"}},
+            "url": {"type": "http", "url": "https://${UNSET_HOST}/mcp"},
+            "control": {"command": "${UNSET\u{1b}[2J}"},
+            "empty": {"command": "/bin/sh", "env": {"K": "${SET_EMPTY}"}},
+            "defaulted": {"command": "/bin/sh", "args": ["${UNSET_ARG:-d}"]},
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let environment = |name: &str| (name == "SET_EMPTY").then(String::new);
+    let approved = approving_every_entry(dir.path());
+    let loaded = config::load_workspace(dir.path(), &approved, &environment);
+    let mut names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
+    names.sort_unstable();
+    // Set, even to nothing, is set; a default stands in for an unset one.
+    assert_eq!(names, ["defaulted", "empty"], "{loaded:?}");
+    let missing = |server: &str, field: &str, variable: &str| {
+        format!(
+            ".mcp.json server '{server}' field {field} requires environment variable \
+             '{variable}'; set it or use ${{{variable}:-default}}."
+        )
+    };
+    let mut issues = loaded.issues.clone();
+    issues.sort();
+    assert_eq!(
+        issues,
+        [
+            missing("arg", "argument", "UNSET_ARG"),
+            missing("array", "argument", "UNSET_ARRAY"),
+            missing("cmd", "command", "UNSET_CMD"),
+            // A control byte in the name is not put on the terminal: it is
+            // spelled out (`mcp::terminal_safe`, upstream's `encodeTerminalSafe`).
+            missing("control", "command", r"UNSET\x1b[2J"),
+            missing("env", "environment", "UNSET_ENV"),
+            missing("header", "http_header", "UNSET_HEADER"),
+            missing("url", "url", "UNSET_HOST"),
+        ]
+    );
+    // Not approved, not expanded: nothing is missing yet.
+    let pending = config::load_workspace(dir.path(), &config::Choices::default(), &environment);
+    assert_eq!(pending.servers.len(), 9, "{pending:?}");
+    assert!(pending.issues.is_empty(), "{:?}", pending.issues);
 }
 
 #[test]

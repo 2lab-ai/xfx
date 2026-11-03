@@ -489,7 +489,9 @@ pub struct McpRuntime {
     /// Bumped by every reload that put a new set in force.
     generation: AtomicU64,
     /// What the environment says, for a workspace server's `${VAR}` and an
-    /// HTTP server's `header_env` and `bearer_token_env`.
+    /// HTTP server's `header_env` and `bearer_token_env`. A workspace server
+    /// never gets xfx's own credentials from it: `config::load_workspace`
+    /// leaves them unset and refuses an entry that names one as a source.
     environment: Box<Lookup>,
 }
 
@@ -1792,7 +1794,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "passes once SEC-A4 adds the Default_Ignorable code points (U+00AD and the rest) to approval_view::names_code_point; at de6618de/cea26eb3 the table names U+200B-200F, U+2028-202E, U+2060-206F, U+FEFF, U+061C and C1 only"]
     fn a_soft_hyphen_run_cannot_hide_the_tail_of_a_command() {
         // SEC-A4 measured that a run of U+00AD hides what follows in tmux and
         // herdr: the prompt would show `/bin/true` while `; curl …` runs.

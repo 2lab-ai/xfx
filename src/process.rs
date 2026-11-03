@@ -21,11 +21,26 @@
 //! library resets `SIGPIPE` itself today (`unix.rs:364-376`, `:741-754`);
 //! doing it here too keeps the rule ours rather than a version's.
 //!
-//! A signal xfx was *started* ignoring is left ignored, as a shell leaves it:
-//! `nohup` ignores `SIGHUP`, and a non-interactive shell's `&` ignores `SIGINT`
-//! and `SIGQUIT`, precisely so that everything started under them inherits the
-//! ignore through `exec`. That is the launcher's choice, not a disposition xfx
-//! set.
+//! A signal xfx was *started* ignoring and does not catch is left ignored, as
+//! a shell leaves it: `nohup` ignores `SIGHUP`, and a non-interactive shell's
+//! `&` ignores `SIGINT` and `SIGQUIT`, precisely so that everything started
+//! under them inherits the ignore through `exec`. That is the launcher's
+//! choice, not a disposition xfx set. **A signal xfx catches is not** -- `exec`
+//! gives it its default -- so what a command inherits depends on where it was
+//! started from, as it does in fx c1db919:
+//!
+//! - **In the TUI**, `SIGHUP` and `SIGTERM` are caught whatever the launcher
+//!   said, so the terminal is restored before a hangup or a stop ends the
+//!   process (`tui::signals::install_handlers`), and a command has both at
+//!   their defaults -- as under fx, which installs its restore over any
+//!   ignore (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104`).
+//!   `SIGINT` is caught only when it was not inherited ignored, so
+//!   `nohup … &`'s ignore reaches the command, as fx's does: fx catches no
+//!   `SIGINT` while its TUI runs. `SIGQUIT` is never caught.
+//! - **In `ask` and the line shell**, `SIGINT` is the user's Ctrl-C and is
+//!   caught (`app::spawn_interrupt_thread`), so a command has it at its
+//!   default -- as under fx's headless ask, which installs its interrupt over
+//!   any ignore (`cli_ask.zig:166-178`).
 //!
 //! The case `no_child_process_is_made_any_other_way` keeps every
 //! `Command::new` in the library's own code in this file.
@@ -34,9 +49,20 @@ use std::ffi::OsStr;
 use std::process::Command;
 
 /// A command for `program` whose child starts with no signal blocked and
-/// `SIGPIPE` at its default.
+/// `SIGPIPE` at its default, and without xfx's own credential.
+///
+/// The rest of xfx's environment is inherited: `git`, a clipboard tool and
+/// `osascript` need the person's display, locale and configuration, and none of
+/// that is xfx's to keep. The credential is
+/// ([`crate::config::CREDENTIAL_VARIABLES`]), so it is removed here, where
+/// every child is made: a caller that means to hand it on sets it again, and a
+/// caller that builds the whole environment (the terminal tool, an MCP stdio
+/// server) clears everything first.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
+    for name in crate::config::CREDENTIAL_VARIABLES {
+        command.env_remove(name);
+    }
     #[cfg(unix)]
     clean_signals(&mut command);
     command
@@ -310,6 +336,35 @@ mod tests {
         assert!(
             output.status.success() && report.contains("test result: ok. 2 passed"),
             "{report}"
+        );
+    }
+
+    /// xfx's own credential never reaches a child by inheritance: both of its
+    /// variables are removed from every command made here, and a caller that
+    /// names one on purpose -- an MCP server's configured `env` -- still can.
+    /// Named here as literals, so a wrong shared constant cannot pass by
+    /// agreeing with itself.
+    #[test]
+    fn a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it() {
+        let removed: Vec<String> = command("/bin/true")
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect();
+        for name in ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"] {
+            assert!(
+                removed.iter().any(|removed| removed == name),
+                "{name} is not removed from a child's environment: {removed:?}"
+            );
+        }
+        let mut granted = command("/bin/true");
+        granted.env("VERCEL_OIDC_TOKEN", "xfx-sentinel-granted");
+        assert!(
+            granted
+                .get_envs()
+                .any(|(name, value)| name == "VERCEL_OIDC_TOKEN"
+                    && value == Some(OsStr::new("xfx-sentinel-granted"))),
+            "a credential a caller names is not passed"
         );
     }
 

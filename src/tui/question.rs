@@ -1865,6 +1865,49 @@ mod tests {
     }
 
     #[test]
+    fn no_question_row_can_be_drawn_past_the_margin() {
+        // SEC-A4b. The model writes the question, its choices and their
+        // descriptions, and they are laid out by xfx's count: a run of
+        // characters a terminal draws wider than that pushes what follows it
+        // past the margin, so the user answers a question they were not shown.
+        use super::super::approval_view::wider_terminal::{hides, runs};
+        let tail = "TAILSEEN";
+        let mut hidden = Vec::new();
+        for (run, character, cells) in runs() {
+            let text = format!("x{run}{tail}");
+            for (what, question, label, description) in [
+                ("question", text.clone(), "Yes".to_string(), None),
+                ("label", "Which?".to_string(), text.clone(), None),
+                (
+                    "description",
+                    "Which?".to_string(),
+                    "Yes".to_string(),
+                    Some(text.clone()),
+                ),
+            ] {
+                let panel = QuestionPanel::new(QuestionRequest {
+                    id: QuestionId(7),
+                    entries: vec![QuestionEntry {
+                        question,
+                        options: vec![
+                            QuestionOption { label, description },
+                            QuestionOption {
+                                label: "No".to_string(),
+                                description: None,
+                            },
+                        ],
+                    }],
+                });
+                let rows = panel.rows(120, 60);
+                if let Some(why) = hides(&rows, 120, character, cells, tail) {
+                    hidden.push(format!("{what}: {why}"));
+                }
+            }
+        }
+        assert!(hidden.is_empty(), "{hidden:#?}");
+    }
+
+    #[test]
     fn a_label_too_wide_for_the_screen_is_still_the_answer_whole() {
         // The clip is a *screen* cut. The answer is the canonical label, and the
         // model reads that string back beside the question it belongs to -- a

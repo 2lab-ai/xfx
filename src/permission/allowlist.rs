@@ -757,17 +757,30 @@ fn reset_outcome(
 /// `writeAllowlistStatus` (`:987-1045`): the file is read afresh, what it
 /// says is put in force, and the table asked about is listed.
 ///
-/// Read as a launch reads it: a file or a table in it that does not read
-/// contributes no rules, and that is what is put in force and listed --
-/// upstream's view replaces its engine's rules with whatever its reload found
-/// (`replaceEffectivePermissionRules`, `:1009`), returning early only for an
-/// unsafe or unsupported profile path (`:993-1006`), which xfx's reader has
-/// no counterpart of. What this workspace's next launch would hold, then, and
-/// nothing a broken file can make wider than that.
+/// **A file that does not read changes nothing in force.** Upstream's view
+/// replaces its engine's rules with whatever its reload found, a broken
+/// layer's nothing included (`replaceEffectivePermissionRules`, `:1009`), so a
+/// deny in force lapses because somebody looked; it returns early, in its
+/// settings error (`writeSettingsLoadError`, `:1137-1141`), only for an
+/// unsafe or unsupported profile path (`:993-1006`). Here every reload that
+/// fails takes that early return: `✗ settings: Failed to load settings:
+/// <reason>`, and the table in force -- the launch's refusal of every tool
+/// included ([`crate::config::PermissionTables::unreadable`]) -- stays.
 fn view_outcome(view: View, settings: Option<&Path>, workspace_root: &Path) -> Outcome {
-    let tables = match settings {
-        Some(path) => crate::config::read_permission_tables_as_loaded(path, workspace_root).0,
-        None => PermissionTables::default(),
+    let tables = match read_back(settings, workspace_root) {
+        Ok(tables) => tables,
+        Err(reason) => {
+            return Outcome::say(Answer::new(
+                Tone::Error,
+                "settings",
+                crate::output::safe_one_line(
+                    &format!(
+                        "Failed to load settings: {reason}; the permission rules in force are unchanged"
+                    ),
+                    usize::MAX,
+                ),
+            ))
+        }
     };
     let rules = match view {
         View::Effective => tables.effective(),
@@ -1472,15 +1485,63 @@ mod tests {
             profile.file()["workspaces"][profile.key()],
             json!({"permission": {"bash": {"ls": "allow"}}})
         );
-        // A listing of a file that does not read lists what a launch would
-        // load from it -- nothing -- and puts that in force, as upstream's
-        // view replaces its engine's rules with what its reload found.
-        std::fs::write(&profile.settings, "{not json").unwrap();
-        let viewed = profile.run("view");
-        assert_eq!(viewed.in_force, Some(RuleSet::default()));
+    }
+
+    #[test]
+    fn a_view_of_a_file_that_does_not_read_keeps_the_table_in_force_and_says_why() {
+        // Upstream's view puts whatever its reload found in force, a broken
+        // layer's nothing included (`writeAllowlistStatus`,
+        // `session_commands.zig:987-1009`): a deny in force would lapse because
+        // somebody looked. Here the table in force stays, and the reason is said.
+        let profile = Profile::new();
+        std::fs::create_dir_all(profile.settings.parent().unwrap()).unwrap();
+        let entry = |permission: &str| {
+            format!(
+                "{{\"workspaces\":{{{}:{{\"permission\":{permission}}}}}}}",
+                json!(profile.key())
+            )
+        };
+        for (broken, why) in [
+            ("{not json".to_string(), "user config diagnostic: malformed_settings"),
+            (
+                r#"{"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#.to_string(),
+                "user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny",
+            ),
+            (
+                entry("[\"x\"]"),
+                "user config diagnostic: invalid_value key=permission `permission` must be an action or an object of categories",
+            ),
+            (
+                r#"{"workspaces":["x"]}"#.to_string(),
+                "user config diagnostic: invalid_value key=workspaces",
+            ),
+        ] {
+            std::fs::write(&profile.settings, &broken).unwrap();
+            for line in ["", "view", "view local", "view user"] {
+                let viewed = profile.run(line);
+                assert_eq!(viewed.in_force, None, "{broken} / {line:?}");
+                assert_eq!(
+                    viewed.answers,
+                    vec![Answer::new(
+                        Tone::Error,
+                        "settings",
+                        format!(
+                            "Failed to load settings: {why}; the permission rules in force are unchanged"
+                        )
+                    )],
+                    "{broken} / {line:?}"
+                );
+            }
+        }
+        // A file that reads again is put in force by the next view.
+        std::fs::write(&profile.settings, entry("{\"read\":\"deny\"}")).unwrap();
         assert_eq!(
-            (viewed.answers[0].tone, viewed.answers[0].body.as_str()),
-            (Tone::Neutral, "effective persistent allow rules: (none)")
+            profile.run("view").in_force,
+            Some(RuleSet::new(vec![ConfiguredRule::new(
+                "read",
+                "*",
+                RuleAction::Deny
+            )]))
         );
     }
 

@@ -134,10 +134,11 @@ fn session(
         .transpose()?;
     // The provider the session last recorded is the one it continues on, as
     // upstream's resume puts it back (`restoreRuntimePreferences`,
-    // `app_session_runtime.zig:6147`), and the model with it; on the
-    // configured provider, a model the session last ran under is restored
-    // when nothing chose one, which is `xfx ask --resume`'s rule
-    // (`app::run_ask`) -- [`worker::Resumption::selection`]. The band and the
+    // `app_session_runtime.zig:6147`), and the model with it, which only a
+    // process override outranks; a session that recorded no provider goes on
+    // with the configured one under the launch's rule -- the same rules as
+    // `xfx ask --resume` (`app::resumed_model`), in
+    // [`worker::Resumption::selection`]. The band and the
     // runtime both read the provider and the model from the configuration, so
     // they are restored there, once, for both of them.
     //
@@ -493,6 +494,9 @@ fn hold(
             shell.session_assembled();
         }
     }
+    // Fresh or resumed, as upstream's launch says them either way
+    // (`app_bootstrap_runtime.zig:666-687`).
+    shell.config_issues(config);
     let code = event_loop::run(
         &mut shell,
         band,

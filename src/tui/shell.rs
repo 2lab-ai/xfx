@@ -3141,6 +3141,43 @@ impl Shell {
         ));
     }
 
+    /// What the configuration could not use, said once at launch as upstream
+    /// says it (`writeCollapsedStartupNotice`, `app_bootstrap_runtime.zig:267-272`,
+    /// written from `:666-687`): `* config: <n> configuration issue(s) (ctrl+o
+    /// to view)` in the document, and the diagnostics one per row on the full
+    /// transcript only (`visibility = .full_only`).
+    ///
+    /// A permission table that did not read is said in the document too, as
+    /// a warning, because xfx refuses every tool until it reads
+    /// ([`crate::config::PermissionTables::unreadable`]) where upstream goes
+    /// on without the table: the way back is `/allowlist`, which reads the
+    /// file again and puts a table that reads in force.
+    pub(crate) fn config_issues(&mut self, config: &RuntimeConfig) {
+        let count = config.diagnostics.len();
+        if count > 0 {
+            self.announce(notice::Notice::neutral(
+                "config",
+                format!(
+                    "{count} configuration issue{} (ctrl+o to view)",
+                    if count == 1 { "" } else { "s" }
+                ),
+            ));
+            let lines: Vec<String> = config
+                .diagnostics
+                .iter()
+                .map(crate::config::Diagnostic::startup_line)
+                .collect();
+            self.full
+                .full_detail(notice::Notice::neutral("config", lines.join("\n")));
+        }
+        if let Some(refusal) = config.permission.refusal() {
+            self.announce(notice::Notice::warning(
+                "permissions",
+                format!("{refusal}; fix it, then /allowlist reads it again"),
+            ));
+        }
+    }
+
     /// Says that this session continues a saved one, as upstream's resume does
     /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
     /// notice under `session resumed` whose body is the session's title, and
@@ -8711,9 +8748,11 @@ impl Shell {
     /// notice is written for an image that was attached
     /// (`handlePastedBytes`, `input_paste_runtime.zig:445-622`).
     ///
-    /// A path to a file over 20 MiB says so and stays as words; any other
-    /// that does not load stays as words in silence -- a pasted sentence that
-    /// mentions `notes.png` is a sentence. With no image the paste is text,
+    /// A path to a file over 20 MiB says so and stays as words, and so does
+    /// one the configured read table denies, which is never opened
+    /// ([`crate::image::AttachError::Denied`]; upstream asks no rule). Any
+    /// other that does not load stays as words in silence -- a pasted
+    /// sentence that mentions `notes.png` is a sentence. With no image the paste is text,
     /// inline whatever its length. With one, a `/image ` the paste began with
     /// and an `/image` alone in the composer are the command the path was
     /// meant for, and go (`stripPastedImageSlashPrefix`,
@@ -8723,14 +8762,22 @@ impl Shell {
         let mut replacement = String::with_capacity(text.len());
         let mut spans: Vec<Span> = Vec::new();
         let mut cut = 0;
+        let rules = self.work.rules().current();
         for word in image_paths::find(text) {
             let (path, media_type, bytes) =
-                match image_paths::load(&self.workspace, self.home.as_deref(), &word) {
+                match image_paths::load(&self.workspace, self.home.as_deref(), &rules, &word) {
                     Ok(loaded) => loaded,
                     Err(crate::image::AttachError::TooLarge) => {
                         self.announce(notice::Notice::error(
                             crate::image::TOPIC,
                             crate::image::TOO_LARGE,
+                        ));
+                        continue;
+                    }
+                    Err(problem @ crate::image::AttachError::Denied(_)) => {
+                        self.announce(notice::Notice::error(
+                            crate::image::TOPIC,
+                            problem.to_string(),
                         ));
                         continue;
                     }
@@ -8839,10 +8886,11 @@ impl Shell {
     /// `/image` would attach it, numbered in the order they stand.
     ///
     /// A path that is not there, not an image, not a file, or means nothing
-    /// is the words it is ([`image_paths::passed_over_at_submit`]); any other
-    /// failure is said under `images` in `/image`'s words, and the prompt is
-    /// not sent -- the draft stays as typed for the user to fix. A path inside
-    /// a badge or a paste's summary is not a word of the draft.
+    /// is the words it is ([`image_paths::passed_over_at_submit`]), and so is
+    /// one the configured read table denies, said first and never opened; any
+    /// other failure is said under `images` in `/image`'s words, and the
+    /// prompt is not sent -- the draft stays as typed for the user to fix. A
+    /// path inside a badge or a paste's summary is not a word of the draft.
     fn attach_typed(&mut self, text: &str) -> Typed {
         let spans = self.editor.entities().spans();
         let words: Vec<image_paths::ImagePath> = image_paths::find(text)
@@ -8854,9 +8902,13 @@ impl Shell {
             })
             .collect();
         let mut found = Vec::new();
+        let rules = self.work.rules().current();
         for word in words {
-            match image_paths::load(&self.workspace, self.home.as_deref(), &word) {
+            match image_paths::load(&self.workspace, self.home.as_deref(), &rules, &word) {
                 Ok(loaded) => found.push((word.range, loaded)),
+                Err(problem @ crate::image::AttachError::Denied(_)) => self.announce(
+                    notice::Notice::error(crate::image::TOPIC, problem.to_string()),
+                ),
                 Err(problem) if image_paths::passed_over_at_submit(&problem) => {}
                 Err(problem) => {
                     self.announce(notice::Notice::error(
@@ -11823,13 +11875,15 @@ impl CommandHandlers for Shell {
     /// error with no topic; a path that cannot be attached says why under
     /// `images`; one that can puts its badge at the caret and says
     /// `attached image: <name>`. The file is read now, whole, and what was read
-    /// is what every request sends ([`crate::image`]).
+    /// is what every request sends ([`crate::image`]) -- unless the configured
+    /// read table denies it, which is asked before the file is opened.
     fn image(&mut self, argument: &str) {
         if argument.trim_matches([' ', '\t']).is_empty() {
             self.write_notice(&notice::Notice::error("", crate::image::USAGE));
             return;
         }
-        match crate::image::load(&self.workspace, self.home.as_deref(), argument) {
+        let rules = self.work.rules().current();
+        match crate::image::load(&self.workspace, self.home.as_deref(), &rules, argument) {
             Err(problem) => self.announce(notice::Notice::error(
                 crate::image::TOPIC,
                 problem.to_string(),
@@ -21060,6 +21114,101 @@ mod tests {
             ],
             "{document:?}"
         );
+    }
+
+    #[test]
+    fn a_view_of_a_profile_that_does_not_read_leaves_a_deny_in_force() {
+        use crate::permission::{
+            ConfiguredRule, PermissionSession, PolicyDecision, ProposedAction, ReadPlan,
+            RuleAction, RuleSet,
+        };
+        let (home, _workspace, mut shell) = allowlist_shell();
+        let deny = RuleSet::new(vec![ConfiguredRule::new(
+            "read",
+            "secrets/*",
+            RuleAction::Deny,
+        )]);
+        shell.work.rules().replace(deny.clone());
+        let session = PermissionSession::new(crate::permission::PermissionMode::Ask)
+            .with_live_rules(shell.work.rules().clone());
+        let read = ReadPlan::new(
+            "read_file",
+            std::path::PathBuf::from("/w/secrets/key"),
+            "secrets/key".to_string(),
+            b"secrets/key".to_vec(),
+            "secrets/key".to_string(),
+            Vec::new(),
+        );
+        let denied = |session: &PermissionSession| {
+            matches!(
+                session.evaluate(ProposedAction::Read(&read)),
+                PolicyDecision::Deny { .. }
+            )
+        };
+        assert!(denied(&session), "the deny decides before the view");
+        let settings = home.path().join(".xfx").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, "{\"permission\": {\"bash\": \"perhaps\"}}").unwrap();
+        shell.route_bytes(b"/allowlist\r");
+        assert_eq!(*shell.work.rules().current(), deny);
+        assert!(denied(&session), "the deny still decides after the view");
+        let document = shell.document();
+        assert_eq!(
+            [document[0].as_str(), document[1].trim_start()].join(" "),
+            "\u{2717} settings: Failed to load settings: user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny; the permission rules in force are unchanged",
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn a_launch_says_what_the_configuration_could_not_use_as_upstream_does() {
+        // `writeCollapsedStartupNotice` (`app_bootstrap_runtime.zig:267-272`,
+        // `:666-687`): one neutral line in the document, the diagnostics on
+        // the full transcript only -- and here, since the table did not read,
+        // the refusal of every tool and the way back.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let settings = home.path().join(".xfx").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, r#"{"permission":{"bash":"sure"}}"#).unwrap();
+        let broken = config(home.path(), workspace.path());
+        let (work, sent, control, _changes) = WorkHandle::detached_with_changes();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &broken,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        shell.config_issues(&broken);
+        // The diagnostics are the full transcript's, not the document's.
+        assert_eq!(
+            shell.document(),
+            [
+                "* config: 1 configuration issue (ctrl+o to view)",
+                "",
+                "! permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value",
+                "  key=permission `sure` is not a permission action; use allow, ask or deny); fix it, then /allowlist reads it again",
+                "",
+            ]
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().any(|row| row
+                == "* config: user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny"),
+            "{screen:#?}"
+        );
+        // A configuration with nothing to say says nothing.
+        let (home, workspace, mut quiet) = allowlist_shell();
+        let clean = config(home.path(), workspace.path());
+        quiet.config_issues(&clean);
+        assert!(quiet.document().is_empty(), "{:?}", quiet.document());
     }
 
     /// `row` with every SGR sequence taken out: what a confirmation's rows
@@ -33272,6 +33421,127 @@ mod tests {
         pasted(&mut shell, &long);
         assert_eq!(shell.editor.text(), long);
         assert!(shell.editor.entities().is_empty());
+    }
+
+    /// The configured table, in force for the shell as `/allowlist` puts one
+    /// in force: under `category`, each of `patterns` with its action.
+    fn rule_table(shell: &mut Fixture, category: &str, patterns: &[(&str, &str)]) {
+        let patterns: serde_json::Map<String, serde_json::Value> = patterns
+            .iter()
+            .map(|(pattern, action)| (pattern.to_string(), serde_json::Value::from(*action)))
+            .collect();
+        let mut table = serde_json::Map::new();
+        table.insert(category.to_string(), serde_json::Value::Object(patterns));
+        let table =
+            crate::permission::RuleSet::parse(&serde_json::Value::Object(table)).expect("a table");
+        shell.work.rules().replace(table);
+    }
+
+    /// What the notice says for a path the read table denies.
+    fn denied(shown: &str) -> Vec<String> {
+        said(notice::Notice::error(
+            "images",
+            format!(
+                "failed to attach image: a configured permission rule denies reading `{shown}`"
+            ),
+        ))
+    }
+
+    /// Rows with every space taken out: [`unwrapped`] for a notice whose wrap
+    /// can fall inside a long path, where it puts no space of its own.
+    fn squeezed(rows: &[String]) -> String {
+        rows.concat().split_whitespace().collect()
+    }
+
+    #[test]
+    fn a_pasted_path_the_read_table_denies_stays_words_and_says_why() {
+        // The read table is the person's word on which files leave the
+        // machine; a paste that names one is not a way round it.
+        let mut shell = attaching();
+        std::fs::write(
+            shell.workspace.join("secret.png"),
+            crate::image::fixture::SHOT_PNG,
+        )
+        .expect("secret");
+        let outside = shell
+            .workspace
+            .parent()
+            .expect("a parent")
+            .join("private.png");
+        std::fs::write(&outside, crate::image::fixture::SHOT_PNG).expect("outside");
+        let outside_rule = outside.display().to_string();
+        rule_table(
+            &mut shell,
+            "read",
+            &[("secret.png", "deny"), (outside_rule.as_str(), "deny")],
+        );
+        pasted(&mut shell, "see secret.png");
+        assert!(
+            attached_ids(&shell).is_empty(),
+            "a path the read table denies was attached"
+        );
+        assert_eq!(shell.editor.text(), "see secret.png");
+        assert_eq!(shell.document(), denied("secret.png"));
+        // An absolute path is judged where it points, outside the workspace
+        // too; a path the table does not name still attaches beside it.
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, &format!("{} and shot.png", outside.display()));
+        assert_eq!(attached_ids(&shell), [1]);
+        assert_eq!(
+            shell.editor.text(),
+            format!("{} and [Image 1]", outside.display())
+        );
+        assert_eq!(
+            squeezed(&shell.document()),
+            squeezed(&denied(&outside_rule))
+        );
+        // Enter sends the words as words, saying so again: the file is never
+        // read.
+        shell.route_bytes(b"\r");
+        assert!(
+            squeezed(&shell.document()).starts_with(&squeezed(&denied(&outside_rule))),
+            "Enter did not say why the path stayed words"
+        );
+        assert_eq!(
+            sent_with_images(&mut shell),
+            (format!("{} and [Image #1]", outside.display()), vec![1])
+        );
+    }
+
+    #[test]
+    fn a_typed_path_or_slash_image_the_read_table_denies_is_never_read() {
+        let mut shell = attaching();
+        // Keyed by the tool's own name rather than its category: the attach
+        // reads the file as `read_file` would, and is judged as it is.
+        rule_table(&mut shell, "read_file", &[("shot.png", "deny")]);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.document(), denied("shot.png"));
+        assert!(attached_ids(&shell).is_empty());
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refusal reached the runtime"
+        );
+        // Typed into a prompt, the path is said and goes as the words it is.
+        shell.route_bytes(b"describe shot.png\r");
+        assert!(
+            shell.document().starts_with(&denied("shot.png")),
+            "a typed path the table denies was not said"
+        );
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("describe shot.png".to_string(), Vec::new())
+        );
+    }
+
+    #[test]
+    fn a_pasted_path_the_read_table_asks_about_attaches_without_a_question() {
+        // The paste is the person's own act: there is nobody else to ask.
+        let mut shell = attaching();
+        rule_table(&mut shell, "read", &[("*", "ask")]);
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "[Image 1]");
+        assert_eq!(attached_ids(&shell), [1]);
+        assert!(shell.document().is_empty());
     }
 
     #[test]
