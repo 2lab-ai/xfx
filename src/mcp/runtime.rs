@@ -484,7 +484,9 @@ pub struct McpRuntime {
     /// Bumped by every reload that put a new set in force.
     generation: AtomicU64,
     /// What the environment says, for a workspace server's `${VAR}` and an
-    /// HTTP server's `header_env` and `bearer_token_env`.
+    /// HTTP server's `header_env` and `bearer_token_env`. A workspace server
+    /// never gets xfx's own credentials from it: `config::load_workspace`
+    /// leaves them unset and refuses an entry that names one as a source.
     environment: Box<Lookup>,
 }
 

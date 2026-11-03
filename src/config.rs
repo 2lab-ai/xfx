@@ -212,6 +212,16 @@ pub const MAX_SKILL_SYMLINK_AUTHORITIES: usize = 32;
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
 const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 
+/// The variables that hold xfx's own Gateway credential.
+///
+/// No child inherits them: [`crate::process::command`] removes both from every
+/// command, and the terminal tool and an MCP stdio server start from an
+/// environment that is built rather than inherited. Only a value a person wrote
+/// on purpose -- an MCP server's configured `env` -- hands one to a child; a
+/// project server's `${VAR}`, `header_env` and `bearer_token_env` never resolve
+/// them (`mcp::config::load_workspace`).
+pub const CREDENTIAL_VARIABLES: [&str; 2] = [ENV_OIDC_TOKEN, ENV_GATEWAY_KEY];
+
 /// The variable llmux uses to name its own configuration file.
 ///
 /// Public so [`crate::llmux::setup`] reads one spelling of it rather than two.

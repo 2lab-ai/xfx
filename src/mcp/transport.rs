@@ -23,7 +23,8 @@
 //!   inside the TUI worker's runtime, where blocking on another future would
 //!   panic.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -180,11 +181,42 @@ pub struct StdioTransport {
     docker: Mutex<Option<super::docker::Cleanup>>,
 }
 
+/// The variables of xfx's own environment a stdio server is given, as the MCP
+/// SDKs give them (`inherited_names`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/config.zig:200-202`, since v0.0.15).
+const INHERITED_NAMES: [&str; 6] = ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"];
+
+/// The whole environment a stdio server starts with: those of
+/// [`INHERITED_NAMES`] that `inherited` holds, then the server's own `env` --
+/// what the person configured, so it wins, and so a credential it names is a
+/// grant (`transportFor`, `config.zig:219-225`). Nothing else of xfx's: not
+/// its credential, not a token or proxy setting a person exported for
+/// something else. A value that is an exported shell function (`() {...`) is
+/// not passed on, as upstream's is not.
+pub fn server_environment(
+    inherited: impl Fn(&str) -> Option<OsString>,
+    env: &[(String, String)],
+) -> BTreeMap<OsString, OsString> {
+    let mut environment = BTreeMap::new();
+    for name in INHERITED_NAMES {
+        if let Some(value) = inherited(name) {
+            if !value.as_encoded_bytes().starts_with(b"()") {
+                environment.insert(OsString::from(name), value);
+            }
+        }
+    }
+    for (name, value) in env {
+        environment.insert(OsString::from(name), OsString::from(value));
+    }
+    environment
+}
+
 impl StdioTransport {
-    /// Starts `command` with `args`, its environment the inherited one with
-    /// `env` added (`server_transport.zig:107-124`), in a process group of
-    /// its own (`pgid = 0`, `:946`). A `docker run` gets a `--cidfile` so its
-    /// container can be removed with it ([`super::docker`]).
+    /// Starts `command` with `args`, its environment [`server_environment`]'s
+    /// and nothing inherited, in a process group of its own (`pgid = 0`,
+    /// `vercel-labs/fx@c1db9191 src/core/mcp/server_transport.zig:945`). A
+    /// `docker run` gets a `--cidfile` so its container can be removed with
+    /// it, by a `docker` given the same environment ([`super::docker`]).
     pub fn spawn(
         command: &str,
         args: &[String],
@@ -194,11 +226,13 @@ impl StdioTransport {
         let mut argv: Vec<String> = Vec::with_capacity(args.len() + 1);
         argv.push(command.to_string());
         argv.extend(args.iter().cloned());
-        let prepared = super::docker::prepare(&argv);
+        let environment = server_environment(|name| std::env::var_os(name), env);
+        let prepared = super::docker::prepare(&argv, &environment);
         let mut builder = crate::process::command(&prepared.argv[0]);
         builder
             .args(&prepared.argv[1..])
-            .envs(env.iter().map(|(key, value)| (key, value)))
+            .env_clear()
+            .envs(&environment)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1298,6 +1332,266 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             transport.request("ping", json!({}), Duration::from_secs(1), None),
             Err(McpError::Named("McpConnectionClosed"))
         );
+    }
+
+    /// Upstream's own case (`src/core/mcp_host/config.zig:389-411@481104fd`),
+    /// by name: six of xfx's variables and the server's `env` over them, a
+    /// shell function dropped, the credential and the rest never passed.
+    #[test]
+    fn a_server_is_given_six_of_xfxs_variables_then_its_own_env() {
+        let inherited = |name: &str| {
+            [
+                ("HOME", "/home/me"),
+                ("LOGNAME", "me"),
+                ("PATH", "/usr/bin"),
+                ("SHELL", "() { :; }"),
+                ("TERM", "xterm"),
+                ("USER", "me"),
+                ("AI_GATEWAY_API_KEY", "xfx-sentinel-gateway-key"),
+                ("VERCEL_OIDC_TOKEN", "xfx-sentinel-oidc-token"),
+                ("HTTPS_PROXY", "http://127.0.0.1:9"),
+            ]
+            .into_iter()
+            .find(|(held, _)| *held == name)
+            .map(|(_, value)| OsString::from(value))
+        };
+        let env = [
+            ("GITHUB_TOKEN".to_string(), "g".to_string()),
+            ("TERM".to_string(), "dumb".to_string()),
+        ];
+        let got = server_environment(inherited, &env);
+        let want: BTreeMap<OsString, OsString> = [
+            ("GITHUB_TOKEN", "g"),
+            ("HOME", "/home/me"),
+            ("LOGNAME", "me"),
+            ("PATH", "/usr/bin"),
+            ("TERM", "dumb"),
+            ("USER", "me"),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.into(), value.into()))
+        .collect();
+        assert_eq!(got, want);
+        // A credential the server's own `env` names is a grant.
+        let granted = server_environment(
+            |_| None,
+            &[("AI_GATEWAY_API_KEY".into(), "xfx-sentinel-granted".into())],
+        );
+        assert_eq!(
+            granted.get(std::ffi::OsStr::new("AI_GATEWAY_API_KEY")),
+            Some(&OsString::from("xfx-sentinel-granted"))
+        );
+    }
+
+    /// Set only in the runner the case below starts, so the cases it runs
+    /// refuse to run anywhere else.
+    #[cfg(unix)]
+    const SENTINEL_RUNNER: &str = "XFX_TEST_SENTINEL_RUNNER";
+
+    /// The cases below need xfx's own environment to hold credentials, and a
+    /// test may not set a variable in its own process. So they run in a copy
+    /// of this test binary started with nothing of this one's environment but
+    /// `PATH`: fake credentials, an unrelated fake secret and a proxy, and the
+    /// six names a server is given. A child that prints its environment there
+    /// can print only these, whatever the machine running the suite holds.
+    #[cfg(unix)]
+    #[test]
+    fn a_server_and_its_docker_cleanup_see_only_what_they_are_given() {
+        const CASES: [&str; 2] = [
+            "mcp::transport::tests::sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env",
+            "mcp::transport::tests::sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment",
+        ];
+        let dir = tempfile::tempdir().expect("dir");
+        let mut runner =
+            crate::process::command(std::env::current_exe().expect("this test binary"));
+        runner
+            .env_clear()
+            .env(
+                "PATH",
+                std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
+            )
+            .env("TMPDIR", dir.path())
+            .env("HOME", dir.path())
+            .env("LOGNAME", "xfx-sentinel-logname")
+            .env("SHELL", "/bin/sh")
+            .env("TERM", "xfx-sentinel-term")
+            .env("USER", "xfx-sentinel-user")
+            .env("AI_GATEWAY_API_KEY", "xfx-sentinel-gateway-key")
+            .env("VERCEL_OIDC_TOKEN", "xfx-sentinel-oidc-token")
+            .env("GITHUB_TOKEN", "xfx-sentinel-github-token")
+            .env("HTTPS_PROXY", "http://127.0.0.1:9")
+            .env(SENTINEL_RUNNER, "1")
+            .args(["--ignored", "--exact", "--test-threads=1"])
+            .args(CASES);
+        let output = runner.output().expect("a runner");
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // Counted, not only exited-zero: a filter that matched nothing passes.
+        assert!(
+            output.status.success() && report.contains("test result: ok. 2 passed"),
+            "{report}"
+        );
+    }
+
+    /// What `/usr/bin/env` wrote to `path`, by name, once it is all there.
+    #[cfg(unix)]
+    fn printed_environment(path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let text = loop {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                break text;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{} never appeared",
+                path.display()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        text.lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect()
+    }
+
+    /// A child's environment held none of xfx's that it was not given --
+    /// named, never valued, in the failure.
+    #[cfg(unix)]
+    fn assert_given_only(
+        environment: &std::collections::BTreeMap<String, String>,
+        granted: &[&str],
+        who: &str,
+    ) {
+        let names: Vec<&String> = environment.keys().collect();
+        for name in [
+            "AI_GATEWAY_API_KEY",
+            "VERCEL_OIDC_TOKEN",
+            "GITHUB_TOKEN",
+            "HTTPS_PROXY",
+            SENTINEL_RUNNER,
+        ] {
+            assert!(
+                granted.contains(&name) || !environment.contains_key(name),
+                "{who} was handed {name}: {names:?}"
+            );
+        }
+        for (name, value) in [
+            ("LOGNAME", "xfx-sentinel-logname"),
+            ("SHELL", "/bin/sh"),
+            ("USER", "xfx-sentinel-user"),
+        ] {
+            assert_eq!(
+                environment.get(name).map(String::as_str),
+                Some(value),
+                "{who} lost {name}: {names:?}"
+            );
+        }
+        for name in ["HOME", "PATH"] {
+            assert!(
+                environment.contains_key(name),
+                "{who} lost {name}: {names:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run by a_server_and_its_docker_cleanup_see_only_what_they_are_given"]
+    fn sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env() {
+        assert!(
+            std::env::var_os(SENTINEL_RUNNER).is_some(),
+            "runs only in a_server_and_its_docker_cleanup_see_only_what_they_are_given's runner"
+        );
+        let dir = tempfile::tempdir().expect("dir");
+        let out = dir.path().join("server.env");
+        let out = out.to_string_lossy().into_owned();
+        // The server's own `env` is a grant: a credential it names on purpose
+        // is passed, and a name it shares with xfx's environment is its own.
+        let transport = StdioTransport::spawn(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                r#"/usr/bin/env > "$XFX_TEST_OUT.part" && /bin/mv "$XFX_TEST_OUT.part" "$XFX_TEST_OUT"; exec /bin/cat > /dev/null"#.into(),
+            ],
+            &[
+                ("XFX_TEST_OUT".into(), out.clone()),
+                ("VERCEL_OIDC_TOKEN".into(), "xfx-sentinel-granted".into()),
+                ("TERM".into(), "dumb".into()),
+            ],
+            None,
+        )
+        .expect("spawned");
+        let environment = printed_environment(std::path::Path::new(&out));
+        transport.close();
+        assert_given_only(&environment, &["VERCEL_OIDC_TOKEN"], "the server");
+        let names: Vec<&String> = environment.keys().collect();
+        assert_eq!(
+            environment.get("TERM").map(String::as_str),
+            Some("dumb"),
+            "{names:?}"
+        );
+        assert_eq!(
+            environment.get("VERCEL_OIDC_TOKEN").map(String::as_str),
+            Some("xfx-sentinel-granted"),
+            "{names:?}"
+        );
+        assert_eq!(environment.get("XFX_TEST_OUT"), Some(&out), "{names:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run by a_server_and_its_docker_cleanup_see_only_what_they_are_given"]
+    fn sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment() {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert!(
+            std::env::var_os(SENTINEL_RUNNER).is_some(),
+            "runs only in a_server_and_its_docker_cleanup_see_only_what_they_are_given's runner"
+        );
+        // A `docker` written for the test: `run` names a container in the
+        // cidfile xfx inserted and waits for the end of its input, `rm` only
+        // records how it was started.
+        let dir = tempfile::tempdir().expect("dir");
+        let docker = dir.path().join("docker");
+        std::fs::write(
+            &docker,
+            "#!/bin/sh\n\
+             dir=${0%/*}\n\
+             case \"$1\" in\n\
+             run) printf 0123456789abcdef > \"$3\"; /usr/bin/env > \"$dir/run.part\"; /bin/mv \"$dir/run.part\" \"$dir/run.env\"; exec /bin/cat > /dev/null ;;\n\
+             rm) /usr/bin/env > \"$dir/rm.part\"; /bin/mv \"$dir/rm.part\" \"$dir/rm.env\" ;;\n\
+             esac\n",
+        )
+        .expect("a docker");
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755)).expect("0755");
+        let transport = StdioTransport::spawn(
+            &docker.to_string_lossy(),
+            &["run".into(), "-i".into(), "xfx-fixture".into()],
+            &[("DOCKER_HOST".into(), "unix:///xfx-sentinel.sock".into())],
+            None,
+        )
+        .expect("spawned");
+        let run = printed_environment(&dir.path().join("run.env"));
+        transport.close();
+        let rm = printed_environment(&dir.path().join("rm.env"));
+        // The cleanup reaches the daemon the server did, or the container
+        // stays.
+        for (environment, who) in [(&run, "docker run"), (&rm, "docker rm")] {
+            assert_eq!(
+                environment.get("DOCKER_HOST").map(String::as_str),
+                Some("unix:///xfx-sentinel.sock"),
+                "{who} lost the server's DOCKER_HOST: {:?}",
+                environment.keys().collect::<Vec<_>>()
+            );
+        }
+        assert_given_only(&run, &[], "docker run");
+        assert_given_only(&rm, &[], "docker rm");
+        for name in ["HOME", "PATH", "TERM"] {
+            assert_eq!(run.get(name), rm.get(name), "{name}");
+        }
     }
 
     #[cfg(unix)]

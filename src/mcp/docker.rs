@@ -6,10 +6,16 @@
 //! `docker run` gets `--cidfile <TMPDIR>/xfx-mcp-<hex>.cid` inserted after
 //! `run`, and when the server stops, the id the daemon wrote there is removed
 //! with `docker rm -f <id>` -- the same `docker` the server was started with,
-//! never one found by name. Nothing else is rewritten: a command that already
-//! names a `--cidfile`, or that runs docker through anything else, is started
-//! exactly as written.
+//! never one found by name, and with the environment the server was given, so
+//! it reaches the daemon the server's own `DOCKER_HOST` or `DOCKER_CONTEXT`
+//! named and sees nothing of xfx's the server did not (`Cleanup.environ_map`,
+//! `docker_run.zig:35-44`, `:71`, filled from the server's at
+//! `server_transport.zig:933-936`). Nothing else is rewritten: a command that
+//! already names a `--cidfile`, or that runs docker through anything else, is
+//! started exactly as written.
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -29,10 +35,14 @@ pub struct Prepared {
 pub struct Cleanup {
     docker: String,
     cidfile: PathBuf,
+    /// The server's whole environment, and the removal's: nothing of xfx's
+    /// that the server was not given.
+    environment: BTreeMap<OsString, OsString>,
 }
 
-/// `prepare` (`docker_run.zig:94-133`).
-pub fn prepare(argv: &[String]) -> Prepared {
+/// `prepare` (`docker_run.zig:94-133`), for a server started with
+/// `environment` and nothing else.
+pub fn prepare(argv: &[String], environment: &BTreeMap<OsString, OsString>) -> Prepared {
     let unchanged = || Prepared {
         argv: argv.to_vec(),
         cleanup: None,
@@ -55,6 +65,7 @@ pub fn prepare(argv: &[String]) -> Prepared {
         cleanup: Some(Cleanup {
             docker: argv[0].clone(),
             cidfile,
+            environment: environment.clone(),
         }),
     }
 }
@@ -114,6 +125,8 @@ impl Cleanup {
         };
         let Ok(mut child) = crate::process::command(&self.docker)
             .args(["rm", "-f", &id])
+            .env_clear()
+            .envs(&self.environment)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -156,13 +169,10 @@ mod tests {
 
     #[test]
     fn a_direct_docker_run_gets_a_cidfile_after_run_and_nothing_else_is_rewritten() {
-        let prepared = prepare(&words(&[
-            "/usr/local/bin/docker",
-            "run",
-            "--rm",
-            "-i",
-            "fixture",
-        ]));
+        let prepared = prepare(
+            &words(&["/usr/local/bin/docker", "run", "--rm", "-i", "fixture"]),
+            &BTreeMap::new(),
+        );
         assert_eq!(prepared.argv.len(), 7);
         assert_eq!(prepared.argv[2], "--cidfile");
         assert!(prepared.argv[3].ends_with(".cid"), "{:?}", prepared.argv);
@@ -175,7 +185,7 @@ mod tests {
             words(&["podman", "run", "i"]),
             words(&["/bin/sh", "-c", "docker run i"]),
         ] {
-            let prepared = prepare(&argv);
+            let prepared = prepare(&argv, &BTreeMap::new());
             assert_eq!(prepared.argv, argv);
             assert!(prepared.cleanup.is_none());
         }
