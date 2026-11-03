@@ -1749,7 +1749,11 @@ async fn one_turn(
             writeln!(out, "[shell] {line}")?;
         }
     }
-    let mut sink = TextSink::new(stdout, stderr).with_tool_notices();
+    // The approval question is asked on this terminal after the answer, so the
+    // answer reaches it inert: no state the model wrote is in force there.
+    let mut sink = TextSink::new(stdout, stderr)
+        .with_tool_notices()
+        .on_terminal(io::stdout().is_terminal());
 
     interrupts.begin_turn();
     // Awaited here, on this thread: when this returns there is no work left

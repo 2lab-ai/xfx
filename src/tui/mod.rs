@@ -747,7 +747,7 @@ mod approval;
 mod approval_amendment;
 mod approval_readiness;
 mod approval_screen;
-mod approval_view;
+pub(crate) mod approval_view;
 mod blocks;
 mod bridge;
 mod check;
