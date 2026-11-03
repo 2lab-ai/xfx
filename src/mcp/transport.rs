@@ -1408,6 +1408,11 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             granted.get(std::ffi::OsStr::new("AI_GATEWAY_API_KEY")),
             Some(&OsString::from("xfx-sentinel-granted"))
         );
+        // Exactly these six: asked about every name, it passes on no other,
+        // so a seventh added to the list fails here rather than passing.
+        let everything = server_environment(|name| Some(OsString::from(name)), &[]);
+        let names: Vec<&std::ffi::OsStr> = everything.keys().map(OsString::as_os_str).collect();
+        assert_eq!(names, ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]);
     }
 
     /// Set only in the runner the case below starts, so the cases it runs

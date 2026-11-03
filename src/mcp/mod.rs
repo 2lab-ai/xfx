@@ -26,7 +26,9 @@
 //! with six variables of their environment -- `HOME`, `LOGNAME`, `PATH`,
 //! `SHELL`, `TERM`, `USER` -- and the server's own `env`, never xfx's
 //! credential or anything else it inherited
-//! ([`transport::server_environment`]), in a process group of its own and
+//! ([`transport::server_environment`]) -- defence in depth rather than a
+//! boundary, since a process of the same user can read xfx's launch
+//! environment (`ps -E` on macOS) -- in a process group of its own and
 //! stopped by that group. A server that needs more of the person's
 //! environment -- a proxy, `TMPDIR`, the locale (`LANG`, `LC_*`), on Linux
 //! `DISPLAY`, `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS`, `NODE_*`, a
