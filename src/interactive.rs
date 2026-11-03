@@ -1371,6 +1371,19 @@ pub async fn run(
     if config.permission_mode == PermissionMode::Yolo {
         writeln!(diagnostics, "{YOLO_WARNING}")?;
     }
+    // What the configuration could not use, as `xfx ask` says it
+    // ([`crate::config::Diagnostic::startup_line`]), and a table that did not
+    // read with the way back: `/allowlist` reads the file again and puts a
+    // table that reads in force.
+    for diagnostic in &config.diagnostics {
+        writeln!(diagnostics, "xfx: config {}", diagnostic.startup_line())?;
+    }
+    if let Some(refusal) = config.permission.refusal() {
+        writeln!(
+            diagnostics,
+            "xfx: permissions: {refusal}; fix it, then /allowlist reads it again"
+        )?;
+    }
 
     // Owned from here down, because `/setup` replaces it. Everything below
     // reads the configuration through this binding, so a provider switch is one

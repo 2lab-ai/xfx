@@ -493,6 +493,9 @@ fn hold(
             shell.session_assembled();
         }
     }
+    // Fresh or resumed, as upstream's launch says them either way
+    // (`app_bootstrap_runtime.zig:666-687`).
+    shell.config_issues(config);
     let code = event_loop::run(
         &mut shell,
         band,
