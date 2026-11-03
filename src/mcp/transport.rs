@@ -250,7 +250,7 @@ impl StdioTransport {
     }
 
     /// Writes `frame` by `deadline`, ending the connection when the server
-    /// would not take it.
+    /// would not take it or failed it.
     fn write(
         &self,
         frame: &Value,
@@ -264,6 +264,10 @@ impl StdioTransport {
                 Unsent::Cut(err) => {
                     abandon(&self.child, &self.alive, &self.pending);
                     err
+                }
+                Unsent::Broken => {
+                    abandon(&self.child, &self.alive, &self.pending);
+                    McpError::Named("McpConnectionClosed")
                 }
                 Unsent::Closed => McpError::Named("McpConnectionClosed"),
             })
@@ -302,9 +306,14 @@ enum Unsent {
     /// would read next may be half a frame. fx ends the connection here too
     /// (`taint_connection`, `stdio_dispatcher.zig:668`, `:743-748`).
     Cut(McpError),
-    /// The input is closed -- by [`Input::close`], by a frame cut before, or
-    /// by the server.
+    /// The input was closed by xfx -- by [`Input::close`] or by a frame cut
+    /// before -- and whatever ends the connection is already under way.
     Closed,
+    /// The server failed the write: it closed its input, or it has gone.
+    /// Nothing more can be said to it, so the connection ends and its group
+    /// is killed, as fx kills a child it can no longer write to
+    /// (`stdio_dispatcher.zig:585-594`, `:743-751`).
+    Broken,
 }
 
 impl Input {
@@ -390,7 +399,7 @@ impl Input {
                 });
             }
             match pipe.write(&line[written..]) {
-                Ok(0) => return Err(Unsent::Closed),
+                Ok(0) => return Err(Unsent::Broken),
                 Ok(count) => written += count,
                 Err(err) if err.kind() == ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == ErrorKind::WouldBlock => {
@@ -402,7 +411,7 @@ impl Input {
                     );
                 }
                 // The server closed its input, or has gone.
-                Err(_) => return Err(Unsent::Closed),
+                Err(_) => return Err(Unsent::Broken),
             }
         }
         Ok(())
@@ -489,11 +498,12 @@ fn writable(_: &ChildStdin, wait: Duration) {
     std::thread::sleep(wait);
 }
 
-/// Ends a connection whose server would not take a frame: every caller
-/// waiting on it is told, and the server is killed with its group rather
-/// than left to read half a message (`failConnection`, `terminateChild`,
-/// `stdio_dispatcher.zig:687-690`). It is collected by
-/// [`Transport::close`], which every connection ends with.
+/// Ends a connection whose server would not take a frame, or failed one:
+/// every caller waiting on it is told, and the server is killed with its
+/// group rather than left to read half a message or to run on unreachable
+/// (`failConnection`, `terminateChild`, `stdio_dispatcher.zig:687-690`). It
+/// is collected by [`Transport::close`], which every connection ends with;
+/// until then its id is still its group's.
 fn abandon(child: &Mutex<Option<Child>>, alive: &AtomicBool, pending: &Pending) {
     alive.store(false, Ordering::Release);
     fail_all(pending, "McpConnectionClosed");
@@ -597,7 +607,9 @@ impl Reader {
                 // Bounded, so a server that asks and does not read cannot
                 // stop this thread for longer than that.
                 let deadline = Instant::now() + FRAME_WRITE_TIMEOUT;
-                if let Err(Unsent::Cut(_)) = self.stdin.send(&reply, deadline, None) {
+                if let Err(Unsent::Cut(_) | Unsent::Broken) =
+                    self.stdin.send(&reply, deadline, None)
+                {
                     abandon(&self.child, &self.alive, &self.pending);
                 }
             }
@@ -1384,9 +1396,10 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     }
 
     /// The script of a server that never reads: a grandchild, both ids, and
-    /// then a leader that holds its input open and asleep.
+    /// then a leader that holds its input open and asleep -- both for longer
+    /// than [`assert_gone`] waits, so only a signal ends them in time.
     #[cfg(unix)]
-    const DEAF: &str = r#"sleep 30 & echo "$$ $!" > "$1"; exec sleep 30"#;
+    const DEAF: &str = r#"sleep 120 & echo "$$ $!" > "$1"; exec sleep 120"#;
 
     /// More than any pipe buffer holds (64 KiB on Linux and macOS).
     #[cfg(unix)]
@@ -1415,7 +1428,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         let pid = rustix::process::Pid::from_raw(pid).expect("pid");
         let deadline = Instant::now() + Duration::from_secs(30);
         while rustix::process::test_kill_process(pid).is_ok() {
-            assert!(Instant::now() < deadline, "{what} outlived close");
+            assert!(Instant::now() < deadline, "{what} outlived its stop");
             std::thread::sleep(Duration::from_millis(20));
         }
     }
@@ -1433,8 +1446,25 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         assert_eq!(result, Err(McpError::Named("McpRequestTimedOut")));
         assert!(took < timeout + Duration::from_secs(5), "took {took:?}");
         // The server would not take the frame, and what it would read next
-        // is half of one: the connection is over.
+        // is half of one: the connection is over, and its whole group is
+        // killed there and then -- before any close -- while its leader is
+        // left for the close to collect.
         assert!(!transport.alive());
+        assert_gone(grandchild, "the server's grandchild, at the cut,");
+        assert!(
+            matches!(
+                rustix::process::waitid(
+                    rustix::process::WaitId::Pid(
+                        rustix::process::Pid::from_raw(leader).expect("pid")
+                    ),
+                    rustix::process::WaitIdOptions::EXITED
+                        | rustix::process::WaitIdOptions::NOWAIT
+                        | rustix::process::WaitIdOptions::NOHANG,
+                ),
+                Ok(Some(_))
+            ),
+            "the leader was not killed, or was collected, before the close"
+        );
         let closer = Arc::clone(&transport);
         let ((), took) =
             within(Duration::from_secs(20), move || closer.close()).expect("close never returned");
@@ -1523,7 +1553,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     fn a_server_that_asks_and_never_reads_the_answers_cannot_hold_close() {
         // Thousands of `ping`s, whose answers are more than the pipe holds,
         // and the input never read.
-        let script = r#"sleep 30 & echo "$$ $!" > "$1"; i=0; while [ "$i" -lt 4000 ]; do printf '{"jsonrpc":"2.0","id":%d,"method":"ping"}\n' "$i"; i=$((i+1)); done; exec sleep 30"#;
+        let script = r#"sleep 120 & echo "$$ $!" > "$1"; i=0; while [ "$i" -lt 4000 ]; do printf '{"jsonrpc":"2.0","id":%d,"method":"ping"}\n' "$i"; i=$((i+1)); done; exec sleep 120"#;
         let (transport, (leader, grandchild), _dir) = deaf_server(script);
         // An answer it does not take within its bound ends the connection,
         // rather than stopping the reader for a second per question.
@@ -1609,7 +1639,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[test]
     fn a_server_whose_leader_has_gone_has_the_rest_of_its_group_stopped() {
         let (transport, (leader, grandchild), _dir) =
-            deaf_server(r#"sleep 30 & echo "$$ $!" > "$1"; exit 0"#);
+            deaf_server(r#"sleep 120 & echo "$$ $!" > "$1"; exit 0"#);
         let pid = rustix::process::Pid::from_raw(leader).expect("pid");
         let deadline = Instant::now() + Duration::from_secs(30);
         // Exited, and not collected until the close.
@@ -1800,10 +1830,8 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[cfg(unix)]
     #[test]
     fn looking_for_a_leader_s_exit_leaves_it_to_be_collected() {
-        let mut child = crate::process::command("/bin/sh")
-            .args(["-c", "exit 3"])
-            .spawn()
-            .expect("spawned");
+        // `true` from the path: `/bin/true` is `/usr/bin/true` on macOS.
+        let mut child = crate::process::command("true").spawn().expect("spawned");
         let leader = rustix::process::Pid::from_raw(child.id() as i32).expect("pid");
         let deadline = Instant::now() + Duration::from_secs(30);
         while !Server(&mut child).exited() {
@@ -1823,33 +1851,48 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             ),
             "looking for the exit collected the leader"
         );
-        assert_eq!(child.wait().expect("collected").code(), Some(3));
+        assert!(child.wait().expect("collected").success());
     }
 
     #[cfg(unix)]
     #[test]
     fn a_server_that_shut_its_input_is_diagnosed_by_what_it_says_on_its_way_out() {
         // The request fails at the write, with the server's output still
-        // open: the connection is not known to be gone yet, and its last
-        // words come after.
+        // open: the connection is not known to be gone until the write says
+        // so. fx ends a child it can no longer write to, and its last words
+        // still arrive (`stdio_dispatcher.zig:2897-2928`).
         let transport = StdioTransport::spawn(
             "/bin/sh",
             &[
                 "-c".into(),
-                "exec 0<&-; sleep 0.3; echo 'npm error code E401' >&2; exit 7".into(),
+                "exec 0<&-; echo 'npm error code E401' >&2; exec sleep 30".into(),
             ],
             &[],
             None,
         )
         .expect("spawned");
-        std::thread::sleep(Duration::from_millis(100));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !transport
+            .stderr
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains("E401")
+        {
+            assert!(Instant::now() < deadline, "the server never spoke");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert_eq!(
             transport.request("initialize", json!({}), Duration::from_secs(60), None),
             Err(McpError::Named("McpConnectionClosed"))
+        );
+        assert!(
+            !transport.alive(),
+            "a server xfx can no longer write to kept its connection, so it is never started again"
         );
         assert_eq!(
             transport.diagnostic().as_deref(),
             Some("npm error code E401")
         );
+        transport.close();
     }
 }

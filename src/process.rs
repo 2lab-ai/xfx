@@ -25,7 +25,9 @@
 //! `nohup` ignores `SIGHUP`, and a non-interactive shell's `&` ignores `SIGINT`
 //! and `SIGQUIT`, precisely so that everything started under them inherits the
 //! ignore through `exec`. That is the launcher's choice, not a disposition xfx
-//! set.
+//! set. `SIGCHLD` is the one exception: [`collect_own_children`] puts it back
+//! to its default at startup, because ignoring it takes xfx's children out of
+//! its hands.
 //!
 //! The case `no_child_process_is_made_any_other_way` keeps every
 //! `Command::new` in the library's own code in this file.
@@ -78,6 +80,35 @@ fn clean_signals(command: &mut Command) {
             Ok(())
         });
     }
+}
+
+/// Puts `SIGCHLD` back to its default, whatever xfx was started with.
+///
+/// Run first in `main`. An ignored `SIGCHLD` -- which, unlike the ignores the
+/// module keeps, a launcher can hand down by accident -- has the kernel
+/// collect each child the moment it exits (POSIX `waitpid`, XSI). Linux does
+/// so for an ignore inherited through `exec` -- `wait` fails with `ECHILD`, the
+/// case below -- and macOS 26 does not. Where it does, `wait` fails,
+/// and worse, a process group whose leader is already gone can have its id
+/// handed out again before xfx signals the group: the stop paths in
+/// [`crate::mcp`] and [`crate::tools`] rely on the leader staying
+/// uncollected until they have signalled. xfx installs no `SIGCHLD` handler
+/// of its own, so nothing is lost; its children inherit the default. fx sets
+/// no disposition for `SIGCHLD` at either pin (`c1db9191`, `481104fd`).
+#[cfg(unix)]
+pub fn collect_own_children() -> std::io::Result<()> {
+    // SAFETY: `sigaction` is a plain struct for which all-zero is a valid
+    // value, then given `SIG_DFL` and an empty mask; no flag is kept, so
+    // `SA_NOCLDWAIT` goes with the ignore.
+    unsafe {
+        let mut default: libc::sigaction = std::mem::zeroed();
+        default.sa_sigaction = libc::SIG_DFL;
+        libc::sigemptyset(&mut default.sa_mask);
+        if libc::sigaction(libc::SIGCHLD, &default, std::ptr::null_mut()) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(all(test, unix))]
@@ -359,5 +390,75 @@ mod tests {
             found.is_empty(),
             "a child process made without crate::process::command: {found:?}"
         );
+    }
+    /// Set in the test process the case below starts, which runs only the
+    /// probe half.
+    const SIGCHLD_PROBE: &str = "XFX_TEST_SIGCHLD_PROBE";
+
+    #[test]
+    fn a_child_is_collected_even_when_xfx_was_started_ignoring_sigchld() {
+        // `SIGCHLD` ignored makes the kernel collect every child as it exits:
+        // `wait` then fails, and the id of a process group whose leader xfx
+        // is about to signal can be handed out again first. The disposition
+        // is the whole process's, so the case runs in a process of its own.
+        if std::env::var_os(SIGCHLD_PROBE).is_some() {
+            return sigchld_probe();
+        }
+        use std::os::unix::process::CommandExt;
+
+        let mut probe = std::process::Command::new(std::env::current_exe().expect("this binary"));
+        probe
+            .args([
+                "--exact",
+                "process::tests::a_child_is_collected_even_when_xfx_was_started_ignoring_sigchld",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(SIGCHLD_PROBE, "1");
+        // The launcher's ignore, set where a launcher sets it: in the child,
+        // before `exec`, which keeps it. Not through a shell's `trap`, which
+        // dash does not hand on.
+        // SAFETY: as `clean_signals`: the closure allocates nothing and calls
+        // only `sigaction` on a value it owns by copy.
+        let ignore = unsafe {
+            let mut ignore: libc::sigaction = std::mem::zeroed();
+            ignore.sa_sigaction = libc::SIG_IGN;
+            libc::sigemptyset(&mut ignore.sa_mask);
+            ignore
+        };
+        // SAFETY: as above.
+        unsafe {
+            probe.pre_exec(move || {
+                if libc::sigaction(libc::SIGCHLD, &ignore, std::ptr::null_mut()) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let output = probe.output().expect("the probe ran");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("sigchld probe: collected"),
+            "{}{}",
+            stdout,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn sigchld_probe() {
+        // SAFETY: a null new action makes `sigaction` a pure query.
+        let ignored = unsafe {
+            let mut current: libc::sigaction = std::mem::zeroed();
+            libc::sigaction(libc::SIGCHLD, std::ptr::null(), &mut current) == 0
+                && current.sa_sigaction == libc::SIG_IGN
+        };
+        assert!(ignored, "the probe was not started ignoring SIGCHLD");
+        collect_own_children().expect("SIGCHLD taken back");
+        let status = command("/bin/sh")
+            .args(["-c", "exit 3"])
+            .status()
+            .expect("an inherited SIGCHLD ignore collected the child first");
+        assert_eq!(status.code(), Some(3));
+        println!("sigchld probe: collected");
     }
 }
