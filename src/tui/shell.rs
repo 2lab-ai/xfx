@@ -11192,10 +11192,55 @@ impl Shell {
     /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
     /// the column says `loading models...` only until the read lands, a turn
     /// running or not. A catalog that could not be read is not asked again
-    /// from here: the column says `unable to load models`, and `/model` is the
-    /// gesture that retries.
+    /// from an edit: the column says `unable to load models`, and the frame
+    /// that paints it asks again once the read that failed is a second old
+    /// ([`Self::settle_column`]).
     fn want_catalog(&mut self) {
         if self.catalog_known != CatalogKnown::Unasked {
+            return;
+        }
+        self.work.control(TurnControl::Catalog);
+        self.catalog_known = CatalogKnown::Asked;
+    }
+
+    /// The inline column's own redraw asking for the catalog again after a
+    /// read that failed, as upstream's does: every frame that draws the column
+    /// on its models stage lists them through `modelPickerCompletions` ->
+    /// `modelCompletions` -> `ensureModelCache` (`app_render_runtime.zig:561-563`,
+    /// in `footerContext`; `input_completion_runtime.zig:1029-1030`;
+    /// `main.zig:2370-2373`), which starts a load again once the one that
+    /// failed began a second ago (`beginLoad`, `model_cache_runtime.zig:441-442`),
+    /// and the same frame says `loading models...` (`isModelCacheLoading`,
+    /// `app_render_runtime.zig:745-746`). So here: called as a frame is about
+    /// to be committed (`super::event_loop`'s `commit_counted`), and acting
+    /// only when one is owed -- the column in the band's slot, on its models
+    /// stage, over a failure past its floor ([`may_read_again`]).
+    ///
+    /// **No clock of its own.** What paints the column paints it again: an
+    /// edit, the catalog's answer, a resize, and while a turn or a compaction
+    /// works the activity row's 50 ms tick
+    /// ([`super::render_request::ANIMATION_TICK`]) -- upstream's are its 50 ms
+    /// animation frames while a stream runs (`advanceVisibleAnimation`,
+    /// `app_worker_runtime.zig:840-875`; `animation_interval_ms`,
+    /// `ui/render_request.zig:68`). With none of those an idle tick owes no
+    /// frame, paints nothing and asks nothing, here and upstream
+    /// (`flushRequestedFrame` begins no attempt without a request,
+    /// `app_render_runtime.zig:928-929`): the column says `unable to load
+    /// models` until the next keystroke.
+    pub(crate) fn settle_column(&mut self, now: Instant) {
+        if !self.render.owed() || !matches!(self.slot(), Some(Slot::Column)) {
+            return;
+        }
+        let Some(query) = self.column.active(self.editor.text()) else {
+            return;
+        };
+        if query.stage != model_column::Stage::Model {
+            return;
+        }
+        let CatalogKnown::Unread(_, attempted) = self.catalog_known else {
+            return;
+        };
+        if !may_read_again(attempted, now) {
             return;
         }
         self.work.control(TurnControl::Catalog);
@@ -23551,12 +23596,72 @@ mod tests {
             attempted: failed_long_ago(),
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
-        // The column does not ask again by itself; `/model` does, and the
-        // menu says upstream's retryable sentence while it waits for nothing.
+        // An edit does not ask again; the frame that draws the column does,
+        // once the failed read is a second old
+        // (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed`).
         shell.route_bytes(b"y");
+        assert!(shell.sent.try_recv().is_err(), "the edit retried");
+    }
+
+    #[test]
+    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed(
+    ) {
+        // Upstream's column lists its models through `ensureModelCache` in
+        // every frame that draws it (`footerContext`,
+        // `app_render_runtime.zig:561-563`), which loads again a second after
+        // the failed load began (`beginLoad`, `model_cache_runtime.zig:441-442`)
+        // and says `loading models...` in that same frame (`:745-746`); a tick
+        // that owes no frame draws nothing and asks nothing (`:928-929`).
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_just_now(),
+        });
+        shell.route_bytes(b"/model ");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        // A frame inside the second: asks nothing.
+        assert!(shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert!(shell.controlled().is_none(), "asked inside the floor");
+        let _ = shell.render.begin();
+        // Past the second, an idle tick -- no frame owed -- asks nothing:
+        // there is no clock of the column's own.
+        shell.shell.catalog_known =
+            CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
+        assert!(!shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert!(shell.controlled().is_none(), "an idle tick asked");
+        // The next frame -- the activity row's tick, say -- asks, once, and
+        // that frame says so.
+        shell.shell.render.request(Reason::Animation);
+        shell.settle_column(Instant::now());
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(column(&shell)[0], "         loading models...");
+        shell.settle_column(Instant::now());
+        assert!(shell.controlled().is_none(), "asked twice for one read");
+        // The read lands, and the column lists it.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("one", None, &[])],
+        });
+        assert_eq!(column(&shell)[0], "         vendor/one");
+        // A column the band is not drawing -- a question has the slot -- asks
+        // nothing, frame or not.
+        let mut asked = self::shell(40, 120);
+        asked.route_bytes(b"/model ");
+        let _ = asked.controlled();
+        asked.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
+        });
+        asked.apply(UiEvent::Question(a_batch()));
+        assert!(asked.render.owed());
+        asked.settle_column(Instant::now());
         assert!(
-            shell.sent.try_recv().is_err(),
-            "the column retried on its own"
+            asked.controlled().is_none(),
+            "a column under a question asked"
         );
     }
 
