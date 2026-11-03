@@ -567,8 +567,8 @@ fn opening_a_session_the_preview_wrote_in_the_tui_and_leaving_it_writes_nothing(
     // appends nothing (`hydrateResumedSession`, `vercel-labs/fx@c1db9191
     // src/core/app/app_session_runtime.zig:2368-2420`). What the open changed
     // -- the provider no log the preview wrote names, the launch's mode -- is
-    // written ahead of the first turn instead, which the continuation test
-    // above holds to the preview's kinds. Red before (`de6618de`): one
+    // written ahead of the first turn instead, which the TUI continuation
+    // test below holds to the preview's kinds. Red before (`de6618de`): one
     // `preferences_changed` on every open, measured in the COMPAT receipt.
     let preview = Preview::seed();
     let gateway = FakeGateway::start(Vec::new());
@@ -607,4 +607,71 @@ fn opening_a_session_the_preview_wrote_in_the_tui_and_leaving_it_writes_nothing(
         gateway.title_requests().is_empty(),
         "opening a session asked for a title"
     );
+}
+
+#[test]
+fn continuing_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_preview_reads() {
+    // The TUI's own continuation, beside `ask`'s above: `--resume`, one
+    // prompt, `/quit`. What the open changed is written just ahead of that
+    // prompt -- the provider no log the preview wrote names, and the launch's
+    // mode over the band session's `ask` -- as a `preferences_changed`, a kind
+    // the preview reads; and the saved bytes stay the head of the log.
+    let preview = Preview::seed();
+    for id in [BAND, PLAIN] {
+        let before = preview.log(id);
+        let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["MARKER-TUI-TURN"]))]);
+        let pty = Pty::open();
+        pty.resize(24, 100);
+        let mut command = preview.sandbox.command_with(&gateway);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command.current_dir(preview.workspace_of(id));
+        command.arg("--resume").arg(id);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for("session resumed:");
+        session.type_bytes(b"one more question\r");
+        session.wait_for("MARKER-TUI-TURN");
+        // The turn's conclusion is on disk before the band shows it ended,
+        // but not before its answer: wait for the log to say so.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !kinds_of(&preview.log(id)[before.len()..]).contains(&"turn_concluded".to_string()) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{id}: the turn never concluded"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(session.quit().code(), Some(0), "{id}");
+
+        let gained = appended(&preview, id, &before);
+        assert_eq!(
+            gained[..3],
+            [
+                "preferences_changed",
+                "project_context_recorded",
+                "user_message"
+            ],
+            "{id}: {gained:?}"
+        );
+        let first: Value = serde_json::from_str(
+            std::str::from_utf8(&preview.log(id)[before.len()..])
+                .expect("UTF-8")
+                .lines()
+                .next()
+                .expect("a frame"),
+        )
+        .expect("a frame");
+        assert_eq!(first["event"]["provider"], "gateway", "{id}: {first}");
+        if id == BAND {
+            assert_eq!(first["event"]["permission_mode"], "auto", "{id}: {first}");
+        }
+        assert_eq!(
+            preview.manifest(id)["event_log_bytes"],
+            preview.log(id).len()
+        );
+        ok(
+            &preview.xfx(&["session", "--id", id]),
+            &format!("session --id {id} after the TUI continued it"),
+        );
+    }
 }

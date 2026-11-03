@@ -197,6 +197,9 @@ recomputed after the paths are put in):
 - `continuing_a_session_the_preview_wrote_appends_only_frames_the_preview_reads` -- `ask --resume-id`
   on all five: old bytes the head of the log, every appended kind one of the preview's eleven, the
   boundary moved, the saved history sent first.
+- `continuing_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_preview_reads` -- `xfx
+  --resume`, one prompt, `/quit`, on a real pty: the open's `preferences_changed` (provider, the launch's
+  mode) lands just ahead of the prompt, every appended kind one of the preview's eleven (RESUMEb).
 - `opening_a_session_the_preview_wrote_in_the_tui_and_leaving_it_writes_nothing` -- `xfx --resume`
   then `/quit`, on a real pty: every file of the session identical, `mtime`s included; no request, no
   title. (At `de6618de` it asserted the append-only property of the open's frame; G-resume-prefs
