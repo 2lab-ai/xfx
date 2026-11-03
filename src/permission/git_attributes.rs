@@ -35,8 +35,10 @@ use std::path::{Path, PathBuf};
 const MAX_ATTRIBUTES_BYTES: u64 = 1024 * 1024;
 
 /// The most entries listed below one `modules/` directory; past it, the
-/// command asks.
-const MAX_MODULE_ENTRIES: usize = 4096;
+/// command asks. A module's git directory is listed as well as its own
+/// `modules/` -- hooks, info and the rest, about two dozen entries for a
+/// fresh one -- so this leaves room for several hundred submodules.
+const MAX_MODULE_ENTRIES: usize = 16_384;
 
 /// Why auto does not run `git` in `cwd`, or `None` when no attribute file a
 /// git directory of it holds selects a driver.
@@ -143,13 +145,17 @@ fn common_dir(git_dir: &Path) -> Result<Option<PathBuf>, String> {
 
 /// Every submodule git directory below `modules`. A submodule's name may
 /// hold `/`, so a directory that is not a git directory is a step of a name
-/// and is descended; one that is, is recorded, and only its own `modules/`
-/// is descended -- never its objects, refs or logs, which would count a
-/// real repository's size against the bound. A linked directory is followed.
+/// and is descended. One that is, is recorded and descended too, except for
+/// its objects, refs, logs and other data ([`super::links::GIT_DATA_DIRECTORIES`]),
+/// which would count a real repository's size against the bound: what passes
+/// the git-directory test -- a dangling `objects` link is enough -- may hold
+/// another module's directory under a name of its own. A linked directory is
+/// followed.
 fn modules(modules: &Path, found: &mut Vec<PathBuf>) -> Result<(), String> {
-    let mut queue = vec![modules.to_path_buf()];
+    // Each directory to list, and whether it is a git directory.
+    let mut queue = vec![(modules.to_path_buf(), false)];
     let mut left = MAX_MODULE_ENTRIES;
-    while let Some(dir) = queue.pop() {
+    while let Some((dir, git_dir)) = queue.pop() {
         let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(err) if absent(&err) => continue,
@@ -163,6 +169,13 @@ fn modules(modules: &Path, found: &mut Vec<PathBuf>) -> Result<(), String> {
                     modules.display()
                 )
             })?;
+            if git_dir
+                && super::links::GIT_DATA_DIRECTORIES
+                    .iter()
+                    .any(|data| entry.file_name() == *data)
+            {
+                continue;
+            }
             let path = entry.path();
             let directory = match std::fs::metadata(&path) {
                 Ok(metadata) => metadata.is_dir(),
@@ -172,14 +185,11 @@ fn modules(modules: &Path, found: &mut Vec<PathBuf>) -> Result<(), String> {
             if !directory {
                 continue;
             }
-            if is_git_dir(&path)? {
-                if !found.contains(&path) {
-                    found.push(path.clone());
-                }
-                queue.push(path.join("modules"));
-            } else {
-                queue.push(path);
+            let is = is_git_dir(&path)?;
+            if is && !found.contains(&path) {
+                found.push(path.clone());
             }
+            queue.push((path, is));
         }
     }
     Ok(())
