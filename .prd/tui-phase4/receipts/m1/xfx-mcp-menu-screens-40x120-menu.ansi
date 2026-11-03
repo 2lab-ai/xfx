@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-2bc6d8b [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+Project MCP server 'proj' is defined in .mcp.json.
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+[38;5;250m* mcp: Project MCP approval prompts dismissed for this process.[39m
+
+[38;5;250m* mcp: Saved MCP server 'remote'.[39m
+  [38;5;250mMCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.[39m
+
+[38;5;252m! mcp:[38;5;250m MCP configuration reloaded, but server 'remote' is unavailable. Run /mcp list for details.[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mMCP 2[0m  [1m[38;5;255m[Servers][0m  [38;5;245mTools[39m  [38;5;245mResources[39m  [38;5;245mPrompts[39m
+
+  [1m[38;5;255mremote                Failed                HTTP · Profile[0m
+  [38;5;245mproj                  Pending trust         stdio · Project[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

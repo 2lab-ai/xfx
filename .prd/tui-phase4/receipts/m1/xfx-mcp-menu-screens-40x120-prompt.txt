@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2bc6d8b [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

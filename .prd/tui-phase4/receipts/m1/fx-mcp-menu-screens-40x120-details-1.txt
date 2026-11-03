@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+* mcp: Saved MCP server 'remote'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+! mcp: MCP configuration reloaded, but server 'remote' is unavailable. Run /mcp list for details.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 2  [Servers]  Tools  Resources  Prompts
+
+  Server              remote
+  State               Failed
+  Source              Profile · ~/.fx/mcp.json
+  Transport           http
+  Policy              optional
+  Protocol            unavailable
+  Capabilities        tools=0 resources=0 templates=0 prompts=0
+  Error               ConnectionRefused
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+d remove  c help  esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
