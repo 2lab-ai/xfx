@@ -28,6 +28,10 @@ xfx's `terminal` tool, `xfx: env XFX_PERMISSION_MODE=ask`). Without it xfx ran
 in `auto` and refused fx's `shell` tool, so no approval could arrive. The fx
 side was captured again with the edited file.
 
+The xfx binary is `target/debug/xfx`, built from this branch's working tree
+before it was committed, so its banner and `build_revision` say the base,
+`e0d97bd5c59c`.
+
 Sanitized: `/private/tmp/claude-501` is written `<tmp>` in every file
 (`scripts/fxcap/redact.py`). Nothing else was edited.
 
@@ -49,7 +53,7 @@ runs in `full access` and the approval never arrives.
 | `status-short-24x50-esc` | 12 | U-status |
 | `keys-40x120-{btab,tab-pgdn,paste,ctrl-c}` | 18 each | U-status |
 | `keys-40x120-after-ctrl-c-esc` | 16 | U-status |
-| `keys-40x120-perm-btab` | 25 | U-permissions |
+| `keys-40x120-perm-btab` | 25 | U-status and U-permissions (the `* status:` rows are still above it) |
 | `keys-40x120-open-before-approval` | 36 | U-status and U-permissions |
 | `keys-40x120-{approval-arrives,approval-esc,end}` | 33 each | U-status and U-permissions, then the approval band's command view |
 
