@@ -1,8 +1,8 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-2294e0b [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-f9c5d3a [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;255m┃[39m /
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[38;5;245mResults 32 · type to filter                                                                                         1–6[39m
+[38;5;245mResults 33 · type to filter                                                                                         1–6[39m
 
 [1m[38;5;255m  /help     [38;5;245mshow available slash commands                                                                       General[0m
 [38;5;245m  /clear    start a fresh conversation while keeping managed processes                                          General[39m

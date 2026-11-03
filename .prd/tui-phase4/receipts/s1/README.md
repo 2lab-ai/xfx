@@ -124,7 +124,8 @@ Two more scenarios, each run at 40x120 on both binaries the same way, with
 `FX_BIN` the c1db919 build restored on 2026-11-03 (sha256 `7b76319a871163ad…`,
 banner `v0.0.13`) and the harness at `d91a9968` or later, which launches fx
 with `FX_AUTO_UPGRADE=0` and fails the run if the binary changes. xfx is
-`target/debug/xfx` built at `2294e0b` (banner `v0.1.0-2294e0b`). Same
+`target/debug/xfx` built at `f9c5d3a` (banner `v0.1.0-f9c5d3a`), this branch
+with `plan/tui-phase4` at `ee617e41` merged, `/mcp` in its command list. Same
 workspaces as round 1. Sanitized the same way: the run directory's suffix is
 `XXXXXX`.
 
@@ -157,5 +158,5 @@ source label and skipping the banner row.
 | `dollar-menu` | same but tabs | same but tabs | the `$` menu owns the band and no ghost is painted on either; fx's tabs go on past `Workspace` (decided default 1) |
 | `slash-dem`, `slash-rel`, `slash-re` | same | same | -- `Results N`, then the skill rows: name, description, `workspace .fx` / `workspace .xfx`, `workspace skills/`; the padding before the source is one cell shorter on xfx's side, its label being one longer |
 | `slash-de` | same but `/model`'s summary | same | the two skill rows are the same; `/model`'s summary is xfx's own |
-| `slash-all`, `slash-all-up` | `Results 38` / `Results 32`, and the commands | same | each product's commands -- fx lists 36 and xfx 30 -- and `/version`'s summary; the two skill rows after the last command are the same |
+| `slash-all`, `slash-all-up` | `Results 38` / `Results 33`, and the commands | same | each product's commands -- fx lists 36 and xfx 31 -- and `/version`'s summary; the two skill rows after the last command are the same |
 | `slash-dem-tab`, `rel-enter` | same | same | -- Tab and Enter on a skill row bind its token |

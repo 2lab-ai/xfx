@@ -1,8 +1,8 @@
-x𝒇x v0.1.0-2294e0b [debug] · Run /help for commands
+x𝒇x v0.1.0-f9c5d3a [debug] · Run /help for commands
 
 ┃ /
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Results 32 · type to filter                                                                                       27–32
+Results 33 · type to filter                                                                                       28–33
 
   /sound          toggle sounds and terminal bells                                                    Appearance
   /workspace      manage additional workspace directories                                             Workspace
