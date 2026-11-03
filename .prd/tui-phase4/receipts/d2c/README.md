@@ -126,10 +126,42 @@ The gateway logs are the same in order: the launch read's 503, the title, the tu
 
 **Round 4's `model-reask`, retaken at `fef6a14`** beside fx in the same run (files not kept): `start` 2/2, `menu-failed` 6/6, `turn-running` 3/4, `reask-midturn` 11/12 -- the differing row the activity row's pulse (`•` in fx's frame, between pulses in xfx's) -- and the gateway logs line for line the same but the port.
 
+## Round 6 (`794a47a`, `eb6100e`): the inline column asks a failed catalog again from its own frames
+
+```
+scripts/fxcap/capture.sh {fx,xfx} model-column-reask 40x120 <dir>   # the column open across the outage while a turn streams
+scripts/fxcap/capture.sh {fx,xfx} model-column-idle  40x120 <dir>   # the column open across the outage with nothing running
+```
+
+fx lists the column's models through `ensureModelCache` in every frame that draws it on its models stage (`footerContext`, `app_render_runtime.zig:561-563` -> `modelPickerCompletions`, `input_completion_runtime.zig:1029-1030` -> `modelCompletions`, `main.zig:2370-2373`), held to the one-second floor (`beginLoad`, `model_cache_runtime.zig:441-442`), and that frame says `loading models...` (`:745-746`). What draws a frame there: a render request -- a keystroke, a load's end (`pollLoadTransition`, from `loopCollectFacts`, `main.zig:3082-3084`), a resize -- or, while a stream, a compaction or a presentation tail runs and no question is up, the 50 ms animation tick, which requests a frame every time it comes round (`advanceVisibleAnimation`, `app_worker_runtime.zig:840-875` -> `requestAnimationDue`, `ui/render_request.zig:236-248`; `animation_interval_ms`, `:68`). Nothing else: the loop polls every 8 ms (`active_poll_timeout_ms`, `main.zig:175`) and `flushRequestedFrame` begins no attempt without a request (`app_render_runtime.zig:928-929`), so an idle session draws nothing and asks nothing.
+
+xfx: `Shell::settle_column`, called from `commit_counted` as a frame goes out (every painted frame passes through it), asks when a frame is owed **or** the activity row's 50 ms tick turned over (`ANIMATION_TICK`; `Shell::animation_turned`), the column has the band's slot on its models stage, and the failed read began a second ago -- and requests the frame that says `loading models...`. The tick counts whether or not the band paints it: this band skips a tick that changed no row, so the first cut, keyed on owed frames alone, asked when the activity row's marker blinked or its seconds turned over -- 1122-1139 ms between reads against fx's 1020-1068 (`794a47a`; that run is not kept) -- and keyed on the tick it asks within 50 ms of the floor, as fx does (`eb6100e`). With no turn and no compaction xfx's loop (`TICK`, 8 ms) owes no frame and nothing animates, so nothing asks: no timer.
+
+**`model-column-reask`** (503 for the first nine seconds; a turn streams and holds; `/model ` opened at about 6 s):
+
+| Snap | Rows identical | What differs, and why |
+|---|---|---|
+| `start` | **2/2** | -- |
+| `col-down` | **7/7** | `unable to load models` under `/model `, the turn `Generating (1s)` |
+| `col-back` | 9 of 10 | the four rows, the turn still generating (`6s`) -- from both; the differing row is the activity row's pulse (`•` in xfx's frame, between pulses in fx's) |
+
+The gateway logs: after the launch read, fx asked at 6618, 7618, 8677 and 9740 ms -- 1000, 1059 and 1063 apart, the last served -- and xfx at 6311, 7327, 8386 and 9398 ms -- 1016, 1059 and 1012 apart, the last served. Four reads each, the column's own frames asking once a second while the turn animates.
+
+**`model-column-idle`** (503 for the first 6.5 s; nothing running; `/model ` opened at 5 s; `o` typed at about 11 s):
+
+| Snap | Rows identical | What differs, and why |
+|---|---|---|
+| `col-down` | **5/5** | `unable to load models` |
+| `col-idle` | **5/5** | still `unable to load models`, four seconds after the catalog came back -- no frame, so no read, in either |
+| `col-typed` | **8/8** | `/model o` and the four rows: the keystroke's frame asked |
+
+The gateway logs: fx read at launch (1310 ms), at the column's opening (6331), and next at the keystroke (11177, served); xfx at 962, 5987 and 10919 (served). Nothing in the 4.8 s between, the catalog back for all but half a second of it.
+
+Tests: `the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed` (inside the floor nothing; an idle tick nothing; the animation tick with no frame owed asks once and asks for its frame; the rows land; a question over the column asks nothing -- RED with `settle_column` taken out) and `the_model_columns_frame_asks_for_a_failed_catalog_again_and_an_idle_tick_does_not` (through `commit_counted`).
+
 ## What does not match, and why
 
 - **The unconfirmed-Ultra line's wrap** (`fast-unconfirmed`): closed in the follow-up but for one word. fx's assistant wrap keeps no word alone on a line's last row -- when the word that overflows is the line's final one, the word before it moves down too (`assistant_wrap.zig:219-267`, `:269-298`, `isFinalWordOnLine` `:862-883`) -- and `tui::wrap::wrap` has no such rule, so at 120 columns xfx fits `lower` on the first row. The rule is fx's for every assistant row; recorded in `ssot.md` Tensions for the prose wrap.
 - **The trailing blank cells of the footer row** (`commit`, `fast-on`): fx's own frames differ from each other there; text and colours match.
-- **The inline column after a failed read** (round 5, not captured): fx's column asks the cache again from its render path whenever it is drawn over a failed catalog, held to the same one-second floor (`app_render_runtime.zig:563` -> `modelPickerCompletions`, `input_completion_runtime.zig:1029-1030` -> `modelCompletions`, `main.zig:2370-2373` -> `ensureModelCache`); xfx's column says `unable to load models` and never asks again by itself -- `/model` is the gesture that does (`the_column_asks_for_the_catalog_once_and_says_where_it_is`). Recorded in `ssot.md`'s Tension.
 - **The elapsed seconds** of a turn: a clock.
 - **The banner**: xfx's brand line (WU-A).
