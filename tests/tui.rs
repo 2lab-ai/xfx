@@ -5299,7 +5299,7 @@ fn with_profile(sandbox: &Sandbox, profile: &str) {
 #[test]
 fn a_rule_that_asks_before_a_read_puts_the_read_band_up_in_auto_and_a_no_is_denied_to_the_model() {
     // Upstream asks before a read a configured rule asks about, in `auto` as
-    // in `ask` (`tool_admission.zig:1430-1444`), in its generic band: the
+    // in `ask` (`tool_admission.zig:1426-1442`), in its generic band: the
     // question, the reason, the tool and its argument, and the three
     // generic choices (`approval_ui.zig:1842-1913`, `:1966-1972`;
     // `fx-rules-read-40x120-ask`). A No is `execution-denied` on the wire

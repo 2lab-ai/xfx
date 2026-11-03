@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-0d26715 [debug] · Run /help for commands
+x𝒇x v0.1.0-dc093e4 [debug] · Run /help for commands
 
 ┃ hello
 
@@ -12,7 +12,7 @@ x𝒇x v0.1.0-0d26715 [debug] · Run /help for commands
 
   Again.
 
-  1s (↑2 ↓40)
+  0s (↑2 ↓40)
 
 ┃
 

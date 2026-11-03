@@ -3,7 +3,7 @@
 [you] look in notes.txt instead
   Told.
 
-  7s (↑4 ↓80)
+  6s (↑4 ↓80)
 
 ┃ read it
 

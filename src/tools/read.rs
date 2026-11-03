@@ -1489,7 +1489,7 @@ pub(crate) fn prepare_read(
 /// directory it searches below and not at each file it walks, which is
 /// upstream's single target for it (`path_optional_existing`, `:205-211`).
 /// The decision is the session's, in upstream's order
-/// (`requestPermissionOutcomeResolved`, `tool_admission.zig:1311-1500`):
+/// (`requestPermissionOutcomeResolved`, `tool_admission.zig:1311-1511`):
 /// full access reads; a configured deny refuses; a saved-session rule for
 /// exactly this call decides; a rule that asks is put to the person, in
 /// `auto` as in `ask`, unless an exact grant already answered it; otherwise

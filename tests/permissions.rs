@@ -4102,7 +4102,7 @@ fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_with_nobod
     );
     // Asked at the directory it searches below; with no approval channel the
     // refusal names the rule, as upstream refuses a `configured_rule_ask` it
-    // cannot put to anybody (`tool_admission.zig:1430-1436`).
+    // cannot put to anybody (`tool_admission.zig:1426-1431`).
     let grep = call(&context, "grep_files", json!({ "pattern": "needle" }));
     assert!(!grep.ok);
     assert_eq!(grep.outcome, Outcome::Denied);
@@ -4150,7 +4150,7 @@ fn asking(
 
 #[test]
 fn a_rule_that_asks_before_a_read_puts_the_question_in_ask_and_in_auto_and_a_yes_reads_it() {
-    // Upstream asks (`configured_ask`, `tool_admission.zig:1386-1444`) in
+    // Upstream asks (`configured_ask`, `tool_admission.zig:1389-1442`) in
     // every mode but full access: the rule is the person saying they want to
     // be asked, and auto's structural admission does not outrank it.
     let tree = Tree::new();
@@ -4187,7 +4187,7 @@ fn a_rule_that_asks_before_a_read_puts_the_question_in_ask_and_in_auto_and_a_yes
 #[test]
 fn a_read_no_rule_asks_about_is_never_put_to_anybody_in_any_mode() {
     // Reading is free unless a rule says otherwise (`resolveOrdinaryPermissionOutcome`,
-    // `tool_admission.zig:1124-1126`: no approval requirement, `.once`).
+    // `tool_admission.zig:1123-1125`: no approval requirement, `.once`).
     let tree = Tree::new();
     tree.write("notes.md", "fine\n");
     tree.write("secret.txt", "x\n");
@@ -4218,7 +4218,7 @@ fn a_read_no_rule_asks_about_is_never_put_to_anybody_in_any_mode() {
 #[test]
 fn full_access_reads_past_an_asking_rule_and_a_denying_one_without_a_question() {
     // `permission_mode == .yolo` returns before any rule is matched
-    // (`tool_admission.zig:1362-1370`).
+    // (`tool_admission.zig:1369-1376`).
     let tree = Tree::new();
     tree.write("secret.txt", "x\n");
     let prompter = ScriptedPrompter::new(Vec::new());
@@ -4343,10 +4343,11 @@ fn a_read_rule_with_nobody_to_ask_is_refused_in_ask_mode_naming_the_rule() {
 #[test]
 fn a_remembered_read_decides_before_the_question_and_a_broken_store_refuses_a_read() {
     // Upstream keys a remembered read as a structured call
-    // (`permissionStateKeyForCall`, `tool_admission.zig:2189-2236`) and
+    // (`permissionStateKeyForCall`, `tool_admission.zig:2189-2232`) and
     // consults it after a configured deny and before an ask
-    // (`:1405-1428`); a store it cannot read fails the call
-    // (`requestPermissionOutcome`, `:1278-1309`).
+    // (`:1405-1424`); a copy of its rules that cannot be taken fails the
+    // call (`requestPermissionOutcome`, `:1279-1309`). xfx reads the file at
+    // every decision, so a file that does not read is that failure here.
     let tree = Tree::new();
     tree.write("secret.txt", "x\n");
     tree.write("other.txt", "y\n");

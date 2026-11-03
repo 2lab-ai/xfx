@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-0d26715 [debug] · Run /help for commands
+x𝒇x v0.1.0-dc093e4 [debug] · Run /help for commands
 
 ┃ search for it
 
@@ -8,7 +8,7 @@ x𝒇x v0.1.0-0d26715 [debug] · Run /help for commands
 [you] look in notes.txt instead
   Told.
 
-  7s (↑4 ↓80)
+  6s (↑4 ↓80)
 
 ┃ read it
 

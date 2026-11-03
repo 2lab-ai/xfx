@@ -122,7 +122,7 @@ enum RuleVerdict {
 /// Reading is free unless the table says otherwise, so a read is put to policy
 /// for one reason: the table may deny it, or ask about it, and a rule that asks
 /// is put to the person as upstream puts it (`requestPermissionOutcomeResolved`,
-/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:1386-1444`).
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:1389-1442`).
 /// Everything here was resolved by the tool -- the file a path names now, links
 /// followed -- so the question, the grant and the rule are all about the file
 /// that would be read, never about the spelling the model used.
@@ -1167,7 +1167,7 @@ impl PermissionSession {
         }
         // Reading is free unless a rule says otherwise, in every mode: a read
         // has no approval requirement of its own (`resolveOrdinaryPermissionOutcome`,
-        // `tool_admission.zig:1124-1126`).
+        // `tool_admission.zig:1123-1125`).
         if let ProposedAction::Read(_) = action {
             return PolicyDecision::Allow {
                 source: AllowSource::FreeRead,
@@ -2005,7 +2005,7 @@ mod tests {
                 }
             );
             // A rule that asks is put to the person in `auto` too
-            // (`configured_ask`, `tool_admission.zig:1430-1444`).
+            // (`configured_ask`, `tool_admission.zig:1426-1442`).
             assert_eq!(
                 decide(&read("grep_files", ".")),
                 PolicyDecision::Prompt,

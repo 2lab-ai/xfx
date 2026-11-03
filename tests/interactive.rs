@@ -1494,7 +1494,7 @@ fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {
 #[test]
 fn a_rule_that_asks_before_a_read_asks_on_the_terminal_and_a_no_reads_nothing() {
     // The line shell's prompt for a read a configured rule asks about: the
-    // same question the band puts (`tool_admission.zig:1430-1444`), in the
+    // same question the band puts (`tool_admission.zig:1426-1442`), in the
     // shell's `y/a/n` words, and a `n` is a refusal the model is told of.
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
