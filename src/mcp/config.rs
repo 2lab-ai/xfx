@@ -1009,30 +1009,41 @@ fn withheld(server: &str, field: &str, variable: &str) -> String {
 /// (`max_rendered_environment_name_bytes`, `project_config.zig:549`).
 const MAX_RENDERED_VARIABLE: usize = 128;
 
-/// A `${VAR}` an approved workspace server has no value for: unset with no
-/// default, or one of xfx's credentials, which it never gets. The server is
-/// dropped, as upstream drops it (`expandApprovedWorkspaceConfigs`,
+/// Why an approved workspace server's `${...}` could not be expanded. The
+/// server is dropped, as upstream drops it (`expandApprovedWorkspaceConfigs`,
 /// `project_config.zig:526-545`).
-struct Unresolved {
-    /// Upstream's name for the field (`WorkspaceEnvironmentField`, `:126-131`).
-    field: &'static str,
-    variable: String,
+enum Unresolved {
+    /// A plain name with no value and no default, or one of xfx's
+    /// credentials, which it never gets.
+    Missing {
+        /// Upstream's name for the field (`WorkspaceEnvironmentField`, `:126-131`).
+        field: &'static str,
+        variable: String,
+    },
+    /// Not a `${NAME}` or `${NAME:-default}` with a plain name, or a `${`
+    /// never closed (`expandWorkspaceTemplate`'s `.invalid`, `:603-612`).
+    /// Nothing is looked up for it: the lookup is `getenv`, and macOS's
+    /// answers `NAME=…` with `NAME`'s value, past the exact-name credential
+    /// guard.
+    Invalid,
 }
 
 impl Unresolved {
-    /// What the menu says (`renderWorkspaceDiagnostic`, `:156-176`).
+    /// What the menu says (`renderWorkspaceDiagnostic`, `:146-183`).
     fn issue(&self, server: &str) -> String {
-        let variable: String = crate::mcp::terminal_safe(&self.variable)
+        let Self::Missing { field, variable } = self else {
+            return format!(".mcp.json server '{server}' was skipped: invalid_entry.");
+        };
+        if is_credential_variable(variable) {
+            return withheld(server, field, variable);
+        }
+        let variable: String = crate::mcp::terminal_safe(variable)
             .chars()
             .take(MAX_RENDERED_VARIABLE)
             .collect();
-        if is_credential_variable(&self.variable) {
-            return withheld(server, self.field, &variable);
-        }
         format!(
-            ".mcp.json server '{server}' field {} requires environment variable \
-             '{variable}'; set it or use ${{{variable}:-default}}.",
-            self.field
+            ".mcp.json server '{server}' field {field} requires environment variable \
+             '{variable}'; set it or use ${{{variable}:-default}}."
         )
     }
 }
@@ -1117,15 +1128,15 @@ fn expand_text(
     while let Some(start) = rest.find("${") {
         out.push_str(&rest[..start]);
         let after = &rest[start + 2..];
-        let Some(end) = after.find('}') else {
-            out.push_str(&rest[start..]);
-            return Ok(out);
-        };
+        let end = after.find('}').ok_or(Unresolved::Invalid)?;
         let inner = &after[..end];
         let (name, default) = match inner.split_once(":-") {
             Some((name, default)) => (name, Some(default)),
             None => (inner, None),
         };
+        if !is_env_name(name) {
+            return Err(Unresolved::Invalid);
+        }
         match (
             environment(name).filter(|value| !value.is_empty() || default.is_none()),
             default,
@@ -1133,7 +1144,7 @@ fn expand_text(
             (Some(value), _) => out.push_str(&value),
             (None, Some(default)) => out.push_str(default),
             (None, None) => {
-                return Err(Unresolved {
+                return Err(Unresolved::Missing {
                     field,
                     variable: name.to_string(),
                 })

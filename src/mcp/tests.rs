@@ -1084,7 +1084,6 @@ fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstrea
             "env": {"command": "/bin/sh", "env": {"K": "${UNSET_ENV}"}},
             "header": {"type": "http", "url": url, "headers": {"X-A": "${UNSET_HEADER}"}},
             "url": {"type": "http", "url": "https://${UNSET_HOST}/mcp"},
-            "control": {"command": "${UNSET\u{1b}[2J}"},
             "empty": {"command": "/bin/sh", "env": {"K": "${SET_EMPTY}"}},
             "defaulted": {"command": "/bin/sh", "args": ["${UNSET_ARG:-d}"]},
         }})
@@ -1112,9 +1111,6 @@ fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstrea
             missing("arg", "argument", "UNSET_ARG"),
             missing("array", "argument", "UNSET_ARRAY"),
             missing("cmd", "command", "UNSET_CMD"),
-            // A control byte in the name is not put on the terminal: it is
-            // spelled out (`mcp::terminal_safe`, upstream's `encodeTerminalSafe`).
-            missing("control", "command", r"UNSET\x1b[2J"),
             missing("env", "environment", "UNSET_ENV"),
             missing("header", "http_header", "UNSET_HEADER"),
             missing("url", "url", "UNSET_HOST"),
@@ -1122,8 +1118,68 @@ fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstrea
     );
     // Not approved, not expanded: nothing is missing yet.
     let pending = config::load_workspace(dir.path(), &config::Choices::default(), &environment);
-    assert_eq!(pending.servers.len(), 9, "{pending:?}");
+    assert_eq!(pending.servers.len(), 8, "{pending:?}");
     assert!(pending.issues.is_empty(), "{:?}", pending.issues);
+}
+
+/// Only a plain variable name is ever looked up. The lookup is `getenv`,
+/// and macOS's `getenv("HOME=")` answers `HOME`'s value: a name that
+/// carried `=` would pass the exact-name credential guard and still read the
+/// credential. Upstream refuses such an entry before any lookup
+/// (`isValidEnvName`, `vercel-labs/fx@c1db9191
+/// src/core/mcp/project_config.zig:610-612`, `.invalid`), and an unclosed
+/// `${` the same way (`:603-604`); both say upstream's sentence (`:178-182`).
+#[test]
+fn a_name_that_is_not_a_plain_variable_name_is_never_looked_up() {
+    let dir = tempfile::tempdir().expect("workspace");
+    std::fs::write(
+        dir.path().join(config::WORKSPACE_FILE),
+        json!({"mcpServers": {
+            "equals": {"command": "/bin/sh", "env": {"K": "${AI_GATEWAY_API_KEY=}"}},
+            "equals-default": {"command": "/bin/sh", "args": ["${AI_GATEWAY_API_KEY=:-x}"]},
+            "space": {"command": "/bin/sh", "args": ["${AI_GATEWAY_API_KEY }"]},
+            "nul": {"command": "/bin/sh", "args": ["${AI_GATEWAY_API_KEY\u{0}}"]},
+            "empty": {"command": "/bin/sh", "args": ["${:-x}"]},
+            "path": {"command": "/bin/sh", "env": {"K": "${PATH=}"}},
+            "unclosed": {"command": "/bin/sh", "args": ["${PLAIN"]},
+            "plain": {"command": "/bin/sh", "args": ["${PLAIN}"]},
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let asked = std::cell::RefCell::new(Vec::<String>::new());
+    let environment = |name: &str| {
+        asked.borrow_mut().push(name.to_string());
+        Some("looked-up".to_string())
+    };
+    let approved = approving_every_entry(dir.path());
+    let loaded = config::load_workspace(dir.path(), &approved, &environment);
+    assert_eq!(asked.into_inner(), ["PLAIN"]);
+    let names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["plain"], "{loaded:?}");
+    let mut issues = loaded.issues.clone();
+    issues.sort();
+    let skipped = |server: &str| format!(".mcp.json server '{server}' was skipped: invalid_entry.");
+    assert_eq!(
+        issues,
+        [
+            skipped("empty"),
+            skipped("equals"),
+            skipped("equals-default"),
+            skipped("nul"),
+            skipped("path"),
+            skipped("space"),
+            skipped("unclosed"),
+        ]
+    );
+    // Through the process's own `getenv`: `PATH` is set in every test run,
+    // and `${PATH=}` must not read it.
+    let process = |name: &str| std::env::var(name).ok();
+    let loaded = config::load_workspace(dir.path(), &approved, &process);
+    assert!(
+        !loaded.servers.iter().any(|server| server.name == "path"),
+        "`${{PATH=}}` was looked up"
+    );
 }
 
 #[test]
