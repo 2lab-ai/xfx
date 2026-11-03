@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ A-R2a-one-word-exactly-the-width-=====================================================================================
+┃  then a row that starts with a blank
+┃ A-R2b-one-word-exactly-the-width-=====================================================================================
+┃
+┃ /a/path/with/no/space/that/is/as/wide/as/the/row/ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+┃  end
+┃ A-R3 the quick brown fox jumps over the lazy dog while the card keeps its rail on every row the quick
+┃ ends-at--------- goes down whole
+┃ A-R4 the quick brown fox jumps over the lazy dog while the card keeps its rail on every row the quick brown spssssss
+┃  after three spaces
+┃ A-R5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space
+┃ -token-no-space-token-
+┃ A-R6:漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢
+┃ 漢漢漢漢漢漢
+┃
+┃ A-R8  tab     stops
+
+  Card A seen.
+
+  0s (↑262 ↓40)
+
+┃ B-R2a-one-word-exactly-the-width-============================================= then a row that starts with a blank
+┃ B-R2b-one-word-exactly-the-width-=============================================
+┃ /a/path/with/no/space/that/is/as/wide/as/the/row/ppppppppppppppppppppppppppppp end
+┃ B-R3 the quick brown fox jumps over the lazy dog while the card ends-at------- goes down whole
+┃ B-R4 the quick brown fox jumps over the lazy dog while the card keeps spssss   after three spaces
+┃ B-R5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-
+┃ B-R6:漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢
+┃
+┃ B-R8  tab     stops
+
+  Card B seen.
+
+  0s (↑184 ↓40)
+
+┃
+
+auto · model-a

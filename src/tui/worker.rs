@@ -100,7 +100,8 @@ use crate::interactive::{
 use crate::output::StatusSnapshot;
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
-    CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector,
+    CatalogEntry, CatalogReader, CatalogState, ModelOutcome, ModelRequest, ModelSelector,
+    StartedLoad,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
@@ -2435,17 +2436,6 @@ impl Runtime {
         }
     }
 
-    /// The configured provider's catalog, every row in the menu's order
-    /// ([`in_menu_order`]).
-    ///
-    /// **Once per provider.** `ensure_catalog` attempts a load only from
-    /// `NotLoaded`, so a failure is remembered: a second `/model` on a daemon
-    /// that is not there reports the same reason without opening a second
-    /// socket.
-    async fn catalog(&mut self) -> CatalogAnswer {
-        from_state(self.selector.ensure_catalog().await)
-    }
-
     /// Loads the catalog if nothing has asked for it yet, and says whether this
     /// call is the one that did -- which is when the UI has to be told
     /// ([`Runtime::catalog_event`]), because its rows are what the band
@@ -2695,7 +2685,7 @@ enum CatalogAnswer {
 
 /// What a UI is given for a catalog in this state.
 ///
-/// The whole of `Runtime::catalog` that is not the load itself, split out so
+/// The whole of a catalog's telling that is not the load itself, split out so
 /// that the mapping is a claim a test can make over all four states without a
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
@@ -2815,6 +2805,8 @@ async fn turn_loop(
                 Some(TurnControl::Rename { title, announced }) => {
                     Taken::Rename { title, announced }
                 }
+                // Nothing holds the selector: asked of it now.
+                Some(TurnControl::Catalog) => Taken::CatalogAsked,
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -2892,6 +2884,10 @@ async fn turn_loop(
                 continue;
             }
             Taken::Catalog => continue,
+            Taken::CatalogAsked => {
+                ask_catalog(&mut state, events).await;
+                continue;
+            }
             Taken::Title(titled) => {
                 if let Some(title) = state.title_arrived(&titled, false) {
                     bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
@@ -2941,15 +2937,12 @@ async fn turn_loop(
                 )
                 .await
             }
-            // Both of these open a socket, so both are work rather than control
-            // messages, and both owe **exactly one** terminal event -- which is
-            // what lets the UI's drain and the queue's accounting treat them
+            // This opens a socket, so it is work rather than a control
+            // message, and it owes **exactly one** terminal event -- which is
+            // what lets the UI's drain and the queue's accounting treat it
             // like any other item.
             TurnWork::Setup(provider) => {
                 run_setup(&mut state, provider, events, &cancel, &control, &mut queue).await
-            }
-            TurnWork::Catalog => {
-                run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
@@ -3118,6 +3111,8 @@ enum Taken {
     /// The catalog read in the background has answered, and its answer is
     /// taken.
     Catalog,
+    /// `/model`'s menu or column asked for the catalog ([`TurnControl::Catalog`]).
+    CatalogAsked,
     /// What a model said the session is called.
     Title(super::titles::Titled),
     /// The session is over.
@@ -3258,6 +3253,7 @@ async fn run_turn(
     let mut answers = state.title_answers.take();
     let desk = state.titles.clone();
     let shown = desk.lineage();
+    let asks = CatalogAsks::reading(state, events);
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, images, events, &turn, control,
     )))
@@ -3269,11 +3265,12 @@ async fn run_turn(
     // be too late for the case that matters most -- a provider that has gone
     // quiet without hanging up never lets the body finish at all, and the queue
     // would sit there claiming a place the band is still announcing.
-    let ((caught, titled), ended) = raced_against_control(body, control, |through| {
+    let ((caught, titled), ended) = raced_against_control(body, control, &asks, |through| {
         turn.cancel();
         queue.abandon(through);
     })
     .await;
+    asks.finish(&mut state.selector);
     steering.close();
     if answers.is_some() {
         state.title_answers = answers;
@@ -3332,12 +3329,14 @@ async fn run_compact(
     queue: &mut Queue<'_>,
 ) -> Ended {
     let turn = cancel.turn();
+    let asks = CatalogAsks::reading(state, events);
     let body = compact_between_turns(state, events, &turn);
-    let (feedback, ended) = raced_against_control(body, control, |through| {
+    let (feedback, ended) = raced_against_control(body, control, &asks, |through| {
         turn.cancel();
         queue.abandon(through);
     })
     .await;
+    asks.finish(&mut state.selector);
     // `/status` reads the conversation it compacted.
     state.publish();
     bridge::send_terminal(events, UiEvent::Compaction(Update::Settled(feedback))).await;
@@ -3567,6 +3566,136 @@ fn begin_catalog_read(state: &mut Runtime, events: &Sender<UiEvent>) {
     state.selector.begin_load(move |catalog, retry| async move {
         bridge::send_terminal(&events, catalog_event_of(provider, &catalog, retry)).await;
     });
+}
+
+/// `/model`'s menu or column asking for the catalog while nothing holds the
+/// runtime ([`TurnControl::Catalog`]): a read that failed is read again --
+/// the `retry /model.` the menu said, as upstream's `ensureModelCache` starts
+/// a load again after a failure (`beginLoad`, `vercel-labs/fx@c1db9191
+/// src/core/app/model_cache_runtime.zig:405-458`) -- and one that has not
+/// started starts, both in the background and told when they land
+/// ([`begin_catalog_read`]); a read already on its way is left to tell its
+/// own answer; and a catalog the runtime holds -- or knows there is none of --
+/// is told now, for a UI that asked without it.
+async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>) {
+    state.selector.retry_after_failure();
+    begin_catalog_read(state, events);
+    if state.selector.is_loading() {
+        return;
+    }
+    bridge::send_terminal(events, state.catalog_event()).await;
+}
+
+/// What a piece of work does with [`TurnControl::Catalog`] while it holds
+/// the runtime, and so the selector.
+///
+/// fx's interface starts a catalog load on a thread of its own whatever its
+/// worker is doing (`ensureModelCache` from `openModelBrowseCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
+/// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`), and the
+/// open menu is refreshed when it lands (`pollLoadTransition`, `:549-557`).
+/// Here the work holds the selector, so the read goes through what was taken
+/// of the selector before the work began ([`CatalogReader`]); its answer is
+/// told the moment it lands, and handed to the selector once the work is
+/// over ([`Self::finish`]).
+enum CatalogAsks {
+    /// The read starts at once, beside the work.
+    Reading {
+        /// What the selector held when the work began.
+        held: Box<HeldCatalog>,
+        reader: CatalogReader,
+        provider: ProviderId,
+        events: Sender<UiEvent>,
+        /// The read this work started, when it has started one.
+        started: std::cell::RefCell<Option<StartedLoad>>,
+    },
+    /// The read waits for the work: a provider switch, whose catalog is not
+    /// the one in hand, or a load the work is making itself
+    /// ([`ControlChannel::defer_catalog`]).
+    AfterWork,
+}
+
+/// What a selector held when work that may be asked for its catalog began.
+enum HeldCatalog {
+    /// A read of its own on the way, which tells its answer itself.
+    Reading,
+    /// An answer, told again as it stands: rows, or that there is no catalog.
+    Answer(Box<UiEvent>),
+    /// Nothing worth telling: never read, or a read that failed.
+    Nothing,
+}
+
+impl CatalogAsks {
+    /// For work that holds `state`: reads start at once.
+    fn reading(state: &Runtime, events: &Sender<UiEvent>) -> Self {
+        let held = if state.selector.is_loading() {
+            HeldCatalog::Reading
+        } else {
+            match state.selector.catalog() {
+                CatalogState::Loaded(_) | CatalogState::Unavailable => {
+                    HeldCatalog::Answer(Box::new(state.catalog_event()))
+                }
+                CatalogState::NotLoaded | CatalogState::Failed(_) => HeldCatalog::Nothing,
+            }
+        };
+        Self::Reading {
+            held: Box::new(held),
+            reader: state.selector.reader(),
+            provider: state.config.provider,
+            events: events.clone(),
+            started: std::cell::RefCell::new(None),
+        }
+    }
+
+    /// One request. A read this work started that has not answered yet is
+    /// not started twice, and neither is one the selector had on its way.
+    fn ask(&self, control: &ControlChannel) {
+        let Self::Reading {
+            held,
+            reader,
+            provider,
+            events,
+            started,
+        } = self
+        else {
+            control.defer_catalog();
+            return;
+        };
+        match held.as_ref() {
+            HeldCatalog::Reading => {}
+            HeldCatalog::Answer(answer) => {
+                let (events, answer) = (events.clone(), (**answer).clone());
+                tokio::task::spawn_local(async move {
+                    bridge::send_terminal(&events, answer).await;
+                });
+            }
+            HeldCatalog::Nothing => {
+                if started
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|load| !load.is_finished())
+                {
+                    return;
+                }
+                let (provider, events) = (*provider, events.clone());
+                let load = reader.begin(move |catalog, retry| async move {
+                    bridge::send_terminal(&events, catalog_event_of(provider, &catalog, retry))
+                        .await;
+                });
+                *started.borrow_mut() = load;
+            }
+        }
+    }
+
+    /// Hands a read this work started to `selector`, now that the work has
+    /// let it go ([`ModelSelector::adopt_load`]).
+    fn finish(self, selector: &mut ModelSelector) {
+        if let Self::Reading { started, .. } = self {
+            if let Some(load) = started.into_inner() {
+                selector.adopt_load(load);
+            }
+        }
+    }
 }
 
 /// Waits for the catalog the session began reading at launch
@@ -4006,11 +4135,12 @@ async fn run_setup(
     let outcome = {
         let cancelled = move || token.is_cancelled();
         let body = state.select_provider(provider, &cancelled);
-        let (outcome, ended) = raced_against_control(body, control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
-        .await;
+        let (outcome, ended) =
+            raced_against_control(body, control, &CatalogAsks::AfterWork, |through| {
+                turn.cancel();
+                queue.abandon(through);
+            })
+            .await;
         (outcome, ended)
     };
     let (outcome, ended) = outcome;
@@ -4188,10 +4318,15 @@ async fn change_model(
     if !change.announced {
         state.selector.retry_after_failure();
         let turn = cancel.turn();
-        let (fresh, raced) = raced_against_control(state.load_catalog(), control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
+        let (fresh, raced) = raced_against_control(
+            state.load_catalog(),
+            control,
+            &CatalogAsks::AfterWork,
+            |through| {
+                turn.cancel();
+                queue.abandon(through);
+            },
+        )
         .await;
         if turn.token.is_cancelled() {
             return raced;
@@ -4404,6 +4539,12 @@ async fn apply_deferred(
                     change_speed(state, change);
                     continue;
                 }
+                // Asked while a provider switch ran: asked now, of the
+                // selector the switch left.
+                Deferred::Catalog => {
+                    ask_catalog(state, events).await;
+                    continue;
+                }
                 Deferred::Model(change) => change,
             };
             if ended == Ended::Session && !change.announced {
@@ -4545,44 +4686,6 @@ async fn write_renamed_after_reset(
     }
 }
 
-/// Loads the catalog once and sends **exactly one** terminal event for it.
-///
-/// What the UI is told is what `/model`'s menu shows: the rows, in the order
-/// the menu lists them ([`crate::provider::model::picker_order`]); no rows at
-/// all when the provider has no catalog (`No models available.`); or that the
-/// load failed (`Unable to load models.`). None of the three is written into
-/// the document -- the menu is where the answer is, as upstream's is.
-async fn run_catalog(
-    state: &mut Runtime,
-    events: &Sender<UiEvent>,
-    cancel: &Cancellation,
-    control: &ControlChannel,
-    queue: &mut Queue<'_>,
-) -> Ended {
-    let turn = cancel.turn();
-    // `/model`'s menu or column is what asked, which is the gesture upstream's
-    // failure text says to repeat (`retry /model.`): a load that failed is
-    // asked again here, and only here and in `change_model`.
-    state.selector.retry_after_failure();
-    let ((), ended) = raced_against_control(
-        async {
-            state.catalog().await;
-        },
-        control,
-        |through| {
-            turn.cancel();
-            queue.abandon(through);
-        },
-    )
-    .await;
-    // Through `send_ui`: a catalog whose turn was cancelled is a list nobody
-    // is waiting for any more, and the conclusion below still closes the item
-    // either way.
-    let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
-    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-    ended
-}
-
 /// Runs `body` while reading the session-title answers the turn holds, and
 /// gives back the ones that came.
 ///
@@ -4687,6 +4790,7 @@ async fn next_title(answers: &mut Option<super::titles::Answers>) -> super::titl
 async fn raced_against_control<F: Future>(
     body: F,
     control: &ControlChannel,
+    asks: &CatalogAsks,
     mut stop: impl FnMut(usize),
 ) -> (F::Output, Ended) {
     tokio::pin!(body);
@@ -4742,6 +4846,10 @@ async fn raced_against_control<F: Future>(
                 Some(TurnControl::Rename { title, announced }) => {
                     control.defer_rename(title, matches!(ended, Ended::Reset(_)), announced);
                 }
+                // `/model`'s menu asking for the catalog while this work
+                // holds the runtime: the read starts now, beside it, as
+                // upstream's does on a thread of its own ([`CatalogAsks`]).
+                Some(TurnControl::Catalog) => asks.ask(control),
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -5848,10 +5956,15 @@ mod tests {
             outstanding: &counted,
             taken: 1,
         };
-        let (was_stopped, ended) = on_a_runtime(raced_against_control(body, &control, |through| {
-            stopped.store(true, Ordering::Release);
-            queue.abandon(through);
-        }));
+        let (was_stopped, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |through| {
+                stopped.store(true, Ordering::Release);
+                queue.abandon(through);
+            },
+        ));
 
         assert!(
             was_stopped,
@@ -5958,9 +6071,12 @@ mod tests {
             .send(TurnControl::Cancel { through: 0 })
             .expect("the receiver is alive");
 
-        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (output, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         assert_eq!(
             output, STOPPED,
@@ -5980,9 +6096,12 @@ mod tests {
         let control = ControlChannel::new(control_rx);
         control_tx.send(TurnControl::Shutdown).expect("alive");
 
-        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (output, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         assert_eq!(output, STOPPED, "a shutdown left the turn running");
         assert_eq!(ended, Ended::Session);
@@ -6651,9 +6770,12 @@ mod tests {
         let control = ControlChannel::new(control_rx);
         drop(control_tx);
 
-        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (output, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         // Deleting the flag **hangs** this case rather than failing it, and
         // that is worth being exact about: a `recv` on a closed channel is
@@ -6688,9 +6810,12 @@ mod tests {
         // makes "the stray changed nothing" observable.
         let body = async move { !watched.load(Ordering::Acquire) };
 
-        let (untouched, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (untouched, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         assert!(untouched, "a stray answer cancelled the turn");
         assert_eq!(ended, Ended::Turn);
@@ -8186,6 +8311,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |through| stops.push(through),
         ));
         assert_eq!(stops.len(), 1, "a rename stopped the work");
@@ -8330,6 +8456,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |through| stops.push(through),
         ));
         assert_eq!(stops, vec![1, 3]);
@@ -8346,6 +8473,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |_| {},
         ));
         assert_eq!(ended, Ended::Session);
@@ -8544,6 +8672,101 @@ mod tests {
             let _ = gate.await;
             Ok(self.entries.clone())
         }
+    }
+
+    /// A catalog that fails its first read and answers `entries` after it:
+    /// the Gateway down at launch and back by the time `/model` asks again.
+    struct BackAfterOne {
+        entries: Vec<CatalogEntry>,
+        asked: std::cell::Cell<usize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for BackAfterOne {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            self.asked.set(self.asked.get() + 1);
+            if self.asked.get() == 1 {
+                return Unreachable.fetch().await;
+            }
+            Ok(self.entries.clone())
+        }
+    }
+
+    #[test]
+    fn a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends() {
+        // Upstream's `/model` starts the load on a thread of its own whatever
+        // its worker is doing -- again after one that failed (`ensureModelCache`
+        // from `openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`;
+        // `beginLoad`, `model_cache_runtime.zig:405-458`) -- and the open menu
+        // takes the rows when they land (`pollLoadTransition`, `:549-557`).
+        // Here a stand-in turn holds the runtime throughout: the request is a
+        // control message the work's race reads, the read runs beside it, the
+        // band is told before the turn ends, and the selector takes the
+        // answer once it has.
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_fetcher_for_test(Box::new(BackAfterOne {
+            entries: vec![published("anthropic/claude-opus-5")],
+            asked: std::cell::Cell::new(0),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let asks = CatalogAsks::reading(&state, &events);
+        let (turn_over, ended) = tokio::sync::oneshot::channel::<()>();
+        let told = on_a_runtime(async {
+            let turn = async {
+                let _ = ended.await;
+            };
+            let watch = async {
+                control_tx
+                    .send(TurnControl::Catalog)
+                    .expect("the work listens");
+                let told = tokio::time::timeout(TEST_DRAIN, received.recv())
+                    .await
+                    .expect("the band was not told while the turn ran")
+                    .expect("told");
+                turn_over.send(()).expect("the turn is waiting");
+                told
+            };
+            let (((), ended), told) = tokio::join!(
+                raced_against_control(turn, &control, &asks, |_| {
+                    panic!("nothing stopped the turn")
+                }),
+                watch
+            );
+            assert_eq!(ended, Ended::Turn);
+            told
+        });
+        assert_eq!(
+            told,
+            UiEvent::CatalogLoaded {
+                provider: state.config.provider,
+                entries: vec![published("anthropic/claude-opus-5")],
+            }
+        );
+        // The selector takes it once the work lets go, and the UI is not told
+        // it a second time.
+        asks.finish(&mut state.selector);
+        assert!(state.selector.is_loading());
+        let fresh = on_a_runtime(state.load_catalog());
+        assert!(!fresh, "a read that told the UI itself was told again");
+        assert!(state.selector.entry("anthropic/claude-opus-5").is_some());
+        assert!(received.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_catalog_request_during_a_provider_switch_waits_for_the_switch() {
+        // A switch's catalog is the next provider's, not the one in hand: the
+        // request is put aside and answered once the switch is over.
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        CatalogAsks::AfterWork.ask(&control);
+        assert!(matches!(
+            control.take_deferred().as_slice(),
+            [crate::tui::approval::Deferred::Catalog]
+        ));
     }
 
     #[test]
@@ -8809,6 +9032,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |through| stops.push(through),
         ));
         assert!(stops.is_empty(), "a model change stopped the work");
@@ -9491,6 +9715,7 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 },
                 &control,
+                &CatalogAsks::AfterWork,
                 |through| stops.push(through),
             ));
             assert_eq!(stops.len(), resets, "an undo stopped the work");
@@ -9590,6 +9815,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |_| {},
         ));
         // The same work goes on to change another file.
@@ -9838,25 +10064,19 @@ mod tests {
     }
 
     #[test]
-    fn a_catalog_load_answers_the_menu_and_never_the_document() {
-        // Each of the three answers the menu has, from the one item that
-        // asked; none of them is a notice or a failed turn.
+    fn a_catalog_request_answers_the_menu_and_never_the_document() {
+        // Each of the three answers the menu has, for the one request that
+        // asked ([`TurnControl::Catalog`]); none of them is a notice, a failed
+        // turn, or the end of any work -- a request is not work.
         let (_home, _workspace, mut state) = recording();
-        let catalog = |state: &mut Runtime| {
+        let asked = |state: &mut Runtime| {
             let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-            let (_control_tx, control_rx) = mpsc::unbounded_channel();
-            let control = ControlChannel::new(control_rx);
-            let cancel = Cancellation::new(CancelToken::new());
-            let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
-            let outstanding = AtomicUsize::new(1);
-            let mut queue = Queue {
-                work: &mut work_rx,
-                outstanding: &outstanding,
-                taken: 0,
-            };
-            on_a_runtime(run_catalog(
-                state, &events_tx, &cancel, &control, &mut queue,
-            ));
+            on_a_runtime(async {
+                ask_catalog(state, &events_tx).await;
+                // A read it started tells its answer itself; taken here, so
+                // the case reads what it told.
+                state.selector.settle_load().await;
+            });
             let mut said = Vec::new();
             while let Ok(event) = events_rx.try_recv() {
                 said.push(event);
@@ -9866,37 +10086,33 @@ mod tests {
         let provider = state.config.provider;
         // No catalog at all: an empty list.
         assert_eq!(
-            catalog(&mut state),
-            [
-                UiEvent::CatalogLoaded {
-                    provider,
-                    entries: Vec::new()
-                },
-                UiEvent::TurnEnded { failure: None }
-            ]
+            asked(&mut state),
+            [UiEvent::CatalogLoaded {
+                provider,
+                entries: Vec::new()
+            }]
         );
         // Unread: the menu's failure -- and whether asking again could help
         // -- and no failed turn.
         state.selector.set_fetcher_for_test(Box::new(Unreachable));
-        assert_eq!(
-            catalog(&mut state),
-            [
-                UiEvent::CatalogUnread {
-                    provider,
-                    retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-                },
-                UiEvent::TurnEnded { failure: None }
-            ]
-        );
-        // Rows: in the order the menu lists them.
+        let unread = UiEvent::CatalogUnread {
+            provider,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+        };
+        assert_eq!(asked(&mut state), std::slice::from_ref(&unread));
+        // And asked again, it is read again: the `retry /model.` the menu
+        // said (`beginLoad` loads again after a failure,
+        // `model_cache_runtime.zig:405-458`).
+        assert_eq!(asked(&mut state), [unread]);
+        // Rows: in the order the menu lists them, told as they stand.
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(vec![
                 published("zeta/one"),
                 published("alpha/two"),
             ]));
-        let said = catalog(&mut state);
-        let UiEvent::CatalogLoaded { entries, .. } = &said[0] else {
+        let said = asked(&mut state);
+        let [UiEvent::CatalogLoaded { entries, .. }] = &said[..] else {
             panic!("{said:?}");
         };
         assert_eq!(
@@ -11003,6 +11219,7 @@ mod tests {
                 let ran = on_a_runtime(raced_against_control(
                     crate::agent::run_turn(request, provider, &mut sink),
                     control,
+                    &CatalogAsks::AfterWork,
                     move |_through| {
                         // What `turn_loop` does with a `Cancel`: this turn stops
                         // and the session does not.
@@ -11038,6 +11255,7 @@ mod tests {
             let (outcome, ended) = on_a_runtime(raced_against_control(
                 crate::agent::run_turn(request, provider, &mut sink),
                 &self.control,
+                &CatalogAsks::AfterWork,
                 |_through| panic!("nothing interrupted this turn"),
             ));
             Ran {
@@ -11482,6 +11700,7 @@ mod tests {
         let ((was_stopped, _titled), ended) = on_a_runtime(raced_against_control(
             titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
             &control,
+            &CatalogAsks::AfterWork,
             |_through| stopped.store(true, Ordering::Release),
         ));
         assert!(
@@ -11520,6 +11739,7 @@ mod tests {
         let (((), kept), _ended) = on_a_runtime(raced_against_control(
             titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
             &control,
+            &CatalogAsks::AfterWork,
             |_through| {},
         ));
         assert!(landed.load(Ordering::Acquire));

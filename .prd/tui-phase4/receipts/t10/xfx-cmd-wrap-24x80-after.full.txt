@@ -1,0 +1,30 @@
+x𝒇x v0.1.0-585bae8 [debug] · Run /help for commands
+
+┃ run the two commands
+
+● 1 tool call · 1 command · 1 denied
+├ Denied echo A-C1 echo the quick brown fox jumps over the lazy dog and the com…
+└ Denied echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeee…
+
+✗ permissions: this screen is too small to ask for permission, so the change was
+  refused
+
+  Both refused.
+
+  20s (↑5 ↓120)
+
+┃ 3
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+

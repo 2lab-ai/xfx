@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1msay something[0m
+
+[38;5;252m• Generating (6s)[38;5;245m (↑4 ↓6)[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mModels 4[0m  [1m[38;5;255m[All][0m  [38;5;245mAnthropic[39m  [38;5;245mOpenAI[39m  [38;5;245mxAI[39m  [38;5;245mOthers[39m
+
+  [1m[38;5;255mopenai/gpt-6-astra[0m       [38;5;245m400K context · 128K output · Fast · Ultra[39m
+  [38;5;245manthropic/claude-opus-5  1M context · 64K output · Fast[39m
+  [38;5;245mfake/model-a[39m
+  [38;5;245mxai/grok-4.7[39m
+
+[38;5;245mNote: Gateway catalog is authenticated with an API key[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     tab provider     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

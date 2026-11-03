@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-276e805 [debug] · Run /help for commands
+
+┃ fix the renderer loop, it redraws every row twice
+
+  The renderer answer.
+
+  0s (↑14 ↓40)
+
+* Trace copied to clipboard. Review and redact it before sharing.
+
+┃
+
+auto · model-a · Fix the renderer loop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

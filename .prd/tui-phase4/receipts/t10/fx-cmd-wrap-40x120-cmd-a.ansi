@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mrun the two commands[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command[39m
+[38;5;245m└ Running [38;5;252mecho[38;5;245m A-C1 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin eeeeee…
+[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [1mPermission needed · Choose one[0m                                                                               [38;5;245mCommand[39m
+
+  [1mWould you like to run the following command?[0m
+
+[1m[38;5;255m  $ # shell.run profile=user shell=/bin/zsh[0m
+[1m[38;5;255m    echo A-C1 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin[0m
+[1m[38;5;255m    eeeeeeeeeeeee goes down[0m
+[1m[38;5;255m    A-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[0m
+[1m[38;5;255m    \x1b[31mred\x1b[0m[0m
+[1m[38;5;255m    printf '\x1b]8;;https://example.com/A\x1b\link\x1b]8;;\x1b\' && echo 漢字かな &&\x09tab[0m
+[1m[38;5;255m    [0m
+[1m[38;5;255m    A-C5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-spa
+    ce-token-no-space-token-no-space-token-[0m
+[1m[38;5;255m    echo A-C6 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin echo zzzzzz [0m
+[1m[38;5;255m    after three spaces[0m
+[1m[38;5;255m    [0m
+
+  ❯ [1m[38;5;255m1. Yes[0m
+    2. Yes, and don't ask again for this exact command
+    3. No
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m
+
+
+
+
+
+
+
+
+

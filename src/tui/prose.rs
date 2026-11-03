@@ -227,7 +227,7 @@ pub(crate) fn expand_tabs(row: &str, first_col: usize, cols: usize) -> Cow<'_, s
 
 /// The next eight-column tab stop after one-based `col`, never past the last
 /// column (`nextTabStopColumn`, `display_width.zig:292-300`).
-fn next_tab_stop(col: usize, cols: usize) -> usize {
+pub(crate) fn next_tab_stop(col: usize, cols: usize) -> usize {
     if col >= cols {
         return cols;
     }
