@@ -204,20 +204,20 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     let runtime = home.runtime();
     runtime.start();
     let events = runtime.take_events();
+    let digest = config::entry_digest(&entry);
     assert!(
-        events.contains(&Event::Raw(format!(
-            "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-            fixture().display()
-        ))),
+        events.contains(&Event::TrustPrompt {
+            name: "proj".into(),
+            digest: digest.clone(),
+            listed: vec![("proj".into(), digest.clone())],
+            whole: true,
+            text: format!(
+                "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+                fixture().display()
+            ),
+        }),
         "{events:?}"
     );
-    let digest = config::entry_digest(&entry);
-    assert!(events.contains(&Event::TrustPrompt {
-        name: "proj".into(),
-        digest: digest.clone(),
-        listed: vec![("proj".into(), digest.clone())],
-        whole: true,
-    }));
     let view = settled(&runtime, "proj");
     assert_eq!(view.state_label(), "Pending trust");
     assert_eq!(
@@ -530,7 +530,12 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
         ran.display(),
         fixture().display()
     );
-    assert!(events.contains(&Event::Raw(shown)), "{events:?}");
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::TrustPrompt { text, .. } if *text == shown)),
+        "{events:?}"
+    );
     let Some(Event::TrustPrompt { digest, .. }) = events
         .iter()
         .find(|event| matches!(event, Event::TrustPrompt { .. }))
@@ -669,7 +674,7 @@ fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it(
     let prompt = events
         .iter()
         .find_map(|event| match event {
-            Event::Raw(text) => Some(text.clone()),
+            Event::TrustPrompt { text, .. } => Some(text.clone()),
             _ => None,
         })
         .unwrap_or_else(|| panic!("no prompt: {events:?}"));
