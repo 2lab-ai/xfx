@@ -1470,13 +1470,43 @@ fn a_name_that_is_not_a_plain_variable_name_is_never_looked_up() {
     );
 }
 
+/// A loopback port nothing listens on, and what keeps it so while it is held.
+///
+/// Linux gives a bind to port 0 any free port, at random, so a port bound and
+/// released can be the next one a test beside this one listens on: the
+/// connection is then taken and cut, `McpConnectionFailed`, not refused. So
+/// the port stays bound, by a socket that never listens: Linux refuses a
+/// connection to it, and binds nothing else to it.
+#[cfg(target_os = "linux")]
+fn a_port_nothing_listens_on() -> (u16, Option<tokio::net::TcpSocket>) {
+    let socket = tokio::net::TcpSocket::new_v4().expect("a socket");
+    socket
+        .bind((std::net::Ipv4Addr::LOCALHOST, 0).into())
+        .expect("bind loopback");
+    let port = socket.local_addr().expect("its address").port();
+    assert_eq!(
+        TcpListener::bind(("127.0.0.1", port))
+            .err()
+            .map(|err| err.kind()),
+        Some(std::io::ErrorKind::AddrInUse),
+        "a listener was given the held port"
+    );
+    (port, Some(socket))
+}
+
+/// macOS drops a connection to a socket that is bound and not listening
+/// rather than refusing it -- a timeout -- but hands ports out in turn, from
+/// 49152 to 65535: one bound and released is not handed out again until the
+/// range has gone round.
+#[cfg(not(target_os = "linux"))]
+fn a_port_nothing_listens_on() -> (u16, Option<tokio::net::TcpSocket>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    (listener.local_addr().unwrap().port(), None)
+}
+
 #[test]
 fn an_http_server_nothing_listens_on_fails_as_connection_refused_with_upstreams_counts() {
-    // A port bound and released: nothing listens on it now.
-    let port = {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-        listener.local_addr().unwrap().port()
-    };
+    let (port, _held) = a_port_nothing_listens_on();
     let home = Home::new();
     config::add_profile_server(
         &home.profile(),

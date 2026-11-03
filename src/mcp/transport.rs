@@ -1769,19 +1769,63 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[test]
     fn a_request_to_a_server_that_never_reads_ends_at_its_deadline_and_close_stops_it() {
         let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
-        let caller = Arc::clone(&transport);
-        let timeout = Duration::from_millis(300);
-        let (result, took) = within(Duration::from_secs(20), move || {
-            caller.request("tools/call", oversized_call(), timeout, None)
-        })
-        .expect("the request outlived its deadline: its write to the full pipe is not under it");
-        assert_eq!(result, Err(McpError::Named("McpRequestTimedOut")));
-        assert!(took < timeout + Duration::from_secs(5), "took {took:?}");
+        // The deadline is set before the frame is serialized -- 2 MiB, some
+        // 40 ms in a debug build on a fast machine and more on a loaded one
+        // -- and a deadline that passes before any of the frame went holds it
+        // back whole: the connection is as it was, and the server is left
+        // alone (`a_cancelled_or_expired_call_puts_nothing_on_the_wire`). So
+        // a request whose deadline came that early is made again, with a
+        // longer one, until its deadline comes with the frame under way.
+        let mut timeout = Duration::from_millis(300);
+        loop {
+            let caller = Arc::clone(&transport);
+            let (result, took) = within(timeout + Duration::from_secs(20), move || {
+                caller.request("tools/call", oversized_call(), timeout, None)
+            })
+            .expect(
+                "the request outlived its deadline: its write to the full pipe is not under it",
+            );
+            assert_eq!(result, Err(McpError::Named("McpRequestTimedOut")));
+            assert!(took < timeout + Duration::from_secs(5), "took {took:?}");
+            if !transport.alive() {
+                break;
+            }
+            assert!(
+                rustix::process::test_kill_process(
+                    rustix::process::Pid::from_raw(grandchild).expect("pid")
+                )
+                .is_ok(),
+                "a frame held back whole stopped the server's group"
+            );
+            assert!(
+                matches!(
+                    rustix::process::waitid(
+                        rustix::process::WaitId::Pid(
+                            rustix::process::Pid::from_raw(leader).expect("pid")
+                        ),
+                        rustix::process::WaitIdOptions::EXITED
+                            | rustix::process::WaitIdOptions::NOWAIT
+                            | rustix::process::WaitIdOptions::NOHANG,
+                    ),
+                    Ok(None)
+                ),
+                "a frame held back whole stopped the server"
+            );
+            timeout *= 4;
+            assert!(
+                timeout <= Duration::from_secs(20),
+                "the frame was never under way by its deadline"
+            );
+        }
         // The server would not take the frame, and what it would read next
-        // is half of one: the connection is over, and its whole group is
-        // killed there and then -- before any close -- while its leader is
-        // left for the close to collect.
-        assert!(!transport.alive());
+        // is half of one: the connection is over before the request returns
+        // -- the next one is refused, never written after the half frame --
+        // and its whole group is killed there and then, before any close,
+        // while its leader is left for the close to collect.
+        assert_eq!(
+            transport.request("ping", json!({}), Duration::from_secs(1), None),
+            Err(McpError::Named("McpConnectionClosed"))
+        );
         assert_gone(grandchild, "the server's grandchild, at the cut,");
         assert!(
             matches!(
