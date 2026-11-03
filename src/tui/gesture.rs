@@ -59,7 +59,7 @@
 //! Nothing here reads a clock. Every decision takes the `now` its caller already
 //! has, which is what lets the whole table be tested without sleeping, and what
 //! keeps one read's worth of bytes from expiring each other -- the bytes of a
-//! single read arrived together (`super::shell::Shell::route_bytes`).
+//! single read arrived together (`super::shell::Shell::route_read`).
 
 use std::time::{Duration, Instant};
 

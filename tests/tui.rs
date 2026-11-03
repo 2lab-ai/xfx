@@ -2809,6 +2809,53 @@ fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_promp
 }
 
 #[test]
+fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_nothing() {
+    // fx c1db919's rule (`paste_framing.zig:93-108,160-167`,
+    // `input_paste_runtime.zig:179-193`): input that arrives behind a paste's
+    // end marker in the same delivery is the clipboard's, not the user's -- a
+    // copied `ESC[201~` followed by a newline would otherwise be a prompt
+    // nobody typed. The whole paste is refused, the bytes behind the marker are
+    // dropped without being read as keys, and fx says so under `input`
+    // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-PRIOR"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"prior");
+    on_screen(&session, (40, 120), &["\u{2503} prior"], &[]);
+    session.type_bytes(b"\x1b[200~new\x1b[201~\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2717} input: Paste was not applied because extra input followed its end marker.",
+            "\u{2503} prior",
+        ],
+        &["priornew"],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the Enter behind the paste's end marker submitted the composer"
+    );
+
+    // A key of its own is a key again: the composer is what it was, and the
+    // next Enter sends exactly that (`app_input_runtime.zig:9857-9859`).
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-PRIOR");
+    assert_eq!(user_messages(&gateway.only_request().json()), ["prior"]);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-BIG"]),
@@ -9124,8 +9171,17 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     // is (`fx-model3-40x120-paste-bad-effort`): typed key by key, the space
     // after the exact id is the inline column's, which makes the change for a
     // model with no levels and sends `high` as a prompt
-    // (`fx-model2-40x120-explicit-bad-effort`).
-    session.type_bytes(b"\x1b[200~/model fake/model-a high\x1b[201~\r");
+    // (`fx-model2-40x120-explicit-bad-effort`). The Enter is a key of its own,
+    // after the paste has landed: one in the read that ended the paste would
+    // refuse it (`paste_framing.zig:160-167`).
+    session.type_bytes(b"\x1b[200~/model fake/model-a high\x1b[201~");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} /model fake/model-a high"],
+        &[],
+    );
+    session.type_bytes(b"\r");
     session.wait_for("usage: /model <id> <effort> [normal|fast|ultrafast]");
     session.type_bytes(&[0x15]);
     // Typed, `/model opus` and Enter take the column's marked row, which goes
@@ -9401,8 +9457,11 @@ fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it
     session.type_bytes(b"say something\r");
     session.wait_for("MARKER-A-EFFORT-ANSWERED");
     // A model that lists no levels is sent none, and the session keeps its
-    // effort for the next one that does.
-    session.type_bytes(b"\x1b[200~/model fake/model-a\x1b[201~\r");
+    // effort for the next one that does. The Enter after the paste has landed,
+    // as a key of its own.
+    session.type_bytes(b"\x1b[200~/model fake/model-a\x1b[201~");
+    on_screen(&session, (40, 120), &["\u{2503} /model fake/model-a"], &[]);
+    session.type_bytes(b"\r");
     session.wait_for("Switched to fake/model-a (effort: low, speed: normal)");
     session.type_bytes(b"say more\r");
     session.wait_for("MARKER-B-EFFORT-ANSWERED");
@@ -9442,7 +9501,9 @@ fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it
         &["auto \u{b7} model-a"],
         &["auto \u{b7} model-a \u{b7} low"],
     );
-    again.type_bytes(b"\x1b[200~/model qqq/unlisted\x1b[201~\r");
+    again.type_bytes(b"\x1b[200~/model qqq/unlisted\x1b[201~");
+    on_screen(&again, (40, 120), &["\u{2503} /model qqq/unlisted"], &[]);
+    again.type_bytes(b"\r");
     again.wait_for("Switched to qqq/unlisted (effort: low, speed: normal)");
     again.type_bytes(&[0x04]);
     assert_eq!(again.wait_exit().code(), Some(0));
@@ -9911,7 +9972,11 @@ fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_nu
     command.env("XFX_MODEL", "fake/model-a");
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
-    session.type_bytes(b"\x1b[200~shot.png\x1b[201~ duplicate [Image #1]\r");
+    // The words typed after the paste has landed: in the read that ended it
+    // they would be input behind its end marker, and refuse it.
+    session.type_bytes(b"\x1b[200~shot.png\x1b[201~");
+    on_screen(&session, (40, 120), &["\u{2503} [Image 1]"], &[]);
+    session.type_bytes(b" duplicate [Image #1]\r");
     session.wait_for("MARKER-SEEN");
     wait_for_conclusions(&sandbox, 1);
     on_screen(
@@ -11627,8 +11692,16 @@ fn a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams
     wait_for_conclusions(&sandbox, 1);
     let mut paste = b"\x1b[200~".to_vec();
     paste.extend("evidence ".repeat(5_000).trim_end().as_bytes());
-    paste.extend(b"\x1b[201~\r");
+    paste.extend(b"\x1b[201~");
     session.type_bytes(&paste);
+    // Enter once the paste has landed, as a key of its own.
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Pasted text #1, 1 line]"],
+        &[],
+    );
+    session.type_bytes(b"\r");
     on_screen(
         &session,
         (40, 120),
