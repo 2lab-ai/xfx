@@ -126,9 +126,11 @@ pub(crate) fn build_client(endpoint: &Endpoint) -> Result<reqwest::Client, Provi
     )
 }
 
-/// The two rules every client that sends the Gateway bearer to `url` is built
+/// The two rules every client that sends a credential to `url` is built
 /// under: the completion and title client ([`build_client`]), the catalog, the
-/// `/credits` question, and the generation-bill lookup.
+/// `/credits` question and the generation-bill lookup, which send the Gateway
+/// bearer, and the MCP HTTP client, which sends a server's configured
+/// `headers`, `header_env` and `bearer_token_env` (`crate::mcp`).
 ///
 /// **No redirect is followed.** The endpoint rule judges the URL xfx names; it
 /// cannot see where a reply points. reqwest's default `Policy::limited(10)`

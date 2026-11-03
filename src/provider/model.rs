@@ -2923,6 +2923,29 @@ mod tests {
         (url, server)
     }
 
+    #[test]
+    fn the_gateway_catalog_takes_no_proxy_to_a_loopback_gateway() {
+        // Cleartext to loopback: a proxy from the environment would read the
+        // key as sent (`crate::gateway::bearer_rules`).
+        if let Some(origin) = crate::test_net::server_in_this_copy() {
+            let endpoint = Endpoint::resolve(Some(&format!("{origin}/v4/ai/language-model")))
+                .expect("a loopback endpoint");
+            let catalog = GatewayCatalog::new(&endpoint, credential_for_test("fake-key-not-real"));
+            let entries = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime")
+                .block_on(catalog.fetch())
+                .expect("a catalog");
+            assert_eq!(ids(&entries), ["acme/one"]);
+            return;
+        }
+        crate::test_net::assert_no_proxy_is_used(
+            "provider::model::tests::the_gateway_catalog_takes_no_proxy_to_a_loopback_gateway",
+            crate::test_net::json_answer(r#"{"data":[{"id":"acme/one","type":"language"}]}"#),
+        );
+    }
+
     #[tokio::test]
     async fn the_gateway_catalog_is_one_get_with_the_bearer_and_no_redirect_followed() {
         let body = r#"{"data":[{"id":"acme/one","type":"language"}]}"#;

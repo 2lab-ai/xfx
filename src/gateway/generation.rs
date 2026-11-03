@@ -312,6 +312,48 @@ mod tests {
         }
     }
 
+    fn on_a_runtime<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(future)
+    }
+
+    #[test]
+    fn a_lookup_takes_no_proxy_to_a_loopback_gateway() {
+        // Cleartext to loopback: a proxy from the environment would read the
+        // key as sent (`super::bearer_rules`).
+        if let Some(origin) = crate::test_net::server_in_this_copy() {
+            let found = on_a_runtime(lookup(&origin, "fake-key-not-real", ID));
+            assert!(matches!(found, Lookup::Found(_)), "{found:?}");
+            return;
+        }
+        let body = String::from_utf8(record(json!({}))).expect("utf-8");
+        crate::test_net::assert_no_proxy_is_used(
+            "gateway::generation::tests::a_lookup_takes_no_proxy_to_a_loopback_gateway",
+            crate::test_net::json_answer(&body),
+        );
+    }
+
+    #[test]
+    fn a_redirect_is_never_followed_with_the_key() {
+        use crate::test_net::{json_answer, redirect, Listener};
+        let body = String::from_utf8(record(json!({}))).expect("utf-8");
+        for status in [307u16, 308] {
+            let elsewhere = Listener::answering(json_answer(&body));
+            let gateway = Listener::answering(redirect(
+                status,
+                &format!("{}{GENERATION_PATH}?id={ID}", elsewhere.origin()),
+            ));
+            let found = on_a_runtime(lookup(&gateway.origin(), "fake-key-not-real", ID));
+            assert_eq!(gateway.finish().len(), 1);
+            let followed = elsewhere.finish();
+            assert!(followed.is_empty(), "a {status} was followed: {followed:?}");
+            assert_eq!(found, Lookup::Reject);
+        }
+    }
+
     #[test]
     fn an_untrusted_origin_is_rejected_without_a_socket() {
         let runtime = tokio::runtime::Builder::new_current_thread()

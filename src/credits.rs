@@ -417,6 +417,48 @@ mod tests {
         );
     }
 
+    fn on_a_runtime<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(future)
+    }
+
+    const BALANCE: &str = r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#;
+
+    #[test]
+    fn the_question_takes_no_proxy_to_a_loopback_gateway() {
+        // Cleartext to loopback: a proxy from the environment would read the
+        // key as sent (`crate::gateway::bearer_rules`).
+        if let Some(origin) = crate::test_net::server_in_this_copy() {
+            let answer = on_a_runtime(ask_at(&format!("{origin}{CREDITS_PATH}"), KEY));
+            assert_eq!(answer.body(), "balance=42.17\nused=7.83\nplan=pro");
+            return;
+        }
+        crate::test_net::assert_no_proxy_is_used(
+            "credits::tests::the_question_takes_no_proxy_to_a_loopback_gateway",
+            crate::test_net::json_answer(BALANCE),
+        );
+    }
+
+    #[test]
+    fn a_redirect_is_an_error_and_never_followed_with_the_key() {
+        use crate::test_net::{json_answer, redirect, Listener};
+        for status in [307u16, 308] {
+            let elsewhere = Listener::answering(json_answer(BALANCE));
+            let gateway = Listener::answering(redirect(
+                status,
+                &format!("{}{CREDITS_PATH}", elsewhere.origin()),
+            ));
+            let answer = on_a_runtime(ask_at(&format!("{}{CREDITS_PATH}", gateway.origin()), KEY));
+            assert_eq!(gateway.finish().len(), 1);
+            let followed = elsewhere.finish();
+            assert!(followed.is_empty(), "a {status} was followed: {followed:?}");
+            assert_eq!(answer, Answer::Failed(format!("HTTP {status}")));
+        }
+    }
+
     #[test]
     fn the_question_goes_to_the_origin_a_turn_is_sent_to() {
         for (chat, credits) in [
