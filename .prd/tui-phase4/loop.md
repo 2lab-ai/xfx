@@ -20,7 +20,7 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 | ID | Status | Scope | Branch | Next |
 |---|---|---|---|---|
 | SWEEP | 🟡 | sweep tooling landed (batch 25); r2 at `1a94cdff`: 624/861; preliminary at `62146228`: 679/917 (74.0%), 0 failed/timeout, 0 snap regressions vs r2, 22 improvements; 23 snaps on rows no cause covers (h1-* recovery/MCP-HTTP/signal rows, `approvals/after-esc` row 15, `rules-read/ask` row 19) | `feat/fxcap-sweep` @ `194b97a1` | final-SHA run; SWEEP-CAUSES classifies the 23 uncaused snaps in the ledger (`--rescore`), else the PR states them as uncaused |
-| P2-RECEIPT | 🟡 | gates ✓ (batch 46 `d19cda3c`); final seam review ✓ (10 reviews MUST none at `9c799969`; C5j, C4m, C4n taken before the PR, each confirmed MUST none by both engines); frames read ✓; COMPAT ✓; RED/GREEN ✓ (X1, `d91a9968`); SM1 + sweep at the final head, then public scan, CI | — | final receipt run |
+| P2-RECEIPT | 🟡 | local receipt ✓ at `39546271`: gates (batch 46), SM1 1091/1091, sweep 678/917 (0 failed/timeout, no regression vs r2), final seam review MUST none, frames read, COMPAT, RED/GREEN, public scan clean; PR #29 open. **CI: macOS ×2 pass; Linux ×2 fail in `cargo test`** (2 path-length tests, an MCP menu wait, `OpenElsewhere` on a picker resume — aarch64) | `fix/ci-linux` | CI-LINUX unit reproducing in Docker linux/aarch64 |
 | SHIP | 🚪 | PR → `main` → preview + tap → real-profile run (sessions backed up; MCP servers checked for inherited variables they lose under SEC-C1), label "Phase 4 integration preview — fx c1db919 baseline, before the 0.0.16 transition" | — | after P2-RECEIPT |
 
 ### After P2 (own PRs to `main`)
