@@ -1798,6 +1798,38 @@ mod tests {
     }
 
     #[test]
+    fn the_details_show_a_literal_the_child_is_given_as_the_prompt_does() {
+        // `"PATH": "./x:${PATH}"` makes `command: node` run `./x/node`. The
+        // details and `v` are where a person checks an entry before `a`:
+        // they show the prefix as the prompt does, from the same rows.
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"proj": {
+            "command": "node",
+            "env": {"PATH": "./x:${PATH}"},
+        }}));
+        let views = workspace.runtime.views();
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Enter, &views, 5), Effect::Repaint);
+        let rows: Vec<String> = menu
+            .rows(&views, &[], 120, 30, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert!(
+            rows.contains(&"  env: PATH=./x:${PATH}".to_string()),
+            "{rows:#?}"
+        );
+        assert_eq!(
+            menu.key(KeyAction::Char('v'), &views, 5),
+            Effect::Show(
+                "Project MCP server 'proj' in .mcp.json:\n  command: node\n  env: PATH=./x:${PATH}\n"
+                    .to_string()
+            )
+        );
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
     fn approve_all_approves_the_servers_its_confirmation_drew_not_ones_read_after() {
         use crate::mcp::config::entry_digest;
         for between in ["draw and enter", "enter and execution"] {

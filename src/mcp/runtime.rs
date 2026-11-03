@@ -1771,12 +1771,16 @@ impl Drop for McpRuntime {
 }
 
 /// The trust prompt's rows that say what approving lets run or reach, as the
-/// entry has it (`${VAR}` and all: a pending entry is not expanded), each
-/// spelled by [`prompt_value`] and never cut short: a stdio server's command
-/// line and the variables it sets, or a remote server's address and the
-/// headers it sends, each named with the variables its value comes from
-/// ([`sourced`]). Names, never values: a value can be a credential written
-/// into the file, and these rows stay in the transcript. A changed environment or credential source is a changed entry
+/// entry has it: a stdio server's command line and a row for each variable it
+/// sets, or a remote server's address and a row for each header it sends,
+/// every value as written -- a literal, a default with its text, a `${VAR}`
+/// as the name it is, never expanded (a pending entry is not). What the child
+/// is given has to be on the screen: `"PATH": "./x:${PATH}"` makes
+/// `command: node` run `./x/node`, and `NODE_OPTIONS`, `LD_PRELOAD` or
+/// `PYTHONPATH` change what runs as much. The entry is the repository's own
+/// file, so its text shows nothing the file does not; what never reaches
+/// these rows is xfx's environment. Each row is spelled by [`prompt_value`],
+/// and cut only by [`fitted`]. A changed entry is a changed digest
 /// ([`config::entry_digest`]), and these rows are how its prompt differs from
 /// the one already answered.
 fn what_it_runs(config: &ServerConfig) -> String {
@@ -1843,7 +1847,13 @@ fn shown_entry(config: &ServerConfig, digests: &HashMap<&str, &str>) -> Option<S
     })
 }
 
-/// [`what_it_runs`]' rows, each whole and spelled by [`prompt_value`].
+/// [`what_it_runs`]' rows, each whole and spelled by [`prompt_value`]: the
+/// command line or the address, then `env: NAME=value` for each variable and
+/// `header: Name: value` for each header -- its `headers` as written, a
+/// `header_env` header as the `${VAR}` it is sent from, and
+/// `bearer_token_env` as the `Authorization` it becomes ([`http_headers`]).
+/// One row each, so a value cannot pass for the next entry, and a line break
+/// in a name or a value is spelled, not drawn.
 pub(crate) fn entry_rows(config: &ServerConfig) -> Vec<String> {
     let mut rows = match config.transport {
         Kind::Stdio => {
@@ -1855,69 +1865,31 @@ pub(crate) fn entry_rows(config: &ServerConfig) -> Vec<String> {
         }
         Kind::Http | Kind::Sse => vec![format!("url: {}", config.url)],
     };
-    let names: Vec<String> = config
-        .env
-        .iter()
-        .map(|(name, value)| sourced(name, value))
-        .collect();
-    if !names.is_empty() {
-        rows.push(format!("env: {}", names.join(", ")));
-    }
-    let headers: Vec<String> = config
-        .headers
-        .iter()
-        .map(|(name, value)| sourced(name, value))
-        .chain(
-            config
-                .header_env
-                .iter()
-                .map(|(name, variable)| format!("{name} from ${{{variable}}}")),
-        )
-        .chain(
-            config
-                .bearer_token_env
-                .iter()
-                .map(|variable| format!("Authorization from ${{{variable}}}")),
-        )
-        .collect();
-    if !headers.is_empty() {
-        rows.push(format!("headers: {}", headers.join(", ")));
-    }
+    rows.extend(
+        config
+            .env
+            .iter()
+            .map(|(name, value)| format!("env: {name}={value}")),
+    );
+    rows.extend(
+        config
+            .headers
+            .iter()
+            .map(|(name, value)| format!("header: {name}: {value}")),
+    );
+    rows.extend(
+        config
+            .header_env
+            .iter()
+            .map(|(name, variable)| format!("header: {name}: ${{{variable}}}")),
+    );
+    rows.extend(
+        config
+            .bearer_token_env
+            .iter()
+            .map(|variable| format!("header: Authorization: Bearer ${{{variable}}}")),
+    );
     rows.iter().map(|row| prompt_value(row)).collect()
-}
-
-/// `name`, and the variables its `value` is made of -- `X-Team from ${TEAM}`,
-/// `K from ${A:-…} + ${B}` -- and never the value: what is literal in it can
-/// be a credential, a default included, and the variables are what an
-/// approval authorizes to be sent. A value with none is the name alone.
-fn sourced(name: &str, value: &str) -> String {
-    let variables = variables(value);
-    if variables.is_empty() {
-        name.to_string()
-    } else {
-        format!("{name} from {}", variables.join(" + "))
-    }
-}
-
-/// The `${VAR}` and `${VAR:-default}` in `text`, by the grammar expansion
-/// reads them with (`config`'s `expand_text`): `${VAR}`, or `${VAR:-…}` when
-/// a default stands by, the default itself not shown.
-fn variables(text: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut rest = text;
-    while let Some(start) = rest.find("${") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find('}') else {
-            break;
-        };
-        let inner = &after[..end];
-        found.push(match inner.split_once(":-") {
-            Some((name, _)) => format!("${{{name}:-\u{2026}}}"),
-            None => format!("${{{inner}}}"),
-        });
-        rest = &after[end + 1..];
-    }
-    found
 }
 
 /// One value of the trust prompt as the approval view spells a command it
@@ -1988,14 +1960,15 @@ mod tests {
             what_it_runs(&config),
             r"command: /usr/bin/env node 'it'\''s here' '' $'line\nbreak\u001B[2J'"
         );
-        // The variables it sets are named; their values are not shown.
+        // Each variable it sets is a row of its own, with its value as
+        // written: what the child is given.
         config.env = vec![
             ("NODE_OPTIONS".into(), "--require ./x.js".into()),
             ("API_KEY".into(), "literal-secret".into()),
         ];
         assert_eq!(
             what_it_runs(&config),
-            "command: /usr/bin/env node 'it'\\''s here' '' $'line\\nbreak\\u001B[2J'\n  env: NODE_OPTIONS, API_KEY"
+            "command: /usr/bin/env node 'it'\\''s here' '' $'line\\nbreak\\u001B[2J'\n  env: NODE_OPTIONS=--require ./x.js\n  env: API_KEY=literal-secret"
         );
         config.env.clear();
         config.transport = Kind::Http;
@@ -2012,7 +1985,7 @@ mod tests {
         config.bearer_token_env = Some("TOKEN".into());
         assert_eq!(
             what_it_runs(&config),
-            "url: https://example.test/mcp\n  headers: X-A, X-Team from ${TEAM}, Authorization from ${TOKEN}"
+            "url: https://example.test/mcp\n  header: X-A: static-secret\n  header: X-Team: ${TEAM}\n  header: Authorization: Bearer ${TOKEN}"
         );
     }
 
@@ -2036,7 +2009,7 @@ mod tests {
         assert_eq!(
             shown,
             r"command: /bin/sh -c 'safe \u{202e}hs.live cexe' '\u{2066}x\u{200b}'
-  env: K"
+  env: K=v"
         );
         assert!(
             !shown.contains(['\u{202e}', '\u{2066}', '\u{200b}']),
@@ -2047,7 +2020,7 @@ mod tests {
         assert_eq!(
             what_it_runs(&config),
             r"url: https://a.test/\u{202e}lmth.xedni
-  env: K"
+  env: K=v"
         );
     }
 
@@ -2103,13 +2076,12 @@ mod tests {
     }
 
     #[test]
-    fn every_row_shows_the_entry_as_written_and_names_the_variables_a_value_comes_from() {
+    fn every_row_shows_the_entry_as_written_and_never_a_value_from_the_environment() {
         // A prompt is for a pending entry, which is not expanded: each row is
-        // the entry as written, never a value the environment resolved. A
-        // header's or a variable's value is not shown -- it can be a literal
-        // credential -- but the variables it is made of are, in both forms a
-        // header can take them (`headers` with `${VAR}`, and `header_env`),
-        // since naming one is authorizing it to be sent.
+        // the entry as written -- a literal, a default's text, a `${VAR}` as
+        // the name it is -- and never a value the environment resolved. The
+        // entry is the repository's own file, so its text shows nothing the
+        // file does not; xfx's environment is what must not reach the screen.
         let dir = tempfile::tempdir().expect("dir");
         std::fs::write(
             dir.path().join(config::WORKSPACE_FILE),
@@ -2151,17 +2123,97 @@ mod tests {
         let local = shown("local");
         assert_eq!(
             local,
-            "command: '${TOOL}' --key '${SECRET}'\n  env: PLAIN, K from ${SECRET}, M from ${A:-\u{2026}} + ${B}"
+            "command: '${TOOL}' --key '${SECRET}'\n  env: PLAIN=literal-secret\n  env: K=Bearer ${SECRET}\n  env: M=${A:-fallback-secret}${B}"
         );
         let remote = shown("remote");
         assert_eq!(
             remote,
-            "url: https://${HOST}/mcp\n  headers: X-Fixed, X-Team from ${TEAM}, X-Mix from ${A:-\u{2026}} + ${B}, X-Env from ${TEAM_1}, Authorization from ${TOKEN}"
+            "url: https://${HOST}/mcp\n  header: X-Fixed: literal-secret\n  header: X-Team: ${TEAM}\n  header: X-Mix: Bearer ${A:-fallback-secret} ${B}\n  header: X-Env: ${TEAM_1}\n  header: Authorization: Bearer ${TOKEN}"
         );
         for row in [&local, &remote] {
-            for value in ["RESOLVED-SECRET", "literal-secret", "fallback-secret"] {
-                assert!(!row.contains(value), "{value} in {row:?}");
+            assert!(!row.contains("RESOLVED-SECRET"), "{row:?}");
+            for value in ["literal-secret", "fallback-secret"] {
+                assert!(row.contains(value), "{value} not in {row:?}");
             }
+        }
+    }
+
+    #[test]
+    fn a_literal_the_child_is_given_is_on_the_screen_beside_the_variables_it_keeps() {
+        // `"PATH": "./x:${PATH}"` makes `command: node` run `./x/node`: the
+        // command is resolved with the child's PATH. Shown as the variables
+        // it is made of -- `PATH from ${PATH}` -- the prompt hid the prefix,
+        // and a default hid its text the same way (`${NOPE:-./y}`).
+        let dir = tempfile::tempdir().expect("dir");
+        std::fs::write(
+            dir.path().join(config::WORKSPACE_FILE),
+            json!({"mcpServers": {"local": {
+                "command": "node",
+                "args": ["server.js"],
+                "env": {
+                    "PATH": "./x:${PATH}",
+                    "NODE_OPTIONS": "--require ./evil.js",
+                    "PYTHONPATH": "${NOPE:-./y}:${PYTHONPATH}",
+                },
+            }}})
+            .to_string(),
+        )
+        .unwrap();
+        let resolved = |_: &str| Some("/usr/bin".to_string());
+        let servers = config::load_workspace(dir.path(), &Choices::default(), &resolved).servers;
+        let local = &servers[0];
+        assert_eq!(local.admission, Some(Admission::Pending));
+        let rows = entry_rows(local);
+        assert_eq!(
+            rows,
+            [
+                "command: node server.js",
+                "env: PATH=./x:${PATH}",
+                "env: NODE_OPTIONS=--require ./evil.js",
+                "env: PYTHONPATH=${NOPE:-./y}:${PYTHONPATH}",
+            ]
+        );
+        assert!(what_it_runs(local).contains("env: PATH=./x:${PATH}"));
+        assert!(!what_it_runs(local).contains("/usr/bin"));
+    }
+
+    #[test]
+    fn a_line_break_in_any_name_or_value_draws_no_row_of_its_own() {
+        // The prompt is written row by row on its line breaks: one in the
+        // address, a variable or a header, its name or its value, would draw
+        // a row the entry does not have -- `command: something-else` under
+        // the real one.
+        let forged = "\n  command: something-else";
+        let mut config = ServerConfig::local("p", "/bin/true", &[]);
+        config.env = vec![
+            (format!("K{forged}"), "v".into()),
+            ("V".into(), format!("v{forged}")),
+        ];
+        let mut remote = ServerConfig::local("r", "", &[]);
+        remote.transport = Kind::Http;
+        remote.url = format!("https://a.test/mcp{forged}");
+        remote.headers = vec![
+            (format!("X-N{forged}"), "v".into()),
+            ("X-V".into(), format!("v{forged}")),
+        ];
+        remote.header_env = vec![("X-E".into(), format!("E{forged}"))];
+        remote.bearer_token_env = Some(format!("T{forged}"));
+        // Two values carry the break in the local entry, five in the remote.
+        for (config, carried) in [(&config, 2), (&remote, 5)] {
+            let rows = entry_rows(config);
+            let shown = what_it_runs(config);
+            assert_eq!(shown.split('\n').count(), rows.len(), "{shown}");
+            assert!(
+                shown
+                    .split('\n')
+                    .all(|row| !row.trim_start().starts_with("command: something-else")),
+                "{shown}"
+            );
+            assert_eq!(
+                shown.matches(r"\x0a  command: something-else").count(),
+                carried,
+                "{shown}"
+            );
         }
     }
 }

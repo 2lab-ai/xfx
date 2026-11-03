@@ -9728,8 +9728,11 @@ impl Shell {
                 continue;
             }
             // The project trust prompt, while it is up and no menu is
-            // (`projectMcpPromptMayOwnInput`, `app_input_runtime.zig:124-131`).
+            // (`projectMcpPromptMayOwnInput`, `app_input_runtime.zig:124-131`),
+            // and while it is on the screen: Ctrl-O's transcript does not have
+            // its rows, so what is typed over it goes where text goes.
             if self.mcp_prompt.is_some()
+                && !self.full.is_open()
                 && self.settings_menu.is_none()
                 && self.sessions.is_none()
                 && self.help_menu.is_none()
@@ -14356,6 +14359,68 @@ mod tests {
     }
 
     #[test]
+    fn the_trust_prompt_takes_no_key_while_the_full_transcript_covers_it() {
+        // Ctrl-O's screen has the transcript, and the prompt's rows were never
+        // written to it: a prompt put up while it is open has not been seen.
+        // `1` and `2` typed over it go where text goes -- the composer behind
+        // the screen -- and approve nothing.
+        use crate::mcp::runtime::{Event, Job};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        std::fs::write(
+            workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": quiet_entry("p")}}).to_string(),
+        )
+        .expect("write .mcp.json");
+        let settings = home.path().join(".xfx").join("settings.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(settings.clone()),
+            workspace: workspace.clone(),
+        });
+        runtime.start();
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        shell.settle_mcp();
+        assert!(shell.mcp_prompt.is_some(), "the prompt is up");
+        shell.open_full_transcript();
+        assert!(shell.full.is_open());
+        shell.consume(vec![Input::Text('1'), Input::Text('2')], Instant::now());
+        // Nothing was handed to the runtime: a job behind it answers alone.
+        runtime.submit(Job::Command("path".into()));
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut said: Vec<String> = Vec::new();
+        while !said.iter().any(|body| body.contains("mcp.json")) {
+            said.extend(
+                runtime
+                    .take_events()
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        Event::Notice { body, .. } => Some(body),
+                        _ => None,
+                    }),
+            );
+            assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !said.iter().any(|body| body.starts_with("Approving")),
+            "a key over Ctrl-O approved: {said:?}"
+        );
+        assert!(!settings.exists(), "a key over Ctrl-O saved a choice");
+        assert!(shell.mcp_prompt.is_some(), "the prompt is still up");
+        runtime.shutdown();
+    }
+
+    #[test]
     fn two_at_the_trust_prompt_approves_nothing_once_the_pending_servers_changed() {
         // `2` is over the servers pending as the prompt went up. A reload
         // after it rewrote one: `2` hands the runtime nothing and says so.
@@ -14687,24 +14752,15 @@ mod tests {
         }
         // A reload asked for while the startup one still runs is queued
         // behind it, so `run` can return first: the case is only the case
-        // once the runtime holds the new entry.
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            let read = runtime
-                .views()
-                .into_iter()
-                .find(|view| view.name == "proj")
-                .and_then(|view| view.entry.map(|entry| entry.digest.clone()));
-            if read.as_ref().is_some_and(|digest| *digest != shown) {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the runtime never read the rewritten entry: {read:?}"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = runtime.take_events();
+        // once that reload has answered and put the prompt over the new
+        // entry up -- taken off the queue and dropped, as if the shell had
+        // not drawn it yet.
+        let rewritten = crate::mcp::config::entry_digest(&serde_json::json!({
+            "command": "/bin/sh",
+            "args": ["-c", ": > \"$0\"", ran],
+        }));
+        assert_ne!(rewritten, shown);
+        let _ = until_prompted(&runtime, &[("proj".to_string(), rewritten)]);
         assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
 
         // The answer is saved and announced, and the reload it asks for has
