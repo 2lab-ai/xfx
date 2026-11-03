@@ -1315,14 +1315,27 @@ impl PreparedCommand {
 ///   The system attributes file is dropped by `GIT_ATTR_NOSYSTEM` in the
 ///   plan's environment. `$GIT_DIR/info/attributes` is still read, and no
 ///   option skips it: a repository whose file selects a driver is not run in
-///   auto at all ([`super::git_attributes`]). Git older than 2.40 does not
-///   know `--attr-source`, refuses it, and runs nothing, which is the safe way
-///   for it to fail; a SHA-256 repository has no object by this name, and git
-///   refuses that too.
+///   auto at all ([`super::git_attributes`]).
 /// - `log.showSignature` makes `log` and `show` run `gpg.program` on every
 ///   signed commit.
 ///
-/// `-c` outranks every configuration file, include or not.
+/// `-c` outranks every configuration file, include or not, for every key but
+/// one family: `trace2.*` is read from the system and global files only and
+/// is not honoured from `-c`, and its targets are paths git appends to. The
+/// plan's environment sets `GIT_TRACE2`, `GIT_TRACE2_PERF` and
+/// `GIT_TRACE2_EVENT` to `0`, which outrank that configuration
+/// ([`minimal_environment`]).
+///
+/// # Git older than 2.40
+///
+/// It does not know `--attr-source`: it refuses the option with its usage
+/// error (129) and runs nothing. So on such a git every command the grammar
+/// recognizes fails, in every mode, because the argv is the same in each.
+/// That is deliberate and fails closed -- the other way to fail would be to
+/// run it without the option. A command the grammar does not recognize still
+/// runs, unhardened, through the reviewed shell after an approval. A SHA-256
+/// repository has no object by the empty tree's SHA-1 name, and git refuses
+/// that the same way.
 const GIT_CONFIG_OVERRIDES: &[&str] = &[
     "-c",
     "core.fsmonitor=false",
@@ -1434,8 +1447,13 @@ fn minimal_environment() -> Vec<(String, String)> {
         .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string());
     let home = std::env::var("HOME").unwrap_or_default();
     // Sorted by name, so the fingerprint does not depend on the order the
-    // variables happened to be read in.
+    // variables happened to be read in. The three `GIT_TRACE2` variables
+    // switch off the trace targets git's global configuration can name,
+    // which `-c` cannot ([`GIT_CONFIG_OVERRIDES`]).
     vec![
+        ("GIT_TRACE2".to_string(), "0".to_string()),
+        ("GIT_TRACE2_EVENT".to_string(), "0".to_string()),
+        ("GIT_TRACE2_PERF".to_string(), "0".to_string()),
         ("HOME".to_string(), home),
         ("LANG".to_string(), "C".to_string()),
         ("LC_ALL".to_string(), "C".to_string()),
@@ -2184,7 +2202,18 @@ mod tests {
             .iter()
             .map(|(name, _)| name.as_str())
             .collect();
-        assert_eq!(names, ["HOME", "LANG", "LC_ALL", "PATH"]);
+        assert_eq!(
+            names,
+            [
+                "GIT_TRACE2",
+                "GIT_TRACE2_EVENT",
+                "GIT_TRACE2_PERF",
+                "HOME",
+                "LANG",
+                "LC_ALL",
+                "PATH"
+            ]
+        );
         assert_eq!(plan.display_cwd(), ".");
     }
 
@@ -2290,6 +2319,18 @@ mod tests {
             command.status().expect("git runs")
         }
 
+        /// Runs a direct plan as the terminal tool would: its argv, with its
+        /// own environment, the fixture's home standing in for `$HOME`.
+        fn run_plan(&self, plan: &CommandPlan) -> std::process::ExitStatus {
+            let environment: Vec<(&str, &str)> = plan
+                .environment()
+                .iter()
+                .filter(|(name, _)| name != "HOME")
+                .map(|(name, value)| (name.as_str(), value.as_str()))
+                .collect();
+            self.run_with(direct_argv(plan), &environment)
+        }
+
         /// Whether the filter ran, clearing the marker for the next run.
         fn filter_ran(&self) -> bool {
             let ran = self.ran.exists();
@@ -2349,6 +2390,42 @@ mod tests {
                 );
             }
             std::fs::remove_file(&attributes).expect("attributes");
+        }
+    }
+
+    #[test]
+    fn an_admitted_git_writes_no_trace_the_global_configuration_asks_for() {
+        // `trace2.*` is read from the system and global files only, and `-c`
+        // does not reach it: a `normalTarget` there is a path git appends to
+        // on every run. The plan's environment is what turns it off.
+        let fixture = GitFixture::new();
+        let targets: Vec<PathBuf> = ["normal", "perf", "event"]
+            .iter()
+            .map(|kind| fixture.home.join(format!("trace-{kind}")))
+            .collect();
+        let mut global =
+            std::fs::read_to_string(fixture.home.join(".gitconfig")).expect("the global config");
+        global.push_str(&format!(
+            "[trace2]\n\tnormalTarget = {}\n\tperfTarget = {}\n\teventTarget = {}\n",
+            targets[0].display(),
+            targets[1].display(),
+            targets[2].display()
+        ));
+        std::fs::write(fixture.home.join(".gitconfig"), global).expect("written");
+        let written = || -> Vec<&PathBuf> { targets.iter().filter(|t| t.exists()).collect() };
+        // The control: unhardened, git writes all three.
+        assert!(fixture
+            .run(&["git".into(), "status".into(), "--short".into()])
+            .success());
+        assert_eq!(written().len(), 3, "the control wrote {:?}", written());
+        for target in &targets {
+            std::fs::remove_file(target).expect("cleared");
+        }
+        for command in ["git status --short", "git diff --stat", "git log --oneline"] {
+            let plan = fixture.plan(command);
+            let status = fixture.run_plan(&plan);
+            assert!(status.success(), "`{command}` failed: {status}");
+            assert!(written().is_empty(), "`{command}` wrote {:?}", written());
         }
     }
 

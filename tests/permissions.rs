@@ -1511,7 +1511,18 @@ fn a_command_fingerprint_covers_the_command_the_cwd_and_the_environment() {
         .iter()
         .map(|(name, _)| name.as_str())
         .collect();
-    assert_eq!(names, ["HOME", "LANG", "LC_ALL", "PATH"]);
+    assert_eq!(
+        names,
+        [
+            "GIT_TRACE2",
+            "GIT_TRACE2_EVENT",
+            "GIT_TRACE2_PERF",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "PATH"
+        ]
+    );
 }
 
 #[test]
