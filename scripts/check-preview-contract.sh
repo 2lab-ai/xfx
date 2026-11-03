@@ -14,7 +14,7 @@
 # since grown a placeholder. Every one of those ships green.
 #
 # So the contract is checked as *structure*: the workflow is parsed as YAML and
-# interrogated -- triggers, the job graph, the exact four native rows, the order
+# interrogated -- triggers and the epoch file they filter on, the job graph, the exact four native rows, the order
 # of the gates against the build, the environment the binary is stamped with,
 # the five assets, the release flags, the tap push and its freshness guard, and
 # the version of the linter the workflow gates itself with -- rather than
@@ -124,6 +124,9 @@ export CONTRACT_KEEP='15'
 export CONTRACT_QUALIFIED_INSTALL='brew install 2lab-ai/tap/xfx-preview'
 export CONTRACT_UNQUALIFIED_INSTALL='brew install xfx-preview'
 export CONTRACT_CHANNEL='preview'
+# The one file whose change publishes a preview: a merge that bumps it closes an
+# epic, and every other push to main publishes nothing.
+export CONTRACT_EPOCH='.github/preview-epoch'
 export CONTRACT_CHANNEL_VARIABLE='XFX_BUILD_CHANNEL'
 export CONTRACT_REVISION_VARIABLE='XFX_BUILD_REVISION'
 
@@ -216,10 +219,35 @@ end
 
 # GitHub's `on:` is YAML 1.1's boolean `true` unless it was quoted.
 triggers = document["on"] || document[true] || {}
+epoch_path = ENV.fetch("CONTRACT_EPOCH")
 check.(triggers.dig("push", "branches") == ["main"],
        "the workflow does not publish on a push to main; it triggers on #{triggers.inspect}")
 check.(triggers.keys == ["push"],
        "the workflow triggers on #{triggers.keys.inspect}; a workflow holding a deploy key may only run from a push to main, because every other trigger runs the version of it that lives on the ref being dispatched or proposed")
+
+# A preview is cut per epic, never mid-epic, and the only thing holding that is
+# the path filter: units of an epic merge to main one by one, so a filter that
+# was dropped or widened publishes half an epic to everyone on the tap, and
+# nothing else fails. The key set is pinned as well, because a `tags:` entry
+# under `push` is not path-filtered at all -- GitHub does not evaluate path
+# filters for tag pushes -- and would widen the trigger without touching
+# `paths`.
+push_trigger = triggers["push"].is_a?(Hash) ? triggers["push"] : {}
+check.(push_trigger["paths"] == [epoch_path],
+       "the push trigger's paths are #{push_trigger["paths"].inspect}, expected exactly [#{epoch_path.inspect}]; a preview is published per epic by bumping that file, and any other filter publishes mid-epic")
+check.(push_trigger.keys.sort == %w[branches paths],
+       "the push trigger filters on #{push_trigger.keys.sort.inspect}, expected exactly branches and paths; any other filter widens what publishes")
+
+# The file the filter names has to be there and say which epic the preview
+# closes: one line, one word. An empty or multi-line file is a bump nobody can
+# read back to an epic.
+if File.file?(epoch_path)
+  epoch = File.read(epoch_path)
+  check.(epoch.match?(/\A[a-z0-9][a-z0-9._-]*\n?\z/),
+         "#{epoch_path} is #{epoch.inspect}; it must be one line naming the epic the preview closes, such as \"phase4\"")
+else
+  problems << "there is no #{epoch_path}, so the preview trigger names a file that does not exist"
+end
 
 check.(document.dig("concurrency", "group") == "preview-publish",
        "the concurrency group is not `preview-publish`, so two publications can interleave")

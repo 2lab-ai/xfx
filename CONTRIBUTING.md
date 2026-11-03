@@ -65,12 +65,14 @@ no allowlist -- prose, an identifier, a fake test literal, and a file name are
 all findings.
 
 `scripts/check-preview-contract.sh` parses `.github/workflows/preview.yml` and
-holds it to what `brew install xfx-preview` needs: the tag and version grammar
-the tap parses, the four native rows and their exact asset names, the gate
-running before the binary it guards, the `preview` stamp, the five published
-files, a prerelease that is not marked latest, an actionlint pin new enough to
-recognize every runner label in the matrix, and a tap push whose freshness
-comparator it extracts and runs rather than reads. It needs `ruby`, which is on
+holds it to what `brew install xfx-preview` needs: a trigger that is a push to
+`main` changing `.github/preview-epoch` and nothing wider, that file present as
+one line naming an epic, the tag and version grammar the tap parses, the four
+native rows and their exact asset names, the gate running before the binary it
+guards, the `preview` stamp, the five published files, a prerelease that is not
+marked latest, an actionlint pin new enough to recognize every runner label in
+the matrix, and a tap push whose freshness comparator it extracts and runs
+rather than reads. It needs `ruby`, which is on
 every CI image, and uses `actionlint` when it is installed.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway

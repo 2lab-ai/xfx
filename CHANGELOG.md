@@ -21,6 +21,13 @@ upstream `fx`.** What is and is not implemented lives in
 
 ### Changed
 
+- **A preview is published per epic, not per push.** The preview workflow runs
+  only on a push to `main` that changes `.github/preview-epoch`, a one-line file
+  naming the epic the preview closes, so the units of an epic can merge to
+  `main` one PR at a time without each of them reaching the tap.
+  `scripts/check-preview-contract.sh` fails if that path filter is dropped or
+  widened, if another filter is added beside it, or if the file is missing or
+  is not one line.
 - **`status` and `doctor` report `provider` where they reported `backend`.**
   The fields are `provider`, `provider_url` and `provider_rejected`, and the
   `doctor` check is named `provider`. The settings key that selects it is still
