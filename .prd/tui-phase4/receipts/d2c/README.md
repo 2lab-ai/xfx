@@ -76,6 +76,23 @@ xfx's home also holds `settings.lock` (0 bytes), the cross-process lock every se
 - **A reset behind a held save**: `src/tui/event_loop.rs` `a_reset_hands_to_scrollback_what_a_held_speed_save_said_before_it` -- the save's line and `* fast: on` land on the old screen, and the handoff's scroll carries them; `src/tui/shell.rs` `a_reset_typed_behind_a_save_in_flight_waits_for_it_and_keeps_what_it_said_for_the_old_screen` with the real writers. A capture types too slowly to land a `/clear` inside a save, so none is kept for it.
 - `fast-override` and `fast-opus` retaken at `ba7fd53`: every row and every settings dump as round 2's.
 
+## Round 4 (`bcd72b8`, on plan `82400635`): `/model` asks again mid-turn
+
+```
+scripts/fxcap/capture.sh {fx,xfx} model-reask 40x120 <dir>
+```
+
+The catalog cannot be read at launch -- the fake gateway's `/models` answers 503 for its first six seconds (the harness's new `modelsdown <ms>` verb, `FAKEGW_MODELS_DOWN_MS` in `fakegw.ts`) -- a turn starts and keeps streaming (`hangMs`), and `/model` asks again while it runs. fx starts the load on a thread of its own at once (`ensureModelCache` from `openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`; again after a failure, `beginLoad`, `model_cache_runtime.zig:405-458`) and the open menu takes the rows when they land (`pollLoadTransition`, `:549-557`). xfx's ask is now a control message (`TurnControl::Catalog`) whose read starts beside the turn.
+
+| Snap | Rows identical | What differs, and why |
+|---|---|---|
+| `start` | **2/2** | -- |
+| `menu-failed` (`/model` at 2.5 s, still down) | **6/6** | `Models 0  [All]` and `Could not reach AI Gateway; retry /model.` from both |
+| `turn-running` | 3 of 4 | the activity row's clock (`3s` / `4s`) and its pulse phase |
+| `reask-midturn` (`/model` while the turn streams, the gateway back) | 11 of 12 | `Models 4  [All]  Anthropic  OpenAI  xAI  Others`, the four rows and the note, **with the turn still `Generating`** -- from both; the differing row is the activity row's pulse (`•` in fx's frame, between pulses in xfx's) |
+
+The gateway logs are line for line the same: the launch read and the first `/model` answered 503, the turn's title and completion requests, then the mid-turn read served -- before the turn ended. Before this round xfx queued that read behind the turn, so its menu said `Loading models…` until the turn was over (`src/tui/worker.rs` `a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends` fails with the request put aside until the work ends, which is what queueing it amounted to).
+
 ## What does not match, and why
 
 - **The unconfirmed-Ultra line's wrap** (`fast-unconfirmed`): closed in the follow-up but for one word. fx's assistant wrap keeps no word alone on a line's last row -- when the word that overflows is the line's final one, the word before it moves down too (`assistant_wrap.zig:219-267`, `:269-298`, `isFinalWordOnLine` `:862-883`) -- and `tui::wrap::wrap` has no such rule, so at 120 columns xfx fits `lower` on the first row. The rule is fx's for every assistant row; recorded in `ssot.md` Tensions for the prose wrap.

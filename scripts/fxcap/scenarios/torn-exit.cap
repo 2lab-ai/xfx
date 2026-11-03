@@ -1,0 +1,11 @@
+# The bytes of an exit after a torn update whose cleanup the terminal refused:
+# run on the `fault-injection` build with the fault that tears the launch's
+# update inside its rows and refuses the cleanup after it (`partial-rows`).
+# The session ends on it; `wire` is every byte it wrote, the exit's restore
+# last. XFX_BIN must start the binary after `keep` has run, since the fault
+# fires on the launch's first update.
+env XFX_TUI_FAULT=partial-rows
+keep
+wait 6
+snap exit
+wire exit

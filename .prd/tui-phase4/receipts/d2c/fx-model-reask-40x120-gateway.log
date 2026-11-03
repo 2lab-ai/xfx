@@ -1,0 +1,8 @@
+[fakegw] listening 58824
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] GET /coding-agent/v1/models -> 503 (down)
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] GET /coding-agent/v1/models -> 503 (down)
+[fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] GET /coding-agent/v1/models bearer=yes

@@ -165,3 +165,89 @@ One bound found on the way: fx's emulator refuses an update past 1 MiB
 update now carries every row the tick appends, so a multi-megabyte paste
 echoed as one card is past it -- as fx's own frame would be, since fx's
 movement bytes are inside its update too.
+
+## Round 2: /resume's reset, the window title, and the exit after a torn update
+
+Three placements against the update, each read off the wire.
+
+```
+FX_BIN=<fx c1db919 build>  scripts/fxcap/capture.sh fx  resume-wire 24x80 <dir>
+XFX_BIN=<xfx>              scripts/fxcap/capture.sh xfx resume-wire 24x80 <dir>
+XFX_BIN=<late start>       scripts/fxcap/capture.sh xfx torn-exit   24x80 <dir>
+```
+
+`resume-wire` is one prompt and answer, `/new`, then `/resume`, `alpha` and
+Enter; `wire new` is everything up to the picker, so the resume's own bytes are
+what follows it. `torn-exit` runs the `fault-injection` release build with
+`XFX_TUI_FAULT=partial-rows`: the launch's update is torn inside its rows and
+the cleanup after the tear is refused, so the session ends on it. That fault
+fires on the launch's first update, before the scenario's `keep` could be set,
+so `XFX_BIN` there was a two-line `sh` wrapper that sleeps 2 s and then `exec`s
+the binary -- nothing else. `xfx-r1-*` is round 1's release build (`b93b455`);
+`xfx-r2-*` is this round's -- the release build of `40e5ffc` for
+`resume-wire`, the `fault-injection` release build of `21f194c` for
+`torn-exit` (the same 338 bytes as `40e5ffc`'s). `splits-r2.txt` is each wire cut by
+`wiresplit.py`, the resume wires from the end of their `new.wire`.
+
+**/resume** -- the last two segments of each (`splits-r2.txt`):
+
+```
+fx  outside  @5540  ?25h OSC2"fx v0.0.13 | work" OSC2"first question alpha"
+    sync     @5593  ?2026h ?25l 2J 3J CUP(1,1) CUP(1,1) 0J ?7h "* session resumed:" … ?2026l
+r1  outside  @4044  ?25h CUP(1,1) 2J 3J
+    sync     @4061  ?2026h ?25l CUP(1,1) "* " "session resumed:" … OSC2"first question alpha" … ?2026l
+r2  outside  @4044  ?25h OSC2"first question alpha"
+    sync     @4075  ?2026h ?25l CUP(1,1) 2J 3J CUP(1,1) "* " "session resumed:" … ?2026l
+```
+
+- The reset is the first thing inside the update that carries the replay, as
+  fx's `appendFrameReset` is the first movement after its `?2026h`
+  (`src/ui/render_engine/terminal_diff.zig:611-616`, `:1311-1327`). Round 1
+  wrote it as a vector of its own ahead of the update.
+- The title is outside the update, right ahead of it, where fx's lands: fx
+  writes a title the moment it changes, as a write of its own
+  (`syncTerminalTitleWith`, `src/core/app/app_session_runtime.zig:3608-3629`;
+  `setTerminalTitleLabel`, `src/ui/render.zig:723-733`), so it reaches the
+  terminal between one frame's `?2026l ?25h` and the next one's `?2026h`.
+  Round 1 wrote it inside the update. fx writes two titles here -- its build
+  and workspace, then the session's -- because resuming clears its cached
+  title before setting the new one; xfx writes the one the window ends with.
+- The screens and their history are the same on all three
+  (`*-resume-wire-24x80-resumed.full.txt`), and so is the title the pane
+  ends with (`.title`). fx's reset bytes are `0m 2J 3J H`, xfx's `H 2J 3J`:
+  this band closes every colour it opens, so it has none to reset.
+
+**The exit after a torn update** (`xfx-r2-torn-exit-24x80-exit.wire`, 338
+bytes):
+
+```
+outside  @0    CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n OSC2"xfx v0.1.0 | work"
+sync     @81   ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 �" ?2026l
+outside  @152  OSC2"" CSI 23;2t CSI <u ?2004l ?2031l ?7h ?25h "xfx: the terminal acc.." CR LF
+```
+
+The terminal took the title written ahead of the update (22 bytes, from
+`@59`) and 63 bytes of the update -- the session reports `accepted 85 bytes`
+-- and the tear is inside the welcome row, mid-character. No `CAN` follows: the
+cleanup was refused. The `?2026l` at `@144` that closes the update is the
+first byte of the exit's restore, which is why `wiresplit.py` counts it into
+the block; one `?2026h` and one `?2026l` on the whole wire. Every restore
+opens with it now -- the normal one and the abnormal one the panic hook and
+the `SIGTERM`/`SIGHUP`/`SIGTSTP` handlers write -- as fx's both do
+(`src/core/app/app_lifecycle.zig:41`, `:44`). Before this round the restore
+began at `OSC 2 ;` and the terminal was handed back holding the update open.
+
+What the restore still does not do: the torn row left `38;5;245m` set
+(`@124`), and nothing after it resets the pen -- the error line, and whatever
+the shell prints next, are in that colour. fx's shutdown writes `?7h 0m`
+after its `?2026l` (`emitShutdownCleanupAndResume`, `app_lifecycle.zig:1514-1517`).
+
+**Where a band-tear fault tears.** `partial-frame` and `partial-frame-once`
+mean a tear in the first update's band, and that update now carries the
+document's rows ahead of the band -- so half of the write, which is where they
+cut before, is inside the rows whenever the rows outweigh the band. They now
+cut halfway into the band's part, at the boundary the composer hands the fault
+(`fault::mark_update`, `fault::band_tear`); an update with no rows, and the
+alternate-plane repaint `partial-alternate*` tears, are cut at their half as
+before. On `scripts/smoke-tui.sh`'s 3d launch (24x80) the first frame is 217
+bytes with its band part from byte 112, and the terminal takes 165 of it.

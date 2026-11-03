@@ -1,0 +1,40 @@
+
+┃ read the notes and tell me what they say
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  The notes say the meeting moved to Thursday.
+
+  0s (↑10 ↓80)
+
+* provider: Preparing llmux.
+
+* provider: Switched to llmux with fake/model-a.
+
+┃ what day was it again?
+
+  MARKER-AFTER-SWITCH: still Thursday.
+
+  0s (↑6 ↓40)
+
+
+Continue session with: xfx --resume 1791355742681-8b91edf6db5ce490
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Oct  7 15:49:48 2026)

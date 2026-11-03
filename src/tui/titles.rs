@@ -47,8 +47,11 @@
 //! **Every question is tagged with the conversation it was asked in** -- a
 //! *lineage*, which moves on whenever the conversation the band shows is let
 //! go of: at the keystroke for `/new`, `/clear` and `/reset` (the band moves
-//! it, as upstream clears its session there), and in the runtime for a resume
-//! and a provider switch. **A question of an older lineage runs on**, as
+//! it, as upstream clears its session there), and in the runtime for a resume.
+//! A provider switch keeps the conversation, as upstream's `/provider` keeps
+//! its session (`app_auth_runtime.zig:1377-1381`), and so the lineage: a
+//! question out across one is answered into it. **A question of an older
+//! lineage runs on**, as
 //! upstream's task does -- nothing stops it but the exit (`requestStop`,
 //! `app_session_runtime.zig:3949-3950`) -- and while it runs no other is asked
 //! (`task_running`); its answer is dropped when it comes (upstream's
@@ -483,8 +486,8 @@ impl TitleDesk {
     /// Lets go of the conversation questions were about: anything asked from
     /// here on is about the next one. Answers the new lineage.
     ///
-    /// **The question out runs on**, as upstream's task does across a reset,
-    /// a resume or a provider switch -- only the exit stops it ([`Self::stop`])
+    /// **The question out runs on**, as upstream's task does across a reset
+    /// or a resume -- only the exit stops it ([`Self::stop`])
     /// -- and until its answer is read no other is asked (`task_running`,
     /// `session_title_generation.zig:40-46`). Its answer is about the
     /// conversation let go of, and is dropped (`session_changed`,

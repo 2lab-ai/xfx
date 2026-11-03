@@ -100,7 +100,8 @@ use crate::interactive::{
 use crate::output::StatusSnapshot;
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
-    CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector,
+    CatalogEntry, CatalogReader, CatalogState, ModelOutcome, ModelRequest, ModelSelector,
+    StartedLoad,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
@@ -1464,8 +1465,9 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
     /// When the session `/usage` calls the session began, for its wall clock:
-    /// this runtime's start, the moment `/new` or a provider switch dropped
-    /// the conversation, or the resumed session's own creation.
+    /// this runtime's start, the moment `/new` dropped the conversation, or
+    /// the resumed session's own creation. A provider switch keeps the
+    /// conversation and so the clock.
     ///
     /// Upstream's session exists from launch and its clock with it (`reset`,
     /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
@@ -1485,7 +1487,8 @@ struct Runtime {
     mcp: Arc<crate::mcp::McpRuntime>,
     /// Where the band asks for the session's title ([`super::titles::TitleDesk`]):
     /// this side publishes where to ask ([`Runtime::publish`]), moves the
-    /// lineage on a resume and a provider switch, and settles every answer.
+    /// lineage on a resume, and settles every answer. A provider switch keeps
+    /// the conversation and so the lineage.
     titles: super::titles::TitleDesk,
     /// Where the answers arrive: read between pieces of work by [`turn_loop`],
     /// and lent to the turn that is running ([`run_turn`]).
@@ -1802,8 +1805,9 @@ impl Runtime {
     /// `:1479-1481`). The gate's half the band would have read is read from
     /// the conversation itself: no title on record, none come back for it,
     /// and no turn in it (`session_untitled`, `app_session_runtime.zig:3674-3675`).
-    /// After a provider switch that is a conversation not yet opened; after a
-    /// resume, the resumed one, whose turns ask nothing.
+    /// After a provider switch that is the conversation it kept, which asks
+    /// only if no turn has run in it; after a resume, the resumed one, whose
+    /// turns ask nothing.
     fn worked_through(&mut self, worked: usize) {
         let Some(excerpt) = self.titles.worked_through(worked) else {
             return;
@@ -1988,8 +1992,10 @@ impl Runtime {
     /// `/undo` against the conversation as it stands: its newest change as of
     /// `through` taken back ([`crate::tools::mutate::undo_through`]), or
     /// nothing when there is no conversation -- a session that has asked
-    /// nothing has changed nothing, and one `/new` or a provider switch
-    /// dropped took its changes with it.
+    /// nothing has changed nothing, and one `/new` dropped took its changes
+    /// with it. A provider switch keeps them, as upstream's keeps its tracker
+    /// (`runProviderCommand`, `app_auth_runtime.zig:387`, never reaches the
+    /// clear at `app_session_runtime.zig:1999`).
     fn undo(&self, through: crate::tools::undo::Mark) -> crate::tools::undo::Undone {
         self.conversation
             .as_ref()
@@ -2355,11 +2361,23 @@ impl Runtime {
     /// outranks the profile still outranks it and the session says what it will
     /// really do rather than what the write intended.
     ///
-    /// The bundle and the conversation are dropped **here and not earlier**, so
-    /// a transaction that failed anywhere above leaves a working session alone.
-    /// They are dropped rather than kept because a conversation carried across a
-    /// switch would replay one provider's history into another's wire format,
-    /// and a bundle is a connection to an endpoint that is no longer configured.
+    /// The bundle is dropped **here and not earlier**, so a transaction that
+    /// failed anywhere above leaves a working session alone; it is a connection
+    /// to an endpoint that is no longer configured.
+    ///
+    /// **The conversation is kept**, as upstream's `/provider` keeps its
+    /// session (`app.provider_selection.adoptOwned`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_auth_runtime.zig:1377-1381`, touches nothing of it):
+    /// its log, its grants, its read proofs and its `/undo` journal go on, and
+    /// the next turn replays its history in the new provider's wire. That is
+    /// safe because the history is never one wire's bytes: it is rebuilt from
+    /// the log for every request ([`crate::session::DurableState::history_messages`]),
+    /// a step's replay state goes only to the wire that sealed it -- upstream's
+    /// `projectProviderReplay`, `types.zig:1548-1563` -- and a call id the new
+    /// wire cannot take goes under a portable alias
+    /// ([`crate::gateway::tool_call_ids`]). The switch itself is written into
+    /// the log, provider and model both, as upstream's patch writes them
+    /// (`commitRuntimePreferences`, `app_session_runtime.zig:3539-3550`).
     fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
         // **Except the session's permission mode**, which is not what the file
         // says but what the person last chose: `/permissions` and Shift-Tab
@@ -2398,12 +2416,38 @@ impl Runtime {
         // again ([`turn_loop`]).
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
-        self.conversation = None;
+        let provider = self.config.provider.label().to_string();
+        let model = self.model().to_string();
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation
+                .recorder
+                .commit(SessionEvent::PreferencesChanged {
+                    model: Some(model),
+                    permission_mode: None,
+                    provider: Some(provider),
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
+                });
+        }
+        // And the switches that went off above, into the same log: a resume
+        // restores the session's settings from it (`Runtime::resume_by_id`),
+        // and one that still said Fast would turn it back on for a model
+        // that was never asked for it.
+        self.record_settings();
+        // The bills the Gateway still owes this session are asked with the
+        // Gateway's credential, and only while it is the provider: upstream
+        // drops its asking credential on a switch to a provider that is not
+        // the Gateway and starts again with the new one on a switch to it
+        // (`reconcileGatewayCredential`, `app_auth_runtime.zig:2039-2070`).
+        // Forgotten here, the requests stay pending in the log, and the asking
+        // after this work ([`Runtime::ask_for_bills`]) starts again on the
+        // Gateway.
         self.bills.forget();
-        self.titles.next_lineage();
-        self.conversation_lineage = None;
-        self.drop_pending_title();
-        self.began_ms = crate::session::event::system_now_ms();
+        // The title machinery's lineage stays where it is, and so does a
+        // title waiting for the conversation to open: the conversation the
+        // band shows is the one it showed before the switch, as upstream's
+        // session is (a question out runs on and is answered into it).
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
@@ -2423,17 +2467,6 @@ impl Runtime {
             // receipt for a change with no effect.
             overridden_by: crate::llmux::setup::overriding_layers(&self.config),
         }
-    }
-
-    /// The configured provider's catalog, every row in the menu's order
-    /// ([`in_menu_order`]).
-    ///
-    /// **Once per provider.** `ensure_catalog` attempts a load only from
-    /// `NotLoaded`, so a failure is remembered: a second `/model` on a daemon
-    /// that is not there reports the same reason without opening a second
-    /// socket.
-    async fn catalog(&mut self) -> CatalogAnswer {
-        from_state(self.selector.ensure_catalog().await)
     }
 
     /// Loads the catalog if nothing has asked for it yet, and says whether this
@@ -2685,7 +2718,7 @@ enum CatalogAnswer {
 
 /// What a UI is given for a catalog in this state.
 ///
-/// The whole of `Runtime::catalog` that is not the load itself, split out so
+/// The whole of a catalog's telling that is not the load itself, split out so
 /// that the mapping is a claim a test can make over all four states without a
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
@@ -2805,6 +2838,8 @@ async fn turn_loop(
                 Some(TurnControl::Rename { title, announced }) => {
                     Taken::Rename { title, announced }
                 }
+                // Nothing holds the selector: asked of it now.
+                Some(TurnControl::Catalog) => Taken::CatalogAsked,
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -2882,6 +2917,10 @@ async fn turn_loop(
                 continue;
             }
             Taken::Catalog => continue,
+            Taken::CatalogAsked => {
+                ask_catalog(&mut state, events).await;
+                continue;
+            }
             Taken::Title(titled) => {
                 if let Some(title) = state.title_arrived(&titled, false) {
                     bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
@@ -2931,15 +2970,12 @@ async fn turn_loop(
                 )
                 .await
             }
-            // Both of these open a socket, so both are work rather than control
-            // messages, and both owe **exactly one** terminal event -- which is
-            // what lets the UI's drain and the queue's accounting treat them
+            // This opens a socket, so it is work rather than a control
+            // message, and it owes **exactly one** terminal event -- which is
+            // what lets the UI's drain and the queue's accounting treat it
             // like any other item.
             TurnWork::Setup(provider) => {
                 run_setup(&mut state, provider, events, &cancel, &control, &mut queue).await
-            }
-            TurnWork::Catalog => {
-                run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
@@ -2967,8 +3003,8 @@ async fn turn_loop(
             }
         };
         // After **every** piece of work rather than in the arms that change
-        // the conversation: a provider switch replaces it, and a piece of work
-        // added later that does either is covered without remembering to be.
+        // the conversation: a resume replaces it, and a piece of work added
+        // later that does either is covered without remembering to be.
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
@@ -3108,6 +3144,8 @@ enum Taken {
     /// The catalog read in the background has answered, and its answer is
     /// taken.
     Catalog,
+    /// `/model`'s menu or column asked for the catalog ([`TurnControl::Catalog`]).
+    CatalogAsked,
     /// What a model said the session is called.
     Title(super::titles::Titled),
     /// The session is over.
@@ -3248,6 +3286,7 @@ async fn run_turn(
     let mut answers = state.title_answers.take();
     let desk = state.titles.clone();
     let shown = desk.lineage();
+    let asks = CatalogAsks::reading(state, events);
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, images, events, &turn, control,
     )))
@@ -3259,11 +3298,12 @@ async fn run_turn(
     // be too late for the case that matters most -- a provider that has gone
     // quiet without hanging up never lets the body finish at all, and the queue
     // would sit there claiming a place the band is still announcing.
-    let ((caught, titled), ended) = raced_against_control(body, control, |through| {
+    let ((caught, titled), ended) = raced_against_control(body, control, &asks, |through| {
         turn.cancel();
         queue.abandon(through);
     })
     .await;
+    asks.finish(&mut state.selector);
     steering.close();
     if answers.is_some() {
         state.title_answers = answers;
@@ -3322,12 +3362,14 @@ async fn run_compact(
     queue: &mut Queue<'_>,
 ) -> Ended {
     let turn = cancel.turn();
+    let asks = CatalogAsks::reading(state, events);
     let body = compact_between_turns(state, events, &turn);
-    let (feedback, ended) = raced_against_control(body, control, |through| {
+    let (feedback, ended) = raced_against_control(body, control, &asks, |through| {
         turn.cancel();
         queue.abandon(through);
     })
     .await;
+    asks.finish(&mut state.selector);
     // `/status` reads the conversation it compacted.
     state.publish();
     bridge::send_terminal(events, UiEvent::Compaction(Update::Settled(feedback))).await;
@@ -3557,6 +3599,136 @@ fn begin_catalog_read(state: &mut Runtime, events: &Sender<UiEvent>) {
     state.selector.begin_load(move |catalog, retry| async move {
         bridge::send_terminal(&events, catalog_event_of(provider, &catalog, retry)).await;
     });
+}
+
+/// `/model`'s menu or column asking for the catalog while nothing holds the
+/// runtime ([`TurnControl::Catalog`]): a read that failed is read again --
+/// the `retry /model.` the menu said, as upstream's `ensureModelCache` starts
+/// a load again after a failure (`beginLoad`, `vercel-labs/fx@c1db9191
+/// src/core/app/model_cache_runtime.zig:405-458`) -- and one that has not
+/// started starts, both in the background and told when they land
+/// ([`begin_catalog_read`]); a read already on its way is left to tell its
+/// own answer; and a catalog the runtime holds -- or knows there is none of --
+/// is told now, for a UI that asked without it.
+async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>) {
+    state.selector.retry_after_failure();
+    begin_catalog_read(state, events);
+    if state.selector.is_loading() {
+        return;
+    }
+    bridge::send_terminal(events, state.catalog_event()).await;
+}
+
+/// What a piece of work does with [`TurnControl::Catalog`] while it holds
+/// the runtime, and so the selector.
+///
+/// fx's interface starts a catalog load on a thread of its own whatever its
+/// worker is doing (`ensureModelCache` from `openModelBrowseCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
+/// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`), and the
+/// open menu is refreshed when it lands (`pollLoadTransition`, `:549-557`).
+/// Here the work holds the selector, so the read goes through what was taken
+/// of the selector before the work began ([`CatalogReader`]); its answer is
+/// told the moment it lands, and handed to the selector once the work is
+/// over ([`Self::finish`]).
+enum CatalogAsks {
+    /// The read starts at once, beside the work.
+    Reading {
+        /// What the selector held when the work began.
+        held: Box<HeldCatalog>,
+        reader: CatalogReader,
+        provider: ProviderId,
+        events: Sender<UiEvent>,
+        /// The read this work started, when it has started one.
+        started: std::cell::RefCell<Option<StartedLoad>>,
+    },
+    /// The read waits for the work: a provider switch, whose catalog is not
+    /// the one in hand, or a load the work is making itself
+    /// ([`ControlChannel::defer_catalog`]).
+    AfterWork,
+}
+
+/// What a selector held when work that may be asked for its catalog began.
+enum HeldCatalog {
+    /// A read of its own on the way, which tells its answer itself.
+    Reading,
+    /// An answer, told again as it stands: rows, or that there is no catalog.
+    Answer(Box<UiEvent>),
+    /// Nothing worth telling: never read, or a read that failed.
+    Nothing,
+}
+
+impl CatalogAsks {
+    /// For work that holds `state`: reads start at once.
+    fn reading(state: &Runtime, events: &Sender<UiEvent>) -> Self {
+        let held = if state.selector.is_loading() {
+            HeldCatalog::Reading
+        } else {
+            match state.selector.catalog() {
+                CatalogState::Loaded(_) | CatalogState::Unavailable => {
+                    HeldCatalog::Answer(Box::new(state.catalog_event()))
+                }
+                CatalogState::NotLoaded | CatalogState::Failed(_) => HeldCatalog::Nothing,
+            }
+        };
+        Self::Reading {
+            held: Box::new(held),
+            reader: state.selector.reader(),
+            provider: state.config.provider,
+            events: events.clone(),
+            started: std::cell::RefCell::new(None),
+        }
+    }
+
+    /// One request. A read this work started that has not answered yet is
+    /// not started twice, and neither is one the selector had on its way.
+    fn ask(&self, control: &ControlChannel) {
+        let Self::Reading {
+            held,
+            reader,
+            provider,
+            events,
+            started,
+        } = self
+        else {
+            control.defer_catalog();
+            return;
+        };
+        match held.as_ref() {
+            HeldCatalog::Reading => {}
+            HeldCatalog::Answer(answer) => {
+                let (events, answer) = (events.clone(), (**answer).clone());
+                tokio::task::spawn_local(async move {
+                    bridge::send_terminal(&events, answer).await;
+                });
+            }
+            HeldCatalog::Nothing => {
+                if started
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|load| !load.is_finished())
+                {
+                    return;
+                }
+                let (provider, events) = (*provider, events.clone());
+                let load = reader.begin(move |catalog, retry| async move {
+                    bridge::send_terminal(&events, catalog_event_of(provider, &catalog, retry))
+                        .await;
+                });
+                *started.borrow_mut() = load;
+            }
+        }
+    }
+
+    /// Hands a read this work started to `selector`, now that the work has
+    /// let it go ([`ModelSelector::adopt_load`]).
+    fn finish(self, selector: &mut ModelSelector) {
+        if let Self::Reading { started, .. } = self {
+            if let Some(load) = started.into_inner() {
+                selector.adopt_load(load);
+            }
+        }
+    }
 }
 
 /// Waits for the catalog the session began reading at launch
@@ -3995,11 +4167,12 @@ async fn run_setup(
     let outcome = {
         let cancelled = move || token.is_cancelled();
         let body = state.select_provider(provider, &cancelled);
-        let (outcome, ended) = raced_against_control(body, control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
-        .await;
+        let (outcome, ended) =
+            raced_against_control(body, control, &CatalogAsks::AfterWork, |through| {
+                turn.cancel();
+                queue.abandon(through);
+            })
+            .await;
         (outcome, ended)
     };
     let (outcome, ended) = outcome;
@@ -4036,6 +4209,10 @@ async fn run_setup(
                 },
             )
             .await;
+            // The new provider's catalog is read in the background as the
+            // loop takes its next piece of work ([`begin_catalog_read`]), as
+            // upstream's switch reads the target's: the conversation goes on,
+            // and the meter measures its tokens against the new window.
             bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
             ended
         }
@@ -4173,10 +4350,15 @@ async fn change_model(
     if !change.announced {
         state.selector.retry_after_failure();
         let turn = cancel.turn();
-        let (fresh, raced) = raced_against_control(state.load_catalog(), control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
+        let (fresh, raced) = raced_against_control(
+            state.load_catalog(),
+            control,
+            &CatalogAsks::AfterWork,
+            |through| {
+                turn.cancel();
+                queue.abandon(through);
+            },
+        )
         .await;
         if turn.token.is_cancelled() {
             return raced;
@@ -4389,6 +4571,12 @@ async fn apply_deferred(
                     change_speed(state, change);
                     continue;
                 }
+                // Asked while a provider switch ran: asked now, of the
+                // selector the switch left.
+                Deferred::Catalog => {
+                    ask_catalog(state, events).await;
+                    continue;
+                }
                 Deferred::Model(change) => change,
             };
             if ended == Ended::Session && !change.announced {
@@ -4530,44 +4718,6 @@ async fn write_renamed_after_reset(
     }
 }
 
-/// Loads the catalog once and sends **exactly one** terminal event for it.
-///
-/// What the UI is told is what `/model`'s menu shows: the rows, in the order
-/// the menu lists them ([`crate::provider::model::picker_order`]); no rows at
-/// all when the provider has no catalog (`No models available.`); or that the
-/// load failed (`Unable to load models.`). None of the three is written into
-/// the document -- the menu is where the answer is, as upstream's is.
-async fn run_catalog(
-    state: &mut Runtime,
-    events: &Sender<UiEvent>,
-    cancel: &Cancellation,
-    control: &ControlChannel,
-    queue: &mut Queue<'_>,
-) -> Ended {
-    let turn = cancel.turn();
-    // `/model`'s menu or column is what asked, which is the gesture upstream's
-    // failure text says to repeat (`retry /model.`): a load that failed is
-    // asked again here, and only here and in `change_model`.
-    state.selector.retry_after_failure();
-    let ((), ended) = raced_against_control(
-        async {
-            state.catalog().await;
-        },
-        control,
-        |through| {
-            turn.cancel();
-            queue.abandon(through);
-        },
-    )
-    .await;
-    // Through `send_ui`: a catalog whose turn was cancelled is a list nobody
-    // is waiting for any more, and the conclusion below still closes the item
-    // either way.
-    let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
-    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-    ended
-}
-
 /// Runs `body` while reading the session-title answers the turn holds, and
 /// gives back the ones that came.
 ///
@@ -4672,6 +4822,7 @@ async fn next_title(answers: &mut Option<super::titles::Answers>) -> super::titl
 async fn raced_against_control<F: Future>(
     body: F,
     control: &ControlChannel,
+    asks: &CatalogAsks,
     mut stop: impl FnMut(usize),
 ) -> (F::Output, Ended) {
     tokio::pin!(body);
@@ -4727,6 +4878,10 @@ async fn raced_against_control<F: Future>(
                 Some(TurnControl::Rename { title, announced }) => {
                     control.defer_rename(title, matches!(ended, Ended::Reset(_)), announced);
                 }
+                // `/model`'s menu asking for the catalog while this work
+                // holds the runtime: the read starts now, beside it, as
+                // upstream's does on a thread of its own ([`CatalogAsks`]).
+                Some(TurnControl::Catalog) => asks.ask(control),
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -5017,7 +5172,9 @@ async fn one_turn(
         .recorder
         .state()
         .history_messages(state.config.provider.wire());
-    for notice in &replay.notices {
+    // Once each for the conversation ([`Conversation::unsaid`]): the history
+    // is rebuilt for every turn, and so are these.
+    for notice in conversation.unsaid(replay.notices) {
         // Best effort by construction: a notice about the history is worth
         // less than the turn it precedes, and the only ways this fails are a
         // turn that was cancelled before it began and a UI that is gone --
@@ -5025,7 +5182,8 @@ async fn one_turn(
         // A warning under `session`: the turn goes ahead, without what the
         // history could not carry. The store's sentence is the line shell's
         // too, so its `xfx: ` comes off here where the glyph says it.
-        let notice = super::notice::Notice::warning("session", super::notice::unattributed(notice));
+        let notice =
+            super::notice::Notice::warning("session", super::notice::unattributed(&notice));
         let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice)).await;
     }
 
@@ -5833,10 +5991,15 @@ mod tests {
             outstanding: &counted,
             taken: 1,
         };
-        let (was_stopped, ended) = on_a_runtime(raced_against_control(body, &control, |through| {
-            stopped.store(true, Ordering::Release);
-            queue.abandon(through);
-        }));
+        let (was_stopped, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |through| {
+                stopped.store(true, Ordering::Release);
+                queue.abandon(through);
+            },
+        ));
 
         assert!(
             was_stopped,
@@ -5944,9 +6107,12 @@ mod tests {
             .send(TurnControl::Cancel { through: 0 })
             .expect("the receiver is alive");
 
-        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (output, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         assert_eq!(
             output, STOPPED,
@@ -5966,9 +6132,12 @@ mod tests {
         let control = ControlChannel::new(control_rx);
         control_tx.send(TurnControl::Shutdown).expect("alive");
 
-        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (output, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         assert_eq!(output, STOPPED, "a shutdown left the turn running");
         assert_eq!(ended, Ended::Session);
@@ -6637,9 +6806,12 @@ mod tests {
         let control = ControlChannel::new(control_rx);
         drop(control_tx);
 
-        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (output, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         // Deleting the flag **hangs** this case rather than failing it, and
         // that is worth being exact about: a `recv` on a closed channel is
@@ -6674,9 +6846,12 @@ mod tests {
         // makes "the stray changed nothing" observable.
         let body = async move { !watched.load(Ordering::Acquire) };
 
-        let (untouched, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
-            stopped.store(true, Ordering::Release)
-        }));
+        let (untouched, ended) = on_a_runtime(raced_against_control(
+            body,
+            &control,
+            &CatalogAsks::AfterWork,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
 
         assert!(untouched, "a stray answer cancelled the turn");
         assert_eq!(ended, Ended::Turn);
@@ -8170,6 +8345,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |through| stops.push(through),
         ));
         assert_eq!(stops.len(), 1, "a rename stopped the work");
@@ -8314,6 +8490,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |through| stops.push(through),
         ));
         assert_eq!(stops, vec![1, 3]);
@@ -8330,6 +8507,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |_| {},
         ));
         assert_eq!(ended, Ended::Session);
@@ -8528,6 +8706,101 @@ mod tests {
             let _ = gate.await;
             Ok(self.entries.clone())
         }
+    }
+
+    /// A catalog that fails its first read and answers `entries` after it:
+    /// the Gateway down at launch and back by the time `/model` asks again.
+    struct BackAfterOne {
+        entries: Vec<CatalogEntry>,
+        asked: std::cell::Cell<usize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for BackAfterOne {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            self.asked.set(self.asked.get() + 1);
+            if self.asked.get() == 1 {
+                return Unreachable.fetch().await;
+            }
+            Ok(self.entries.clone())
+        }
+    }
+
+    #[test]
+    fn a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends() {
+        // Upstream's `/model` starts the load on a thread of its own whatever
+        // its worker is doing -- again after one that failed (`ensureModelCache`
+        // from `openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`;
+        // `beginLoad`, `model_cache_runtime.zig:405-458`) -- and the open menu
+        // takes the rows when they land (`pollLoadTransition`, `:549-557`).
+        // Here a stand-in turn holds the runtime throughout: the request is a
+        // control message the work's race reads, the read runs beside it, the
+        // band is told before the turn ends, and the selector takes the
+        // answer once it has.
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_fetcher_for_test(Box::new(BackAfterOne {
+            entries: vec![published("anthropic/claude-opus-5")],
+            asked: std::cell::Cell::new(0),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let asks = CatalogAsks::reading(&state, &events);
+        let (turn_over, ended) = tokio::sync::oneshot::channel::<()>();
+        let told = on_a_runtime(async {
+            let turn = async {
+                let _ = ended.await;
+            };
+            let watch = async {
+                control_tx
+                    .send(TurnControl::Catalog)
+                    .expect("the work listens");
+                let told = tokio::time::timeout(TEST_DRAIN, received.recv())
+                    .await
+                    .expect("the band was not told while the turn ran")
+                    .expect("told");
+                turn_over.send(()).expect("the turn is waiting");
+                told
+            };
+            let (((), ended), told) = tokio::join!(
+                raced_against_control(turn, &control, &asks, |_| {
+                    panic!("nothing stopped the turn")
+                }),
+                watch
+            );
+            assert_eq!(ended, Ended::Turn);
+            told
+        });
+        assert_eq!(
+            told,
+            UiEvent::CatalogLoaded {
+                provider: state.config.provider,
+                entries: vec![published("anthropic/claude-opus-5")],
+            }
+        );
+        // The selector takes it once the work lets go, and the UI is not told
+        // it a second time.
+        asks.finish(&mut state.selector);
+        assert!(state.selector.is_loading());
+        let fresh = on_a_runtime(state.load_catalog());
+        assert!(!fresh, "a read that told the UI itself was told again");
+        assert!(state.selector.entry("anthropic/claude-opus-5").is_some());
+        assert!(received.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_catalog_request_during_a_provider_switch_waits_for_the_switch() {
+        // A switch's catalog is the next provider's, not the one in hand: the
+        // request is put aside and answered once the switch is over.
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        CatalogAsks::AfterWork.ask(&control);
+        assert!(matches!(
+            control.take_deferred().as_slice(),
+            [crate::tui::approval::Deferred::Catalog]
+        ));
     }
 
     #[test]
@@ -8793,6 +9066,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |through| stops.push(through),
         ));
         assert!(stops.is_empty(), "a model change stopped the work");
@@ -9475,6 +9749,7 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 },
                 &control,
+                &CatalogAsks::AfterWork,
                 |through| stops.push(through),
             ));
             assert_eq!(stops.len(), resets, "an undo stopped the work");
@@ -9574,6 +9849,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             },
             &control,
+            &CatalogAsks::AfterWork,
             |_| {},
         ));
         // The same work goes on to change another file.
@@ -9822,25 +10098,19 @@ mod tests {
     }
 
     #[test]
-    fn a_catalog_load_answers_the_menu_and_never_the_document() {
-        // Each of the three answers the menu has, from the one item that
-        // asked; none of them is a notice or a failed turn.
+    fn a_catalog_request_answers_the_menu_and_never_the_document() {
+        // Each of the three answers the menu has, for the one request that
+        // asked ([`TurnControl::Catalog`]); none of them is a notice, a failed
+        // turn, or the end of any work -- a request is not work.
         let (_home, _workspace, mut state) = recording();
-        let catalog = |state: &mut Runtime| {
+        let asked = |state: &mut Runtime| {
             let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-            let (_control_tx, control_rx) = mpsc::unbounded_channel();
-            let control = ControlChannel::new(control_rx);
-            let cancel = Cancellation::new(CancelToken::new());
-            let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
-            let outstanding = AtomicUsize::new(1);
-            let mut queue = Queue {
-                work: &mut work_rx,
-                outstanding: &outstanding,
-                taken: 0,
-            };
-            on_a_runtime(run_catalog(
-                state, &events_tx, &cancel, &control, &mut queue,
-            ));
+            on_a_runtime(async {
+                ask_catalog(state, &events_tx).await;
+                // A read it started tells its answer itself; taken here, so
+                // the case reads what it told.
+                state.selector.settle_load().await;
+            });
             let mut said = Vec::new();
             while let Ok(event) = events_rx.try_recv() {
                 said.push(event);
@@ -9850,37 +10120,33 @@ mod tests {
         let provider = state.config.provider;
         // No catalog at all: an empty list.
         assert_eq!(
-            catalog(&mut state),
-            [
-                UiEvent::CatalogLoaded {
-                    provider,
-                    entries: Vec::new()
-                },
-                UiEvent::TurnEnded { failure: None }
-            ]
+            asked(&mut state),
+            [UiEvent::CatalogLoaded {
+                provider,
+                entries: Vec::new()
+            }]
         );
         // Unread: the menu's failure -- and whether asking again could help
         // -- and no failed turn.
         state.selector.set_fetcher_for_test(Box::new(Unreachable));
-        assert_eq!(
-            catalog(&mut state),
-            [
-                UiEvent::CatalogUnread {
-                    provider,
-                    retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-                },
-                UiEvent::TurnEnded { failure: None }
-            ]
-        );
-        // Rows: in the order the menu lists them.
+        let unread = UiEvent::CatalogUnread {
+            provider,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+        };
+        assert_eq!(asked(&mut state), std::slice::from_ref(&unread));
+        // And asked again, it is read again: the `retry /model.` the menu
+        // said (`beginLoad` loads again after a failure,
+        // `model_cache_runtime.zig:405-458`).
+        assert_eq!(asked(&mut state), [unread]);
+        // Rows: in the order the menu lists them, told as they stand.
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(vec![
                 published("zeta/one"),
                 published("alpha/two"),
             ]));
-        let said = catalog(&mut state);
-        let UiEvent::CatalogLoaded { entries, .. } = &said[0] else {
+        let said = asked(&mut state);
+        let [UiEvent::CatalogLoaded { entries, .. }] = &said[..] else {
             panic!("{said:?}");
         };
         assert_eq!(
@@ -10204,12 +10470,15 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_switch_drops_the_old_bundle_and_the_conversation() {
-        // Step (g), and the two things it must not keep. A conversation carried
-        // across a switch would replay one provider's history into another's
-        // wire format; a bundle is a connection to an endpoint that is no longer
-        // configured. `ready()` builds whatever it does not have, so dropping
-        // them here is exactly what makes the next prompt select the new one.
+    fn a_provider_switch_drops_the_old_bundle_and_keeps_the_conversation() {
+        // Step (g). The bundle goes: it is a connection to an endpoint that is
+        // no longer configured, and `ready()` builds whatever it does not
+        // have, so dropping it is exactly what makes the next prompt select
+        // the new one. **Changed claim**: the conversation stays, as
+        // upstream's session does across `/provider` (`app_auth_runtime.zig:
+        // 1377-1381`), with the switch written into its log, provider and
+        // model both (`app_session_runtime.zig:3539-3550`), and its clock
+        // where it was.
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A credential, because a bundle cannot be selected without one and the
@@ -10252,6 +10521,19 @@ mod tests {
             .expect("open a conversation"),
         );
 
+        let id = runtime
+            .conversation
+            .as_ref()
+            .expect("opened")
+            .recorder
+            .id()
+            .clone();
+        runtime.began_ms = 1_234;
+        // In Fast, and the log says so: the switch turns it off with the
+        // model it replaces, and a resume reads the log's.
+        runtime.settings.fast = true;
+        runtime.record_settings();
+
         let mut after = before.clone();
         after.provider = ProviderId::Llmux;
         after.model = "fable".to_string();
@@ -10265,9 +10547,23 @@ mod tests {
             runtime.provider.is_none(),
             "the old bundle survived the swap"
         );
-        assert!(
-            runtime.conversation.is_none(),
-            "the old conversation survived the swap"
+        let kept = runtime
+            .conversation
+            .as_ref()
+            .expect("the switch dropped the conversation");
+        assert_eq!(kept.recorder.id(), &id, "the switch opened another session");
+        assert_eq!(kept.recorder.state().provider.as_deref(), Some("llmux"));
+        assert_eq!(kept.recorder.state().model, "fable");
+        assert_eq!(runtime.began_ms, 1_234, "the switch restarted the clock");
+        assert!(!runtime.settings.fast);
+        assert_eq!(
+            kept.recorder
+                .state()
+                .turn_settings
+                .as_ref()
+                .map(|settings| settings.fast),
+            Some(false),
+            "the log kept Fast on across the switch, for a resume to restore"
         );
         assert_eq!(
             runtime.config.llmux_url.as_deref(),
@@ -10430,12 +10726,12 @@ mod tests {
     }
 
     #[test]
-    fn a_conversation_rebuilt_after_a_provider_switch_can_still_ask() {
-        // `adopt` drops the conversation on purpose, and `ready()` builds
-        // whatever it does not have. A requester attached only at the first
-        // `ready` would leave every session that switched provider -- or typed
-        // `/new`, which drops the same field -- unable to ask, and the failure
-        // would look like a model that stopped using the tool.
+    fn a_conversation_kept_across_a_provider_switch_or_rebuilt_after_new_can_still_ask() {
+        // `adopt` keeps the conversation, tools and requester with it, and
+        // `ready()` builds whatever it does not have -- after `/new`, which
+        // drops the field. A requester attached only at the first `ready`
+        // would leave such a session unable to ask, and the failure would
+        // look like a model that stopped using the tool.
         let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
         state.ready(&CancelToken::new()).expect("a conversation");
 
@@ -10444,11 +10740,19 @@ mod tests {
         after.model = "fable".to_string();
         after.llmux_url = Some("http://127.0.0.1:3456".to_string());
         state.adopt(after);
+        state.ready(&CancelToken::new()).expect("a conversation");
         assert!(
-            state.conversation.is_none(),
-            "the switch kept the old conversation, so the rebuild is not what is measured"
+            state
+                .conversation
+                .as_ref()
+                .expect("kept")
+                .tools
+                .questioner()
+                .is_some(),
+            "the conversation kept across the switch has nobody to ask"
         );
 
+        state.conversation = None;
         state.ready(&CancelToken::new()).expect("a conversation");
         assert!(
             state
@@ -10949,6 +11253,7 @@ mod tests {
                 let ran = on_a_runtime(raced_against_control(
                     crate::agent::run_turn(request, provider, &mut sink),
                     control,
+                    &CatalogAsks::AfterWork,
                     move |_through| {
                         // What `turn_loop` does with a `Cancel`: this turn stops
                         // and the session does not.
@@ -10984,6 +11289,7 @@ mod tests {
             let (outcome, ended) = on_a_runtime(raced_against_control(
                 crate::agent::run_turn(request, provider, &mut sink),
                 &self.control,
+                &CatalogAsks::AfterWork,
                 |_through| panic!("nothing interrupted this turn"),
             ));
             Ran {
@@ -11428,6 +11734,7 @@ mod tests {
         let ((was_stopped, _titled), ended) = on_a_runtime(raced_against_control(
             titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
             &control,
+            &CatalogAsks::AfterWork,
             |_through| stopped.store(true, Ordering::Release),
         ));
         assert!(
@@ -11466,6 +11773,7 @@ mod tests {
         let (((), kept), _ended) = on_a_runtime(raced_against_control(
             titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
             &control,
+            &CatalogAsks::AfterWork,
             |_through| {},
         ));
         assert!(landed.load(Ordering::Acquire));
@@ -11627,8 +11935,8 @@ mod tests {
 
     #[test]
     fn a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next() {
-        // A `/new` moves the lineage on at the keystroke; a resume and a
-        // provider switch move it in the runtime. The question runs on, and
+        // A `/new` moves the lineage on at the keystroke; a resume moves it
+        // in the runtime. The question runs on, and
         // its answer is about the conversation let go of: dropped
         // (`session_changed`, `pollSessionTitleGeneration`,
         // `app_session_runtime.zig:3720-3728`), which `/trace` says over the
@@ -11651,49 +11959,39 @@ mod tests {
             .expect("the next conversation");
         assert!(rename_frames(&state).is_empty());
 
-        // A provider switch's own lineage change, with the question still
-        // out when it is made.
-        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        // **Changed claim**: a provider switch is no longer one. It keeps
+        // the conversation, as upstream's `/provider` keeps its session
+        // (`app_auth_runtime.zig:1377-1381`), so the question out when it is
+        // made is answered into that conversation.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Still mine"));
         state.ready(&CancelToken::new()).expect("a conversation");
         assert!(state.titles.ask("fix the renderer"));
         let reloaded = state.config.clone();
         let _ = state.adopt(reloaded);
         let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
-        assert_eq!(state.title_arrived(&titled, false), None);
-        let record = state.titles.generation();
-        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
-        assert_eq!(record.reason, Some("session_changed"));
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Still mine")
+        );
+        let recorded = state.conversation.as_ref().expect("kept").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Still mine"));
 
-        // One that came back and was read before the lineage moved is
-        // dropped by its lineage too.
-        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
-        state.ready(&CancelToken::new()).expect("a conversation");
-        assert!(state.titles.ask("fix the renderer"));
-        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
-        assert!(state.titles.settle(&titled));
-        let reloaded = state.config.clone();
-        let _ = state.adopt(reloaded);
-        assert_eq!(state.title_arrived(&titled, true), None);
-        let record = state.titles.generation();
-        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
-        assert_eq!(record.reason, Some("session_changed"));
-
-        // And one that was waiting for a conversation not yet open when a
-        // switch let it go: dropped too, not forgotten with `/trace` still
-        // calling it installed.
-        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Never opened"));
+        // And one that was waiting for a conversation not yet open when the
+        // switch was made goes on waiting for it, and is written when it
+        // opens.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Opened later"));
         assert!(state.titles.ask("fix the renderer"));
         let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
         assert_eq!(
             state.title_arrived(&titled, false).as_deref(),
-            Some("Never opened"),
+            Some("Opened later"),
             "the band was not shown it"
         );
         let reloaded = state.config.clone();
         let _ = state.adopt(reloaded);
-        let record = state.titles.generation();
-        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
-        assert_eq!(record.reason, Some("session_changed"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Opened later"));
     }
 
     #[test]
@@ -11701,11 +11999,10 @@ mod tests {
         // Upstream holds a prompt while its provider is prepared and asks
         // when it finalizes it, of the session in force then
         // (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`,
-        // `:1479-1481`). After xfx's provider switch that is a conversation
-        // not yet opened: asked.
+        // `:1479-1481`). A provider switch keeps the conversation, so a
+        // prompt held for one made before any conversation was opened is
+        // that conversation's first: asked.
         let (_home, _workspace, mut state) = titled_runtime(|_| generated("New provider"));
-        state.ready(&CancelToken::new()).expect("a conversation");
-        concluded(&mut state, "a turn in the conversation the switch drops");
         state.titles.switching(1);
         assert!(state.titles.defer("fix the renderer", Some(2)));
         state.worked_through(0);
@@ -11715,10 +12012,23 @@ mod tests {
         state.worked_through(1);
         assert!(
             state.titles.running(),
-            "the fresh conversation's prompt asked nothing"
+            "the first prompt after the switch asked nothing"
         );
         let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
         assert_eq!(titled.lineage, state.titles.lineage());
+
+        // And one held for a switch of a conversation that has turns is not
+        // its first prompt: nothing asked (`session_untitled`,
+        // `app_session_runtime.zig:3674-3675`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Not asked"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "a turn in the conversation the switch keeps");
+        state.titles.switching(1);
+        assert!(state.titles.defer("fix the renderer", Some(2)));
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        state.worked_through(1);
+        assert!(!state.titles.running(), "a conversation with turns asked");
 
         // After a resume it is the resumed conversation, whose turns ask
         // nothing (`session_untitled`, `app_session_runtime.zig:3674-3675`).
