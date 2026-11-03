@@ -21430,15 +21430,24 @@ mod tests {
         (written[0].clone(), report)
     }
 
-    /// What `/trace` says once its report is written: copied on macOS, where
-    /// the fake `osascript` took it, and saved everywhere else.
-    fn traced(path: &std::path::Path) -> Vec<String> {
+    /// What `/trace` says once its report is written, on a `rows` by `cols`
+    /// screen: copied on macOS, where the fake `osascript` took it, and saved
+    /// everywhere else.
+    ///
+    /// Laid out by a fresh shell of the same size rather than assumed to be
+    /// one row: a saved report's sentence names its path, which is as long as
+    /// the temporary directory makes it, so whether it wraps -- and where --
+    /// is the transcript's to say ([`a_notice_naming_a_path_wraps_where_upstreams_does`]
+    /// is the case about that).
+    fn traced(rows: u16, cols: u16, path: &std::path::Path) -> Vec<String> {
         let done = if cfg!(target_os = "macos") {
             crate::trace::Disposition::Copied(path.to_path_buf())
         } else {
             crate::trace::Disposition::Saved(path.to_path_buf())
         };
-        said(notice::Notice::neutral("", done.sentence()))
+        let mut reference = shell(rows, cols);
+        reference.announce(notice::Notice::neutral("", done.sentence()));
+        reference.document()
     }
 
     #[test]
@@ -21464,7 +21473,7 @@ mod tests {
         shell.route_bytes(b"/trace\r");
         let document = copy_settled(&mut shell);
         let (path, report) = the_report(dir.path());
-        assert_eq!(document, traced(&path));
+        assert_eq!(document, traced(40, 120, &path));
         assert!(
             path.file_name()
                 .and_then(|name| name.to_str())
@@ -21546,7 +21555,7 @@ mod tests {
                 crate::trace::Disposition::CopyFailed(path).sentence(),
             ))
         } else {
-            traced(&path)
+            traced(24, 250, &path)
         };
         assert_eq!(document, expected);
     }
@@ -21618,7 +21627,7 @@ mod tests {
         shell.route_bytes(b"/trace\r");
         let document = copy_settled(&mut shell);
         let (path, report) = the_report(dir.path());
-        assert_eq!(document, traced(&path));
+        assert_eq!(document, traced(24, 80, &path));
         assert!(
             report.contains(
                 "- report captured an active turn; the session log may end mid-turn \
@@ -31274,16 +31283,29 @@ mod tests {
         shell.route_bytes(b"/workspace\r");
         let rows = uncoloured_rows(&shell.band_rows()[1..9]);
         assert_eq!(rows[3], "  Additional directories    1 / 16");
+        // The descriptions start a four-column gap past the widest of the
+        // labels and the saved path (`workspace_menu::info_column`), so where
+        // depends on how long the temporary directory makes the path: past
+        // `Clear saved directories` on macOS, short of it on Linux's `/tmp`.
+        let cells = super::super::picker::cells;
+        let path = extra.display().to_string();
+        let clear = "Clear saved directories";
+        let clears = "Remove every saved additional directory";
+        let column = 2 + cells(&path).max(cells(clear)) + 4;
+        assert!(
+            column <= 120 - cells(clears),
+            "{path} is too long for a 120-column picker to draw whole"
+        );
         assert_eq!(
             rows[6],
-            format!("  {}    Active \u{b7} Saved", extra.display())
+            format!(
+                "  {path}{}Active \u{b7} Saved",
+                " ".repeat(column - 2 - cells(&path))
+            )
         );
         assert_eq!(
             rows[7].trim_end(),
-            format!(
-                "  Clear saved directories{}Remove every saved additional directory",
-                " ".repeat(extra.to_string_lossy().len() + 4 - 23)
-            )
+            format!("  {clear}{}{clears}", " ".repeat(column - 2 - cells(clear)))
         );
     }
 

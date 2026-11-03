@@ -2506,6 +2506,25 @@ impl WritableSession {
     }
 }
 
+/// Lets go of the log's lock as the handle goes, rather than when the last
+/// descriptor for its file description closes.
+///
+/// Those are not the same moment. A child another thread is starting holds a
+/// copy of every descriptor from its `fork` (or Linux's `posix_spawn`, which
+/// is a `clone` too) until its `execve`, and the lock is the file
+/// description's, so it outlives this handle by that window. A resume that
+/// does not wait -- the `/resume` picker's -- would refuse a session nobody
+/// is writing. An explicit unlock on any descriptor of the description
+/// releases it for all of them (`flock(2)`, on Linux and on macOS alike).
+#[cfg(unix)]
+impl Drop for WritableSession {
+    fn drop(&mut self) {
+        // Nothing to do about a failure: the descriptor closes next, and the
+        // kernel releases the lock at the last close as it always did.
+        let _ = rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // the journal adapter
 // ---------------------------------------------------------------------------
@@ -3484,7 +3503,8 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// make it the right primitive here:
 ///
 /// - **It is released by the kernel**, when the last descriptor for the open
-///   file description closes. A `WritableSession` therefore cannot leak a lock
+///   file description closes -- or sooner, by the handle's own `Drop`, which
+///   unlocks it explicitly. A `WritableSession` therefore cannot leak a lock
 ///   by panicking, by being forgotten, or by the process being killed -- which
 ///   is exactly the situation a crash-safe store has to survive.
 /// - **It is per open file description, not per process.** Opening the same
@@ -3505,7 +3525,11 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// `terminal` command is a child, and a child forked by one thread inherits the
 /// session another thread has open. In the window between that `fork` and its
 /// `exec`, the lock is held by a process that is not writing to the session and
-/// never will, and it stays held even after the real writer closes.
+/// never will. A writer that drops its handle unlocks explicitly
+/// ([`WritableSession`]'s `Drop`), which releases the lock for the child's copy
+/// too; one whose process ends without dropping it -- an `exit`, a crash, a
+/// kill -- leaves the lock to the last close, and a child mid-spawn is still
+/// holding a copy then.
 ///
 /// So `WOULDBLOCK` opens a **bounded grace period** rather than a refusal: the
 /// lock is retried across [`LOCK_RETRY_BUDGET`] by [`acquire_with_grace`], and
@@ -4938,6 +4962,49 @@ mod tests {
             Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
             other => panic!("a held session was not refused as busy: {other:?}"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_closed_writer_is_not_kept_holding_by_a_copy_of_its_descriptor() {
+        // A child another thread is starting holds a copy of every descriptor
+        // until its `execve` -- on Linux even through `posix_spawn` -- and the
+        // lock is the file description's. `try_clone` makes that same copy
+        // without a fork, so the case is the race with the timing taken out.
+        // Red before: the copy kept the lock after the writer was dropped, and
+        // the picker's one try refused a session nobody was writing
+        // (`resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once`,
+        // aarch64 Linux CI).
+        let root = tempfile::TempDir::new().expect("a profile root");
+        let store = SessionStore::open(&root.path().join("profile")).expect("a store");
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        let id = SessionId::generate();
+        let session = store
+            .create(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                    provider: None,
+                },
+            )
+            .expect("a session");
+        let inherited = session.file.try_clone().expect("a copy of the descriptor");
+        drop(session);
+
+        let resumed = store
+            .resume_without_waiting(&Selector::Id(id.clone()), &workspace)
+            .expect("a closed writer's session resumes at once");
+        // And the lock is the new writer's now, copy or no copy.
+        match store.resume_without_waiting(&Selector::Id(id.clone()), &workspace) {
+            Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
+            other => panic!("a held session was not refused as busy: {other:?}"),
+        }
+        drop(inherited);
+        drop(resumed);
     }
 
     #[test]
