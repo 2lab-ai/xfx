@@ -101,7 +101,7 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
   writes there as it does in the workspace -- except the files that decide what
   runs later (`.zshrc`, `.zshenv` and the other shell startup files, all of
   `.ssh`, launch agents and systemd user units, `.git/hooks`, `.git/config`,
-  `~/.gitconfig`, `~/.xfx`, a project's `.mcp.json`, the vim, neovim, emacs
+  `~/.gitconfig` and every file it includes, `~/.xfx`, a project's `.mcp.json`, the vim, neovim, emacs
   and tmux startup files, `~/.aws/config`, `~/.kube/config`, Claude Code's
   settings), which it leaves to `ask`. That holds in any root,
   in any spelling a case-insensitive volume folds onto those names, and

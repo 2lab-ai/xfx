@@ -17,7 +17,12 @@
 //!
 //! - every protected entry below every base (the home directory, every
 //!   authorized root, and `$XDG_CONFIG_HOME` / `$ZDOTDIR` when the front end
-//!   names them) is opened and recorded by identity;
+//!   names them) is opened and recorded by identity, and so is every file
+//!   git's global configuration (`~/.gitconfig`, `~/.config/git/config`,
+//!   `$XDG_CONFIG_HOME/git/config`) includes, recursively
+//!   ([`super::gitconfig`]) -- an included file is that configuration, and a
+//!   `filter.<driver>.clean` written there runs on the user's next `git
+//!   status`;
 //! - every protected entry that is a directory is listed, recursively, and
 //!   every directory and every link target found in it is recorded too -- a
 //!   link to a directory is listed in its turn, and a directory once;
@@ -82,10 +87,14 @@ pub(crate) fn link_hold(target: &Path, bases: &[Base]) -> Option<String> {
 /// A directory protected entries are looked for below.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Base {
-    /// The home directory, a root, or `$ZDOTDIR`: every entry, as listed.
+    /// The home directory: every entry, as listed, and what git's global
+    /// configuration there (`.gitconfig`, `.config/git/config`) includes.
     Home(PathBuf),
+    /// A root, or `$ZDOTDIR`: every entry, as listed.
+    Root(PathBuf),
     /// A directory standing for `~/.config` -- `$XDG_CONFIG_HOME` -- where
-    /// the entries under `.config` are found without that component.
+    /// the entries under `.config` are found without that component, and
+    /// what `git/config` there includes.
     Config(PathBuf),
 }
 
@@ -104,14 +113,14 @@ impl Base {
         absolute("XDG_CONFIG_HOME")
             .map(Self::Config)
             .into_iter()
-            .chain(absolute("ZDOTDIR").map(Self::Home))
+            .chain(absolute("ZDOTDIR").map(Self::Root))
             .collect()
     }
 
     /// Every protected entry below this base.
     fn entries(&self) -> Vec<PathBuf> {
         let (base, config) = match self {
-            Self::Home(base) => (base, false),
+            Self::Home(base) | Self::Root(base) => (base, false),
             Self::Config(base) => (base, true),
         };
         SENSITIVE_AUTO_WRITE_SEQUENCES
@@ -130,6 +139,16 @@ impl Base {
             })
             .collect()
     }
+
+    /// The git configuration files below this base whose includes are part
+    /// of the user's git configuration.
+    fn git_configs(&self) -> Vec<PathBuf> {
+        match self {
+            Self::Home(home) => vec![home.join(".gitconfig"), home.join(".config/git/config")],
+            Self::Config(config) => vec![config.join("git/config")],
+            Self::Root(_) => Vec::new(),
+        }
+    }
 }
 
 fn hold_within(target: &Path, bases: &[Base], limit: usize) -> Option<String> {
@@ -147,6 +166,7 @@ fn hold_within(target: &Path, bases: &[Base], limit: usize) -> Option<String> {
         left: limit,
         queue: VecDeque::new(),
         listed: HashSet::new(),
+        parsed: HashSet::new(),
     };
     walk.run(bases).err()
 }
@@ -243,16 +263,25 @@ struct Walk {
     /// Directories still to list, each with the protected entry it is part of.
     queue: VecDeque<(PathBuf, String)>,
     listed: HashSet<Identity>,
+    /// Git configuration files already read for their includes.
+    parsed: HashSet<Identity>,
 }
 
 impl Walk {
     fn run(&mut self, bases: &[Base]) -> Result<(), String> {
+        let home = bases.iter().find_map(|base| match base {
+            Base::Home(home) => Some(home.clone()),
+            _ => None,
+        });
         for base in bases {
             for entry in base.entries() {
                 let name = entry.display().to_string();
                 let lead =
                     resolve(&entry, MAX_LINK_HOPS).map_err(|why| cannot_check(&name, &why))?;
                 self.reach(lead, &name, &name)?;
+            }
+            for config in base.git_configs() {
+                self.includes(&config, home.as_deref())?;
             }
         }
         while let Some((directory, entry)) = self.queue.pop_front() {
@@ -280,6 +309,52 @@ impl Walk {
         {
             if self.listed.insert(identity) {
                 self.queue.push_back((path, entry.to_string()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Every file `config` includes, recursively: each is part of the
+    /// configuration that includes it, so it is reached as that file is.
+    fn includes(&mut self, config: &Path, home: Option<&Path>) -> Result<(), String> {
+        let name = config.display().to_string();
+        let identity = match std::fs::metadata(config) {
+            Ok(metadata) => Identity::of(&metadata),
+            Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+                return Ok(())
+            }
+            Err(err) => return Err(cannot_check(&name, &format!("it cannot be read: {err}"))),
+        };
+        if !self.parsed.insert(identity) {
+            return Ok(());
+        }
+        if self.parsed.len() > MAX_GIT_CONFIGS {
+            return Err(cannot_check(
+                &name,
+                &format!("the configuration includes more than {MAX_GIT_CONFIGS} files"),
+            ));
+        }
+        let text = read_config(config).map_err(|why| cannot_check(&name, &why))?;
+        let paths =
+            super::gitconfig::include_paths(&text).map_err(|why| cannot_check(&name, &why))?;
+        for raw in paths {
+            for path in
+                expand_include(&raw, config, home).map_err(|why| cannot_check(&name, &why))?
+            {
+                let via = path.display().to_string();
+                let lead = resolve(&path, MAX_LINK_HOPS)
+                    .map_err(|why| cannot_check(&name, &format!("`{via}`: {why}")))?;
+                let file = matches!(
+                    lead,
+                    Lead::Node {
+                        directory: false,
+                        ..
+                    }
+                );
+                self.reach(lead, &name, &via)?;
+                if file {
+                    self.includes(&path, home)?;
+                }
             }
         }
         Ok(())
@@ -331,6 +406,59 @@ impl Walk {
         }
         Ok(())
     }
+}
+
+/// The most git configuration files one check reads for includes.
+const MAX_GIT_CONFIGS: usize = 64;
+
+/// The most bytes of one git configuration file read for its includes.
+const MAX_GIT_CONFIG_BYTES: u64 = 1024 * 1024;
+
+fn read_config(config: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(config)
+        .and_then(|file| file.take(MAX_GIT_CONFIG_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|err| format!("it cannot be read: {err}"))?;
+    if bytes.len() as u64 > MAX_GIT_CONFIG_BYTES {
+        return Err(format!("it is larger than {MAX_GIT_CONFIG_BYTES} bytes"));
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Where an include path in `config` points, as git expands it: `~/` from
+/// the home directory, a relative path from the directory of the file that
+/// names it -- both that file's directory as named and as resolved, since a
+/// `~/.gitconfig` that is a link has two.
+fn expand_include(raw: &str, config: &Path, home: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    if raw == "~" || raw.starts_with("~/") {
+        let home =
+            home.ok_or_else(|| format!("`{raw}` names a home directory xfx was not given"))?;
+        return Ok(vec![
+            home.join(raw.trim_start_matches('~').trim_start_matches('/'))
+        ]);
+    }
+    if raw.starts_with('~') || raw.starts_with("%(") {
+        return Err(format!("`{raw}` is not a path xfx expands"));
+    }
+    let path = Path::new(raw);
+    if path.is_absolute() {
+        return Ok(vec![path.to_path_buf()]);
+    }
+    let named = config
+        .parent()
+        .ok_or_else(|| format!("`{}` has no directory", config.display()))?;
+    let mut paths = vec![named.join(path)];
+    if let Some(resolved) = std::fs::canonicalize(config)
+        .ok()
+        .and_then(|real| real.parent().map(Path::to_path_buf))
+    {
+        let other = resolved.join(path);
+        if !paths.contains(&other) {
+            paths.push(other);
+        }
+    }
+    Ok(paths)
 }
 
 fn cannot_check(entry: &str, why: &str) -> String {
@@ -476,6 +604,28 @@ mod tests {
             .expect("link");
         let hold = hold_within(&repo.join("notes.txt"), &[Base::Home(home)], 64).expect("held");
         assert!(hold.contains("not ASCII"), "{hold}");
+    }
+
+    #[test]
+    fn a_git_configuration_xfx_cannot_read_for_its_includes_asks() {
+        let (_home_dir, home) = tree();
+        let (_repo_dir, repo) = tree();
+        let target = repo.join("notes.txt");
+        let bases = [Base::Home(home.clone())];
+        for config in [
+            "[include]\n\tpath = \"open\n",
+            "[include]\n\tpath = ~someone/x\n",
+            "[include]\n\tpath = %(prefix)/etc/x\n",
+        ] {
+            std::fs::write(home.join(".gitconfig"), config).expect("a config");
+            let hold = hold_within(&target, &bases, 64).expect("held");
+            assert!(hold.contains("could not check"), "{config:?}: {hold}");
+        }
+        // Two files that include each other are read once each.
+        std::fs::write(home.join(".gitconfig"), "[include]\n\tpath = ~/b\n").expect("a");
+        std::fs::write(home.join("b"), "[include]\n\tpath = ~/.gitconfig\n").expect("b");
+        assert_eq!(hold_within(&target, &bases, 64), None);
+        assert!(hold_within(&home.join("b"), &bases, 64).is_some());
     }
 
     #[test]

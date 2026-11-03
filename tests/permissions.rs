@@ -40,7 +40,7 @@ use xfx::permission::session_rules::{self, Decision};
 use xfx::permission::{
     classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
     AuthorityError, CommandEffect, CommandPlan, CommandRoute, ConfiguredRule, DeniedEffect,
-    DenyCause, Grant, PermissionMode, PermissionSession, PolicyDecision, ProposedAction,
+    DenyCause, Grant, LinkBase, PermissionMode, PermissionSession, PolicyDecision, ProposedAction,
     RuleAction, RuleSet, YOLO_WARNING,
 };
 use xfx::provider::Wire;
@@ -2583,6 +2583,61 @@ fn auto_mode_asks_when_it_cannot_tell_whether_a_protected_entry_leads_to_the_tar
         "write_file",
         json!({ "path": repo.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
     );
+}
+
+#[test]
+fn auto_mode_will_not_write_a_file_the_users_git_configuration_includes() {
+    // `~/.gitconfig` and `$XDG_CONFIG_HOME/git/config` are protected, and an
+    // `[include]` makes another file part of them: a `filter.x.clean` written
+    // there runs on the user's next `git status` in a repository whose
+    // `.gitattributes` -- which auto may write -- selects it.
+    let home = Tree::new();
+    let repo = Tree::new();
+    let xdg = Tree::new();
+    home.write(
+        ".gitconfig",
+        "[user]\n\tname = u ; a comment\n[include]\n\tpath = ~/.gitconfig.local\n\
+         [includeIf \"gitdir:~/src/\"]\n\tpath = shared/inc.gitconfig\n\
+         [core]\n\teditor = \"vim\" \\\n\t  -f\n",
+    );
+    home.write(
+        ".gitconfig.local",
+        &format!(
+            "[include]\n  PATH = \"{}\"\n",
+            repo.root().join("team.gitconfig").display()
+        ),
+    );
+    xdg.write(
+        "git/config",
+        &format!(
+            "[Include]\n\tpath = {}\n",
+            repo.root().join("xdg.gitconfig").display()
+        ),
+    );
+    let context = home_context(&repo, &home)
+        .with_link_bases(vec![LinkBase::Config(xdg.root().to_path_buf())]);
+    // An included file in the workspace, there or not yet, through a nested
+    // include and through `$XDG_CONFIG_HOME`.
+    repo.write("team.gitconfig", "[alias]\n\tst = status\n");
+    every_mutation_refused(&context, &repo, "team.gitconfig");
+    every_mutation_refused(&context, &repo, "xdg.gitconfig");
+    // With the home directory as the workspace: the included file itself,
+    // and one an `includeIf` names relative to `~/.gitconfig`.
+    let in_home = context_in(&home);
+    every_mutation_refused(&in_home, &home, ".gitconfig.local");
+    every_mutation_refused(&in_home, &home, "shared/inc.gitconfig");
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": repo.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+/// An auto context whose workspace is the home directory itself.
+fn context_in(home: &Tree) -> ToolContext {
+    ToolContext::new(AccessScope::primary_only(home.root()).expect("a usable root"))
+        .with_permissions(session(PermissionMode::Auto))
+        .with_skills(None, Some(home.root().to_path_buf()))
 }
 
 #[test]
