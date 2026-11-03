@@ -1,0 +1,25 @@
+# The catalog cannot be read for the first nine seconds; a turn streams and
+# holds; `/model ` opens the inline column over the failure while it runs.
+# fx's column lists its models through `ensureModelCache` in every frame that
+# draws it (`footerContext`, `app_render_runtime.zig:561-563`), held to the
+# one-second floor (`beginLoad`, `model_cache_runtime.zig:441-442`), and while
+# the turn streams its activity row animates every 50 ms
+# (`advanceVisibleAnimation`, `app_worker_runtime.zig:840-875`) -- so the
+# column asks again about once a second, and turns into the rows once the
+# catalog is back. `modelsdelay 0` stamps each read in the gateway log.
+models models.json
+modelsdown 9000
+modelsdelay 0
+gateway model-reask-turns.json
+wait 4.5
+snap start
+type say something
+key Enter
+wait 1
+type /model
+key Space
+wait 0.7
+snap col-down
+wait 5
+snap col-back
+gwlog
