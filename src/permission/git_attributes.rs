@@ -105,8 +105,17 @@ fn git_file_target(file: &Path, dir: &Path) -> Result<PathBuf, String> {
 /// Whether `dir` is itself a git directory, whatever it is called: a `HEAD`
 /// file, and an `objects` directory or -- a linked worktree's -- a
 /// `commondir` file.
+///
+/// A link that dangles counts as the piece it is named for: git takes a
+/// `HEAD` link to `refs/heads/main` for a symbolic ref whether or not the
+/// branch exists yet, and counting a dangling `objects` too only asks more.
 pub(crate) fn is_git_dir(dir: &Path) -> Result<bool, String> {
-    let is = |path: PathBuf, directory: bool| match std::fs::metadata(&path) {
+    let is = |path: PathBuf, directory: bool| match std::fs::symlink_metadata(&path) {
+        Ok(link) if link.file_type().is_symlink() => match std::fs::metadata(&path) {
+            Ok(metadata) => Ok(metadata.is_dir() == directory),
+            Err(err) if absent(&err) => Ok(true),
+            Err(err) => Err(uninspectable(&path, &err)),
+        },
         Ok(metadata) => Ok(metadata.is_dir() == directory),
         Err(err) if absent(&err) => Ok(false),
         Err(err) => Err(uninspectable(&path, &err)),
