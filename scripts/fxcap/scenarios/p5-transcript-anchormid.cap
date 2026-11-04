@@ -1,0 +1,29 @@
+# Phase 5 transcript research: the Ctrl-O reading position across a page
+# rebuild (026a8f4e, b1a53b01). Five reads make a document taller than the
+# screen; then a command whose heading wraps to two rows while it is
+# `Running` and fits one as `Ran`. Ctrl-O while it runs, a page up so the
+# view stops following, then the same view after the command settles: its
+# heading loses a row, a `* network:` record lands above the view, and the
+# answer lands below. One page up only: the view sits mid-document.
+gateway p5-transcript-anchor-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+work p5-transcript-ws
+wait 4
+type read and wait
+wait 1
+key Enter
+wait 4
+snap running
+key C-o
+wait 2
+snap full-running
+key PPage
+wait 1
+snap full-pgup
+wait 10
+snap full-pgup-after
+key C-o
+wait 1
+snap end
+gwlog

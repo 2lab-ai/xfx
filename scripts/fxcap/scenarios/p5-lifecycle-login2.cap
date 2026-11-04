@@ -1,0 +1,46 @@
+# Phase 5 lifecycle: /login's sign-in screens as far as loopback reaches.
+# Vercel OAuth (device flow; discovery answers 404 from the fake gateway),
+# then Codex (ChatGPT browser sign-in: a loopback listener and a link, no
+# request until the callback). Every issuer is the fake gateway; the browser
+# never opens (FX_NO_OPEN_BROWSER=1 from capture.sh).
+env FX_E2E_OAUTH_ISSUER_URL=http://127.0.0.1:@PORT@
+env FX_E2E_CHATGPT_ISSUER_URL=http://127.0.0.1:@PORT@
+env FX_E2E_GROK_ISSUER_URL=http://127.0.0.1:@PORT@
+wait 4
+type /login
+key Enter
+wait 1.5
+key Enter
+wait 1.5
+snap m00-vercel-methods
+key Enter
+wait 1
+snap m01-vercel-oauth-1s
+wait 4
+snap m02-vercel-oauth-5s
+wire w02-vercel-oauth
+key Escape
+wait 1
+snap m03-esc
+type /login codex
+key Enter
+wait 1.5
+snap m04-codex-methods
+key Enter
+wait 3
+snap m05-codex-signin
+wire w05-codex-signin
+key Escape
+wait 1
+type /login grok
+key Enter
+wait 1.5
+snap m06-grok-methods
+key Enter
+wait 3
+snap m07-grok-signin
+wire w07-grok-signin
+key Escape
+wait 1
+snap m08-esc
+gwlog

@@ -1,0 +1,12 @@
+d line 1 of the d file
+d line 2 of the d file
+d line 3 of the d file
+d line 4 of the d file
+d line 5 of the d file
+d line 6 of the d file
+d line 7 of the d file
+d line 8 of the d file
+d line 9 of the d file
+d line 10 of the d file
+d line 11 of the d file
+d line 12 of the d file

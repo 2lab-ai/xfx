@@ -1,0 +1,33 @@
+# Phase 5 lifecycle: a turn whose every request answers 502 -- the retry
+# footer as it backs off (250 ms, 1 s, 2 s, 4 s), then Escape, which pauses
+# the turn (OSC 7501 idle, not error). One Escape only arms `esc again to
+# interrupt`; the second interrupts.
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-retry-turns.json
+wait 4
+type retry please
+key Enter
+wait 0.6
+snap r00-0.6s
+wait 1.5
+snap r01-2.1s
+wait 2.5
+snap r02-4.6s
+wait 4
+snap r03-8.6s
+wire w03-retrying
+key Escape
+wait 0.3
+snap r04a-esc-armed
+key Escape
+wait 1.5
+snap r04-after-esc
+wire w04-after-esc
+wait 3
+snap r05-after-esc-4.5s
+keep
+type /quit
+key Enter
+wait 2
+wire w05-exit
+gwlog

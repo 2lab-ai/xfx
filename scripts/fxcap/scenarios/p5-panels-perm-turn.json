@@ -1,0 +1,4 @@
+[
+ {"tool":{"name":"shell","input":{"request":{"action":"run","command":"echo hi","yield_time_ms":30000}}}},
+ {"delayMs":100,"chunks":["Ran ","it."]}
+]

@@ -1,0 +1,21 @@
+# p5 usage (v0.0.16): /usage signed in to Codex (the seeded ChatGPT sign-in);
+# the ChatGPT origin is the fake's port, which answers 404 to wham/usage.
+fx: seed p5-usage-codex-fx.json
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses FX_E2E_CHATGPT_ORIGIN=http://127.0.0.1:@PORT@
+nomodel
+wait 6
+snap start
+type /usage
+key Enter
+wait 4
+snap open
+key Tab
+wait 0.7
+snap tab
+key r
+wait 2
+snap r
+key Escape
+wait 0.5
+gwlog

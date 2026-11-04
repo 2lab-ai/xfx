@@ -1,0 +1,32 @@
+# Phase 5 lifecycle: /login as far as loopback reaches. Every issuer is the
+# fake gateway, which answers discovery with 404; the browser never opens
+# (FX_NO_OPEN_BROWSER=1 from capture.sh).
+env FX_AUTO_UPGRADE=0
+env FX_E2E_OAUTH_ISSUER_URL=http://127.0.0.1:@PORT@
+env FX_E2E_CHATGPT_ISSUER_URL=http://127.0.0.1:@PORT@
+env FX_E2E_GROK_ISSUER_URL=http://127.0.0.1:@PORT@
+wait 4
+type /login
+key Enter
+wait 2
+snap l00-picker
+wire w00-picker
+key Down
+wait 0.5
+snap l01-down
+key Down
+wait 0.5
+snap l02-down2
+key Down
+wait 0.5
+snap l03-down3
+key Up Up Up
+wait 0.5
+key Enter
+wait 4
+snap l04-first-enter
+wire w04-first-enter
+key Escape
+wait 1
+snap l05-esc
+gwlog

@@ -1,0 +1,1 @@
+[{"chunks": ["Editing the file.\n"], "tool": {"name": "edit_file", "input": {"path": "ctl.txt", "old_string": "third line", "new_string": "THIRD LINE"}}}, {"delayMs": 60, "chunks": ["Edited."]}, {"delayMs": 60, "chunks": ["Spare."]}]

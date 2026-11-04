@@ -1,0 +1,54 @@
+# Phase 5 lifecycle: OSC 7501 program status on the wire, state by state.
+# Startup idle, a hanging turn (working, then done), a second turn (done
+# again), a 400 (error), a shell call in ask mode (blocked:permission), a
+# question (blocked:question), and the exit restore (clear). Each `wire` is
+# the cumulative byte stream so far.
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-osc-turns.json
+fx: seed p5-lifecycle-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+wait 4
+wire w00-start
+snap s00-start
+type first question
+key Enter
+wait 1.2
+wire w01-working
+snap s01-working
+wait 3
+wire w02-done
+snap s02-done
+type second question
+key Enter
+wait 2.5
+wire w03-done2
+type third question
+key Enter
+wait 3
+wire w04-error
+snap s04-error
+type run the command
+key Enter
+wait 3
+wire w05-permission
+snap s05-permission
+key 1
+wait 3
+wire w06-after-permission
+snap s06-after-permission
+type ask me
+key Enter
+wait 3
+wire w07-question
+snap s07-question
+key 1
+wait 3
+wire w08-after-question
+snap s08-after-question
+keep
+type /quit
+key Enter
+wait 2
+wire w09-exit
+snap s09-exit
+gwlog

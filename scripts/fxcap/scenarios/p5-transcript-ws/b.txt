@@ -1,0 +1,12 @@
+b line 1 of the b file
+b line 2 of the b file
+b line 3 of the b file
+b line 4 of the b file
+b line 5 of the b file
+b line 6 of the b file
+b line 7 of the b file
+b line 8 of the b file
+b line 9 of the b file
+b line 10 of the b file
+b line 11 of the b file
+b line 12 of the b file

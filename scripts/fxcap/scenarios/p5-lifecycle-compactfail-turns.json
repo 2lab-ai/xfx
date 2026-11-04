@@ -1,0 +1,29 @@
+[
+ {
+  "tool": {
+   "id": "read-1",
+   "name": "read_file",
+   "input": {
+    "path": "notes.txt"
+   }
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-ONE: the notes are read."
+  ]
+ },
+ {
+  "chunks": [
+   "ANSWER-TWO: noted."
+  ]
+ },
+ {
+  "status": 400,
+  "body": "{\"error\":{\"message\":\"Synthetic summary rejection\"}}"
+ },
+ {
+  "status": 400,
+  "body": "{\"error\":{\"message\":\"Synthetic summary rejection\"}}"
+ }
+]

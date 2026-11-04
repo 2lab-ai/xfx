@@ -1,0 +1,26 @@
+# Phase 5 lifecycle: a v1 session whose log has a torn line. Opened from the
+# /resume picker (all workspaces), then by id at launch: the conversion
+# refusal, in a notice and on stderr.
+env FX_AUTO_UPGRADE=0
+homefile .fx/sessions/cb1PK0RGxCmY/events.jsonl p5-lifecycle-v1bad-events.jsonl
+homefile .fx/sessions/cb1PK0RGxCmY/permissions.json p5-lifecycle-v1-plain-permissions.json
+homefile .fx/sessions/cb1PK0RGxCmY/session.json p5-lifecycle-v1-plain-session.json
+homefile .fx/sessions/cb1PK0RGxCmY/session.lock p5-lifecycle-v1-plain-session.lock
+wait 3
+type /resume
+key Enter
+wait 2
+key Tab
+wait 1
+snap b00-picker-all
+key Enter
+wait 3
+snap b01-picked
+keep
+type /quit
+key Enter
+wait 2
+relaunch --resume cb1PK0RGxCmY
+wait 4
+snapfull b02-launch-refused
+home h02-after

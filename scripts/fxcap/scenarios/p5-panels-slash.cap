@@ -1,0 +1,61 @@
+# Phase 5 panels: the slash popup typed `/` with v0.0.16's registry, paged
+# through all of it, then filters on the changed rows.
+fx: env FX_AUTO_UPGRADE=0
+wait 2
+type /
+wait 1
+snap slash
+key Down Down Down Down Down Down
+wait 0.5
+snap down6
+key Down Down Down Down Down Down
+wait 0.5
+snap down12
+key Down Down Down Down Down Down
+wait 0.5
+snap down18
+key Down Down Down Down Down Down
+wait 0.5
+snap down24
+key Down Down Down Down Down Down
+wait 0.5
+snap down30
+key Down Down Down Down Down Down
+wait 0.5
+snap down36
+key Down Down
+wait 0.5
+snap down38
+key Escape
+wait 0.3
+key C-u
+type /st
+wait 0.5
+snap filter-st
+key C-u
+type /co
+wait 0.5
+snap filter-co
+key C-u
+type /al
+wait 0.5
+snap filter-al
+key C-u
+type /f
+wait 0.5
+snap filter-f
+key C-u
+type /e
+wait 0.5
+snap filter-e
+key Escape
+wait 0.3
+key C-u
+type /alias
+key Enter
+wait 1
+snap alias-run
+type /cost
+key Enter
+wait 1
+snap cost-run

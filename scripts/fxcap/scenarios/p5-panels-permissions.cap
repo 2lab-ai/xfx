@@ -1,0 +1,99 @@
+# Phase 5 panels: `/permissions` as a footer panel (fx 915d439b). Bare at
+# launch, the keys it takes, every subcommand (each still a transcript
+# notice), a configured rule, a remembered rule, a session grant from an
+# approval, `/status`'s grant count, a revoke, and the profile after.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-panels-perm-turn.json
+wait 2
+type /permissions
+wait 0.3
+key Enter
+wait 1
+snap bare
+key Down
+wait 0.3
+snap down1
+key Escape
+wait 0.5
+snap esc
+type /permissions auto
+key Enter
+wait 1
+snap auto
+type /permissions full-access
+key Enter
+wait 1
+snap full
+type /permissions ask
+key Enter
+wait 1
+snap ask
+type /permissions reset
+key Enter
+wait 1
+snap reset
+type /permissions bogus
+key Enter
+wait 1
+snap bogus
+type /permissions
+key Enter
+wait 1
+snap bare-after
+key Escape
+wait 0.5
+type /allowlist add command "git *"
+key Enter
+wait 1
+type /permissions
+key Enter
+wait 1
+snap rules
+key Escape
+wait 0.5
+type /permissions remember deny write_file {"path":"b.txt","content":"y"}
+key Enter
+wait 1.5
+snap remember-prompt
+key Enter
+wait 1
+snap remember-done
+type /permissions
+key Enter
+wait 1
+snap saved
+key Escape
+wait 0.5
+type run a command
+key Enter
+wait 3
+snap approval
+type 2
+wait 3
+snap after-grant
+type /permissions
+key Enter
+wait 1
+snap grants
+key Escape
+wait 0.5
+type /status
+key Enter
+wait 1
+snap status-grants
+key Escape
+wait 0.5
+type /permissions revoke 1
+key Enter
+wait 1.5
+snap revoke-prompt
+key Enter
+wait 1
+snap revoke-done
+type /permissions
+key Enter
+wait 1
+snap after-revoke
+key Escape
+wait 0.5
+home end

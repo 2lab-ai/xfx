@@ -1,0 +1,75 @@
+# p5 usage: /usage after two billed turns (billed-turns.json: cacheRead 4000
+# and 30000, reasoning 900), the footer's context and session segments on,
+# the keys (no Esc until the end: on v0.0.16's message-only screen Esc
+# closes it), /cost, /usage with an argument, /stats and /credits. Old fx counts
+# the turns locally; v0.0.16 asks the Gateway's /v1/report (the fake answers
+# 404). `home` keeps what each binary persisted; `gwlog` what was asked.
+models models.json
+gateway billed-turns.json
+wait 2.5
+type /statusline context
+key Enter
+wait 1
+type /statusline session
+key Enter
+wait 1
+snap launch
+type first question
+key Enter
+wait 5
+type second question
+key Enter
+wait 5
+snap turns
+type /usage
+wait 0.7
+snap typed
+key Enter
+wait 3
+snap open
+key Down
+wait 0.5
+snap down
+key Enter
+wait 0.7
+snap enter
+key Tab
+wait 1
+snap tab
+key BTab
+wait 1
+snap btab
+key Right
+wait 1
+snap right
+key Left
+wait 1
+snap left
+key r
+wait 2
+snap r
+key Escape
+wait 0.5
+snap esc
+type /cost
+wait 0.7
+snap cost-typed
+key Enter
+wait 2
+snap cost
+type /usage 7d
+key Enter
+wait 2
+snap arg
+key Escape
+wait 0.3
+type /stats
+key Enter
+wait 1
+snap stats
+type /credits
+key Enter
+wait 2
+snap credits
+home end
+gwlog

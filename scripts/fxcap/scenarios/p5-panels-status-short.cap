@@ -1,0 +1,25 @@
+# Phase 5 panels: `/status` in a terminal too short for its rows
+# (fx 20331680): the panel takes an inline picker's rows, the hint offers
+# ↑↓, and the arrows scroll it to its end and back.
+fx: env FX_AUTO_UPGRADE=0
+wait 2
+type /status
+wait 0.5
+key Enter
+wait 1.5
+snap open
+key Down
+wait 0.4
+snap down1
+key Down Down Down Down Down Down Down Down Down Down Down Down Down Down
+wait 0.6
+snap down-end
+key Up
+wait 0.4
+snap up1
+key C-k
+wait 0.4
+snap ctrl-k
+key Escape
+wait 0.6
+snap esc

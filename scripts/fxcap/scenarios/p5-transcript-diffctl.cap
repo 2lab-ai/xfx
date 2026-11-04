@@ -1,0 +1,22 @@
+# Phase 5 transcript research: an edit of a file whose text holds an ESC[2J
+# and a C1 U+009B (9db199e4). The inline diff, then Ctrl-O over it: c1db919
+# is expected to exit (AnsiBandOverflow); v0.0.16 shows the bytes as text.
+gateway p5-transcript-diffctl-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+work p5-transcript-ws
+keep
+wait 4
+type edit the file
+wait 1
+key Enter
+wait 4
+snap edited
+snapfull edited
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+snap closed
+gwlog

@@ -1,0 +1,27 @@
+fx: env FX_AUTO_UPGRADE=0 FX_SESSIONS_V2=1
+# Is the refusal the fork's? The same store on fx's v2 store: the fork from
+# the picker, the source (no fork marker, same v0.0.16 content) by id, and
+# what `fx doctor` says about each.
+gateway p5-effort-fork-turns.json
+homefile .fx/sessions/v2/index.jsonl p5-effort-fork-v2-index.jsonl
+homefile .fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl p5-effort-fork-v2-source.jsonl
+homefile .fx/sessions/v2/HU7p6L-En72Q/log.jsonl p5-effort-fork-v2-fork.jsonl
+wait 3
+type /resume
+key Enter
+wait 2
+key Tab
+wait 1
+key Enter
+wait 3
+snap picker-enter-fork
+keep
+type /quit
+key Enter
+wait 2
+relaunch --resume kH1xJ5Cm-oRk
+wait 4
+snap resume-source
+relaunch doctor
+wait 4
+snapfull doctor

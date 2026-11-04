@@ -1,0 +1,15 @@
+# Phase 5 lifecycle: two 503s, then the answer -- what the retry leaves on
+# screen once the turn recovers, and the OSC 7501 result (done).
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-retryok-turns.json
+wait 4
+type recover please
+key Enter
+wait 0.5
+snap k00-0.5s
+wait 1
+snap k01-1.5s
+wait 3
+snap k02-4.5s
+wire w02-recovered
+gwlog

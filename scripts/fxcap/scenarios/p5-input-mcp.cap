@@ -1,0 +1,42 @@
+# Phase 5 input cluster: Remove and Reject asked on their own row of the new
+# /mcp server screen (3d6af766, 9d444936, dc6498d4). The workspace server is
+# never approved, so nothing is started; yes is never confirmed.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-mcp-ws
+wait 4
+type /mcp
+key Enter
+wait 2
+snap mcp-list
+key Enter
+wait 1
+snap mcp-server
+key Down
+wait 0.4
+key Enter
+wait 0.8
+snap reject-ask
+key Right
+wait 0.4
+snap reject-no
+key Left
+wait 0.4
+snap reject-yes
+key Escape
+wait 0.6
+snap reject-esc
+key Down
+wait 0.4
+key Enter
+wait 0.8
+snap remove-ask
+key Right
+wait 0.4
+key Enter
+wait 0.6
+snap remove-enter-no
+key Escape
+wait 0.6
+key Escape
+wait 0.6
+snap closed

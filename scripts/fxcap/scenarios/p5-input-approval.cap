@@ -1,0 +1,18 @@
+# Phase 5 input cluster: the approval band for a command and a file edit.
+# c3be3500/a3b47c9d are timing fixes; these snaps only fix the band itself.
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=ask
+fx: seed p5-input-ask-settings.json
+gateway p5-input-approval-turns.json
+work p5-input-approval-ws
+wait 4
+type run it
+key Enter
+wait 3
+snap cmd-ask
+key 1
+wait 3
+snap edit-ask
+key 1
+wait 3
+snap after

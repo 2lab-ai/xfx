@@ -1,0 +1,11 @@
+# Phase 5 input cluster: Enter on a folder row (7c8ef4a3): old opens it and
+# lists inside, new mentions the folder and closes the picker.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-ws
+wait 4
+type @src/sto
+wait 1.2
+snap dir-query
+key Enter
+wait 1
+snap dir-enter
