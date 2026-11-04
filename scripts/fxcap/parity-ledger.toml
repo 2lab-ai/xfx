@@ -228,9 +228,8 @@ class = "replaced-in-next-pin"
 pins = ["c1db919"]
 scenarios = ["status-version-stats"]
 snaps = ["*"]
-fx_row = '^(?:\* status: |  [a-z_]+=)'
-xfx_row = '^(?:\* status: |  [a-z_]+=)'
-reason = "v0.0.16 moves /status into the footer's info panel; the program stops c1db919 visual rounds on it after the Phase 4 merge. Its rows here are xfx's status facts (provider, sandbox, grants; no update channel or Ultra request)."
+whole_snap = true
+reason = "v0.0.16 moves /status into the footer's info panel; the program stops c1db919 visual rounds on it after the Phase 4 merge. xfx's /status is that panel now (P-status), which swallows the /version and /stats typed after it while it is up, so every snap of this scenario is the replaced surface's."
 owner = "P-status"
 resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
@@ -244,7 +243,7 @@ source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:43", "doc
 id = "status-panel-sandbox"
 class = "user-decision"
 pins = ["v0.0.16"]
-scenarios = ["p5-panels-*"]
+scenarios = ["*"]
 snaps = ["*"]
 xfx_row = '^  Sandbox {11}\S'
 reason = "xfx's /status panel keeps a Sandbox row after Permissions, which fx's has not: the confinement in force is a safety fact (xfx reports `none`, UPSTREAM.md deviation 2). Decided by the dispatcher for P-status, reversible, the user's to keep or drop."
@@ -257,7 +256,7 @@ source = ["docs/parity.md:113", "UPSTREAM.md:96-99"]
 id = "status-panel-updates"
 class = "user-decision"
 pins = ["v0.0.16"]
-scenarios = ["p5-panels-*"]
+scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  Updates {11}\S'
 reason = "fx's /status panel says its update channel; xfx has no updater, so the row is omitted (UPSTREAM.md deviation 3) until the sign-in and updater epic."
@@ -270,7 +269,7 @@ source = ["docs/parity.md:113", "UPSTREAM.md:100-102"]
 id = "status-panel-step-limit"
 class = "unsafe-to-copy"
 pins = ["v0.0.16"]
-scenarios = ["p5-panels-*"]
+scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  Step limit {8}unlimited$'
 xfx_row = '^  Step limit {8}25$'
@@ -293,6 +292,19 @@ owner = "user decision Codex/Grok sign-in (#88)"
 resolution = "#88 answered: the sign-in surfaces built, or refused for good and written so"
 expires = "date:2026-12-04"
 source = ["docs/parity.md:113", "docs/parity.md:118"]
+
+[[divergence]]
+id = "status-notice-h1"
+class = "replaced-in-next-pin"
+pins = ["c1db919"]
+scenarios = ["h1-rehomefile"]
+snaps = ["status"]
+whole_snap = true
+reason = "H1's late-HOME-file scenario reads its answer off /status: c1db919's notice, xfx's v0.0.16 panel (P-status)."
+owner = "P-status"
+resolution = "P-status ships the /status panel against the v0.0.16 pin"
+expires = "pin:v0.0.16"
+source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 
 # --- causes -----------------------------------------------------------------
 #
