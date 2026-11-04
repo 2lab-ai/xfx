@@ -2316,8 +2316,9 @@ impl Runtime {
     ///    ([`crate::session::SessionStore::fork`], which reads the source's
     ///    published log without that lock and never writes it). The scope the
     ///    fork's tools will run in is settled before, so nothing after the fork
-    ///    exists can fail. Anything that fails up to here leaves the
-    ///    conversation exactly as it was: it was never let go of.
+    ///    exists can fail; a log that has stopped taking events since the menu
+    ///    opened is refused before either. Anything that fails up to here
+    ///    leaves the conversation exactly as it was: it was never let go of.
     /// 2. **The source is let go of**, as a resume lets the session it
     ///    replaces go: its log closes and its lock is released
     ///    ([`Self::switch_to`]). The fork opened first, as upstream's does
@@ -2342,7 +2343,14 @@ impl Runtime {
         before_turn: usize,
         mirror: &CancelToken,
     ) -> Option<(super::hydration::Hydration, SessionId)> {
-        let source = self.conversation.as_ref()?.recorder.id().clone();
+        let conversation = self.conversation.as_ref()?;
+        // A commit that failed since the menu opened: the log is not what the
+        // screen shows, and nothing is forked from it, as the menu would not
+        // have opened ([`Self::fork_points`]).
+        if conversation.recorder.failure().is_some() {
+            return None;
+        }
+        let source = conversation.recorder.id().clone();
         let scope = conversation_scope(&self.config).ok()?;
         let fork = self
             .store
@@ -13701,6 +13709,136 @@ mod tests {
             state.fork_points(),
             super::super::fork_menu::ForkPoints::Unsaved
         );
+    }
+
+    /// Every session folder the store holds, staged forks included.
+    fn folders(home: &std::path::Path) -> (Vec<String>, Vec<String>) {
+        let list = |dir: std::path::PathBuf| {
+            let mut names: Vec<String> = std::fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let profile = home.join(".xfx");
+        (
+            list(profile.join("sessions")),
+            // Where the store builds a fork before it is renamed into
+            // `sessions` (`store::fork::FORK_STAGE_DIR`).
+            list(profile.join("sessions.staged")),
+        )
+    }
+
+    /// Whether this runtime still holds `id`'s lock: another opener is
+    /// refused it without waiting.
+    fn held_here(state: &Runtime, id: &SessionId) -> bool {
+        let other = open_store(&state.config).expect("a store");
+        matches!(
+            other.resume_without_waiting(
+                &crate::session::Selector::Id(id.clone()),
+                &state.config.workspace_root,
+            ),
+            Err(crate::session::SessionError::Busy { .. })
+        )
+    }
+
+    #[test]
+    fn a_fork_asked_after_the_log_stopped_taking_events_is_refused() {
+        // The menu opened on a log that took everything; a commit failed
+        // before Enter. The fork is refused as the menu would have been
+        // (`Self::fork_points`' `Unsaved`), the source is the conversation
+        // still, its lock held, its log as the failure left it, and no fork
+        // was made.
+        let (home, _workspace, mut state) = recording();
+        assert!(matches!(one_turn_of(&mut state, "first", "A"), Ended::Turn));
+        assert!(matches!(
+            one_turn_of(&mut state, "second", "B"),
+            Ended::Turn
+        ));
+        assert_eq!(points(&state).len(), 2, "the menu opens");
+        let source = conversation_id(&state);
+        // A frame past the log's 64 MiB limit: refused before a byte is
+        // written, and the recorder stops (`SessionStore::append`).
+        state
+            .conversation
+            .as_mut()
+            .expect("open")
+            .recorder
+            .commit(SessionEvent::UserMessage {
+                text: "x".repeat(64 * 1024 * 1024),
+            });
+        assert!(state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .failure()
+            .is_some());
+        let before = (log_of(&state, &source), folders(home.path()));
+
+        assert!(
+            state.fork(2, &CancelToken::new()).is_none(),
+            "a fork was made from a log that stopped"
+        );
+        assert_eq!(conversation_id(&state), source);
+        assert_eq!((log_of(&state, &source), folders(home.path())), before);
+        assert!(held_here(&state, &source), "the source's lock was let go");
+    }
+
+    #[test]
+    fn a_fork_whose_scope_cannot_be_settled_leaves_the_source_whole() {
+        // `conversation_scope` fails -- the workspace is gone -- before the
+        // store is asked for anything: the conversation, its lock, the
+        // configuration, its permissions and its log are what they were.
+        let (home, workspace, mut state) = recording();
+        assert!(matches!(one_turn_of(&mut state, "first", "A"), Ended::Turn));
+        {
+            let conversation = state.conversation.as_mut().expect("open");
+            conversation
+                .tools
+                .permissions()
+                .grant(Grant::new("edit_file", "a.txt".to_string()));
+            record_grants(conversation);
+        }
+        assert!(matches!(
+            one_turn_of(&mut state, "second", "B"),
+            Ended::Turn
+        ));
+        let source = conversation_id(&state);
+        let ledger = |state: &Runtime| {
+            let conversation = state.conversation.as_ref().expect("open");
+            let grants = conversation.tools.permissions().grants().to_vec();
+            let mode = conversation.tools.permissions().mode();
+            (grants, mode)
+        };
+        let before = (
+            log_of(&state, &source),
+            folders(home.path()),
+            format!("{:?}", state.config),
+            ledger(&state),
+        );
+        std::fs::remove_dir_all(workspace.path()).expect("the workspace goes");
+        assert!(conversation_scope(&state.config).is_err());
+
+        assert!(state.fork(2, &CancelToken::new()).is_none());
+        std::fs::create_dir(workspace.path()).expect("the workspace is back");
+        assert_eq!(conversation_id(&state), source);
+        let after = (
+            log_of(&state, &source),
+            folders(home.path()),
+            format!("{:?}", state.config),
+            ledger(&state),
+        );
+        assert!(before.0 == after.0, "the source's log was written");
+        assert_eq!(before.1, after.1, "a session folder was made");
+        assert!(before.2 == after.2, "the configuration moved");
+        assert_eq!(before.3, after.3, "the permission ledger moved");
+        assert!(held_here(&state, &source), "the source's lock was let go");
     }
 
     #[test]

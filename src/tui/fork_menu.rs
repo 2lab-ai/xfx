@@ -588,11 +588,17 @@ mod tests {
 
     #[test]
     fn a_prompt_draws_nothing_a_terminal_would_obey() {
+        // Read raw, with only this module's own three sequences taken out --
+        // not through [`read`], whose skip from an ESC to the next `m` would
+        // swallow the very sequence this looks for.
         let menu = menu(&[(1, "x\u{1b}]0;pwned\u{7}y\u{9b}31m\u{1b}[2Jz")], 0);
-        for row in menu.rows(80, MOST_ROWS, PALETTE) {
-            let (text, _) = read(&row);
-            assert!(!text.contains(['\u{1b}', '\u{7}', '\u{9b}']), "{text:?}");
-        }
+        let rows = menu.rows(80, MOST_ROWS, PALETTE);
+        assert_eq!(rows.len(), 1);
+        let payload = rows[0]
+            .strip_prefix(&format!("  {}", PALETTE.subtitle()))
+            .and_then(|row| row.strip_suffix(PALETTE.reset()))
+            .expect("the indent, the selected style, the text, the reset");
+        assert_eq!(payload, "x ]0;pwned y 31m [2Jz");
     }
 
     #[test]
