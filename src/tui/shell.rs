@@ -6568,13 +6568,28 @@ impl Shell {
     /// another hand: a store that no longer reads closes the panel and says
     /// why rather than leave rules up that cannot be read to be in force.
     fn settle_permissions_panel(&mut self, shown: &info_panel::Facts) {
-        if self.permissions_in_force().0 == *shown {
+        // A stamp that could not be taken is no proof the store held still,
+        // so a panel built under one reads it again on each tick.
+        let unknown = matches!(
+            shown,
+            info_panel::Facts::Permissions {
+                store: Some(crate::permission::session_rules::Stamp::Unknown),
+                ..
+            }
+        );
+        if !unknown && self.permissions_in_force().0 == *shown {
             return;
         }
         match self.permissions_panel() {
             Ok((rows, facts)) => {
-                if let Some(panel) = self.info_panel.as_mut() {
-                    panel.replace(rows, facts);
+                let Some(panel) = self.info_panel.as_mut() else {
+                    return;
+                };
+                let before = panel.clone();
+                panel.replace(rows, facts);
+                // Read again and found the same: no frame owed for it.
+                if *panel == before {
+                    return;
                 }
             }
             Err(reason) => {
@@ -22592,6 +22607,169 @@ mod tests {
         shell.settle_band(Instant::now());
         assert_eq!(shell.info_panel, unmoved);
         assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn an_open_permissions_panel_whose_store_cannot_be_stamped_reads_it_again() {
+        // Review P-permissions-c item 1: a stamp that cannot be taken says
+        // nothing about the file, so two of them are no proof it held still.
+        // The rows are shown as built under one (a `stat` that failed while
+        // the read did not); with the store unreadable since, the next tick
+        // reads it again, and closes.
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        let file = shell.workspace.join("not-a-directory");
+        std::fs::write(&file, b"x").expect("a file");
+        // `<file>/permissions.json`: `stat` and `open` both say ENOTDIR,
+        // which is neither absent nor readable, for any user.
+        shell
+            .work
+            .publish_saved_rules(Some(crate::permission::session_rules::path_in(&file)));
+        let (facts, ..) = shell.permissions_in_force();
+        assert!(
+            matches!(
+                facts,
+                info_panel::Facts::Permissions {
+                    store: Some(crate::permission::session_rules::Stamp::Unknown),
+                    ..
+                }
+            ),
+            "{facts:?}"
+        );
+        let rows = info_panel::permissions_rows(
+            shell.mode,
+            &crate::permission::RuleSet::default(),
+            &[],
+            &[],
+        );
+        shell.open_info_panel(info_panel::Panel::open(rows, facts));
+        shell.settle_band(Instant::now());
+        assert!(
+            shell.info_panel.is_none(),
+            "rules shown under a stamp that said nothing stayed up"
+        );
+        assert!(
+            shell
+                .document()
+                .first()
+                .is_some_and(|row| row.starts_with("\u{2717} permissions: ")),
+            "{:?}",
+            shell.document()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting() {
+        // Review P-permissions-c item 2: a FIFO put at the store's path. Its
+        // stamp moves, so the tick reads the store again on the thread that
+        // holds the terminal; an open that waited for a writer would hold it
+        // for as long as none came. A watchdog stands in for that writer after
+        // ten seconds, so a regression fails here rather than hangs.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        keep_rule(&rules, b"a", "write_file a.txt preimage=absent after=00");
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
+        std::fs::remove_file(&rules).expect("the store gone");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&rules)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let rescued = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watchdog = {
+            let fifo = rules.clone();
+            let rescued = std::sync::Arc::clone(&rescued);
+            std::thread::spawn(move || {
+                if finished.recv_timeout(Duration::from_secs(10)).is_err() {
+                    rescued.store(true, std::sync::atomic::Ordering::SeqCst);
+                    drop(std::fs::OpenOptions::new().write(true).open(&fifo));
+                }
+            })
+        };
+        shell.settle_band(Instant::now());
+        let _ = done.send(());
+        watchdog.join().expect("the watchdog");
+        assert!(
+            !rescued.load(std::sync::atomic::Ordering::SeqCst),
+            "the tick waited for a writer on the FIFO"
+        );
+        assert!(shell.info_panel.is_none(), "a FIFO's rules stayed up");
+        assert!(
+            shell
+                .document()
+                .first()
+                .is_some_and(|row| row.starts_with("\u{2717} permissions: ")),
+            "{:?}",
+            shell.document()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_replaced_by_another_of_the_same_size_and_time_is_read_again() {
+        // Review P-permissions-c item 3: another valid store renamed over the
+        // first, of the same length, the same mode and the same modification
+        // time -- only the inode tells the two apart, and the panel follows.
+        use crate::permission::session_rules::{Decision, KeyKind, Rule, RuleKey, State};
+        use std::os::unix::fs::PermissionsExt;
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        let store = |name: &str| State {
+            next_generation: 2,
+            rules: vec![Rule {
+                id: 1,
+                key: RuleKey::new(KeyKind::FileMutation, name.as_bytes().to_vec()).expect("a key"),
+                display: format!("write_file {name}.txt preimage=absent after=00"),
+                decision: Decision::Deny,
+                generation: 1,
+            }],
+        };
+        std::fs::write(&rules, store("a").encode()).expect("the first store");
+        std::fs::set_permissions(&rules, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only");
+        shell.route_bytes(b"/permissions\r");
+        assert!(
+            uncoloured_rows(&shell.band_rows()).contains(&permissions_item(
+                "1 deny write_file a.txt preimage=absent after=00"
+            ))
+        );
+
+        let before = std::fs::metadata(&rules).expect("the first store");
+        let staged = rules.with_extension("staged");
+        let bytes = store("b").encode();
+        assert_eq!(bytes.len() as u64, before.len(), "not the same size");
+        std::fs::write(&staged, &bytes).expect("the second store");
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only");
+        std::fs::File::options()
+            .write(true)
+            .open(&staged)
+            .and_then(|file| file.set_modified(before.modified().expect("an mtime")))
+            .expect("the same mtime");
+        std::fs::rename(&staged, &rules).expect("renamed over");
+        let after = std::fs::metadata(&rules).expect("the second store");
+        assert_eq!(
+            (
+                after.len(),
+                after.modified().ok(),
+                after.permissions().mode()
+            ),
+            (
+                before.len(),
+                before.modified().ok(),
+                before.permissions().mode()
+            )
+        );
+
+        shell.settle_band(Instant::now());
+        let shown = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shown.contains(&permissions_item(
+                "1 deny write_file b.txt preimage=absent after=00"
+            )),
+            "the panel kept the store the rename replaced: {shown:?}"
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-450c45e [debug] · Run /help for commands
+x𝒇x v0.1.0-6d495f1 [debug] · Run /help for commands
 
 * permissions: mode set to ask
 
@@ -21,7 +21,7 @@ Permissions
   Mode                ask
   Configured rules    none
   Session grants      1
-                      • terminal → echo hi in <tmp>/fxcap.RgleeR/work
+                      • terminal → echo hi in <tmp>/fxcap.KCj2Wv/work
   Saved rules         none
   Change mode         /permissions ask, auto, full-access, or reset
   Remember            /permissions remember allow|deny <tool-name> <arguments-json>
