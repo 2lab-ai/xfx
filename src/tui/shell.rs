@@ -36947,7 +36947,24 @@ mod tests {
         skilled_in(tempfile::tempdir().expect("a root"), rows, cols)
     }
 
-    fn skilled_in(root: tempfile::TempDir, rows: u16, cols: u16) -> Skilled {
+    /// The words the cases over this fixture search the skills for where a
+    /// root holding one would add a skill to what the case sees: a search
+    /// reads each skill's path too (`skillMatchRank`). `he` and the letters
+    /// of `/skills` are typed as well, but both skills match those already.
+    const SEARCHED: [&str; 6] = ["de", "dem", "emo", "rel", "zz", "no-such-skill-here"];
+
+    /// The fixture over `root`, or over a root drawn again while the name of
+    /// the one in hand holds a [`SEARCHED`] word: that name is `.tmp` and six
+    /// random letters and digits, which held `zz` one run in two hundred.
+    /// Only the name is drawn; the directory it is in is the machine's, and
+    /// the same on every run.
+    fn skilled_in(mut root: tempfile::TempDir, rows: u16, cols: u16) -> Skilled {
+        while root.path().file_name().is_some_and(|name| {
+            let name = name.to_string_lossy().to_ascii_lowercase();
+            SEARCHED.iter().any(|word| name.contains(word))
+        }) {
+            root = tempfile::tempdir().expect("a root");
+        }
         let base = root.path().canonicalize().expect("canonical");
         let work = base.join("work");
         let home = base.join("home");
@@ -37005,7 +37022,22 @@ mod tests {
     #[test]
     fn a_dollar_opens_the_skills_menu_and_enter_makes_its_word_a_token() {
         // `fx-skills-40x120-dollar`, `-dollar-dem`, `-dollar-enter`, `-sent`.
-        let mut shell = skilled();
+        a_dollar_word_becomes_a_token(skilled());
+        // Handed a root whose name holds `dem`, the word the case searches
+        // for, the fixture draws another.
+        a_dollar_word_becomes_a_token(skilled_in(root_named(".tmpdem"), 40, 120));
+    }
+
+    /// A root whose name starts with `prefix`, for a case that needs the
+    /// random part of the fixture's root to be one draw rather than any.
+    fn root_named(prefix: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir()
+            .expect("a root")
+    }
+
+    fn a_dollar_word_becomes_a_token(mut shell: Skilled) {
         shell.route_bytes(b"$");
         let band = skills_band(&shell);
         assert!(
@@ -37086,35 +37118,11 @@ mod tests {
     fn a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu() {
         no_menu_for_a_word_nothing_matches(skilled());
         // The draw that failed on CI, held: a root whose name has `zz` in it.
-        let held = tempfile::Builder::new()
-            .prefix(".tmpzz")
-            .tempdir()
-            .expect("a root");
-        no_menu_for_a_word_nothing_matches(skilled_in(held, 40, 120));
+        no_menu_for_a_word_nothing_matches(skilled_in(root_named(".tmpzz"), 40, 120));
     }
 
     fn no_menu_for_a_word_nothing_matches(mut shell: Skilled) {
-        // A search reads each skill's name, description, source and path
-        // (`skillMatchRank`), and the fixture's path is a temp directory with
-        // six random letters and digits in its name: a short word like `zz` is
-        // in it one run in two hundred. A word longer than all of them is in
-        // none.
-        let longest = shell
-            .skills
-            .skills()
-            .iter()
-            .flat_map(|skill| {
-                [
-                    skill.name.len(),
-                    skill.description.len(),
-                    skill.source.short_label().len(),
-                    skill.path.to_string_lossy().len(),
-                ]
-            })
-            .max()
-            .expect("the fixture's skills");
-        let word = "z".repeat(longest + 1);
-        shell.route_bytes(format!("${word}").as_bytes());
+        shell.route_bytes(b"$zz");
         assert!(shell.skills_menu.is_some());
         assert!(
             !skills_band(&shell)
@@ -37122,9 +37130,7 @@ mod tests {
                 .any(|row| row.starts_with("Skills ")),
             "a word no skill matches showed the menu"
         );
-        let mut keys = vec![0x7f; word.len()];
-        keys.extend_from_slice(b"dem ");
-        shell.route_bytes(&keys);
+        shell.route_bytes(b"\x7f\x7fdem ");
         assert!(
             shell.skills_menu.is_none(),
             "a space did not end the search"
