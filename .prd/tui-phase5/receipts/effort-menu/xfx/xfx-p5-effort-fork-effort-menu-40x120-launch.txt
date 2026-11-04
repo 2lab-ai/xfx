@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-e0d97bd [debug] · Run /help for commands
+x𝒇x v0.1.0-2630f11 [debug] · Run /help for commands
 
 ┃
 

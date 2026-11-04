@@ -1,3 +1,5 @@
+SAME effort-backtab-40x120-backtab-esc.ansi
+SAME effort-backtab-40x120-backtab.ansi
 SAME effort-ctrlc-40x120-ctrlc-later.ansi
 SAME effort-ctrlc-40x120-ctrlc.ansi
 SAME effort-down-40x120-early.ansi
