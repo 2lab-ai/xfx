@@ -53,10 +53,10 @@ print("the new build'"'"'s bytes are the head of the log:", b.startswith(a))' "$
 echo "appended by the preview: $(python3 -I -c 'import json,sys; print([json.loads(l)["event"]["kind"] for l in open(sys.argv[1]).read().splitlines()[int(sys.argv[2]):]])' "$dir/events.jsonl" "$(wc -l < "$here/events.before" | tr -d ' ')")"
 [[ $(shasum -a 256 "$dir/permissions.json" | cut -d' ' -f1) == "$rules_before" ]] && echo "permissions.json unchanged (the preview predates saved-session rules: it neither reads nor writes the file)"
 echo
-echo "# base ($(cd "$(dirname "$base")/../.." && git rev-parse --short HEAD)): xfx session --id <id>"
+echo "# merge parent ($(cd "$(dirname "$base")/../.." && git rev-parse --short HEAD)): xfx session --id <id>"
 x "$base" session --id "$id" | grep -E 'history_turns|permission_mode' && echo "exit=0"
 echo
-echo "# base: xfx ask --resume-id <id> 'read it again' -- the model calls read_file a.txt"
+echo "# merge parent: xfx ask --resume-id <id> 'read it again' -- the model calls read_file a.txt"
 gw="XFX_GATEWAY_URL=http://127.0.0.1:$port2/v4/ai/language-model"
 x "$base" ask --resume-id "$id" 'read it again' && echo "exit=0" || echo "exit=$?"
 echo

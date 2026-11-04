@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-fcd0d60 [debug] · Run /help for commands
+
+* permissions: mode set to ask
+
+┃ run a command
+
+● 1 tool call · 1 command
+└ Ran echo hi
+
+  Ran it.
+
+  3s (↑4 ↓80)
+
+* permissions: saved-session permission rule updated
+
+* permissions: saved-session permission rule updated
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Permissions
+
+  Mode                ask
+  Configured rules    none
+  Session grants      1
+                      • terminal → echo hi in <tmp>/fxcap.E4Z5QS/work
+  Saved rules         none
+  Change mode         /permissions ask, auto, full-access, or reset
+  Remember            /permissions remember allow|deny <tool-name> <arguments-json>
+  Revoke              /permissions revoke <rule-id>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+

@@ -44,12 +44,12 @@ the new build's bytes are the head of the log: True
 appended by the preview: ['project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded']
 permissions.json unchanged (the preview predates saved-session rules: it neither reads nor writes the file)
 
-# base (9c6f4a1d): xfx session --id <id>
+# merge parent (9c6f4a1d): xfx session --id <id>
 [session] permission_mode=auto
 [session] history_turns=2
 exit=0
 
-# base: xfx ask --resume-id <id> 'read it again' -- the model calls read_file a.txt
+# merge parent: xfx ask --resume-id <id> 'read it again' -- the model calls read_file a.txt
 BASE read.
 exit=0
 

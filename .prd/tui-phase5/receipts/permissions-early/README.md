@@ -107,6 +107,13 @@ The nine pairs, row counts RED -> GREEN (`red.txt`):
 The rest of `p5-panels-permissions` is as P-permissions left it; `approval`
 differs only by `tool-schema` and `approval-grant-scope`.
 
+`p5-panels-permissions-saved` (a rule remembered after the first prompt, the
+open store's path this unit rerouted) is as P-permissions left it:
+`remember-prompt`, `remember-done`, `saved-esc`, `revoke-prompt`,
+`after-grant` normalized-identical; `saved` and `after-revoke` one row each
+(`tool-schema`); `approval` `tool-schema` and `approval-grant-scope`. Its xfx
+side was taken at `fcd0d601` (banner `fcd0d60`), whose code is `11ea2120`'s.
+
 `p5-permissions-early` (new): two rules, a revoke, the panel, the first
 prompt's read decided by the held deny, `/new`. All eleven pairs
 normalized-identical. `home before-prompt` holds no session on either side;
@@ -140,7 +147,8 @@ shape every reader since Phase 4 reads. The log is unchanged in kind.
   lists it; `ask --resume-id` exit 0, its frames appended behind this build's
   bytes. It predates saved-session rules and neither reads nor writes the
   file.
-- the base `9c6f4a1d`: `session --id` exit 0; `ask --resume-id` whose model
+- `9c6f4a1d`, the branch's merge parent (`daff4834` with P-permissions,
+  without this change): `session --id` exit 0; `ask --resume-id` whose model
   calls `read_file a.txt` is refused by the rule this build wrote before the
   first prompt (`read_file was not permitted: a saved-session permission rule
   denies`).

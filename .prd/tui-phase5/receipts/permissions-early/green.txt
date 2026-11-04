@@ -1,5 +1,6 @@
 # GREEN: python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receipts/permissions-early
-# xfx = target/debug/xfx at 11ea2120 (banner v0.1.0-11ea212); fx = v0.0.16 (sha256 8e6cda2e...); this branch's ledger
+# xfx = target/debug/xfx at 11ea2120 (banner v0.1.0-11ea212); p5-panels-permissions-saved's at fcd0d601
+# (banner fcd0d60), whose code is 11ea2120's; fx = v0.0.16 (sha256 8e6cda2e...); this branch's ledger
 
 p5-panels-permissions-40x120-after-grant             normalized-identical               -
 p5-panels-permissions-40x120-after-revoke            unresolved-defect                  tool-schema
@@ -21,6 +22,14 @@ p5-panels-permissions-40x120-revoke-prompt           identical                  
 p5-panels-permissions-40x120-rules                   normalized-identical               -
 p5-panels-permissions-40x120-saved                   normalized-identical               -
 p5-panels-permissions-40x120-status-grants           approved-divergence-cascade (aligned) status-panel-sandbox,status-panel-step-limit,status-panel-updates
+p5-panels-permissions-saved-40x120-after-grant       normalized-identical               -
+p5-panels-permissions-saved-40x120-after-revoke      unresolved-defect                  tool-schema
+p5-panels-permissions-saved-40x120-approval          unresolved-defect                  tool-schema,approval-grant-scope
+p5-panels-permissions-saved-40x120-remember-done     normalized-identical               -
+p5-panels-permissions-saved-40x120-remember-prompt   normalized-identical               -
+p5-panels-permissions-saved-40x120-revoke-prompt     normalized-identical               -
+p5-panels-permissions-saved-40x120-saved-esc         normalized-identical               -
+p5-panels-permissions-saved-40x120-saved             unresolved-defect                  tool-schema
 p5-permissions-early-40x120-after-revoke             normalized-identical               -
 p5-permissions-early-40x120-denied                   normalized-identical               -
 p5-permissions-early-40x120-held                     normalized-identical               -
