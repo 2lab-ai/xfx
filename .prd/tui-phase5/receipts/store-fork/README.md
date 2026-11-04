@@ -102,3 +102,10 @@ as `edc64171`'s plain `fs::create_dir`):
 
 A `sessions.staged` another account owns needs root to plant: the test tries `chown` and, refused (uid 501
 here), says so and does not count it.
+
+## FK1c — two test gaps from the FK1b review (tests only)
+
+| Gap | Test | Mutant, and how it fails |
+|---|---|---|
+| a widening mutant | `a_grant_given_only_after_the_fork_point_is_not_the_forks` (`a`, `b` before S; `b` withdrawn and `c` given after) | re-record all the source holds: `left: [terminal ls, terminal rm -rf build]`, `right: [terminal ls]` |
+| each 0700 call site | `every_folder_a_fork_makes_is_made_private_from_creation` (a source check of `fork.rs` and `ensure_private_dir`) | images folder back to `fs::create_dir`: ``fork.rs makes a folder with `fs::create_dir(` ``; stage folder likewise: the same; `ensure_private_dir` back to `fs::create_dir`: `body.contains("match create_private_dir(path)")` fails |

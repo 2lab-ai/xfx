@@ -1375,3 +1375,76 @@ fn a_stage_folder_that_is_not_the_stores_own_is_refused_and_left_alone() {
         ),
     }
 }
+
+// ---------------------------------------------------------------------------
+// FK1c: two gaps the FK1b review found in the tests above
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_grant_given_only_after_the_fork_point_is_not_the_forks() {
+    // `a` and `b` before S; after it `b` withdrawn -- every grant cleared,
+    // `a` given again -- and `c` given in turn 3. The source holds `[a, c]`;
+    // the fork holds what it recorded and the source still holds: `[a]`.
+    // Re-recording all the source holds would widen it to `c`.
+    let bench = bench();
+    let a = crate::permission::Grant::new("terminal", "ls");
+    let b = crate::permission::Grant::new("write_file", "/w/a.txt");
+    let c = crate::permission::Grant::new("terminal", "rm -rf build");
+    let (mut recorder, source) = bench.open(&bench.workspace);
+    recorder.commit(user("one"));
+    recorder.commit(grant(&a.tool, &a.target));
+    recorder.commit(grant(&b.tool, &b.target));
+    recorder.commit(answer("ONE", &[]));
+    recorder.commit(concluded());
+    turn(&mut recorder, "two", "TWO");
+    recorder.commit(SessionEvent::PermissionGrantsCleared);
+    recorder.commit(grant(&a.tool, &a.target));
+    recorder.commit(user("three"));
+    recorder.commit(grant(&c.tool, &c.target));
+    recorder.commit(answer("THREE", &[]));
+    recorder.commit(concluded());
+    assert_eq!(recorder.failure(), None);
+    drop(recorder);
+    assert_eq!(bench.state(&source).grants, [a.clone(), c.clone()]);
+
+    let fork = bench.fork(&source, 3).expect("forked");
+    assert_eq!(
+        fork.state().grants,
+        std::slice::from_ref(&a),
+        "a grant given only after S reached the fork"
+    );
+    let id = fork.id().clone();
+    drop(fork);
+    assert_eq!(bench.state(&id).grants, std::slice::from_ref(&a));
+}
+
+#[test]
+fn every_folder_a_fork_makes_is_made_private_from_creation() {
+    // The umask case above proves `create_private_dir` and the final modes,
+    // which the chmod after each creation makes 0700 whatever made the
+    // folder; this pins every call site to the helper. A plain
+    // `create_dir` at any of them is the umask's mode until the chmod.
+    let fork = include_str!("../fork.rs");
+    let code: String = fork
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for plain in ["fs::create_dir(", "create_dir_all(", "DirBuilder"] {
+        assert!(
+            !code.contains(plain),
+            "fork.rs makes a folder with `{plain}`"
+        );
+    }
+    // The stage and its images folder, and the stage root through
+    // `ensure_private_dir`.
+    assert_eq!(code.matches("create_private_dir(&").count(), 2, "{code}");
+    assert_eq!(code.matches("ensure_private_dir(&stage_root)").count(), 1);
+    let store = include_str!("../../store.rs");
+    let start = store
+        .find("fn ensure_private_dir(")
+        .expect("ensure_private_dir");
+    let body = &store[start..start + store[start..].find("\n}\n").expect("its end")];
+    assert!(body.contains("match create_private_dir(path)"), "{body}");
+    assert!(!body.contains("fs::create_dir("), "{body}");
+}
