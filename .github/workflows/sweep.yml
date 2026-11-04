@@ -1,0 +1,142 @@
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+name: Sweep
+
+# The fx parity sweep against the fx v0.0.16 release, per change: the scenarios
+# the change touches plus the core set (scripts/fxcap/ci-core.txt), on fx and on
+# two xfx builds -- the merge base's and the head's -- and a failure for every
+# snap pair the base kept identical to fx that the head does not.
+# scripts/fxcap/ci_sweep.py is the manual. The full sweep is sweep-full.yml.
+#
+# No secret and no write access: fake credentials, a loopback fake gateway, and
+# a public release fetched by checksum. `pull_request` runs the proposed
+# workflow with a read-only token and no secrets, which is all this needs;
+# `pull_request_target` would hand a fork's code this repository's token.
+
+concurrency:
+  group: sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  sweep:
+    name: sweep (fx v0.0.16, macOS arm64)
+    # One fixed capture runner: every pair is compared on the same machine
+    # type, and `macos-15` is aarch64 (ci.yml's matrix asserts it).
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # The commit this run is a receipt for: on `pull_request` the head, not
+      # GitHub's synthetic merge commit (ci.yml says why).
+      COMMIT_UNDER_TEST: >-
+        ${{ github.event_name == 'pull_request'
+        && github.event.pull_request.head.sha
+        || github.sha }}
+      BASE_TIP: >-
+        ${{ github.event_name == 'pull_request'
+        && github.event.pull_request.base.sha
+        || github.event.before }}
+    steps:
+      - name: Check out the exact commit, with history for the merge base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT_UNDER_TEST }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm the checkout and find the base
+        id: base
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then
+            echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2
+            exit 1
+          fi
+          # A pull request is compared with its merge base, a push to main
+          # with the commit main was at before it. A push whose `before` is
+          # all zeros or unreachable (a new branch, a force-push) falls back
+          # to the first parent.
+          base=''
+          if [ -n "$BASE_TIP" ] && git cat-file -e "$BASE_TIP^{commit}" 2>/dev/null; then
+            base="$(git merge-base "$BASE_TIP" HEAD)"
+          fi
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^1)"
+          fi
+          echo "head $actual, base $base"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
+      # The sweep's and this driver's own tests: no binary, no tmux.
+      - name: The sweep's own tests
+        run: ./scripts/fxcap/test-sweep.sh
+
+      - name: Fetch fx v0.0.16 and bun, each checked by sha256
+        run: |
+          set -euo pipefail
+          ./scripts/fxcap/ci-fetch.sh "$RUNNER_TEMP/tools"
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Install tmux
+        run: |
+          set -euo pipefail
+          brew install tmux
+          tmux -V
+          python3 -c 'import sys, tomllib; print("python", sys.version.split()[0])'
+
+      - name: Install the toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      # Both builds share one target directory, so the base's dependencies are
+      # the head's. The base is built first; each binary is copied out before
+      # the next build replaces target/debug/xfx.
+      - name: Build xfx at the base and at the head
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/xfx"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+          cargo build --locked --manifest-path "$RUNNER_TEMP/base/Cargo.toml" --target-dir "$PWD/target"
+          cp target/debug/xfx "$RUNNER_TEMP/xfx/base"
+          cargo build --locked
+          cp target/debug/xfx "$RUNNER_TEMP/xfx/head"
+          "$RUNNER_TEMP/xfx/base" --version
+          "$RUNNER_TEMP/xfx/head" --version
+
+      - name: Sweep the changed scenarios and the core set
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ./scripts/fxcap/ci-sweep.sh --base "$BASE" \
+            --fx "$RUNNER_TEMP/tools/bin/fx" --pin v0.0.16 \
+            --xfx "$RUNNER_TEMP/xfx/head" --base-xfx "$RUNNER_TEMP/xfx/base" \
+            --jobs 2 --tmp "$RUNNER_TEMP" --out "$RUNNER_TEMP/sweep"
+
+      # Only what the sweep redacts: the report and the scoreboards. The raw
+      # captures and diffs stay on the runner.
+      - name: Keep the report and the scoreboards
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-${{ env.COMMIT_UNDER_TEST }}
+          path: |
+            ${{ runner.temp }}/sweep/report.md
+            ${{ runner.temp }}/sweep/result.json
+            ${{ runner.temp }}/sweep/*/scoreboard.md
+            ${{ runner.temp }}/sweep/*/scoreboard.json
+            ${{ runner.temp }}/sweep/*/summary.md
+          if-no-files-found: ignore
+          retention-days: 30
