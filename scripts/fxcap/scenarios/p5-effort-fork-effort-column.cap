@@ -1,0 +1,96 @@
+fx: env FX_AUTO_UPGRADE=0
+# The `/effort ` inline column (fx 04a5e3af, E6; P5-EF2): the current model's
+# levels under the argument of an `/effort ` line, no key-help row, the
+# status line previewing the marked level, its filter, Tab filling
+# `/effort <level>`, and Enter applying the level.
+#
+# First the research run's column block, from the same state (the level in
+# use is `default`): `level-upper` (`/effort HIGH` applied as `high`, through
+# the column's Enter, whose filter ignores case:
+# `app_input_runtime.zig:1421@481104fd` -> `submitEffortPicker`,
+# `input_completion_runtime.zig:1476`), then `col-space` ... `col-enter`.
+#
+# Then, with `low` in use, what that block cannot tell apart: a Space opens
+# the column on its first row and Tab on the level in use
+# (`openCurrentEffortPicker`, `:1314-1328`); a space typed in the column is
+# its own and goes nowhere; Enter takes the marked row of a filter that
+# matches more than one; Escape puts the column away and the line stays, so
+# Enter runs the bare command; and a prefix applies the level it matches.
+models p5-effort-fork-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+snap launch
+paste /effort HIGH
+wait 0.4
+key Enter
+wait 1
+snap level-upper
+paste /effort default
+wait 0.4
+key Enter
+wait 1
+snap level-default
+type /effort
+key Space
+wait 0.8
+snap col-space
+key Down
+wait 0.4
+snap col-down
+type zz
+wait 0.4
+snap col-nomatch
+key C-u
+wait 0.3
+type /effort
+key Tab
+wait 0.8
+snap col-tab
+key Down
+wait 0.3
+key Tab
+wait 0.5
+snap col-fill
+key Enter
+wait 1
+snap col-enter
+home after-col
+type /effort
+key Space
+wait 0.8
+snap space-first
+key C-u
+wait 0.3
+type /effort
+key Tab
+wait 0.8
+snap tab-current
+type hi
+key Space
+wait 0.5
+snap typed-space
+key Down
+wait 0.4
+snap typed-down
+key Enter
+wait 1
+snap typed-enter
+home after-typed
+type /effort
+key Tab
+wait 0.8
+key Escape
+wait 0.5
+snap col-esc
+key Enter
+wait 1
+snap esc-enter
+key Escape
+wait 0.5
+paste /effort med
+wait 0.4
+key Enter
+wait 1
+snap level-prefix
+home end

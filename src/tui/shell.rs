@@ -2838,12 +2838,11 @@ impl Shell {
     /// the model ([`Self::fast_bound`]).
     fn hinted_model(&self) -> (String, Option<Effort>, Option<&'static str>) {
         let catalog = known(self.catalog_known, &self.catalog);
-        if let Some(preview) = self
+        let query = self
             .column
-            .active(self.editor.text())
-            .filter(|_| self.help_menu.is_none() && self.model_menu.is_none())
-            .and_then(|query| self.column.preview(&query, catalog))
-        {
+            .active(self.editor.text(), &self.model)
+            .filter(|_| self.help_menu.is_none() && self.model_menu.is_none());
+        if let Some(preview) = query.and_then(|query| self.column.preview(&query, catalog)) {
             let entry = catalog.entry(&preview.model);
             let offers =
                 |speed: Speed| entry.is_some_and(|entry| Speed::options(entry).contains(&speed));
@@ -2870,8 +2869,20 @@ impl Shell {
             CatalogKnown::Unread(..) => false,
             CatalogKnown::Unasked | CatalogKnown::Asked => true,
         };
-        let effort =
-            (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone());
+        // An `/effort ` column's marked level, while it marks one, in place of
+        // the one in force -- the default shown as no level, as the default in
+        // force is (`effort_command_preview`, `app_render_runtime.zig:546-584`,
+        // `:664-665@481104fd`; `fx-p5-effort-fork-effort-column-40x120-col-down`
+        // and `-space-first`). The model and its speed are the ones in force.
+        let previewed = query
+            .filter(model_column::Query::effort_command)
+            .and_then(|query| self.column.marked_level(&query, catalog));
+        let effort = match previewed {
+            Some(level) => (!level.is_default()).then_some(level),
+            None => {
+                (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone())
+            }
+        };
         let speed = if self.settings.ultrafast {
             Some(self.ultra)
         } else if intrinsic_fast(&self.model) || (self.settings.fast && self.fast_bound) {
@@ -2995,8 +3006,18 @@ impl Shell {
             return Some(Slot::Provider(column));
         }
         // The `/model` column before the `@` word, as upstream asks
-        // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`).
-        if self.column.active(self.editor.text()).is_some() {
+        // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`) -- and the
+        // `/effort ` column, for a model in force that has levels: one without
+        // has none, and its line shows nothing here at all
+        // (`app_render_runtime.zig:750@481104fd`).
+        if self
+            .column
+            .active(self.editor.text(), &self.model)
+            .is_some_and(|query| {
+                self.column
+                    .shows(&query, known(self.catalog_known, &self.catalog))
+            })
+        {
             return Some(Slot::Column);
         }
         if let Some(files) = self.file_picker.as_ref() {
@@ -3592,8 +3613,39 @@ impl Shell {
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
+        // What an `/effort ` column is showing the levels of, read only while
+        // the composer is such a line: every other event costs a prefix check.
+        let column_for = model_column::effort_line(self.editor.text())
+            .then(|| (self.provider, self.model.clone()));
         self.apply_event(event);
         self.settle_effort_menu();
+        self.settle_effort_column(column_for);
+    }
+
+    /// The `/effort ` column, put away -- its mark let go and the line left as
+    /// typed -- once the model or the provider it was showing the levels of
+    /// is no longer the one in force, as [`Self::settle_effort_menu`] takes
+    /// the menu down: a mark set over one model's rows would otherwise sit on
+    /// another's (`xhigh`, astra's fifth row, is opus's `max`), and Enter
+    /// would apply it. Enter then runs the line as the command, for the model
+    /// now in force; a new `/effort ` line opens the column again. Upstream
+    /// has no rule here either: its column follows the model in force on
+    /// every frame (`app_render_runtime.zig:542-584@481104fd`), and its
+    /// changes are commands typed in that composer.
+    fn settle_effort_column(&mut self, shown_for: Option<(ProviderId, String)>) {
+        let Some((provider, model)) = shown_for else {
+            return;
+        };
+        if (provider, model.as_str()) == (self.provider, self.model.as_str())
+            || !model_column::effort_line(self.editor.text())
+        {
+            return;
+        }
+        self.column.reset();
+        self.column.dismiss();
+        self.refit();
+        self.render.request(Reason::Modal);
+        self.render.request(Reason::Footer);
     }
 
     /// `/effort`'s menu, taken down once the model or the provider it was
@@ -5958,7 +6010,7 @@ impl Shell {
     /// many as the band gave it ([`model_column::height`]).
     fn column_rows(&self) -> Vec<String> {
         let text = self.editor.text();
-        let Some(query) = self.column.active(text) else {
+        let Some(query) = self.column.active(text, &self.model) else {
             return Vec::new();
         };
         let anchor = self.column_anchor(query.token_start);
@@ -6003,6 +6055,14 @@ impl Shell {
     /// is: it moves on from a model spelled exactly, and does nothing else.
     /// Home, End and the word moves throw a later column away and move the
     /// caret.
+    ///
+    /// **An `/effort ` line is the column's too**, with or without levels to
+    /// show (`hasModelQuery`, `input_completion_runtime.zig:629-631@481104fd`):
+    /// Up and Down walk the levels, a space goes nowhere, Left is the caret's,
+    /// Tab writes `/effort <level>`, and Enter applies the level -- or, with
+    /// none to apply, goes on to the composer's submit, where `/effort` says
+    /// why. And Tab on a bare `/effort` opens it on the level in use
+    /// ([`Self::open_effort_column`]), ahead of the completion menu.
     fn offer_to_column(&mut self, event: &Input) -> bool {
         // **The keys first, and nothing copied for any other.** Every byte of
         // a paste is offered here on its way to the paste buffer, and a draft
@@ -6033,13 +6093,28 @@ impl Shell {
         {
             return false;
         }
-        if self.column.active(self.editor.text()).is_none() {
+        // Tab on a bare `/effort`, after the menus' Tabs and before the
+        // completion menu's (`handleComposerByte`'s `'\t'`,
+        // `app_input_runtime.zig:1304-1316@481104fd`).
+        if matches!(event, Input::Action(Action::Tab))
+            && self.editor.caret_at_end()
+            && model_column::bare_effort(self.editor.text())
+        {
+            self.open_effort_column();
+            return true;
+        }
+        if self
+            .column
+            .active(self.editor.text(), &self.model)
+            .is_none()
+        {
             return false;
         }
         // A `/model` line, so short in every real case; owned, because what
         // the column does next writes the composer it was read from.
         let text = self.editor.text().to_string();
-        let Some(query) = self.column.active(&text) else {
+        let current = self.model.clone();
+        let Some(query) = self.column.active(&text, &current) else {
             return false;
         };
         match event {
@@ -6047,6 +6122,8 @@ impl Shell {
                 self.advance_column(&query);
                 true
             }
+            // No column before an `/effort ` line's to step back into.
+            Input::Action(Action::Left) if query.effort_command() => false,
             Input::Action(Action::Up | Action::Down) => {
                 let down = matches!(event, Input::Action(Action::Down));
                 if self
@@ -6105,9 +6182,11 @@ impl Shell {
     /// as a prompt, exactly as upstream's is
     /// (`fx-model2-40x120-explicit-bad-effort`). From the effort column, a
     /// level spelled exactly opens the speed column for a model that offers
-    /// either speed ([`Column::advance_effort`]). Otherwise it does nothing.
+    /// either speed ([`Column::advance_effort`]). Otherwise it does nothing --
+    /// and on an `/effort ` line it never does anything, there being no
+    /// column after its own (`:1221@481104fd`).
     fn advance_column(&mut self, query: &model_column::Query<'_>) {
-        if !self.editor.caret_at_end() {
+        if !self.editor.caret_at_end() || query.effort_command() {
             return;
         }
         let catalog = known(self.catalog_known, &self.catalog);
@@ -6119,7 +6198,7 @@ impl Shell {
                 self.chose_model(&entry);
             }
             model_column::Stage::Effort => {
-                let Some(effort) = self.column.exact_effort(query.query, catalog) else {
+                let Some(effort) = self.column.exact_effort(query, catalog) else {
                     return;
                 };
                 let Some(entry) = self.column.pending().and_then(|id| catalog.entry(id)) else {
@@ -6136,8 +6215,23 @@ impl Shell {
 
     /// Enter at the column (`submitModelPicker`,
     /// `input_completion_runtime.zig:1161-1210`), and whether it was taken.
+    ///
+    /// On an `/effort ` line, the level the text spells or the mark is on is
+    /// applied to the model in force as `/effort <level>` applies it, the
+    /// composer emptied first -- and with none to apply (nothing matches, no
+    /// levels) the Return is not taken, so the line runs as the command and
+    /// it says why (`submitEffortPicker`, `:1301-1310@481104fd`).
     fn submit_column(&mut self, query: &model_column::Query<'_>) -> bool {
         let catalog = known(self.catalog_known, &self.catalog);
+        if query.effort_command() {
+            let Some(effort) = self.column.chosen_effort(query, catalog) else {
+                return false;
+            };
+            self.column.reset();
+            self.clear_composer();
+            self.select_effort(effort);
+            return true;
+        }
         match query.stage {
             model_column::Stage::Model => {
                 // Still loading: a query goes on to the composer's own submit
@@ -6239,6 +6333,18 @@ impl Shell {
         self.amended(None);
     }
 
+    /// Tab on a bare `/effort` (`openCurrentEffortPicker`,
+    /// `input_completion_runtime.zig:1312-1328@481104fd`): the composer reads
+    /// `/effort `, and the column under it -- for a model in force with levels
+    /// -- has the mark on the level in use (`fx-p5-effort-fork-effort-column-
+    /// 40x120-tab-current`), where a space would have left it on the first
+    /// row (`-space-first`). Whatever `/model` had pending is let go.
+    fn open_effort_column(&mut self) {
+        let row = self.catalog_row(&self.model).cloned();
+        let text = self.column.open_levels(row.as_ref(), &self.settings.effort);
+        self.write_column_text(&text);
+    }
+
     /// Settles the inline column against what the composer now holds, and
     /// asks for the catalog it lists from when it is open and nothing has.
     ///
@@ -6267,10 +6373,15 @@ impl Shell {
             self.column
                 .edited(&before, self.editor.text(), edit, at_end);
         }
+        // Not for an `/effort ` line: its column lists what the catalog
+        // already says, as the command does, and asks for nothing.
         if self.help_menu.is_none()
             && self.model_menu.is_none()
             && self.settings_menu.is_none()
-            && self.column.active(self.editor.text()).is_some()
+            && self
+                .column
+                .active(self.editor.text(), &self.model)
+                .is_some_and(|query| !query.effort_command())
         {
             self.want_catalog();
         }
@@ -6334,7 +6445,10 @@ impl Shell {
     fn settle_model_draft(&mut self) {
         if self.model_draft.is_none()
             || self.model_menu.is_some()
-            || self.column.active(self.editor.text()).is_some()
+            || self
+                .column
+                .active(self.editor.text(), &self.model)
+                .is_some()
         {
             return;
         }
@@ -12587,7 +12701,7 @@ impl Shell {
         if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
             return;
         }
-        let Some(query) = self.column.active(self.editor.text()) else {
+        let Some(query) = self.column.active(self.editor.text(), &self.model) else {
             return;
         };
         if query.stage != model_column::Stage::Model {
@@ -26368,7 +26482,10 @@ mod tests {
         // And `/model` with no space is a command name, with no column.
         let mut bare = harness_shell();
         bare.route_bytes(b"/model");
-        assert!(bare.column.active(bare.editor.text()).is_none());
+        assert!(bare
+            .column
+            .active(bare.editor.text(), &bare.model)
+            .is_none());
     }
 
     #[test]
@@ -29228,7 +29345,7 @@ mod tests {
         assert!(
             with_argument
                 .column
-                .active(with_argument.editor.text())
+                .active(with_argument.editor.text(), &with_argument.model)
                 .is_some(),
             "the completed /model opened no column"
         );
@@ -35905,7 +36022,10 @@ mod tests {
         );
         shell.route_bytes(&[0x15]);
         shell.route_bytes(b"/model ");
-        assert!(shell.column.active(shell.editor.text()).is_some());
+        assert!(shell
+            .column
+            .active(shell.editor.text(), &shell.model)
+            .is_some());
         assert!(
             !matches!(shell.slot(), Some(Slot::Column)),
             "the model column took the slot"
@@ -36287,18 +36407,29 @@ mod tests {
                 "/effort \u{1b}[2J",
                 "levels for openai/gpt-6-astra: default, low, medium, high, xhigh",
             ),
-            // Names are compared as the row spells them; the `/effort `
-            // column's filter is P5-EF2's.
-            (
-                "/effort HIGH",
-                "HIGH is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh",
-            ),
         ] {
             pasted(&mut shell, line);
             shell.route_bytes(b"\r");
             assert_eq!(shell.document(), effort_said(body), "{line:?}");
             assert_eq!(shell.controlled(), None, "{line:?} changed something");
             assert_eq!(shell.settings.effort, Effort::Named("high".to_string()));
+        }
+        // `fx-p5-effort-fork-effort-column-40x120-level-upper`: the `/effort `
+        // column's Enter takes `HIGH` as `high` -- its filter ignores case --
+        // and `med` as `medium` (`-level-prefix`).
+        for (line, level) in [("/effort HIGH", "high"), ("/effort med", "medium")] {
+            pasted(&mut shell, line);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral(
+                    "",
+                    format!("Reasoning effort set to {level} for openai/gpt-6-astra")
+                )),
+                "{line:?}"
+            );
+            assert_eq!(shell.settings.effort, Effort::Named(level.to_string()));
+            assert!(change(&mut shell).effort_only);
         }
         // The default's three spellings, any case.
         shell.route_bytes(b"/effort Default\r");
@@ -36599,6 +36730,211 @@ mod tests {
                 .any(|row| row == "* Reasoning effort set to default for odd ]0;x  model"),
             "{document:?}"
         );
+        // The `/effort ` column lists the same parsable names and nothing else.
+        shell.route_bytes(b"/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        let rows = menu(&shell);
+        assert!(!rows.concat().contains("\u{1b}[2J"), "{rows:?}");
+        assert_eq!(
+            rows.iter()
+                .map(|row| visible_text(row).trim().to_string())
+                .filter(|row| !row.is_empty())
+                .collect::<Vec<_>>(),
+            ["default", "low"]
+        );
+    }
+
+    /// The `/effort ` column's rows, as text, from column ten.
+    fn levels_at_ten(levels: &[&str]) -> Vec<String> {
+        let mut rows: Vec<String> = levels
+            .iter()
+            .map(|level| format!("{}{level}", " ".repeat(10)))
+            .collect();
+        rows.resize(6, String::new());
+        rows
+    }
+
+    #[test]
+    fn the_effort_column_lists_the_levels_under_the_argument_and_the_footer_previews_the_mark() {
+        // `fx-p5-effort-fork-effort-column-40x120-col-space`, `-col-down`,
+        // `-col-nomatch`: no key help, the hint row the session's own with
+        // the marked level in place of the one in force.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort low\r");
+        let _ = shell.document();
+        let _ = change(&mut shell);
+        assert!(
+            shell.hint().ends_with("gpt-6-astra \u{b7} low"),
+            "{}",
+            shell.hint()
+        );
+        // A space opens it on its first row, whatever is in use
+        // (`-space-first`), and the footer shows the default as no level.
+        shell.route_bytes(b"/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        assert_eq!(
+            column(&shell),
+            levels_at_ten(&["default", "low", "medium", "high", "xhigh"])
+        );
+        assert!(shell.hint().ends_with("gpt-6-astra"), "{}", shell.hint());
+        down(&mut shell, 1);
+        assert!(
+            shell.hint().ends_with("gpt-6-astra \u{b7} low"),
+            "{}",
+            shell.hint()
+        );
+        shell.route_bytes(b"zz");
+        assert_eq!(column(&shell)[0], "          no matching effort");
+        // Nothing marked: the level in force.
+        assert!(
+            shell.hint().ends_with("gpt-6-astra \u{b7} low"),
+            "{}",
+            shell.hint()
+        );
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn tab_on_a_bare_effort_marks_the_level_in_use_tab_fills_it_and_enter_applies_it() {
+        // `fx-p5-effort-fork-effort-column-40x120-tab-current`, `-col-fill`,
+        // `-col-enter`, `-typed-space`, `-typed-down`, `-typed-enter`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort medium\r");
+        let _ = shell.document();
+        let _ = change(&mut shell);
+        shell.route_bytes(b"/effort\t");
+        assert_eq!(shell.editor.text(), "/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        assert!(shell.hint().ends_with("\u{b7} medium"), "{}", shell.hint());
+        down(&mut shell, 1);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/effort high");
+        assert_eq!(column(&shell), levels_at_ten(&["high", "xhigh"]));
+        assert!(shell.hint().ends_with("\u{b7} high"), "{}", shell.hint());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to high for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"high\"\n}\n");
+        assert!(change(&mut shell).effort_only);
+        // A space typed in the column goes nowhere; Left is the caret's.
+        shell.route_bytes(b"/effort hi ");
+        assert_eq!(shell.editor.text(), "/effort hi");
+        let caret = shell.cursor().1;
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.text(), "/effort hi");
+        assert_eq!(shell.cursor().1, caret - 1);
+        shell.route_bytes(b"\x1b[C");
+        // Enter takes the marked row of a filter that keeps two.
+        down(&mut shell, 1);
+        assert!(shell.hint().ends_with("\u{b7} xhigh"), "{}", shell.hint());
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to xhigh for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(shell.settings.effort, Effort::Named("xhigh".to_string()));
+    }
+
+    #[test]
+    fn escape_puts_the_effort_column_away_and_enter_then_runs_the_bare_command() {
+        // `fx-p5-effort-fork-effort-column-40x120-col-esc`, `-esc-enter`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\t");
+        escape(&mut shell);
+        assert_eq!(shell.editor.text(), "/effort ");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        shell.route_bytes(b"\r");
+        assert!(matches!(shell.slot(), Some(Slot::Effort(_))));
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn an_effort_line_shows_no_column_for_a_model_without_levels_and_enter_says_why() {
+        // `fx-p5-effort-fork-effort-nolevels-40x120-col-space`, `-col-enter`,
+        // `-col-tab`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.model = "fake/model-a".to_string();
+        shell.route_bytes(b"/effort ");
+        assert!(!matches!(shell.slot(), Some(Slot::Column)));
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            effort_said("fake/model-a has no levels to choose from")
+        );
+        shell.route_bytes(b"/effort\t");
+        assert_eq!(shell.editor.text(), "/effort ");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn the_effort_column_goes_when_the_model_or_the_provider_it_was_shown_for_goes() {
+        // EF1b's S3 for the menu, for the column: a mark set over one
+        // model's levels is not carried to another's. `xhigh` marked on
+        // astra is row five, which on opus is `max`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort xhigh\r");
+        let _ = shell.document();
+        let _ = change(&mut shell);
+        shell.route_bytes(b"/effort\t");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        // A catalog read landing is not a change of model.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        shell.apply(UiEvent::ModelAnswered {
+            model: "anthropic/claude-opus-5".to_string(),
+            settings: TurnSettings::default(),
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: false,
+            announced: false,
+        });
+        let _ = shell.document();
+        assert_eq!(shell.editor.text(), "/effort ", "the line is the user's");
+        assert!(
+            !matches!(shell.slot(), Some(Slot::Column)),
+            "the column outlived its model"
+        );
+        // Enter runs the line as the command: opus's menu, nothing applied.
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.controlled(), None, "Enter applied a level");
+        assert!(shell
+            .effort_menu
+            .as_ref()
+            .is_some_and(|menu| menu.is_for(ProviderId::Gateway, "anthropic/claude-opus-5")));
+        escape(&mut shell);
+        // A new line opens it again, over the model in force.
+        shell.route_bytes(b"/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        assert_eq!(
+            column(&shell),
+            levels_at_ten(&["default", "low", "medium", "high", "max"])
+        );
+        // And a provider switch the same.
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "anthropic/claude-opus-5".to_string(),
+            missing_credential: false,
+        });
+        assert!(!matches!(shell.slot(), Some(Slot::Column)));
     }
 
     #[test]

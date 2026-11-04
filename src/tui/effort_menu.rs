@@ -150,15 +150,8 @@ impl EffortMenu {
         entry: &CatalogEntry,
         current: &Effort,
     ) -> Option<Self> {
-        let options: Vec<Effort> = std::iter::once(Effort::Auto)
-            .chain(
-                levels(entry)
-                    .into_iter()
-                    .take(MOST_OPTIONS - 1)
-                    .map(Effort::Named),
-            )
-            .collect();
-        if options.len() < 2 {
+        let options = offered(entry);
+        if options.is_empty() {
             return None;
         }
         let current = options
@@ -341,6 +334,21 @@ impl Layout {
     fn rows(self) -> u16 {
         self.first_item_row + self.visible
     }
+}
+
+/// What `/effort` offers for `entry` -- its menu, its `/effort ` column
+/// ([`super::model_column`]) and its argument alike: `default`, then the
+/// levels the row lists that are names [`Effort::parse`] reads, in its order,
+/// at most sixteen of them; nothing for a row that lists none, which has no
+/// menu and no column (`reasoningEffortOptionCount`).
+pub(crate) fn offered(entry: &CatalogEntry) -> Vec<Effort> {
+    let levels = levels(entry);
+    if levels.is_empty() {
+        return Vec::new();
+    }
+    std::iter::once(Effort::Auto)
+        .chain(levels.into_iter().take(MOST_OPTIONS - 1).map(Effort::Named))
+        .collect()
 }
 
 /// The levels `entry` lists that are names upstream would parse, in its

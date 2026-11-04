@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-3e4ddec [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* Reasoning effort set to medium for openai/gpt-6-astra[39m
+
+[38;5;250m* Reasoning effort set to high for openai/gpt-6-astra[39m
+
+[38;5;250m* effort: bogus is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh[39m
+
+[38;5;250m* effort: max is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh[39m
+
+[38;5;250m* effort: levels for openai/gpt-6-astra: default, low, medium, high, xhigh[39m
+
+[38;5;250m* Reasoning effort set to default for openai/gpt-6-astra[39m
+
+[38;5;250m* Reasoning effort set to low for openai/gpt-6-astra[39m
+
+[38;5;255m┃[39m [1mslow turn please[0m
+
+[38;5;250m* Next turn will use reasoning effort high for openai/gpt-6-astra[39m
+
+  SLOW one two three four five six seven eight nine ten.
+
+[38;5;245m  7s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · gpt-6-astra · high[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
