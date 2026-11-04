@@ -2214,6 +2214,21 @@ pub fn unreadable_profile_settings(path: &Path) -> Option<DiagnosticCause> {
     diagnostics.first().map(|diagnostic| diagnostic.cause)
 }
 
+/// The word the `/status` panel's `Settings` row gives for `cause`:
+/// upstream's error name where upstream has one for the same condition --
+/// `InvalidSettingsFormat` for a file that is not a JSON object,
+/// `StreamTooLong` for one past the size ceiling (`loadMergedSettings`,
+/// `vercel-labs/fx@481104fd src/core/config/config_runtime.zig:1364-1365`,
+/// `:1427`) -- and xfx's own label otherwise: a file that could not be read
+/// is an operating-system error upstream names and this reader does not keep.
+pub fn settings_error_name(cause: DiagnosticCause) -> &'static str {
+    match cause {
+        DiagnosticCause::MalformedSettings => "InvalidSettingsFormat",
+        DiagnosticCause::SettingsTooLarge => "StreamTooLong",
+        other => other.label(),
+    }
+}
+
 /// Resolves the bearer credential from the environment.
 ///
 /// Only these two variables are consulted, in this order, and only when nonblank
@@ -2550,6 +2565,24 @@ mod tests {
         assert_eq!(
             unreadable_profile_settings(&path),
             Some(DiagnosticCause::MalformedSettings)
+        );
+    }
+
+    #[test]
+    fn the_status_panel_says_upstreams_error_name_where_it_has_one() {
+        // `cap: p5-panels-status-badsettings-40x120-open`, fx v0.0.16:
+        // `Settings  couldn't be read: InvalidSettingsFormat`.
+        assert_eq!(
+            settings_error_name(DiagnosticCause::MalformedSettings),
+            "InvalidSettingsFormat"
+        );
+        assert_eq!(
+            settings_error_name(DiagnosticCause::SettingsTooLarge),
+            "StreamTooLong"
+        );
+        assert_eq!(
+            settings_error_name(DiagnosticCause::UnreadableSettings),
+            "unreadable_settings"
         );
     }
 

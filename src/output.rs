@@ -1902,8 +1902,8 @@ mod tests {
         let without = panel(&snapshot, None);
         assert!(without.contains(&format!("Auth={MISSING_AUTH_LABEL}")));
         assert!(without.contains(&format!("Auth help={MISSING_AUTH_HELP}")));
-        let with = panel(&snapshot, Some("malformed_settings"));
-        assert_eq!(with[1], "Settings=couldn't be read: malformed_settings");
+        let with = panel(&snapshot, Some("InvalidSettingsFormat"));
+        assert_eq!(with[1], "Settings=couldn't be read: InvalidSettingsFormat");
         assert!(!with.iter().any(|row| row.starts_with("Auth")), "{with:?}");
         assert_eq!(with.len(), without.len() - 1, "{with:?}");
     }

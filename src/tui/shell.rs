@@ -11709,7 +11709,7 @@ impl CommandHandlers for Shell {
             self.settings_path
                 .as_deref()
                 .and_then(crate::config::unreadable_profile_settings)
-                .map(crate::config::DiagnosticCause::label)
+                .map(crate::config::settings_error_name)
         } else {
             None
         };
@@ -23365,7 +23365,7 @@ mod tests {
         shell.route_bytes(b"/status\r");
         assert_eq!(
             panel_value(&shell, "Settings").as_deref(),
-            Some("couldn't be read: malformed_settings")
+            Some("couldn't be read: InvalidSettingsFormat")
         );
         assert_eq!(panel_value(&shell, "Auth"), None);
 
@@ -23377,7 +23377,7 @@ mod tests {
         assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("1"));
         assert_eq!(
             panel_value(&shell, "Settings").as_deref(),
-            Some("couldn't be read: malformed_settings")
+            Some("couldn't be read: InvalidSettingsFormat")
         );
         // Opened again, it reads again.
         escape(&mut shell);
