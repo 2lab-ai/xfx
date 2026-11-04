@@ -249,6 +249,7 @@ cargo build --locked --release
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
+./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ```
 

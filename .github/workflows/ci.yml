@@ -132,6 +132,13 @@ jobs:
       - name: The preview publication contract holds
         run: ./scripts/check-preview-contract.sh
 
+      # The contract check is only worth its `ok` if it still fails what it
+      # was written to fail. This breaks the trigger, the epoch gate, the
+      # condition on the jobs behind it, and the epoch file, one at a time in
+      # a scratch copy, and requires each break to be reported by name.
+      - name: The preview contract catches every mutant it exists for
+        run: ./scripts/test-preview-contract.sh
+
       # The TUI output check runs in front of every frame a released binary
       # writes, so its cost is a property of the product rather than a number in
       # a report. It is measured here and nowhere else in this file: the two

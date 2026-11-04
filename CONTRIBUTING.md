@@ -54,6 +54,7 @@ cargo build --locked --release --features fault-injection --target-dir target/fa
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
+./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx
 ```
@@ -66,14 +67,19 @@ all findings.
 
 `scripts/check-preview-contract.sh` parses `.github/workflows/preview.yml` and
 holds it to what `brew install xfx-preview` needs: a trigger that is a push to
-`main` changing `.github/preview-epoch` and nothing wider, that file present as
-one line naming an epic, the tag and version grammar the tap parses, the four
-native rows and their exact asset names, the gate running before the binary it
-guards, the `preview` stamp, the five published files, a prerelease that is not
-marked latest, an actionlint pin new enough to recognize every runner label in
-the matrix, and a tap push whose freshness comparator it extracts and runs
-rather than reads. It needs `ruby`, which is on
-every CI image, and uses `actionlint` when it is installed.
+`main` changing `.github/preview-epoch` and nothing wider, a preflight gate --
+run here over real commits -- that skips the build and the publication unless
+the push's own diff names that file, that file present as one line naming an
+epic, the tag and version grammar the tap parses, the four native rows and
+their exact asset names, the gate running before the binary it guards, the
+`preview` stamp, the five published files, a prerelease that is not marked
+latest, an actionlint pin new enough to recognize every runner label in the
+matrix, and a tap push whose freshness comparator it extracts and runs rather
+than reads. It needs `ruby` and `git`, which are on every CI image, and uses
+`actionlint` when it is installed. `scripts/test-preview-contract.sh` breaks the
+trigger, the epoch gate, the condition on the jobs behind it, and the epoch
+file one at a time in a scratch copy, and fails unless the contract check
+reports each break by name.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway
 on a loopback port -- no credential, no network -- and prints an evidence

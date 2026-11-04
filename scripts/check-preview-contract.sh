@@ -2,7 +2,7 @@
 #
 # Enforces the preview publication contract.
 #
-#   scripts/check-preview-contract.sh [path-to-preview-workflow]
+#   scripts/check-preview-contract.sh [path-to-preview-workflow [path-to-tree]]
 #
 # A preview build is only worth publishing if a user can install it with the
 # exact command the README prints, and if what they then run can prove which
@@ -14,22 +14,26 @@
 # since grown a placeholder. Every one of those ships green.
 #
 # So the contract is checked as *structure*: the workflow is parsed as YAML and
-# interrogated -- triggers and the epoch file they filter on, the job graph, the exact four native rows, the order
-# of the gates against the build, the environment the binary is stamped with,
-# the five assets, the release flags, the tap push and its freshness guard, and
-# the version of the linter the workflow gates itself with -- rather than
-# grepped as text. A `grep` cannot see that `publish` depends on `build`, that
+# interrogated -- triggers and the epoch file they filter on, the job graph and
+# the epoch gate in front of it, the exact four native rows, the order of the
+# gates against the build, the environment the binary is stamped with, the five
+# assets, the release flags, the tap push and its freshness guard, and the
+# version of the linter the workflow gates itself with -- rather than grepped as
+# text. A `grep` cannot see that `publish` depends on `build`, that
 # the smoke test runs after the binary was built and not before, or that a step
 # is `continue-on-error`.
 #
 # The comparator that keeps the tap from being rolled back is not asserted at
 # all: it is extracted from the workflow and executed here over real versions,
 # because "the function is mentioned" and "the function orders versions
-# correctly" are different claims and only the second one protects anyone.
+# correctly" are different claims and only the second one protects anyone. The
+# epoch gate is treated the same way, executed over real commits.
 #
-# The optional argument exists so a mutant of the workflow can be checked in a
-# scratch directory: that is how the assertions below are proved to be load
-# bearing rather than decorative.
+# The optional arguments exist so a mutant can be checked in a scratch
+# directory: the first names the workflow, the second the tree the epoch file
+# and the README are read from (this repository when it is left out).
+# `scripts/test-preview-contract.sh` uses both, and is how the assertions below
+# are proved to be load bearing rather than decorative.
 #
 # Requires ruby (Psych is in its standard library, so YAML needs no gem) and,
 # when it happens to be installed, actionlint.
@@ -40,7 +44,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 workflow="${1:-.github/workflows/preview.yml}"
-readme="README.md"
+tree="${2:-.}"
+readme="$tree/README.md"
 
 failures=0
 
@@ -125,7 +130,9 @@ export CONTRACT_QUALIFIED_INSTALL='brew install 2lab-ai/tap/xfx-preview'
 export CONTRACT_UNQUALIFIED_INSTALL='brew install xfx-preview'
 export CONTRACT_CHANNEL='preview'
 # The one file whose change publishes a preview: a merge that bumps it closes an
-# epic, and every other push to main publishes nothing.
+# epic, and every other push to main publishes nothing -- the path filter keeps
+# the workflow from starting, and the epoch gate in preflight turns away a run
+# the filter let through by exception.
 export CONTRACT_EPOCH='.github/preview-epoch'
 export CONTRACT_CHANNEL_VARIABLE='XFX_BUILD_CHANNEL'
 export CONTRACT_REVISION_VARIABLE='XFX_BUILD_REVISION'
@@ -138,6 +145,12 @@ if [ ! -f "$workflow" ]; then
 	exit 1
 fi
 
+if [ ! -d "$tree" ]; then
+	fail "there is no tree at $tree to read the epoch file and the README from"
+	printf 'check-preview-contract: %d problem(s) found\n' "$failures" >&2
+	exit 1
+fi
+
 if ! command -v ruby >/dev/null 2>&1; then
 	fail 'ruby is required to parse the workflow; a text-only check cannot see the job graph'
 	exit 1
@@ -145,10 +158,11 @@ fi
 
 # --- the workflow contract ---------------------------------------------------
 
-if ! ruby - "$workflow" <<'RUBY'; then
+if ! ruby - "$workflow" "$tree/$CONTRACT_EPOCH" <<'RUBY'; then
 require "yaml"
 
 workflow_path = ARGV.fetch(0)
+epoch_file = ARGV.fetch(1)
 document = YAML.safe_load(File.read(workflow_path), aliases: true)
 raw = File.read(workflow_path)
 
@@ -225,10 +239,10 @@ check.(triggers.dig("push", "branches") == ["main"],
 check.(triggers.keys == ["push"],
        "the workflow triggers on #{triggers.keys.inspect}; a workflow holding a deploy key may only run from a push to main, because every other trigger runs the version of it that lives on the ref being dispatched or proposed")
 
-# A preview is cut per epic, never mid-epic, and the only thing holding that is
-# the path filter: units of an epic merge to main one by one, so a filter that
-# was dropped or widened publishes half an epic to everyone on the tap, and
-# nothing else fails. The key set is pinned as well, because a `tags:` entry
+# A preview is cut per epic, never mid-epic, and the path filter is what keeps
+# the workflow from starting on anything else: units of an epic merge to main
+# one by one, so a filter that was dropped or widened runs it on every unit,
+# and only the epoch gate below would stand between that and the tap. The key set is pinned as well, because a `tags:` entry
 # under `push` is not path-filtered at all -- GitHub does not evaluate path
 # filters for tag pushes -- and would widen the trigger without touching
 # `paths`.
@@ -241,8 +255,8 @@ check.(push_trigger.keys.sort == %w[branches paths],
 # The file the filter names has to be there and say which epic the preview
 # closes: one line, one word. An empty or multi-line file is a bump nobody can
 # read back to an epic.
-if File.file?(epoch_path)
-  epoch = File.read(epoch_path)
+if File.file?(epoch_file)
+  epoch = File.read(epoch_file)
   check.(epoch.match?(/\A[a-z0-9][a-z0-9._-]*\n?\z/),
          "#{epoch_path} is #{epoch.inspect}; it must be one line naming the epic the preview closes, such as \"phase4\"")
 else
@@ -275,6 +289,18 @@ check.(needs_of(publish).sort == %w[build preflight],
 check.(publish&.dig("permissions", "contents") == "write",
        "publish cannot write contents, or was granted more than that")
 
+# The epoch gate's answer is only an answer if the jobs that build and publish
+# ask for it. Without the condition a push the gate turned away is built anyway,
+# and `publish` -- the one job handed the tap key -- runs on it. The condition is
+# pinned as one exact string: anything looser, `always()` included, is a way
+# round the gate.
+gate_condition = "needs.preflight.outputs.publish == 'true'"
+{ "build" => build, "publish" => publish }.each do |name, job|
+  check.(job&.dig("if") == gate_condition,
+         "#{name} runs on #{job&.dig("if").inspect}, expected exactly #{gate_condition.inspect}; " \
+         "without it, a push the epoch gate turned away is #{name == "publish" ? "published to the tap" : "built"} anyway")
+end
+
 # --------------------------------------------------------------- preflight ---
 
 if preflight
@@ -284,6 +310,31 @@ if preflight
     check.(value.include?("steps.") && value.include?("outputs.#{name}"),
            "preflight does not output #{name} from a step")
   end
+
+  # The epoch gate: GitHub runs this workflow on a push of more than 1,000
+  # commits, or one whose diff timed out, whatever the path filter says, and
+  # this step is what keeps such a run from publishing. What it decides is
+  # proved further down, by running it over real commits; here it is held to
+  # being there, unconditional, unable to swallow its own failure, and fed the
+  # push's previous commit through the environment -- an expression inside the
+  # script would make the script executed below differ from the one that runs.
+  gate = steps_of(preflight).find { |step| step["id"] == "epoch" }
+  if gate.nil?
+    problems << "preflight has no epoch gate (a step with id `epoch`), so a run GitHub starts despite the path filter -- a push of over 1,000 commits, or one whose diff timed out -- publishes whatever that push changed"
+  else
+    check.(gate["if"].nil?,
+           "the epoch gate runs only #{gate["if"].inspect}, so it can be skipped and its answer read as empty")
+    check.(gate["continue-on-error"] != true,
+           "the epoch gate is continue-on-error, so a gate that failed reads as one that never ran")
+    check.(gate.dig("env", "BEFORE") == "${{ github.event.before }}",
+           "the epoch gate is not handed the push's previous commit as BEFORE=${{ github.event.before }}")
+    check.(!gate["run"].to_s.include?("${{"),
+           "the epoch gate's script interpolates an expression; its inputs must come from the environment so the script executed here is the one that runs")
+    check.(steps_of(preflight).index(gate) < (steps_of(preflight).index { |step| step["id"] == "identity" } || 0),
+           "the epoch gate runs after the build is named, so a push it turns away has already been treated as a publication")
+  end
+  check.(outputs["publish"] == "${{ steps.epoch.outputs.publish }}",
+         "preflight does not output the epoch gate's answer as `publish`, so nothing downstream can be skipped by it")
 
   checkout = uses_step(preflight, "actions/checkout")
   check.(checkout&.dig("with", "ref") == "${{ github.sha }}",
@@ -782,6 +833,89 @@ else
 	# `08` and `09` are not octal here, whatever the shell would like to think.
 	newer '2026.08.22.094213.32601234567.1' '2026.08.22.084213.32601234567.1'
 	newer '2026.09.22.054213.32601234567.1' '2026.08.22.054213.32601234567.1'
+fi
+
+# --- the epoch gate, executed rather than asserted ---------------------------
+#
+# The gate is a decision about two commits, so it is run over real ones: a
+# scratch repository holding an epoch bump and a push that is not one, each
+# fetched into a one-commit-deep checkout the way `actions/checkout` leaves it,
+# with the gate fetching the previous commit itself exactly as it does on a
+# runner. A gate that answers "publish" to everything, or "skip" to an actual
+# bump, or treats a commit it cannot see as a reason to go ahead, fails here.
+# The scratch git ignores the machine's own configuration, so a signing or
+# rewrite rule in it cannot change the answer.
+
+ruby -ryaml - "$workflow" >"$work/epoch-gate.sh" <<'RUBY'
+document = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: true)
+job = (document["jobs"] || {})["preflight"] || {}
+gate = (job["steps"] || []).find { |step| step["id"] == "epoch" } || {}
+print gate["run"].to_s
+RUBY
+
+scratch_git() {
+	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git \
+		-c user.name=contract -c user.email=contract@example.invalid \
+		-c init.defaultBranch=main -c commit.gpgsign=false "$@"
+}
+
+if [ ! -s "$work/epoch-gate.sh" ]; then
+	fail 'the epoch gate could not be extracted, so what it decides is unproven'
+elif ! command -v git >/dev/null 2>&1; then
+	fail 'git is required to run the epoch gate over real commits'
+else
+	origin="$work/epoch-origin"
+	scratch_git init -q "$origin"
+	mkdir -p "$origin/$(dirname "$CONTRACT_EPOCH")"
+	printf 'phase3\n' >"$origin/$CONTRACT_EPOCH"
+	printf 'one\n' >"$origin/unit"
+	scratch_git -C "$origin" add -A
+	scratch_git -C "$origin" commit -q -m 'the previous epoch'
+	previous="$(scratch_git -C "$origin" rev-parse HEAD)"
+	printf 'phase4\n' >"$origin/$CONTRACT_EPOCH"
+	scratch_git -C "$origin" commit -q -a -m 'bump the epoch'
+	bump="$(scratch_git -C "$origin" rev-parse HEAD)"
+	printf 'two\n' >"$origin/unit"
+	scratch_git -C "$origin" commit -q -a -m 'a unit of the next epic'
+	unit="$(scratch_git -C "$origin" rev-parse HEAD)"
+
+	# gate <publish|skip|error> <before> <after>
+	gate() {
+		local want="$1" before="$2" after="$3" checkout status got
+		checkout="$(mktemp -d "$work/epoch-checkout.XXXXXX")"
+		scratch_git init -q "$checkout"
+		scratch_git -C "$checkout" remote add origin "file://$origin"
+		scratch_git -C "$checkout" fetch -q --no-tags --depth=1 origin "$after"
+		scratch_git -C "$checkout" checkout -q --detach FETCH_HEAD
+		: >"$checkout.output"
+		status=0
+		(
+			cd "$checkout"
+			BEFORE="$before" GITHUB_SHA="$after" GITHUB_OUTPUT="$checkout.output" \
+				GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+				bash --noprofile --norc -eo pipefail "$work/epoch-gate.sh"
+		) >"$checkout.log" 2>&1 || status=$?
+		got="$(sed -n 's/^publish=//p' "$checkout.output" | tr '\n' ' ')"
+		case "$want" in
+		publish) [ "$status" -eq 0 ] && [ "$got" = 'true ' ] && return 0 ;;
+		skip) [ "$status" -eq 0 ] && [ "$got" = 'false ' ] && return 0 ;;
+		error) [ "$status" -ne 0 ] && [ "$got" != 'true ' ] && return 0 ;;
+		esac
+		fail "the epoch gate, from ${before:0:12} to ${after:0:12}, exited $status with publish=[${got% }]; expected $want"
+	}
+
+	# The bump itself, and a push that carries it among other commits: the
+	# two-dot diff the filter reads names the file either way.
+	gate publish "$previous" "$bump"
+	gate publish "$previous" "$unit"
+	# A unit that merges after the bump closes no epoch.
+	gate skip "$bump" "$unit"
+	# A push with no previous commit closes no epoch, and is not an error.
+	gate skip 0000000000000000000000000000000000000000 "$unit"
+	# A previous commit the remote does not have, and one that is not a commit
+	# at all: no publication, and a run that says so in red.
+	gate error ffffffffffffffffffffffffffffffffffffffff "$unit"
+	gate error 'main' "$unit"
 fi
 
 # --- the documentation the contract promises ---------------------------------
