@@ -43,9 +43,8 @@
 //! bullet, its wrapped lines are indented to the bullet's text, and it gets two
 //! columns fewer (`:96`, `:151-155`).
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::config::PermissionMode;
+use crate::output::{ShellSession, StatusSnapshot};
 use crate::workspace::access::terminal_safe;
 
 use super::input::Action;
@@ -123,6 +122,12 @@ pub(crate) enum Facts {
         saved: Option<bool>,
         grants: usize,
     },
+    /// A bare `/permissions`'s, which its own unit opens; the lint fails the
+    /// build once it does, so this goes with it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "bare /permissions opens it in its own unit")
+    )]
     Permissions {
         mode: PermissionMode,
         grants: usize,
@@ -131,6 +136,21 @@ pub(crate) enum Facts {
 }
 
 impl Facts {
+    /// What a `/status` panel built from `snapshot` depends on: the turns, the
+    /// session's being saved -- `None` with no session to save -- and the
+    /// grants (`statusFacts`, `vercel-labs/fx@481104fd
+    /// src/core/session/session_commands.zig:342-351`).
+    pub(crate) fn of_status(snapshot: &StatusSnapshot) -> Self {
+        Self::Status {
+            turns: usize::try_from(snapshot.history_turns).unwrap_or(usize::MAX),
+            saved: match &snapshot.session {
+                Some(ShellSession::Open { saved, .. }) => Some(*saved),
+                Some(ShellSession::Unavailable) | None => None,
+            },
+            grants: usize::try_from(snapshot.session_permission_grants).unwrap_or(usize::MAX),
+        }
+    }
+
     /// Which panel facts of this shape fill.
     pub(crate) fn kind(self) -> Kind {
         match self {
@@ -164,7 +184,12 @@ impl Row {
     }
 
     /// An item of the list the labelled row above it counts: no label, a
-    /// bullet before its value.
+    /// bullet before its value. `/status` has none; bare `/permissions`'s
+    /// lists are its callers, and the lint fails the build once they are.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "bare /permissions lists its rules with it")
+    )]
     pub(crate) fn item(value: &str) -> Self {
         Self {
             label: String::new(),
@@ -215,7 +240,28 @@ pub(crate) struct Panel {
     facts: Facts,
 }
 
+/// The `/status` panel's rows from `snapshot`, with a `Settings` row in place
+/// of the credential's when `settings_error` says why the profile settings did
+/// not read ([`StatusSnapshot::panel_rows`]): made terminal-safe here, as every
+/// row is ([`Row::new`]).
+pub(crate) fn status_rows(snapshot: &StatusSnapshot, settings_error: Option<&str>) -> Vec<Row> {
+    snapshot
+        .panel_rows(settings_error)
+        .iter()
+        .map(|(label, value)| Row::new(label, value))
+        .collect()
+}
+
 impl Panel {
+    /// The `/status` panel at its top, from `snapshot` (`openStatusSnapshot`,
+    /// `session_commands.zig:283-296@481104fd`).
+    pub(crate) fn status(snapshot: &StatusSnapshot, settings_error: Option<&str>) -> Self {
+        Self::open(
+            status_rows(snapshot, settings_error),
+            Facts::of_status(snapshot),
+        )
+    }
+
     /// A panel at its top (`State.open`, `info_panel.zig:76-79`).
     pub(crate) fn open(rows: Vec<Row>, facts: Facts) -> Self {
         Self {

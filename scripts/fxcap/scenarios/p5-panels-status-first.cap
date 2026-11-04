@@ -1,0 +1,18 @@
+# Phase 5 panels: `/status` opened during the session's first turn
+# (fx 8a964aca): `not saved yet` until the turn saves the session, then
+# `saved` and the turn count, with no keystroke.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-panels-first-turn.json
+wait 2
+type first turn please
+key Enter
+wait 0.8
+type /status
+key Enter
+wait 0.7
+snap open-first
+wait 8
+snap after-first
+key Escape
+wait 0.5
+snap closed

@@ -2197,6 +2197,23 @@ fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>
     }
 }
 
+/// Why the profile settings file at `path` does not read **now**, if it is
+/// there and does not: read the way a launch reads it ([`read_layer`]), and
+/// nothing kept of what it holds.
+///
+/// The TUI's `/status` panel asks it once, at open, and says the cause's
+/// label in a `Settings` row (`openStatusSnapshot`'s `loadMergedSettings`,
+/// `vercel-labs/fx@481104fd src/core/session/session_commands.zig:283-296`).
+/// A missing file is no error: a profile nobody wrote reads as the defaults.
+pub fn unreadable_profile_settings(path: &Path) -> Option<DiagnosticCause> {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(path, ConfigLayer::User, &mut diagnostics);
+    if read.object.is_some() {
+        return None;
+    }
+    diagnostics.first().map(|diagnostic| diagnostic.cause)
+}
+
 /// Resolves the bearer credential from the environment.
 ///
 /// Only these two variables are consulted, in this order, and only when nonblank
@@ -2508,6 +2525,32 @@ mod tests {
         let rendered = format!("{credential:?}");
         assert!(!rendered.contains("super-secret"), "{rendered}");
         assert!(rendered.contains("VercelOidcToken"), "{rendered}");
+    }
+
+    #[test]
+    fn profile_settings_that_do_not_read_now_say_why_and_a_missing_file_is_none() {
+        let dir = tempfile::tempdir().expect("a profile");
+        let path = dir.path().join(USER_SETTINGS_FILE);
+        assert_eq!(unreadable_profile_settings(&path), None, "no file");
+        fs::write(&path, "{\"model\":\"acme/model-9\"}").expect("write");
+        assert_eq!(unreadable_profile_settings(&path), None, "a good file");
+        fs::write(&path, "{\"model\":").expect("write");
+        assert_eq!(
+            unreadable_profile_settings(&path),
+            Some(DiagnosticCause::MalformedSettings)
+        );
+        fs::write(&path, "[1]").expect("write");
+        assert_eq!(
+            unreadable_profile_settings(&path),
+            Some(DiagnosticCause::MalformedSettings),
+            "not an object"
+        );
+        fs::remove_file(&path).expect("remove");
+        fs::create_dir(&path).expect("a directory in its place");
+        assert_eq!(
+            unreadable_profile_settings(&path),
+            Some(DiagnosticCause::MalformedSettings)
+        );
     }
 
     #[test]

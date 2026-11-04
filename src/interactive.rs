@@ -248,7 +248,9 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         command: Slash::Status,
         name: "/status",
         aliases: &[],
-        summary: "show runtime configuration",
+        // Upstream's summary since the panel shows the session
+        // (`commands.zig:455@481104fd`).
+        summary: "show runtime configuration and the session ID",
         category: "General",
         has_args: false,
     },
@@ -1252,10 +1254,47 @@ pub(crate) fn open_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
-    let scope = conversation_scope(config)?;
+    open_conversation_as(
+        store,
+        SessionId::generate(),
+        config,
+        model,
+        permissions,
+        questioner,
+        cancel,
+    )
+    .map_err(|failure| failure.message)
+}
+
+/// Why [`open_conversation_as`] opened nothing: the sentence to say, and
+/// whether it was the store that refused the session -- not the scope it
+/// would have run in -- which the TUI's `/status` says as a shell that cannot
+/// save sessions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenFailure {
+    pub(crate) message: String,
+    pub(crate) store_refused: bool,
+}
+
+/// [`open_conversation`], into the session `id` names: the TUI allocates
+/// its id at launch, in memory, so `/status` can show it before the first
+/// prompt writes anything (`docs/parity.md`, `/status`).
+pub(crate) fn open_conversation_as(
+    store: &SessionStore,
+    id: SessionId,
+    config: &RuntimeConfig,
+    model: &str,
+    permissions: PermissionSession,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Result<Conversation, OpenFailure> {
+    let scope = conversation_scope(config).map_err(|message| OpenFailure {
+        message,
+        store_refused: false,
+    })?;
     let session = store
         .create(
-            SessionId::generate(),
+            id,
             NewSession {
                 origin_workspace_root: config.workspace_root.clone(),
                 workspace_root: config.workspace_root.clone(),
@@ -1266,7 +1305,10 @@ pub(crate) fn open_conversation(
                 provider: Some(config.provider),
             },
         )
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| OpenFailure {
+            message: err.to_string(),
+            store_refused: true,
+        })?;
     Ok(bind_conversation(
         store,
         session,
@@ -3100,7 +3142,12 @@ mod tests {
                 status.category,
                 status.has_args
             ),
-            ("/status", "show runtime configuration", "General", false)
+            (
+                "/status",
+                "show runtime configuration and the session ID",
+                "General",
+                false
+            )
         );
         // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
         // `/model` (`commands.zig:472-478`).

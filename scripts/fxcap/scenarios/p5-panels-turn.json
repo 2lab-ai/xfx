@@ -1,0 +1,4 @@
+[
+ {"chunks": ["MARKER-STATUS-TURN"]},
+ {"delayMs": 100, "hangMs": 5000, "chunks": ["SECOND ", "TURN"]}
+]

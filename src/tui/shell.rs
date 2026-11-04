@@ -80,7 +80,7 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{self, ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
+use super::bridge::{ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
 use super::clipboard_image::ClipboardReads;
 use super::compaction::{self, Compaction};
 use super::copy::Copies;
@@ -1145,6 +1145,10 @@ pub(crate) struct Shell {
     /// [`Self::consume`] alike, so one arriving while it is up takes the keys
     /// and the rows, and the panel is in front again once it is answered.
     info_panel: Option<info_panel::Panel>,
+    /// Why the profile settings did not read when `/status` last opened the
+    /// panel, by the cause's label, if they did not: what its rebuilds say
+    /// without reading the file again ([`Self::status`]).
+    status_settings: Option<&'static str>,
     /// The skills menu, while it is open ([`super::skills_menu`]): opened by
     /// `/skills` or by a `$` the user typed or pasted, a view of the composer
     /// like the catalog -- in the slot only while it has something to show
@@ -2243,6 +2247,7 @@ impl Shell {
             ),
             workspace_menu: None,
             info_panel: None,
+            status_settings: None,
             skills_menu: None,
             skills: HeldSkills::new(
                 &config.workspace_root,
@@ -6431,10 +6436,7 @@ impl Shell {
     /// they hold a turn or a decision, and they outrank the panel wherever the
     /// two meet ([`Self::slot`], [`Self::consume`]).
     ///
-    /// The fact-list API `/status` and a bare `/permissions` fill
-    /// ([`info_panel::Row`], [`info_panel::Facts`]); until they do, the tests
-    /// are its only caller.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// `/status` fills it ([`Self::status`]); a bare `/permissions` will.
     fn open_info_panel(&mut self, panel: info_panel::Panel) {
         self.picker = None;
         self.file_picker = None;
@@ -6449,6 +6451,56 @@ impl Shell {
         self.workspace_menu = None;
         self.mcp_menu = None;
         self.info_panel = Some(panel);
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The runtime's last published snapshot with what this shell holds in
+    /// force now in place of what that publication said.
+    ///
+    /// **The authority is the one in force now**: a mode or a reset takes
+    /// effect the moment it is chosen (`WorkHandle::change_permissions`), so
+    /// the mode is this shell's -- the hint row's -- and a grant count made
+    /// before a reset since is no count of anything in force. Upstream's
+    /// `/status` reads the live engine (`session_commands.zig:322`, `:327@481104fd`).
+    /// So is the Ultra request: `/ultrafast` is this shell's to change.
+    fn status_in_force(&self) -> crate::output::StatusSnapshot {
+        let mut snapshot = self.work.status();
+        snapshot.permission_mode = self.mode.label().to_string();
+        snapshot.ultrafast_requested = self.settings.ultrafast;
+        if self.work.grants_reset_since_published() {
+            snapshot.session_permission_grants = 0;
+        }
+        snapshot
+    }
+
+    /// Rebuilds an open `/status` panel when what it shows has moved since it
+    /// was built -- a turn ended, the session was saved, a grant was given --
+    /// keeping its scroll (`collectInfoPanelFacts`, `app_commands.zig:541-552`,
+    /// from every main-loop tick, `main.zig:2884-2886@481104fd`). It compares
+    /// the facts the rows were built from, so an unmoved panel costs one read
+    /// of the board and no frame.
+    fn settle_info_panel(&mut self) {
+        let Some(shown) = self.info_panel.as_ref().map(info_panel::Panel::facts) else {
+            return;
+        };
+        match shown {
+            info_panel::Facts::Status { .. } => {}
+            // Bare `/permissions`'s, which no opener builds yet.
+            info_panel::Facts::Permissions { .. } => return,
+        }
+        let snapshot = self.status_in_force();
+        let facts = info_panel::Facts::of_status(&snapshot);
+        if facts == shown {
+            return;
+        }
+        if let Some(panel) = self.info_panel.as_mut() {
+            panel.replace(
+                info_panel::status_rows(&snapshot, self.status_settings),
+                facts,
+            );
+        }
+        // Another row count is another height.
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -8766,6 +8818,8 @@ impl Shell {
         self.settle_mcp();
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
+        // And a turn moving what an open `/status` panel shows.
+        self.settle_info_panel();
         // And how a `/fast` or `/ultrafast` save went.
         self.settle_speed_saves();
         // **Nothing in hand is nothing that can still answer a cancel.** The
@@ -11632,39 +11686,34 @@ impl CommandHandlers for Shell {
         }
     }
 
-    /// Upstream's `* status: model=…` with one `key=value` row per fact under
-    /// it (`showStatus`, `session_commands.zig:278-310`), from the snapshot
-    /// the runtime last published ([`super::worker::StatusBoard`]) -- so the
-    /// model is the one the selector holds, the configuration is the one a
-    /// provider switch reloaded, and the turn and grant counts are the live
-    /// conversation's rather than the store's last session. Read, never asked
-    /// for: the runtime may be a minute into a turn.
+    /// Upstream's `/status` (`commandShowStatus`, `app_commands.zig:522-525`
+    /// and `openStatusSnapshot`, `session_commands.zig:283-296@481104fd`):
+    /// the read-only panel in the band, the session first, and nothing in the
+    /// document. Its rows are the snapshot the runtime last published
+    /// ([`super::worker::StatusBoard`]) -- the model the selector holds, the
+    /// configuration a provider switch reloaded, the live conversation's turns
+    /// and grants -- with the facts this shell holds in force now
+    /// ([`Self::status_in_force`]). Read, never asked for: the runtime may be a
+    /// minute into a turn. While it is up it is rebuilt as a turn moves its
+    /// facts ([`Self::settle_info_panel`]).
     ///
-    /// xfx's own facts stay (`provider`, `provider_url`, `sandbox`); upstream's
-    /// `update_channel` and `ultrafast_requested` are about an updater and an
-    /// Ultra mode xfx does not have, so they are not printed as if it did.
-    ///
-    /// Made inert here rather than at the channel, because this text never
-    /// crosses it: the workspace path and a settings value quoted by
-    /// `provider_rejected` are not xfx's to trust on a terminal.
-    ///
-    /// **The authority is the one in force now**, not the one the runtime
-    /// last published: a mode or a reset takes effect the moment it is chosen
-    /// (`WorkHandle::change_permissions`), so `permission_mode` is this
-    /// shell's -- the hint row's -- and a grant count made before a reset since
-    /// is no count of anything in force. Upstream's `/status` reads the live
-    /// engine (`session_commands.zig:302-305`).
+    /// The profile settings are read here, once, and only on the Gateway with
+    /// no credential, as upstream reads them (`:286-293`): a file that does
+    /// not read now is a `Settings` row in place of the credential's. A
+    /// rebuild reads no file.
     fn status(&mut self) {
-        let mut snapshot = self.work.status();
-        snapshot.permission_mode = self.mode.label().to_string();
-        if self.work.grants_reset_since_published() {
-            snapshot.session_permission_grants = 0;
-        }
-        let body = snapshot.notice_body();
-        self.announce(notice::Notice::neutral(
-            "status",
-            bridge::inert(&body).into_owned(),
-        ));
+        let snapshot = self.status_in_force();
+        let unread = snapshot.provider == crate::provider::ProviderId::Gateway.label()
+            && snapshot.auth == crate::output::MISSING_AUTH_LABEL;
+        self.status_settings = if unread {
+            self.settings_path
+                .as_deref()
+                .and_then(crate::config::unreadable_profile_settings)
+                .map(crate::config::DiagnosticCause::label)
+        } else {
+            None
+        };
+        self.open_info_panel(info_panel::Panel::status(&snapshot, self.status_settings));
     }
 
     /// Upstream's `* version: 0.0.13` (`app_commands.zig:2153-2160`): the
@@ -13742,6 +13791,7 @@ fn allowlist_notice(
 
 #[cfg(test)]
 mod tests {
+    use super::super::bridge;
     use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
 
@@ -21254,6 +21304,19 @@ mod tests {
                     "/mcp wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/status" {
+                // Upstream's read-only panel in the band
+                // (`cap/panels/new/fx-p5-panels-status-40x120-open`), which
+                // writes nothing; Escape closes it for the next name.
+                assert!(shell.info_panel.is_some(), "/status opened no panel");
+                assert!(
+                    document.is_empty(),
+                    "/status wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+                shell.route_bytes(&[0x1b]);
+                shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+                assert!(shell.info_panel.is_none(), "Escape left /status up");
             } else if *name == "/workspace" {
                 // A bare `/workspace` is upstream's compact picker
                 // (`cap/fx-workspace-40x120-bare`), in the band too.
@@ -22889,6 +22952,16 @@ mod tests {
         );
     }
 
+    /// The value an open `/status` panel shows for `label`, colours off.
+    fn panel_value(shell: &Fixture, label: &str) -> Option<String> {
+        // Two blanks after the label: `Session` is not `Session grants`.
+        let prefix = format!("  {label}  ");
+        uncoloured_rows(&shell.band_rows())
+            .into_iter()
+            .find(|row| row.starts_with(&prefix))
+            .map(|row| row[prefix.len()..].trim_start().to_string())
+    }
+
     #[test]
     fn status_and_the_hint_row_agree_on_the_authority_while_a_turn_runs() {
         // The runtime publishes `/status` between pieces of work, so mid-turn
@@ -22908,29 +22981,17 @@ mod tests {
         assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
         assert_eq!(shell.work.live().mode(), PermissionMode::Ask);
         shell.route_bytes(b"/status\r");
-        let said = shell.document();
-        assert!(
-            said.contains(&"  permission_mode=ask".to_string()),
-            "{said:?}"
-        );
-        assert!(
-            said.contains(&"  session_permission_grants=2".to_string()),
-            "{said:?}"
-        );
+        assert_eq!(panel_value(&shell, "Permissions").as_deref(), Some("ask"));
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("2"));
+        escape(&mut shell);
 
         // A reset: no grants in force, at once, on both answers.
         shell.route_bytes(b"/permissions reset\r");
         let _ = shell.document();
         shell.route_bytes(b"/status\r");
-        let said = shell.document();
-        assert!(
-            said.contains(&"  permission_mode=ask".to_string()),
-            "{said:?}"
-        );
-        assert!(
-            said.contains(&"  session_permission_grants=0".to_string()),
-            "{said:?}"
-        );
+        assert_eq!(panel_value(&shell, "Permissions").as_deref(), Some("ask"));
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("0"));
+        escape(&mut shell);
         shell.route_bytes(b"/permissions\r");
         let listed = shell.document();
         assert!(
@@ -23077,34 +23138,63 @@ mod tests {
         assert_eq!(narrow.warning_shown(), Some(permissions::WARNING_COMPACT));
     }
 
+    /// `a_status` as the runtime publishes it for a shell whose session
+    /// `id` is `saved` or not yet.
+    fn a_status_in(
+        id: &str,
+        saved: bool,
+        turns: u64,
+        grants: u64,
+    ) -> crate::output::StatusSnapshot {
+        let mut snapshot = a_status(turns, grants);
+        snapshot.session = Some(crate::output::ShellSession::Open {
+            id: id.to_string(),
+            saved,
+        });
+        snapshot
+    }
+
     #[test]
-    fn status_is_one_neutral_notice_of_what_the_runtime_last_published() {
-        // `fx-basic-40x120-status.txt`: `* status: model=…` and one `k=v` row
-        // per fact under it, two columns in, no `[status]` prefix. xfx keeps
-        // its own `provider` and `sandbox` rows and has no `update_channel` or
-        // `ultrafast_requested` to print.
+    fn status_opens_upstreams_panel_of_what_the_runtime_last_published() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-open`, rows 3-17: a rule,
+        // `Status`, a blank, one line per fact in upstream's order with the
+        // session first, a rule, `esc close` -- the composer and the mode hint
+        // gone, nothing in the document. xfx's Sandbox row stands after
+        // Permissions and it has no Updates row (`docs/parity.md`, `/status`).
         let mut shell = shell(40, 120);
-        shell.work.publish_status(a_status(2, 1));
+        shell
+            .work
+            .publish_status(a_status_in("1730000000000-0123456789abcdef", false, 2, 1));
         shell.route_bytes(b"/status\r");
 
+        assert!(shell.document().is_empty(), "/status wrote to the document");
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        let rows = shell.band_rows();
         assert_eq!(
-            shell.document(),
-            vec![
-                "* status: model=acme/model-9".to_string(),
-                "  provider=gateway".to_string(),
-                "  build_channel=debug".to_string(),
-                "  build_revision=0123456789ab".to_string(),
-                "  auth=AI_GATEWAY_API_KEY".to_string(),
-                "  auth_refreshable=false".to_string(),
-                "  permission_mode=auto".to_string(),
-                format!("  sandbox={}", crate::output::SANDBOX_LABEL),
-                "  workspace=/w/work".to_string(),
-                "  history_turns=2".to_string(),
-                "  session_permission_grants=1".to_string(),
-                "  agent_step_limit=0".to_string(),
+            uncoloured_rows(&from_the_rule(&rows)),
+            [
+                uncoloured(&divider(120)),
+                "Status".to_string(),
                 String::new(),
+                status_line(
+                    "Session",
+                    "1730000000000-0123456789abcdef \u{b7} not saved yet"
+                ),
+                status_line("Model", "acme/model-9"),
+                status_line("Auth", "AI_GATEWAY_API_KEY"),
+                status_line("Permissions", "auto"),
+                status_line("Sandbox", crate::output::SANDBOX_LABEL),
+                status_line("Workspace", "/w/work"),
+                status_line("Turns", "2"),
+                status_line("Session grants", "1"),
+                status_line("Step limit", "unlimited"),
+                status_line("Ultrafast", "not requested"),
+                status_line("Build", "debug \u{b7} 0123456789ab"),
+                uncoloured(&divider(120)),
+                "esc close".to_string(),
             ]
         );
+        assert_eq!(rows.last(), Some(&dim_hint("esc close")));
         // Read, never asked for: nothing went to the runtime, so a `/status`
         // typed mid-turn neither waits behind the turn nor shows as queued.
         assert!(
@@ -23116,6 +23206,83 @@ mod tests {
             0,
             "/status took a place in the queue"
         );
+        // Escape closes it and leaves nothing behind
+        // (`cap/panels/new/fx-p5-panels-status-40x120-esc-closed`); so does
+        // Enter (`-enter-closed`).
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(shell.document().is_empty());
+        shell.route_bytes(b"/status\r");
+        shell.route_bytes(b"\r");
+        assert!(shell.info_panel.is_none(), "Enter left the panel up");
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err(), "Enter sent something");
+    }
+
+    #[test]
+    fn status_says_the_ultra_request_this_shell_holds() {
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(0, 0));
+        shell.settings.ultrafast = true;
+        shell.route_bytes(b"/status\r");
+        assert_eq!(
+            panel_value(&shell, "Ultrafast").as_deref(),
+            Some("requested")
+        );
+    }
+
+    #[test]
+    fn an_open_status_panel_follows_the_turn_and_keeps_its_scroll() {
+        // `cap/panels/new/fx-p5-panels-status-first-40x120-{open-first,
+        // after-first}`: opened as the first turn runs, the session saved and
+        // then the turn counted, with no keystroke (`collectInfoPanelFacts`
+        // on every tick). A rebuild keeps the scroll (`State.replace`).
+        let mut shell = shell(14, 120);
+        shell.work.publish_status(a_status_in("s1", false, 0, 0));
+        shell.route_bytes(b"/status\r");
+        let window = |shell: &Fixture| uncoloured_rows(&shell.band_rows()[3..5]);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Session", "s1 \u{b7} not saved yet"),
+                status_line("Model", "acme/model-9"),
+            ]
+        );
+        shell.route_bytes(b"\x1b[B");
+
+        // Nothing moved: no rebuild, no frame owed for it.
+        let now = Instant::now();
+        shell.settle_band(now);
+        let unmoved = shell.info_panel.clone();
+        shell.settle_band(now);
+        assert_eq!(shell.info_panel, unmoved);
+
+        shell.work.publish_status(a_status_in("s1", true, 0, 0));
+        shell.settle_band(now);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Model", "acme/model-9"),
+                status_line("Auth", "AI_GATEWAY_API_KEY"),
+            ],
+            "the rebuild lost the scroll"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(window(&shell)[0], status_line("Session", "s1 \u{b7} saved"));
+
+        shell.work.publish_status(a_status_in("s1", true, 1, 2));
+        shell.settle_band(now);
+        for _ in 0..6 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Turns", "1"),
+                status_line("Session grants", "2")
+            ]
+        );
+        assert!(shell.document().is_empty());
     }
 
     #[test]
@@ -23126,45 +23293,131 @@ mod tests {
         let mut shell = shell(40, 120);
         shell.work.publish_status(a_status(0, 0));
         shell.route_bytes(b"/status\r");
-        let before = shell.document();
-        assert!(
-            before.contains(&"  history_turns=0".to_string()),
-            "{before:?}"
-        );
+        assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("0"));
+        escape(&mut shell);
 
         shell.work.publish_status(a_status(3, 2));
         shell.route_bytes(b"/status\r");
-        let after = shell.document();
-        assert!(
-            after.contains(&"  history_turns=3".to_string()),
-            "{after:?}"
-        );
-        assert!(
-            after.contains(&"  session_permission_grants=2".to_string()),
-            "{after:?}"
-        );
+        assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("3"));
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("2"));
     }
 
     #[test]
-    fn status_makes_a_quoted_path_inert_before_it_reaches_the_terminal() {
+    fn status_makes_a_quoted_path_terminal_safe_before_it_reaches_the_terminal() {
         // The workspace is a directory name and a rejected provider quotes a
         // settings value; neither is xfx's text, and this one never crosses
         // the channel that would have cleaned it.
         let mut shell = shell(40, 120);
         let mut snapshot = a_status(0, 0);
         snapshot.workspace = "/w/\u{1b}]2;owned\u{7}x".to_string();
+        snapshot.session = Some(crate::output::ShellSession::Open {
+            id: "s\u{1b}[2J".to_string(),
+            saved: true,
+        });
         shell.work.publish_status(snapshot);
         shell.route_bytes(b"/status\r");
-        let document = shell.document();
+        let rows = shell.band_rows();
         assert!(
-            !document
+            !rows
                 .iter()
-                .any(|row| row.contains('\u{1b}') || row.contains('\u{7}')),
-            "{document:?}"
+                .any(|row| uncoloured(row).contains('\u{1b}') || row.contains('\u{7}')),
+            "{rows:?}"
         );
-        assert!(
-            document.contains(&"  workspace=/w/ ]2;owned x".to_string()),
-            "{document:?}"
+        assert_eq!(
+            panel_value(&shell, "Workspace").as_deref(),
+            Some("/w/\\u{001B}]2;owned\\u{0007}x")
+        );
+        assert_eq!(
+            panel_value(&shell, "Session").as_deref(),
+            Some("s\\u{001B}[2J \u{b7} saved")
+        );
+    }
+
+    #[test]
+    fn status_says_settings_it_cannot_read_on_the_gateway_with_no_credential_once() {
+        // `openStatusSnapshot` (`session_commands.zig:283-296@481104fd`): the
+        // profile settings are read at open, only on the Gateway with no
+        // credential, and a file that does not read is a `Settings` row in
+        // place of `Auth`; a rebuild reads no file.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let settings = config.user_settings_path.clone().expect("a profile");
+        std::fs::create_dir_all(settings.parent().expect("a profile dir")).expect("mkdir");
+        std::fs::write(&settings, "{\"model\":").expect("a torn file");
+        let (work, sent, control) = WorkHandle::detached();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        let mut missing = a_status(0, 0);
+        missing.auth = crate::output::MISSING_AUTH_LABEL.to_string();
+        missing.auth_help = Some(crate::output::MISSING_AUTH_HELP.to_string());
+        shell.work.publish_status(missing.clone());
+        shell.route_bytes(b"/status\r");
+        assert_eq!(
+            panel_value(&shell, "Settings").as_deref(),
+            Some("couldn't be read: malformed_settings")
+        );
+        assert_eq!(panel_value(&shell, "Auth"), None);
+
+        // Mended while it is up: the rebuild says what the open read.
+        std::fs::write(&settings, "{}").expect("a good file");
+        missing.history_turns = 1;
+        shell.work.publish_status(missing.clone());
+        shell.settle_band(Instant::now());
+        assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("1"));
+        assert_eq!(
+            panel_value(&shell, "Settings").as_deref(),
+            Some("couldn't be read: malformed_settings")
+        );
+        // Opened again, it reads again.
+        escape(&mut shell);
+        shell.route_bytes(b"/status\r");
+        assert_eq!(panel_value(&shell, "Settings"), None);
+        assert_eq!(
+            panel_value(&shell, "Auth").as_deref(),
+            Some(crate::output::MISSING_AUTH_LABEL)
+        );
+        escape(&mut shell);
+
+        // With a credential, the file is not read at all.
+        std::fs::write(&settings, "{\"model\":").expect("torn again");
+        shell.work.publish_status(a_status(0, 0));
+        shell.route_bytes(b"/status\r");
+        assert_eq!(panel_value(&shell, "Settings"), None);
+        assert_eq!(
+            panel_value(&shell, "Auth").as_deref(),
+            Some("AI_GATEWAY_API_KEY")
+        );
+    }
+
+    #[test]
+    fn status_names_a_session_this_shell_cannot_save() {
+        let mut shell = shell(40, 120);
+        let mut snapshot = a_status(0, 0);
+        snapshot.session = Some(crate::output::ShellSession::Unavailable);
+        shell.work.publish_status(snapshot);
+        shell.route_bytes(b"/status\r");
+        assert_eq!(
+            panel_value(&shell, "Session").as_deref(),
+            Some("none \u{b7} this shell can't save sessions")
+        );
+        assert_eq!(
+            shell.info_panel.as_ref().map(info_panel::Panel::facts),
+            Some(info_panel::Facts::Status {
+                turns: 0,
+                saved: None,
+                grants: 0
+            })
         );
     }
 
@@ -30462,8 +30715,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 8,
-            "/clear, /new, /reset, /resume, /rename, /undo, /copy and /compact"
+            2 + 9,
+            "/clear, /status, /new, /reset, /resume, /rename, /undo, /copy and /compact"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);

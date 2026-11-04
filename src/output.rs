@@ -179,7 +179,37 @@ pub struct StatusSnapshot {
     pub history_turns: u64,
     pub session_permission_grants: u64,
     pub agent_step_limit: u32,
+    /// Whether the next turn asks for Ultra mode (`/ultrafast`), which the
+    /// serving model may still not grant. Only the TUI's `/status` panel shows
+    /// it (`Ultrafast`, `output_contracts.zig:773@481104fd`); the `status`
+    /// command's lines and JSON are unchanged.
+    #[serde(skip)]
+    pub ultrafast_requested: bool,
+    /// The interactive shell's session, which only the `/status` panel shows
+    /// (`StatusSnapshot.session`, `output_contracts.zig:702-704@481104fd`).
+    /// `None` outside a shell: `xfx status` runs in no session.
+    #[serde(skip)]
+    pub session: Option<ShellSession>,
 }
+
+/// The shell's session as the `/status` panel says it
+/// (`StatusSnapshot.ShellSession`, `output_contracts.zig:719-727@481104fd`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellSession {
+    /// The store refused this shell a session, so it saves nothing.
+    Unavailable,
+    /// The session this shell records into, or will at its first prompt.
+    Open {
+        id: String,
+        /// `xfx --resume <id>` opens it now: its log is on disk.
+        saved: bool,
+    },
+}
+
+/// What the `/status` panel's `Settings` row says, in place of `Auth`, when
+/// the profile settings could not be read at open
+/// (`settings_error`, `output_contracts.zig:705-707@481104fd`).
+const SETTINGS_UNREADABLE: &str = "couldn't be read: ";
 
 /// What `status` reports about the session a turn here would continue.
 ///
@@ -216,7 +246,105 @@ impl StatusSnapshot {
             history_turns: session.history_turns,
             session_permission_grants: session.permission_grants,
             agent_step_limit: config.max_agent_steps,
+            ultrafast_requested: config.ultrafast_mode,
+            session: None,
         }
+    }
+
+    /// The `/status` panel's rows, a label and a value each, in upstream's
+    /// order with the session first (`StatusSnapshot.panelRows`,
+    /// `vercel-labs/fx@481104fd src/core/output/output_contracts.zig:731-783`).
+    ///
+    /// `settings_error` is why the profile settings did not read when the
+    /// panel opened, if they did not: a `Settings` row then stands where the
+    /// credential's rows would (`:754-764`).
+    ///
+    /// Where xfx has other facts than upstream, the rows follow xfx's
+    /// (`docs/parity.md`, `/status`): `Provider` and `Endpoint` for a provider
+    /// that is not the Gateway -- the llmux daemon, or a selection xfx could
+    /// not read -- and no `Connected` row, which lists signed-in providers xfx
+    /// has none of; a `Sandbox` row after `Permissions`, the confinement in
+    /// force being a safety fact; and no `Updates` row, xfx having no updater.
+    ///
+    /// The values are not made terminal-safe here: the panel's rows are, at
+    /// the door, whoever builds them (`crate::tui`'s `info_panel::Row`).
+    pub fn panel_rows(&self, settings_error: Option<&str>) -> Vec<(&'static str, String)> {
+        let mut rows = Vec::with_capacity(16);
+        if let Some(session) = &self.session {
+            rows.push((
+                "Session",
+                match session {
+                    ShellSession::Unavailable => {
+                        "none \u{b7} this shell can't save sessions".to_string()
+                    }
+                    ShellSession::Open { id, saved } => format!(
+                        "{id} \u{b7} {}",
+                        if *saved { "saved" } else { "not saved yet" }
+                    ),
+                },
+            ));
+        }
+        rows.push(("Model", self.model.clone()));
+        if self.provider != ProviderId::Gateway.label() {
+            rows.push((
+                "Provider",
+                ProviderId::parse(&self.provider)
+                    .map_or_else(|| self.provider.clone(), |id| id.entry().name.to_string()),
+            ));
+        }
+        if let Some(url) = &self.provider_url {
+            rows.push(("Endpoint", url.clone()));
+        }
+        match settings_error {
+            Some(error) => rows.push(("Settings", format!("{SETTINGS_UNREADABLE}{error}"))),
+            None => {
+                let mut auth = self.auth.clone();
+                if self.auth_refreshable {
+                    auth.push_str(" \u{b7} refreshable");
+                }
+                rows.push(("Auth", auth));
+                if let Some(help) = &self.auth_help {
+                    rows.push(("Auth help", help.clone()));
+                }
+            }
+        }
+        rows.push((
+            "Permissions",
+            crate::config::PermissionMode::parse(&self.permission_mode).map_or_else(
+                || self.permission_mode.clone(),
+                |mode| mode.display_label().to_string(),
+            ),
+        ));
+        rows.push(("Sandbox", self.sandbox.clone()));
+        rows.push(("Workspace", self.workspace.clone()));
+        rows.push(("Turns", self.history_turns.to_string()));
+        rows.push(("Session grants", self.session_permission_grants.to_string()));
+        rows.push((
+            "Step limit",
+            match self.agent_step_limit {
+                0 => "unlimited".to_string(),
+                limit => limit.to_string(),
+            },
+        ));
+        rows.push((
+            "Ultrafast",
+            if self.ultrafast_requested {
+                "requested"
+            } else {
+                "not requested"
+            }
+            .to_string(),
+        ));
+        rows.push((
+            "Build",
+            match &self.build_revision {
+                Some(revision) if !revision.is_empty() => {
+                    format!("{} \u{b7} {revision}", self.build_channel)
+                }
+                _ => self.build_channel.clone(),
+            },
+        ));
+        rows
     }
 
     /// One `[status] key=value` line per fact, in a fixed order.
@@ -1623,6 +1751,176 @@ mod tests {
         assert!(snapshot
             .render_text()
             .contains("[status] session_permission_grants=2\n"));
+    }
+
+    /// A gateway configuration with a key, so `Auth` names its variable.
+    fn keyed_config() -> (tempfile::TempDir, RuntimeConfig) {
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                None,
+                std::collections::BTreeMap::from([(
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "fake-key-not-real".to_string(),
+                )]),
+            ),
+            workspace.path(),
+        )
+        .expect("load config");
+        (workspace, config)
+    }
+
+    /// `snapshot`'s panel rows with `settings_error`, as `label=value` text.
+    fn panel(snapshot: &StatusSnapshot, settings_error: Option<&str>) -> Vec<String> {
+        snapshot
+            .panel_rows(settings_error)
+            .into_iter()
+            .map(|(label, value)| format!("{label}={value}"))
+            .collect()
+    }
+
+    #[test]
+    fn the_status_panel_rows_are_upstreams_in_its_order_with_xfxs_sandbox_and_no_updates() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-open`: Session, Model,
+        // Auth, Permissions, Workspace, Turns, Session grants, Step limit,
+        // Ultrafast, Updates, Build -- with xfx's Sandbox after Permissions
+        // and no Updates (`docs/parity.md`, `/status`).
+        let (_workspace, config) = keyed_config();
+        let mut snapshot = StatusSnapshot::new(
+            &config,
+            crate::build_info(),
+            SessionFacts {
+                history_turns: 2,
+                permission_grants: 1,
+            },
+        );
+        snapshot.model = "fake/model-a".to_string();
+        snapshot.workspace = "/w/work".to_string();
+        snapshot.agent_step_limit = 0;
+        snapshot.build_channel = "stable".to_string();
+        snapshot.build_revision = Some("481104fdbc24".to_string());
+        snapshot.session = Some(ShellSession::Open {
+            id: "1730000000000-0123456789abcdef".to_string(),
+            saved: false,
+        });
+        assert_eq!(
+            panel(&snapshot, None),
+            [
+                "Session=1730000000000-0123456789abcdef \u{b7} not saved yet",
+                "Model=fake/model-a",
+                "Auth=AI_GATEWAY_API_KEY",
+                "Permissions=auto",
+                "Sandbox=none",
+                "Workspace=/w/work",
+                "Turns=2",
+                "Session grants=1",
+                "Step limit=unlimited",
+                "Ultrafast=not requested",
+                "Build=stable \u{b7} 481104fdbc24",
+            ]
+        );
+
+        snapshot.session = Some(ShellSession::Open {
+            id: "s1".to_string(),
+            saved: true,
+        });
+        assert_eq!(panel(&snapshot, None)[0], "Session=s1 \u{b7} saved");
+        snapshot.session = Some(ShellSession::Unavailable);
+        assert_eq!(
+            panel(&snapshot, None)[0],
+            "Session=none \u{b7} this shell can't save sessions"
+        );
+        // No shell, no row: `xfx status` runs in no session.
+        snapshot.session = None;
+        assert_eq!(panel(&snapshot, None)[0], "Model=fake/model-a");
+    }
+
+    #[test]
+    fn the_status_panel_says_full_access_a_step_limit_ultrafast_and_a_bare_channel() {
+        let (_workspace, config) = keyed_config();
+        let mut snapshot =
+            StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        snapshot.permission_mode = crate::config::PermissionMode::Yolo.label().to_string();
+        snapshot.agent_step_limit = 40;
+        snapshot.ultrafast_requested = true;
+        snapshot.build_channel = "debug".to_string();
+        snapshot.build_revision = None;
+        let rows = panel(&snapshot, None);
+        for row in [
+            "Permissions=full access",
+            "Step limit=40",
+            "Ultrafast=requested",
+            "Build=debug",
+        ] {
+            assert!(rows.contains(&row.to_string()), "{row}: {rows:?}");
+        }
+    }
+
+    #[test]
+    fn the_status_panel_names_a_provider_that_is_not_the_gateway_and_its_endpoint() {
+        // `:741-753@481104fd`: Provider, then Endpoint, after Model -- for the
+        // llmux daemon, and for a selection xfx could not read, which has no
+        // endpoint and whose `Auth help` quotes the value.
+        let (_workspace, mut config) = keyed_config();
+        config.provider = ProviderId::Llmux;
+        config.llmux_url = Some("http://127.0.0.1:3456".to_string());
+        config.model = "fake/model-a".to_string();
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let rows = panel(&snapshot, None);
+        assert_eq!(
+            rows[..4],
+            [
+                "Model=fake/model-a".to_string(),
+                "Provider=llmux".to_string(),
+                "Endpoint=http://127.0.0.1:3456".to_string(),
+                format!("Auth={LLMUX_AUTH_LABEL}"),
+            ],
+            "{rows:?}"
+        );
+        assert!(!rows.iter().any(|row| row.starts_with("Connected=")));
+
+        config.provider_rejected = Some(ProviderRejection {
+            key: "provider",
+            value: "codexx".to_string(),
+        });
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let rows = panel(&snapshot, None);
+        assert_eq!(rows[1], "Provider=rejected", "{rows:?}");
+        assert_eq!(rows[2], format!("Auth={MISSING_AUTH_LABEL}"), "{rows:?}");
+        assert!(
+            rows[3].starts_with("Auth help=") && rows[3].contains("codexx"),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_status_panel_shows_settings_it_could_not_read_where_the_credential_was() {
+        // `:754-764@481104fd`: `Settings  couldn't be read: <error>` in place
+        // of Auth and Auth help, everything else as before.
+        let (_workspace, config) = empty_config();
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let without = panel(&snapshot, None);
+        assert!(without.contains(&format!("Auth={MISSING_AUTH_LABEL}")));
+        assert!(without.contains(&format!("Auth help={MISSING_AUTH_HELP}")));
+        let with = panel(&snapshot, Some("malformed_settings"));
+        assert_eq!(with[1], "Settings=couldn't be read: malformed_settings");
+        assert!(!with.iter().any(|row| row.starts_with("Auth")), "{with:?}");
+        assert_eq!(with.len(), without.len() - 1, "{with:?}");
+    }
+
+    #[test]
+    fn the_panels_session_and_ultrafast_change_nothing_the_status_command_prints() {
+        let (_workspace, config) = keyed_config();
+        let plain = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let mut shown = plain.clone();
+        shown.session = Some(ShellSession::Open {
+            id: "s1".to_string(),
+            saved: true,
+        });
+        shown.ultrafast_requested = !plain.ultrafast_requested;
+        assert_eq!(shown.render_text(), plain.render_text());
+        assert_eq!(shown.render_json(), plain.render_json());
+        assert!(!shown.render_json().contains("s1"));
     }
 
     // -- sessions ----------------------------------------------------------

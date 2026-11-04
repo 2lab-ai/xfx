@@ -93,11 +93,13 @@ use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
+#[cfg(test)]
+use crate::interactive::open_conversation;
 use crate::interactive::{
-    bind_conversation, conversation_scope, open_conversation, rename_conversation, status_snapshot,
-    Conversation,
+    bind_conversation, conversation_scope, open_conversation_as, rename_conversation,
+    status_snapshot, Conversation, OpenFailure,
 };
-use crate::output::StatusSnapshot;
+use crate::output::{ShellSession, StatusSnapshot};
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
     may_read_again, CatalogEntry, CatalogReader, CatalogState, LoadView, ModelOutcome,
@@ -1133,11 +1135,28 @@ pub(crate) fn spawn(
     ));
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
+    // The id the first prompt's session will have, allocated now and only in
+    // memory -- the store writes nothing before that prompt -- so `/status`
+    // can show it from launch, as upstream's opens a session at launch
+    // (`shellSession`, `session_commands.zig:404-408@481104fd`).
+    let next_session = SessionId::generate();
     // Seeded here, on the calling thread and from the configuration the
     // runtime is about to be built from, so a `/status` typed before that
     // thread has constructed anything still reads the session it will be:
-    // the configured model and no conversation yet.
-    let status = StatusBoard::new(status_snapshot(&config, &config.model, None));
+    // the configured model, no conversation yet, and the session that the
+    // launch resumed or that the first prompt will open.
+    let mut seed = status_snapshot(&config, &config.model, None);
+    seed.session = Some(match resumed.as_ref() {
+        Some(resumed) => ShellSession::Open {
+            id: resumed.session.id().to_string(),
+            saved: true,
+        },
+        None => ShellSession::Open {
+            id: next_session.to_string(),
+            saved: false,
+        },
+    });
+    let status = StatusBoard::new(seed);
     let publishes = status.clone();
     let outstanding = Arc::new(AtomicUsize::new(0));
     let loops_outstanding = Arc::clone(&outstanding);
@@ -1205,6 +1224,7 @@ pub(crate) fn spawn(
             return None;
         };
         let mut state = Runtime::new(config, store, prompter, questioner);
+        state.next_session = next_session;
         state.reply = loops_reply;
         state.grants = publishes_grants;
         state.saved_rules = publishes_saved_rules;
@@ -1601,6 +1621,15 @@ struct Runtime {
     /// written down -- at its next turn, not at the open
     /// ([`record_resumed_selection`]).
     unrecorded_resume: Option<crate::session::SessionId>,
+    /// The id the next session this runtime opens will have: allocated at
+    /// launch, in memory only, and again each time one is used, so `/status`
+    /// names the session a first prompt -- or the first prompt after a `/new`
+    /// -- will write before it writes anything, and a retry after a refusal
+    /// never asks the store for an id it may have half made.
+    next_session: SessionId,
+    /// The store refused the last session this runtime asked it for, so
+    /// `/status` says this shell can't save sessions until one opens.
+    session_refused: bool,
     /// The directories `/workspace` saved for this workspace, each as the real
     /// path it was when it was read: at launch, from the profile, and after
     /// each change, from what the change read back.
@@ -1687,6 +1716,8 @@ impl Runtime {
             conversation_lineage: None,
             pending_title: None,
             unrecorded_resume: None,
+            next_session: SessionId::generate(),
+            session_refused: false,
             workspace,
             fixed_tokens: Arc::new(AtomicUsize::new(0)),
         }
@@ -1707,18 +1738,7 @@ impl Runtime {
     /// that tells the UI so, so a `/status` typed the moment a turn is seen to
     /// end already reads that turn in its count.
     fn publish(&self) {
-        self.board.publish_with(
-            status_snapshot(&self.config, self.model(), self.conversation.as_ref()),
-            TraceFacts {
-                session: self.conversation.as_ref().map(|conversation| {
-                    (
-                        self.store.profile_dir().to_path_buf(),
-                        conversation.recorder.id().clone(),
-                    )
-                }),
-                settings: crate::trace::Settings::of(&self.config),
-            },
-        );
+        self.publish_board();
         // The reset count first: a reset landing between the two reads makes
         // this publication older than it is, never newer, and an older one is
         // read as out of force -- the safe way to be wrong.
@@ -1742,6 +1762,91 @@ impl Runtime {
         });
         self.credits.publish(crate::credits::question(&self.config));
         self.titles.publish_asker(self.title_asker());
+    }
+
+    /// The status board's half of [`Self::publish`]: what `/status` and
+    /// `/trace` read, and nothing else.
+    fn publish_board(&self) {
+        let mut snapshot = status_snapshot(&self.config, self.model(), self.conversation.as_ref());
+        snapshot.ultrafast_requested = self.settings.ultrafast;
+        snapshot.session = Some(self.shell_session());
+        self.board.publish_with(
+            snapshot,
+            TraceFacts {
+                session: self.conversation.as_ref().map(|conversation| {
+                    (
+                        self.store.profile_dir().to_path_buf(),
+                        conversation.recorder.id().clone(),
+                    )
+                }),
+                settings: crate::trace::Settings::of(&self.config),
+            },
+        );
+    }
+
+    /// The session `/status` names (`shellSession`,
+    /// `session_commands.zig:404-408@481104fd`): the open conversation's,
+    /// saved -- its log is on disk, so `xfx --resume <id>` opens it -- or,
+    /// with none open, the id the next prompt will open, not saved yet; or
+    /// none, when the store refused the last one this shell asked for.
+    fn shell_session(&self) -> ShellSession {
+        match &self.conversation {
+            Some(conversation) => ShellSession::Open {
+                id: conversation.recorder.id().to_string(),
+                saved: true,
+            },
+            None if self.session_refused => ShellSession::Unavailable,
+            None => ShellSession::Open {
+                id: self.next_session.to_string(),
+                saved: false,
+            },
+        }
+    }
+
+    /// Opens the conversation a prompt -- or a `/rename` before one -- writes
+    /// into, under the id `/status` has been naming ([`Self::next_session`]),
+    /// and allocates the next one whether or not the store took this one.
+    fn open_next(&mut self, mirror: &CancelToken) -> Result<(), String> {
+        let model = self.model().to_string();
+        let id = std::mem::replace(&mut self.next_session, SessionId::generate());
+        let opened = open_conversation_as(
+            &self.store,
+            id,
+            &self.config,
+            &model,
+            self.authority(),
+            // The TUI's own requester, over the control channel this
+            // session's prompter already reads
+            // ([`super::question::TuiQuestioner`]). This is the one front
+            // end that has a UI to ask in, so it is the one that hands
+            // `ask_user_question` a requester at all: the line shell and a
+            // non-interactive run pass `None` and get the availability
+            // sentinel.
+            //
+            // **The session's requester, not a new one**, so the ids a
+            // rebuilt conversation asks under go on where the last one left
+            // off -- see the field.
+            Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
+            mirror,
+        );
+        match opened {
+            Ok(conversation) => {
+                self.conversation = Some(conversation);
+                self.session_refused = false;
+                self.opened();
+                Ok(())
+            }
+            Err(OpenFailure {
+                message,
+                store_refused,
+            }) => {
+                if store_refused && !self.session_refused {
+                    self.session_refused = true;
+                    self.publish_board();
+                }
+                Err(message)
+            }
+        }
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1931,6 +2036,10 @@ impl Runtime {
     fn opened(&mut self) {
         self.conversation_lineage = Some(self.titles.lineage());
         self.publish_title_session();
+        // `/status` says the session is saved from here, while the turn that
+        // opened it runs, as upstream's does once its log is on disk
+        // (`cap/panels/new/fx-p5-panels-status-first-40x120-open-first`).
+        self.publish_board();
         if let Some(titled) = self.pending_title.take() {
             let _ = self.install_title(&titled);
         }
@@ -2026,27 +2135,7 @@ impl Runtime {
             self.provider = Some(Bundle::select(&self.config, mirror)?);
         }
         if self.conversation.is_none() {
-            let model = self.model().to_string();
-            self.conversation = Some(open_conversation(
-                &self.store,
-                &self.config,
-                &model,
-                self.authority(),
-                // The TUI's own requester, over the control channel this
-                // session's prompter already reads
-                // ([`super::question::TuiQuestioner`]). This is the one front
-                // end that has a UI to ask in, so it is the one that hands
-                // `ask_user_question` a requester at all: the line shell and a
-                // non-interactive run pass `None` and get the availability
-                // sentinel.
-                //
-                // **The session's requester, not a new one**, so the ids a
-                // rebuilt conversation asks under go on where the last one left
-                // off -- see the field.
-                Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
-                mirror,
-            )?);
-            self.opened();
+            self.open_next(mirror)?;
         }
         // **The scope this turn runs in**, made now from the saved directories
         // that are still themselves ([`Runtime::workspace`]): a `/workspace`
@@ -2076,16 +2165,7 @@ impl Runtime {
     /// give its session a title.
     fn conversation(&mut self, mirror: &CancelToken) -> Result<&mut Conversation, String> {
         if self.conversation.is_none() {
-            let model = self.model().to_string();
-            self.conversation = Some(open_conversation(
-                &self.store,
-                &self.config,
-                &model,
-                self.authority(),
-                Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
-                mirror,
-            )?);
-            self.opened();
+            self.open_next(mirror)?;
         }
         self.conversation
             .as_mut()
@@ -11780,6 +11860,83 @@ mod tests {
             .expect("open the store");
         let runtime = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         (home, workspace, runtime)
+    }
+
+    #[test]
+    fn status_names_the_session_the_first_prompt_opens_before_the_store_holds_it() {
+        // Decided for xfx (`docs/parity.md`, `/status`): the id is allocated
+        // at launch, in memory, and shown `not saved yet`; the first prompt's
+        // session takes it, and the board says `saved` as soon as it is on
+        // disk -- before that turn has a turn in it -- as upstream's
+        // `open-first` capture shows. A reset shows the next session's id.
+        let (home, _workspace, state) = a_runtime_that_can_open_one();
+        let board = StatusBoard::unpublished();
+        let mut state = state.publishing_to(board.clone());
+        let Some(ShellSession::Open { id, saved: false }) = board.read().session else {
+            panic!("no session to name at launch: {:?}", board.read().session);
+        };
+        assert_eq!(
+            sessions_in(home.path()),
+            Vec::<String>::new(),
+            "naming it wrote it"
+        );
+
+        state.ready(&CancelToken::new()).expect("a conversation");
+        let opened = state.conversation.as_ref().expect("open").recorder.id();
+        assert_eq!(opened.as_str(), id, "the first prompt opened another id");
+        assert_eq!(sessions_in(home.path()), vec![id.clone()]);
+        let published = board.read();
+        assert_eq!(
+            published.session,
+            Some(ShellSession::Open {
+                id: id.clone(),
+                saved: true
+            }),
+            "the open was not published before the turn"
+        );
+        assert_eq!(published.history_turns, 0);
+
+        state.conversation = None;
+        state.publish();
+        let Some(ShellSession::Open { id: next, saved }) = board.read().session else {
+            panic!("no session to name after a reset");
+        };
+        assert!(!saved);
+        assert_ne!(next, id, "the next session would reuse the last one's id");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_that_refuses_the_session_is_a_shell_that_cannot_save_until_one_opens() {
+        use std::os::unix::fs::PermissionsExt;
+        // A `sessions` directory the store opened but cannot create in: the
+        // first prompt's create fails, and `/status` says so
+        // (`none · this shell can't save sessions`, `output_contracts.zig:734`).
+        if rustix::process::geteuid().is_root() {
+            return;
+        }
+        let (home, _workspace, state) = a_runtime_that_can_open_one();
+        let board = StatusBoard::unpublished();
+        let mut state = state.publishing_to(board.clone());
+        let sessions = home.path().join(".xfx").join("sessions");
+        let Some(ShellSession::Open { id: refused, .. }) = board.read().session else {
+            panic!("no session to name at launch");
+        };
+        std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o500))
+            .expect("read-only sessions");
+        let failed = state.ready(&CancelToken::new());
+        std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o700))
+            .expect("writable again");
+        assert!(failed.is_err(), "the store took a session it cannot write");
+        assert_eq!(board.read().session, Some(ShellSession::Unavailable));
+
+        // Writable again: the next prompt opens one, under a fresh id.
+        state.ready(&CancelToken::new()).expect("a conversation");
+        let Some(ShellSession::Open { id, saved: true }) = board.read().session else {
+            panic!("the open was not published: {:?}", board.read().session);
+        };
+        assert_ne!(id, refused, "a refused id was asked for again");
+        assert_eq!(sessions_in(home.path()), vec![id]);
     }
 
     /// The roots a conversation's next turn runs in, besides the workspace.

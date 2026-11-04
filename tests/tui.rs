@@ -4362,8 +4362,8 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
-    // `/provider`'s column, `/stats`'s first counter, `/status`'s turn
-    // count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
+    // `/provider`'s column, `/stats`'s first counter, `/status`'s panel
+    // and its turn count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
     // (which say nothing), and a name the registry does not carry. Each needle
     // sits inside one run of colour: a notice's label and body are separate
     // runs on the wire.
@@ -4405,7 +4405,17 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.type_bytes(b"/stats\r");
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
-    session.wait_for("history_turns=0");
+    // The panel, in the band in place of the composer: the session the first
+    // prompt will open, not on disk yet, and no turn. Escape closes it -- every
+    // other key it swallows -- and the hint row painted back says it settled.
+    on_screen(
+        &session,
+        (24, 80),
+        &["not saved yet", "  Turns             0", "esc close"],
+        &[],
+    );
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (24, 80), &["glm-5.2"], &["esc close"]);
     // The runtime's answer: nothing has been changed yet.
     session.type_bytes(b"/undo\r");
     session.wait_for("Nothing to undo.");
@@ -5082,13 +5092,28 @@ fn status_counts_the_turn_the_live_conversation_just_held() {
     session.wait_for(READY);
 
     session.type_bytes(b"/status\r");
-    session.wait_for("history_turns=0");
+    on_screen(
+        &session,
+        (40, 120),
+        &["not saved yet", "  Turns             0"],
+        &[],
+    );
+    // The panel swallows every key but its own: Escape first.
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["esc close"]);
     session.type_bytes(b"one turn, please\r");
     session.wait_for("MARKER-ONE-TURN");
     // The turn summary: written when the band hears the turn ended.
     session.wait_for("\u{2191}");
     session.type_bytes(b"/status\r");
-    session.wait_for("history_turns=1");
+    on_screen(
+        &session,
+        (40, 120),
+        &[" \u{b7} saved", "  Turns             1"],
+        &[],
+    );
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["esc close"]);
     session.type_bytes(b"/stats\r");
     let text = session.wait_for("stream_chunks=0");
     assert!(text.contains("footer_updates=0"), "{text:?}");
