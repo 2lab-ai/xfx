@@ -6481,7 +6481,7 @@ impl Shell {
     /// the facts the rows were built from, so an unmoved panel costs one read
     /// of the board and no frame.
     fn settle_info_panel(&mut self) {
-        let Some(shown) = self.info_panel.as_ref().map(info_panel::Panel::facts) else {
+        let Some(shown) = self.info_panel.as_ref().map(|panel| panel.facts().clone()) else {
             return;
         };
         match shown {
@@ -23286,6 +23286,21 @@ mod tests {
     }
 
     #[test]
+    fn an_open_status_panel_follows_a_new_session_id_with_nothing_else_moved() {
+        // Review P-status-b item 1: a `/new` while the panel is up, or an
+        // open whose id moved, changes the Session row and no count.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status_in("s1", false, 0, 0));
+        shell.route_bytes(b"/status\r");
+        shell.work.publish_status(a_status_in("s2", false, 0, 0));
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            panel_value(&shell, "Session").as_deref(),
+            Some("s2 \u{b7} not saved yet")
+        );
+    }
+
+    #[test]
     fn status_reads_the_live_conversation_each_time_it_is_asked() {
         // The counts are the conversation the runtime is holding, as it last
         // said -- not the store's last session, and not what the band was told
@@ -23413,10 +23428,11 @@ mod tests {
         );
         assert_eq!(
             shell.info_panel.as_ref().map(info_panel::Panel::facts),
-            Some(info_panel::Facts::Status {
+            Some(&info_panel::Facts::Status {
                 turns: 0,
                 saved: None,
-                grants: 0
+                grants: 0,
+                id: None,
             })
         );
     }
@@ -37958,6 +37974,7 @@ mod tests {
                 turns: 0,
                 saved: Some(false),
                 grants: 0,
+                id: Some("qGmBFM89lH8M".to_string()),
             },
         )
     }
@@ -38354,6 +38371,7 @@ mod tests {
                 turns: 0,
                 saved: None,
                 grants: 0,
+                id: None,
             },
         ));
         let rows = shell.band_rows();

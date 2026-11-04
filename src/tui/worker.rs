@@ -1135,9 +1135,9 @@ pub(crate) fn spawn(
     ));
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
-    // The id the first prompt's session will have, allocated now and only in
-    // memory -- the store writes nothing before that prompt -- so `/status`
-    // can show it from launch, as upstream's opens a session at launch
+    // The id the first session this runtime opens will have -- at the first
+    // prompt, or at a `/rename` typed before one -- allocated now and only in
+    // memory, so launching writes nothing and `/status` can show it from launch, as upstream's opens a session at launch
     // (`shellSession`, `session_commands.zig:404-408@481104fd`).
     let next_session = SessionId::generate();
     // Seeded here, on the calling thread and from the configuration the
@@ -1622,10 +1622,12 @@ struct Runtime {
     /// ([`record_resumed_selection`]).
     unrecorded_resume: Option<crate::session::SessionId>,
     /// The id the next session this runtime opens will have: allocated at
-    /// launch, in memory only, and again each time one is used, so `/status`
-    /// names the session a first prompt -- or the first prompt after a `/new`
-    /// -- will write before it writes anything, and a retry after a refusal
-    /// never asks the store for an id it may have half made.
+    /// launch, in memory only, and again each time the store is asked for one,
+    /// so `/status` names the session the next open -- a first prompt, the
+    /// first after a `/new`, or a `/rename` before either -- will write before
+    /// it writes anything; a retry after a refusal never asks the store for an
+    /// id it may have half made, and one after a failure the store never saw
+    /// asks for the id `/status` named.
     next_session: SessionId,
     /// The store refused the last session this runtime asked it for, so
     /// `/status` says this shell can't save sessions until one opens.
@@ -1805,13 +1807,15 @@ impl Runtime {
 
     /// Opens the conversation a prompt -- or a `/rename` before one -- writes
     /// into, under the id `/status` has been naming ([`Self::next_session`]),
-    /// and allocates the next one whether or not the store took this one.
+    /// and allocates the next one once the store has been asked for this one,
+    /// whether or not it took it. A failure before the store is asked -- a
+    /// workspace that cannot be scoped -- keeps the id, so the next attempt
+    /// opens the session `/status` names.
     fn open_next(&mut self, mirror: &CancelToken) -> Result<(), String> {
         let model = self.model().to_string();
-        let id = std::mem::replace(&mut self.next_session, SessionId::generate());
         let opened = open_conversation_as(
             &self.store,
-            id,
+            self.next_session.clone(),
             &self.config,
             &model,
             self.authority(),
@@ -1831,6 +1835,7 @@ impl Runtime {
         );
         match opened {
             Ok(conversation) => {
+                self.next_session = SessionId::generate();
                 self.conversation = Some(conversation);
                 self.session_refused = false;
                 self.opened();
@@ -1840,9 +1845,13 @@ impl Runtime {
                 message,
                 store_refused,
             }) => {
-                if store_refused && !self.session_refused {
-                    self.session_refused = true;
-                    self.publish_board();
+                if store_refused {
+                    // Never asked for again: the store may have made half of it.
+                    self.next_session = SessionId::generate();
+                    if !self.session_refused {
+                        self.session_refused = true;
+                        self.publish_board();
+                    }
                 }
                 Err(message)
             }
@@ -11903,6 +11912,84 @@ mod tests {
         };
         assert!(!saved);
         assert_ne!(next, id, "the next session would reuse the last one's id");
+    }
+
+    #[test]
+    fn a_failure_before_the_store_is_asked_keeps_the_id_status_names() {
+        // Review P-status-b item 1: a workspace that cannot be scoped fails
+        // the open before the store is asked anything. The id `/status` names
+        // must still be the one the next attempt opens.
+        let (_home, workspace, state) = a_runtime_that_can_open_one();
+        let board = StatusBoard::unpublished();
+        let mut state = state.publishing_to(board.clone());
+        let Some(ShellSession::Open {
+            id: named,
+            saved: false,
+        }) = board.read().session
+        else {
+            panic!("no session to name at launch: {:?}", board.read().session);
+        };
+        let moved = workspace.path().with_extension("moved");
+        std::fs::rename(workspace.path(), &moved).expect("move the workspace away");
+        let failed = state.ready(&CancelToken::new());
+        std::fs::rename(&moved, workspace.path()).expect("and back");
+        assert!(failed.is_err(), "a workspace that is not there was scoped");
+        assert_eq!(
+            board.read().session,
+            Some(ShellSession::Open {
+                id: named.clone(),
+                saved: false
+            }),
+            "a failure the store never saw changed what /status says"
+        );
+
+        state.ready(&CancelToken::new()).expect("a conversation");
+        let opened = state.conversation.as_ref().expect("open").recorder.id();
+        assert_eq!(
+            opened.as_str(),
+            named,
+            "the next attempt opened an id /status never named"
+        );
+    }
+
+    #[test]
+    fn the_session_spawn_names_at_launch_is_the_one_the_runtime_opens() {
+        // `spawn` seeds the board with the id it hands the runtime: the
+        // session a `/rename` before any prompt opens is that one.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let (mut worker, mut events) = spawn(
+            config(home.path(), workspace.path()),
+            Cancellation::new(CancelToken::new()),
+            None,
+        )
+        .expect("a runtime");
+        let Some(ShellSession::Open {
+            id: seeded,
+            saved: false,
+        }) = worker.handle().status().session
+        else {
+            panic!("the seed names no session");
+        };
+        worker.control(TurnControl::Rename {
+            title: "named before a prompt".to_string(),
+            announced: true,
+        });
+        let deadline = Instant::now() + TEST_DRAIN;
+        let opened = loop {
+            let found = sessions_in(home.path());
+            if !found.is_empty() {
+                break found;
+            }
+            assert!(Instant::now() < deadline, "the rename opened no session");
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert_eq!(
+            opened,
+            vec![seeded],
+            "the runtime opened another id than the seed"
+        );
     }
 
     #[cfg(unix)]

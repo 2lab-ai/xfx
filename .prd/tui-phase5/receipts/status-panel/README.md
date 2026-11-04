@@ -34,18 +34,29 @@ same condition (`InvalidSettingsFormat`, `StreamTooLong`).
    (`SessionId::generate`) and seeds the board with `<id> · not saved yet`; the
    first prompt's session is created under it (`Runtime::open_next`), and the
    board says `saved` as the open lands, while that first turn runs
-   (`Runtime::opened`). Nothing is written before the first prompt
+   (`Runtime::opened`). Launching and `/status` write nothing
    (`status_names_the_session_the_first_prompt_opens_before_the_store_holds_it`
-   checks the sessions directory is empty, then holds that id). Each open,
-   taken or refused, allocates the next id, so a reset shows the next
-   session's and a half-made one is never asked for again. A store that
+   checks the sessions directory is empty, then holds that id); the first
+   write is the first prompt's, or a `/rename` typed before one, which opens
+   the session under the same id
+   (`the_session_spawn_names_at_launch_is_the_one_the_runtime_opens`, the
+   spawn seed pinned). Each time the store is asked, taken or refused, the
+   next id is allocated, so a reset shows the next session's and a half-made
+   one is never asked for again; a failure before the store is asked keeps
+   the id (`a_failure_before_the_store_is_asked_keeps_the_id_status_names`),
+   and the id is one of the panel's facts, so a change of it alone rebuilds
+   an open panel
+   (`an_open_status_panel_follows_a_new_session_id_with_nothing_else_moved`). A store that
    refuses the session is `none · this shell can't save sessions` until one
    opens (`a_store_that_refuses_the_session_is_a_shell_that_cannot_save_until_one_opens`).
 2. **xfx-only facts.** `provider`/`provider_url` are `Provider`/`Endpoint`,
    shown off the Gateway only. **`provider_rejected` is not `Connected`**: fx's
    row lists the providers signed in; xfx's field is a provider selection it
    could not read. No `Connected` row; the rejection is said by
-   `Provider  rejected` and by `Auth help`, which quotes the value
+   `Provider  rejected` and by `Auth help`, which quotes the value when it is
+   a lowercase word of at most 16 characters and otherwise only its length
+   (`a_key_pasted_into_provider_is_said_by_its_length_and_never_printed`, also
+   for `status`, `doctor` and a refused turn)
    (`the_status_panel_names_a_provider_that_is_not_the_gateway_and_its_endpoint`).
    A `Sandbox` row after `Permissions`: ledger `status-panel-sandbox`.
 3. **`Updates`** omitted: ledger `status-panel-updates`.

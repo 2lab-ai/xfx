@@ -114,13 +114,18 @@ impl Kind {
 /// open -- a running turn that saves the session, ends, or gains a session
 /// grant from an approval -- so the rows are rebuilt when these differ from
 /// the ones they were built from (`Facts`, `info_panel.zig:23-39`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Facts {
     Status {
         turns: usize,
         /// `None` when the shell has no session.
         saved: Option<bool>,
         grants: usize,
+        /// The session's id as the row shows it, `None` with none. Not one of
+        /// upstream's facts, whose session id is fixed at launch; xfx's is the
+        /// next one's until a prompt opens it, and a `/new` while the panel is
+        /// up moves it with nothing else changed.
+        id: Option<String>,
     },
     /// A bare `/permissions`'s, which its own unit opens; the lint fails the
     /// build once it does, so this goes with it.
@@ -139,20 +144,22 @@ impl Facts {
     /// What a `/status` panel built from `snapshot` depends on: the turns, the
     /// session's being saved -- `None` with no session to save -- and the
     /// grants (`statusFacts`, `vercel-labs/fx@481104fd
-    /// src/core/session/session_commands.zig:342-351`).
+    /// src/core/session/session_commands.zig:342-351`), and the session's id.
     pub(crate) fn of_status(snapshot: &StatusSnapshot) -> Self {
+        let (saved, id) = match &snapshot.session {
+            Some(ShellSession::Open { id, saved }) => (Some(*saved), Some(id.clone())),
+            Some(ShellSession::Unavailable) | None => (None, None),
+        };
         Self::Status {
             turns: usize::try_from(snapshot.history_turns).unwrap_or(usize::MAX),
-            saved: match &snapshot.session {
-                Some(ShellSession::Open { saved, .. }) => Some(*saved),
-                Some(ShellSession::Unavailable) | None => None,
-            },
+            saved,
             grants: usize::try_from(snapshot.session_permission_grants).unwrap_or(usize::MAX),
+            id,
         }
     }
 
     /// Which panel facts of this shape fill.
-    pub(crate) fn kind(self) -> Kind {
+    pub(crate) fn kind(&self) -> Kind {
         match self {
             Self::Status { .. } => Kind::Status,
             Self::Permissions { .. } => Kind::Permissions,
@@ -279,8 +286,8 @@ impl Panel {
     }
 
     /// What the rows were built from.
-    pub(crate) fn facts(&self) -> Facts {
-        self.facts
+    pub(crate) fn facts(&self) -> &Facts {
+        &self.facts
     }
 
     /// The title row's text.
@@ -600,6 +607,7 @@ mod tests {
             turns: 0,
             saved: Some(false),
             grants: 0,
+            id: Some("VnpQQs_uueY8".to_string()),
         }
     }
 
@@ -819,9 +827,9 @@ mod tests {
             grants: 0,
             rules: 0,
         };
-        let panel = Panel::open(Vec::new(), permissions);
+        let panel = Panel::open(Vec::new(), permissions.clone());
         assert_eq!(panel.title(), "Permissions");
-        assert_eq!(panel.facts(), permissions);
+        assert_eq!(panel.facts(), &permissions);
     }
 
     #[test]

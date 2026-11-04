@@ -1277,14 +1277,22 @@ fn an_unreadable_provider_selection_poisons_turns_rather_than_falling_back_to_th
         &[("AI_GATEWAY_API_KEY", "must-not-be-sent")],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
-    // The refusal names the provider axis (the runtime axis) and quotes what it
-    // could not read, including both the settings key and the rejected value.
-    // It appears in the error message of the JSON error event.
+    // The refusal names the provider axis (the runtime axis) and the settings
+    // key, in the error message of the JSON error event. It quotes the value
+    // only when it looks like a provider name -- a lowercase word of at most 16
+    // characters -- so a key pasted into the setting never reaches the screen;
+    // this one is longer, so it is said by its length.
     assert!(run.stdout.contains("provider=rejected"), "{}", run.stdout);
     assert!(run.stdout.contains("`backend`"), "{}", run.stdout);
     assert!(
-        run.stdout.contains("definitely-not-a-backend"),
-        "the refusal must quote the value: {}",
+        run.stdout
+            .contains("a value of 24 characters that is not a provider name (not shown)"),
+        "the refusal must say what it read: {}",
+        run.stdout
+    );
+    assert!(
+        !run.stdout.contains("definitely-not-a-backend"),
+        "the refusal printed a value that is not a provider name: {}",
         run.stdout
     );
     assert!(

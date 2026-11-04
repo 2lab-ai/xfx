@@ -163,7 +163,9 @@ pub struct StatusSnapshot {
     /// gateway provider, which has no configured url to report.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_url: Option<String>,
-    /// A provider selection xfx could not read, quoted, when a layer wrote one.
+    /// A provider selection xfx could not read, when a layer wrote one: as
+    /// written when it looks like a provider name, otherwise only its length
+    /// (`<N characters, not shown>`), so a key pasted there is not printed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_rejected: Option<String>,
     pub build_channel: String,
@@ -234,7 +236,7 @@ impl StatusSnapshot {
             provider_rejected: config
                 .provider_rejected
                 .as_ref()
-                .map(|r| one_line(&r.value)),
+                .map(|r| shown_provider_value(&r.value)),
             build_channel: build.channel.to_string(),
             build_revision: build.revision.map(str::to_string),
             auth: auth.source,
@@ -421,13 +423,20 @@ impl StatusSnapshot {
 
 /// What `status` and `doctor` say about a provider selection xfx could not read.
 ///
-/// It names the setting and quotes the value, because the operator has to be
-/// able to find it in a file xfx will not edit for them.
+/// It names the setting, because the operator has to be able to find it in a
+/// file xfx will not edit for them, and quotes the value when it looks like a
+/// misspelt provider name ([`looks_like_a_provider_name`]); anything else it
+/// says by its length, so a key pasted into the setting is not printed.
 pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
     let quoted = if rejected.value.is_empty() {
         "a value that is not a string".to_string()
-    } else {
+    } else if looks_like_a_provider_name(&rejected.value) {
         format!("`{}`", rejected.value)
+    } else {
+        format!(
+            "a value of {} characters that is not a provider name (not shown)",
+            rejected.value.chars().count()
+        )
     };
     format!(
         "provider=rejected: the `{}` setting is {quoted}, which xfx cannot read; set it to `{}` or `{}`. \
@@ -437,6 +446,34 @@ pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
         ProviderId::Gateway.label(),
         ProviderId::Llmux.label()
     )
+}
+
+/// The longest rejected provider value shown as written.
+const SHOWN_PROVIDER_VALUE_MAX: usize = 16;
+
+/// Whether a provider value xfx could not read is one to show as written: a
+/// short lowercase word -- a misspelt provider name, `anthropc` -- rather than
+/// whatever was pasted into the setting by mistake. A key pasted there would
+/// otherwise be printed by `status`, `doctor`, `/status` and every refused
+/// turn, and no terminal escaping hides a secret; so anything else is said by
+/// its length alone.
+fn looks_like_a_provider_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    value.len() <= SHOWN_PROVIDER_VALUE_MAX
+        && chars.next().is_some_and(|first| first.is_ascii_lowercase())
+        && chars
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
+/// A rejected provider value as the `provider_rejected` field carries it:
+/// the value when it looks like a provider name ([`looks_like_a_provider_name`]),
+/// otherwise how long it is and that it is not shown.
+fn shown_provider_value(value: &str) -> String {
+    if value.is_empty() || looks_like_a_provider_name(value) {
+        value.to_string()
+    } else {
+        format!("<{} characters, not shown>", value.chars().count())
+    }
 }
 
 /// The label a snapshot uses for the configured provider.
@@ -654,7 +691,7 @@ impl DoctorSnapshot {
             provider_rejected: config
                 .provider_rejected
                 .as_ref()
-                .map(|r| one_line(&r.value)),
+                .map(|r| shown_provider_value(&r.value)),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             permission_mode: config.permission_mode.label().to_string(),
@@ -1891,6 +1928,100 @@ mod tests {
             rows[3].starts_with("Auth help=") && rows[3].contains("codexx"),
             "{rows:?}"
         );
+    }
+
+    #[test]
+    fn a_key_pasted_into_provider_is_said_by_its_length_and_never_printed() {
+        // Review P-status-b item 2: a credential-shaped `provider` reaches no
+        // renderer -- `status` text and JSON, `doctor`, the `/status` panel's
+        // Auth help, a refused turn's sentence -- through real loading.
+        const PASTED: &str = "sk-fake-0123456789ABCDEFabcdef0123456789";
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let profile = home.path().join(".xfx");
+        std::fs::create_dir_all(&profile).expect("a profile");
+        std::fs::write(
+            profile.join("settings.json"),
+            format!("{{\"provider\":\"{PASTED}\"}}"),
+        )
+        .expect("settings");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                std::collections::BTreeMap::new(),
+            ),
+            workspace.path(),
+        )
+        .expect("load config");
+        assert_eq!(
+            config.provider_rejected.as_ref().map(|r| r.value.as_str()),
+            Some(PASTED),
+            "the loader no longer keeps the value this test is about"
+        );
+        let status = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let doctor = DoctorSnapshot::new(&config, Vec::new());
+        let help = rejected_provider_help(config.provider_rejected.as_ref().expect("rejected"));
+        let panel = panel(&status, None).join("\n");
+        let refused = crate::provider::Bundle::select(&config, &crate::gateway::CancelToken::new())
+            .err()
+            .expect("a rejected provider runs no turn");
+        for (what, text) in [
+            ("status text", status.render_text()),
+            ("status json", status.render_json()),
+            ("doctor text", doctor.render_text()),
+            ("doctor json", doctor.render_json()),
+            ("help", help.clone()),
+            ("panel", panel.clone()),
+            ("refused turn", refused),
+        ] {
+            assert!(!text.contains(PASTED), "{what} printed the value: {text}");
+            assert!(
+                !text.contains("0123456789"),
+                "{what} printed part of it: {text}"
+            );
+        }
+        assert!(
+            status
+                .render_text()
+                .contains("[status] provider_rejected=<40 characters, not shown>\n"),
+            "{}",
+            status.render_text()
+        );
+        assert!(
+            help.contains("is a value of 40 characters that is not a provider name (not shown)"),
+            "{help}"
+        );
+        assert!(panel.contains("Provider=rejected"), "{panel}");
+    }
+
+    #[test]
+    fn a_misspelt_provider_name_is_still_quoted_as_written() {
+        let rejection = |value: &str| ProviderRejection {
+            key: "provider",
+            value: value.to_string(),
+        };
+        for name in ["anthropc", "codexx", "llmux2", "open-ai", "a.b_c"] {
+            assert!(
+                rejected_provider_help(&rejection(name)).contains(&format!("is `{name}`")),
+                "{name}"
+            );
+            assert_eq!(shown_provider_value(name), name);
+        }
+        for pasted in [
+            "Gateway",
+            "0abc",
+            "seventeen-letters",
+            "two words",
+            "sk_live_51H",
+            "gw\u{1b}[2J",
+        ] {
+            assert!(
+                !rejected_provider_help(&rejection(pasted)).contains(pasted),
+                "{pasted:?}"
+            );
+            assert!(!shown_provider_value(pasted).contains(pasted), "{pasted:?}");
+        }
+        assert!(rejected_provider_help(&rejection("")).contains("a value that is not a string"));
     }
 
     #[test]
