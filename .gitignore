@@ -4,3 +4,11 @@
 # xfx is a binary, not a library dependency, so Cargo.lock is committed on
 # purpose to pin the exact dependency set every build and receipt was produced
 # from. It is deliberately absent from this file.
+
+# Python's bytecode cache: the scripts under scripts/ import each other
+# (`scripts/fxcap/redact.py`, `ledger.py`), and a compiled `.pyc` records the
+# absolute path of the source it was compiled from -- a local path in a
+# public repository. `scripts/check-no-secrets.sh` refuses one that is tracked
+# anyway.
+__pycache__/
+*.pyc

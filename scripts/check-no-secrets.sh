@@ -123,6 +123,35 @@ for file in "${files[@]}"; do
 	esac
 done
 
+# Nor is Python's bytecode. A compiled `.pyc` records the absolute path of the
+# source it was compiled from, so a tracked one publishes a local path -- the
+# home directory, a worktree -- in a file nobody reads as text. `.gitignore`
+# keeps the cache out of `git add`; this catches one added past it.
+is_bytecode() {
+	case "$1" in
+	*.pyc | __pycache__/* | */__pycache__/*) return 0 ;;
+	esac
+	return 1
+}
+
+# Its positive control, as the patterns have theirs: the rule must name the
+# file a run of `scripts/fxcap/redact.py` leaves behind, and must not name the
+# source beside it.
+for sample in scripts/fxcap/__pycache__/redact.cpython-314.pyc scripts/fxcap/ledger.pyc __pycache__/x; do
+	if ! is_bytecode "$sample"; then
+		fail "the bytecode rule does not match '$sample'; this scan is not working"
+	fi
+done
+if is_bytecode scripts/fxcap/redact.py; then
+	fail "the bytecode rule matches a source file; this scan is not working"
+fi
+
+for file in "${files[@]}"; do
+	if is_bytecode "$file"; then
+		fail "$file is tracked; Python's bytecode records local paths and belongs outside the repository"
+	fi
+done
+
 if [ "$failures" -ne 0 ]; then
 	printf 'check-no-secrets: %d problem(s) found\n' "$failures" >&2
 	exit 1
