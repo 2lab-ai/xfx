@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import textwrap
@@ -317,19 +318,51 @@ class CiSweep(unittest.TestCase):
         self.assertIn("viadeeper\tuses prof.json\n", r)
         self.assertNotIn("viatype", r)
 
+    def test_a_link_out_of_the_scenarios_is_never_read(self):
+        """A link under a named directory that leaves scenarios/ is not read:
+        here to a FIFO no one writes, whose open never returns (a link to
+        /dev/zero is the same path in the code, but a read of it that does not
+        end grows without bound -- 46 GB in three minutes, measured on the
+        unfixed code), and to a file that names a scenario file."""
+        outside = os.path.join(self.d, "outside.json")
+        self.write(outside, '["@SCENARIOS@/server.mjs"]\n')
+        fifo = os.path.join(self.d, "never")
+        os.mkfifo(fifo)
+        self.write(os.path.join(self.scen, "server.mjs"), "// one\n")
+        os.makedirs(os.path.join(self.scen, "ws"))
+        os.symlink(fifo, os.path.join(self.scen, "ws", "never"))
+        os.symlink(outside, os.path.join(self.scen, "ws", "out.json"))
+        self.write(os.path.join(self.scen, "ws", "in.json"), "[]\n")
+        self.write(os.path.join(self.scen, "linked.cap"), "work ws\nsnap a\n")
+        self.commit("links")
+        r = self.select("HEAD", "server.mjs", "// two\n")
+        self.assertNotIn("linked", r)
+        r = self.select("HEAD", "ws/in.json", "[1]\n")
+        self.assertIn("linked\tuses ws/in.json\n", r)
+
     def select(self, base, name, text):
         """The --select output once `name` under scenarios/ is `text`,
         committed, against `base`."""
         base = self.git("rev-parse", base).strip()
         self.write(os.path.join(self.scen, name), text)
         self.commit("edit " + name)
-        r = subprocess.run(
+        # Its own process group, so a selection that hangs is ended whole
+        # (its python, not only the bash in front of it) and fails the test.
+        p = subprocess.Popen(
             ["bash", CI_SWEEP, "--select", "--base", base, "--scenarios", self.scen, "--core", self.core],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return r.stdout
+        try:
+            out, err = p.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            self.fail("the selection did not finish in 60 s")
+        self.assertEqual(p.returncode, 0, err)
+        return out
 
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
@@ -382,6 +415,16 @@ class Workflows(unittest.TestCase):
             # neither word may appear in one.
             for expr in EXPRESSION.findall(text):
                 self.assertIsNone(re.search(r"\b(?:secrets|token)\b", expr, re.I), (name, expr))
+
+    def test_the_capture_tests_run_once_tmux_bun_and_curl_are_there(self):
+        # test-capture.sh runs tmux and bun: after the step that fetches bun
+        # onto the PATH and the one that installs tmux, before the sweep.
+        names = [st.get("name") for st in load_workflow(WORKFLOWS[0])["jobs"]["sweep"]["steps"]]
+        here = names.index("The capture harness's own tests")
+        self.assertLess(names.index("Fetch fx v0.0.16 and bun, each checked by sha256"), here)
+        self.assertLess(names.index("Install tmux"), here)
+        self.assertLess(here, names.index("Sweep the changed scenarios and the core set"))
+        self.assertEqual(step(load_workflow(WORKFLOWS[0]), "sweep", "The capture harness's own tests")["run"].strip(), "./scripts/fxcap/test-capture.sh")
 
     def test_only_a_pull_requests_run_is_cancelled_by_the_next(self):
         # A push to main is the backstop for a pull request built on an old

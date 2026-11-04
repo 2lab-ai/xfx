@@ -81,14 +81,20 @@ class Run:
 
 def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen_name="scenarios", timeout=120):
     """capture.sh on a scenario `t` made of `cap` and `files` (relative path ->
-    text or bytes), the binary a link to `binary` (or, for a binary that is
-    not a link, that file itself)."""
+    text, bytes, or `("link", target)` for a symbolic link), the binary a
+    link to `binary` (or, for a binary that is not a link, that file
+    itself)."""
     d = scratch()
     scen = os.path.join(d, scen_name)
     os.makedirs(scen)
     write(os.path.join(scen, "t.cap"), cap)
     for rel, text in (files or {}).items():
-        write(os.path.join(scen, rel), text, "wb" if isinstance(text, bytes) else "w")
+        path = os.path.join(scen, rel)
+        if isinstance(text, tuple):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            os.symlink(text[1], path)
+        else:
+            write(path, text, "wb" if isinstance(text, bytes) else "w")
     if os.path.islink(binary) or binary.startswith("/bin/"):
         link = os.path.join(d, "bin", "it")
         os.makedirs(os.path.dirname(link))
@@ -219,8 +225,12 @@ class Placeholders(unittest.TestCase):
         self.assertIn("pasted-2:%s" % scen, a)
         self.assertRegex(a, r"s=%s b=%s h=%s/home p=\d+ m=\d+" % (re.escape(scen), re.escape(BUN), run))
         self.assertRegex(a, r"\d+ m=\d+%s/home" % run, "the `dir` copy's file, after the work file's")
+        # The `home` dump names the checkout and bun by placeholder, not by
+        # this machine's paths.
         home = r.file("h", ".files")
-        self.assertRegex(home, r'\{"s=%s b=%s h=<scratch>/home p=\d+ m=\d+"\}' % (re.escape(scen), re.escape(BUN)))
+        self.assertRegex(home, r'\{"s=<scenarios> b=<bun> h=<scratch>/home p=\d+ m=\d+"\}')
+        self.assertNotIn(scen, home)
+        self.assertNotIn(BUN, home)
         work = r.file("work-w")
         self.assertIn("== ./raw.bin\n\x00@BUN@", work, "a file with a NUL is left as it is")
         self.assertIn("relaunched:%s" % scen, r.screen("b"))
@@ -235,6 +245,68 @@ class Placeholders(unittest.TestCase):
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertIn("mode:700 mode:700 mode:600", r.screen("a"))
+
+
+class Confinement(unittest.TestCase):
+    """The placeholder rewrite of the files a run seeds and copies writes only
+    regular files inside the run: never a name a newline split out of a
+    longer one, never through a link, and a path the scenarios live under
+    never reaches sed's program unless the scenario names it."""
+
+    def sentinel(self, text="@PORT@\n"):
+        path = os.path.join(scratch(), "outside", "sentinel")
+        write(path, text)
+        return path
+
+    def test_a_name_with_a_newline_never_reaches_outside_the_run(self):
+        # `ws/p` and `ws/p<newline>/<the sentinel's path>`: listed one name per
+        # line, the second splits into `<run>/work/p` and the sentinel.
+        outside = self.sentinel()
+        inner = "p\n" + outside
+        r = capture(
+            "work ws\nwait 0.5\ntype cat $'%s'\nkey Enter\nwait 0.5\nsnap a\n" % inner.replace("\n", "\\n"),
+            {"ws/p": "x\n", "ws/" + inner: "@PORT@\n"},
+        )
+        self.assertEqual(slurp(outside), "@PORT@\n", "the file outside the run is untouched")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertTrue(any(re.fullmatch(r"\d+", row) for row in r.file("a").split("\n")), "the copy inside the run is written")
+
+    def test_a_link_to_outside_is_never_written_through(self):
+        outside = self.sentinel()
+        tree = os.path.dirname(outside)
+        r = capture(
+            "work ws\ndir side sidefrom\ndir home homefrom\nwait 0.5\n"
+            "type for f in l ld ../side/l ~/l; do [ -L \"$f\" ] && printf 'link:%s ' \"$f\"; done; echo\nkey Enter\nwait 0.5\nsnap a\n",
+            {
+                "ws/l": ("link", outside),
+                "ws/ld": ("link", tree),
+                "ws/a.txt": "@PORT@\n",
+                "sidefrom/l": ("link", outside),
+                "homefrom/l": ("link", outside),
+            },
+        )
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertEqual(slurp(outside), "@PORT@\n", "the file outside the run is untouched")
+        self.assertIn("link:l link:ld link:../side/l link:", r.screen("a"), "each link is still a link")
+
+    def test_a_hash_in_the_scenario_path_breaks_nothing_that_does_not_name_it(self):
+        r = capture("homefile .fx/p.json p.json\nwait 0.5\nhome h\n", {"p.json": '{"p":@PORT@}\n'}, scen_name="a#b")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.file("h", ".files"), r'\{"p":\d+\}')
+
+    def test_a_sed_flag_in_the_scenario_path_writes_no_file(self):
+        # Scenarios under `<d>/x#w <outside>/victim` make the expression
+        # `s#@SCENARIOS@#<d>/x#w <outside>/victim#g`: a `w` flag, which opens
+        # `<outside>/victim#g`, and empties it, when sed reads the program.
+        outside = os.path.dirname(self.sentinel())
+        victim = os.path.join(outside, "victim#g")
+        write(victim, "keep\n")
+        r = capture("homefile .fx/p.json p.json\nwait 0.5\nhome h\n", {"p.json": '{"p":@PORT@}\n'},
+                    scen_name="x#w " + os.path.join(outside, "victim"))
+        self.assertEqual(slurp(victim), "keep\n")
+        # The scenario names only @PORT@: it runs, and @PORT@ is written in.
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.file("h", ".files"), r'\{"p":\d+\}')
 
 
 class Verbs(unittest.TestCase):

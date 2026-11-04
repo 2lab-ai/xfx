@@ -170,9 +170,13 @@ def placed_in(scenarios, words):
         else:
             continue
         for name in files:
-            if os.path.getsize(name) > RECEIPT_MAX_BYTES:
+            # A link that leaves scenarios/ (to /dev/zero, which never ends,
+            # or to any file outside) and anything but a regular file is not
+            # read.
+            real = os.path.realpath(name)
+            if not real.startswith(root + os.sep) or not os.path.isfile(real) or os.path.getsize(real) > RECEIPT_MAX_BYTES:
                 continue
-            with open(name, encoding="utf-8", errors="replace") as f:
+            with open(real, encoding="utf-8", errors="replace") as f:
                 found.update(PLACED.findall(f.read()))
     return found
 

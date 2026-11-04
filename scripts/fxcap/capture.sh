@@ -35,9 +35,11 @@
 # on any checkout (the binary's PATH is /usr/bin:/bin, which has no bun). A run
 # whose scenario names either, and whose path has a character outside
 # `A-Za-z0-9._/+-`, is refused: such a path cannot be written into JSON, a
-# shell word and a typed line as itself. All five are also written into every
-# file a `work` or `dir` line copies (a text file: one with no NUL), and into
-# the text of a `type`, `paste` or `relaunch` line when it runs, so
+# shell word and a typed line as itself (and a scenario that names neither
+# runs whatever its path). All five are also written into every file a `work`
+# or `dir` line copies (a regular text file inside the run: one with no NUL;
+# a link is left a link, and nothing is written through one), and into the
+# text of a `type`, `paste` or `relaunch` line when it runs, so
 # `type /mcp add two -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts` names the
 # fixture on this machine.
 #   models <catalog.json>  what the fake gateway answers for
@@ -104,7 +106,9 @@
 #                          to <bin>-<scenario>-<size>-<label>.files: the path
 #                          relative to HOME, its size, and its bytes (locks
 #                          and logs by size only), the run's own directory
-#                          written as <scratch> -- what a settings write left
+#                          written as <scratch>, and the paths `@SCENARIOS@`
+#                          and `@BUN@` stand for as <scenarios> and <bun> --
+#                          what a settings write left
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
@@ -267,9 +271,13 @@ for_this() {
 # three are set once fx's chime names are made, so a run that never launched fx
 # is not checked for what it could not have done.
 gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
-# What `@SCENARIOS@` and `@BUN@` are written as (main sets them, `fill` and
-# `fill_text` read them), and the one line `fill_text` leaves its text in.
-fill_scenarios='' fill_bun='' filled=''
+# The paths `@SCENARIOS@` and `@BUN@` stand for (main sets them), what
+# `fill` and `fill_text` write for each, and the one line `fill_text` leaves
+# its text in.
+path_scenarios='' path_bun='' fill_scenarios='' fill_bun='' filled=''
+# A path a placeholder can be written as: absolute, and every character one
+# that sed, JSON, a shell word and a typed line all carry as itself.
+writable='^/[A-Za-z0-9._/+-]+$'
 
 # fx's sound and upgrade guards (above), every one checked and every breach
 # named; the one line that says they held.
@@ -316,11 +324,10 @@ fill_text() {
 }
 
 # Refuses a path `@SCENARIOS@` or `@BUN@` would be written as, unless it is
-# absolute and every character is one sed, JSON, a shell word and a typed line
-# all carry as itself.
+# `writable`.
 writable_path() {
   local name=$1 value=$2
-  [[ $value =~ ^/[A-Za-z0-9._/+-]+$ ]] && return 0
+  [[ $value =~ $writable ]] && return 0
   echo "@$name@ would be written as '$value': a placeholder is an absolute path of A-Za-z0-9._/+- only" >&2
   exit 2
 }
@@ -336,8 +343,8 @@ can_fill() {
       echo "$file names @MCPPORT@, and the scenario starts no mcphttp server" >&2
       exit 2
     fi
-    if grep -q '@SCENARIOS@' "$file" 2>/dev/null; then writable_path SCENARIOS "$fill_scenarios"; fi
-    if grep -q '@BUN@' "$file" 2>/dev/null; then writable_path BUN "$fill_bun"; fi
+    if grep -q '@SCENARIOS@' "$file" 2>/dev/null; then writable_path SCENARIOS "$path_scenarios"; fi
+    if grep -q '@BUN@' "$file" 2>/dev/null; then writable_path BUN "$path_bun"; fi
   done
   return 0
 }
@@ -388,10 +395,17 @@ main() {
   local file=$scenarios/$scenario.cap
   [[ -f $file ]] || { echo "no scenario $file" >&2; exit 2; }
   mkdir -p "$out"
-  # What `@SCENARIOS@` and `@BUN@` are written as: checked where a line or a
-  # copied file names one.
-  fill_scenarios=$(cd "$scenarios" && pwd -P)
-  fill_bun=$(command -v bun || true)
+  # What `@SCENARIOS@` and `@BUN@` stand for: checked where a line or a
+  # copied file names one. What `fill` writes is the path, or, when the path
+  # is not `writable`, the placeholder itself: such a path never reaches sed's
+  # program (a `#` ends its expression; `#w <file>` would empty <file> when
+  # sed reads it), so a scenario that names neither runs as before, and one
+  # that names it is refused where it does.
+  path_scenarios=$(cd "$scenarios" && pwd -P)
+  path_bun=$(command -v bun || true)
+  fill_scenarios=@SCENARIOS@ fill_bun=@BUN@
+  if [[ $path_scenarios =~ $writable ]]; then fill_scenarios=$path_scenarios; fi
+  if [[ $path_bun =~ $writable ]]; then fill_bun=$path_bun; fi
 
   local run port='' bin
   run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
@@ -418,8 +432,8 @@ main() {
     # A line whose text is written in when it runs: refused now, not halfway.
     case $line in
       env\ *|type\ *|paste\ *|relaunch\ *)
-        [[ $line != *@SCENARIOS@* ]] || writable_path SCENARIOS "$fill_scenarios"
-        [[ $line != *@BUN@* ]] || writable_path BUN "$fill_bun"
+        [[ $line != *@SCENARIOS@* ]] || writable_path SCENARIOS "$path_scenarios"
+        [[ $line != *@BUN@* ]] || writable_path BUN "$path_bun"
         [[ $line != *@MCPPORT@* || $line == env\ * ]] || names_mcpport=1 ;;
     esac
     [[ $line == gateway\ * ]] && turns=$(cat "$scenarios/${line#gateway }")
@@ -534,21 +548,35 @@ main() {
     done
     mcpport=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/mcphttp.log" | head -1)
   fi
-  # The ports and HOME, into every seeded file that names them and every `env`
-  # value. The rewrite goes through `cat >` so a file keeps the owner-only mode
-  # it was seeded with. The same for every text file a `work` or `dir` line
-  # copied (`-I`: a file with a NUL, a sparse image say, is left as it is),
-  # which keeps the mode it was copied with.
-  local seeded
-  while IFS= read -r seeded; do
-    can_fill "$mcpport" "$seeded"
-    fill "$port" "$run/home" "$mcpport" < "$seeded" > "$run/seed.tmp"
-    cat "$run/seed.tmp" > "$seeded"
-    rm -f "$run/seed.tmp"
-  done < <(
-    grep -rlE '@(PORT|HOME|MCPPORT|SCENARIOS|BUN)@' "$run/home" 2>/dev/null || true
-    (( ${#copied[@]} == 0 )) || grep -rlIE '@(PORT|HOME|MCPPORT|SCENARIOS|BUN)@' "${copied[@]}" 2>/dev/null || true
-  )
+  # The placeholders, into every seeded file under HOME that names one and
+  # every `env` value; and into every text file (`-I`: one with a NUL, a sparse
+  # image say, is left as it is) under each directory a `work` or `dir` line
+  # copied into. The names come from `find -type f -print0` and no `-L`: a
+  # name with a newline in it is one name, a link is never listed (`cp -R`
+  # copied it as a link, and its target is outside the run) and no directory
+  # is entered through one. A listed name that does not resolve to a file
+  # under its own tree is refused. The rewrite goes through `cat >` so a file
+  # keeps the mode it was seeded or copied with.
+  local root root_real seeded real names='@(PORT|HOME|MCPPORT|SCENARIOS|BUN)@'
+  for root in "$run/home" ${copied[@]+"${copied[@]}"}; do
+    root_real=$(cd "$root" && pwd -P)
+    while IFS= read -r -d '' seeded; do
+      if [[ $root == "$run/home" ]]; then
+        grep -qE "$names" "$seeded" 2>/dev/null || continue
+      else
+        grep -qIE "$names" "$seeded" 2>/dev/null || continue
+      fi
+      real=$(realpath "$seeded")
+      if [[ -L $seeded || ! -f $real || $real != "$root_real"/* ]]; then
+        echo "refusing to rewrite $seeded: it is not a file under $root" >&2
+        exit 2
+      fi
+      can_fill "$mcpport" "$seeded"
+      fill "$port" "$run/home" "$mcpport" < "$real" > "$run/seed.tmp"
+      cat "$run/seed.tmp" > "$real"
+      rm -f "$run/seed.tmp"
+    done < <(find "$root" -type f -print0)
+  done
   [[ -n $mcpport || $extra_env != *@MCPPORT@* ]] || { echo "an env value names @MCPPORT@, and the scenario starts no mcphttp server" >&2; exit 2; }
   [[ -n $mcpport || -z $names_mcpport ]] || { echo "a type, paste or relaunch line names @MCPPORT@, and the scenario starts no mcphttp server" >&2; exit 2; }
   extra_env=${extra_env//@PORT@/$port}
@@ -682,6 +710,11 @@ $xfx_model $extra_env $runner"
         ;;
       home)
         local name=$out/$which-$scenario-$size-$rest.files
+        # The run's own directory, and the paths `@SCENARIOS@` and `@BUN@`
+        # wrote, by those names rather than as this machine's paths.
+        local redact=(-e "s#$run#<scratch>#g")
+        [[ $fill_scenarios == @SCENARIOS@ ]] || redact+=(-e "s#${fill_scenarios//./\\.}#<scenarios>#g")
+        [[ $fill_bun == @BUN@ ]] || redact+=(-e "s#${fill_bun//./\\.}#<bun>#g")
         (
           cd "$run/home"
           find . -type f ! -path '*/file-index/*' | LC_ALL=C sort | while IFS= read -r f; do
@@ -691,7 +724,7 @@ $xfx_model $extra_env $runner"
               # A binary file (an image fx copied) is named, not printed:
               # sed under a UTF-8 locale stops on it, and so did the run.
               *) if LC_ALL=C grep -Iq . "$f" 2>/dev/null || [[ ! -s $f ]]; then
-                   head -c 4000 "$f" | LC_ALL=C sed "s#$run#<scratch>#g"; echo
+                   head -c 4000 "$f" | LC_ALL=C sed "${redact[@]}"; echo
                  else
                    echo "(binary)"
                  fi ;;

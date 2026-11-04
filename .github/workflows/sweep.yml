@@ -108,6 +108,13 @@ jobs:
           tmux -V
           python3 -c 'import sys, tomllib; print("python", sys.version.split()[0])'
 
+      # The capture harness's own tests: capture.sh's verbs over a stub
+      # binary on tmux servers of their own, and fakegw, mcphttp and the
+      # stdio MCP fixture on 127.0.0.1. They need tmux, bun and curl, so they
+      # run here, after both are on the PATH, and run neither fx nor xfx.
+      - name: The capture harness's own tests
+        run: ./scripts/fxcap/test-capture.sh
+
       - name: Install the toolchain
         run: |
           rustup toolchain install stable --profile minimal
