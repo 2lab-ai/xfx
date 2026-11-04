@@ -297,9 +297,12 @@ reasons:
   parallel. Each one would rewrite the same file, so they would conflict.
 - A change could lower the list in the same diff that causes the regression.
 
-The cost is a second debug build, about a minute, and a base run of only the
-pairs that the head does not pass. When nothing regresses, the base run is
-empty.
+The cost is a second debug build, about a minute, and a base run of every
+scenario that has a pair the head does not pass. The base run confirms that the
+base did not pass those pairs either. With the core set as it is today, two
+scenarios (`allowlist-remember` and `h1-resize`) have such pairs, so every pull
+request pays about a minute for that base run. The cost stays until those pairs
+pass.
 
 ## Run
 
