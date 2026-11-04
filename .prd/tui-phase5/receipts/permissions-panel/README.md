@@ -74,7 +74,7 @@ python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receip
   this unit are here. Their fx side is P-status's receipt's, unchanged. The
   xfx side was taken again here.
 
-The xfx binary is `target/debug/xfx` at `450c45ef`, the code commit (its banner says `450c45e`). `/private/tmp/claude-501`
+The xfx binary is `target/debug/xfx` at `6d495f1b`, round P-permissions-b's code commit (its banner says `6d495f1`). Round 1's xfx sides, taken at `450c45ef`, gave the same verdicts; only the banner, the session ids and the run's tmp names differ between the two. `/private/tmp/claude-501`
 is written `<tmp>` (`scripts/fxcap/redact.py`). Nothing else was edited.
 
 **RED** on the base (`d3bc63d3`), `cells.py`, row 1 not compared:
@@ -87,6 +87,9 @@ notices stay in the document. The five keys pairs on the base: `perm-btab`
 `auto` and no approval arrives.
 
 ## Verdicts, pair by pair (`pairs.py`, the v0.0.16 pin)
+
+`green.txt` is `pairs.py`'s output for this directory, as it is, one line a
+pair, exit 0. Re-run it and diff the two.
 
 | pair | verdict | why |
 |---|---|---|
@@ -127,6 +130,30 @@ require an active saved session`). P-status decision 1 lets `/rename` open the
 session under the launch id. Whether `remember` and `revoke` should do the
 same is a user decision. It changes a subcommand's path, so this unit did not
 make it.
+
+## Round P-permissions-b (review)
+
+- **A store that moves on its own.** In round 1 an open panel re-read the
+  saved-session store only when the mode, the grant count, the rule count or
+  the reset count moved. A store broken or rewritten by another hand stayed
+  on screen unchanged. Now `Facts::Permissions` also carries the store file's
+  stamp (`session_rules::stamp`: absent, or device, inode, size and mtime).
+  That is one `stat` a tick. A file that moved alone is read again: a broken
+  one closes the panel with the error, and another valid rule set is the one
+  shown. Two tests cover this:
+  `a_saved_rule_store_that_breaks_while_the_panel_is_up_closes_it` breaks
+  only the file now, and
+  `an_open_permissions_panel_follows_a_saved_rule_store_another_hand_changed`
+  is new. Both fail at `f80e831a`.
+- **The reset count, pinned.** In
+  `a_reset_alone_rebuilds_an_open_permissions_panel`, the mode stays `ask`
+  and the grant count stays 1 across a reset. The panel must show the grant
+  published after the reset. The test fails when the count is taken out of
+  the facts.
+- **`named`, pinned.** In
+  `a_permissions_item_names_the_joiners_and_selectors_an_emoji_carries`, an
+  item holds a ZWJ family, `❤` with `U+FE0F`, and a bell. Only `named` spells
+  the joiners and the selector. The test fails with `tamed`.
 
 ## Note on P-status's receipt
 

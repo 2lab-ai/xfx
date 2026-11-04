@@ -1,4 +1,4 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-450c45e [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-6d495f1 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;250m* permissions: mode set to auto[39m
 
@@ -33,7 +33,7 @@
     2. Yes, and don't ask again for this exact command
     3. No
   [38;5;245m2 = allow every future run of exactly `echo hi` in . for the rest of this session, and in every later `xfx ask[39m
-  [38;5;245m--resume-id 1793782736425-dbc624cad32fc6d5` of this saved session[39m
+  [38;5;245m--resume-id 1793784168049-72759a1cb79c2882` of this saved session[39m
 
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m
