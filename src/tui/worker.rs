@@ -1137,8 +1137,9 @@ pub(crate) fn spawn(
     let done = Arc::clone(&finished);
     // The id the first session this runtime opens will have -- at the first
     // prompt, or at a `/rename` typed before one -- allocated now and only in
-    // memory, so launching writes nothing and `/status` can show it from launch, as upstream's opens a session at launch
-    // (`shellSession`, `session_commands.zig:404-408@481104fd`).
+    // memory, so launching writes nothing and `/status` can show it from
+    // launch, as upstream's opens a session at launch (`shellSession`,
+    // `session_commands.zig:404-408@481104fd`).
     let next_session = SessionId::generate();
     // Seeded here, on the calling thread and from the configuration the
     // runtime is about to be built from, so a `/status` typed before that
@@ -11932,8 +11933,22 @@ mod tests {
         let moved = workspace.path().with_extension("moved");
         std::fs::rename(workspace.path(), &moved).expect("move the workspace away");
         let failed = state.ready(&CancelToken::new());
+        let scope_says = crate::interactive::conversation_scope(&state.config)
+            .map(|_| ())
+            .expect_err("a workspace that is not there was scoped");
         std::fs::rename(&moved, workspace.path()).expect("and back");
-        assert!(failed.is_err(), "a workspace that is not there was scoped");
+        // The failure is the scope's, in `open_next`, past the provider:
+        // `ready` selected the bundle first, and the error is the scope's own.
+        assert!(
+            state.provider.is_some(),
+            "the attempt failed in Bundle::select, before the open"
+        );
+        assert!(state.conversation.is_none());
+        assert_eq!(
+            failed,
+            Err(scope_says),
+            "the attempt failed somewhere other than conversation_scope"
+        );
         assert_eq!(
             board.read().session,
             Some(ShellSession::Open {
@@ -11955,27 +11970,65 @@ mod tests {
     #[test]
     fn the_session_spawn_names_at_launch_is_the_one_the_runtime_opens() {
         // `spawn` seeds the board with the id it hands the runtime: the
-        // session a `/rename` before any prompt opens is that one.
+        // runtime's first publication names the same session, and the one a
+        // `/rename` before any prompt opens is it.
+        //
+        // **The seed is read before the runtime can publish, every run.** The
+        // runtime thread's first statement takes `RUNTIME_MASKS`; held across
+        // `spawn`, it keeps that thread from building anything, so the board
+        // read under it is the seed's -- which its trace facts confirm: the
+        // seed carries none, every publication of the runtime's carries the
+        // settings files.
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
-        let (mut worker, mut events) = spawn(
+        let gate = RUNTIME_MASKS.lock().unwrap_or_else(PoisonError::into_inner);
+        let spawned = spawn(
             config(home.path(), workspace.path()),
             Cancellation::new(CancelToken::new()),
             None,
-        )
-        .expect("a runtime");
+        );
+        let seed = spawned
+            .as_ref()
+            .map(|(worker, _)| worker.handle().trace_facts())
+            .map_err(ToString::to_string);
+        drop(gate);
+        let (mut worker, mut events) = spawned.expect("a runtime");
+        let (seed, seed_trace) = seed.expect("a runtime");
+        assert_eq!(
+            seed_trace.settings,
+            crate::trace::Settings::default(),
+            "the runtime published before the seed was read"
+        );
         let Some(ShellSession::Open {
             id: seeded,
             saved: false,
-        }) = worker.handle().status().session
+        }) = seed.session
         else {
-            panic!("the seed names no session");
+            panic!("the seed names no session: {:?}", seed.session);
         };
+
+        let deadline = Instant::now() + TEST_DRAIN;
+        let first = loop {
+            let (published, trace) = worker.handle().trace_facts();
+            if trace.settings != crate::trace::Settings::default() {
+                break published;
+            }
+            assert!(Instant::now() < deadline, "the runtime never published");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        assert_eq!(
+            first.session,
+            Some(ShellSession::Open {
+                id: seeded.clone(),
+                saved: false
+            }),
+            "the runtime's first publication named another session than the seed"
+        );
+
         worker.control(TurnControl::Rename {
             title: "named before a prompt".to_string(),
             announced: true,
         });
-        let deadline = Instant::now() + TEST_DRAIN;
         let opened = loop {
             let found = sessions_in(home.path());
             if !found.is_empty() {

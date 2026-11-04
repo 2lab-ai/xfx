@@ -164,8 +164,9 @@ pub struct StatusSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_url: Option<String>,
     /// A provider selection xfx could not read, when a layer wrote one: as
-    /// written when it looks like a provider name, otherwise only its length
-    /// (`<N characters, not shown>`), so a key pasted there is not printed.
+    /// written when it has a provider name's shape
+    /// ([`looks_like_a_provider_name`]), any other value by its length only
+    /// (`<N characters, not shown>`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_rejected: Option<String>,
     pub build_channel: String,
@@ -424,9 +425,9 @@ impl StatusSnapshot {
 /// What `status` and `doctor` say about a provider selection xfx could not read.
 ///
 /// It names the setting, because the operator has to be able to find it in a
-/// file xfx will not edit for them, and quotes the value when it looks like a
-/// misspelt provider name ([`looks_like_a_provider_name`]); anything else it
-/// says by its length, so a key pasted into the setting is not printed.
+/// file xfx will not edit for them, and quotes the value as written when it
+/// has a provider name's shape ([`looks_like_a_provider_name`]); any other
+/// value it gives by its length only.
 pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
     let quoted = if rejected.value.is_empty() {
         "a value that is not a string".to_string()
@@ -451,12 +452,13 @@ pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
 /// The longest rejected provider value shown as written.
 const SHOWN_PROVIDER_VALUE_MAX: usize = 16;
 
-/// Whether a provider value xfx could not read is one to show as written: a
-/// short lowercase word -- a misspelt provider name, `anthropc` -- rather than
-/// whatever was pasted into the setting by mistake. A key pasted there would
-/// otherwise be printed by `status`, `doctor`, `/status` and every refused
-/// turn, and no terminal escaping hides a secret; so anything else is said by
-/// its length alone.
+/// Whether a provider value xfx could not read has the shape it shows as
+/// written: a lowercase word of at most 16 characters, `[a-z0-9._-]` with a
+/// letter first -- the shape of a misspelt provider name, `anthropc`. Any
+/// other value -- a key pasted into the setting by mistake, say, which
+/// `status`, `doctor`, `/status` and every refused turn would otherwise print,
+/// and which no terminal escaping hides -- is given by its length only. A
+/// value in the shape is shown whatever it is.
 fn looks_like_a_provider_name(value: &str) -> bool {
     let mut chars = value.chars();
     value.len() <= SHOWN_PROVIDER_VALUE_MAX

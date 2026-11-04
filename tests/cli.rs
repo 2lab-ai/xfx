@@ -1279,9 +1279,9 @@ fn an_unreadable_provider_selection_poisons_turns_rather_than_falling_back_to_th
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
     // The refusal names the provider axis (the runtime axis) and the settings
     // key, in the error message of the JSON error event. It quotes the value
-    // only when it looks like a provider name -- a lowercase word of at most 16
-    // characters -- so a key pasted into the setting never reaches the screen;
-    // this one is longer, so it is said by its length.
+    // as written only when it has a provider name's shape -- a lowercase word
+    // of at most 16 characters -- and gives any other by its length only; this
+    // one is longer.
     assert!(run.stdout.contains("provider=rejected"), "{}", run.stdout);
     assert!(run.stdout.contains("`backend`"), "{}", run.stdout);
     assert!(

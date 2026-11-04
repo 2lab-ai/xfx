@@ -53,10 +53,13 @@ same condition (`InvalidSettingsFormat`, `StreamTooLong`).
    shown off the Gateway only. **`provider_rejected` is not `Connected`**: fx's
    row lists the providers signed in; xfx's field is a provider selection it
    could not read. No `Connected` row; the rejection is said by
-   `Provider  rejected` and by `Auth help`, which quotes the value when it is
-   a lowercase word of at most 16 characters and otherwise only its length
-   (`a_key_pasted_into_provider_is_said_by_its_length_and_never_printed`, also
-   for `status`, `doctor` and a refused turn)
+   `Provider  rejected` and by `Auth help`, which quotes the value as written
+   only when it has a provider name's shape (a lowercase word of at most 16
+   characters, `[a-z0-9._-]` with a letter first) and gives any other value
+   by its length only -- a value in that shape is shown as written, whatever
+   it is (`a_key_pasted_into_provider_is_said_by_its_length_and_never_printed`
+   with a 40-character key-shaped value, also for `status`, `doctor` and a
+   refused turn; `a_misspelt_provider_name_is_still_quoted_as_written`)
    (`the_status_panel_names_a_provider_that_is_not_the_gateway_and_its_endpoint`).
    A `Sandbox` row after `Permissions`: ledger `status-panel-sandbox`.
 3. **`Updates`** omitted: ledger `status-panel-updates`.
