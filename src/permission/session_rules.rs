@@ -530,17 +530,30 @@ pub fn path_in(session_dir: &Path) -> PathBuf {
 /// the session was held in memory, as upstream's first turn writes the
 /// permission state it held (`hold`, `writeFirstTurn`,
 /// `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`).
-/// Through the same staged, owner-only file and rename as [`update`]; no
-/// lock, since nothing else can know the directory yet.
+/// Through the same staged, owner-only file as [`update`], published with
+/// no-replace ([`write_new`]); no lock, since nothing else can know the
+/// directory yet.
 ///
 /// **Fails closed under the rules [`load`] reads by.** The directory is new,
 /// so anything already at the store's path -- a FIFO, a directory, a link, a
 /// file -- is another hand's, and the seed refuses it rather than write
-/// beside it or rename over it. What was written is then read back through
+/// beside it or replace it: refused when it looks, and refused by the
+/// publish itself when it arrives after the look. What was written is then read back through
 /// [`load`] -- a regular file, opened without waiting on a writer -- and must
 /// be the state held: rules that would not decide as they were confirmed
 /// open no session.
 pub fn seed(session_dir: &Path, state: &State) -> io::Result<()> {
+    seed_with(session_dir, state, |_| {})
+}
+
+/// [`seed`], with `before_publish` run once the staged file is written and
+/// synced and before it is published: the moment another hand could put
+/// something at the store's path, which a test stands in for.
+fn seed_with(
+    session_dir: &Path,
+    state: &State,
+    before_publish: impl FnOnce(&Path),
+) -> io::Result<()> {
     let path = path_in(session_dir);
     match fs::symlink_metadata(&path) {
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
@@ -553,7 +566,7 @@ pub fn seed(session_dir: &Path, state: &State) -> io::Result<()> {
         }
         Ok(_) => return Err(not_regular()),
     }
-    write(session_dir, &path, &state.encode())?;
+    write_new(session_dir, &path, &state.encode(), before_publish)?;
     match load(&path) {
         Ok(written) if written == *state => Ok(()),
         Ok(_) => Err(io::Error::other("the store read back is not the one held")),
@@ -710,6 +723,38 @@ fn lock(dir: &Path) -> io::Result<fs::File> {
 }
 
 fn write(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let stage = stage(dir, bytes)?;
+    let result = fs::rename(&stage, path).and_then(|()| fs::File::open(dir)?.sync_all());
+    if result.is_err() {
+        let _ = fs::remove_file(&stage);
+    }
+    result
+}
+
+/// [`write`] for a store that must not exist yet: published with `link(2)`,
+/// which fails `EEXIST` on whatever is at `path` -- a file, a link, a FIFO,
+/// a directory -- and never follows or replaces it, so another hand's object
+/// put there after the caller looked is left as it was. Then the stage goes.
+/// `before_publish` runs between the two, once the stage is written and
+/// synced.
+fn write_new(
+    dir: &Path,
+    path: &Path,
+    bytes: &[u8],
+    before_publish: impl FnOnce(&Path),
+) -> io::Result<()> {
+    let stage = stage(dir, bytes)?;
+    before_publish(path);
+    let published = fs::hard_link(&stage, path);
+    let removed = fs::remove_file(&stage);
+    published?;
+    removed?;
+    fs::File::open(dir)?.sync_all()
+}
+
+/// `bytes` in a new, owner-only file beside the store, synced: removed again
+/// if anything fails.
+fn stage(dir: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
     let stage = dir.join(format!(
         ".{FILE_NAME}.{}.{}.staged",
         std::process::id(),
@@ -728,14 +773,15 @@ fn write(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let result = (|| {
         let mut file = options.open(&stage)?;
         file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&stage, path)?;
-        fs::File::open(dir)?.sync_all()
+        file.sync_all()
     })();
-    if result.is_err() {
-        let _ = fs::remove_file(&stage);
+    match result {
+        Ok(()) => Ok(stage),
+        Err(err) => {
+            let _ = fs::remove_file(&stage);
+            Err(err)
+        }
     }
-    result
 }
 
 /// The 16 hex digits upstream's displays carry for a digest
@@ -951,6 +997,57 @@ mod tests {
         let clean = tempfile::tempdir().expect("a session directory");
         seed(clean.path(), &held).expect("seeded");
         assert_eq!(load(&path_in(clean.path())).expect("read back"), held);
+    }
+
+    #[test]
+    fn a_seed_never_replaces_a_store_another_hand_put_there_after_its_check() {
+        // Review PERM-EARLY-b, item 3. The seed's look at the store's path and
+        // its publish are two steps: a file another writer puts there in
+        // between -- here, once the staged file is written -- must be left as
+        // it was, and the seed refuse, rather than a rename replace it.
+        // Red before: the rename put the held rules over the other file.
+        let held = applied(State::default().apply(&set("a", Decision::Deny, None)));
+        let planted = State::default().encode();
+        for kind in ["file", "link"] {
+            let dir = tempfile::tempdir().expect("a session directory");
+            let elsewhere = tempfile::tempdir().expect("elsewhere");
+            let outside = elsewhere.path().join("outside.json");
+            let path = path_in(dir.path());
+            let seeded = seed_with(dir.path(), &held, |at| match kind {
+                "file" => fs::write(at, &planted).expect("planted"),
+                _ => {
+                    #[cfg(unix)]
+                    std::os::unix::fs::symlink(&outside, at).expect("planted");
+                    #[cfg(not(unix))]
+                    fs::write(at, &planted).expect("planted");
+                }
+            });
+            let refused = seeded.expect_err("seeded over another hand's store");
+            assert_eq!(
+                refused.kind(),
+                io::ErrorKind::AlreadyExists,
+                "{kind}: {refused}"
+            );
+            if kind == "file" {
+                assert_eq!(fs::read(&path).expect("kept"), planted, "{kind}");
+            } else {
+                assert!(
+                    fs::symlink_metadata(&path)
+                        .expect("kept")
+                        .file_type()
+                        .is_symlink(),
+                    "{kind}"
+                );
+                assert!(!outside.exists(), "{kind}: written through the link");
+            }
+            let left: Vec<_> = fs::read_dir(dir.path())
+                .expect("the directory")
+                .flatten()
+                .map(|entry| entry.file_name())
+                .filter(|name| name != FILE_NAME)
+                .collect();
+            assert!(left.is_empty(), "{kind}: a stage was left: {left:?}");
+        }
     }
 
     #[cfg(unix)]

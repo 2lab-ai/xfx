@@ -6297,6 +6297,16 @@ impl Shell {
             Reply::Confirm => {
                 let confirmation = confirm.confirmation().clone();
                 self.close_rule_confirm();
+                // A session that started changing while the confirmation was
+                // up is not the store it was shown for: made nowhere.
+                if self.session_changing() {
+                    self.announce(allowlist_notice(
+                        crate::permission::allowlist::Tone::Warning,
+                        crate::permission::slash::TOPIC,
+                        crate::permission::slash::SESSION_CHANGING.to_string(),
+                    ));
+                    return;
+                }
                 // Held, or in the open session's file, wherever the store the
                 // confirmation was shown is now ([`permissions::SavedRules::confirm`]).
                 let (tone, body) = self.work.saved_rules().confirm(&confirmation);
@@ -6335,6 +6345,29 @@ impl Shell {
                 .with_live_rules(self.work.rules().clone()),
         );
         crate::tools::prepare_rule_action(tool, arguments, &context)
+    }
+
+    /// Whether the session a `remember` or `revoke` would change is changing
+    /// under it: a reset sent whose runtime fence ([`UiEvent::Fresh`]) has
+    /// not arrived, so the store this shell holds is still the session being
+    /// left's ([`Self::draining`]); or a resume handed over and not yet made,
+    /// whose session replaces what is held ([`WorkHandle::switch_pending`]).
+    /// Upstream makes both before it reads the next key.
+    fn session_changing(&self) -> bool {
+        self.draining.is_some() || self.work.switch_pending()
+    }
+
+    /// Why a `remember` or `revoke` may not change the store now, in
+    /// upstream's order: a question up first, then a session changing.
+    fn rules_busy(&self) -> Option<&'static str> {
+        use crate::permission::slash::{PROMPT_ACTIVE, SESSION_CHANGING};
+        if self.asking() {
+            Some(PROMPT_ACTIVE)
+        } else if self.session_changing() {
+            Some(SESSION_CHANGING)
+        } else {
+            None
+        }
     }
 
     /// Takes the rule confirmation down and gives the composer its rows back.
@@ -11862,7 +11895,7 @@ impl CommandHandlers for Shell {
             &request,
             Some(&store.at),
             |_| store.state.clone(),
-            self.asking(),
+            self.rules_busy(),
             |tool, arguments| self.prepare_rule_action(tool, arguments),
         );
         if let Some(managed) = managed {
@@ -13035,8 +13068,11 @@ impl Shell {
         self.work.new_title_lineage();
         // And the saved-session rules held for a session no prompt had opened
         // yet go with it, at the keystroke too, as upstream's reset clears the
-        // state it held: a `remember` typed straight after this is the next
-        // session's, whenever the runtime reads the reset.
+        // state it held. An open session's rules are its file's, and the
+        // store still names that file until the runtime drops the session and
+        // publishes the next one's: a `remember` or `revoke` typed before
+        // the fence is refused ([`Self::session_changing`]), not made in the
+        // session being left.
         self.work.saved_rules().forget_held();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
@@ -23230,6 +23266,116 @@ mod tests {
                 "! permissions: saved-session permission rule not found".to_string(),
                 String::new(),
             ]
+        );
+    }
+
+    /// The refusal a `remember` or `revoke` gets while the session is
+    /// changing under it, as the document says it.
+    const CHANGING: &str = "! permissions: wait for the session to finish changing before managing saved-session rules";
+
+    #[test]
+    fn a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused() {
+        // Review PERM-EARLY-b, item 1. `/new` from an open session: until the
+        // runtime's fence for the reset arrives (`UiEvent::Fresh`), the store
+        // this shell holds is still the session being left's, and nothing is
+        // held to forget. A rule confirmed then would go into the left
+        // session's file under "updated", and the new session would never
+        // have it. Refused, saying why, until the fence; then the next
+        // session's. Red before: the confirmation opened and wrote the old file.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(b"/new\r");
+        let _ = shell.document();
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        assert!(
+            !rules.exists(),
+            "a rule confirmed while the reset drained went into the left session"
+        );
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert!(shell.rule_confirm.is_none(), "a confirmation opened");
+        assert_eq!(
+            shell.document(),
+            vec![
+                CHANGING.to_string(),
+                String::new(),
+                CHANGING.to_string(),
+                String::new(),
+            ]
+        );
+        // The fence, and the next session's store as the runtime publishes it.
+        let next = rules.with_file_name("next").join("permissions.json");
+        shell.work.saved_rules().publish_pending(next.clone());
+        shell.apply(UiEvent::Fresh { through: 0 });
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
+        );
+        assert!(!rules.exists());
+        assert_eq!(
+            shell
+                .work
+                .saved_rules()
+                .view()
+                .state
+                .expect("held")
+                .rules
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_rule_typed_while_a_resume_is_on_its_way_is_refused() {
+        // Review PERM-EARLY-b, item 2. The picker's Enter hands the runtime a
+        // resume, and Escape can take the picker down before it is made. A
+        // rule confirmed then would be held, said "updated", and dropped when
+        // the resumed session's store is published. Refused, saying why,
+        // until the runtime has got past the switch. Red before: the
+        // confirmation opened and said "updated".
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell
+            .work
+            .submit_switch(TurnWork::Resume("1793786870949-17cfc234b1a39f46".into()))
+            .expect("queued");
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.rule_confirm.is_none(), "a confirmation opened");
+        assert_eq!(shell.document(), vec![CHANGING.to_string(), String::new()]);
+        assert_eq!(
+            shell.work.saved_rules().view().state.expect("held"),
+            crate::permission::session_rules::State::default(),
+            "a rule was held for a session the resume replaces"
+        );
+        // The runtime has made it.
+        let _ = shell.work.title_desk().worked_through(1);
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        // A switch handed over while that confirmation is up: its Enter is
+        // made nowhere, and says why.
+        shell
+            .work
+            .submit_switch(TurnWork::Resume("1793786870949-17cfc234b1a39f46".into()))
+            .expect("queued");
+        shell.route_bytes(b"\r");
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(shell.document(), vec![CHANGING.to_string(), String::new()]);
+        assert_eq!(
+            shell.work.saved_rules().view().state.expect("held"),
+            crate::permission::session_rules::State::default()
         );
     }
 

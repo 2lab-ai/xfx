@@ -45,6 +45,14 @@ pub const NO_SESSION: &str = "saved-session permission rules require an active s
 pub const PROMPT_ACTIVE: &str =
     "finish the active permission prompt before managing saved-session rules";
 
+/// `remember` or `revoke` while the TUI's session is changing under it -- a
+/// `/new` whose runtime has not dropped the last session yet, a resume not
+/// made yet -- a warning in [`PROMPT_ACTIVE`]'s grammar. Upstream has no such
+/// moment: its reset and its resume are made before the next key is read
+/// (`prepareLiveSessionTransition`, `app_session_runtime.zig:1753-1764@481104fd`).
+pub const SESSION_CHANGING: &str =
+    "wait for the session to finish changing before managing saved-session rules";
+
 /// A `remember` whose action cannot be prepared without running it
 /// (`:880-889`), an error.
 pub const NOT_PREPARED: &str =
@@ -169,7 +177,7 @@ pub fn manage(
         request,
         rules_path,
         super::session_rules::load,
-        prompt_active,
+        prompt_active.then_some(PROMPT_ACTIVE),
         prepare,
     )
 }
@@ -177,12 +185,14 @@ pub fn manage(
 /// [`manage`], over a store whose rules `load` reads for `rules_path` -- the
 /// file, or the TUI's rules held before its session's first save
 /// (`crate::tui`'s `SavedRules`). `rules_path` is where the store is kept or
-/// will be, and what the confirmation names.
+/// will be, and what the confirmation names. `busy` is the warning a store
+/// that may not be changed now is answered with, in [`PROMPT_ACTIVE`]'s
+/// place: that one, or [`SESSION_CHANGING`].
 pub fn manage_with(
     request: &Request,
     rules_path: Option<&Path>,
     load: impl FnOnce(&Path) -> Result<State, String>,
-    prompt_active: bool,
+    busy: Option<&'static str>,
     prepare: impl FnOnce(&str, &serde_json::Value) -> Result<crate::tools::RuleAction, String>,
 ) -> Option<Managed> {
     if !matches!(
@@ -194,8 +204,8 @@ pub fn manage_with(
     let Some(path) = rules_path else {
         return Some(Managed::say(Tone::Error, TOPIC, NO_SESSION));
     };
-    if prompt_active {
-        return Some(Managed::say(Tone::Warning, TOPIC, PROMPT_ACTIVE));
+    if let Some(busy) = busy {
+        return Some(Managed::say(Tone::Warning, TOPIC, busy));
     }
     let state = match load(path) {
         Ok(state) => state,

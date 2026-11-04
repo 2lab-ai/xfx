@@ -701,6 +701,13 @@ impl WorkHandle {
         submitted
     }
 
+    /// Whether a switch handed over with [`Self::submit_switch`] -- a resume
+    /// or a provider switch -- is still to be made: until it is, the
+    /// conversation a command reaches is not the one it will run against.
+    pub(crate) fn switch_pending(&self) -> bool {
+        self.titles.switch_pending()
+    }
+
     /// How title generation stands, for `/trace`.
     pub(crate) fn title_generation(&self) -> crate::trace::TitleGeneration {
         self.titles.generation()
@@ -8819,7 +8826,7 @@ mod tests {
             &Request::parse(line),
             Some(&store.at),
             |_| store.state.clone(),
-            false,
+            None,
             |tool, arguments| {
                 crate::tools::prepare_rule_action(
                     tool,
@@ -8993,6 +9000,194 @@ mod tests {
         state.open_next(&CancelToken::new()).expect("opened");
         let saved = crate::permission::session_rules::load(&held.at).expect("the file");
         assert_eq!(saved.rules.len(), 1, "{saved:?}");
+    }
+
+    /// A scripted provider that counts what it is asked, where the turn
+    /// cannot hide it.
+    struct Counted {
+        inner: ScriptedProvider,
+        asked: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for Counted {
+        async fn stream(
+            &self,
+            request: &crate::gateway::protocol::CompletionRequest,
+            deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            self.asked.set(self.asked.get() + 1);
+            self.inner.stream(request, deltas).await
+        }
+    }
+
+    /// [`one_turn_on`], and how the turn ended as the UI was told it.
+    fn one_turn_failure(
+        state: &mut Runtime,
+        prompt: &str,
+        provider: Box<dyn crate::gateway::Provider>,
+    ) -> Option<String> {
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: provider,
+        });
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let ended = on_a_runtime(run_turn(
+            state,
+            prompt.to_string(),
+            (Vec::new(), Vec::new()),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Turn);
+        drop(events_tx);
+        let mut failure = None;
+        while let Ok(event) = events_rx.try_recv() {
+            if let UiEvent::TurnEnded { failure: said } = event {
+                failure = said;
+            }
+        }
+        failure
+    }
+
+    #[test]
+    fn rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held() {
+        // Review PERM-EARLY-b, item 4. The seed runs -- its directory made,
+        // its file written -- and its read-back fails: the held rules encode
+        // past the store's 1 MiB (`session_rules::MAX_FILE_BYTES`), which
+        // `load` refuses. The open fails with the rules' own sentence
+        // (`interactive::open_conversation_as`), the prompt is refused with
+        // it, no provider is asked and no tool runs, as upstream's failed
+        // first publish fails its turn before any call
+        // (`appendRunningToolCalls`, `src/core/agent/runtime/orchestrator.zig:
+        // 3894-3917@481104fd`). The rules stay held; revoked down to what a
+        // store holds, the next prompt saves them and runs.
+        use crate::permission::session_rules::{self, Decision, Event, KeyKind, RuleKey};
+        use crate::permission::slash;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = PermissionMode::Auto;
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let at = state.next_rules_path();
+        let set = |n: usize| slash::Confirmation {
+            question: "",
+            explanation: "",
+            display: String::new(),
+            path: at.clone(),
+            event: Event::Set {
+                key: RuleKey::new(
+                    KeyKind::FileMutation,
+                    format!("{n:04}{}", "k".repeat(4000)).into_bytes(),
+                )
+                .expect("a key"),
+                display: format!("filler {n} {}", "d".repeat(4000)),
+                decision: Decision::Deny,
+                expected: None,
+            },
+        };
+        for n in 0..200 {
+            assert_eq!(state.saved_rules.confirm(&set(n)).1, slash::UPDATED);
+        }
+        assert_eq!(confirmed(&state, HELD_DENY).1, slash::UPDATED);
+        let held = state.saved_rules.view().state.expect("held");
+        assert!(held.encode().len() as u64 > session_rules::MAX_FILE_BYTES);
+
+        let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+        let provider = Counted {
+            inner: ScriptedProvider::new(vec![
+                calls(vec![call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "b.txt", "content": "y"}),
+                )]),
+                answers("DONE"),
+            ]),
+            asked: std::rc::Rc::clone(&asked),
+        };
+        let failure = one_turn_failure(&mut state, "write it", Box::new(provider));
+        assert!(
+            failure.as_deref().is_some_and(|failure| failure
+                .starts_with("the saved-session permission rules cannot be written: ")),
+            "{failure:?}"
+        );
+        assert_eq!(asked.get(), 0, "a provider was asked");
+        assert!(!workspace.path().join("b.txt").exists(), "a tool ran");
+        assert!(state.conversation.is_none(), "a session opened");
+        let listed = state
+            .store
+            .list(&crate::session::ListFilter::new(
+                crate::session::ListScope::AllWorkspaces,
+            ))
+            .expect("a listing");
+        assert!(listed.sessions.is_empty(), "{:?}", listed.sessions);
+        state.publish();
+        let still = state.saved_rules.view();
+        assert_eq!(
+            still.at,
+            state.next_rules_path(),
+            "not moved to the next id"
+        );
+        assert_eq!(still.state.expect("held"), held, "the held rules moved");
+
+        // Revoked down to the one deny, under the next id, and tried again.
+        for rule in held
+            .rules
+            .iter()
+            .filter(|rule| rule.display.starts_with("filler"))
+        {
+            let revoke = slash::Confirmation {
+                question: "",
+                explanation: "",
+                display: String::new(),
+                path: still.at.clone(),
+                event: Event::Revoke {
+                    id: rule.id,
+                    expected: rule.generation,
+                },
+            };
+            assert_eq!(state.saved_rules.confirm(&revoke).1, slash::UPDATED);
+        }
+        let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+        let provider = Counted {
+            inner: ScriptedProvider::new(vec![
+                calls(vec![call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "b.txt", "content": "y"}),
+                )]),
+                answers("DONE"),
+            ]),
+            asked: std::rc::Rc::clone(&asked),
+        };
+        assert_eq!(
+            one_turn_failure(&mut state, "write it", Box::new(provider)),
+            None
+        );
+        assert_eq!(asked.get(), 2);
+        assert!(
+            !workspace.path().join("b.txt").exists(),
+            "the deny kept through the failed save let the write by"
+        );
+        let saved = session_rules::load(&still.at).expect("the file");
+        assert_eq!(saved.rules.len(), 1, "{saved:?}");
+        assert_eq!(
+            saved.rules[0].display,
+            "write_file b.txt preimage=absent after=a1fce4363854ff88"
+        );
     }
 
     /// A provider that answers from a script and keeps every set of request
