@@ -8,6 +8,16 @@
 # both of those triggers run the version of the workflow that exists on the ref
 # being dispatched or proposed -- so anyone who can push a branch could rewrite
 # the steps that key is given to. A push to `main` has been through review.
+#
+# The trigger governs only this file. Any other workflow file, pushed on any
+# branch, runs that branch's own steps and could ask for a repository secret
+# just the same. So the key is not a repository secret: it lives in the
+# `preview` environment, whose deployment branch policy is `main` only. A job
+# reads it only by naming that environment, and GitHub admits a job to it only
+# in a run on `main`, so a workflow pushed on another branch cannot read it.
+# `publish` is the one job here that names the environment, because it is the
+# one job that pushes the tap.
+#
 # A publication that failed halfway is retried with GitHub's own re-run of that
 # same trusted event, which is why the run attempt is part of the tag and of the
 # Homebrew version: a re-run is a strictly newer build, not a collision.
@@ -367,6 +377,10 @@ jobs:
     name: publish
     needs: [preflight, build]
     if: needs.preflight.outputs.publish == 'true'
+    # The tap key is a secret of the `preview` environment, so only a job that
+    # names that environment can read it -- this one, and no other. See the
+    # top of this file for why that is where it lives.
+    environment: preview
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

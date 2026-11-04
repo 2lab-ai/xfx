@@ -77,9 +77,18 @@ latest, an actionlint pin new enough to recognize every runner label in the
 matrix, and a tap push whose freshness comparator it extracts and runs rather
 than reads. It needs `ruby` and `git`, which are on every CI image, and uses
 `actionlint` when it is installed. `scripts/test-preview-contract.sh` breaks the
-trigger, the epoch gate, the condition on the jobs behind it, and the epoch
-file one at a time in a scratch copy, and fails unless the contract check
-reports each break by name.
+trigger, the epoch gate, the condition on the jobs behind it, the tap key's
+environment, and the epoch file one at a time in a scratch copy, and fails
+unless the contract check reports each break by name.
+
+The tap is pushed with a deploy key, `TAP_PUSH_KEY`, that can write to
+`2lab-ai/homebrew-tap`. It is not a repository secret: it lives in the
+repository's `preview` environment, whose deployment branch policy is `main`
+only. A job can read it only by naming that environment, and GitHub admits a
+job to it only in a run on `main`, so a workflow pushed on another branch cannot
+read it. The contract check holds `publish` to being the one job that names the
+environment and the one job that reads a secret, and fails if any other
+workflow so much as names the key.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway
 on a loopback port -- no credential, no network -- and prints an evidence

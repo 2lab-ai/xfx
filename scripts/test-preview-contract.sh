@@ -7,8 +7,9 @@
 # A contract check that passes the real workflow has only shown that it passes
 # the real workflow. The checks that keep a preview per epic -- the path filter,
 # the trigger set, the epoch gate in preflight and the condition on the jobs
-# behind it, the epoch file itself -- are each one line that can be deleted in a
-# hurry, and a check that no longer notices the deletion goes on reporting `ok`.
+# behind it, the epoch file itself -- and the ones that keep the tap key inside
+# its `main`-only environment are each one line that can be deleted in a hurry,
+# and a check that no longer notices the deletion goes on reporting `ok`.
 #
 # So each case below breaks one of those things in a scratch copy of the tree,
 # runs the contract check against the copy, and requires exit 1 together with
@@ -30,11 +31,12 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 failures=0
 caught=0
 
-# A scratch tree holding the three files the contract check reads from one.
+# A scratch tree holding what the contract check reads from one: every
+# workflow, the epoch file and the README.
 tree_for() {
 	local root="$work/$1"
 	mkdir -p "$root/.github/workflows"
-	cp .github/workflows/preview.yml "$root/.github/workflows/preview.yml"
+	cp .github/workflows/*.yml "$root/.github/workflows/"
 	cp .github/preview-epoch "$root/.github/preview-epoch"
 	cp README.md "$root/README.md"
 	printf '%s\n' "$root"
@@ -50,6 +52,7 @@ text = File.read(path)
 
 paths_line = "    paths: [.github/preview-epoch]\n"
 job_condition = "    if: needs.preflight.outputs.publish == 'true'\n"
+environment_line = "    environment: preview\n"
 
 once = lambda do |from, to|
   count = text.scan(from).length
@@ -81,6 +84,13 @@ when "gate-removed"
 when "gate-always-publishes" then once.("if [ \"$changed\" = \"$epoch\" ]; then", "if true; then")
 when "build-unconditional" then unconditional.("build")
 when "publish-unconditional" then unconditional.("publish")
+when "environment-dropped" then once.(environment_line, "")
+when "environment-renamed" then once.(environment_line, "    environment: production\n")
+when "environment-on-preflight"
+  once.("    name: preflight\n", "    name: preflight\n" + environment_line)
+when "key-without-environment"
+  once.("    timeout-minutes: 45\n",
+        "    timeout-minutes: 45\n    env:\n      TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}\n")
 else abort "mutation #{name}: unknown"
 end
 
@@ -101,7 +111,7 @@ expect() {
 		sed 's/^/  /' "$work/$name.log" >&2
 		failures=$((failures + 1))
 	else
-		printf 'test-preview-contract: caught %-22s %s\n' "$name" "$problem"
+		printf 'test-preview-contract: caught %-24s %s\n' "$name" "$problem"
 		caught=$((caught + 1))
 	fi
 }
@@ -125,7 +135,11 @@ for row in \
 	"gate-removed|preflight has no epoch gate" \
 	"gate-always-publishes|expected skip" \
 	"build-unconditional|build runs on nil" \
-	"publish-unconditional|publish runs on nil"; do
+	"publish-unconditional|publish runs on nil" \
+	"environment-dropped|publish reads TAP_PUSH_KEY under environment nil" \
+	"environment-renamed|publish reads TAP_PUSH_KEY under environment \"production\"" \
+	"environment-on-preflight|preflight names environment \"preview\" but reads no secret" \
+	"key-without-environment|build reads TAP_PUSH_KEY under environment nil"; do
 	name="${row%%|*}"
 	root="$(tree_for "$name")"
 	mutate "$root" "$name"
@@ -136,6 +150,23 @@ for row in \
 	fi
 	expect "$name" "$root" "${row#*|}"
 done
+
+# --- the other workflows -----------------------------------------------------
+
+root="$(tree_for second-workflow)"
+cat >"$root/.github/workflows/tap.yml" <<'YAML'
+"on":
+  push:
+    branches: ["**"]
+jobs:
+  tap:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "$KEY"
+        env:
+          KEY: ${{ secrets.TAP_PUSH_KEY }}
+YAML
+expect second-workflow "$root" 'tap.yml mentions TAP_PUSH_KEY'
 
 # --- the epoch file ----------------------------------------------------------
 

@@ -35,6 +35,13 @@ upstream `fx`.** What is and is not implemented lives in
   not one line; it runs the gate over real commits. The new
   `scripts/test-preview-contract.sh`, run by CI, breaks each of those in a
   scratch copy and requires the check to name the break.
+- **The tap key is an environment secret.** `TAP_PUSH_KEY` moved from a
+  repository secret into the `preview` environment, whose deployment branch
+  policy is `main` only, and `publish` names that environment. A workflow
+  pushed on another branch cannot read the key.
+  `scripts/check-preview-contract.sh` fails if `publish` stops naming the
+  environment, if any other job names it or reads a secret, or if another
+  workflow mentions the key.
 - **`status` and `doctor` report `provider` where they reported `backend`.**
   The fields are `provider`, `provider_url` and `provider_rejected`, and the
   `doctor` check is named `provider`. The settings key that selects it is still

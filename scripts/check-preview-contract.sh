@@ -125,6 +125,11 @@ export CONTRACT_FORMULA_TEMPLATE='Formula/xfx-preview.rb.tmpl'
 export CONTRACT_FORMULA_RENDERED='Formula/xfx-preview.rb'
 export CONTRACT_TAP_REMOTE='git@github.com:2lab-ai/homebrew-tap.git'
 export CONTRACT_TAP_SECRET='TAP_PUSH_KEY'
+# The GitHub environment that holds it. Its deployment branch policy is `main`
+# only, which is set in the repository's settings and so cannot be read from
+# here; what can be held here is that the key is asked for under that name, by
+# the one job that needs it, and by no other workflow.
+export CONTRACT_TAP_ENVIRONMENT='preview'
 export CONTRACT_KEEP='15'
 export CONTRACT_QUALIFIED_INSTALL='brew install 2lab-ai/tap/xfx-preview'
 export CONTRACT_UNQUALIFIED_INSTALL='brew install xfx-preview'
@@ -158,11 +163,12 @@ fi
 
 # --- the workflow contract ---------------------------------------------------
 
-if ! ruby - "$workflow" "$tree/$CONTRACT_EPOCH" <<'RUBY'; then
+if ! ruby - "$workflow" "$tree/$CONTRACT_EPOCH" "$tree/.github/workflows" <<'RUBY'; then
 require "yaml"
 
 workflow_path = ARGV.fetch(0)
 epoch_file = ARGV.fetch(1)
+workflows_dir = ARGV.fetch(2)
 document = YAML.safe_load(File.read(workflow_path), aliases: true)
 raw = File.read(workflow_path)
 
@@ -229,6 +235,25 @@ def uses_step(job, action)
   steps_of(job).find { |step| step["uses"].to_s.start_with?(action) }
 end
 
+# Every string anywhere under a node, keys included.
+def strings_in(node)
+  case node
+  when Hash then node.flat_map { |key, value| strings_in(key) + strings_in(value) }
+  when Array then node.flat_map { |value| strings_in(value) }
+  when String then [node]
+  else []
+  end
+end
+
+# Whether a job asks for a secret in any form: `secrets.NAME`, `secrets[...]`,
+# or the whole context handed to a function. Only expressions count; a step
+# that merely names a script with "secrets" in it does not.
+def reads_secrets?(node)
+  strings_in(node).any? do |text|
+    text.scan(/\$\{\{(.*?)\}\}/m).flatten.any? { |expression| expression.match?(/(?<![-\w.])secrets\b/) }
+  end
+end
+
 # ---------------------------------------------------------------- triggers ---
 
 # GitHub's `on:` is YAML 1.1's boolean `true` unless it was quoted.
@@ -288,6 +313,45 @@ check.(needs_of(publish).sort == %w[build preflight],
        "publish depends on #{needs_of(publish).inspect}, expected both preflight and build")
 check.(publish&.dig("permissions", "contents") == "write",
        "publish cannot write contents, or was granted more than that")
+
+# --------------------------------------------------------------- the key ---
+
+# The tap key is a secret of one environment, and its branch policy -- `main`
+# only -- is what keeps a workflow pushed on any other branch from reading it.
+# That policy protects only a job that names the environment: a job that reads
+# the key without naming it gets a repository secret, if one exists, and a job
+# that names it without needing the key is one more job that could. So the jobs
+# that ask for any secret, the jobs that name an environment, and `publish` are
+# held to being the same one job.
+tap_environment = ENV.fetch("CONTRACT_TAP_ENVIRONMENT")
+tap_secret = ENV.fetch("CONTRACT_TAP_SECRET")
+readers = jobs.select { |_, job| reads_secrets?(job) }.keys.sort
+check.(readers == %w[publish],
+       "the jobs reading secrets are #{readers.inspect}; only publish may be handed #{tap_secret}, because only publish pushes the tap")
+jobs.each do |name, job|
+  environment = (job || {})["environment"]
+  if reads_secrets?(job)
+    check.(environment == tap_environment,
+           "#{name} reads #{tap_secret} under environment #{environment.inspect}, expected exactly #{tap_environment.inspect}; " \
+           "outside that environment the key is not behind its main-only branch policy")
+  else
+    check.(environment.nil?,
+           "#{name} names environment #{environment.inspect} but reads no secret; only the job handed #{tap_secret} enters #{tap_environment.inspect}")
+  end
+end
+check.(!reads_secrets?(document["env"]),
+       "the workflow-level env reads a secret, which hands it to every job whatever environment they name")
+
+# No other workflow may so much as name the key. An environment secret is out
+# of reach of a job that does not name the environment, but a workflow that
+# names the key is either reaching for it or a copy of this one waiting to be.
+own = [File.expand_path(workflow_path), File.expand_path(File.join(workflows_dir, "preview.yml"))]
+Dir.glob(File.join(workflows_dir, "*.{yml,yaml}")).sort.each do |other|
+  next if own.include?(File.expand_path(other))
+
+  check.(!File.read(other).include?(tap_secret),
+         "#{File.basename(other)} mentions #{tap_secret}; the tap key belongs to the preview workflow's publish job alone")
+end
 
 # The epoch gate's answer is only an answer if the jobs that build and publish
 # ask for it. Without the condition a push the gate turned away is built anyway,
