@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-450c45e [debug] · Run /help for commands
+
+┃ run it
+
+  Let me run it.
+
+● 1 tool call · 1 command · 1 cancelled
+└ Cancelled echo keys
+
+■ Cancelled echo keys · What can xfx do differently?
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793782790597-abd24db874e1f5ac · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       ask
+  Sandbox           none
+  Workspace         <tmp>/fxcap.FRVsDD/work
+  Turns             1
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · 450c45ef0517
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
