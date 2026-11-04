@@ -675,3 +675,120 @@ fn continuing_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_pre
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 4. a session this build starts is one the preview reads
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_session_the_tui_starts_holds_its_early_settings_in_frames_the_preview_reads() {
+    // The other way round: a log this build writes, for the preview to open.
+    // The effort and the speed chosen before a session's first prompt are
+    // written at its first save, as fx writes the settings it held until its
+    // first turn (`src/core/session_manager/session.zig:415-429`,
+    // `:503-539@481104fd`): one `preferences_changed` right behind
+    // `session_started`. A kind the preview knows, `model` and
+    // `permission_mode` written as the `null` it reads as "unchanged", and
+    // three fields it predates and reads past -- its variants have no
+    // `deny_unknown_fields` (`14ad04202fe5 src/session/event.rs:96-118`).
+    // Every frame of the log is one of the preview's kinds, so the preview
+    // opens it whole (`.prd/tui-phase5/receipts/session-early-prefs/README.md`
+    // runs the preview's own `session --id` and `ask --resume-id` on one).
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["MARKER-EARLY-PREFS"]))])
+        .with_catalog(serde_json::json!({"object": "list", "data": [
+            {"id": "anthropic/claude-opus-5", "type": "language", "owned_by": "anthropic",
+             "released": 1_775_000_000, "tags": ["tool-use", "reasoning"],
+             "context_window": 1_000_000, "max_tokens": 64_000,
+             "reasoning_options": [{"type": "effort",
+                                    "values": ["low", "medium", "high", "max"]}],
+             "fast_options": [{"type": "toggle"}]}
+        ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    // Bracketed paste on: the composer is up.
+    session.wait_for("\u{1b}[?2004h");
+    // Pasted, and Enter after the paste has landed: typed key by key, the
+    // space after the id is the inline column's.
+    session.type_bytes(b"\x1b[200~/model anthropic/claude-opus-5 high fast\x1b[201~");
+    session.wait_for("claude-opus-5 high fast");
+    session.type_bytes(b"\r");
+    session.wait_for("Switched to anthropic/claude-opus-5 (effort: high, speed: fast)");
+    assert!(
+        sandbox.session_ids().is_empty(),
+        "a choice before the first prompt wrote a session"
+    );
+    session.type_bytes(b"first prompt please\r");
+    session.wait_for("MARKER-EARLY-PREFS");
+    let id = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let ids = sandbox.session_ids();
+            if let [id] = ids.as_slice() {
+                let log = fs::read(sandbox.sessions_dir().join(id).join("events.jsonl"))
+                    .unwrap_or_default();
+                if kinds_of(&log).contains(&"turn_concluded".to_string()) {
+                    break id.clone();
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the turn never concluded: {ids:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    assert_eq!(session.quit().code(), Some(0));
+
+    let log = fs::read(sandbox.sessions_dir().join(&id).join("events.jsonl")).expect("the log");
+    let kinds = kinds_of(&log);
+    let known: BTreeSet<&str> = PREVIEW_KINDS.into_iter().collect();
+    for kind in &kinds {
+        assert!(
+            known.contains(kind.as_str()),
+            "a `{kind}`, which the preview refuses with the whole log: {kinds:?}"
+        );
+    }
+    assert_eq!(
+        kinds[..4],
+        [
+            "session_started",
+            "preferences_changed",
+            "project_context_recorded",
+            "user_message"
+        ],
+        "{kinds:?}"
+    );
+    let events: Vec<Value> = std::str::from_utf8(&log)
+        .expect("UTF-8")
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("a frame")["event"].clone())
+        .collect();
+    assert_eq!(
+        events[0]["model"], "anthropic/claude-opus-5",
+        "{}",
+        events[0]
+    );
+    assert_eq!(
+        events[1],
+        serde_json::json!({
+            "kind": "preferences_changed",
+            "model": null,
+            "permission_mode": null,
+            "effort": "high",
+            "fast_mode": true,
+            "ultrafast_mode": false,
+        })
+    );
+    // And the turn was asked in them.
+    let asked = gateway.requests()[0].json();
+    assert_eq!(asked["reasoning"], "high", "{asked}");
+    assert_eq!(
+        asked["providerOptions"]["gateway"]["speed"], "fast",
+        "{asked}"
+    );
+}

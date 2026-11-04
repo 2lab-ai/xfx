@@ -1812,6 +1812,20 @@ impl Runtime {
     /// whether or not it took it. A failure before the store is asked -- a
     /// workspace that cannot be scoped -- keeps the id, so the next attempt
     /// opens the session `/status` names.
+    ///
+    /// **The log's first save says what the session is in**, as upstream's
+    /// does: everything its session is set to before the first turn is held
+    /// in memory and written with that turn (`hold`, `writeFirstTurn`,
+    /// `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`),
+    /// starting from the preferences it was created with (`appendSeed`,
+    /// `session_adapter.zig:1289-1299`). Here the model, the provider and the
+    /// permission mode in force are `session_started`'s, and the effort and
+    /// both switches -- `/settings`' effort row, a `/fast` or a `/model <id>
+    /// <effort>` used before the first prompt, which had no log to go into --
+    /// are the `preferences_changed` written right behind it, whatever they
+    /// are: a resume restores them from there ([`Runtime::resume_by_id`]). A
+    /// frame of a kind every older xfx reads, with fields one that predates
+    /// them ignores (`tests/session_compat.rs`).
     fn open_next(&mut self, mirror: &CancelToken) -> Result<(), String> {
         let model = self.model().to_string();
         let opened = open_conversation_as(
@@ -1839,6 +1853,7 @@ impl Runtime {
                 self.next_session = SessionId::generate();
                 self.conversation = Some(conversation);
                 self.session_refused = false;
+                self.record_settings();
                 self.opened();
                 Ok(())
             }
@@ -8495,17 +8510,205 @@ mod tests {
             .id()
             .clone();
         assert_ne!(fresh, saved);
-        let kinds: Vec<String> = String::from_utf8_lossy(&session_files(&state, &fresh).0)
-            .lines()
-            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a frame"))
-            .filter_map(|frame| frame["event"]["kind"].as_str().map(str::to_string))
+        let events: Vec<serde_json::Value> =
+            String::from_utf8_lossy(&session_files(&state, &fresh).0)
+                .lines()
+                .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a frame"))
+                .map(|frame| frame["event"].clone())
+                .collect();
+        let kinds: Vec<&str> = events
+            .iter()
+            .filter_map(|event| event["kind"].as_str())
             .collect();
         assert_eq!(kinds[0], "session_started", "{kinds:?}");
-        assert!(
-            !kinds.iter().any(|kind| kind == "preferences_changed"),
+        assert_eq!(events[0]["permission_mode"], "yolo", "{}", events[0]);
+        // The one `preferences_changed` is the first save's own: the effort
+        // and the switches in force, and no model, mode or provider over
+        // what `session_started` says.
+        let changed: Vec<&serde_json::Value> = events
+            .iter()
+            .filter(|event| event["kind"] == "preferences_changed")
+            .collect();
+        assert_eq!(changed.len(), 1, "{kinds:?}");
+        assert_eq!(kinds[1], "preferences_changed", "{kinds:?}");
+        for field in ["model", "permission_mode"] {
+            assert!(changed[0][field].is_null(), "{}", changed[0]);
+        }
+        assert!(changed[0].get("provider").is_none(), "{}", changed[0]);
+        assert_eq!(session_files(&state, &saved), before);
+    }
+
+    /// Every frame of `id`'s log, its `event` alone, in order.
+    fn logged_events(state: &Runtime, id: &SessionId) -> Vec<serde_json::Value> {
+        String::from_utf8_lossy(&session_files(state, id).0)
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a frame"))
+            .map(|frame| frame["event"].clone())
+            .collect()
+    }
+
+    /// A runtime with no conversation yet, that has been through `/model
+    /// <id> max` from the column, `/settings`' effort row and `/fast` -- every
+    /// one of them before a first prompt -- and then that prompt.
+    fn chosen_before_the_first_prompt(config: RuntimeConfig) -> (Runtime, SessionId) {
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        let change = |name: &str, effort: &str, effort_only: bool| ModelChange {
+            name: name.to_string(),
+            effort: Some(crate::provider::effort::Effort::Named(effort.to_string())),
+            speed: None,
+            picker: !effort_only,
+            announced: true,
+            next_turn: false,
+            provider: ProviderId::Gateway,
+            effort_only,
+        };
+        ran_change(&mut state, change("anthropic/claude-opus-5", "max", false));
+        ran_change(&mut state, change("", "low", true));
+        change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        assert!(state.conversation.is_none(), "a choice opened the session");
+        assert_eq!(one_turn_of(&mut state, "first", "FIRST"), Ended::Turn);
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("the prompt opened a conversation")
+            .recorder
+            .id()
+            .clone();
+        (state, id)
+    }
+
+    #[test]
+    fn settings_chosen_before_the_first_prompt_are_written_with_its_first_save() {
+        // fx holds every setting made before a session's first turn in memory
+        // and writes them with that turn (`hold`, `writeFirstTurn`,
+        // `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`),
+        // the session's own seed first (`appendSeed`, `session_adapter.zig:
+        // 1289-1299`). The model, the provider and the mode in force are
+        // `session_started`'s already; the effort and both switches are this
+        // frame's, right behind it and ahead of the prompt. Red before: the
+        // log said nothing of them until a change made after the first turn.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let (state, id) = chosen_before_the_first_prompt(config(home.path(), workspace.path()));
+        let events = logged_events(&state, &id);
+        let kinds: Vec<&str> = events
+            .iter()
+            .filter_map(|event| event["kind"].as_str())
+            .collect();
+        assert_eq!(
+            kinds[..4],
+            [
+                "session_started",
+                "preferences_changed",
+                "project_context_recorded",
+                "user_message"
+            ],
             "{kinds:?}"
         );
-        assert_eq!(session_files(&state, &saved), before);
+        assert_eq!(
+            events[0]["model"], "anthropic/claude-opus-5",
+            "{}",
+            events[0]
+        );
+        assert_eq!(events[0]["provider"], "gateway", "{}", events[0]);
+        assert_eq!(
+            events[1],
+            serde_json::json!({
+                "kind": "preferences_changed",
+                "model": null,
+                "permission_mode": null,
+                "effort": "low",
+                "fast_mode": true,
+                "ultrafast_mode": false,
+            })
+        );
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|kind| **kind == "preferences_changed")
+                .count(),
+            1,
+            "{kinds:?}"
+        );
+    }
+
+    #[test]
+    fn a_resume_puts_back_the_first_saves_settings_and_nothing_it_does_not_restore() {
+        // What a resume restores from that frame, and what it still does
+        // not: the effort and the speed come back (`restoreRuntimePreferences`,
+        // `app_session_runtime.zig:5110-5158@481104fd`), whatever the profile
+        // says now; the launch's permission mode stays, and an `XFX_MODEL`
+        // still outranks the session's model.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let launched = config(home.path(), workspace.path());
+        let (state, id) = chosen_before_the_first_prompt(launched.clone());
+        drop(state);
+        let chosen = TurnSettings {
+            effort: crate::provider::effort::Effort::Named("low".to_string()),
+            fast: true,
+            ultrafast: false,
+        };
+
+        let mut later = launched.clone();
+        later.permission_mode = PermissionMode::Yolo;
+        later.effort = crate::provider::effort::Effort::Named("high".to_string());
+        later.fast_mode = false;
+        later.model = "fake/model-a".to_string();
+        later.sources.model = crate::config::SettingSource::ProcessOverride;
+        let resumed =
+            Resumption::open(&later, &crate::session::Selector::Id(id.clone())).expect("opens");
+        assert_eq!(resumed.settings(), Some(&chosen));
+        assert_eq!(
+            resumed.selection(&later, &later.model),
+            (ProviderId::Gateway, "fake/model-a".to_string())
+        );
+        drop(resumed);
+
+        let store = open_store(&later).expect("a store");
+        let mut state = Runtime::new(later, store, a_prompter(), a_questioner());
+        state
+            .resume_by_id(id.as_str(), &CancelToken::new())
+            .expect("resumed");
+        assert_eq!(state.settings, chosen);
+        assert_eq!(state.config.permission_mode, PermissionMode::Yolo);
+        assert_eq!(state.model(), "fake/model-a");
+    }
+
+    #[test]
+    fn a_rename_before_the_first_prompt_opens_the_log_with_the_settings_in_force() {
+        // `/rename` opens the conversation before any prompt does: the frame
+        // is written there, and a change after it is a change to a log that
+        // already says what the session was in.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.settings.effort = crate::provider::effort::Effort::Named("high".to_string());
+        let id = state
+            .conversation(&CancelToken::new())
+            .expect("opened")
+            .recorder
+            .id()
+            .clone();
+        let events = logged_events(&state, &id);
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert_eq!(events[1]["kind"], "preferences_changed", "{}", events[1]);
+        assert_eq!(events[1]["effort"], "high", "{}", events[1]);
+        assert_eq!(events[1]["fast_mode"], false, "{}", events[1]);
     }
 
     #[test]

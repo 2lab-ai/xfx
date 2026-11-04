@@ -681,7 +681,9 @@ pub struct DurableState {
     pub renamed: Option<String>,
     /// The effort and speed switches the session last recorded, or `None` for
     /// a session that never recorded them -- a resume then keeps what the
-    /// profile says.
+    /// profile says. The TUI records them at a session's first save
+    /// (`crate::tui::worker`'s `open_next`), so `None` is a log an older
+    /// build wrote, `ask` or the line shell, which send no effort.
     pub turn_settings: Option<crate::provider::effort::TurnSettings>,
     /// What the session's `usage_recorded` frames say about its spend, for
     /// `/usage` ([`crate::usage`]).
