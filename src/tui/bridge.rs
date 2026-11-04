@@ -2471,6 +2471,42 @@ mod tests {
     }
 
     #[test]
+    fn an_effort_the_runtime_applied_is_made_inert_and_the_default_passes() {
+        // `EffortApplied` carries one string, the level -- no model id -- and
+        // a level is a name `Effort::parse` read before it got here; the
+        // channel holds it to the policy anyway, so a forged one comes out
+        // spelled: every control a space, the rest as it was.
+        use crate::provider::effort::Effort;
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Named("hi\x1b]0;x\x07gh\x1b[2J".into()),
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Named("hi ]0;x gh [2J".into()),
+            }
+        );
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Named("high".into()),
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Named("high".into()),
+            }
+        );
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Auto
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Auto
+            }
+        );
+    }
+
+    #[test]
     fn both_answers_to_a_rename_are_made_inert() {
         // A title the store's validation passed, and an I/O error's words:
         // the same policy for both, at the channel.
