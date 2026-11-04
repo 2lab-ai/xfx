@@ -1,0 +1,8 @@
+=== ~/.xfx/history.jsonl (784 bytes)
+{"schema_version":1,"timestamp_ms":1793786872969,"workspace_root":"<scratch>/work","text":"/permissions remember allow write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
+{"schema_version":1,"timestamp_ms":1793786875541,"workspace_root":"<scratch>/work","text":"/permissions remember deny read_file {\"path\":\"a.txt\"}"}
+{"schema_version":1,"timestamp_ms":1793786878098,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786879642,"workspace_root":"<scratch>/work","text":"/permissions revoke 1"}
+{"schema_version":1,"timestamp_ms":1793786883245,"workspace_root":"<scratch>/work","text":"/permissions"}
+
+=== ~/.xfx/history.lock (0 bytes)

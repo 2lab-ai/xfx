@@ -1,0 +1,40 @@
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared
+
+✗ usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* allowlist: added command: "git *" (scope=local)
+
+✗ permissions: saved-session permission rules require an active saved session
+
+┃ run a command
+
+● 1 tool call · 1 command
+└ Ran echo hi
+
+  Ran it.
+
+  3s (↑4 ↓80)
+
+! permissions: saved-session permission rule not found
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Permissions
+
+  Mode                ask
+  Configured rules    1
+                      • allow bash → git *
+  Session grants      1
+                      • terminal → echo hi in <tmp>/fxcap.nG2nz5/work
+  Saved rules         none
+  Change mode         /permissions ask, auto, full-access, or reset
+  Remember            /permissions remember allow|deny <tool-name> <arguments-json>
+  Revoke              /permissions revoke <rule-id>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close

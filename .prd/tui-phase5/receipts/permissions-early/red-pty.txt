@@ -1,0 +1,8 @@
+# RED, pty: tests/tui.rs a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question
+# appended to daff4834's tests/tui.rs, the real binary in a pty, a loopback fake gateway, a fake key
+test a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question ... FAILED
+thread 'a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question' panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["Remember deny for this saved session?"] on the screen, [] off it; terminal so far:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 163 filtered out; finished in 21.73s
+# the terminal at the timeout says, where the confirmation was waited for:
+✗ permissions: saved-session permission rules require an active saved session

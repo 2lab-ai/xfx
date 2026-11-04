@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-11ea212 [debug] · Run /help for commands
+
+* permissions: saved-session permission rule updated
+
+* permissions: saved-session permission rule updated
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Permissions
+
+  Mode                auto
+  Configured rules    none
+  Session grants      none
+  Saved rules         2
+                      • 1 allow write_file b.txt preimage=absent after=a1fce4363854ff88
+                      • 2 deny read_file a.txt
+  Change mode         /permissions ask, auto, full-access, or reset
+  Remember            /permissions remember allow|deny <tool-name> <arguments-json>
+  Revoke              /permissions revoke <rule-id>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

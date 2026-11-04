@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-11ea212 [debug] · Run /help for commands
+
+* permissions: saved-session permission rule updated
+
+* permissions: saved-session permission rule updated
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Permission needed · Choose one                                                                       Permission rule
+
+  Revoke this saved-session permission rule?
+  Confirm revocation of this stored rule. No current action will be prepared or run.
+  $ write_file b.txt preimage=absent after=a1fce4363854ff88
+
+  ❯ 1. Confirm
+    2. Cancel
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–2 choose    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

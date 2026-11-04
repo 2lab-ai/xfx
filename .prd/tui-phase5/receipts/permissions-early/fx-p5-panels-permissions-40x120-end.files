@@ -1,0 +1,59 @@
+=== ~/.fx/backups/settings.json.backup.1793786415540-0000000000000001-aa199be57446011efc7c174ed287ef21 (27 bytes)
+{"permission_mode":"auto"}
+
+=== ~/.fx/backups/settings.json.backup.1793786415540-0000000000000002-d89f84f07c78057103b4d733b149d02a (27 bytes)
+{"permission_mode":"yolo"}
+
+=== ~/.fx/backups/settings.json.backup.1793786416592-0000000000000003-9c059bd1e4bafe7fed8b8729c3664637 (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/backups/settings.json.backup.1793786421465-0000000000000004-7aa5895e64d4a160d8810887ffac3b3f (51 bytes)
+{"permission_mode":"ask","yolo_acknowledged":true}
+
+=== ~/.fx/history.jsonl (2250 bytes)
+{"schema_version":1,"timestamp_ms":1793786412639,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786414516,"workspace_root":"<scratch>/work","text":"/permissions auto"}
+{"schema_version":1,"timestamp_ms":1793786415539,"workspace_root":"<scratch>/work","text":"/permissions full-access"}
+{"schema_version":1,"timestamp_ms":1793786416588,"workspace_root":"<scratch>/work","text":"/permissions ask"}
+{"schema_version":1,"timestamp_ms":1793786417631,"workspace_root":"<scratch>/work","text":"/permissions reset"}
+{"schema_version":1,"timestamp_ms":1793786418702,"workspace_root":"<scratch>/work","text":"/permissions bogus"}
+{"schema_version":1,"timestamp_ms":1793786419879,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786421463,"workspace_root":"<scratch>/work","text":"/allowlist add command \"git *\""}
+{"schema_version":1,"timestamp_ms":1793786422481,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786424017,"workspace_root":"<scratch>/work","text":"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
+{"schema_version":1,"timestamp_ms":1793786426726,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786428316,"workspace_root":"<scratch>/work","text":"run a command"}
+{"schema_version":1,"timestamp_ms":1793786434365,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786435911,"workspace_root":"<scratch>/work","text":"/status"}
+{"schema_version":1,"timestamp_ms":1793786437454,"workspace_root":"<scratch>/work","text":"/permissions revoke 1"}
+{"schema_version":1,"timestamp_ms":1793786440025,"workspace_root":"<scratch>/work","text":"/permissions"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/LUQQTfowV2C3/blobs/1462bcbe3ebfc6c25e8633f57df1f8fff7ec67e1a929d38097dce05eb3928d0e (20 bytes)
+(binary)
+=== ~/.fx/sessions/v2/LUQQTfowV2C3/blobs/b58e7c21a5fea0acf5e7fad98ba0a017e42f7635d48a0b0937264f45c373f909 (443 bytes)
+{"session_id":null,"state":"completed","backend":"captured","persistence":"process","output_truncated":false,"output_incomplete":false,"output_terminal_safe":true,"full_output_handle":"fx-command-replay-6229711e8093-1462bcbe3ebfc6c25e8633f57df1f8fff7ec67e1a929d38097dce05eb3928d0e.bin","exit_code":0,"signal":null,"termination_indeterminate":false,"duration_ms":9,"accepted_bytes":null,"error":null,"retry_guidance":null,"output_delta":"hi\n"}
+=== ~/.fx/sessions/v2/LUQQTfowV2C3/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/LUQQTfowV2C3/log.jsonl (6219 bytes)
+{"v":1,"seq":1,"ts":1793786428337,"kind":"session_created","id":"LUQQTfowV2C3","workspace":"<scratch>/work","role":"root","host":"app","crc":"ef3cb498"}
+{"v":1,"seq":2,"ts":1793786410328,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"df479b60"}
+{"v":1,"seq":3,"ts":1793786410328,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"f5a8d77c"}
+{"v":1,"seq":4,"ts":1793786410328,"kind":"set","key":"language","value":"und","crc":"634f4a03"}
+{"v":1,"seq":5,"ts":1793786425621,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":2,"rules":[{"id":1,"kind":"file_mutation","canonical":{"encoding":"base64","data":"AAAAAAAAABtmeC1wZXJtaXNzaW9uLXN0YXRlLWZpbGUtdjEAAAAAAAAACndyaXRlX2ZpbGUAAAAAAAAAIPQ1WVFLaCYFsqecTKazK7ZoJqP7desgq1o4/SbJTZBRAAAAAAAAAC8vcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5Hdk1Ickwvd29yay9iLnR4dAAAAAAAAAAFd3JpdGUAAAAAAAAAD3ByZWltYWdlLWFic2VudAAAAAAAAAAgofzkNjhU/4iM/0uOeHXWAMJoI5BBKoz3mzfQsRFIsPoAAAAAAAAALy9wcml2YXRlL3RtcC9jbGF1ZGUtNTAxL2Z4Y2FwLkd2TUhyTC93b3JrL2IudHh0AAAAAAAAAAZ0YXJnZXQAAAAAAAAADHRhcmdldF9lbnRyeQAAAAAAAAAPaWRlbnRpdHktYWJzZW50AAAAAAAAACkvcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5Hdk1Ickwvd29yawAAAAAAAAAGcGFyZW50AAAAAAAAAA9leGlzdGluZ19wYXJlbnQAAAAAAAAACAAAAAABAAARAAAAAAAAAAgAAAAAIayx5QAAAAAAAAAJZGlyZWN0b3J5"},"display_identity":"write_file b.txt preimage=absent after=a1fce4363854ff88","decision":"deny","generation":1}]},"crc":"57ec4525"}
+{"v":1,"seq":6,"ts":1793786428337,"kind":"turn_started","turn":1,"crc":"7ef3fe69"}
+{"v":1,"seq":7,"ts":1793786428337,"kind":"item","turn":1,"type":"user","data":{"text":"run a command","images":[],"work_id":null},"crc":"7e7ec08f"}
+{"v":1,"seq":8,"ts":1793786428337,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-04\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is ask. Sensitive tool calls may require user approval unless configured rules or session grants already decide them. Tool admission remains authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"81aa457b"}
+{"v":1,"seq":9,"ts":1793786428439,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"28a259ca"}
+{"v":1,"seq":10,"ts":1793786428441,"kind":"item","turn":1,"type":"tool_running","data":{"call_id":"call_1_0","tool_name":"shell","arguments_json":"{\"action\":\"run\",\"command\":\"echo hi\",\"yield_time_ms\":30000}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"},"crc":"1feccb03"}
+{"v":1,"seq":11,"ts":1793786431381,"kind":"item","turn":1,"type":"tool_call","data":{"call_id":"call_1_0","tool_name":"shell","arguments_json":"{\"action\":\"run\",\"command\":\"echo hi\",\"yield_time_ms\":30000}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"},"blobs":["1462bcbe3ebfc6c25e8633f57df1f8fff7ec67e1a929d38097dce05eb3928d0e","b58e7c21a5fea0acf5e7fad98ba0a017e42f7635d48a0b0937264f45c373f909"],"crc":"421602d2"}
+{"v":1,"seq":12,"ts":1793786431381,"kind":"item","turn":1,"type":"tool_result","data":{"call_id":"call_1_0","tool_n
+=== ~/.fx/sessions/v2/index.jsonl (499 bytes)
+{"op":"put","id":"LUQQTfowV2C3","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793786428337,"updated":1793786428337,"turns":0,"opened":[1793786428337,0,0,0,0],"crc":"c8ff27b7"}
+{"op":"put","id":"LUQQTfowV2C3","role":"root","host":"app","workspace":"<scratch>/work","title":"run a command","language":"und-Latn","created":1793786428337,"updated":1793786431707,"turns":1,"opened":[0,0,0,0,0],"crc":"89a5ae42"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/settings.json (152 bytes)
+{"permission_mode":"ask","yolo_acknowledged":true,"workspaces":{"<scratch>/work":{"permission":{"bash":{"git *":"allow"}}}}}
+
+=== ~/.fx/settings.lock (0 bytes)

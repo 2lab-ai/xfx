@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-11ea212 [debug] · Run /help for commands
+
+* permissions: mode set to auto
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared
+
+✗ usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* allowlist: added command: "git *" (scope=local)
+
+* permissions: saved-session permission rule updated
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Permissions
+
+  Mode                ask
+  Configured rules    1
+                      • allow bash → git *
+  Session grants      none
+  Saved rules         1
+                      • 1 deny write_file b.txt preimage=absent after=a1fce4363854ff88
+  Change mode         /permissions ask, auto, full-access, or reset
+  Remember            /permissions remember allow|deny <tool-name> <arguments-json>
+  Revoke              /permissions revoke <rule-id>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-11ea212 [debug] · Run /help for commands
+
+* permissions: saved-session permission rule updated
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Permission needed · Choose one                                                                       Permission rule
+
+  Remember deny for this saved session?
+  Confirm this exact saved-session permission rule. The action will not run.
+  $ read_file a.txt
+
+  ❯ 1. Confirm
+    2. Cancel
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–2 choose    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
