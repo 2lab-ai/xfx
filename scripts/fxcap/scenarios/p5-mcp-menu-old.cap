@@ -1,0 +1,71 @@
+# p5 mcp: c1db919's /mcp menu with the same three servers as
+# p5-mcp-menu-new: its sections, each server's details, help, the
+# project-trust confirmation, each left with Esc.
+# The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+work p5-mcp-ws
+fx: homefile .fx/mcp.json p5-mcp-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-profile.json
+wait 4
+snap startup
+key Escape
+wait 1
+snap dismissed
+type /mcp
+key Enter
+wait 2
+snap list
+key Down
+wait 0.5
+snap list-down
+key Tab
+wait 1
+snap tools
+key Tab
+wait 1
+snap resources
+key Tab
+wait 1
+snap prompts
+key Tab
+wait 1
+snap servers
+key Enter
+wait 1
+snap details-1
+key Escape
+wait 0.5
+key Down
+wait 0.3
+key Enter
+wait 1
+snap details-2
+key Escape
+wait 0.5
+key Down
+wait 0.3
+key Enter
+wait 1
+snap details-3
+key Escape
+wait 0.5
+type c
+wait 0.7
+snap info
+key Escape
+wait 0.5
+type x
+wait 0.7
+snap x-key
+key Escape
+wait 0.5
+type d
+wait 0.7
+snap d-key
+key Escape
+wait 0.5
+key Escape
+wait 0.5
+snap closed
+snapfull end
+home end

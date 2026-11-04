@@ -285,6 +285,52 @@ class CiSweep(unittest.TestCase):
         self.assertIn("gone\tremoved\n", r.stdout)
         self.assertEqual(os.listdir(self.state), [])
 
+    def test_a_file_named_through_the_scenario_directory_selects_its_users(self):
+        """capture.sh's `@SCENARIOS@/<path>`: in a typed line, in a seeded
+        profile, in a workspace directory's file -- one level, and never a
+        path outside scenarios/."""
+        server = '{"mcpServers":{"s":{"command":"@BUN@","args":["@SCENARIOS@/server.mjs"]}}}\n'
+        self.write(os.path.join(self.scen, "server.mjs"), "// one\n")
+        self.write(os.path.join(self.scen, "prof.json"), server)
+        os.makedirs(os.path.join(self.scen, "ws"))
+        self.write(os.path.join(self.scen, "ws", ".mcp.json"), server)
+        self.write(os.path.join(self.scen, "deeper.json"), '["@SCENARIOS@/prof.json"]\n')
+        caps = {
+            "viaprofile": "fx: homefile .fx/mcp.json prof.json\nsnap a\n",
+            "viawork": "work ws\nsnap a\n",
+            "viatype": "type /mcp add two -- @BUN@ @SCENARIOS@/server.mjs\nsnap a\n",
+            "viadeeper": "homefile x.json deeper.json\nsnap a\n",
+            "outside": "type /mcp ../scen/server.mjs /etc/hosts\nsnap a\n",
+        }
+        for name, text in caps.items():
+            self.write(os.path.join(self.scen, name + ".cap"), text)
+        self.commit("servers")
+        r = self.select("HEAD", "server.mjs", "// two\n")
+        for name in ("viaprofile", "viawork", "viatype"):
+            self.assertIn("%s\tuses server.mjs\n" % name, r)
+        # deeper.json names prof.json, not server.mjs: one level only.
+        self.assertNotIn("viadeeper", r)
+        self.assertNotIn("outside", r)
+        # The profile itself, edited, selects what names it either way.
+        r = self.select("HEAD", "prof.json", server + "\n")
+        self.assertIn("viaprofile\tuses prof.json\n", r)
+        self.assertIn("viadeeper\tuses prof.json\n", r)
+        self.assertNotIn("viatype", r)
+
+    def select(self, base, name, text):
+        """The --select output once `name` under scenarios/ is `text`,
+        committed, against `base`."""
+        base = self.git("rev-parse", base).strip()
+        self.write(os.path.join(self.scen, name), text)
+        self.commit("edit " + name)
+        r = subprocess.run(
+            ["bash", CI_SWEEP, "--select", "--base", base, "--scenarios", self.scen, "--core", self.core],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 WORKFLOWS = [os.path.join(test_sweep.REPO, ".github", "workflows", n) for n in ("sweep.yml", "sweep-full.yml")]

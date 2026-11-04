@@ -28,7 +28,18 @@
 # so a profile can name `"llmux_url":"http://127.0.0.1:@PORT@"` and a provider
 # switch reaches it. `@HOME@` there is the run's HOME, and `@MCPPORT@` the
 # port of the run's HTTP MCP server (`mcphttp`; a scenario that names it
-# without one is refused).
+# without one is refused). `@SCENARIOS@` is the scenario directory this run
+# reads, as an absolute path, and `@BUN@` the absolute path of the `bun` that
+# runs fakegw.ts: a stdio MCP server the scenario keeps beside it,
+# `"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-stdio.ts"]`, starts
+# on any checkout (the binary's PATH is /usr/bin:/bin, which has no bun). A run
+# whose scenario names either, and whose path has a character outside
+# `A-Za-z0-9._/+-`, is refused: such a path cannot be written into JSON, a
+# shell word and a typed line as itself. All five are also written into every
+# file a `work` or `dir` line copies (a text file: one with no NUL), and into
+# the text of a `type`, `paste` or `relaunch` line when it runs, so
+# `type /mcp add two -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts` names the
+# fixture on this machine.
 #   models <catalog.json>  what the fake gateway answers for
 #                          GET /coding-agent/v1/models (default: one model)
 #   modelsdown <ms>        that path answers 503 for the first <ms> after the
@@ -191,7 +202,8 @@
 #                          unknown, 404
 #   mcphttp <mode>         starts the run's HTTP MCP server (mcphttp.ts) before
 #                          launch, on a loopback port the OS picks, in <mode>
-#                          -- `ready`, `hang`, `fail` or `rpcerror` -- and
+#                          -- `ready`, `methodnotfound`, `hang`, `fail` or
+#                          `rpcerror` (mcphttp.ts says what each answers) -- and
 #                          writes its port where `@MCPPORT@` is, so a
 #                          `homefile .fx/mcp.json` naming
 #                          `http://127.0.0.1:@MCPPORT@/mcp` reaches it; each
@@ -255,6 +267,9 @@ for_this() {
 # three are set once fx's chime names are made, so a run that never launched fx
 # is not checked for what it could not have done.
 gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
+# What `@SCENARIOS@` and `@BUN@` are written as (main sets them, `fill` and
+# `fill_text` read them), and the one line `fill_text` leaves its text in.
+fill_scenarios='' fill_bun='' filled=''
 
 # fx's sound and upgrade guards (above), every one checked and every breach
 # named; the one line that says they held.
@@ -281,23 +296,50 @@ cleanup() {
   exit "$code"
 }
 
-# `@PORT@`, `@HOME@` and `@MCPPORT@`, written in: stdin to stdout.
+# `@PORT@`, `@HOME@`, `@MCPPORT@`, `@SCENARIOS@` and `@BUN@`, written in: stdin
+# to stdout.
 fill() {
   local port=$1 home=$2 mcpport=$3
-  sed -e "s/@PORT@/$port/g" -e "s#@HOME@#$home#g" -e "s/@MCPPORT@/$mcpport/g"
+  sed -e "s/@PORT@/$port/g" -e "s#@HOME@#$home#g" -e "s/@MCPPORT@/$mcpport/g" \
+    -e "s#@SCENARIOS@#$fill_scenarios#g" -e "s#@BUN@#$fill_bun#g"
 }
 
-# Refuses a file that names `@MCPPORT@` in a run with no HTTP MCP server.
-needs_mcp() {
+# The same five in one line of a scenario's own text (`type`, `paste`,
+# `relaunch`), left in `filled`: no subshell, so a trailing space stays.
+fill_text() {
+  local port=$1 home=$2 mcpport=$3
+  filled=${4//@PORT@/$port}
+  filled=${filled//@HOME@/$home}
+  filled=${filled//@MCPPORT@/$mcpport}
+  filled=${filled//@SCENARIOS@/$fill_scenarios}
+  filled=${filled//@BUN@/$fill_bun}
+}
+
+# Refuses a path `@SCENARIOS@` or `@BUN@` would be written as, unless it is
+# absolute and every character is one sed, JSON, a shell word and a typed line
+# all carry as itself.
+writable_path() {
+  local name=$1 value=$2
+  [[ $value =~ ^/[A-Za-z0-9._/+-]+$ ]] && return 0
+  echo "@$name@ would be written as '$value': a placeholder is an absolute path of A-Za-z0-9._/+- only" >&2
+  exit 2
+}
+
+# Refuses a file that names a placeholder this run cannot write in:
+# `@MCPPORT@` with no HTTP MCP server, `@SCENARIOS@` or `@BUN@` whose path
+# writable_path refuses.
+can_fill() {
   local mcpport=$1 file
   shift
-  [[ -n $mcpport ]] && return 0
   for file in "$@"; do
-    if grep -q '@MCPPORT@' "$file" 2>/dev/null; then
+    if [[ -z $mcpport ]] && grep -q '@MCPPORT@' "$file" 2>/dev/null; then
       echo "$file names @MCPPORT@, and the scenario starts no mcphttp server" >&2
       exit 2
     fi
+    if grep -q '@SCENARIOS@' "$file" 2>/dev/null; then writable_path SCENARIOS "$fill_scenarios"; fi
+    if grep -q '@BUN@' "$file" 2>/dev/null; then writable_path BUN "$fill_bun"; fi
   done
+  return 0
 }
 
 # The binary's own pid, or a failure that says why not: the pane's pid when
@@ -346,6 +388,10 @@ main() {
   local file=$scenarios/$scenario.cap
   [[ -f $file ]] || { echo "no scenario $file" >&2; exit 2; }
   mkdir -p "$out"
+  # What `@SCENARIOS@` and `@BUN@` are written as: checked where a line or a
+  # copied file names one.
+  fill_scenarios=$(cd "$scenarios" && pwd -P)
+  fill_bun=$(command -v bun || true)
 
   local run port='' bin
   run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
@@ -363,9 +409,19 @@ main() {
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
   local models2='' models2ms='' jobctl='' clock='' usage='' mcpmode=''
+  # The directories `work` and `dir` copied into, whose files get the
+  # placeholders too; and whether a line the run fills names `@MCPPORT@`.
+  local copied=() names_mcpport=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
+    # A line whose text is written in when it runs: refused now, not halfway.
+    case $line in
+      env\ *|type\ *|paste\ *|relaunch\ *)
+        [[ $line != *@SCENARIOS@* ]] || writable_path SCENARIOS "$fill_scenarios"
+        [[ $line != *@BUN@* ]] || writable_path BUN "$fill_bun"
+        [[ $line != *@MCPPORT@* || $line == env\ * ]] || names_mcpport=1 ;;
+    esac
     [[ $line == gateway\ * ]] && turns=$(cat "$scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
     # Owner-only, as each product keeps its own profile: xfx refuses to read
@@ -385,7 +441,7 @@ main() {
     [[ $line == credits\ * ]] && credits=$scenarios/${line#credits }
     [[ $line == titled\ * ]] && titled=$scenarios/${line#titled }
     [[ $line == nomodel ]] && nomodel=1
-    [[ $line == work\ * ]] && cp -R "$scenarios/${line#work }/." "$run/work/"
+    [[ $line == work\ * ]] && { cp -R "$scenarios/${line#work }/." "$run/work/"; copied+=("$run/work"); }
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
     if [[ $line == sparsepng\ * ]]; then
       # Not `name`/`size`: `size` is this run's terminal size.
@@ -410,7 +466,7 @@ main() {
       read -r name from <<< "${line#dir }"
       case $name in ''|.|..|*/*) echo "dir takes a plain name, not $name" >&2; exit 2 ;; esac
       mkdir -p "$run/$name"
-      [[ -n $from ]] && cp -R "$scenarios/$from/." "$run/$name/"
+      [[ -n $from ]] && { cp -R "$scenarios/$from/." "$run/$name/"; copied+=("$run/$name"); }
     fi
     # Checked here, before anything is launched: a verb used later in the
     # script is refused now rather than halfway through a run. For `clock`,
@@ -430,7 +486,7 @@ main() {
         [[ ${line#usage } == off || -f $scenarios/${line#usage } ]] || { echo "usage takes a file in $scenarios or off, not ${line#usage }" >&2; exit 2; }
         [[ -n $usage ]] || usage=${line#usage } ;;
       mcphttp\ *)
-        case ${line#mcphttp } in ready|hang|fail|rpcerror) ;; *) echo "mcphttp takes ready, hang, fail or rpcerror, not ${line#mcphttp }" >&2; exit 2 ;; esac
+        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not ${line#mcphttp }" >&2; exit 2 ;; esac
         [[ -n $mcpmode ]] || mcpmode=${line#mcphttp } ;;
       resize\ *)
         [[ ${line#resize } =~ ^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$ ]] || { echo "resize takes <rows>x<cols>, not ${line#resize }" >&2; exit 2; } ;;
@@ -480,18 +536,26 @@ main() {
   fi
   # The ports and HOME, into every seeded file that names them and every `env`
   # value. The rewrite goes through `cat >` so a file keeps the owner-only mode
-  # it was seeded with.
+  # it was seeded with. The same for every text file a `work` or `dir` line
+  # copied (`-I`: a file with a NUL, a sparse image say, is left as it is),
+  # which keeps the mode it was copied with.
   local seeded
   while IFS= read -r seeded; do
-    needs_mcp "$mcpport" "$seeded"
+    can_fill "$mcpport" "$seeded"
     fill "$port" "$run/home" "$mcpport" < "$seeded" > "$run/seed.tmp"
     cat "$run/seed.tmp" > "$seeded"
     rm -f "$run/seed.tmp"
-  done < <(grep -rlE '@(PORT|HOME|MCPPORT)@' "$run/home" 2>/dev/null || true)
+  done < <(
+    grep -rlE '@(PORT|HOME|MCPPORT|SCENARIOS|BUN)@' "$run/home" 2>/dev/null || true
+    (( ${#copied[@]} == 0 )) || grep -rlIE '@(PORT|HOME|MCPPORT|SCENARIOS|BUN)@' "${copied[@]}" 2>/dev/null || true
+  )
   [[ -n $mcpport || $extra_env != *@MCPPORT@* ]] || { echo "an env value names @MCPPORT@, and the scenario starts no mcphttp server" >&2; exit 2; }
+  [[ -n $mcpport || -z $names_mcpport ]] || { echo "a type, paste or relaunch line names @MCPPORT@, and the scenario starts no mcphttp server" >&2; exit 2; }
   extra_env=${extra_env//@PORT@/$port}
   extra_env=${extra_env//@HOME@/$run/home}
   extra_env=${extra_env//@MCPPORT@/$mcpport}
+  extra_env=${extra_env//@SCENARIOS@/$fill_scenarios}
+  extra_env=${extra_env//@BUN@/$fill_bun}
   # fx's usage clock, owner-only in HOME, holding the first `clock` line's time.
   local clockfile=''
   if [[ -n $clock ]]; then
@@ -585,8 +649,8 @@ $xfx_model $extra_env $runner"
     case $verb in
       ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|models2|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
-      type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
-      paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
+      type) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" send-keys -t cap -l "$filled" ;;
+      paste) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$filled")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
       pastex)
         head -c "$rest" /dev/zero | tr '\0' x > "$run/pastex"
         tmux -f /dev/null -S "$sock" load-buffer -b capbuf "$run/pastex"
@@ -675,17 +739,18 @@ $xfx_model $extra_env $runner"
         echo "$name ($(wc -c < "$name" | tr -d ' ') bytes)"
         ;;
       relaunch)
-        tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
+        fill_text "$port" "$run/home" "$mcpport" "$rest"
+        tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
         ;;
       reseed)
-        needs_mcp "$mcpport" "$scenarios/$rest"
+        can_fill "$mcpport" "$scenarios/$rest"
         (umask 077 && mkdir -p "$run/home/.$which" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$rest" > "$run/home/.$which/settings.json")
         chmod 600 "$run/home/.$which/settings.json"
         ;;
       rehomefile)
         local dest from
         read -r dest from <<< "$rest"
-        needs_mcp "$mcpport" "$scenarios/$from"
+        can_fill "$mcpport" "$scenarios/$from"
         (umask 077 && mkdir -p "$run/home/$(dirname "$dest")" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$from" > "$run/home/$dest")
         chmod 600 "$run/home/$dest"
         echo "rehomefile ~/$dest: mode $(stat -f %Lp "$run/home/$dest" 2>/dev/null || stat -c %a "$run/home/$dest"), $(wc -c < "$run/home/$dest" | tr -d ' ') bytes"
