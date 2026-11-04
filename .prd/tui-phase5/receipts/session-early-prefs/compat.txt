@@ -2,9 +2,18 @@
 kinds: ['session_started', 'preferences_changed', 'project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded', 'project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded']
 frame 2: {"kind": "preferences_changed", "model": null, "permission_mode": null, "effort": "high", "fast_mode": true, "ultrafast_mode": false}
 
-# preview (built from 14ad0420): xfx --version
+# preview, built from `git archive 14ad0420` with XFX_BUILD_CHANNEL=preview and XFX_BUILD_REVISION=<that commit>, as .github/workflows/preview.yml:225-226 stamps it
+# xfx --version
 0.1.0
 exit=0
+# xfx status | grep build_
+[status] build_channel=preview
+[status] build_revision=14ad04202fe5
+exit=0
+# strings xfx | grep -c 14ad04202fe5
+3
+# sha256 of the binary
+b31b6d8ff8c616a62bcbac3d32a28c39ea3fc2912b26443b7611c9018f667dc7
 
 # preview: xfx session --id <id>
 [session] id=1793782482514-5df44dadaea860a8

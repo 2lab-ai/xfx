@@ -8373,9 +8373,22 @@ mod tests {
     /// Runs one turn of `prompt` through the runtime's own path, its provider
     /// answering `answer`.
     fn one_turn_of(state: &mut Runtime, prompt: &str, answer: &str) -> Ended {
+        one_turn_on(
+            state,
+            prompt,
+            Box::new(ScriptedProvider::new(vec![answers(answer)])),
+        )
+    }
+
+    /// [`one_turn_of`], its requests sent through `provider`.
+    fn one_turn_on(
+        state: &mut Runtime,
+        prompt: &str,
+        provider: Box<dyn crate::gateway::Provider>,
+    ) -> Ended {
         state.provider = Some(Bundle {
             id: ProviderId::Gateway,
-            stream: Box::new(ScriptedProvider::new(vec![answers(answer)])),
+            stream: provider,
         });
         let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
         let (_control_tx, control_rx) = mpsc::unbounded_channel();
@@ -8480,10 +8493,13 @@ mod tests {
     }
 
     #[test]
-    fn a_new_conversation_after_a_resume_carries_no_resumed_selection() {
-        // `/new` after a resume, then a prompt: the new session starts with
-        // the selection in force and nothing of the resumed one's, and the
-        // resumed session -- in which no turn ran -- is left as it was.
+    fn a_new_conversation_after_a_resume_starts_its_own_log_and_leaves_the_resumed_one() {
+        // `/new` after a resume, then a prompt: the new session is a log of
+        // its own, opened under the selection in force -- the launch's mode
+        // in `session_started` -- with no frame the resume still owed the
+        // session it replaced, which is left as it was because no turn ran
+        // in it. What a resume carries over into the new one is
+        // `a_new_conversation_after_a_resume_records_the_settings_it_carries`.
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let saved_under = config(home.path(), workspace.path());
@@ -8709,6 +8725,131 @@ mod tests {
         assert_eq!(events[1]["kind"], "preferences_changed", "{}", events[1]);
         assert_eq!(events[1]["effort"], "high", "{}", events[1]);
         assert_eq!(events[1]["fast_mode"], false, "{}", events[1]);
+    }
+
+    /// A provider that answers from a script and keeps every set of request
+    /// options the turn gave it -- what a real wire would send beside the
+    /// prompt (`crate::gateway::protocol::RequestOptions`).
+    struct Sent {
+        inner: ScriptedProvider,
+        options: std::rc::Rc<std::cell::RefCell<Vec<crate::gateway::protocol::RequestOptions>>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for Sent {
+        async fn stream(
+            &self,
+            request: &crate::gateway::protocol::CompletionRequest,
+            deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            self.inner.stream(request, deltas).await
+        }
+
+        fn set_options(&self, options: crate::gateway::protocol::RequestOptions) {
+            self.options.borrow_mut().push(options);
+        }
+    }
+
+    #[test]
+    fn a_new_conversation_after_a_resume_records_the_settings_it_carries() {
+        // `/resume` of a session saved in `low` and Fast, `/new`, one prompt.
+        // The resume put the session's effort and Fast in force and `/new`
+        // leaves them there, as upstream's does: its `/new`
+        // (`commandNewSession`, `app_commands.zig:437-440@481104fd` ->
+        // `newSession`, `app_session_runtime.zig:1524-1526` ->
+        // `applyIdleLiveSessionTransition`, `:1788-1833`) resets neither the
+        // effort, the switches nor the selection. Upstream then seeds the new
+        // log from the workspace's preferences (`installFreshLiveSession`,
+        // `:1713-1720` -> `beginFreshV2Session`, `:1481-1487`), which a
+        // resume does not move -- a log that says what its turns are not
+        // sent with. xfx records the settings in force, the ones the request
+        // carries (`docs/parity.md`, `/new`).
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let launched = config(home.path(), workspace.path());
+        let mut saved_under = launched.clone();
+        saved_under.model = "openai/gpt-6-astra".to_string();
+        let saved = {
+            let store = open_store(&saved_under).expect("a store");
+            let mut conversation = open_conversation(
+                &store,
+                &saved_under,
+                &saved_under.model,
+                PermissionSession::new(saved_under.permission_mode),
+                None,
+                &CancelToken::new(),
+            )
+            .expect("open a conversation");
+            conversation.recorder.commit(SessionEvent::UserMessage {
+                text: "first question alpha".to_string(),
+            });
+            conversation
+                .recorder
+                .commit(SessionEvent::PreferencesChanged {
+                    model: None,
+                    permission_mode: None,
+                    provider: None,
+                    effort: Some("low".to_string()),
+                    fast_mode: Some(true),
+                    ultrafast_mode: Some(false),
+                });
+            conversation.recorder.id().clone()
+        };
+        let store = open_store(&launched).expect("a store");
+        let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
+        assert_eq!(state.settings, TurnSettings::default());
+        state
+            .resume_by_id(saved.as_str(), &CancelToken::new())
+            .expect("resumed");
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        let carried = TurnSettings {
+            effort: crate::provider::effort::Effort::Named("low".to_string()),
+            fast: true,
+            ultrafast: false,
+        };
+        assert_eq!(state.settings, carried, "`/new` reset the settings");
+        assert_eq!(state.model(), "openai/gpt-6-astra");
+
+        let sent = std::rc::Rc::default();
+        let provider = Sent {
+            inner: ScriptedProvider::new(vec![answers("FRESH")]),
+            options: std::rc::Rc::clone(&sent),
+        };
+        assert_eq!(
+            one_turn_on(&mut state, "fresh", Box::new(provider)),
+            Ended::Turn
+        );
+        let fresh = state
+            .conversation
+            .as_ref()
+            .expect("a new conversation")
+            .recorder
+            .id()
+            .clone();
+        assert_ne!(fresh, saved);
+        let events = logged_events(&state, &fresh);
+        assert_eq!(events[0]["kind"], "session_started", "{events:?}");
+        assert_eq!(events[0]["model"], "openai/gpt-6-astra", "{}", events[0]);
+        assert_eq!(
+            events[1],
+            serde_json::json!({
+                "kind": "preferences_changed",
+                "model": null,
+                "permission_mode": null,
+                "effort": "low",
+                "fast_mode": true,
+                "ultrafast_mode": false,
+            })
+        );
+        // And the request was sent in them.
+        let sent = sent.borrow();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(sent[0].reasoning.as_deref(), Some("low"), "{sent:?}");
+        assert!(sent[0].fast && !sent[0].ultrafast, "{sent:?}");
     }
 
     #[test]

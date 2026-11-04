@@ -65,7 +65,13 @@ lines are. The two fold to the same settings; xfx's log is its own format.
   -- one frame, not two.
 - `tests/session_compat.rs`
   `a_session_the_tui_starts_holds_its_early_settings_in_frames_the_preview_reads`
-  -- the same missing frame, through the binary in a pty.
+  -- the same missing frame, through the binary in a pty (`red-pty.txt`: the
+  test file at `65fa5a60` on `d3bc63d3`'s tree, `tests/session_compat.rs:756`):
+
+  ```
+  left: ["session_started", "project_context_recorded", "user_message", "assistant_message"]
+  right: ["session_started", "preferences_changed", "project_context_recorded", "user_message"]
+  ```
 - Capture pair `p5-session-early-prefs` (`red/`, `red.txt`): `resumed` row
   11 and `continued` row 17 differ -- fx `auto · opus 5 · high`, xfx
   `auto · opus 5`. The request after the resume: fx
@@ -96,8 +102,13 @@ and `ultrafast_mode` are fields the preview predates and reads past (no
 the GREEN session, rebuilt into a scratch HOME from `xfx/…-end.files`
 (`compat.txt`, a loopback fake gateway and a fake key):
 
-- the preview, built from `14ad0420` (`build_revision` of
-  `xfx-preview 2026.10.06.115638`): `session --id` exit 0, the log's bytes
+- the preview, built from `git archive 14ad0420` and stamped as its publish
+  workflow stamps it (`XFX_BUILD_CHANNEL=preview`, `XFX_BUILD_REVISION`,
+  `.github/workflows/preview.yml:225-226`): its `status` says
+  `build_channel=preview` and `build_revision=14ad04202fe5`, the revision
+  `xfx-preview 2026.10.06.115638` carries, and the string is in the binary
+  (`strings | grep -c 14ad04202fe5` = 3; `compat.txt:5-16`). `session --id`
+  exit 0, the log's bytes
   unchanged; `ask --resume-id` exit 0, its frames appended behind the new
   build's bytes;
 - the base, `d3bc63d3`: `session --id` exit 0;
@@ -109,6 +120,22 @@ the GREEN session, rebuilt into a scratch HOME from `xfx/…-end.files`
 resumed under a profile on `high`, Normal, `yolo` and an `XFX_MODEL`, the
 session comes back on its own `low` and Fast, the launch's `yolo`, and the
 override's model.
+
+## `/new` after a resume (SESS-EARLY-b)
+
+`a_new_conversation_after_a_resume_records_the_settings_it_carries`: a session
+saved in `low` and Fast, resumed, `/new`, one prompt. The new log's first save
+says `low` and Fast, and the request is sent with `reasoning` `low` and Fast.
+fx's `/new` keeps the resumed effort, Fast and selection in force too
+(`newSession` -> `applyIdleLiveSessionTransition`,
+`src/core/app/app_session_runtime.zig:1524-1526`, `:1788-1833@481104fd`), but
+seeds the new log from the workspace's preferences (`beginFreshV2Session`,
+`:1481-1487`), which a resume does not move. xfx's log names what is sent:
+the recorded divergence in `docs/parity.md`'s `/new` row (owner the
+dispatcher, expires `date:2026-12-04`). The test that was
+`a_new_conversation_after_a_resume_carries_no_resumed_selection` resumed a
+session with no settings, so it never checked that; it is now
+`a_new_conversation_after_a_resume_starts_its_own_log_and_leaves_the_resumed_one`.
 
 `.ansi` files are tmux's re-serialization of cell attributes. Local paths are
 redacted with `scripts/fxcap/redact.py`.
