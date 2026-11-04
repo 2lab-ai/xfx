@@ -9,6 +9,7 @@ usage: scripts/fxcap/test-sweep.sh   (runs this file after test_sweep.py)
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -285,6 +286,7 @@ class CiSweep(unittest.TestCase):
         self.assertEqual(os.listdir(self.state), [])
 
 
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 WORKFLOWS = [os.path.join(test_sweep.REPO, ".github", "workflows", n) for n in ("sweep.yml", "sweep-full.yml")]
 
 
@@ -329,13 +331,32 @@ class Workflows(unittest.TestCase):
                 self.assertNotIn(trigger, w["on"], name)
             self.assertNotIn("secrets.", text, name)
             self.assertNotIn("github.token", text, name)
+            # An expression reaches a secret or the token by index or as a
+            # whole too (`secrets['X']`, `toJSON(secrets)`, `github['token']`):
+            # neither word may appear in one.
+            for expr in EXPRESSION.findall(text):
+                self.assertIsNone(re.search(r"\b(?:secrets|token)\b", expr, re.I), (name, expr))
 
     def test_only_a_pull_requests_run_is_cancelled_by_the_next(self):
         # A push to main is the backstop for a pull request built on an old
-        # base: two quick merges must not cancel the first one's run.
+        # base: two quick merges must not cancel the first one's run, and a
+        # third must not replace the second's while it waits (a concurrency
+        # group holds one pending run), so each push has a group of its own.
         w = load_workflow(WORKFLOWS[0])
         self.assertEqual(w["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+        self.assertEqual(
+            w["concurrency"]["group"], "sweep-${{ github.event_name == 'pull_request' && github.ref || github.sha }}"
+        )
         self.assertIs(load_workflow(WORKFLOWS[1])["concurrency"]["cancel-in-progress"], False)
+
+    def test_a_pull_requests_base_and_a_pushs_before_are_two_variables(self):
+        # One `pull_request && base.sha || before` expression gives a pull
+        # request with no base.sha its synchronize event's `before`: the
+        # previous head, which gates only the last push.
+        env = load_workflow(WORKFLOWS[0])["jobs"]["sweep"]["env"]
+        self.assertEqual(env.get("BASE_SHA"), "${{ github.event.pull_request.base.sha }}")
+        self.assertEqual(env.get("PUSH_BEFORE"), "${{ github.event.before }}")
+        self.assertNotIn("BASE_TIP", env)
 
     def repo(self):
         d = test_sweep.scratch()
@@ -368,15 +389,21 @@ class Workflows(unittest.TestCase):
         out = os.path.join(d, "out")
         env = dict(os.environ, COMMIT_UNDER_TEST=head, GITHUB_OUTPUT=out)
         missing = "1" * 40
-        for event, tip, expect in (
-            ("pull_request", missing, None),
-            ("pull_request", "", None),
-            ("push", missing, git("rev-parse", "HEAD^1")),
-            ("push", "0" * 40, git("rev-parse", "HEAD^1")),
-            ("pull_request", git("rev-parse", "HEAD^1"), git("rev-parse", "HEAD^1")),
+        parent = git("rev-parse", "HEAD^1")
+        # (event, BASE_SHA, PUSH_BEFORE, the base it must write or None)
+        for event, base_sha, before, expect in (
+            ("pull_request", missing, "", None),
+            ("pull_request", "", "", None),
+            ("pull_request", "", parent, None),  # never the synchronize event's `before`
+            ("push", "", missing, parent),
+            ("push", "", "0" * 40, parent),
+            ("push", head, "", parent),  # a push reads `before` only
+            ("pull_request", parent, head, parent),  # a pull request, `base.sha` only
         ):
+            tip = (base_sha, before)
             open(out, "w").close()
-            r = self.run_step("Confirm the checkout and find the base", repo, dict(env, GITHUB_EVENT_NAME=event, BASE_TIP=tip))
+            step_env = dict(env, GITHUB_EVENT_NAME=event, BASE_SHA=base_sha, PUSH_BEFORE=before)
+            r = self.run_step("Confirm the checkout and find the base", repo, step_env)
             written = test_sweep.slurp(out)
             if expect is None:
                 self.assertNotEqual(r.returncode, 0, (event, tip, written))

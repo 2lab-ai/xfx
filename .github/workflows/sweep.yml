@@ -18,10 +18,12 @@ name: Sweep
 
 # A pull request's run is superseded by its next push. A push to main is not:
 # it is the backstop for a pull request built on an old base (that run compares
-# the head with its merge base, not with the merge result), so two quick merges
-# each keep their run.
+# the head with its merge base, not with the merge result), so every merge keeps
+# its run. Each push gets a group of its own commit: a group holds one pending
+# run, and a third quick merge would otherwise replace the second's while it
+# waits.
 concurrency:
-  group: sweep-${{ github.ref }}
+  group: sweep-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -44,10 +46,10 @@ jobs:
         ${{ github.event_name == 'pull_request'
         && github.event.pull_request.head.sha
         || github.sha }}
-      BASE_TIP: >-
-        ${{ github.event_name == 'pull_request'
-        && github.event.pull_request.base.sha
-        || github.event.before }}
+      # Two variables, not one `&& ||` expression: that gives a pull request
+      # with no base.sha its synchronize event's `before`, the previous head.
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PUSH_BEFORE: ${{ github.event.before }}
     steps:
       - name: Check out the exact commit, with history for the merge base
         uses: actions/checkout@v4
@@ -70,13 +72,18 @@ jobs:
           # change. A push to main is compared with the commit main was at
           # before it; a push whose `before` is all zeros or unreachable (a
           # new branch, a force-push) falls back to the first parent.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tip=$PUSH_BEFORE
+          else
+            tip=$BASE_SHA
+          fi
           base=''
-          if [ -n "$BASE_TIP" ] && git cat-file -e "$BASE_TIP^{commit}" 2>/dev/null; then
-            base="$(git merge-base "$BASE_TIP" HEAD)"
+          if [ -n "$tip" ] && git cat-file -e "$tip^{commit}" 2>/dev/null; then
+            base="$(git merge-base "$tip" HEAD)"
           fi
           if [ -z "$base" ]; then
             if [ "$GITHUB_EVENT_NAME" != push ]; then
-              echo "the base ${BASE_TIP:-(none)} is not in the clone: no merge base to compare with" >&2
+              echo "the base ${tip:-(none)} is not in the clone: no merge base to compare with" >&2
               exit 1
             fi
             base="$(git rev-parse HEAD^1)"
