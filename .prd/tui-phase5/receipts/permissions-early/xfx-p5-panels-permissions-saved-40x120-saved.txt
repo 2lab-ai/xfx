@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-fcd0d60 [debug] · Run /help for commands
+x𝒇x v0.1.0-699acf1 [debug] · Run /help for commands
 
 * permissions: mode set to ask
 
@@ -19,7 +19,7 @@ Permissions
   Mode                ask
   Configured rules    none
   Session grants      1
-                      • terminal → echo hi in <tmp>/fxcap.E4Z5QS/work
+                      • terminal → echo hi in <tmp>/fxcap.QcvAkQ/work
   Saved rules         1
                       • 1 deny write_file b.txt preimage=absent after=a1fce4363854ff88
   Change mode         /permissions ask, auto, full-access, or reset

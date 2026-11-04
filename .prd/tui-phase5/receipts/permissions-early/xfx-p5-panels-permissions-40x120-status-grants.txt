@@ -25,16 +25,16 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Status
 
-  Session           1793786442573-7cde0eec33f51b7c · saved
+  Session           1793788090302-972671ecb37154a9 · saved
   Model             fake/model-a
   Auth              AI_GATEWAY_API_KEY
   Permissions       ask
   Sandbox           none
-  Workspace         <tmp>/fxcap.8ELeCo/work
+  Workspace         <tmp>/fxcap.mx08Wz/work
   Turns             1
   Session grants    1
   Step limit        25
   Ultrafast         not requested
-  Build             debug · 11ea2120ec79
+  Build             debug · 699acf134bf5
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc close

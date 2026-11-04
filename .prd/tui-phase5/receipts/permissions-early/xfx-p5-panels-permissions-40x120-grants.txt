@@ -30,7 +30,7 @@ Permissions
   Configured rules    1
                       • allow bash → git *
   Session grants      1
-                      • terminal → echo hi in <tmp>/fxcap.8ELeCo/work
+                      • terminal → echo hi in <tmp>/fxcap.mx08Wz/work
   Saved rules         1
                       • 1 deny write_file b.txt preimage=absent after=a1fce4363854ff88
   Change mode         /permissions ask, auto, full-access, or reset

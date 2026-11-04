@@ -17,6 +17,8 @@ Base: `feat/p5-session-early-prefs` at `daff4834` (SESS-EARLY), with
 `feat/p5-permissions-panel` at `6d495f1b` merged in (`9c6f4a1d`): the unit
 needs SESS-EARLY's first save and P-permissions' panel, whose `Saved rules`
 row it fills. Code `11ea2120`; docs, ledger and scenario `984894f3`.
+P-permissions' final head `b60c673b` is merged at `17e80d33`; `699acf13`
+puts the seed under its fail-closed reads (below).
 
 ## What fx does (`vercel-labs/fx@481104fd`)
 
@@ -79,6 +81,15 @@ Decisions (reversible; `docs/parity.md:94`):
    rule changed before confirmation`.
 6. **The line shell still refuses** before its first prompt: a row in the
    Divergences of `docs/parity.md:94`.
+7. **The seed fails closed as `load` does** (after P-permissions-c, which
+   opens the store `O_NONBLOCK|O_NOCTTY` and refuses a non-regular file):
+   anything already at the new session's `permissions.json` -- a FIFO, a
+   directory, a file -- is refused, left as it was and never waited on, and
+   what was written must read back through `load` as the state held; else no
+   session opens and the rules stay held
+   (`a_seed_refuses_whatever_is_already_at_the_store_and_reads_back_what_it_wrote`).
+   The panel's facts keep P-permissions-c's rule that an `Unknown` stamp is
+   read again (`StoreStamp::is_unknown`).
 
 ## RED
 
@@ -94,6 +105,9 @@ Decisions (reversible; `docs/parity.md:94`):
   pairs and every pair of `p5-permissions-early` but `new-forgets` differ.
 
 ## GREEN (`green.txt`, `pairs.py`, the v0.0.16 pin)
+
+Every xfx side is `699acf13`'s (banner `699acf1`), the merged head; the
+verdicts are those `11ea2120`'s sides had.
 
 The nine pairs, row counts RED -> GREEN (`red.txt`):
 
@@ -112,7 +126,7 @@ open store's path this unit rerouted) is as P-permissions left it:
 `remember-prompt`, `remember-done`, `saved-esc`, `revoke-prompt`,
 `after-grant` normalized-identical; `saved` and `after-revoke` one row each
 (`tool-schema`); `approval` `tool-schema` and `approval-grant-scope`. Its xfx
-side was taken at `fcd0d601` (banner `fcd0d60`), whose code is `11ea2120`'s.
+side, like the rest, is `699acf13`'s.
 
 `p5-permissions-early` (new): two rules, a revoke, the panel, the first
 prompt's read decided by the held deny, `/new`. All eleven pairs
@@ -162,8 +176,9 @@ XFX_BIN=<target/debug/xfx> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.
 python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receipts/permissions-early
 ```
 
-xfx is `target/debug/xfx` at `11ea2120` (banner `11ea212`); `red/` is
-`9c6f4a1d`'s. `/private/tmp/claude-501` is written `<tmp>`
+xfx is `target/debug/xfx` at `699acf13` (banner `699acf1`); `red/` is
+`9c6f4a1d`'s. `compat.txt` was run on `11ea2120`'s session, whose files the
+seed's checks do not change. `/private/tmp/claude-501` is written `<tmp>`
 (`scripts/fxcap/redact.py`).
 
 `receipts/permissions-panel/` still holds the refusing xfx side of the nine
