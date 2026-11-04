@@ -330,13 +330,46 @@ source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 # (b) units in flight, the specific rows first.
 
 [[cause]]
-id = "U-permissions-panel"
+id = "cancelled-marker"
 kind = "unit"
-owner = "U-permissions bare /permissions panel"
-scenarios = ["p5-panels-keys"]
-snaps = ["perm-btab", "open-before-approval", "approval-arrives", "approval-esc", "end"]
+owner = "T-U4 cancelled marker"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^▪ Cancelled '
+xfx_row = '^■ Cancelled '
+xfx = ["src/tui/toolgroup.rs:528"]
+fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
+why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
+
+[[cause]]
+id = "saved-rules-before-first-prompt"
+kind = "decision"
+owner = "user decision saved-session rules before the first prompt (lifecycle; P-status decision 1)"
+scenarios = ["p5-panels-permissions"]
+snaps = ["*"]
+fx_row = '^\* permissions: saved-session permission rule updated$|^  Saved rules {9}1$|^ {22}• 1 deny write_file b\.txt preimage=absent after=[0-9a-f]{16}$'
+xfx_row = '^✗ permissions: saved-session permission rules require an active saved session$|^! permissions: saved-session permission rule not found$|^  Saved rules {9}none$'
+xfx = ["src/permission/slash.rs:42"]
+fx = ["src/core/app/app_commands.zig:615@481104fd"]
+why = "fx's session is open from launch, so `/permissions remember` typed before the first prompt keeps its rule; xfx opens its session at the first prompt and refuses a rule before it (`require an active saved session`, docs/parity.md:94), so the scenario's remembered rule, its listing and its revoke are fx's alone. Whether `remember` before a prompt opens the session under the launch id, as `/rename` does (P-status decision 1), changes a subcommand's path: not the bare panel's."
+
+[[cause]]
+id = "saved-rules-before-first-prompt-band"
+kind = "decision"
+owner = "user decision saved-session rules before the first prompt (lifecycle; P-status decision 1)"
+scenarios = ["p5-panels-permissions"]
+snaps = ["remember-prompt", "revoke-prompt"]
 whole_snap = true
-why = "A bare /permissions is fx's panel and xfx's two notices until U-permissions; Shift-Tab under xfx's notices then moves the mode, so the turn runs in auto and no approval arrives (.prd/tui-phase5/receipts/info-panel/README.md)."
+why = "The confirmation band of `remember` and `revoke` opens on fx's side only, for `saved-rules-before-first-prompt`'s reason: xfx answers both with a notice and keeps the composer."
+
+[[cause]]
+id = "saved-rules-before-first-prompt-shift"
+kind = "decision"
+owner = "user decision saved-session rules before the first prompt (lifecycle; P-status decision 1)"
+scenarios = ["p5-panels-permissions"]
+snaps = ["grants", "after-revoke"]
+rows = [1]
+why = "With no saved rule to list, xfx's panel is a row shorter than fx's, so one more row of the document stands above it: row 1 is xfx's blank before the first notice (`saved-rules-before-first-prompt`)."
 
 [[cause]]
 id = "status-panel-scroll-window"
@@ -504,11 +537,11 @@ kind = "defect"
 owner = "unowned (decision needed? C8 runs commands in the login shell but keeps the header)"
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '\$ # shell\.run profile=user shell=\S+$|^\s*│?\s*(?:action: run|yield_time_ms: \d+)$|echo started; sleep 5\b'
-xfx_row = '\$ # terminal\.exec cwd=\S+$|echo started; sleep 130\b'
-xfx = ["src/tui/approval_view.rs:685"]
-fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
-why = "fx's command tool is `shell` (`action: run`, per-call `timeout_ms`, run in the user's shell profile), xfx's `terminal` (`action: exec`, `cwd`, one fixed ceiling): the review header, Ctrl-O's argument rows and the timeout scenario's command (docs/parity.md:158) are each tool's."
+fx_row = '\$ # shell\.run profile=user shell=\S+$|^\s*│?\s*(?:action: run|yield_time_ms: \d+)$|echo started; sleep 5\b|^ {22}• bash → @x?fx-terminal-env:\S+::.+$'
+xfx_row = '\$ # terminal\.exec cwd=\S+$|echo started; sleep 130\b|^ {22}• terminal → .+ in \S+$'
+xfx = ["src/tui/approval_view.rs:685", "src/permission/slash.rs:427"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/output/output_contracts.zig:1700@c1db9191"]
+why = "fx's command tool is `shell` (`action: run`, per-call `timeout_ms`, run in the user's shell profile), xfx's `terminal` (`action: exec`, `cwd`, one fixed ceiling): the review header, Ctrl-O's argument rows, the timeout scenario's command (docs/parity.md:158) and a bare /permissions panel's command grant (fx's `bash → @fx-terminal-env:<profile>::<command>`, xfx's `terminal → <command> in <dir>`) are each tool's."
 
 [[cause]]
 id = "session-record"

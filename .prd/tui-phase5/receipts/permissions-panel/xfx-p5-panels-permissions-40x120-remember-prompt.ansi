@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-450c45e [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* permissions: mode set to auto[39m
+
+[38;5;252m! permissions:[38;5;250m mode set to full access[39m
+
+[38;5;250m* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared[39m
+
+[38;5;252m✗ [38;5;250musage: /permissions [ask|auto|full-access|reset][39m
+  [38;5;250m       /permissions remember <allow|deny> <tool-name> <arguments-json>[39m
+  [38;5;250m       /permissions revoke <rule-id>[39m
+
+[38;5;250m* allowlist: added command: "git *" (scope=local)[39m
+
+[38;5;252m✗ permissions:[38;5;250m saved-session permission rules require an active saved session[39m
+
+[38;5;255m┃[39m
+
+[38;5;245mask · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

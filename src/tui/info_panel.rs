@@ -45,9 +45,12 @@
 
 use crate::config::PermissionMode;
 use crate::output::{ShellSession, StatusSnapshot};
+use crate::permission::session_rules::{Rule as SavedRule, Stamp as SavedStamp};
+use crate::permission::RuleSet;
 use crate::workspace::access::terminal_safe;
 
 use super::input::Action;
+use super::permissions::Granted;
 use super::picker::{cells, ellipsized, pad_to};
 use super::theme::Palette;
 
@@ -127,16 +130,27 @@ pub(crate) enum Facts {
         /// up moves it with nothing else changed.
         id: Option<String>,
     },
-    /// A bare `/permissions`'s, which its own unit opens; the lint fails the
-    /// build once it does, so this goes with it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "bare /permissions opens it in its own unit")
-    )]
+    /// A bare `/permissions`'s: the mode, the grants and the configured rules
+    /// in force (`permissionsFacts`, `session_commands.zig:378-384@481104fd`),
+    /// and two facts upstream's has not.
+    ///
+    /// The live authority's reset count: upstream's engine clears its grants
+    /// in the reset itself; xfx's grants are the runtime's last publication,
+    /// which a reset puts out of force the moment it is taken
+    /// (`super::worker`'s `WorkHandle::grants`), so the count is what tells an
+    /// open panel to say so before the runtime publishes again -- with the
+    /// mode and the grant count unchanged too.
+    ///
+    /// The saved-session store's file as it stands ([`SavedStamp`]), `None`
+    /// with no session open: upstream reads its store only when another fact
+    /// moves; xfx's store is a file another hand can change or break, so the
+    /// panel looks at it on each tick and reads it again when it moved.
     Permissions {
         mode: PermissionMode,
         grants: usize,
         rules: usize,
+        resets: u64,
+        store: Option<SavedStamp>,
     },
 }
 
@@ -191,12 +205,8 @@ impl Row {
     }
 
     /// An item of the list the labelled row above it counts: no label, a
-    /// bullet before its value. `/status` has none; bare `/permissions`'s
-    /// lists are its callers, and the lint fails the build once they are.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "bare /permissions lists its rules with it")
-    )]
+    /// bullet before its value. `/status` has none; bare `/permissions` lists
+    /// its rules, grants and saved rules with it ([`permissions_rows`]).
     pub(crate) fn item(value: &str) -> Self {
         Self {
             label: String::new(),
@@ -257,6 +267,89 @@ pub(crate) fn status_rows(snapshot: &StatusSnapshot, settings_error: Option<&str
         .iter()
         .map(|(label, value)| Row::new(label, value))
         .collect()
+}
+
+/// What a list's labelled row says: how many, or `none` (`countText`,
+/// `output_contracts.zig:580-583@481104fd`).
+fn count_text(count: usize) -> String {
+    if count == 0 {
+        "none".to_string()
+    } else {
+        count.to_string()
+    }
+}
+
+/// The three rows a bare `/permissions` panel ends with: how each part of the
+/// authority is changed (`PermissionsSnapshot.panelRows`,
+/// `output_contracts.zig:1056-1058@481104fd`).
+const CHANGE_MODE: &str = "/permissions ask, auto, full-access, or reset";
+const REMEMBER: &str = "/permissions remember allow|deny <tool-name> <arguments-json>";
+const REVOKE: &str = "/permissions revoke <rule-id>";
+
+/// One item of a bare `/permissions` list, from text a file or a model put
+/// there -- a configured rule's pattern, a grant's command or path, a saved
+/// rule's action.
+///
+/// It names what is in force, so it is spelled as the approval band spells
+/// what an "always" grants (`super::approval_view::named`): every control,
+/// every character that reorders a line and every default-ignorable code
+/// point named, so what the person reads as granted is the text that is,
+/// laid out in the cells xfx counts. Upstream spells only its control
+/// characters here (`safeText`); for printable text the two are the same.
+/// [`Row::item`] then makes it terminal-safe, as it makes every row.
+fn listed(text: &str) -> Row {
+    Row::item(&super::approval_view::named(text))
+}
+
+/// A bare `/permissions` panel's rows, in upstream's order
+/// (`PermissionsSnapshot.panelRows`, `output_contracts.zig:1036-1060@481104fd`):
+/// the mode, the configured rules with their count -- `<action> <permission>
+/// → <pattern>` each, in the table's order -- the conversation's grants --
+/// `<tool> → <target>` -- and the saved session's rules -- `<id> <decision>
+/// <action>` -- then how to change each.
+///
+/// `mode`, `rules` and `grants` are the authority in force, the caller's to
+/// read (`super::shell`'s `Shell::permissions_panel`). Upstream shows `Saved
+/// rules` only in a host that keeps saved sessions (`savedPermissionRules`,
+/// `session_commands.zig:388-400`); the TUI always does, so the row is always
+/// here, `none` before a session is open.
+pub(crate) fn permissions_rows(
+    mode: PermissionMode,
+    rules: &RuleSet,
+    grants: &[Granted],
+    saved: &[SavedRule],
+) -> Vec<Row> {
+    let mut rows = vec![
+        Row::new("Mode", mode.display_label()),
+        Row::new("Configured rules", &count_text(rules.rules().len())),
+    ];
+    rows.extend(rules.rules().iter().map(|rule| {
+        listed(&format!(
+            "{} {} \u{2192} {}",
+            rule.action.label(),
+            rule.permission,
+            rule.pattern
+        ))
+    }));
+    rows.push(Row::new("Session grants", &count_text(grants.len())));
+    rows.extend(
+        grants
+            .iter()
+            .map(|grant| listed(&format!("{} \u{2192} {}", grant.tool, grant.target))),
+    );
+    rows.push(Row::new("Saved rules", &count_text(saved.len())));
+    rows.extend(saved.iter().map(|rule| {
+        listed(&format!(
+            "{} {} {}",
+            rule.id,
+            rule.decision.label(),
+            rule.display
+        ))
+    }));
+    rows.push(Row::new("Change mode", CHANGE_MODE));
+    rows.push(Row::new("Remember", REMEMBER));
+    rows.push(Row::new("Revoke", REVOKE));
+    rows
 }
 
 impl Panel {
@@ -826,6 +919,8 @@ mod tests {
             mode: PermissionMode::Ask,
             grants: 0,
             rules: 0,
+            resets: 0,
+            store: None,
         };
         let panel = Panel::open(Vec::new(), permissions.clone());
         assert_eq!(panel.title(), "Permissions");
@@ -959,6 +1054,170 @@ mod tests {
             format!("  {}\u{2022} deny write_file", " ".repeat(18))
         );
         assert_eq!(shown[5], format!("  {}  abcdefghij", " ".repeat(18)));
+    }
+
+    /// A labelled line of a bare `/permissions` panel at 120 columns, and an
+    /// item of it (`cap/panels/new/fx-p5-panels-permissions-40x120-grants`).
+    fn permissions_line(label: &str, value: &str) -> String {
+        format!("  {label}{}{value}", " ".repeat(20 - label.len()))
+    }
+
+    fn permissions_item(text: &str) -> String {
+        format!("{}\u{2022} {text}", " ".repeat(22))
+    }
+
+    fn permissions_facts() -> Facts {
+        Facts::Permissions {
+            mode: PermissionMode::Ask,
+            grants: 1,
+            rules: 1,
+            resets: 0,
+            store: None,
+        }
+    }
+
+    fn saved_rule(id: u64, display: &str) -> SavedRule {
+        SavedRule {
+            id,
+            key: crate::permission::session_rules::RuleKey {
+                kind: crate::permission::session_rules::KeyKind::FileMutation,
+                canonical: b"k".to_vec(),
+            },
+            display: display.to_string(),
+            decision: crate::permission::session_rules::Decision::Deny,
+            generation: 1,
+        }
+    }
+
+    #[test]
+    fn the_permissions_panel_is_upstreams_rows_in_upstreams_order() {
+        // `cap/panels/new/fx-p5-panels-permissions-40x120-grants`, rows 4-14,
+        // with xfx's own grant: the mode, each list counted with its items
+        // under it, and the three ways to change them.
+        let rules = RuleSet::new(vec![crate::permission::ConfiguredRule::new(
+            "bash",
+            "git *",
+            crate::permission::RuleAction::Allow,
+        )]);
+        let grants = [Granted {
+            tool: "terminal".to_string(),
+            target: "echo hi in /w".to_string(),
+        }];
+        let saved = [saved_rule(
+            1,
+            "write_file b.txt preimage=absent after=a1fce4363854ff88",
+        )];
+        let panel = Panel::open(
+            permissions_rows(PermissionMode::Ask, &rules, &grants, &saved),
+            permissions_facts(),
+        );
+        assert_eq!(panel.title(), "Permissions");
+        assert_eq!(panel.height(40, 120), 12);
+        assert!(!panel.overflows(12, 120));
+        let shown = plain(&panel.rows(120, 12, PALETTE));
+        assert_eq!(
+            shown,
+            [
+                "Permissions".to_string(),
+                String::new(),
+                permissions_line("Mode", "ask"),
+                permissions_line("Configured rules", "1"),
+                permissions_item("allow bash \u{2192} git *"),
+                permissions_line("Session grants", "1"),
+                permissions_item("terminal \u{2192} echo hi in /w"),
+                permissions_line("Saved rules", "1"),
+                permissions_item("1 deny write_file b.txt preimage=absent after=a1fce4363854ff88"),
+                permissions_line(
+                    "Change mode",
+                    "/permissions ask, auto, full-access, or reset"
+                ),
+                permissions_line(
+                    "Remember",
+                    "/permissions remember allow|deny <tool-name> <arguments-json>"
+                ),
+                permissions_line("Revoke", "/permissions revoke <rule-id>"),
+            ]
+        );
+        assert_eq!(panel.key_help(12, 120), "esc close");
+    }
+
+    #[test]
+    fn an_empty_list_says_none_and_lists_nothing() {
+        // `cap/panels/new/fx-p5-panels-permissions-40x120-bare`; full access
+        // in upstream's words (`permissionModeDisplayLabel`).
+        let rows = permissions_rows(PermissionMode::Yolo, &RuleSet::default(), &[], &[]);
+        let panel = Panel::open(rows, permissions_facts());
+        let shown = plain(&panel.rows(120, 9, PALETTE));
+        assert_eq!(
+            shown[2..6],
+            [
+                permissions_line("Mode", "full access"),
+                permissions_line("Configured rules", "none"),
+                permissions_line("Session grants", "none"),
+                permissions_line("Saved rules", "none"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_permissions_item_names_what_a_model_or_a_file_put_in_it() {
+        // A grant's command is a model's text, a pattern a file's, a saved
+        // rule's action the store's: every control, line break, reordering
+        // and default-ignorable character is named, as the approval band
+        // names what an "always" grants (`approval_view::named`), so the
+        // listing is the text in force, on one line, in the cells xfx counts.
+        let rules = RuleSet::new(vec![crate::permission::ConfiguredRule::new(
+            "bash",
+            "git\u{200b} *",
+            crate::permission::RuleAction::Deny,
+        )]);
+        let grants = [Granted {
+            tool: "terminal".to_string(),
+            target: "printf '\u{1b}[2J'\necho \u{202e}fdsa in /w".to_string(),
+        }];
+        let saved = [saved_rule(7, "terminal.exec \u{2066}x\u{2069}")];
+        let rows = permissions_rows(PermissionMode::Ask, &rules, &grants, &saved);
+        let items: Vec<&str> = rows
+            .iter()
+            .filter(|row| row.item)
+            .map(|row| row.value.as_str())
+            .collect();
+        assert_eq!(
+            items,
+            [
+                "deny bash \u{2192} git\\u{200B} *",
+                "terminal \u{2192} printf '\\u{001B}[2J'\\necho \\u{202E}fdsa in /w",
+                "7 deny terminal.exec \\u{2066}x\\u{2069}",
+            ]
+        );
+        for row in &rows {
+            assert!(
+                !row.value.chars().any(|c| c.is_control()
+                    || matches!(c, '\u{200b}' | '\u{202e}' | '\u{2066}' | '\u{2069}')),
+                "{row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_permissions_item_names_the_joiners_and_selectors_an_emoji_carries() {
+        // Review P-permissions-b item 3: what is listed as in force is spelled
+        // as the approval band spells what an "always" grants
+        // (`approval_view::named`), with no emoji exception. `tamed` -- the
+        // band's spelling for a diff or a question -- keeps an RGI sequence's
+        // joiners and a `U+FE0F` after a heart as they are; here each is named,
+        // and the bell is named by either.
+        let grants = [Granted {
+            tool: "terminal".to_string(),
+            target: "echo \u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} \u{2764}\u{fe0f}\u{7} in /w"
+                .to_string(),
+        }];
+        let rows = permissions_rows(PermissionMode::Ask, &RuleSet::default(), &grants, &[]);
+        let item = rows.iter().find(|row| row.item).expect("the grant's item");
+        assert_eq!(
+            item.value,
+            "terminal \u{2192} echo \u{1f468}\\u{200D}\u{1f469}\\u{200D}\u{1f467} \u{2764}\\u{FE0F}\\u{0007} in /w"
+        );
     }
 
     #[test]
