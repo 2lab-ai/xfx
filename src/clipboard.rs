@@ -223,6 +223,10 @@ impl Clipboard {
     /// Runs one clipboard tool to its end: fed `input` when there is some, and
     /// waited for until it exits, `deadline` passes or `stop` is given up.
     ///
+    /// Work already given up is refused before the tool is started, not
+    /// started and then killed: a kill that lands a moment after the start
+    /// still leaves the tool time to act.
+    ///
     /// The child is held by `stop` while it runs ([`Stop::stop`]), and is only
     /// ever reaped under that hold -- so a kill from another thread always
     /// reaches this tool and never a process that has since taken its id. A
@@ -237,6 +241,12 @@ impl Clipboard {
         command.stdout(Stdio::null()).stderr(Stdio::null());
         if let Some(search) = &self.search {
             command.env("PATH", search);
+        }
+        // Outside the lock, so a stop never waits on a start -- which macOS
+        // can take seconds over for a fresh executable. A stop that lands
+        // after this look is the hold's to catch.
+        if stop.stopped() {
+            return false;
         }
         let Ok(mut child) = command.spawn() else {
             return false;
@@ -283,8 +293,9 @@ struct StopState {
 }
 
 impl Stop {
-    /// Gives the work up: a tool it is running is killed, and one it has not
-    /// started yet is never started. Idempotent, and it never waits.
+    /// Gives the work up: a tool it is running is killed, one it has not
+    /// reached yet is never started, and one it is starting at that moment is
+    /// killed as soon as it has been. Idempotent, and it never waits.
     pub fn stop(&self) {
         self.0.stopped.store(true, Ordering::Release);
         if let Some(child) = self.lock().as_mut() {
@@ -300,7 +311,7 @@ impl Stop {
     }
 
     /// Takes the tool that was just started, or kills and reaps it when the
-    /// work was given up first. `false` when it was.
+    /// work was given up while it was starting. `false` when it was.
     fn hold(&self, mut child: Child) -> bool {
         let mut slot = self.lock();
         if self.stopped() {
@@ -790,18 +801,84 @@ mod tests {
             assert!(!FakeTool::alive(pid), "the tool outlived the copy");
         }
 
+        /// Runs `work` on a thread of its own while this case holds `stop`'s
+        /// lock -- the one a started tool is handed over under -- and says
+        /// what it returned.
+        ///
+        /// Work that starts its tool waits in the hand-over for as long as the
+        /// case keeps the lock, so the tool always has the time to say it ran
+        /// (`started`); work that refuses first never needs the lock and is
+        /// done at once.
+        fn held(
+            stop: &super::super::Stop,
+            started: impl Fn() -> bool,
+            work: impl FnOnce(super::super::Stop) -> bool + Send + 'static,
+        ) -> bool {
+            let lock = stop.lock();
+            let working = {
+                let stop = stop.clone();
+                std::thread::spawn(move || work(stop))
+            };
+            until(|| working.is_finished() || started());
+            drop(lock);
+            working.join().expect("the work's thread")
+        }
+
         #[test]
         fn work_given_up_before_its_tool_starts_never_starts_it() {
-            let tool = FakeTool::keeping();
+            // Not started and then killed: a kill a moment after the start
+            // still leaves the tool time to act, and on a Linux runner its
+            // shell had made its file before the kill landed (PR #32). Held,
+            // a tool that is started always gets that time.
+            let tool = FakeTool::running("echo $$ > \"${0%/*}/hung\"\nexec cat >/dev/null");
             let stop = super::super::Stop::default();
             stop.stop();
             assert!(stop.stopped());
-            assert!(!tool.clipboard().copy_until("reply", &stop));
-            assert_eq!(tool.copied(), None, "a tool given up was run to the end");
-            assert!(!tool
-                .clipboard()
-                .copy_file_until(std::path::Path::new(REPORT), &stop));
-            assert_eq!(tool.copied_file(), None);
+            let clipboard = tool.clipboard();
+            assert!(!held(
+                &stop,
+                || tool.hung().is_some(),
+                move |stop| clipboard.copy_until("reply", &stop)
+            ));
+            assert_eq!(tool.hung(), None, "a copy given up started its tool");
+            // A tool of its own, so what the first copy did cannot answer for it.
+            let tool = FakeTool::keeping();
+            tool.hang();
+            let clipboard = tool.clipboard();
+            assert!(!held(
+                &stop,
+                || tool.hung().is_some(),
+                move |stop| clipboard.copy_file_until(std::path::Path::new(REPORT), &stop)
+            ));
+            assert_eq!(tool.hung(), None, "a file copy given up started its tool");
+        }
+
+        #[test]
+        fn a_stop_that_lands_after_the_tool_starts_still_kills_it() {
+            // Between the start and the hand-over: the look before the start
+            // has passed, so it is the hand-over's own look that catches it.
+            let tool = FakeTool::running("echo $$ > \"${0%/*}/hung\"\nexec cat >/dev/null");
+            let stop = super::super::Stop::default();
+            let lock = stop.lock();
+            let copying = {
+                let (clipboard, stop) = (tool.clipboard(), stop.clone());
+                std::thread::spawn(move || clipboard.copy_until("reply", &stop))
+            };
+            until(|| tool.hung().is_some());
+            let pid = tool.hung().expect("the tool started");
+            // It gives the copy up, then waits for the lock this case holds.
+            let stopping = {
+                let stop = stop.clone();
+                std::thread::spawn(move || stop.stop())
+            };
+            until(|| stop.stopped());
+            drop(lock);
+            stopping.join().expect("the stop's thread");
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a copy given up succeeded"
+            );
+            assert!(!FakeTool::alive(pid), "the tool outlived the copy");
         }
 
         #[test]
