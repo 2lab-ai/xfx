@@ -36481,6 +36481,15 @@ mod tests {
         );
         // It asks the runtime for nothing: the launch's read answers.
         assert_eq!(loading.controlled(), None);
+        // Nor does its column: an `/effort ` line lists what the catalog
+        // already says, where a `/model ` line would ask for it.
+        loading.route_bytes(b"/effort ");
+        assert_eq!(
+            loading.controlled(),
+            None,
+            "the /effort column asked for the catalog"
+        );
+        loading.route_bytes(&[0x15]);
         loading.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
@@ -36928,13 +36937,23 @@ mod tests {
             column(&shell),
             levels_at_ten(&["default", "low", "medium", "high", "max"])
         );
-        // And a provider switch the same.
+        // And a provider switch the same, the model kept: still put away once
+        // the new provider's catalog lists the same levels, so it is the
+        // switch that took it down and not a catalog with nothing in it yet.
         shell.apply(UiEvent::ProviderSelected {
             provider: ProviderId::Llmux,
             model: "anthropic/claude-opus-5".to_string(),
             missing_credential: false,
         });
         assert!(!matches!(shell.slot(), Some(Slot::Column)));
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: harness_rows(),
+        });
+        assert!(
+            !matches!(shell.slot(), Some(Slot::Column)),
+            "the column outlived its provider"
+        );
     }
 
     #[test]
