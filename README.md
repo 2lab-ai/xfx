@@ -273,8 +273,8 @@ groups of scenarios:
 The job fails when a snap pair that is identical to fx at the merge base is
 not identical at the head. Here, identical includes normalized-identical. A
 pair that the change adds is reported, not failed. A pair that a
-`nondeterminism` cause in the ledger covers is run up to three more times
-before it counts. [`ci_sweep.py`](scripts/fxcap/ci_sweep.py) is the manual.
+`nondeterminism` cause in the ledger covers is run up to three more times, on
+each build, before it counts. [`ci_sweep.py`](scripts/fxcap/ci_sweep.py) is the manual.
 
 When a push bumps `.github/preview-epoch` (an epic's preview), or when someone
 starts it by hand, [`sweep-full.yml`](.github/workflows/sweep-full.yml) runs

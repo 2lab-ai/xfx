@@ -16,9 +16,13 @@ name: Sweep
 # workflow with a read-only token and no secrets, which is all this needs;
 # `pull_request_target` would hand a fork's code this repository's token.
 
+# A pull request's run is superseded by its next push. A push to main is not:
+# it is the backstop for a pull request built on an old base (that run compares
+# the head with its merge base, not with the merge result), so two quick merges
+# each keep their run.
 concurrency:
   group: sweep-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -61,15 +65,20 @@ jobs:
             echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2
             exit 1
           fi
-          # A pull request is compared with its merge base, a push to main
-          # with the commit main was at before it. A push whose `before` is
-          # all zeros or unreachable (a new branch, a force-push) falls back
-          # to the first parent.
+          # A pull request is compared with its merge base, and a base not in
+          # the clone fails the run: guessing one would gate only part of the
+          # change. A push to main is compared with the commit main was at
+          # before it; a push whose `before` is all zeros or unreachable (a
+          # new branch, a force-push) falls back to the first parent.
           base=''
           if [ -n "$BASE_TIP" ] && git cat-file -e "$BASE_TIP^{commit}" 2>/dev/null; then
             base="$(git merge-base "$BASE_TIP" HEAD)"
           fi
           if [ -z "$base" ]; then
+            if [ "$GITHUB_EVENT_NAME" != push ]; then
+              echo "the base ${BASE_TIP:-(none)} is not in the clone: no merge base to compare with" >&2
+              exit 1
+            fi
             base="$(git rev-parse HEAD^1)"
           fi
           echo "head $actual, base $base"
@@ -99,8 +108,11 @@ jobs:
           rustc --version
 
       # Both builds share one target directory, so the base's dependencies are
-      # the head's. The base is built first; each binary is copied out before
-      # the next build replaces target/debug/xfx.
+      # the head's. The base is built first, from inside its own checkout, so
+      # its own `.cargo/config.toml` and `rust-toolchain.toml` apply and the
+      # head's do not (cargo and rustup read them from the directory they run
+      # in, not beside `--manifest-path`). Each binary is copied out before the
+      # next build replaces target/debug/xfx.
       - name: Build xfx at the base and at the head
         env:
           BASE: ${{ steps.base.outputs.sha }}
@@ -108,7 +120,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/xfx"
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
-          cargo build --locked --manifest-path "$RUNNER_TEMP/base/Cargo.toml" --target-dir "$PWD/target"
+          (cd "$RUNNER_TEMP/base" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target")
           cp target/debug/xfx "$RUNNER_TEMP/xfx/base"
           cargo build --locked
           cp target/debug/xfx "$RUNNER_TEMP/xfx/head"

@@ -42,7 +42,9 @@ normalized-identical.
      if any run passes it. No other pair is run again.
   3. The base: one sweep, with --base-xfx, of the scenarios that still hold
      a pair the base snaps and the head does not pass. None, and nothing
-     runs.
+     runs. Such a pair the base fails and a `nondeterminism` cause covers
+     gets the head's re-runs, up to --retries, so a base run that happened to
+     vary cannot turn a regression into a pair neither build passes.
   4. A regression is a pair the base passes and the head does not. A pair the
      base does not snap is new: reported, never failed. A pair neither passes
      is reported.
@@ -55,7 +57,7 @@ could not be made: it is the measured number at an epic's preview, not a gate
 
 --out gets report.md (redacted; also appended to $GITHUB_STEP_SUMMARY) and
 result.json, and each sweep's own output under head/, head-retry-<n>/ and
-base/ (--full: full/).
+base/, base-retry-<n>/ (--full: full/).
 """
 
 import argparse
@@ -329,8 +331,23 @@ def run(args, red, say):
     timing["retries"] = time.time() - t
 
     t = time.time()
-    need = sorted({k[0] for k in failing_old()})
+    suspects = failing_old()
+    need = sorted({k[0] for k in suspects})
     base = sweep(args, args.base_xfx, need, os.path.join(args.out, "base"), say) if need else {}
+    base_runs = {k: 1 for k in suspects if k in base}
+    # The base gets the head's re-runs: a known-varying pair the base fails
+    # once could still be one it passes, and then the head's failure is a
+    # regression, not a pair neither build passes.
+    for n in range(1, args.retries + 1):
+        again = [k for k in base_runs if base[k]["verdict"] not in PASS and varies(base[k], causes)]
+        if not again:
+            break
+        res = sweep(args, args.base_xfx, sorted({k[0] for k in again}), os.path.join(args.out, "base-retry-%d" % n), say)
+        for k in again:
+            base_runs[k] += 1
+            p = res.get(k)
+            if p is not None:
+                base[k] = p
     timing["base"] = time.time() - t
     timing["total"] = time.time() - began
 
@@ -351,6 +368,7 @@ def run(args, red, say):
                 "runs": v["runs"],
                 "new": not is_old(k),
                 "base": b["verdict"] if b else None,
+                "base_runs": base_runs.get(k, 0),
                 "regression": is_old(k) and v["verdict"] not in PASS and bool(b) and b["verdict"] in PASS,
                 "first": first_row(v["pair"]),
             }
@@ -430,10 +448,14 @@ def report(res):
     ]
     if regress:
         lines += ["### Regressions: the base passes these, the head does not", ""]
-        lines += ["| scenario | snap | base | head | runs | first differing row (fx / xfx) |", "|---|---|---|---|---|---|"]
+        lines += [
+            "| scenario | snap | base | head | runs (base / head) | first differing row (fx / xfx) |",
+            "|---|---|---|---|---|---|",
+        ]
         for r in regress:
             lines.append(
-                "| %s | %s | %s | %s | %d | %s |" % (r["scenario"], r["label"], r["base"], r["head"], r["runs"], where(r["first"]))
+                "| %s | %s | %s | %s | %d / %d | %s |"
+                % (r["scenario"], r["label"], r["base"], r["head"], r["base_runs"], r["runs"], where(r["first"]))
             )
         lines.append("")
     lines += ["### Scenarios", ""]
@@ -450,12 +472,13 @@ def report(res):
                 len(mine) - len(bad),
                 sum(1 for r in mine if r["new"]),
                 ", ".join(
-                    "%s (%s%s%s)"
+                    "%s (%s%s%s%s)"
                     % (
                         r["label"],
                         r["head"],
                         ", new" if r["new"] else (", base %s" % r["base"] if r["base"] else ""),
-                        ", %d runs" % r["runs"] if r["runs"] > 1 else "",
+                        ", %d head runs" % r["runs"] if r["runs"] > 1 else "",
+                        ", %d base runs" % r["base_runs"] if r["base_runs"] > 1 else "",
                     )
                     for r in bad
                 )
@@ -470,7 +493,8 @@ def report(res):
         "",
         "A regression is a snap pair identical (or normalized-identical) to fx with the base's xfx and not with the "
         "head's, both run with the head's scenarios and ledger. A pair the base does not snap is new: reported, "
-        "not failed. A pair a ledger `nondeterminism` cause covers runs again, up to 3 times, before it counts. "
+        "not failed. A pair a ledger `nondeterminism` cause covers runs again, up to 3 times on each build, before it "
+        "counts. "
         "CI green does not replace the local re-run.",
         "",
     ]

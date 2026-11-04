@@ -48,6 +48,9 @@ case $scenario:$side in
   flaky:*) snap a "tick 2" ;;
   always:head) snap a "tick 9" ;;
   always:*) snap a "tick 0" ;;
+  basevary:fx) snap a "tick 2" ;;
+  basevary:head) snap a "B" ;;
+  basevary:*) snap a "tick $n" ;;
   broken:fx|newscen:fx) snap a "X" ;;
   broken:*|newscen:*) snap a "Y" ;;
   *) snap a "row"; snap b "row" ;;
@@ -215,10 +218,27 @@ class CiSweep(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(out, "head-retry-4")))
         report = test_sweep.slurp(os.path.join(out, "report.md"))
         self.assertIn("**2 regression(s)**", report)
-        self.assertIn("| regress | a | identical | unresolved-defect | 1 | row 1: `A` / `B` |", report)
+        self.assertIn("| regress | a | identical | unresolved-defect | 1 / 1 | row 1: `A` / `B` |", report)
         for leak in (self.d, "/Users/", "/private/"):
             self.assertNotIn(leak, report)
             self.assertNotIn(leak, r.stdout)
+
+    def test_a_varying_base_gets_the_heads_retries_and_a_real_regression_still_fails(self):
+        # The base varies (a `tick` row, which the ledger's nondeterminism
+        # cause covers) and passes on its second run; the head prints `B`
+        # every time. Run once, the base reads as failing too, and the pair
+        # would be "neither passes": reported, not failed.
+        self.write(self.core, "basevary\n")
+        self.write(os.path.join(self.scen, "basevary.cap"), "snap a\n")
+        self.commit("basevary")
+        base = self.git("rev-parse", "HEAD").strip()
+        r, out = self.run_ci("--base", base, "--base-xfx", self.bins["base"])
+        res = self.result(out)
+        pair = res["pairs"][0]
+        self.assertEqual((pair["base"], pair.get("base_runs")), ("identical", 2), pair)
+        self.assertTrue(pair["regression"], pair)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(out, "base-retry-2")), "no run past the first that passes")
 
     def test_no_failing_pair_runs_no_base(self):
         self.write(self.core, "same\nuses\n")
@@ -263,6 +283,287 @@ class CiSweep(unittest.TestCase):
         self.assertIn("uses\tuses data.json\n", r.stdout)
         self.assertIn("gone\tremoved\n", r.stdout)
         self.assertEqual(os.listdir(self.state), [])
+
+
+WORKFLOWS = [os.path.join(test_sweep.REPO, ".github", "workflows", n) for n in ("sweep.yml", "sweep-full.yml")]
+
+
+def load_workflow(path):
+    """A workflow as GitHub reads it (YAML, through ruby's Psych: Python has
+    no YAML parser of its own, and check-preview-contract.sh already needs
+    ruby)."""
+    r = subprocess.run(
+        ["ruby", "-ryaml", "-rjson", "-e", "puts JSON.dump(YAML.load_file(ARGV[0]))", path],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(r.stdout)
+
+
+def step(workflow, job, name):
+    for st in workflow["jobs"][job]["steps"]:
+        if st.get("name") == name:
+            return st
+    raise AssertionError("%s has no step %r" % (job, name))
+
+
+class Workflows(unittest.TestCase):
+    """What the sweep's workflows may and may not do: no secret, no write
+    token, no trigger that runs a fork's change with this repository's
+    authority, no expression spliced into a shell."""
+
+    def test_the_invariants(self):
+        for path in WORKFLOWS:
+            name = os.path.basename(path)
+            w = load_workflow(path)
+            text = test_sweep.slurp(path)
+            self.assertEqual(w["permissions"], {"contents": "read"}, name)
+            for job, spec in w["jobs"].items():
+                self.assertIn(spec.get("permissions", {"contents": "read"}), ({"contents": "read"},), (name, job))
+                for st in spec["steps"]:
+                    if st.get("uses", "").startswith("actions/checkout@"):
+                        self.assertIs(st.get("with", {}).get("persist-credentials"), False, (name, job, st.get("name")))
+                    self.assertNotIn("${{", st.get("run", ""), (name, job, st.get("name")))
+            for trigger in ("pull_request_target", "workflow_run"):
+                self.assertNotIn(trigger, w["on"], name)
+            self.assertNotIn("secrets.", text, name)
+            self.assertNotIn("github.token", text, name)
+
+    def test_only_a_pull_requests_run_is_cancelled_by_the_next(self):
+        # A push to main is the backstop for a pull request built on an old
+        # base: two quick merges must not cancel the first one's run.
+        w = load_workflow(WORKFLOWS[0])
+        self.assertEqual(w["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+        self.assertIs(load_workflow(WORKFLOWS[1])["concurrency"]["cancel-in-progress"], False)
+
+    def repo(self):
+        d = test_sweep.scratch()
+        repo = os.path.join(d, "repo")
+        os.makedirs(repo)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid"] + list(args),
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        for n in ("one", "two"):
+            with open(os.path.join(repo, n), "w") as f:
+                f.write(n)
+            git("add", "-A")
+            git("commit", "-q", "-m", n)
+        return d, repo, git
+
+    def run_step(self, name, cwd, env):
+        script = step(load_workflow(WORKFLOWS[0]), "sweep", name)["run"]
+        return subprocess.run(["bash", "-e", "-c", script], cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
+
+    def test_a_pull_request_whose_base_is_not_in_the_clone_fails(self):
+        d, repo, git = self.repo()
+        head = git("rev-parse", "HEAD")
+        out = os.path.join(d, "out")
+        env = dict(os.environ, COMMIT_UNDER_TEST=head, GITHUB_OUTPUT=out)
+        missing = "1" * 40
+        for event, tip, expect in (
+            ("pull_request", missing, None),
+            ("pull_request", "", None),
+            ("push", missing, git("rev-parse", "HEAD^1")),
+            ("push", "0" * 40, git("rev-parse", "HEAD^1")),
+            ("pull_request", git("rev-parse", "HEAD^1"), git("rev-parse", "HEAD^1")),
+        ):
+            open(out, "w").close()
+            r = self.run_step("Confirm the checkout and find the base", repo, dict(env, GITHUB_EVENT_NAME=event, BASE_TIP=tip))
+            written = test_sweep.slurp(out)
+            if expect is None:
+                self.assertNotEqual(r.returncode, 0, (event, tip, written))
+                self.assertEqual(written, "", (event, tip))
+            else:
+                self.assertEqual(r.returncode, 0, (event, tip, r.stderr))
+                self.assertEqual(written, "sha=%s\n" % expect, (event, tip))
+
+    def test_the_base_is_built_from_inside_its_own_checkout(self):
+        # cargo and rustup read `.cargo/config.toml` and `rust-toolchain.toml`
+        # from the directory they run in: run from the head's checkout, the
+        # head's would drive the base's build.
+        d, repo, git = self.repo()
+        temp = os.path.join(d, "runner-temp")
+        fake = os.path.join(d, "fakebin")
+        os.makedirs(temp)
+        os.makedirs(fake)
+        log = os.path.join(d, "cargo.log")
+        with open(os.path.join(fake, "cargo"), "w") as f:
+            f.write(
+                textwrap.dedent(
+                    """\
+                    #!/bin/bash
+                    set -eu
+                    printf '%s|%s\\n' "$(pwd -P)" "$*" >> "$FAKE_LOG"
+                    target=target
+                    while [ $# -gt 0 ]; do
+                      case $1 in --target-dir) target=$2; shift ;; --manifest-path) echo "manifest-path $2" >> "$FAKE_LOG"; shift ;; esac
+                      shift
+                    done
+                    mkdir -p "$target/debug"
+                    printf '#!/bin/sh\\necho xfx built in %s\\n' "$(pwd -P)" > "$target/debug/xfx"
+                    chmod +x "$target/debug/xfx"
+                    """
+                )
+            )
+        os.chmod(os.path.join(fake, "cargo"), 0o755)
+        env = dict(
+            os.environ,
+            PATH=fake + os.pathsep + os.environ["PATH"],
+            RUNNER_TEMP=temp,
+            GITHUB_WORKSPACE=repo,
+            BASE=git("rev-parse", "HEAD^1"),
+            FAKE_LOG=log,
+        )
+        r = self.run_step("Build xfx at the base and at the head", repo, env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = test_sweep.slurp(log).splitlines()
+        self.assertNotIn("manifest-path", " ".join(calls))
+        self.assertEqual([c.split("|")[0] for c in calls], [os.path.realpath(os.path.join(temp, "base")), os.path.realpath(repo)])
+        self.assertIn("built in %s" % os.path.realpath(os.path.join(temp, "base")), r.stdout)
+
+
+CI_FETCH = os.path.join(HERE, "ci-fetch.sh")
+
+# A curl that answers from a directory: the file named like the URL's last
+# path segment, written where `--output` says. Anything else it is asked fails.
+STUB_CURL = r"""#!/bin/bash
+set -eu
+out='' url=''
+while [ $# -gt 0 ]; do
+  case $1 in --output) out=$2; shift ;; --retry|--retry-delay|--proto) shift ;; -*) ;; *) url=$1 ;; esac
+  shift
+done
+echo "$url" >> "$FAKE_FILES/asked"
+cp "$FAKE_FILES/${url##*/}" "$out"
+"""
+
+
+def sha_of(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+class CiFetch(unittest.TestCase):
+    """ci-fetch.sh's refusals, through its own `fetch_tools`, with pins of the
+    test's and a stub curl: no network."""
+
+    def setUp(self):
+        self.d = test_sweep.scratch()
+        self.files = os.path.join(self.d, "files")
+        self.stub = os.path.join(self.d, "stub")
+        for d in (self.files, self.stub):
+            os.makedirs(d)
+        with open(os.path.join(self.stub, "curl"), "w") as f:
+            f.write(STUB_CURL)
+        os.chmod(os.path.join(self.stub, "curl"), 0o755)
+        self.fx_tar = self.tarball("fx", "#!/bin/sh\necho fake fx\n")
+        self.bun_zip = self.zipfile("#!/bin/sh\necho 1.3.14\n")
+        self.fx_sha = sha_of(os.path.join(self.d, "fx-member"))
+
+    def tarball(self, name, body, symlink=False, out="fx-macos-aarch64.tar.gz"):
+        src = os.path.join(self.d, "tar-src-" + out)
+        os.makedirs(src)
+        member = os.path.join(src, "fx")
+        if symlink:
+            os.symlink("/bin/sh", member)
+        else:
+            with open(member, "w") as f:
+                f.write(body)
+            os.chmod(member, 0o755)
+            with open(os.path.join(self.d, "fx-member"), "w") as f:
+                f.write(body)
+        path = os.path.join(self.files, out)
+        subprocess.run(["tar", "-czf", path, "-C", src, "fx"], check=True)
+        return path
+
+    def zipfile(self, body, symlink=False, out="bun-darwin-aarch64.zip"):
+        src = os.path.join(self.d, "zip-src-" + out)
+        os.makedirs(os.path.join(src, "bun-darwin-aarch64"))
+        member = os.path.join(src, "bun-darwin-aarch64", "bun")
+        if symlink:
+            os.symlink("/bin/sh", member)
+        else:
+            with open(member, "w") as f:
+                f.write(body)
+            os.chmod(member, 0o755)
+        path = os.path.join(self.files, out)
+        subprocess.run(["zip", "-q", "-y", "-r", path, "bun-darwin-aarch64"], cwd=src, check=True)
+        return path
+
+    def fetch(self, fx_tar=None, fx_tar_sha=None, fx_sha=None, bun_zip=None, bun_sha=None, dest=None):
+        dest = dest or os.path.join(self.d, "tools")
+        fx_tar = fx_tar or self.fx_tar
+        bun_zip = bun_zip or self.bun_zip
+        args = [
+            dest,
+            "https://example.invalid/r/" + os.path.basename(fx_tar),
+            fx_tar_sha or sha_of(fx_tar),
+            fx_sha or self.fx_sha,
+            "https://example.invalid/r/" + os.path.basename(bun_zip),
+            bun_sha or sha_of(bun_zip),
+        ]
+        script = 'source "$1"; shift; fetch_tools "$@"'
+        env = dict(os.environ, PATH=self.stub + os.pathsep + os.environ["PATH"], FAKE_FILES=self.files)
+        r = subprocess.run(["bash", "-c", script, "ci-fetch", CI_FETCH] + args, env=env, capture_output=True, text=True, timeout=60)
+        return r, dest
+
+    def refused(self, r, dest, message, code=1):
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        self.assertIn(message, r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(dest, "bin", "fx")), "nothing installed")
+        self.assertFalse(os.path.exists(os.path.join(dest, "bin", "bun")), "nothing installed")
+
+    def test_the_pinned_files_are_installed_read_only(self):
+        r, dest = self.fetch()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for name in ("fx", "bun"):
+            path = os.path.join(dest, "bin", name)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o555, name)
+        self.assertEqual(sha_of(os.path.join(dest, "bin", "fx")), self.fx_sha)
+        self.assertFalse(os.path.exists(os.path.join(dest, "dl")))
+
+    def test_a_tarball_off_its_pin_is_refused_before_it_is_read(self):
+        r, dest = self.fetch(fx_tar_sha="0" * 64)
+        self.refused(r, dest, "the fx v0.0.16 tarball has sha256")
+        self.assertEqual(os.listdir(os.path.join(dest, "fx")), [], "tar never ran")
+
+    def test_an_executable_off_its_pin_is_refused(self):
+        r, dest = self.fetch(fx_sha="0" * 64)
+        self.refused(r, dest, "the fx v0.0.16 executable has sha256")
+
+    def test_a_symlinked_member_is_refused(self):
+        fx = self.tarball("fx", "", symlink=True, out="fx-link.tar.gz")
+        r, dest = self.fetch(fx_tar=fx)
+        self.refused(r, dest, "the tarball holds no regular file fx")
+        bun = self.zipfile("", symlink=True, out="bun-link.zip")
+        r, dest = self.fetch(bun_zip=bun, dest=os.path.join(self.d, "tools2"))
+        self.refused(r, dest, "the archive holds no regular file bun")
+
+    def test_an_existing_destination_is_refused(self):
+        dest = os.path.join(self.d, "tools")
+        os.makedirs(dest)
+        r, _ = self.fetch(dest=dest)
+        self.refused(r, dest, "exists; it must be made here, empty", code=2)
+        self.assertFalse(os.path.exists(os.path.join(self.files, "asked")), "nothing was fetched")
+
+    def test_a_bun_zip_off_its_pin_is_refused(self):
+        r, dest = self.fetch(bun_sha="0" * 64)
+        self.refused(r, dest, "the bun 1.3.14 archive has sha256")
+
+    def test_the_scripts_fx_pin_is_the_ledgers(self):
+        text = test_sweep.slurp(CI_FETCH)
+        led = test_sweep.ledgermod.load(test_sweep.LEDGER, test_sweep.REPO)
+        pin = next(p for p in led["pins"] if p["name"] == "v0.0.16")
+        self.assertIn("\nFX_SHA256=%s\n" % pin["sha256"], text)
+        self.assertIn(pin["note"].split("whose sha256 is ")[1][:64], text)
 
 
 class ReceiptNames(unittest.TestCase):

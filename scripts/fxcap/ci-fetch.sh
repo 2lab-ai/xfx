@@ -13,6 +13,10 @@
 #
 # usage: scripts/fxcap/ci-fetch.sh <dir>     (<dir> must not exist yet)
 # writes <dir>/bin/fx and <dir>/bin/bun, both read-only.
+#
+# Sourced (test_ci_sweep.py), it defines `fetch_tools` and runs nothing: the
+# tests hand it their own pins and a stub curl, and check every refusal
+# without the network. Run, it hands `fetch_tools` the pins below.
 set -euo pipefail
 
 FX_URL=https://github.com/vercel-labs/fx/releases/download/v0.0.16/fx-macos-aarch64.tar.gz
@@ -21,19 +25,20 @@ FX_SHA256=8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
 BUN_URL=https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip
 BUN_ZIP_SHA256=d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620
 
-main() {
-  local dir=${1:?usage: ci-fetch.sh <dir>}
+# fetch_tools <dir> <fx url> <fx tarball sha256> <fx sha256> <bun url> <bun zip sha256>
+fetch_tools() {
+  local dir=$1 fx_url=$2 fx_tarball_sha=$3 fx_sha=$4 bun_url=$5 bun_zip_sha=$6
   [[ ! -e $dir ]] || { echo "ci-fetch: $dir exists; it must be made here, empty" >&2; exit 2; }
   mkdir -p "$dir/dl" "$dir/fx" "$dir/bun" "$dir/bin"
 
-  fetch "$FX_URL" "$dir/dl/fx.tar.gz"
-  check "$dir/dl/fx.tar.gz" "$FX_TARBALL_SHA256" "the fx v0.0.16 tarball"
+  fetch "$fx_url" "$dir/dl/fx.tar.gz"
+  check "$dir/dl/fx.tar.gz" "$fx_tarball_sha" "the fx v0.0.16 tarball"
   tar -xzf "$dir/dl/fx.tar.gz" -C "$dir/fx" fx
   [[ -f $dir/fx/fx && ! -L $dir/fx/fx ]] || { echo "ci-fetch: the tarball holds no regular file fx" >&2; exit 1; }
-  check "$dir/fx/fx" "$FX_SHA256" "the fx v0.0.16 executable"
+  check "$dir/fx/fx" "$fx_sha" "the fx v0.0.16 executable"
 
-  fetch "$BUN_URL" "$dir/dl/bun.zip"
-  check "$dir/dl/bun.zip" "$BUN_ZIP_SHA256" "the bun 1.3.14 archive"
+  fetch "$bun_url" "$dir/dl/bun.zip"
+  check "$dir/dl/bun.zip" "$bun_zip_sha" "the bun 1.3.14 archive"
   unzip -q -j "$dir/dl/bun.zip" bun-darwin-aarch64/bun -d "$dir/bun"
   [[ -f $dir/bun/bun && ! -L $dir/bun/bun ]] || { echo "ci-fetch: the archive holds no regular file bun" >&2; exit 1; }
 
@@ -41,10 +46,15 @@ main() {
   install -m 0555 "$dir/bun/bun" "$dir/bin/bun"
   # The copy is what runs: checked again, so nothing between the check and
   # the run is trusted.
-  check "$dir/bin/fx" "$FX_SHA256" "the installed fx"
+  check "$dir/bin/fx" "$fx_sha" "the installed fx"
   chmod a-w "$dir/bin"
   rm -rf "$dir/dl"
-  echo "ci-fetch: fx $FX_SHA256 and bun $("$dir/bin/bun" --version) in $dir/bin"
+  echo "ci-fetch: fx $fx_sha and bun $("$dir/bin/bun" --version) in $dir/bin"
+}
+
+main() {
+  fetch_tools "${1:?usage: ci-fetch.sh <dir>}" \
+    "$FX_URL" "$FX_TARBALL_SHA256" "$FX_SHA256" "$BUN_URL" "$BUN_ZIP_SHA256"
 }
 
 fetch() {
@@ -62,4 +72,6 @@ check() {
   echo "ci-fetch: $what sha256 $got matches the pin"
 }
 
-main "$@"
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
+fi
