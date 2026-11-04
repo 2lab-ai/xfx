@@ -84,7 +84,7 @@ use super::bridge::{
 };
 use super::compaction::{Feedback, Update};
 use super::notice::Notice;
-use super::permissions::{self, Change, Grants, SavedRulesAt};
+use super::permissions::{self, Change, Granted, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
 use crate::agent::compaction_trace::{self, Context, Kind as TraceKind, Origin};
@@ -595,13 +595,20 @@ impl WorkHandle {
     /// The conversation's grants, as a bare `/permissions` lists them, from
     /// the runtime's last publication -- or none, when a reset has happened
     /// since it was made. Never waits for the runtime.
-    pub(crate) fn grants(&self) -> Vec<String> {
-        let (published_at, lines) = self.grants.read();
+    pub(crate) fn grants(&self) -> Vec<Granted> {
+        let (published_at, grants) = self.grants.read();
         if published_at < self.live.resets() {
             Vec::new()
         } else {
-            lines
+            grants
         }
+    }
+
+    /// How many resets the live authority has taken: a bare `/permissions`
+    /// panel's facts carry it, so a reset is seen the moment it is in force,
+    /// before the runtime publishes again.
+    pub(crate) fn resets(&self) -> u64 {
+        self.live.resets()
     }
 
     /// Where the live conversation keeps its saved-session permission rules,
@@ -813,8 +820,8 @@ impl WorkHandle {
     /// Stands in for the runtime's publication of the grants list, as of the
     /// reset count in force now.
     #[cfg(test)]
-    pub(crate) fn publish_grants(&self, lines: Vec<String>) {
-        self.grants.publish(self.live.resets(), lines);
+    pub(crate) fn publish_grants(&self, grants: Vec<Granted>) {
+        self.grants.publish(self.live.resets(), grants);
     }
 
     /// The live authority this handle writes, for a case that has to read
@@ -1746,7 +1753,7 @@ impl Runtime {
         // this publication older than it is, never newer, and an older one is
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
-        self.grants.publish(resets, self.grant_lines());
+        self.grants.publish(resets, self.granted());
         self.saved_rules
             .publish(self.conversation.as_ref().and_then(|conversation| {
                 conversation
@@ -1859,16 +1866,26 @@ impl Runtime {
         }
     }
 
-    /// The conversation's grants as `/permissions` lists them, made inert:
-    /// a command a model wrote is text this crate does not trust on a terminal.
-    fn grant_lines(&self) -> Vec<String> {
+    /// The conversation's grants as a bare `/permissions` lists them, the
+    /// target as a listing says it. Not made safe: the panel's rows are
+    /// (`super::info_panel::permissions_rows`).
+    fn granted(&self) -> Vec<Granted> {
         let Some(conversation) = self.conversation.as_ref() else {
             return Vec::new();
         };
         conversation
-            .grant_lines(&self.config.workspace_root)
+            .tools
+            .permissions()
+            .grants()
             .iter()
-            .map(|line| bridge::inert(line).into_owned())
+            .map(|grant| Granted {
+                tool: grant.tool.clone(),
+                target: crate::permission::slash::grant_target(
+                    &grant.tool,
+                    &grant.target,
+                    &self.config.workspace_root,
+                ),
+            })
             .collect()
     }
 
@@ -6691,7 +6708,13 @@ mod tests {
                 state.config.workspace_root.join("a.txt").to_string_lossy(),
             ));
         state.publish();
-        assert_eq!(grants.read().1, vec![" - write_file -> a.txt".to_string()]);
+        assert_eq!(
+            grants.read().1,
+            vec![Granted {
+                tool: "write_file".to_string(),
+                target: "a.txt".to_string(),
+            }]
+        );
 
         assert_eq!(state.change_permissions(Change::Reset), None);
         let conversation = state.conversation.as_ref().expect("still open");
@@ -6903,13 +6926,18 @@ mod tests {
             .change_permissions(Change::Mode(PermissionMode::Yolo))
             .expect("alive");
         assert_eq!(live.mode(), PermissionMode::Yolo, "not in force at once");
-        handle.publish_grants(vec![" - write_file -> a.txt".to_string()]);
+        handle.publish_grants(vec![Granted {
+            tool: "write_file".to_string(),
+            target: "a.txt".to_string(),
+        }]);
         assert_eq!(handle.grants().len(), 1);
+        assert_eq!(handle.resets(), 0);
         assert!(!handle.grants_reset_since_published());
         handle.change_permissions(Change::Reset).expect("alive");
         assert_eq!((live.mode(), live.resets()), (PermissionMode::Ask, 1));
         assert!(handle.grants().is_empty(), "a reset grant is still listed");
         assert!(handle.grants_reset_since_published());
+        assert_eq!(handle.resets(), 1, "the panel's facts would not see it");
         handle
             .change_permissions(Change::Acknowledge)
             .expect("alive");
@@ -6933,8 +6961,11 @@ mod tests {
     }
 
     #[test]
-    fn a_grant_is_listed_inert() {
-        // A command a model wrote is not text the terminal may be handed.
+    fn a_grant_is_published_as_it_is_held_for_the_panel_to_spell() {
+        // A command a model wrote is not text the terminal may be handed; the
+        // panel's rows are where it is made safe
+        // (`info_panel::tests::a_permissions_item_names_what_a_model_or_a_file_put_in_it`),
+        // so the publication keeps the command as the grant holds it.
         let (_home, _workspace, mut state) = recording();
         let grants = Grants::default();
         state.grants = grants.clone();
@@ -6946,10 +6977,13 @@ mod tests {
             .permissions()
             .grant(Grant::new("terminal", "printf '\u{1b}[2J' in /w"));
         state.publish();
-        let listed = grants.read().1;
-        assert_eq!(listed.len(), 1);
-        assert!(!listed[0].contains('\u{1b}'), "{listed:?}");
-        assert!(listed[0].starts_with(" - terminal -> printf"), "{listed:?}");
+        assert_eq!(
+            grants.read().1,
+            vec![Granted {
+                tool: "terminal".to_string(),
+                target: "printf '\u{1b}[2J' in /w".to_string(),
+            }]
+        );
     }
 
     #[test]

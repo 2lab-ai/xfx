@@ -402,7 +402,20 @@ pub fn selected(mode: PermissionMode) -> String {
 
 /// One row of the `session grants:` list: ` - <tool> -> <target>`
 /// (`renderInteractiveBody`, with `displayGrantTarget`,
-/// `output_contracts.zig:1699-1709`).
+/// `output_contracts.zig:1699-1709`), the target as [`grant_target`] says it.
+///
+/// Not made safe here: a command a model wrote is not text a terminal may be
+/// handed, and each front end has its own rule for that.
+pub fn grant_line(tool: &str, target: &str, workspace_root: &Path) -> String {
+    format!(
+        " - {tool} -> {}",
+        grant_target(tool, target, workspace_root)
+    )
+}
+
+/// A grant's target as a listing says it (`displayGrantTarget`,
+/// `output_contracts.zig:1699-1709`; the TUI's `/permissions` panel says it
+/// too, `PermissionsSnapshot.panelRows`, `:1044-1048@481104fd`).
 ///
 /// A file's target is the canonical absolute path a grant is keyed by
 /// ([`super::ProposedAction::target`]), said relative to the workspace when it
@@ -410,20 +423,15 @@ pub fn selected(mode: PermissionMode) -> String {
 /// becoming a chain of `..`. A command's target is the command and its
 /// directory, as the grant holds it.
 ///
-/// Not made safe here: a command a model wrote is not text a terminal may be
-/// handed, and each front end has its own rule for that.
-pub fn grant_line(tool: &str, target: &str, workspace_root: &Path) -> String {
-    let shown = if tool == "terminal" {
-        target.to_string()
-    } else {
-        match Path::new(target).strip_prefix(workspace_root) {
-            Ok(relative) if !relative.as_os_str().is_empty() => {
-                relative.to_string_lossy().into_owned()
-            }
-            _ => target.to_string(),
-        }
-    };
-    format!(" - {tool} -> {shown}")
+/// Not made safe here, for [`grant_line`]'s reason.
+pub fn grant_target(tool: &str, target: &str, workspace_root: &Path) -> String {
+    if tool == "terminal" {
+        return target.to_string();
+    }
+    match Path::new(target).strip_prefix(workspace_root) {
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_string_lossy().into_owned(),
+        _ => target.to_string(),
+    }
 }
 
 /// The mode Shift-Tab goes to from `mode`: ask, auto, full access, and round

@@ -1,15 +1,18 @@
 //! `/permissions` and Shift-Tab on this surface: the notices, the change the
-//! runtime applies, the grants a bare listing reads, and the full-access
-//! warning's clock.
+//! runtime applies, the grants a bare `/permissions` panel lists, and the
+//! full-access warning's clock.
 //!
 //! What the command means and the words it says are
 //! [`crate::permission::slash`]'s, shared with the line shell. What is this
 //! module's is the shape upstream's TUI gives them -- transcript notices with a
 //! topic and a tone (`writeDomainNotice`), and the one-time warning on the hint
-//! row (`app_permission_runtime.zig:20-67`). Where they happen is
-//! `super::shell`'s (the notices, the key, the hint row) and `super::worker`'s
-//! (the live authority every decision reads, and the record of each change:
-//! the session log and the settings write).
+//! row (`app_permission_runtime.zig:20-67`). A bare `/permissions` is no
+//! notice: it opens the band's info panel, whose rows are
+//! `super::info_panel`'s (`permissions_rows`). Where they happen is
+//! `super::shell`'s (the notices, the panel, the key, the hint row) and
+//! `super::worker`'s (the live authority every decision reads, the grants it
+//! publishes, and the record of each change: the session log and the settings
+//! write).
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -55,30 +58,6 @@ pub(crate) enum Change {
     Acknowledge,
 }
 
-/// The first notice of a bare `/permissions`: the three facts and the usage
-/// line under them (`writePermissionsStatus`, `session_commands.zig:1047-1053`).
-pub(crate) fn status(
-    mode: PermissionMode,
-    rules: &crate::permission::RuleSet,
-    grants: &[String],
-) -> Notice {
-    Notice::neutral(
-        TOPIC,
-        format!(
-            "{}\n{}",
-            slash::status_rows(mode, rules, grants),
-            slash::USAGE
-        ),
-    )
-}
-
-/// The second notice of a bare `/permissions`: the session's saved rules as
-/// [`slash::saved_rules_body`] says them, each row made inert -- a rule's
-/// display carries text a person's JSON put there.
-pub(crate) fn saved_rules(body: &str) -> Notice {
-    Notice::neutral(TOPIC, super::bridge::inert(body).into_owned())
-}
-
 /// What setting a mode says: neutral, and a warning for the one that skips
 /// every check (`session_commands.zig:373-383`).
 pub(crate) fn selected(mode: PermissionMode) -> Notice {
@@ -104,6 +83,19 @@ pub(crate) fn not_saved(label: &str, reason: &str) -> Notice {
     Notice::error(label, slash::not_saved(reason))
 }
 
+/// One "always" the live conversation holds, as a bare `/permissions` lists it:
+/// the tool, and its target as a listing says it -- a file relative to the
+/// workspace ([`slash::grant_target`]).
+///
+/// **Not made safe here**: a command a model wrote is in `target` as the grant
+/// holds it, and the panel's rows are where every text is made safe for the
+/// terminal (`super::info_panel::permissions_rows`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Granted {
+    pub(crate) tool: String,
+    pub(crate) target: String,
+}
+
 /// The conversation's grants as a bare `/permissions` lists them, kept where
 /// the UI thread can read them without asking the runtime.
 ///
@@ -117,18 +109,18 @@ pub(crate) fn not_saved(label: &str, reason: &str) -> Notice {
 /// a later reset (`crate::permission::LiveAuthority`) can tell the list is out
 /// of force without waiting for the runtime to say so again.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Grants(Arc<Mutex<(u64, Vec<String>)>>);
+pub(crate) struct Grants(Arc<Mutex<(u64, Vec<Granted>)>>);
 
 impl Grants {
     /// Replaces what the next bare `/permissions` lists, as of reset count
     /// `resets`.
-    pub(crate) fn publish(&self, resets: u64, lines: Vec<String>) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = (resets, lines);
+    pub(crate) fn publish(&self, resets: u64, grants: Vec<Granted>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = (resets, grants);
     }
 
     /// The list the runtime last published, and the reset count it was made
     /// under.
-    pub(crate) fn read(&self) -> (u64, Vec<String>) {
+    pub(crate) fn read(&self) -> (u64, Vec<Granted>) {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -244,36 +236,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_bare_listing_is_upstreams_two_notices() {
-        // `cap/fx-permissions-40x120-bare.txt`.
-        let notice = status(
-            PermissionMode::Auto,
-            &crate::permission::RuleSet::default(),
-            &[],
-        );
-        assert_eq!(
-            (notice.tone, notice.topic.as_str()),
-            (Tone::Neutral, "permissions")
-        );
-        assert_eq!(
-            notice.body,
-            "mode=auto\nconfigured rules: (none)\nsession grants: (none)\n\
-             usage: /permissions [ask|auto|full-access|reset]\n       \
-             /permissions remember <allow|deny> <tool-name> <arguments-json>\n       \
-             /permissions revoke <rule-id>"
-        );
-        let second = saved_rules(slash::SAVED_RULES);
-        assert_eq!(
-            (second.tone, second.topic.as_str(), second.body.as_str()),
-            (
-                Tone::Neutral,
-                "permissions",
-                "saved-session permission rules: none"
-            )
-        );
-    }
-
-    #[test]
     fn each_answer_is_said_in_upstreams_words_and_tone() {
         let auto = selected(PermissionMode::Auto);
         assert_eq!(
@@ -317,9 +279,13 @@ mod tests {
     fn the_board_hands_back_what_was_published_last() {
         let board = Grants::default();
         assert_eq!(board.read(), (0, Vec::new()));
-        board.publish(0, vec![" - write_file -> a".to_string()]);
+        let granted = Granted {
+            tool: "write_file".to_string(),
+            target: "a".to_string(),
+        };
+        board.publish(0, vec![granted.clone()]);
         let reader = board.clone();
-        assert_eq!(reader.read(), (0, vec![" - write_file -> a".to_string()]));
+        assert_eq!(reader.read(), (0, vec![granted]));
         board.publish(3, Vec::new());
         assert_eq!(reader.read(), (3, Vec::new()));
     }
