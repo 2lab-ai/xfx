@@ -155,6 +155,30 @@ make it.
   item holds a ZWJ family, `❤` with `U+FE0F`, and a bell. Only `named` spells
   the joiners and the selector. The test fails with `tamed`.
 
+## Round P-permissions-c (review)
+
+- **An Unknown stamp counts as moved.** If the panel was built while `stat`
+  failed, it reads the store again on every tick
+  (`an_open_permissions_panel_whose_store_cannot_be_stamped_reads_it_again`,
+  which fails at `dc006615`). A re-read that finds the same rows owes no
+  frame.
+- **A store that is not a regular file is refused.** `load` opens with
+  `O_NONBLOCK|O_NOCTTY` and refuses anything its own `fstat` says is not a
+  regular file. A FIFO at the store's path therefore closes the panel at
+  once, instead of holding the terminal's thread while it waits for a
+  writer. Two tests bound the wait with a watchdog:
+  `a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting`,
+  which fails at `dc006615`, and
+  `a_store_that_is_no_regular_file_is_refused_without_waiting_for_a_writer`.
+- **The inode part of the stamp, pinned.** A store renamed over the first
+  one, with the same size, mode and mtime, is read again
+  (`a_store_replaced_by_another_of_the_same_size_and_time_is_read_again`). It
+  fails when the stamp is cut down to size alone, and when only the inode is
+  removed.
+
+The captures were not taken again in this round. It changes nothing on
+screen for a store that is a regular file, so `green.txt` still holds.
+
 ## Note on P-status's receipt
 
 `U-permissions-panel` is retired from the ledger. P-status's directory still
