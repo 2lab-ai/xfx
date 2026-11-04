@@ -196,6 +196,16 @@ impl Default for SavedRules {
     }
 }
 
+impl StoreStamp {
+    /// Whether this was taken of an open session's file that was not a
+    /// regular file whose metadata read ([`session_rules::Stamp::Unknown`]):
+    /// no proof the store held still, so a view built under it reads the
+    /// store again.
+    pub(crate) fn is_unknown(&self) -> bool {
+        self.file == Some(session_rules::Stamp::Unknown)
+    }
+}
+
 impl SavedRules {
     /// The rules of a session that is not open yet, whose store will be `at`:
     /// none.

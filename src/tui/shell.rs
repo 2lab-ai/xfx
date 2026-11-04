@@ -6572,10 +6572,7 @@ impl Shell {
         // so a panel built under one reads it again on each tick.
         let unknown = matches!(
             shown,
-            info_panel::Facts::Permissions {
-                store: Some(crate::permission::session_rules::Stamp::Unknown),
-                ..
-            }
+            info_panel::Facts::Permissions { store, .. } if store.is_unknown()
         );
         if !unknown && self.permissions_in_force().0 == *shown {
             return;
@@ -22623,15 +22620,12 @@ mod tests {
         // which is neither absent nor readable, for any user.
         shell
             .work
-            .publish_saved_rules(Some(crate::permission::session_rules::path_in(&file)));
+            .publish_saved_rules(crate::permission::session_rules::path_in(&file));
         let (facts, ..) = shell.permissions_in_force();
         assert!(
             matches!(
                 facts,
-                info_panel::Facts::Permissions {
-                    store: Some(crate::permission::session_rules::Stamp::Unknown),
-                    ..
-                }
+                info_panel::Facts::Permissions { ref store, .. } if store.is_unknown()
             ),
             "{facts:?}"
         );

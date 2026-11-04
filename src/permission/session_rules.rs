@@ -532,8 +532,33 @@ pub fn path_in(session_dir: &Path) -> PathBuf {
 /// `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`).
 /// Through the same staged, owner-only file and rename as [`update`]; no
 /// lock, since nothing else can know the directory yet.
+///
+/// **Fails closed under the rules [`load`] reads by.** The directory is new,
+/// so anything already at the store's path -- a FIFO, a directory, a link, a
+/// file -- is another hand's, and the seed refuses it rather than write
+/// beside it or rename over it. What was written is then read back through
+/// [`load`] -- a regular file, opened without waiting on a writer -- and must
+/// be the state held: rules that would not decide as they were confirmed
+/// open no session.
 pub fn seed(session_dir: &Path, state: &State) -> io::Result<()> {
-    write(session_dir, &path_in(session_dir), &state.encode())
+    let path = path_in(session_dir);
+    match fs::symlink_metadata(&path) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+        Ok(metadata) if metadata.is_file() => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "a store is already there",
+            ))
+        }
+        Ok(_) => return Err(not_regular()),
+    }
+    write(session_dir, &path, &state.encode())?;
+    match load(&path) {
+        Ok(written) if written == *state => Ok(()),
+        Ok(_) => Err(io::Error::other("the store read back is not the one held")),
+        Err(reason) => Err(io::Error::other(reason)),
+    }
 }
 
 /// The store at `path`: empty when there is no file, an error naming why when
@@ -867,6 +892,65 @@ mod tests {
                 rules: Vec::new()
             })
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_seed_refuses_whatever_is_already_at_the_store_and_reads_back_what_it_wrote() {
+        use std::os::unix::fs::FileTypeExt;
+        // A session's directory is new when its held rules are seeded into
+        // it, so anything at the store's path is another hand's: a FIFO (left
+        // as it was, and never waited on), a directory, a file. A clean seed
+        // reads back, through `load`'s regular-file open, as the state held.
+        let held = applied(State::default().apply(&set("a", Decision::Deny, None)));
+        let dir = tempfile::tempdir().expect("a session directory");
+        let fifo = path_in(dir.path());
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (target, state) = (dir.path().to_path_buf(), held.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(seed(&target, &state).map_err(|err| err.to_string()));
+        });
+        let seeded = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(seeded) => seeded,
+            Err(_) => {
+                drop(fs::OpenOptions::new().write(true).open(&fifo));
+                panic!("a seed waited on a FIFO at the store's path");
+            }
+        };
+        assert!(
+            seeded
+                .expect_err("seeded over a FIFO")
+                .contains("not a regular file"),
+            "the refusal names it"
+        );
+        assert!(
+            fs::symlink_metadata(&fifo)
+                .expect("still there")
+                .file_type()
+                .is_fifo(),
+            "the seed replaced what was there"
+        );
+
+        let folder = tempfile::tempdir().expect("a session directory");
+        fs::create_dir(path_in(folder.path())).expect("a directory at the store's path");
+        assert!(seed(folder.path(), &held).is_err());
+
+        let taken = tempfile::tempdir().expect("a session directory");
+        fs::write(path_in(taken.path()), State::default().encode()).expect("a store");
+        assert!(seed(taken.path(), &held).is_err(), "seeded over a store");
+        assert_eq!(
+            load(&path_in(taken.path())).expect("kept"),
+            State::default()
+        );
+
+        let clean = tempfile::tempdir().expect("a session directory");
+        seed(clean.path(), &held).expect("seeded");
+        assert_eq!(load(&path_in(clean.path())).expect("read back"), held);
     }
 
     #[cfg(unix)]
