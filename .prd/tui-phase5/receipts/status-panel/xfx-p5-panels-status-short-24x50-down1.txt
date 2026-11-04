@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-7b4579a [debug] · Run /help for
+x𝒇x v0.1.0-766169e [debug] · Run /help for
 commands
 
 ──────────────────────────────────────────────────
@@ -10,12 +10,12 @@ Status
   Permissions       auto
   Sandbox           none
   Workspace         <tmp>/
-                    fxcap.9tDbeI/work
+                    fxcap.f0xDiH/work
   Turns             0
   Session grants    0
   Step limit        25
   Ultrafast         not requested
-  Build             debug · 7b4579a25b78
+  Build             debug · 766169eb8811
 ──────────────────────────────────────────────────
 ↑↓ scroll     esc close
 

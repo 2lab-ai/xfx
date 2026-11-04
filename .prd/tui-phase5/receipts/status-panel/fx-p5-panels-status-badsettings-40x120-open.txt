@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           U8RkhqfhR5io · not saved yet
+  Model             fake/model-a
+  Settings          couldn't be read: InvalidSettingsFormat
+  Permissions       auto
+  Workspace         <tmp>/fxcap.MDTVdf/work
+  Turns             0
+  Session grants    0
+  Step limit        unlimited
+  Ultrafast         not requested
+  Updates           stable
+  Build             stable · 481104fdbc24
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

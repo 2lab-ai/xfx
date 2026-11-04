@@ -1,17 +1,17 @@
-x𝒇x v0.1.0-7b4579a [debug] · Run /help for
+x𝒇x v0.1.0-766169e [debug] · Run /help for
 commands
 
 ──────────────────────────────────────────────────
 Status
 
-  Session           1793752350615-f3dfa0d5332ef5f3
+  Session           1793752877202-4307c2edd2c02a4a
                     · not saved yet
   Model             fake/model-a
   Auth              AI_GATEWAY_API_KEY
   Permissions       auto
   Sandbox           none
   Workspace         <tmp>/
-                    fxcap.9tDbeI/work
+                    fxcap.f0xDiH/work
   Turns             0
   Session grants    0
   Step limit        25

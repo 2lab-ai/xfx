@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-7b4579a [debug] · Run /help for commands
+x𝒇x v0.1.0-766169e [debug] · Run /help for commands
 
 * permissions: mode=ask
   configured rules: (none)
@@ -14,22 +14,22 @@ x𝒇x v0.1.0-7b4579a [debug] · Run /help for commands
 
 ┃ run it
 
-• Generating (1s) (↑2 ↓4)
+  Generating (1s) (↑2 ↓4)
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Status
 
-  Session           1793752358071-7a2307aa8df9539b · saved
+  Session           1793752884612-900511b5bb66fe5b · saved
   Model             fake/model-a
   Auth              AI_GATEWAY_API_KEY
   Permissions       auto
   Sandbox           none
-  Workspace         <tmp>/fxcap.yN9qwO/work
+  Workspace         <tmp>/fxcap.G0lOA4/work
   Turns             0
   Session grants    0
   Step limit        25
   Ultrafast         not requested
-  Build             debug · 7b4579a25b78
+  Build             debug · 766169eb8811
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc close
 

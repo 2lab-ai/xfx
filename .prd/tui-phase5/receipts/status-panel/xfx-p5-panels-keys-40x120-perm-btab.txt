@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-7b4579a [debug] · Run /help for commands
+x𝒇x v0.1.0-766169e [debug] · Run /help for commands
 
 * permissions: mode=ask
   configured rules: (none)

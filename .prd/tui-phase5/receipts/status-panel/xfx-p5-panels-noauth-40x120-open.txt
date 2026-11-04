@@ -1,20 +1,20 @@
-x𝒇x v0.1.0-7b4579a [debug] · Run /help for commands
+x𝒇x v0.1.0-766169e [debug] · Run /help for commands
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Status
 
-  Session           1793752337226-681f70f27e57f2c9 · not saved yet
+  Session           1793752857296-df07838cb602cdac · not saved yet
   Model             fake/model-a
   Auth              missing
   Auth help         xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
   Permissions       auto
   Sandbox           none
-  Workspace         <tmp>/fxcap.20NOzB/work
+  Workspace         <tmp>/fxcap.E3NR3F/work
   Turns             0
   Session grants    0
   Step limit        25
   Ultrafast         not requested
-  Build             debug · 7b4579a25b78
+  Build             debug · 766169eb8811
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc close
 

@@ -24,6 +24,9 @@ the R1 summary), `src/tui/worker.rs` (the launch-time id, `open_next`,
 `shell_session`, the board published as a session opens),
 `src/tui/info_panel.rs` (`Panel::status`, `Facts::of_status`),
 `src/tui/shell.rs` (`status`, `status_in_force`, `settle_info_panel`).
+`unreadable_profile_settings` and `settings_error_name` in `src/config.rs`
+give the `Settings` row upstream's error name where both readers name the
+same condition (`InvalidSettingsFormat`, `StreamTooLong`).
 
 ## Decisions (the dispatcher's, reversible; recorded in `docs/parity.md:113` and the ledger)
 
@@ -56,9 +59,11 @@ python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py
 ```
 
 for `p5-panels-status`, `-status-first`, `-noauth` (40x120; the research
-scenarios, unchanged), and P-panel's `p5-panels-status-short` (14x120, 24x50)
+scenarios, unchanged), `p5-panels-status-badsettings` (new here, on H1's
+existing `rehomefile` verb: a good profile and no credential at launch, made
+malformed before `/status`), and P-panel's `p5-panels-status-short` (14x120, 24x50)
 and `p5-panels-keys` (40x120), both sides taken again here. The xfx binary is
-`target/debug/xfx` at `7b4579a2`, whose code is this unit's first commit's.
+`target/debug/xfx` at `766169eb`.
 Sanitized: `/private/tmp/claude-501` is `<tmp>` (`scripts/fxcap/redact.py`).
 `pairs.py` runs the sweep's own classification (`ledger.classify`,
 `ledger.cascade`, `sweep.attribute`) against the v0.0.16 pin.
@@ -74,6 +79,8 @@ Sanitized: `/private/tmp/claude-501` is `<tmp>` (`scripts/fxcap/redact.py`).
 | `status-{turn,status-now,esc-closed,enter-closed,closed-final}`, `status-first-closed`, `keys-after-ctrl-c-esc`, `status-short-14x120-{open,down1,esc}` | normalized-identical | -- |
 | `status-{open,down,typed,after-turn,open-midturn,open-after-midturn}`, `status-first-{open-first,after-first}`, `keys-{btab,tab-pgdn,paste,ctrl-c}` | approved (aligned) | Sandbox row, no Updates row, Step limit `25` |
 | `noauth-open` | approved (aligned) | the same, and `Auth help` without `/login` (sign-in, #88) |
+| `badsettings-open` | approved (aligned) | Sandbox, Updates, Step limit; `Settings  couldn't be read: InvalidSettingsFormat` on both |
+| `badsettings-{launch,closed}` | approved | the hint row's `run /login` (sign-in, #88) |
 | `noauth-launch` | approved | the hint row's `run /login` (sign-in, #88): not this unit's |
 | `status-short-14x120-up1` | approved (aligned) | the window holds Updates and Step limit |
 | `status-short-14x120-{ctrl-k,down-end}` | differs | the scrolled window: xfx's Sandbox stands where nothing does in fx's, so the two-line window shows the line before fx's (cause `status-panel-scroll-window`) |
@@ -86,16 +93,20 @@ Of P-panel's 22 pairs: 9 are the same or approved now (`14x120-{open,down1,esc,u
 `keys-{btab,tab-pgdn,paste,ctrl-c,after-ctrl-c-esc}`), 8 differ for the id,
 the banner and the scrolled windows above, 5 wait for U-permissions.
 
-## Rows waiting on H1 (no harness verb on this base), pinned by unit tests
+## Rows pinned by unit tests, not by a pair
 
-- **Settings unreadable after launch** (H1):
+- **Settings unreadable after launch** (H1): captured above, since H1's
+  `rehomefile` is on this base; also
   `status_says_settings_it_cannot_read_on_the_gateway_with_no_credential_once`
   (read at open on the Gateway with no credential only, a rebuild reads no
-  file), `the_status_panel_shows_settings_it_could_not_read_where_the_credential_was`,
+  file), `the_status_panel_says_upstreams_error_name_where_it_has_one`,
   `profile_settings_that_do_not_read_now_say_why_and_a_missing_file_is_none`.
 - **A non-Gateway provider** (H2): `the_status_panel_names_a_provider_that_is_not_the_gateway_and_its_endpoint`.
+  No pair: the two products have no non-Gateway provider in common (fx's Codex
+  or Grok sign-in, xfx's llmux), so a pair would compare two providers.
 - **An unwritable store** (H3): `a_store_that_refuses_the_session_is_a_shell_that_cannot_save_until_one_opens`,
-  `status_names_a_session_this_shell_cannot_save`.
+  `status_names_a_session_this_shell_cannot_save`. No verb makes the sessions
+  directory unwritable after launch.
 
 ## Residuals
 
