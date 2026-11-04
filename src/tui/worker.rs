@@ -1869,7 +1869,7 @@ impl Runtime {
     /// Rules that cannot be written open nothing -- the prompt is refused,
     /// says why, and runs no tool, as upstream's failed first publish fails
     /// its turn before any call runs (`appendRunningToolCalls`,
-    /// `src/core/agent/runtime/orchestrator.zig:3894-3920@481104fd`) -- and
+    /// `src/core/agent/runtime/orchestrator.zig:3894-3917@481104fd`) -- and
     /// stay held, for the next attempt under the next id.
     fn open_next(&mut self, mirror: &CancelToken) -> Result<(), String> {
         let model = self.model().to_string();
@@ -8854,11 +8854,13 @@ mod tests {
     fn rules_held_before_the_first_prompt_are_its_sessions_and_decide_its_first_call() {
         // fx puts a confirmed rule in the session's state at once
         // (`replacePermissionStateOwned`, `input_approval_runtime.zig:
-        // 289-292@481104fd`), which every approval reads, and writes it with
+        // 289-293@481104fd`), which every approval reads, and writes it with
         // the session's first turn. Here: held until the first prompt opens
         // the session, written into its directory before its log, and the
         // store every decision of that first turn reads -- in `auto`, where
-        // nothing else would stop the write.
+        // nothing else would stop the write. (A write's rule is applied past
+        // upstream, whose TUI reads no saved rule for a file change:
+        // `docs/parity.md`'s `/permissions` row.)
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let mut config = config(home.path(), workspace.path());
@@ -8960,7 +8962,7 @@ mod tests {
         // A first save that cannot be made opens nothing and runs nothing, as
         // fx's failed first publish fails its turn before any call
         // (`appendRunningToolCalls`, `src/core/agent/runtime/orchestrator.zig:
-        // 3894-3916@481104fd`); the rules stay held, and the next attempt --
+        // 3894-3917@481104fd`); the rules stay held, and the next attempt --
         // under the next id -- writes them. Never in force unsaved, never lost.
         use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().expect("a home");

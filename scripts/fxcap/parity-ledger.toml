@@ -280,6 +280,19 @@ expires = "date:2026-12-04"
 source = ["UPSTREAM.md:91-95", "docs/parity.md:113"]
 
 [[divergence]]
+id = "saved-write-rule-applied"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-permissions-early-probe-ask-after"]
+snaps = ["after-call"]
+whole_snap = true
+reason = "fx v0.0.16 confirms `/permissions remember deny write_file <args>` and then asks about the very write it names (in `auto` it makes it): its TUI admits a file change through `requestPreparedFileMutationPermissionOutcome` (`src/core/app/app_agent_runtime.zig:684-692@481104fd`), whose input never resolves the session-state provider that only `requestPermissionOutcome` reads (`src/core/tooling/tool_admission.zig:1278-1292@481104fd`), so `state_may_decide` is false (`:510-513`) and no saved rule decides a write. A read's rule is applied (`p5-permissions-early`, `denied`). xfx applies the remembered rule to the write as to the read: copying fx would let a remembered deny lapse."
+owner = "PERM-EARLY"
+resolution = "fx applies a remembered file-change rule to the call it names in a later pin, or the user takes fx's"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:94"]
+
+[[divergence]]
 id = "status-panel-session-id-wrap"
 class = "user-decision"
 pins = ["v0.0.16"]
@@ -340,36 +353,6 @@ xfx_row = '^■ Cancelled '
 xfx = ["src/tui/toolgroup.rs:528"]
 fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
 why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
-
-[[cause]]
-id = "saved-rules-before-first-prompt"
-kind = "decision"
-owner = "user decision saved-session rules before the first prompt (lifecycle; P-status decision 1)"
-scenarios = ["p5-panels-permissions"]
-snaps = ["*"]
-fx_row = '^\* permissions: saved-session permission rule updated$|^  Saved rules {9}1$|^ {22}• 1 deny write_file b\.txt preimage=absent after=[0-9a-f]{16}$'
-xfx_row = '^✗ permissions: saved-session permission rules require an active saved session$|^! permissions: saved-session permission rule not found$|^  Saved rules {9}none$'
-xfx = ["src/permission/slash.rs:42"]
-fx = ["src/core/app/app_commands.zig:615@481104fd"]
-why = "fx's session is open from launch, so `/permissions remember` typed before the first prompt keeps its rule; xfx opens its session at the first prompt and refuses a rule before it (`require an active saved session`, docs/parity.md:94), so the scenario's remembered rule, its listing and its revoke are fx's alone. Whether `remember` before a prompt opens the session under the launch id, as `/rename` does (P-status decision 1), changes a subcommand's path: not the bare panel's."
-
-[[cause]]
-id = "saved-rules-before-first-prompt-band"
-kind = "decision"
-owner = "user decision saved-session rules before the first prompt (lifecycle; P-status decision 1)"
-scenarios = ["p5-panels-permissions"]
-snaps = ["remember-prompt", "revoke-prompt"]
-whole_snap = true
-why = "The confirmation band of `remember` and `revoke` opens on fx's side only, for `saved-rules-before-first-prompt`'s reason: xfx answers both with a notice and keeps the composer."
-
-[[cause]]
-id = "saved-rules-before-first-prompt-shift"
-kind = "decision"
-owner = "user decision saved-session rules before the first prompt (lifecycle; P-status decision 1)"
-scenarios = ["p5-panels-permissions"]
-snaps = ["grants", "after-revoke"]
-rows = [1]
-why = "With no saved rule to list, xfx's panel is a row shorter than fx's, so one more row of the document stands above it: row 1 is xfx's blank before the first notice (`saved-rules-before-first-prompt`)."
 
 [[cause]]
 id = "status-panel-scroll-window"

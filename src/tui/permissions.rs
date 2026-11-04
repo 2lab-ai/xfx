@@ -136,7 +136,7 @@ impl Grants {
 /// **Before the session's first save they are held here, in memory**, as
 /// upstream holds them: its session exists from launch, a confirmed
 /// `remember` or `revoke` goes into the runtime's state at once
-/// (`replacePermissionStateOwned`, `input_approval_runtime.zig:289-292`)
+/// (`replacePermissionStateOwned`, `input_approval_runtime.zig:289-293`)
 /// and into the session's held lines, which only its first turn writes
 /// (`commitPermissionState` -> `setPermissions` -> `hold`,
 /// `app_session_runtime.zig:4961-4968`, `session_adapter.zig:2205-2209`,

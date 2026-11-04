@@ -1,0 +1,23 @@
+# PERM-EARLY probe (fx only): in ask, a write_file deny remembered AFTER the
+# first prompt, then the model calls exactly that write. fx v0.0.16 asks about
+# it anyway: its remembered write_file rule does not decide the call it names.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-permissions-early-probe-turn.json
+wait 2
+type /permissions ask
+key Enter
+wait 1
+type first
+key Enter
+wait 3
+type /permissions remember deny write_file {"path":"b.txt","content":"y"}
+key Enter
+wait 1.5
+key Enter
+wait 1
+type write it
+key Enter
+wait 3
+snap after-call
+home end
+gwlog

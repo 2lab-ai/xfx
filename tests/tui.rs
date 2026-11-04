@@ -12878,13 +12878,16 @@ fn a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a
     // fx's session is open from launch, so `/permissions remember` typed
     // before the first prompt is confirmed and in force at once
     // (`handlePermissionRuleManagement`, `src/core/app/app_commands.zig:
-    // 598-726`; `submitRuleManagementChoice`, `input_approval_runtime.zig:
+    // 598-750`; `submitRuleManagementChoice`, `input_approval_runtime.zig:
     // 277-297@481104fd`), and its first turn writes it with everything else
     // it held (`src/core/session_manager/session.zig:415-429`, `:503-539`).
     // Here: confirmed with nothing on disk, written into the session the
     // prompt opens, and the deny that decides the prompt's own call -- no
-    // question asked, nothing written. Red before: the remember was refused
-    // (`require an active saved session`), so the confirmation never came.
+    // question asked, nothing written. (fx applies a read's rule so, and not
+    // a write's: `docs/parity.md`'s `/permissions` row; the capture pair
+    // `p5-permissions-early` holds the read.) Red before: the remember was
+    // refused (`require an active saved session`), so the confirmation never
+    // came.
     use support::fake_gateway::{finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[

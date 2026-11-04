@@ -11842,7 +11842,7 @@ impl CommandHandlers for Shell {
         // The store as it stands, read once: held for the session the first
         // save opens -- where upstream's session, open from launch, keeps a
         // rule typed before the first prompt (`handlePermissionRuleManagement`,
-        // `app_commands.zig:598-726@481104fd`) -- or the open session's file.
+        // `app_commands.zig:598-750@481104fd`) -- or the open session's file.
         // There is always one: this shell's next session has its id from
         // launch.
         let store = self.work.saved_rules().view();
@@ -22908,7 +22908,7 @@ mod tests {
     fn a_rule_remembered_before_the_first_prompt_is_held_and_written_nowhere_yet() {
         // fx's session is open from launch: a `remember` typed before the
         // first prompt opens its confirmation (`handlePermissionRuleManagement`,
-        // `src/core/app/app_commands.zig:598-726@481104fd`), and Enter puts the
+        // `src/core/app/app_commands.zig:598-750@481104fd`), and Enter puts the
         // rule in the session's state at once (`input_approval_runtime.zig:
         // 277-297`) and in the lines it holds until its first turn
         // (`src/core/session_manager/session.zig:415-429`). Red before: xfx
