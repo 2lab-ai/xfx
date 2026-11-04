@@ -526,10 +526,11 @@ pub fn path_in(session_dir: &Path) -> PathBuf {
 }
 
 /// The store at `path`: empty when there is no file, an error naming why when
-/// the file cannot be read or does not hold a valid store -- which a decision
-/// treats as a refusal, as upstream's failed snapshot fails the call.
+/// the file cannot be read, is not a regular file, or does not hold a valid
+/// store -- which a decision treats as a refusal, as upstream's failed
+/// snapshot fails the call.
 pub fn load(path: &Path) -> Result<State, String> {
-    let file = match fs::File::open(path) {
+    let file = match open_regular(path) {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(State::default()),
         Err(err) => {
@@ -545,6 +546,43 @@ pub fn load(path: &Path) -> Result<State, String> {
     State::decode(&bytes)
 }
 
+/// `path` opened for reading only if it is a regular file.
+///
+/// `O_NONBLOCK`, so a FIFO put at the store's path opens at once rather than
+/// holding the thread until a writer comes -- the TUI reads the store on the
+/// thread that holds the terminal -- and `O_NOCTTY`, so a terminal there
+/// never becomes this process's. Then judged by its own `fstat`, so what is
+/// refused is what was opened, and made blocking again (`src/image.rs`'s
+/// `open_regular` opens a vision source the same way).
+#[cfg(unix)]
+fn open_regular(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_regular());
+    }
+    let flags = rustix::fs::fcntl_getfl(&file)?;
+    rustix::fs::fcntl_setfl(&file, flags & !rustix::fs::OFlags::NONBLOCK)?;
+    Ok(file)
+}
+
+/// Without `O_NONBLOCK`, the path's own metadata is what keeps a special
+/// file from being opened.
+#[cfg(not(unix))]
+fn open_regular(path: &Path) -> io::Result<fs::File> {
+    if !fs::metadata(path)?.is_file() {
+        return Err(not_regular());
+    }
+    fs::File::open(path)
+}
+
+fn not_regular() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
+}
+
 /// What the store's file at `path` is now, from its metadata alone: absent,
 /// or which object it is with which size and modification time
 /// ([`super::FileIdentity`]), or that the metadata could not be read.
@@ -558,14 +596,19 @@ pub fn load(path: &Path) -> Result<State, String> {
 pub enum Stamp {
     Missing,
     File(super::FileIdentity),
-    /// Not absent, and not readable as metadata: a [`load`] says why.
+    /// Not absent, and not a regular file whose metadata reads -- a `stat`
+    /// that failed, a FIFO, a directory: a [`load`] says why. It says nothing
+    /// about whether the file held still, so two of them are not "unchanged".
     Unknown,
 }
 
 /// The [`Stamp`] of the file at `path` now.
 pub fn stamp(path: &Path) -> Stamp {
     match fs::metadata(path) {
-        Ok(metadata) => Stamp::File(super::FileIdentity::from_metadata(&metadata)),
+        Ok(metadata) if metadata.is_file() => {
+            Stamp::File(super::FileIdentity::from_metadata(&metadata))
+        }
+        Ok(_) => Stamp::Unknown,
         Err(err) if err.kind() == io::ErrorKind::NotFound => Stamp::Missing,
         Err(_) => Stamp::Unknown,
     }
@@ -813,6 +856,42 @@ mod tests {
                 rules: Vec::new()
             })
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_that_is_no_regular_file_is_refused_without_waiting_for_a_writer() {
+        // A FIFO at the store's path: every decision and the TUI's panel read
+        // the store, the panel on the thread that holds the terminal, so the
+        // open must not wait for a writer. A directory is no store either.
+        // The read runs on its own thread, bounded, so a regression fails
+        // rather than hangs.
+        let dir = tempfile::tempdir().expect("a session directory");
+        let fifo = path_in(dir.path());
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+        assert_eq!(stamp(&fifo), Stamp::Unknown);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let target = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(load(&target));
+        });
+        let loaded = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(loaded) => loaded,
+            Err(_) => {
+                drop(fs::OpenOptions::new().write(true).open(&fifo));
+                panic!("reading a FIFO store waited for a writer");
+            }
+        };
+        let refused = loaded.expect_err("a FIFO read as a store");
+        assert!(refused.contains("not a regular file"), "{refused}");
+        let folder = dir.path().join("folder");
+        fs::create_dir(&folder).expect("a directory");
+        assert_eq!(stamp(&folder), Stamp::Unknown);
+        assert!(load(&folder).is_err());
     }
 
     #[test]
