@@ -6480,20 +6480,27 @@ impl Shell {
     /// holds -- the hint row's, put in force by [`Self::choose_mode`] before it
     /// is recorded -- the conversation's grants as the runtime last published
     /// them, none once a reset has been taken since ([`WorkHandle::grants`]),
-    /// the configured table every decision reads ([`WorkHandle::rules`]), and
-    /// the live authority's reset count (`permissionsFacts`,
+    /// the configured table every decision reads ([`WorkHandle::rules`]), the
+    /// live authority's reset count (`permissionsFacts`,
     /// `session_commands.zig:378-384@481104fd`, with the count xfx's grants
-    /// need).
+    /// need), and where the saved session's store is with its file's stamp
+    /// ([`crate::permission::session_rules::stamp`]).
     fn permissions_in_force(
         &self,
     ) -> (
         info_panel::Facts,
         Vec<permissions::Granted>,
         std::sync::Arc<crate::permission::RuleSet>,
+        Option<std::path::PathBuf>,
     ) {
-        // The reset count first: a reset landing between the reads leaves
-        // facts older than the rows, never newer, so the next tick rebuilds.
+        // The reset count and the store's stamp before what they guard: a
+        // reset or a write landing between the reads leaves facts older than
+        // the rows, never newer, so the next tick rebuilds.
         let resets = self.work.resets();
+        let store = self.work.saved_rules_path();
+        let stamp = store
+            .as_deref()
+            .map(crate::permission::session_rules::stamp);
         let grants = self.work.grants();
         let rules = self.work.rules().current();
         let facts = info_panel::Facts::Permissions {
@@ -6501,8 +6508,9 @@ impl Shell {
             grants: grants.len(),
             rules: rules.rules().len(),
             resets,
+            store: stamp,
         };
-        (facts, grants, rules)
+        (facts, grants, rules, store)
     }
 
     /// A bare `/permissions` panel's rows and the facts they were built from
@@ -6511,8 +6519,8 @@ impl Shell {
     /// session's rules, read from their file now -- none while no session is
     /// open -- or why that file could not be read.
     fn permissions_panel(&self) -> Result<(Vec<info_panel::Row>, info_panel::Facts), String> {
-        let (facts, grants, rules) = self.permissions_in_force();
-        let saved = match self.work.saved_rules_path() {
+        let (facts, grants, rules, store) = self.permissions_in_force();
+        let saved = match store {
             Some(path) => crate::permission::session_rules::load(&path)?.rules,
             None => Vec::new(),
         };
@@ -6558,9 +6566,10 @@ impl Shell {
 
     /// [`Self::settle_info_panel`] for a bare `/permissions` panel showing what
     /// `shown` says. The saved rules are read again with the rest, as upstream
-    /// reads them (`refreshedPermissionsSnapshot`, `session_commands.zig:373-376@481104fd`);
-    /// a store that no longer reads closes the panel and says why rather than
-    /// leave rules up that cannot be read to be in force.
+    /// reads them (`refreshedPermissionsSnapshot`, `session_commands.zig:373-376@481104fd`),
+    /// and also when their file alone moved -- written, replaced or broken by
+    /// another hand: a store that no longer reads closes the panel and says
+    /// why rather than leave rules up that cannot be read to be in force.
     fn settle_permissions_panel(&mut self, shown: &info_panel::Facts) {
         if self.permissions_in_force().0 == *shown {
             return;
@@ -22507,16 +22516,36 @@ mod tests {
         );
     }
 
+    /// Keeps a rule for `display` in the saved-session store at `rules`, as a
+    /// confirmed `remember` does, through the store's own transaction.
+    fn keep_rule(rules: &std::path::Path, canonical: &[u8], display: &str) {
+        use crate::permission::session_rules::{self, Decision, Event, KeyKind, RuleKey};
+        let applied = session_rules::update(
+            rules,
+            &Event::Set {
+                key: RuleKey::new(KeyKind::FileMutation, canonical.to_vec()).expect("a key"),
+                display: display.to_string(),
+                decision: Decision::Deny,
+                expected: None,
+            },
+        )
+        .expect("the store");
+        assert!(
+            matches!(applied, session_rules::Applied::Applied(_)),
+            "{applied:?}"
+        );
+    }
+
     #[test]
     fn a_saved_rule_store_that_breaks_while_the_panel_is_up_closes_it() {
+        // Review P-permissions-b item 1: the file alone is broken -- no mode,
+        // grant, rule or reset moves -- and the open panel still sees it on
+        // the next tick, closes, and says why.
         let (_home, _workspace, rules, mut shell) = remembering_shell();
+        keep_rule(&rules, b"a", "write_file a.txt preimage=absent after=00");
         shell.route_bytes(b"/permissions\r");
-        assert!(shell.info_panel.is_some());
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
         std::fs::write(&rules, b"not json").expect("a broken store");
-        shell.work.publish_grants(vec![permissions::Granted {
-            tool: "write_file".to_string(),
-            target: "a.txt".to_string(),
-        }]);
         shell.settle_band(Instant::now());
         assert!(shell.info_panel.is_none(), "rules it cannot read stayed up");
         assert!(
@@ -22527,6 +22556,60 @@ mod tests {
             "{:?}",
             shell.document()
         );
+    }
+
+    #[test]
+    fn an_open_permissions_panel_follows_a_saved_rule_store_another_hand_changed() {
+        // Review P-permissions-b item 1: another valid rule set, written with
+        // nothing else moved, is the set the panel shows on the next tick.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("none"));
+        keep_rule(&rules, b"b", "write_file b.txt preimage=absent after=11");
+        shell.settle_band(Instant::now());
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
+        keep_rule(&rules, b"c", "write_file c.txt preimage=absent after=22");
+        shell.settle_band(Instant::now());
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("2"));
+        let shown = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shown.contains(&permissions_item(
+                "2 deny write_file c.txt preimage=absent after=22"
+            )),
+            "{shown:?}"
+        );
+        // Nothing moved since: no rebuild.
+        let unmoved = shell.info_panel.clone();
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.info_panel, unmoved);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn a_reset_alone_rebuilds_an_open_permissions_panel() {
+        // Review P-permissions-b item 2: the mode and the grant count are the
+        // same before and after, so only the reset count tells the panel the
+        // grants it lists are not the ones in force.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        let grant = |target: &str| permissions::Granted {
+            tool: "write_file".to_string(),
+            target: target.to_string(),
+        };
+        shell.work.publish_grants(vec![grant("a.txt")]);
+        shell.route_bytes(b"/permissions\r");
+        assert!(uncoloured_rows(&shell.band_rows())
+            .contains(&permissions_item("write_file \u{2192} a.txt")));
+        shell.choose_mode(Change::Reset, PermissionMode::Ask);
+        // The runtime, between pieces of work, publishes one grant made since
+        // the reset: ask again, one grant again.
+        shell.work.publish_grants(vec![grant("b.txt")]);
+        shell.settle_band(Instant::now());
+        let shown = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shown.contains(&permissions_item("write_file \u{2192} b.txt")),
+            "the panel kept the grant a reset took away: {shown:?}"
+        );
+        assert!(!shown.contains(&permissions_item("write_file \u{2192} a.txt")));
     }
 
     #[test]

@@ -45,7 +45,7 @@
 
 use crate::config::PermissionMode;
 use crate::output::{ShellSession, StatusSnapshot};
-use crate::permission::session_rules::Rule as SavedRule;
+use crate::permission::session_rules::{Rule as SavedRule, Stamp as SavedStamp};
 use crate::permission::RuleSet;
 use crate::workspace::access::terminal_safe;
 
@@ -132,17 +132,25 @@ pub(crate) enum Facts {
     },
     /// A bare `/permissions`'s: the mode, the grants and the configured rules
     /// in force (`permissionsFacts`, `session_commands.zig:378-384@481104fd`),
-    /// and the live authority's reset count. Not one of upstream's facts,
-    /// whose engine clears its grants in the reset itself; xfx's grants are
-    /// the runtime's last publication, which a reset puts out of force the
-    /// moment it is taken (`super::worker`'s `WorkHandle::grants`), so the
-    /// count is what tells an open panel to say so before the runtime
-    /// publishes again.
+    /// and two facts upstream's has not.
+    ///
+    /// The live authority's reset count: upstream's engine clears its grants
+    /// in the reset itself; xfx's grants are the runtime's last publication,
+    /// which a reset puts out of force the moment it is taken
+    /// (`super::worker`'s `WorkHandle::grants`), so the count is what tells an
+    /// open panel to say so before the runtime publishes again -- with the
+    /// mode and the grant count unchanged too.
+    ///
+    /// The saved-session store's file as it stands ([`SavedStamp`]), `None`
+    /// with no session open: upstream reads its store only when another fact
+    /// moves; xfx's store is a file another hand can change or break, so the
+    /// panel looks at it on each tick and reads it again when it moved.
     Permissions {
         mode: PermissionMode,
         grants: usize,
         rules: usize,
         resets: u64,
+        store: Option<SavedStamp>,
     },
 }
 
@@ -912,6 +920,7 @@ mod tests {
             grants: 0,
             rules: 0,
             resets: 0,
+            store: None,
         };
         let panel = Panel::open(Vec::new(), permissions.clone());
         assert_eq!(panel.title(), "Permissions");
@@ -1063,6 +1072,7 @@ mod tests {
             grants: 1,
             rules: 1,
             resets: 0,
+            store: None,
         }
     }
 
@@ -1187,6 +1197,27 @@ mod tests {
                 "{row:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_permissions_item_names_the_joiners_and_selectors_an_emoji_carries() {
+        // Review P-permissions-b item 3: what is listed as in force is spelled
+        // as the approval band spells what an "always" grants
+        // (`approval_view::named`), with no emoji exception. `tamed` -- the
+        // band's spelling for a diff or a question -- keeps an RGI sequence's
+        // joiners and a `U+FE0F` after a heart as they are; here each is named,
+        // and the bell is named by either.
+        let grants = [Granted {
+            tool: "terminal".to_string(),
+            target: "echo \u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} \u{2764}\u{fe0f}\u{7} in /w"
+                .to_string(),
+        }];
+        let rows = permissions_rows(PermissionMode::Ask, &RuleSet::default(), &grants, &[]);
+        let item = rows.iter().find(|row| row.item).expect("the grant's item");
+        assert_eq!(
+            item.value,
+            "terminal \u{2192} echo \u{1f468}\\u{200D}\u{1f469}\\u{200D}\u{1f467} \u{2764}\\u{FE0F}\\u{0007} in /w"
+        );
     }
 
     #[test]

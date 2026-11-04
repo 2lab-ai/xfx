@@ -545,6 +545,32 @@ pub fn load(path: &Path) -> Result<State, String> {
     State::decode(&bytes)
 }
 
+/// What the store's file at `path` is now, from its metadata alone: absent,
+/// or which object it is with which size and modification time
+/// ([`super::FileIdentity`]), or that the metadata could not be read.
+///
+/// A reader that keeps a view of the store -- the TUI's bare `/permissions`
+/// panel -- compares stamps to know the file moved under it, replaced,
+/// written, removed or broken, at the cost of one `stat` rather than a read
+/// and a decode each time it looks. [`update`] replaces the file by a rename,
+/// so each change it makes is another object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stamp {
+    Missing,
+    File(super::FileIdentity),
+    /// Not absent, and not readable as metadata: a [`load`] says why.
+    Unknown,
+}
+
+/// The [`Stamp`] of the file at `path` now.
+pub fn stamp(path: &Path) -> Stamp {
+    match fs::metadata(path) {
+        Ok(metadata) => Stamp::File(super::FileIdentity::from_metadata(&metadata)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Stamp::Missing,
+        Err(_) => Stamp::Unknown,
+    }
+}
+
 /// Applies `event` to the store at `path` as one transaction: under the
 /// session's `permissions.lock`, the file read again, the event applied to
 /// what it holds now, and the result -- when applied -- written through a
