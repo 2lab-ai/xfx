@@ -91,6 +91,19 @@ when "environment-on-preflight"
 when "key-without-environment"
   once.("    timeout-minutes: 45\n",
         "    timeout-minutes: 45\n    env:\n      TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}\n")
+when "build-whole-context"
+  once.("    timeout-minutes: 45\n", "    timeout-minutes: 45\n    env:\n      ALL: ${{ toJSON(secrets) }}\n")
+when "build-bracket-key"
+  once.("    timeout-minutes: 45\n", "    timeout-minutes: 45\n    env:\n      KEY: ${{ secrets['TAP_PUSH_KEY'] }}\n")
+# A `}}` inside a string literal is not the end of the expression to GitHub;
+# a scanner that stops there never reaches the read that follows it.
+when "build-brace-literal"
+  once.("    timeout-minutes: 45\n",
+        "    timeout-minutes: 45\n    env:\n      ALL: ${{ contains('}}', 'x') || toJSON(secrets) }}\n")
+when "publish-action-whole-context"
+  once.("      - name: Collect every asset\n",
+        "      - name: Report\n        uses: actions/github-script@v7\n        with:\n" \
+        "          script: ${{ toJSON(secrets) }}\n\n      - name: Collect every asset\n")
 else abort "mutation #{name}: unknown"
 end
 
@@ -111,7 +124,7 @@ expect() {
 		sed 's/^/  /' "$work/$name.log" >&2
 		failures=$((failures + 1))
 	else
-		printf 'test-preview-contract: caught %-24s %s\n' "$name" "$problem"
+		printf 'test-preview-contract: caught %-28s %s\n' "$name" "$problem"
 		caught=$((caught + 1))
 	fi
 }
@@ -139,7 +152,11 @@ for row in \
 	"environment-dropped|publish reads TAP_PUSH_KEY under environment nil" \
 	"environment-renamed|publish reads TAP_PUSH_KEY under environment \"production\"" \
 	"environment-on-preflight|preflight names environment \"preview\" but reads no secret" \
-	"key-without-environment|build reads TAP_PUSH_KEY under environment nil"; do
+	"key-without-environment|build reads TAP_PUSH_KEY under environment nil" \
+	"build-whole-context|the jobs reading secrets are [\"build\", \"publish\"]" \
+	"build-bracket-key|the jobs reading secrets are [\"build\", \"publish\"]" \
+	"build-brace-literal|the jobs reading secrets are [\"build\", \"publish\"]" \
+	"publish-action-whole-context|hands a secret to the action actions/github-script@v7"; do
 	name="${row%%|*}"
 	root="$(tree_for "$name")"
 	mutate "$root" "$name"
@@ -167,6 +184,51 @@ jobs:
           KEY: ${{ secrets.TAP_PUSH_KEY }}
 YAML
 expect second-workflow "$root" 'tap.yml mentions TAP_PUSH_KEY'
+
+# The same reach without the name: a workflow GitHub would admit to the
+# environment (dispatched on main), asking for every secret at once.
+root="$(tree_for other-workflow-environment)"
+cat >"$root/.github/workflows/dispatch.yml" <<'YAML'
+"on":
+  workflow_dispatch:
+jobs:
+  leak:
+    runs-on: ubuntu-24.04
+    environment: preview
+    steps:
+      - run: echo "$ALL"
+        env:
+          ALL: ${{ toJSON(secrets) }}
+YAML
+expect other-workflow-environment "$root" 'dispatch.yml: job leak names environment "preview"'
+
+root="$(tree_for other-workflow-whole-context)"
+cat >"$root/.github/workflows/report.yml" <<'YAML'
+"on":
+  push:
+    branches: ["**"]
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "$ALL"
+        env:
+          ALL: ${{ toJSON(secrets) }}
+YAML
+expect other-workflow-whole-context "$root" 'report.yml: job report reads a secret'
+
+# A reusable-workflow call that passes every secret along names none of them.
+root="$(tree_for secrets-inherit)"
+cat >"$root/.github/workflows/call.yml" <<'YAML'
+"on":
+  push:
+    branches: ["**"]
+jobs:
+  call:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+YAML
+expect secrets-inherit "$root" 'call.yml: job call passes secrets'
 
 # --- the epoch file ----------------------------------------------------------
 

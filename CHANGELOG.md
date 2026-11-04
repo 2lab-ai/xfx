@@ -40,8 +40,10 @@ upstream `fx`.** What is and is not implemented lives in
   policy is `main` only, and `publish` names that environment. A workflow
   pushed on another branch cannot read the key.
   `scripts/check-preview-contract.sh` fails if `publish` stops naming the
-  environment, if any other job names it or reads a secret, or if another
-  workflow mentions the key.
+  environment, if any other job names it or reads a secret, if `publish` holds
+  any secret expression but `secrets.TAP_PUSH_KEY` in a `run` step's `env`, or
+  if another workflow names an environment, reads a secret in any form, passes
+  secrets to a reusable workflow, or mentions the key.
 - **`status` and `doctor` report `provider` where they reported `backend`.**
   The fields are `provider`, `provider_url` and `provider_rejected`, and the
   `doctor` check is named `provider`. The settings key that selects it is still

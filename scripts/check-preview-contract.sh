@@ -235,23 +235,70 @@ def uses_step(job, action)
   steps_of(job).find { |step| step["uses"].to_s.start_with?(action) }
 end
 
-# Every string anywhere under a node, keys included.
-def strings_in(node)
+# The expressions in one string, delimited the way GitHub delimits them: from
+# `${{` to the first `}}` that is not inside a single-quoted literal (where
+# `''` is a quote). A regular expression that stops at the first `}}` is fooled
+# by `${{ contains('}}', 'x') || toJSON(secrets) }}` and never reaches the read
+# after the literal. Each expression comes back with its literals emptied, so a
+# word inside a string is not taken for a context it merely spells, and one
+# left open runs to the end of the string rather than being dropped.
+def expressions_in(text)
+  found = []
+  at = 0
+  while (start = text.index("${{", at))
+    i = start + 3
+    body = +""
+    while i < text.length
+      if text[i] == "'"
+        i += 1
+        while i < text.length
+          if text[i] != "'"
+            i += 1
+          elsif text[i + 1] == "'"
+            i += 2
+          else
+            i += 1
+            break
+          end
+        end
+        body << "''"
+      elsif text[i, 2] == "}}"
+        i += 2
+        break
+      else
+        body << text[i]
+        i += 1
+      end
+    end
+    found << body.strip
+    at = i
+  end
+  found
+end
+
+# Every expression anywhere under a node, keys included. An `if:` is an
+# expression whether or not it is wrapped in `${{ }}`.
+def expressions_under(node, key = nil)
   case node
-  when Hash then node.flat_map { |key, value| strings_in(key) + strings_in(value) }
-  when Array then node.flat_map { |value| strings_in(value) }
-  when String then [node]
+  when Hash then node.flat_map { |k, value| expressions_under(k) + expressions_under(value, k) }
+  when Array then node.flat_map { |value| expressions_under(value) }
+  when String
+    found = expressions_in(node)
+    key == "if" && found.empty? ? expressions_in("${{ #{node} }}") : found
   else []
   end
 end
 
-# Whether a job asks for a secret in any form: `secrets.NAME`, `secrets[...]`,
-# or the whole context handed to a function. Only expressions count; a step
-# that merely names a script with "secrets" in it does not.
+# The expressions under a node that ask for a secret in any form:
+# `secrets.NAME`, `secrets[...]`, or the whole context handed to a function.
+# Only expressions count; a step that merely runs a script with "secrets" in its
+# name does not.
+def secret_expressions(node)
+  expressions_under(node).select { |expression| expression.match?(/(?<![-\w.])secrets\b/) }
+end
+
 def reads_secrets?(node)
-  strings_in(node).any? do |text|
-    text.scan(/\$\{\{(.*?)\}\}/m).flatten.any? { |expression| expression.match?(/(?<![-\w.])secrets\b/) }
-  end
+  !secret_expressions(node).empty?
 end
 
 # ---------------------------------------------------------------- triggers ---
@@ -267,10 +314,10 @@ check.(triggers.keys == ["push"],
 # A preview is cut per epic, never mid-epic, and the path filter is what keeps
 # the workflow from starting on anything else: units of an epic merge to main
 # one by one, so a filter that was dropped or widened runs it on every unit,
-# and only the epoch gate below would stand between that and the tap. The key set is pinned as well, because a `tags:` entry
-# under `push` is not path-filtered at all -- GitHub does not evaluate path
-# filters for tag pushes -- and would widen the trigger without touching
-# `paths`.
+# and only the epoch gate below would stand between that and the tap. The key
+# set is pinned as well, because a `tags:` entry under `push` is not
+# path-filtered at all -- GitHub does not evaluate path filters for tag pushes
+# -- and would widen the trigger without touching `paths`.
 push_trigger = triggers["push"].is_a?(Hash) ? triggers["push"] : {}
 check.(push_trigger["paths"] == [epoch_path],
        "the push trigger's paths are #{push_trigger["paths"].inspect}, expected exactly [#{epoch_path.inspect}]; a preview is published per epic by bumping that file, and any other filter publishes mid-epic")
@@ -339,18 +386,75 @@ jobs.each do |name, job|
            "#{name} names environment #{environment.inspect} but reads no secret; only the job handed #{tap_secret} enters #{tap_environment.inspect}")
   end
 end
-check.(!reads_secrets?(document["env"]),
-       "the workflow-level env reads a secret, which hands it to every job whatever environment they name")
+jobs.each do |name, job|
+  check.(!(job.is_a?(Hash) && job.key?("secrets")),
+         "#{name} passes secrets (#{job.is_a?(Hash) ? job["secrets"].inspect : nil}) to a reusable workflow; a called workflow is code this check does not read")
+end
+check.(!reads_secrets?(document.reject { |key, _| key == "jobs" }),
+       "the workflow reads a secret outside its jobs, which hands it to every job whatever environment they name")
 
-# No other workflow may so much as name the key. An environment secret is out
-# of reach of a job that does not name the environment, but a workflow that
-# names the key is either reaching for it or a copy of this one waiting to be.
+# Inside `publish` the key goes to a shell in this file and nowhere else: the
+# only secret expression the job may hold is `secrets.TAP_PUSH_KEY` itself, and
+# only in the `env` of a `run` step. A `uses:` step given a secret -- the key,
+# or `toJSON(secrets)` in a `with:` -- hands it to code this repository does not
+# review, and an expression anywhere else in the job is a read nothing below
+# checks the handling of.
+if publish.is_a?(Hash)
+  check.(!reads_secrets?(publish.reject { |key, _| key == "steps" }),
+         "publish reads a secret outside its steps; the key may only reach the env of a run step")
+  steps_of(publish).each do |step|
+    label = step["name"] || step["uses"] || step["run"].to_s.lines.first.to_s.strip
+    if step["uses"]
+      check.(!reads_secrets?(step),
+             "the step `#{label}` hands a secret to the action #{step["uses"]}; an action is code this repository does not review")
+      next
+    end
+    check.(!reads_secrets?(step.reject { |key, _| key == "env" }),
+           "the step `#{label}` reads a secret outside its env, where its handling is not checked")
+    env = step["env"].is_a?(Hash) ? step["env"] : {}
+    env.each do |variable, value|
+      secret_expressions(value).each do |expression|
+        check.(expression == "secrets.#{tap_secret}",
+               "the step `#{label}` sets #{variable} from `${{ #{expression} }}`; the only secret expression publish may hold is `secrets.#{tap_secret}`")
+      end
+    end
+  end
+end
+
+# Every other workflow is held to reading no secret at all. The key is out of
+# reach of a job that does not name its environment, but the environment's
+# branch policy constrains the ref, not the event: a workflow dispatched on
+# `main` names it just as well. So no other workflow may name an environment,
+# read a secret in any form, or pass secrets to a reusable workflow -- checked
+# structurally, job by job, since a workflow that reaches for every secret at
+# once need not spell the key's name. Naming it is refused as well.
 own = [File.expand_path(workflow_path), File.expand_path(File.join(workflows_dir, "preview.yml"))]
 Dir.glob(File.join(workflows_dir, "*.{yml,yaml}")).sort.each do |other|
   next if own.include?(File.expand_path(other))
 
-  check.(!File.read(other).include?(tap_secret),
-         "#{File.basename(other)} mentions #{tap_secret}; the tap key belongs to the preview workflow's publish job alone")
+  label = File.basename(other)
+  text = File.read(other)
+  check.(!text.include?(tap_secret),
+         "#{label} mentions #{tap_secret}; the tap key belongs to the preview workflow's publish job alone")
+  begin
+    other_document = YAML.safe_load(text, aliases: true)
+  rescue Psych::Exception => e
+    problems << "#{label} is not YAML this check can read (#{e.message.lines.first.to_s.strip}), so what it asks for is unknown"
+    next
+  end
+  other_document = {} unless other_document.is_a?(Hash)
+  other_jobs = other_document["jobs"].is_a?(Hash) ? other_document["jobs"] : {}
+  other_jobs.each do |name, job|
+    job = {} unless job.is_a?(Hash)
+    check.(!job.key?("environment"),
+           "#{label}: job #{name} names environment #{job["environment"].inspect}; only the preview workflow's publish job may enter an environment")
+    check.(!job.key?("secrets"),
+           "#{label}: job #{name} passes secrets (#{job["secrets"].inspect}) to a reusable workflow; only the preview workflow's publish job may be handed a secret")
+    check.(!reads_secrets?(job),
+           "#{label}: job #{name} reads a secret (#{secret_expressions(job).map { |expression| "${{ #{expression} }}" }.uniq.join(", ")}); only the preview workflow's publish job may be handed a secret")
+  end
+  check.(!reads_secrets?(other_document.reject { |key, _| key == "jobs" }),
+         "#{label} reads a secret outside its jobs; only the preview workflow's publish job may be handed a secret")
 end
 
 # The epoch gate's answer is only an answer if the jobs that build and publish
@@ -626,14 +730,8 @@ if publish
   secret = ENV.fetch("CONTRACT_TAP_SECRET")
   release_at = release.nil? ? nil : steps_of(publish).index(release)
 
-  # A `uses:` step with the key in its environment hands a credential for
-  # another repository to code this repository does not review.
-  steps_of(publish).each do |step|
-    next unless (step["env"] || {}).key?(secret)
-
-    check.(step["uses"].nil?,
-           "the step `#{step['name']}` gives #{secret} to the action #{step['uses'].inspect} instead of to a shell in this file")
-  end
+  # A `uses:` step handed the key is refused with every other secret read in
+  # `publish`, under "the key" above.
 
   tap_steps = steps_of(publish).select { |step| (step["env"] || {}).key?(secret) && step["run"] }
   if tap_steps.empty?
@@ -942,10 +1040,23 @@ else
 	printf 'two\n' >"$origin/unit"
 	scratch_git -C "$origin" commit -q -a -m 'a unit of the next epic'
 	unit="$(scratch_git -C "$origin" rev-parse HEAD)"
+	# Two histories a force-push could have replaced: neither is an ancestor of
+	# `unit`, one already carries the bump and one does not. Each keeps a branch
+	# so the remote still serves it.
+	scratch_git -C "$origin" checkout -q -b rewritten-bumped "$previous"
+	printf 'phase4\n' >"$origin/$CONTRACT_EPOCH"
+	printf 'rewritten\n' >"$origin/unit"
+	scratch_git -C "$origin" commit -q -a -m 'a rewritten history, bumped'
+	rewritten_bumped="$(scratch_git -C "$origin" rev-parse HEAD)"
+	scratch_git -C "$origin" checkout -q -b rewritten-plain "$previous"
+	printf 'rewritten\n' >"$origin/unit"
+	scratch_git -C "$origin" commit -q -a -m 'a rewritten history, not bumped'
+	rewritten_plain="$(scratch_git -C "$origin" rev-parse HEAD)"
+	scratch_git -C "$origin" checkout -q main
 
-	# gate <publish|skip|error> <before> <after>
+	# gate <publish|skip|error> <before> <after> [the GITHUB_SHA it is told]
 	gate() {
-		local want="$1" before="$2" after="$3" checkout status got
+		local want="$1" before="$2" after="$3" sha="${4:-$3}" checkout status got
 		checkout="$(mktemp -d "$work/epoch-checkout.XXXXXX")"
 		scratch_git init -q "$checkout"
 		scratch_git -C "$checkout" remote add origin "file://$origin"
@@ -955,17 +1066,23 @@ else
 		status=0
 		(
 			cd "$checkout"
-			BEFORE="$before" GITHUB_SHA="$after" GITHUB_OUTPUT="$checkout.output" \
+			BEFORE="$before" GITHUB_SHA="$sha" GITHUB_OUTPUT="$checkout.output" \
 				GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
 				bash --noprofile --norc -eo pipefail "$work/epoch-gate.sh"
 		) >"$checkout.log" 2>&1 || status=$?
 		got="$(sed -n 's/^publish=//p' "$checkout.output" | tr '\n' ' ')"
+		# The injection fixtures below would leave this file behind if any part
+		# of their input were ever run.
+		if [ -e "$checkout/pwned" ]; then
+			fail "the epoch gate ran part of its input as a command: $(printf '%q' "$before")"
+			return 0
+		fi
 		case "$want" in
 		publish) [ "$status" -eq 0 ] && [ "$got" = 'true ' ] && return 0 ;;
 		skip) [ "$status" -eq 0 ] && [ "$got" = 'false ' ] && return 0 ;;
 		error) [ "$status" -ne 0 ] && [ "$got" != 'true ' ] && return 0 ;;
 		esac
-		fail "the epoch gate, from ${before:0:12} to ${after:0:12}, exited $status with publish=[${got% }]; expected $want"
+		fail "the epoch gate, from $(printf '%q' "${before:0:40}") to ${sha:0:12}, exited $status with publish=[${got% }]; expected $want"
 	}
 
 	# The bump itself, and a push that carries it among other commits: the
@@ -980,6 +1097,22 @@ else
 	# at all: no publication, and a run that says so in red.
 	gate error ffffffffffffffffffffffffffffffffffffffff "$unit"
 	gate error 'main' "$unit"
+	# A force-push: the previous commit is not an ancestor, and the two-dot
+	# diff between the two ends still answers. A rewritten history that already
+	# had the bump closes no new epoch; one that did not, does.
+	gate skip "$rewritten_bumped" "$unit"
+	gate publish "$rewritten_plain" "$unit"
+	# Input shaped to run something, each refused before it reaches git, with
+	# nothing executed: a substitution, a command after a real sha, a second
+	# line after one (bash's `=~` anchors to the whole string, not a line).
+	# shellcheck disable=SC2016
+	gate error '$(touch pwned)' "$unit"
+	gate error "$previous;touch pwned" "$unit"
+	gate error "$previous"$'\n''touch pwned' "$unit"
+	gate error '0000000000000000000000000000000000000000`touch pwned`' "$unit"
+	# A diff that fails on its own, after the fetch succeeded: the commit being
+	# published is not in the checkout.
+	gate error "$previous" "$unit" eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fi
 
 # --- the documentation the contract promises ---------------------------------

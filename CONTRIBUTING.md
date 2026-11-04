@@ -87,8 +87,11 @@ repository's `preview` environment, whose deployment branch policy is `main`
 only. A job can read it only by naming that environment, and GitHub admits a
 job to it only in a run on `main`, so a workflow pushed on another branch cannot
 read it. The contract check holds `publish` to being the one job that names the
-environment and the one job that reads a secret, and fails if any other
-workflow so much as names the key.
+environment and the one job that reads a secret, and there only as
+`secrets.TAP_PUSH_KEY` in the `env` of a `run` step, never handed to an
+action. Every other workflow is read job by job and fails if it names an
+environment, reads a secret in any form, passes secrets to a reusable
+workflow, or so much as names the key.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway
 on a loopback port -- no credential, no network -- and prints an evidence
