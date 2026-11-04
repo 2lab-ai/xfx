@@ -1,0 +1,16 @@
+test tui::worker::tests::a_rename_before_the_first_prompt_opens_the_log_with_the_settings_in_force ... FAILED
+test tui::worker::tests::settings_chosen_before_the_first_prompt_are_written_with_its_first_save ... FAILED
+test tui::worker::tests::a_resume_puts_back_the_first_saves_settings_and_nothing_it_does_not_restore ... FAILED
+thread 'tui::worker::tests::a_rename_before_the_first_prompt_opens_the_log_with_the_settings_in_force' (139946516) panicked at src/tui/worker.rs:8674:9:
+assertion `left == right` failed: [Object {"kind": String("session_started"), "id": String("1793781884053-1842a0ea4f1a31f8"), "origin_workspace_root": String("<tmp>"), "workspace_root": String("<tmp>"), "model": String("zai/glm-5.2"), "permission_mode": String("auto"), "provider": String("gateway")}]
+  left: 1
+ right: 2
+thread 'tui::worker::tests::settings_chosen_before_the_first_prompt_are_written_with_its_first_save' (139946518) panicked at src/tui/worker.rs:8580:9:
+assertion `left == right` failed: ["session_started", "project_context_recorded", "user_message", "assistant_message", "usage_recorded", "turn_concluded"]
+  left: ["session_started", "project_context_recorded", "user_message", "assistant_message"]
+ right: ["session_started", "preferences_changed", "project_context_recorded", "user_message"]
+thread 'tui::worker::tests::a_resume_puts_back_the_first_saves_settings_and_nothing_it_does_not_restore' (139946517) panicked at src/tui/worker.rs:8639:9:
+assertion `left == right` failed
+  left: None
+ right: Some(TurnSettings { effort: Named("low"), fast: true, ultrafast: false })
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 3719 filtered out; finished in 0.32s

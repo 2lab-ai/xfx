@@ -1,0 +1,50 @@
+# the session this build wrote (e93a55c), rebuilt from xfx/…-end.files
+kinds: ['session_started', 'preferences_changed', 'project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded', 'project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded']
+frame 2: {"kind": "preferences_changed", "model": null, "permission_mode": null, "effort": "high", "fast_mode": true, "ultrafast_mode": false}
+
+# preview (built from 14ad0420): xfx --version
+0.1.0
+exit=0
+
+# preview: xfx session --id <id>
+[session] id=1793782482514-5df44dadaea860a8
+[session] created_at_ms=1793782486109
+[session] updated_at_ms=1793782496896
+[session] workspace=<scratch>/compat/work
+[session] origin_workspace=<scratch>/compat/work
+[session] model=anthropic/claude-opus-5
+[session] permission_mode=auto
+[session] history_turns=2
+[session] permission_grants=0
+[session] total_input_tokens=2400
+[session] total_output_tokens=80
+[session] truncated=false
+[turn] index=0 role=user text=first prompt please
+[turn] index=0 role=assistant tools= text=FIRST answer.
+[turn] index=0 outcome=final finish_reason=stop steps=1
+[turn] index=1 role=user text=after the resume
+[turn] index=1 role=assistant tools= text=RESUMED answer.
+[turn] index=1 outcome=final finish_reason=stop steps=1
+exit=0
+log and manifest unchanged by the read
+
+# preview: xfx sessions
+[sessions] scope=workspace count=1 has_more=false truncated=false skipped_invalid=0
+[session] id=1793782482514-5df44dadaea860a8 updated_at_ms=1793782496896 turns=2 workspace=<scratch>/compat/work title=first prompt please
+exit=0
+
+# preview: xfx ask --resume-id <id> 'one more question'
+PREVIEW continued.
+exit=0
+the new build's bytes are the head of the log: True
+appended by the preview: ['project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded']
+
+# base (d3bc63d3): xfx session --id <id>
+[session] model=anthropic/claude-opus-5
+[session] history_turns=3
+exit=0
+
+# this build (e93a55c): xfx session --id <id>
+[session] model=anthropic/claude-opus-5
+[session] history_turns=3
+exit=0
