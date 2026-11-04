@@ -1,0 +1,40 @@
+* session forked: only prompt omega (fork)
+
+original session xfx --resume 1793753006798-8b12b0512acec75b
+┃ only prompt omega
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

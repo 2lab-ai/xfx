@@ -770,6 +770,7 @@ mod event_loop;
 pub(crate) mod fault;
 mod file_index;
 mod file_picker;
+mod fork_menu;
 mod frame;
 mod freeform;
 mod full_transcript;

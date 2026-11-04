@@ -67,6 +67,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/reset",
     "/resume",
     "/rename",
+    "/fork",
     "/provider",
     "/stats",
     "/usage",
@@ -212,6 +213,18 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "rename the current session",
         category: "Session",
         has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Fork,
+        name: "/fork",
+        aliases: &[],
+        // fx v0.0.16's row (`vercel-labs/fx@481104fd
+        // src/builtins/commands.zig:449`, commit `e4348723`): after `/rename`,
+        // and nothing after the name -- `/fork 2` is not the command
+        // (`command_router.zig:253-256`).
+        summary: "fork the session before a prompt",
+        category: "Session",
+        has_args: false,
     },
     SlashSpec {
         command: Slash::Setup,
@@ -608,6 +621,20 @@ pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session i
      shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
      full-screen one, and `xfx --resume <last|ID>` opens it on a session";
 
+/// What `/fork` says on this surface.
+///
+/// Upstream's `/fork` is a menu of the session's prompts in its footer, and
+/// what it forks to is a session it switches to with the chosen prompt back in
+/// its composer (`openForkMenu`, `forkBeforeSelectedPrompt`,
+/// `vercel-labs/fx@481104fd src/core/app/app_session_runtime.zig:2072-2127`).
+/// This shell has no footer for the menu and no draft to put a prompt back
+/// into: it reads a finished line at a time. It says where the menu is, as
+/// `/resume` says where its picker is, rather than forking at a point the user
+/// did not pick; it writes nothing.
+pub const FORK_ON_THE_LINE_SHELL: &str = "xfx: /fork picks the prompt to fork the session \
+     before in the full-screen shell, and this line-oriented shell has no menu; without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
 /// What `/fast` and `/ultrafast` say on this surface.
 ///
 /// They choose the speed a turn asks the provider for, and only the
@@ -780,6 +807,12 @@ pub enum Slash {
     /// first prompt would give it (`handleRenameCommand`,
     /// `app_commands.zig:3815-3858`).
     Rename,
+    /// Start a new session from before one of this one's prompts: a menu of
+    /// them in the TUI, the fork made and switched to with the prompt back in
+    /// the composer (`openForkMenu`, `forkBeforeSelectedPrompt`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_session_runtime.zig:2072-2127`;
+    /// [`crate::session::SessionStore::fork`]).
+    Fork,
     Model,
     /// Switch the provider a turn talks to, and record the choice.
     ///
@@ -1480,6 +1513,9 @@ pub async fn run(
                     }
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Fork => {
+                        writeln!(io::stderr(), "{FORK_ON_THE_LINE_SHELL}")?;
                     }
                     Slash::Fast | Slash::Ultrafast => {
                         writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
@@ -2724,9 +2760,10 @@ mod tests {
         // `/paste`, twenty-five since `/allowlist`, twenty-six since
         // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
         // `/fast` and `/ultrafast`, thirty since `/mcp`, thirty-one since
-        // `/skills`, and thirty-two since `/alias`; `/provider` took `/setup`'s
-        // place rather than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 32);
+        // `/skills`, thirty-two since `/alias`, and thirty-three since `/fork`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 33);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();

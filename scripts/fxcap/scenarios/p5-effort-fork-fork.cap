@@ -1,0 +1,83 @@
+fx: env FX_AUTO_UPGRADE=0
+# /fork (fx e4348723) after three turns: the menu (newest selected, three
+# lines a prompt), its keys and Escape; a fork before the second prompt, the
+# restored composer, the transcript lines, the title; the fork going on;
+# /resume listing it; the exit line; both logs. (P5-FK2's copy: the research
+# run's /status step is P-status's panel and is left out.)
+gateway p5-effort-fork-turns.json
+wait 3
+type first prompt alpha
+key Enter
+wait 3
+type second prompt beta
+key Enter
+wait 3
+type third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth and a fifth line at a hundred and twenty columns, sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four
+key Enter
+wait 3
+type /fo
+wait 0.6
+snap slash-fo
+key C-u
+wait 0.3
+type /fork
+key Enter
+wait 1
+snap menu
+key Up
+wait 0.3
+snap up1
+key Up
+wait 0.3
+snap up2
+key Up
+wait 0.3
+snap up3-clamp
+key Down
+wait 0.3
+snap down
+key Escape
+wait 0.5
+snap esc
+type /fork
+key Enter
+wait 1
+key Up
+wait 0.3
+key Enter
+wait 3
+snap forked
+snapfull forked
+title forked
+home after-fork
+key Enter
+wait 3
+snap continued
+type /resume
+key Enter
+wait 2
+snap resume
+key Escape
+wait 0.5
+type /new
+key Enter
+wait 1.5
+type /resume
+key Enter
+wait 2
+snap resume-both
+key Down
+wait 0.3
+snap resume-both-down
+key Up
+wait 0.3
+key Enter
+wait 3
+snap resumed-fork
+keep
+type /quit
+key Enter
+wait 2
+snap quit
+home end
+gwlog

@@ -770,13 +770,16 @@ mod tests {
         assert_eq!(found("general"), in_category("General"));
         assert_eq!(
             found("SESSION"),
-            ["/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
+            ["/new", "/reset", "/resume", "/rename", "/fork", "/undo", "/copy", "/compact"]
         );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
         assert_eq!(
             found("ses"),
-            ["/clear", "/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
+            [
+                "/clear", "/new", "/reset", "/resume", "/rename", "/fork", "/undo", "/copy",
+                "/compact"
+            ]
         );
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.
