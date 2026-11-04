@@ -169,7 +169,7 @@ pub(crate) const STARTUP_SCROLLBACK_TOPIC: &str = "startup-scrollback";
 /// for the profile as its source).
 pub(crate) fn startup_scrollback_saved(on: bool) -> String {
     format!(
-        "startup_scrollback: {} (applies at next launch)",
+        "startup_scrollback: {} (applies on next launch)",
         on_off(on)
     )
 }
