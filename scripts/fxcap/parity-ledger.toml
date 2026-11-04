@@ -61,6 +61,15 @@ why = "The product's own version, build channel and revision, as `/version` and 
 source = ["docs/parity.md:116"]
 
 [[normalization]]
+id = "panel-build"
+fx = '(?<=^  Build {13})\S+(?: · \S+)?$'
+xfx = '(?<=^  Build {13})\S+(?: · \S+)?$'
+replace = "<build>"
+attrs = "none"
+why = "The same facts in v0.0.16's `/status` panel: its last row, `Build  <channel> · <rev>` (fx stable 481104fdbc24, xfx debug <rev>). The value only, and without its colour: the two values are different texts, so a cell of one has no cell of the other to take its attributes from; the label before it is compared as painted."
+source = ["docs/parity.md:113"]
+
+[[normalization]]
 id = "run-directory"
 fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
@@ -139,11 +148,11 @@ source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts
 
 [[normalization]]
 id = "session-id"
-fx = '(?<=--resume )[A-Za-z0-9_-]{12}(?![A-Za-z0-9_-])'
+fx = '(?<=--resume )[A-Za-z0-9_-]{12}(?![A-Za-z0-9_-])|(?<=^  Session {11})[A-Za-z0-9_-]{12}(?= · )'
 xfx = '\b\d{13}-[0-9a-f]{16}\b'
 replace = "<session-id>"
-why = "A saved session's id is minted per run: fx's twelve characters (`--resume 9yclcdoOjcsQ`), xfx's milliseconds and sixteen hex digits. Each side's own shape only."
-source = [".prd/tui-phase4/receipts/p1/README.md:32", "docs/parity.md:205"]
+why = "A session's id is minted per run: fx's twelve characters (`--resume 9yclcdoOjcsQ`, and v0.0.16's `/status` panel row `Session  <id> · …`), xfx's milliseconds and sixteen hex digits. Each side's own shape only."
+source = [".prd/tui-phase4/receipts/p1/README.md:32", "docs/parity.md:205", "docs/parity.md:113"]
 
 # --- divergences ------------------------------------------------------------
 #
@@ -227,6 +236,64 @@ resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
 source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:43", "docs/parity.md:113"]
 
+# v0.0.16: the `/status` panel (P-status). Approved for the v0.0.16 pin only;
+# each lapses at the next pin's review, 2026-12-04 at the latest (there is no
+# later [[pin]] to name yet), and is approved again or dropped then.
+
+[[divergence]]
+id = "status-panel-sandbox"
+class = "user-decision"
+pins = ["v0.0.16"]
+scenarios = ["p5-panels-*"]
+snaps = ["*"]
+xfx_row = '^  Sandbox {11}\S'
+reason = "xfx's /status panel keeps a Sandbox row after Permissions, which fx's has not: the confinement in force is a safety fact (xfx reports `none`, UPSTREAM.md deviation 2). Decided by the dispatcher for P-status, reversible, the user's to keep or drop."
+owner = "user decision /status Sandbox row"
+resolution = "the user keeps the row (written as a lasting difference) or drops it"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:113", "UPSTREAM.md:96-99"]
+
+[[divergence]]
+id = "status-panel-updates"
+class = "user-decision"
+pins = ["v0.0.16"]
+scenarios = ["p5-panels-*"]
+snaps = ["*"]
+fx_row = '^  Updates {11}\S'
+reason = "fx's /status panel says its update channel; xfx has no updater, so the row is omitted (UPSTREAM.md deviation 3) until the sign-in and updater epic."
+owner = "user decision updater (sign-in and updater epic)"
+resolution = "the updater lands and the row with it, or the omission is written as lasting"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:113", "UPSTREAM.md:100-102"]
+
+[[divergence]]
+id = "status-panel-step-limit"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-panels-*"]
+snaps = ["*"]
+fx_row = '^  Step limit {8}unlimited$'
+xfx_row = '^  Step limit {8}25$'
+reason = "xfx compiles in a bound of 25 steps a turn where fx compiles in unbounded; configuring 0 still says `unlimited` (UPSTREAM.md deviation 1)."
+owner = "user decision default step limit"
+resolution = "the bounded default is written as lasting, or the user takes fx's"
+expires = "date:2026-12-04"
+source = ["UPSTREAM.md:91-95", "docs/parity.md:113"]
+
+[[divergence]]
+id = "status-panel-sign-in"
+class = "user-decision"
+pins = ["v0.0.16"]
+scenarios = ["p5-panels-noauth"]
+snaps = ["*"]
+fx_row = '^  Auth help {9}xfx needs access to Vercel AI Gateway\. Run /login\b|^ {20}AI_GATEWAY_API_KEY\.$|^run /login · '
+xfx_row = '^  Auth help {9}xfx needs access to Vercel AI Gateway\. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY\.$|^run `xfx setup` · '
+reason = "With no credential, fx's Auth help points at /login and /provider's API-key entry and its hint row at /login; xfx has neither (the gated sign-in), so its help names the two variables it reads and its hint row `xfx setup`. fx's sentence is two rows long at 120 columns, xfx's one."
+owner = "user decision Codex/Grok sign-in (#88)"
+resolution = "#88 answered: the sign-in surfaces built, or refused for good and written so"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:113", "docs/parity.md:118"]
+
 # --- causes -----------------------------------------------------------------
 #
 # Why each row that stays unresolved is unresolved, and whose fix it is. These
@@ -235,6 +302,45 @@ source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:43", "doc
 # .prd/tui-phase4/receipts/sweep/ has the table.
 
 # (b) units in flight, the specific rows first.
+
+[[cause]]
+id = "U-permissions-panel"
+kind = "unit"
+owner = "U-permissions bare /permissions panel"
+scenarios = ["p5-panels-keys"]
+snaps = ["perm-btab", "open-before-approval", "approval-arrives", "approval-esc", "end"]
+whole_snap = true
+why = "A bare /permissions is fx's panel and xfx's two notices until U-permissions; Shift-Tab under xfx's notices then moves the mode, so the turn runs in auto and no approval arrives (.prd/tui-phase5/receipts/info-panel/README.md)."
+
+[[cause]]
+id = "status-panel-scroll-window"
+kind = "decision"
+owner = "user decision /status Sandbox row"
+scenarios = ["p5-panels-status-short"]
+snaps = ["up1", "ctrl-k", "down-end"]
+whole_snap = true
+why = "A scrolled 14x120 window shows two lines; xfx's Sandbox row stands four lines above where fx's Updates row stood, so a window between them shows the line before fx's. The windows that see neither differ in nothing (open, down1). At 24x50 fx's panel fits and does not scroll, and xfx's scrolls because its id wraps (status-panel-session-id-wrap)."
+
+[[cause]]
+id = "status-panel-session-id-wrap"
+kind = "decision"
+owner = "user decision session id shape"
+scenarios = ["p5-panels-status-short"]
+snaps = ["open", "down1", "up1", "ctrl-k", "down-end"]
+fx_row = '^  Session {11}<session-id> · not saved yet$|^  Build {13}<build>$|^esc close$'
+xfx_row = '^  Session {11}<session-id>$|^ {20}· not saved yet$|^↑↓ scroll     esc close$'
+why = "At 24x50 the value column is 30 wide: fx's 12-character id and ` · not saved yet` fit on one line, xfx's 30-character id does not, so its Session row takes two lines and the panel overflows its 14 rows by one (a scroll hint, and the Build line out of view). The id is the store's; a shorter one is a persisted-identifier change."
+
+[[cause]]
+id = "xfx-debug-banner-wrap"
+kind = "scenario"
+owner = "P-status receipt"
+scenarios = ["p5-panels-status-short"]
+snaps = ["*"]
+fx_row = '^<banner>$'
+xfx_row = '^x𝒇x v\S+ \[debug\] · Run /help for$|^commands$'
+why = "At 50 columns a debug build's banner (`x𝒇x v0.1.0-<rev> [debug] · Run /help for commands`, 52 cells) wraps onto row 2, which the banner rule does not read, so every row under it stands one lower than fx's."
+fix = "capture xfx's side of the 24x50 run with a release build, whose banner has no `[debug]` and fits, or read a banner wrapped onto row 2 as the banner"
 
 [[cause]]
 id = "R1-amendment-card"

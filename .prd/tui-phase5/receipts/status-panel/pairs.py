@@ -1,39 +1,22 @@
-"""The status-panel receipt's reading of an fx/xfx snap pair.
+"""The status-panel receipt's verdicts: each fx/xfx snap pair in this
+directory classified exactly as the parity sweep classifies it, against the
+v0.0.16 pin of `scripts/fxcap/parity-ledger.toml` -- its normalizations, its
+approved divergences (with the aligned `cascade` reading) and, for a pair left
+unresolved, the causes that name why. No reading of its own.
 
-usage: python3 -I pairs.py <fx.ansi> <xfx.ansi>
+usage: python3 -I pairs.py [<dir>]   (default: this directory)
 
-Prints two counts, each over every row but the banner:
-
-  sweep     the rows that differ cell by cell once the parity ledger's
-            normalizations are applied to each side
-            (`scripts/fxcap/parity-ledger.toml`, read by `ledger.py` as the
-            sweep reads it: the run directory, the product name, the turn's
-            clock and the activity row's pulse)
-  readings  the rows that still differ once this unit's recorded
-            differences are read too, each by its id:
-              updates     fx's `Updates` row, which xfx omits
-              sandbox     xfx's `Sandbox` row, which fx has not
-              session-id  the Session row's id: minted per run, and xfx's is
-                          `<ms>-<16 hex>` (`docs/parity.md`, sessions)
-              step-limit  the Step limit row's value: xfx compiles in 25
-                          where fx compiles in unbounded (UPSTREAM.md:92)
-              build       the Build row's value: each product's own build
-              auth-help   the Auth help row and the rows it wraps onto:
-                          fx's points at `/login`, the gated sign-in
-            A dropped row takes a blank one from the bottom of the screen,
-            so the rows under it are compared where they now stand.
-
-A banner the screen wrapped onto two rows (xfx's debug banner at 50 columns)
-is still the banner: both of its rows are left out, and the rows under it are
-compared with fx's under its one.
-
-Exit status 0 when `readings` is 0. Each remaining row is printed with both
-texts, so a defect names itself.
+One line per pair: `<scenario>-<size>-<label>  <verdict>  [ids]`, where the
+ids are the divergences a pair was approved under, or the causes of an
+unresolved one (`?` for a row no cause names). The banner row is the
+`banner` normalization's, as in the sweep.
 """
 
+import glob
 import os
-import re
 import sys
+
+sys.dont_write_bytecode = True
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
@@ -41,118 +24,56 @@ sys.path.insert(0, os.path.join(REPO, "scripts", "fxcap"))
 
 import cells  # noqa: E402
 import ledger as ledgermod  # noqa: E402
+import sweep  # noqa: E402
 
-BANNER = {
-    "fx": re.compile(r"^𝒇x v\d+\.\d+\.\d+ · Run /help for commands$"),
-    "xfx": re.compile(r"^x𝒇x v\S+(?: \[[a-z]+\])? · Run /help for commands$"),
-}
-
-# The panel's value column on every screen these scenarios use: two columns of
-# indent, `Session grants`, four of gap.
-VALUE = 20
+PIN_SHA = "8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2"
 
 
-def label(name):
-    return r"^  %s {%d}" % (re.escape(name), VALUE - 2 - len(name))
-
-
-DROPPED = {
-    "fx": [("updates", re.compile(label("Updates") + r"\S"))],
-    "xfx": [("sandbox", re.compile(label("Sandbox") + r"\S"))],
-}
-WRAPPED = [("auth-help", re.compile(label("Auth help") + r"\S"))]
-CONTINUATION = re.compile(r"^ {%d}\S" % VALUE)
-
-# The ledger's `session-id` rule already writes xfx's id `<session-id>`
-# wherever it stands; fx's twelve characters it reads only after `--resume `.
-MASKED = {
-    "fx": [
-        ("session-id", re.compile(r"(?<=%s)[A-Za-z0-9_-]{12}(?= · )" % label("Session")), "<session-id>"),
-    ],
-    "xfx": [
-        ("session-id", re.compile(r"(?<=%s)<session-id>(?= · )" % label("Session")), "<session-id>"),
-    ],
-}
-BOTH_MASKED = [
-    ("step-limit", re.compile(r"(?<=%s)(?:unlimited|\d+)$" % label("Step limit")), "<steps>"),
-    ("build", re.compile(r"(?<=%s).+$" % label("Build")), "<build>"),
-]
-
-
-def unbannered(rows, side):
-    """`rows` without the banner, on one row or wrapped onto two."""
-    first = cells.text_of(rows[0]) if rows else ""
-    if BANNER[side].match(first):
-        return rows[1:], 1
-    if len(rows) > 1 and BANNER[side].match(first + " " + cells.text_of(rows[1])):
-        return rows[2:], 2
-    return rows, 0
-
-
-def read(rows, side, used):
-    out = []
-    skipping = False
-    for row in rows:
-        text = cells.text_of(row)
-        if skipping and CONTINUATION.match(text):
-            continue
-        skipping = False
-        hit = next((i for i, p in DROPPED[side] + WRAPPED if p.match(text)), None)
-        if hit:
-            used.add(hit)
-            skipping = hit == "auth-help"
-            continue
-        out.append(row)
-    rules = []
-    for rid, pattern, replace in MASKED[side] + BOTH_MASKED:
-        # A masked value's cells carry no attributes: the two values are
-        # different texts, so cell k of one has no cell k on the other to
-        # take its colour from. The label before it is compared as painted.
-        rules.append({"pattern": pattern, "replace": replace, "mask": None, "attrs": "none", "absorb": False})
-    masked = []
-    for row in out:
-        before = cells.text_of(row)
-        after = cells.normalize_row(row, rules)
-        if cells.text_of(after) != before:
-            for rid, pattern, _ in MASKED[side] + BOTH_MASKED:
-                if pattern.search(before):
-                    used.add(rid)
-        elif side == "xfx" and "<session-id>" in before:
-            used.add("session-id")
-        masked.append(after)
-    return masked
-
-
-def padded(rows, n):
-    return rows + [[] for _ in range(n - len(rows))]
+def verdict(led, divs, scenario, label, fx_text, xfx_text):
+    rules = {side: ledgermod.rules_for(led, side) for side in ("fx", "xfx")}
+    a, b = cells.parse(fx_text), cells.parse(xfx_text)
+    na, nb = cells.normalize(a, rules["fx"]), cells.normalize(b, rules["xfx"])
+    readings = [cells.normalize(a, rules["fx"], absorb=way) for way in ("after", "before")]
+    diff = cells.differing(na, nb, readings)
+    found, matched = ledgermod.classify(a == b, diff, scenario, label, divs)
+    ids = sorted({e for _, hit in matched for e in hit})
+    if found == "unresolved-defect":
+        promoted, left = ledgermod.cascade(
+            sweep.aligned_fx(na, readings, nb), nb, scenario, label, divs, cells.text_of
+        )
+        if promoted:
+            return promoted + " (aligned)", sorted({e for *_, hit in left for e in hit})
+        causes, unattributed = sweep.attribute(left, scenario, label, led["causes"])
+        return found, causes + (["?"] if unattributed else [])
+    return found, ids
 
 
 def main():
-    fx_path, xfx_path = sys.argv[1], sys.argv[2]
-    led = ledgermod.load(os.path.join(REPO, "scripts", "fxcap", "parity-ledger.toml"))
-    rules = {side: ledgermod.rules_for(led, side) for side in ("fx", "xfx")}
-    raw = {
-        "fx": cells.parse(open(fx_path, encoding="utf-8").read()),
-        "xfx": cells.parse(open(xfx_path, encoding="utf-8").read()),
-    }
-    body, banner = {}, {}
-    for side in ("fx", "xfx"):
-        body[side], banner[side] = unbannered(raw[side], side)
-        body[side] = cells.normalize(body[side], rules[side])
-    n = max(len(body["fx"]), len(body["xfx"]))
-    swept = cells.differing(padded(body["fx"], n), padded(body["xfx"], n))
-    used = set()
-    read_rows = {side: read(body[side], side, used) for side in ("fx", "xfx")}
-    left = cells.differing(padded(read_rows["fx"], n), padded(read_rows["xfx"], n))
-    for i, a, b, at, attrs_only in left:
-        print("row %d: fx  %r" % (i + 1 + banner["fx"], a))
-        print("row %d: xfx %r%s" % (i + 1 + banner["xfx"], b, " (attributes only)" if attrs_only else ""))
-    wrapped = " (xfx's banner on 2 rows)" if banner["xfx"] == 2 else ""
-    print(
-        "sweep %d · readings %d [%s]%s"
-        % (len(swept), len(left), ",".join(sorted(used)) or "-", wrapped)
-    )
-    return 1 if left else 0
+    where = sys.argv[1] if len(sys.argv) > 1 else HERE
+    led = ledgermod.load(os.path.join(REPO, "scripts", "fxcap", "parity-ledger.toml"), REPO)
+    pin = ledgermod.pin_named(led, PIN_SHA)
+    divs = ledgermod.active(led, pin["name"])
+    bad = 0
+    for fx_path in sorted(glob.glob(os.path.join(where, "fx-*.ansi"))):
+        name = os.path.basename(fx_path)[len("fx-") : -len(".ansi")]
+        xfx_path = os.path.join(where, "xfx-%s.ansi" % name)
+        scenario, size, label = split(name)
+        if not os.path.isfile(xfx_path):
+            print("%-52s missing xfx capture" % name)
+            bad += 1
+            continue
+        with open(fx_path, encoding="utf-8") as f, open(xfx_path, encoding="utf-8") as g:
+            v, ids = verdict(led, divs, scenario, label, f.read(), g.read())
+        bad += v == "unresolved-defect" and "?" in ids
+        print("%-52s %-34s %s" % (name, v, ",".join(ids) or "-"))
+    return 1 if bad else 0
+
+
+def split(name):
+    """`p5-panels-status-short-14x120-down-end` -> (scenario, size, label)."""
+    parts = name.split("-")
+    at = next(i for i, p in enumerate(parts) if "x" in p and p.replace("x", "").isdigit())
+    return "-".join(parts[:at]), parts[at], "-".join(parts[at + 1 :])
 
 
 if __name__ == "__main__":
