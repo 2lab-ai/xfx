@@ -25,36 +25,88 @@ fail() {
 	failures=$((failures + 1))
 }
 
-# The files a push would publish, from `dir`, into the array `files`. Outside
-# a checkout, the working tree minus build output, so the check still runs in
-# an unpacked tarball.
+# Where a listing is staged, so its producer's exit status is read rather than
+# lost inside a process substitution.
+listing="$(mktemp "${TMPDIR:-/tmp}/xfx-secret-listing.XXXXXX")"
+trap 'rm -f "$listing"' EXIT
+
+# Reads the NUL-separated names in "$listing" into the array named by $1.
+read_listing() {
+	local name
+	eval "$1=()"
+	while IFS= read -r -d '' name; do
+		[ -n "$name" ] || continue
+		eval "$1+=(\"\$name\")"
+	done <"$listing"
+}
+
+# The files a push would publish, from `dir`: every tracked name into the array
+# `files`, and those tracked but deleted from the working tree into `deleted`.
+# Outside a checkout, the working tree minus build output, so the check still
+# runs in an unpacked tarball.
 #
-# **NUL-delimited, both ways.** Without `-z`, `git ls-files` C-quotes a name
-# with a tab, a newline, a quote or a byte past ASCII -- `"caf\303\251\tx.pyc"`
-# -- and the quoted string is no file: `grep` cannot open it (and said so to
-# `/dev/null`), and a rule that reads the name sees one that no longer ends in
-# `.pyc`. Each name is read up to its NUL, as it is on disk.
+# **NUL-delimited.** Without `-z`, `git ls-files` C-quotes a name with a tab, a
+# newline, a quote or a byte past ASCII -- `"caf\303\251\tx.pyc"` -- and the
+# quoted string is no file: `grep` cannot open it, and a rule that reads the
+# name sees one that no longer ends in `.pyc`. Each name is read up to its NUL,
+# as it is on disk.
 #
-# Read into an array with a loop rather than with `mapfile`, which is bash 4 and
-# therefore absent from the bash macOS ships. A name that is not a regular file
-# in the working tree -- deleted and not yet staged, a symlink to a directory --
-# has nothing for `grep` to read and is left out, so that every name scanned is
-# one `grep` can open, and one it cannot is a failure below.
+# **Every tracked name**, whatever is in the working tree under it -- a symlink,
+# a name deleted locally but still in the index: the name rules below are about
+# what a push publishes. Which of them `grep` reads is [`scan`]'s to decide.
+# A listing that did not finish is a failure, never a shorter list.
+#
+# Read into arrays with a loop rather than with `mapfile`, which is bash 4 and
+# therefore absent from the bash macOS ships.
 list_files() {
-	local dir=$1 file
+	local dir=$1 name
 	files=()
-	while IFS= read -r -d '' file; do
-		[ -n "$file" ] || continue
-		[ -f "$dir/$file" ] || continue
-		files+=("$file")
-	done < <(
-		if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
-			git -C "$dir" ls-files -z
-		else
-			(cd "$dir" && find . -type f -not -path './target/*' -not -path './.git/*' -print0) |
-				while IFS= read -r -d '' file; do printf '%s\0' "${file#./}"; done
+	deleted=()
+	if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+		if ! git -C "$dir" ls-files -z >"$listing"; then
+			fail "git ls-files did not finish; the listing is incomplete"
 		fi
-	)
+		read_listing files
+		if ! git -C "$dir" ls-files --deleted -z >"$listing"; then
+			fail "git ls-files --deleted did not finish; the listing is incomplete"
+		fi
+		read_listing deleted
+	else
+		if ! (cd "$dir" && find . -type f -not -path './target/*' -not -path './.git/*' -print0) >"$listing"; then
+			fail "find did not finish; the listing is incomplete"
+		fi
+		read_listing files
+		local -a relative=()
+		for name in ${files[@]+"${files[@]}"}; do
+			relative+=("${name#./}")
+		done
+		files=(${relative[@]+"${relative[@]}"})
+	fi
+}
+
+# Whether $1, missing from the working tree, is really gone: one of the names
+# in `deleted`, under no directory that exists and cannot be searched. Git
+# lists a name it could not look at, under a directory without search
+# permission, as deleted too (after saying `cannot lstat` on its standard
+# error), and that name is a file this scan cannot read rather than one that
+# is not there.
+is_deleted() {
+	local name dir listed=no
+	for name in ${deleted[@]+"${deleted[@]}"}; do
+		if [ "$name" = "$1" ]; then
+			listed=yes
+			break
+		fi
+	done
+	[ "$listed" = yes ] || return 1
+	dir="$(dirname "./$1")"
+	while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+		if [ -d "$dir" ] && [ ! -x "$dir" ]; then
+			return 1
+		fi
+		dir="$(dirname "$dir")"
+	done
+	return 0
 }
 
 list_files "$repo_root"
@@ -90,7 +142,7 @@ patterns=(
 # script is itself a tracked file that the scan below reads. A literal sample
 # would be a finding.
 control="$(mktemp "${TMPDIR:-/tmp}/xfx-secret-control.XXXXXX")"
-trap 'rm -f "$control"' EXIT
+trap 'rm -f "$control" "$listing"' EXIT
 
 filler="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 digits="1234567890123456"
@@ -133,10 +185,11 @@ is_bytecode() {
 	return 1
 }
 
-# Reports, through `fail`, every problem among the files named in "$@",
-# relative to the current directory.
-scan() {
-	local entry name pattern hits status file
+# Reports, through `fail`, what `grep` finds in the files "$@" name -- each one
+# `./`-qualified by the caller, so a tracked file named `-` is that file and
+# not standard input.
+grep_names() {
+	local entry name pattern hits status
 	# With no file named, `grep` reads its standard input -- which is not a
 	# terminal here, so it would wait on it rather than find nothing.
 	if [ "$#" -eq 0 ]; then
@@ -146,11 +199,10 @@ scan() {
 	for entry in "${patterns[@]}"; do
 		name="${entry%%:*}"
 		pattern="${entry#*:}"
-		# `--`, so a tracked name that starts with `-` is a file, not an
-		# option. Status 1 is "no match"; 2 is a file `grep` could not read,
-		# which is a file this scan did not look at.
+		# Status 1 is "no match"; 2 is a file `grep` could not read, which is
+		# a file this scan did not look at.
 		status=0
-		hits="$(grep -n -E -e "$pattern" -- "$@" 2>&1)" || status=$?
+		hits="$(grep -n -E -e "$pattern" -- "$@" 2>&1 </dev/null)" || status=$?
 		if [ "$status" -ge 2 ]; then
 			fail "grep could not read every file for the '$name' pattern:"
 			printf '%s\n' "$hits" >&2
@@ -159,6 +211,17 @@ scan() {
 			printf '%s\n' "$hits" >&2
 		fi
 	done
+}
+
+# Reports, through `fail`, every problem among the tracked names in "$@",
+# relative to the current directory: the name rules over every one of them,
+# and `grep` over the ones that are regular files here. A symlink's content is
+# a path and is not read; a name deleted locally is not either. A name that is
+# none of these -- it cannot even be looked at, under a directory that cannot
+# be searched -- is a failure: it is a file this scan did not read.
+scan() {
+	local file
+	local -a operands=()
 	for file in "$@"; do
 		# A `.env` file is never a source file here: the design keeps
 		# credentials in the process environment, so one that is tracked is a
@@ -171,7 +234,17 @@ scan() {
 		if is_bytecode "$file"; then
 			fail "$file is tracked; Python's bytecode records local paths and belongs outside the repository"
 		fi
+		if [ -L "./$file" ]; then
+			continue
+		elif [ -f "./$file" ]; then
+			operands+=("./$file")
+		elif [ -e "./$file" ] || is_deleted "$file"; then
+			continue
+		else
+			fail "$file is tracked and cannot be read"
+		fi
 	done
+	grep_names ${operands[@]+"${operands[@]}"}
 }
 
 # The bytecode rule's positive control, as the patterns have theirs: it must
@@ -186,37 +259,66 @@ if is_bytecode scripts/fxcap/redact.py; then
 	fail "the bytecode rule matches a source file; this scan is not working"
 fi
 
-# And the whole path's, from the listing to the refusal: a checkout of its own
-# that tracks a key-shaped string in a file whose name has a tab and a byte
-# past ASCII in it, and a `.pyc` named the same way outside `__pycache__` --
-# the names `git ls-files` would quote. Both must be found, by `list_files`
-# and `scan`, exactly as the repository's files are.
+# And the whole path's, from the listing to the refusal: a checkout of its own,
+# with `GIT_DIR`, `GIT_INDEX_FILE` and `GIT_WORK_TREE` unset so a run from a
+# hook cannot stage into the repository that ran it, and standard input closed.
+# It tracks, and `list_files` and `scan` must refuse exactly as they would the
+# repository's files:
+#   - a key-shaped string in a file whose name has a tab and a byte past ASCII
+#     in it, and a `.pyc` named the same way outside `__pycache__` -- the names
+#     `git ls-files` would quote;
+#   - a key-shaped string in a file named `-`, which `grep` would otherwise
+#     read as its standard input;
+#   - a `.pyc` deleted from the working tree but still in the index.
+# And `grep`'s failure to read a file (status 2) must be a failure.
 sample_dir="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secret-names.XXXXXX")"
-trap 'rm -f "$control"; rm -rf "$sample_dir"' EXIT
+trap 'rm -f "$control" "$listing"; rm -rf "$sample_dir"' EXIT
 odd_text="$(printf 'caf\303\251\tkey.txt')"
 odd_bytecode="$(printf 'caf\303\251\tcache.pyc')"
 printf 'sk-%s\n' "$filler" >"$sample_dir/$odd_text"
 printf 'x' >"$sample_dir/$odd_bytecode"
-if command -v git >/dev/null 2>&1 && git -C "$sample_dir" init -q 2>/dev/null; then
-	git -C "$sample_dir" add -f -- "$odd_text" "$odd_bytecode"
-fi
-# `${files[@]+...}`: an empty array is "unbound" to the bash macOS ships, and
-# a listing that found nothing is the very failure this control is for.
+printf 'sk-%s\n' "$filler" >"$sample_dir/-"
+printf 'x' >"$sample_dir/gone.pyc"
+sample_tracked=no
 sample_report="$(
+	unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+	if command -v git >/dev/null 2>&1 && git -C "$sample_dir" init -q 2>/dev/null &&
+		git -C "$sample_dir" add -f -- "$odd_text" "$odd_bytecode" ./- gone.pyc; then
+		rm -f "$sample_dir/gone.pyc"
+		printf 'tracked\n'
+	fi
 	failures=0
 	list_files "$sample_dir"
 	cd "$sample_dir" && scan ${files[@]+"${files[@]}"} 2>&1
-)" || true
+	grep_names ./does-not-exist 2>&1
+)" </dev/null || true
 case "$sample_report" in
-*"possible OpenAI-style key:"*"$odd_text:1:"*) ;;
+tracked*) sample_tracked=yes ;;
+esac
+case "$sample_report" in
+*"possible OpenAI-style key:"*"./$odd_text:1:"*) ;;
 *) fail "a key in a file whose name git would quote was not found; this scan is not working" ;;
 esac
 case "$sample_report" in
 *"$odd_bytecode is tracked; Python's bytecode"*) ;;
 *) fail "a .pyc whose name git would quote was not refused; this scan is not working" ;;
 esac
+case "$sample_report" in
+*"possible OpenAI-style key:"*"./-:1:"*) ;;
+*) fail "a key in a file named '-' was not found; this scan is not working" ;;
+esac
+if [ "$sample_tracked" = yes ]; then
+	case "$sample_report" in
+	*"gone.pyc is tracked; Python's bytecode"*) ;;
+	*) fail "a tracked .pyc deleted from the working tree was not refused; this scan is not working" ;;
+	esac
+fi
+case "$sample_report" in
+*"grep could not read every file"*"does-not-exist"*) ;;
+*) fail "a file grep could not read was not a failure; this scan is not working" ;;
+esac
 
-scan "${files[@]}"
+scan "${files[@]}" </dev/null
 
 if [ "$failures" -ne 0 ]; then
 	printf 'check-no-secrets: %d problem(s) found\n' "$failures" >&2
