@@ -244,7 +244,8 @@ impl Clipboard {
         }
         // Outside the lock, so a stop never waits on a start -- which macOS
         // can take seconds over for a fresh executable. A stop that lands
-        // after this look is the hold's to catch.
+        // after this look is caught by the hold or by the stop itself,
+        // whichever takes the lock second.
         if stop.stopped() {
             return false;
         }
@@ -295,7 +296,9 @@ struct StopState {
 impl Stop {
     /// Gives the work up: a tool it is running is killed, one it has not
     /// reached yet is never started, and one it is starting at that moment is
-    /// killed as soon as it has been. Idempotent, and it never waits.
+    /// killed as soon as it has been. Idempotent, and it never waits on a
+    /// process start: only on the lock, while the work hands a tool over or
+    /// reaps one that was killed.
     pub fn stop(&self) {
         self.0.stopped.store(true, Ordering::Release);
         if let Some(child) = self.lock().as_mut() {
@@ -908,6 +911,64 @@ mod tests {
             let tool = FakeTool::keeping();
             assert!(!tool.clipboard().copy_file(std::path::Path::new(REPORT)));
             assert_eq!(tool.copied_file(), None, "a tool was run");
+        }
+
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn a_file_copy_given_up_while_its_tool_starts_fails_though_the_tool_finished() {
+            // The hand-over's own look at the stop, and nothing else. The tool
+            // has exited 0 before it is handed over, so `settle` would call the
+            // copy a success, and the stop finds no tool to kill. The stop is
+            // given up before the lock is let go, so whichever of the stop and
+            // the hand-over takes the lock first, the hand-over sees it. macOS
+            // only: elsewhere a file copy starts nothing, and a text copy's
+            // write to a tool that has gone fails it anyway.
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().expect("a directory");
+            let shim = dir.path().join("osascript");
+            std::fs::write(&shim, "#!/bin/sh\necho $$ > \"${0%/*}/ran\"\n").expect("a shim");
+            std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))
+                .expect("executable");
+            let ran = || {
+                std::fs::read_to_string(dir.path().join("ran"))
+                    .ok()
+                    .and_then(|pid| pid.trim().parse::<i32>().ok())
+            };
+            let clipboard =
+                super::super::Clipboard::searching(format!("{}:/bin", dir.path().display()))
+                    .waiting(std::time::Duration::from_secs(60));
+            let stop = super::super::Stop::default();
+            let lock = stop.lock();
+            let copying = {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    clipboard.copy_file_until(std::path::Path::new(REPORT), &stop)
+                })
+            };
+            until(|| ran().is_some());
+            let pid = rustix::process::Pid::from_raw(ran().expect("the tool started"))
+                .expect("a process id");
+            // Exited and not reaped: only the copy reaps it, after the lock.
+            until(|| {
+                rustix::process::waitid(
+                    rustix::process::WaitId::Pid(pid),
+                    rustix::process::WaitIdOptions::EXITED
+                        | rustix::process::WaitIdOptions::NOWAIT
+                        | rustix::process::WaitIdOptions::NOHANG,
+                )
+                .is_ok_and(|status| status.is_some())
+            });
+            let stopping = {
+                let stop = stop.clone();
+                std::thread::spawn(move || stop.stop())
+            };
+            until(|| stop.stopped());
+            drop(lock);
+            stopping.join().expect("the stop's thread");
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a file copy given up while its tool started was a success"
+            );
         }
     }
 }
