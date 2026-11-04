@@ -280,6 +280,20 @@ expires = "date:2026-12-04"
 source = ["UPSTREAM.md:91-95", "docs/parity.md:113"]
 
 [[divergence]]
+id = "status-panel-session-id-wrap"
+class = "user-decision"
+pins = ["v0.0.16"]
+scenarios = ["p5-panels-status-short"]
+snaps = ["*"]
+fx_row = '^  Session {11}<session-id> · not saved yet$|^  Build {13}<build>$|^esc close$'
+xfx_row = '^  Session {11}<session-id>$|^ {20}· not saved yet$|^↑↓ scroll     esc close$'
+reason = "xfx keeps its 30-character session ids (`<ms>-<16 hex>`) where fx's are 12: a shorter id is a change to the stored id format, which would break session-log back-compat -- older binaries resume new sessions -- on the program's safety list. At 24x50 the value column is 30 wide, so xfx's Session row takes two lines and the panel overflows its 14 rows by one: a scroll hint where fx's has none, and the arrows scroll a panel fx's fits whole. Decided by the dispatcher 2026-11-04, reversible."
+owner = "user decision session id shape"
+resolution = "the user keeps the id format (written as a lasting difference) or a back-compatible shorter id lands"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:113", "docs/parity.md:205"]
+
+[[divergence]]
 id = "status-panel-sign-in"
 class = "user-decision"
 pins = ["v0.0.16"]
@@ -331,17 +345,7 @@ owner = "user decision /status Sandbox row"
 scenarios = ["p5-panels-status-short"]
 snaps = ["up1", "ctrl-k", "down-end"]
 whole_snap = true
-why = "A scrolled 14x120 window shows two lines; xfx's Sandbox row stands four lines above where fx's Updates row stood, so a window between them shows the line before fx's. The windows that see neither differ in nothing (open, down1). At 24x50 fx's panel fits and does not scroll, and xfx's scrolls because its id wraps (status-panel-session-id-wrap)."
-
-[[cause]]
-id = "status-panel-session-id-wrap"
-kind = "decision"
-owner = "user decision session id shape"
-scenarios = ["p5-panels-status-short"]
-snaps = ["open", "down1", "up1", "ctrl-k", "down-end"]
-fx_row = '^  Session {11}<session-id> · not saved yet$|^  Build {13}<build>$|^esc close$'
-xfx_row = '^  Session {11}<session-id>$|^ {20}· not saved yet$|^↑↓ scroll     esc close$'
-why = "At 24x50 the value column is 30 wide: fx's 12-character id and ` · not saved yet` fit on one line, xfx's 30-character id does not, so its Session row takes two lines and the panel overflows its 14 rows by one (a scroll hint, and the Build line out of view). The id is the store's; a shorter one is a persisted-identifier change."
+why = "A scrolled 14x120 window shows two lines; xfx's Sandbox row stands four lines above where fx's Updates row stood, so a window between them shows the line before fx's. The windows that see neither differ in nothing (open, down1)."
 
 [[cause]]
 id = "xfx-debug-banner-wrap"

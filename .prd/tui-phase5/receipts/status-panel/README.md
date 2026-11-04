@@ -73,8 +73,16 @@ for `p5-panels-status`, `-status-first`, `-noauth` (40x120; the research
 scenarios, unchanged), `p5-panels-status-badsettings` (new here, on H1's
 existing `rehomefile` verb: a good profile and no credential at launch, made
 malformed before `/status`), and P-panel's `p5-panels-status-short` (14x120, 24x50)
-and `p5-panels-keys` (40x120), both sides taken again here. The xfx binary is
-`target/debug/xfx` at `766169eb`.
+and `p5-panels-keys` (40x120), both sides taken again here.
+
+**Re-taken in round P-status-b** (`cbea384e`): every xfx side, all 41 pairs'
+xfx files; the fx sides are unchanged. The xfx binary is `target/debug/xfx`
+at `cbea384e`, except `p5-panels-status-short` at 24x50, taken with
+`target/release/xfx` at the same commit: a debug build's banner
+(`x𝒇x v0.1.0-<rev> [debug] · …`, 52 cells) wraps at 50 columns and moves every
+row under it (`xfx-debug-banner-wrap`, whose fix this is); a release build's
+fits. Every 40x120 and 14x120 verdict is the one round 1 recorded; the six
+24x50 pairs changed as the table says.
 Sanitized: `/private/tmp/claude-501` is `<tmp>` (`scripts/fxcap/redact.py`).
 `pairs.py` runs the sweep's own classification (`ledger.classify`,
 `ledger.cascade`, `sweep.attribute`) against the v0.0.16 pin.
@@ -95,14 +103,14 @@ Sanitized: `/private/tmp/claude-501` is `<tmp>` (`scripts/fxcap/redact.py`).
 | `noauth-launch` | approved | the hint row's `run /login` (sign-in, #88): not this unit's |
 | `status-short-14x120-up1` | approved (aligned) | the window holds Updates and Step limit |
 | `status-short-14x120-{ctrl-k,down-end}` | differs | the scrolled window: xfx's Sandbox stands where nothing does in fx's, so the two-line window shows the line before fx's (cause `status-panel-scroll-window`) |
-| `status-short-24x50-{open,down1}` | differs | xfx's 30-character id wraps at the 30-column value column, so the panel overflows by one (`↑↓ scroll`, Build out of view); and a debug banner wraps at 50 columns (`status-panel-session-id-wrap`, `xfx-debug-banner-wrap`) |
-| `status-short-24x50-{up1,ctrl-k,down-end}` | differs | the same overflow scrolls xfx's panel where fx's fits |
-| `status-short-24x50-esc` | differs | the debug banner's wrap only |
+| `status-short-24x50-{open,down1,up1,ctrl-k,down-end}` | approved (aligned) | xfx keeps its 30-character ids (the stored format; a shorter one breaks resuming new sessions on older binaries): at the 30-column value column the Session row takes two lines, the panel overflows by one, and the arrows scroll it (`status-panel-session-id-wrap`, user decision, until 2026-12-04); with Sandbox, Updates, Step limit. Round 1: unresolved, with a debug build |
+| `status-short-24x50-esc` | normalized-identical | round 1: the debug banner's wrap |
 | `keys-{perm-btab,open-before-approval,approval-arrives,approval-esc,end}` | differs | bare `/permissions` is still notices, so Shift-Tab moves the mode and no approval arrives: U-permissions (`U-permissions-panel`) |
 
-Of P-panel's 22 pairs: 9 are the same or approved now (`14x120-{open,down1,esc,up1}`,
-`keys-{btab,tab-pgdn,paste,ctrl-c,after-ctrl-c-esc}`), 8 differ for the id,
-the banner and the scrolled windows above, 5 wait for U-permissions.
+Of P-panel's 22 pairs: 15 are the same or approved now
+(`14x120-{open,down1,esc,up1}`, all six `24x50`,
+`keys-{btab,tab-pgdn,paste,ctrl-c,after-ctrl-c-esc}`), 2 differ for the
+scrolled 14x120 windows above, 5 wait for U-permissions.
 
 ## Rows pinned by unit tests, not by a pair
 

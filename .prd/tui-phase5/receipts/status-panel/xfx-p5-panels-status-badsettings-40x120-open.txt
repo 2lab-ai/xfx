@@ -1,19 +1,19 @@
-x𝒇x v0.1.0-766169e [debug] · Run /help for commands
+x𝒇x v0.1.0-cbea384 [debug] · Run /help for commands
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Status
 
-  Session           1793752863866-f20054d54b8974f3 · not saved yet
+  Session           1793779418418-111142be57240c7c · not saved yet
   Model             fake/model-a
   Settings          couldn't be read: InvalidSettingsFormat
   Permissions       auto
   Sandbox           none
-  Workspace         <tmp>/fxcap.W5eTNq/work
+  Workspace         <tmp>/fxcap.GXgos1/work
   Turns             0
   Session grants    0
   Step limit        25
   Ultrafast         not requested
-  Build             debug · 766169eb8811
+  Build             debug · cbea384ecdf6
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc close
 

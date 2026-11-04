@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-766169e [debug] · Run /help for commands
+x𝒇x v0.1.0-cbea384 [debug] · Run /help for commands
 
 ┃ first turn please
 
@@ -9,17 +9,17 @@ x𝒇x v0.1.0-766169e [debug] · Run /help for commands
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Status
 
-  Session           1793752844305-9f6e6a14452d82c6 · saved
+  Session           1793779397308-3c8ef96730057777 · saved
   Model             fake/model-a
   Auth              AI_GATEWAY_API_KEY
   Permissions       auto
   Sandbox           none
-  Workspace         <tmp>/fxcap.eIk27W/work
+  Workspace         <tmp>/fxcap.Dz2skQ/work
   Turns             1
   Session grants    0
   Step limit        25
   Ultrafast         not requested
-  Build             debug · 766169eb8811
+  Build             debug · cbea384ecdf6
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc close
 

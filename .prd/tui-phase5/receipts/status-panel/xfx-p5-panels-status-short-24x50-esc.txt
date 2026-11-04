@@ -1,9 +1,9 @@
-x𝒇x v0.1.0-766169e [debug] · Run /help for
-commands
+x𝒇x v0.1.0 · Run /help for commands
 
 ┃
 
 auto · model-a
+
 
 
 
