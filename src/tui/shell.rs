@@ -36944,7 +36944,10 @@ mod tests {
     }
 
     fn skilled_at(rows: u16, cols: u16) -> Skilled {
-        let root = tempfile::tempdir().expect("a root");
+        skilled_in(tempfile::tempdir().expect("a root"), rows, cols)
+    }
+
+    fn skilled_in(root: tempfile::TempDir, rows: u16, cols: u16) -> Skilled {
         let base = root.path().canonicalize().expect("canonical");
         let work = base.join("work");
         let home = base.join("home");
@@ -37081,8 +37084,37 @@ mod tests {
 
     #[test]
     fn a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu() {
-        let mut shell = skilled();
-        shell.route_bytes(b"$zz");
+        no_menu_for_a_word_nothing_matches(skilled());
+        // The draw that failed on CI, held: a root whose name has `zz` in it.
+        let held = tempfile::Builder::new()
+            .prefix(".tmpzz")
+            .tempdir()
+            .expect("a root");
+        no_menu_for_a_word_nothing_matches(skilled_in(held, 40, 120));
+    }
+
+    fn no_menu_for_a_word_nothing_matches(mut shell: Skilled) {
+        // A search reads each skill's name, description, source and path
+        // (`skillMatchRank`), and the fixture's path is a temp directory with
+        // six random letters and digits in its name: a short word like `zz` is
+        // in it one run in two hundred. A word longer than all of them is in
+        // none.
+        let longest = shell
+            .skills
+            .skills()
+            .iter()
+            .flat_map(|skill| {
+                [
+                    skill.name.len(),
+                    skill.description.len(),
+                    skill.source.short_label().len(),
+                    skill.path.to_string_lossy().len(),
+                ]
+            })
+            .max()
+            .expect("the fixture's skills");
+        let word = "z".repeat(longest + 1);
+        shell.route_bytes(format!("${word}").as_bytes());
         assert!(shell.skills_menu.is_some());
         assert!(
             !skills_band(&shell)
@@ -37090,7 +37122,9 @@ mod tests {
                 .any(|row| row.starts_with("Skills ")),
             "a word no skill matches showed the menu"
         );
-        shell.route_bytes(b"\x7f\x7fdem ");
+        let mut keys = vec![0x7f; word.len()];
+        keys.extend_from_slice(b"dem ");
+        shell.route_bytes(&keys);
         assert!(
             shell.skills_menu.is_none(),
             "a space did not end the search"
