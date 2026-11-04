@@ -84,7 +84,7 @@ use super::bridge::{
 };
 use super::compaction::{Feedback, Update};
 use super::notice::Notice;
-use super::permissions::{self, Change, Granted, Grants, SavedRulesAt};
+use super::permissions::{self, Change, Granted, Grants, SavedRules};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
 use crate::agent::compaction_trace::{self, Context, Kind as TraceKind, Origin};
@@ -297,9 +297,9 @@ pub(crate) struct WorkHandle {
     steering: Steering,
     /// The number the last steer was sent under.
     steers: Arc<AtomicU64>,
-    /// Where the live conversation keeps its saved-session rules, as the
-    /// runtime last published it ([`SavedRulesAt`]).
-    saved_rules: SavedRulesAt,
+    /// The session's saved-session rules: held for the session the next save
+    /// opens, or where the open one keeps them ([`SavedRules`]).
+    saved_rules: SavedRules,
     /// What `/usage`'s session scope reads, as the runtime last published it.
     spend: SessionSpend,
     /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
@@ -611,17 +611,17 @@ impl WorkHandle {
         self.live.resets()
     }
 
-    /// Where the live conversation keeps its saved-session permission rules,
-    /// or `None` while no saved session is open.
-    pub(crate) fn saved_rules_path(&self) -> Option<std::path::PathBuf> {
-        self.saved_rules.read()
+    /// The session's saved-session permission rules: held for the session
+    /// the next save opens, or the open session's file ([`SavedRules`]).
+    pub(crate) fn saved_rules(&self) -> &SavedRules {
+        &self.saved_rules
     }
 
-    /// Stands in for the runtime's publication of where the saved-session
-    /// rules are kept.
+    /// Stands in for the runtime's publication of an open session's store
+    /// at `path`.
     #[cfg(test)]
-    pub(crate) fn publish_saved_rules(&self, path: Option<std::path::PathBuf>) {
-        self.saved_rules.publish(path);
+    pub(crate) fn publish_saved_rules(&self, path: std::path::PathBuf) {
+        self.saved_rules.publish_open(path);
     }
 
     /// Whether a reset has happened since the runtime last published, so
@@ -786,7 +786,7 @@ impl WorkHandle {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
-                saved_rules: SavedRulesAt::default(),
+                saved_rules: SavedRules::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
@@ -1172,7 +1172,17 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
-    let saved_rules = SavedRulesAt::default();
+    // Seeded here for the same reason: a `remember` typed before the runtime
+    // has published anything is held for the session the first save opens,
+    // or made in the resumed session's file.
+    let saved_rules = match resumed.as_ref() {
+        Some(resumed) => SavedRules::open(crate::permission::session_rules::path_in(
+            &store.session_dir(resumed.session.id()),
+        )),
+        None => SavedRules::pending(crate::permission::session_rules::path_in(
+            &store.session_dir(&next_session),
+        )),
+    };
     let publishes_saved_rules = saved_rules.clone();
     // One live authority for the session: the handle writes it, every
     // conversation this runtime opens reads it.
@@ -1567,9 +1577,11 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
-    /// Where the live conversation keeps its saved-session rules, published
+    /// The session's saved-session rules, shared with the UI: held there for
+    /// the session the next save opens, which writes them
+    /// ([`Runtime::open_next`]), or where the open one keeps them, published
     /// with the grants.
-    saved_rules: SavedRulesAt,
+    saved_rules: SavedRules,
     /// The mode and reset count the UI writes and every conversation's
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
@@ -1698,6 +1710,10 @@ impl Runtime {
             WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
         let config_rules = config.permission.effective().clone();
         let (titles, title_answers) = super::titles::TitleDesk::new(config.session_titles);
+        let next_session = SessionId::generate();
+        let saved_rules = SavedRules::pending(crate::permission::session_rules::path_in(
+            &store.session_dir(&next_session),
+        ));
         Self {
             config,
             env,
@@ -1711,7 +1727,7 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
-            saved_rules: SavedRulesAt::default(),
+            saved_rules,
             live: LiveAuthority::new(config_mode),
             renamed_after_reset: Vec::new(),
             steering: Steering::new(),
@@ -1726,7 +1742,7 @@ impl Runtime {
             conversation_lineage: None,
             pending_title: None,
             unrecorded_resume: None,
-            next_session: SessionId::generate(),
+            next_session,
             session_refused: false,
             workspace,
             fixed_tokens: Arc::new(AtomicUsize::new(0)),
@@ -1754,14 +1770,16 @@ impl Runtime {
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.granted());
-        self.saved_rules
-            .publish(self.conversation.as_ref().and_then(|conversation| {
-                conversation
-                    .tools
-                    .permissions()
-                    .session_rules_path()
-                    .map(std::path::Path::to_path_buf)
-            }));
+        match self.conversation.as_ref().and_then(|conversation| {
+            conversation
+                .tools
+                .permissions()
+                .session_rules_path()
+                .map(std::path::Path::to_path_buf)
+        }) {
+            Some(open) => self.saved_rules.publish_open(open),
+            None => self.saved_rules.publish_pending(self.next_rules_path()),
+        }
         self.spend.publish(Spent {
             usage: self
                 .conversation
@@ -1772,6 +1790,12 @@ impl Runtime {
         });
         self.credits.publish(crate::credits::question(&self.config));
         self.titles.publish_asker(self.title_asker());
+    }
+
+    /// Where the session the next save opens ([`Self::next_session`]) will
+    /// keep its saved-session rules.
+    fn next_rules_path(&self) -> std::path::PathBuf {
+        crate::permission::session_rules::path_in(&self.store.session_dir(&self.next_session))
     }
 
     /// The status board's half of [`Self::publish`]: what `/status` and
@@ -1833,14 +1857,33 @@ impl Runtime {
     /// are: a resume restores them from there ([`Runtime::resume_by_id`]). A
     /// frame of a kind every older xfx reads, with fields one that predates
     /// them ignores (`tests/session_compat.rs`).
+    ///
+    /// **And the saved-session rules confirmed before it**, held until now in
+    /// [`SavedRules`]: written into the session's directory before its log
+    /// is, so no one sees the session without them and its first turn's first
+    /// call is decided by them, as upstream's held state is in force for its
+    /// first turn and written in the one publish that makes the session
+    /// visible (`writeFirstTurn`, `:503-539@481104fd`). Under the store's lock
+    /// from the read of what is held to the moment the file is the store, so
+    /// a confirmation the UI makes in between waits and lands in the file.
+    /// Rules that cannot be written open nothing -- the prompt is refused,
+    /// says why, and runs no tool, as upstream's failed first publish fails
+    /// its turn before any call runs (`appendRunningToolCalls`,
+    /// `src/core/agent/runtime/orchestrator.zig:3894-3920@481104fd`) -- and
+    /// stay held, for the next attempt under the next id.
     fn open_next(&mut self, mirror: &CancelToken) -> Result<(), String> {
         let model = self.model().to_string();
+        let target = self.next_rules_path();
+        let store = self.saved_rules.clone();
+        let mut slot = store.lock();
+        let held = slot.first_save(&target);
         let opened = open_conversation_as(
             &self.store,
             self.next_session.clone(),
             &self.config,
             &model,
             self.authority(),
+            held.as_ref(),
             // The TUI's own requester, over the control channel this
             // session's prompter already reads
             // ([`super::question::TuiQuestioner`]). This is the one front
@@ -1857,6 +1900,8 @@ impl Runtime {
         );
         match opened {
             Ok(conversation) => {
+                slot.opened(target);
+                drop(slot);
                 self.next_session = SessionId::generate();
                 self.conversation = Some(conversation);
                 self.session_refused = false;
@@ -1868,6 +1913,7 @@ impl Runtime {
                 message,
                 store_refused,
             }) => {
+                drop(slot);
                 if store_refused {
                     // Never asked for again: the store may have made half of it.
                     self.next_session = SessionId::generate();
@@ -6036,7 +6082,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
-                saved_rules: SavedRulesAt::default(),
+                saved_rules: SavedRules::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
@@ -6104,7 +6150,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
-                saved_rules: SavedRulesAt::default(),
+                saved_rules: SavedRules::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
@@ -6151,7 +6197,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
-                saved_rules: SavedRulesAt::default(),
+                saved_rules: SavedRules::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
@@ -6521,7 +6567,7 @@ mod tests {
             stop: CancelToken::new(),
             steering: Steering::new(),
             steers: Arc::new(AtomicU64::new(0)),
-            saved_rules: SavedRulesAt::default(),
+            saved_rules: SavedRules::default(),
             spend: SessionSpend::default(),
             credits: CreditsBoard::default(),
             mcp: crate::mcp::McpRuntime::inert(),
@@ -8761,6 +8807,192 @@ mod tests {
         assert_eq!(events[1]["fast_mode"], false, "{}", events[1]);
     }
 
+    /// `line` -- a `/permissions remember …` or `revoke …` -- confirmed
+    /// against the store as the UI holds it now, as the shell confirms one
+    /// (`super::super::shell`'s `permissions`): prepared under the session's
+    /// scope in `ask`, running nothing.
+    fn confirmed(state: &Runtime, line: &str) -> (crate::permission::allowlist::Tone, String) {
+        use crate::permission::slash::{self, Managed, Request};
+        let store = state.saved_rules.view();
+        let scope = conversation_scope(&state.config).expect("a scope");
+        let managed = slash::manage_with(
+            &Request::parse(line),
+            Some(&store.at),
+            |_| store.state.clone(),
+            false,
+            |tool, arguments| {
+                crate::tools::prepare_rule_action(
+                    tool,
+                    arguments,
+                    &crate::tools::ToolContext::new(scope)
+                        .with_permissions(PermissionSession::new(PermissionMode::Ask)),
+                )
+            },
+        );
+        let Some(Managed::Confirm(confirmation)) = managed else {
+            panic!("{line}: {managed:?}");
+        };
+        state.saved_rules.confirm(&confirmation)
+    }
+
+    /// Every session directory the store holds.
+    fn session_dirs(state: &Runtime) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(state.store.sessions_dir())
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir() && !path.ends_with(".tmp"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    const HELD_DENY: &str = r#"remember deny write_file {"path":"b.txt","content":"y"}"#;
+
+    #[test]
+    fn rules_held_before_the_first_prompt_are_its_sessions_and_decide_its_first_call() {
+        // fx puts a confirmed rule in the session's state at once
+        // (`replacePermissionStateOwned`, `input_approval_runtime.zig:
+        // 289-292@481104fd`), which every approval reads, and writes it with
+        // the session's first turn. Here: held until the first prompt opens
+        // the session, written into its directory before its log, and the
+        // store every decision of that first turn reads -- in `auto`, where
+        // nothing else would stop the write.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = PermissionMode::Auto;
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let target = state.next_rules_path();
+        assert_eq!(
+            confirmed(&state, HELD_DENY).1,
+            crate::permission::slash::UPDATED
+        );
+        assert!(session_dirs(&state).is_empty(), "a rule wrote a session");
+        state.publish();
+        assert_eq!(
+            state.saved_rules.view().state.expect("held").rules.len(),
+            1,
+            "a publication between pieces of work let go of the held rule"
+        );
+
+        let provider = ScriptedProvider::new(vec![
+            calls(vec![call(
+                "call-1",
+                "write_file",
+                serde_json::json!({"path": "b.txt", "content": "y"}),
+            )]),
+            answers("DONE"),
+        ]);
+        assert_eq!(
+            one_turn_on(&mut state, "write it", Box::new(provider)),
+            Ended::Turn
+        );
+        assert!(
+            !workspace.path().join("b.txt").exists(),
+            "the held deny let the first turn's write by"
+        );
+        let conversation = state.conversation.as_ref().expect("opened");
+        assert_eq!(
+            conversation.tools.permissions().session_rules_path(),
+            Some(target.as_path())
+        );
+        let saved = crate::permission::session_rules::load(&target).expect("the file");
+        assert_eq!(saved.rules.len(), 1);
+        assert_eq!(saved.rules[0].id, 1);
+        assert_eq!(
+            saved.rules[0].display,
+            "write_file b.txt preimage=absent after=a1fce4363854ff88"
+        );
+        let id = conversation.recorder.id().clone();
+        let log = String::from_utf8_lossy(&session_files(&state, &id).0).into_owned();
+        assert!(
+            log.contains("a saved-session permission rule denies"),
+            "{log}"
+        );
+        // The file is the store from here on.
+        assert_eq!(state.saved_rules.view().at, target);
+        assert_eq!(
+            confirmed(&state, "revoke 1").1,
+            crate::permission::slash::UPDATED
+        );
+        assert!(crate::permission::session_rules::load(&target)
+            .expect("the file")
+            .rules
+            .is_empty());
+    }
+
+    #[test]
+    fn a_rename_before_the_first_prompt_writes_the_rules_held_for_its_session() {
+        // `/rename` opens the session before any prompt (P-status decision
+        // 1): that is the first save, and it carries the rules too.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let target = state.next_rules_path();
+        confirmed(&state, HELD_DENY);
+        state
+            .rename("named first", &CancelToken::new())
+            .expect("renamed");
+        let saved = crate::permission::session_rules::load(&target).expect("the file");
+        assert_eq!(saved.rules.len(), 1, "{saved:?}");
+        // A session nothing was held for gets no file, as before.
+        let mut clean = Runtime::new(
+            config.clone(),
+            open_store(&config).expect("a store"),
+            a_prompter(),
+            a_questioner(),
+        );
+        let untouched = clean.next_rules_path();
+        clean
+            .rename("nothing held", &CancelToken::new())
+            .expect("renamed");
+        assert!(!untouched.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rules_held_for_a_session_the_store_refuses_go_with_the_next_one() {
+        // A first save that cannot be made opens nothing and runs nothing, as
+        // fx's failed first publish fails its turn before any call
+        // (`appendRunningToolCalls`, `src/core/agent/runtime/orchestrator.zig:
+        // 3894-3916@481104fd`); the rules stay held, and the next attempt --
+        // under the next id -- writes them. Never in force unsaved, never lost.
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        confirmed(&state, HELD_DENY);
+        let sessions = state.store.sessions_dir().to_path_buf();
+        let before = std::fs::metadata(&sessions)
+            .expect("sessions")
+            .permissions();
+        std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o500))
+            .expect("read-only");
+        let refused = state.open_next(&CancelToken::new());
+        std::fs::set_permissions(&sessions, before).expect("restored");
+        assert!(refused.is_err());
+        assert!(state.conversation.is_none());
+        state.publish();
+        let held = state.saved_rules.view();
+        assert_eq!(held.at, state.next_rules_path(), "not moved to the next id");
+        assert_eq!(
+            held.state.expect("held").rules.len(),
+            1,
+            "the rule was lost"
+        );
+
+        state.open_next(&CancelToken::new()).expect("opened");
+        let saved = crate::permission::session_rules::load(&held.at).expect("the file");
+        assert_eq!(saved.rules.len(), 1, "{saved:?}");
+    }
+
     /// A provider that answers from a script and keeps every set of request
     /// options the turn gave it -- what a real wire would send beside the
     /// prompt (`crate::gateway::protocol::RequestOptions`).
@@ -8987,7 +9219,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
-                saved_rules: SavedRulesAt::default(),
+                saved_rules: SavedRules::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),

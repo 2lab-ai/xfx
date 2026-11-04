@@ -1,0 +1,76 @@
+# PERM-EARLY: saved-session rules confirmed before a session's first prompt.
+# fx v0.0.16's session is open from launch: a `remember` or `revoke` typed
+# before the first prompt is confirmed, in the session's state at once
+# (input_approval_runtime.zig:277-297@481104fd) and held until its first turn
+# writes it (session_manager/session.zig:415-429, :503-539). Two rules, a
+# revoke, the panel, the first prompt's own call decided by the held deny, the
+# files before and after that first save, and `/new` forgetting what was held.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-permissions-early-turn.json
+wait 2
+type /permissions remember allow write_file {"path":"a.txt","content":"x"}
+key Enter
+wait 1.5
+snap remember-allow
+key Enter
+wait 1
+type /permissions remember deny write_file {"path":"b.txt","content":"y"}
+key Enter
+wait 1.5
+key Enter
+wait 1
+snap remembered
+type /permissions
+key Enter
+wait 1
+snap held
+key Escape
+wait 0.5
+type /permissions revoke 1
+key Enter
+wait 1.5
+snap revoke-prompt
+key Enter
+wait 1
+snap revoked
+type /permissions revoke 1
+key Enter
+wait 1
+snap revoke-again
+type /permissions
+key Enter
+wait 1
+snap after-revoke
+key Escape
+wait 0.5
+home before-prompt
+type write it
+key Enter
+wait 3
+snap denied
+type /permissions
+key Enter
+wait 1
+snap saved
+key Escape
+wait 0.5
+home first-save
+type /new
+key Enter
+wait 1.5
+type /permissions remember deny write_file {"path":"c.txt","content":"z"}
+key Enter
+wait 1.5
+key Enter
+wait 1
+type /new
+key Enter
+wait 1.5
+type /permissions
+key Enter
+wait 1
+snap new-forgets
+key Escape
+wait 0.5
+home end
+gwlog

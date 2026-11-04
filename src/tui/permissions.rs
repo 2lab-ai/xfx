@@ -14,11 +14,14 @@
 //! publishes, and the record of each change: the session log and the settings
 //! write).
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use super::notice::Notice;
 use crate::config::PermissionMode;
+use crate::permission::allowlist::Tone;
+use crate::permission::session_rules::{self, Applied, State};
 use crate::permission::slash::{self, TOPIC};
 
 /// The warning the hint row carries the first time a person is in full access
@@ -128,28 +131,222 @@ impl Grants {
     }
 }
 
-/// Where the live conversation keeps its saved-session permission rules, as
-/// the runtime last published it: `None` while no saved session is open.
+/// The session's saved-session permission rules, wherever they are now.
 ///
-/// Published beside [`Grants`] and for the same reason -- the conversation is
-/// the runtime thread's, and the UI may not wait for it. What a `remember` or
-/// `revoke` changes is the **file**, under its own lock, and every decision
-/// reads the file afresh; so the UI writing it while a turn runs is the
-/// change upstream's confirmation makes (`commitPermissionState`), in force
-/// for that turn's next call.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct SavedRulesAt(Arc<Mutex<Option<std::path::PathBuf>>>);
+/// **Before the session's first save they are held here, in memory**, as
+/// upstream holds them: its session exists from launch, a confirmed
+/// `remember` or `revoke` goes into the runtime's state at once
+/// (`replacePermissionStateOwned`, `input_approval_runtime.zig:289-292`)
+/// and into the session's held lines, which only its first turn writes
+/// (`commitPermissionState` -> `setPermissions` -> `hold`,
+/// `app_session_runtime.zig:4961-4968`, `session_adapter.zig:2205-2209`,
+/// `src/core/session_manager/session.zig:415-429@481104fd`). xfx's session
+/// opens at the first prompt -- or a `/rename` before one -- and the runtime
+/// writes what is held into the new session's directory before its log
+/// exists, then lets go of it here, under this one lock
+/// (`super::worker`'s `Runtime::open_next`), so a confirmation landing
+/// between the two cannot be held after the write and lost.
+///
+/// **Once the session is open the store is its file**, under its own lock, and
+/// every decision reads the file afresh; so the UI writing it while a turn
+/// runs is the change upstream's confirmation makes, in force for that turn's
+/// next call. Published beside [`Grants`], for the same reason: the
+/// conversation is the runtime thread's, and the UI may not wait for it.
+#[derive(Debug, Clone)]
+pub(crate) struct SavedRules(Arc<Mutex<Slot>>);
 
-impl SavedRulesAt {
-    pub(crate) fn publish(&self, path: Option<std::path::PathBuf>) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = path;
+/// What [`SavedRules`] holds.
+#[derive(Debug)]
+pub(crate) struct Slot {
+    /// The file the rules are kept in: the open session's, or the one the
+    /// next save creates (`<sessions>/<next id>/permissions.json`). A
+    /// confirmation names it ([`slash::Confirmation::path`]) and is made only
+    /// against the store it names.
+    at: PathBuf,
+    /// The rules while the session is not open; `None` once it is, and the
+    /// file is the store.
+    held: Option<State>,
+    /// Moves with every change of what this holds, so a reader that keeps a
+    /// view -- the bare `/permissions` panel -- can tell it moved.
+    changes: u64,
+}
+
+/// The store as it stands, read under one lock: where it is, and its rules --
+/// or why its file could not be read.
+#[derive(Debug, Clone)]
+pub(crate) struct View {
+    pub(crate) at: PathBuf,
+    pub(crate) state: Result<State, String>,
+}
+
+/// Whether the store moved since a [`View`] was read: the slot's change count,
+/// and, for an open session's file, its stamp ([`session_rules::stamp`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct StoreStamp {
+    changes: u64,
+    file: Option<session_rules::Stamp>,
+}
+
+/// A handle with no runtime behind it: a session not open yet, whose store
+/// no runtime will create.
+#[cfg(test)]
+impl Default for SavedRules {
+    fn default() -> Self {
+        Self::pending(PathBuf::from("unopened").join(session_rules::FILE_NAME))
+    }
+}
+
+impl SavedRules {
+    /// The rules of a session that is not open yet, whose store will be `at`:
+    /// none.
+    pub(crate) fn pending(at: PathBuf) -> Self {
+        Self(Arc::new(Mutex::new(Slot {
+            at,
+            held: Some(State::default()),
+            changes: 0,
+        })))
     }
 
-    pub(crate) fn read(&self) -> Option<std::path::PathBuf> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+    /// The rules of the open session whose store is `at`.
+    pub(crate) fn open(at: PathBuf) -> Self {
+        Self(Arc::new(Mutex::new(Slot {
+            at,
+            held: None,
+            changes: 0,
+        })))
+    }
+
+    fn slot(&self) -> MutexGuard<'_, Slot> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The slot itself, for the runtime's open of the session it is held for
+    /// ([`Slot::first_save`], [`Slot::opened`]).
+    pub(crate) fn lock(&self) -> MutexGuard<'_, Slot> {
+        self.slot()
+    }
+
+    /// What the store is now.
+    pub(crate) fn view(&self) -> View {
+        let slot = self.slot();
+        View {
+            at: slot.at.clone(),
+            state: match &slot.held {
+                Some(state) => Ok(state.clone()),
+                None => session_rules::load(&slot.at),
+            },
+        }
+    }
+
+    /// How the store stands, for telling whether it moved.
+    pub(crate) fn stamp(&self) -> StoreStamp {
+        let slot = self.slot();
+        StoreStamp {
+            changes: slot.changes,
+            file: slot.held.is_none().then(|| session_rules::stamp(&slot.at)),
+        }
+    }
+
+    /// Makes a confirmed `remember` or `revoke` (`submitRuleManagementChoice`,
+    /// `input_approval_runtime.zig:277-323@481104fd`): in memory while the
+    /// session is held, in force the moment it is, as upstream's is; in the
+    /// file once it is open ([`slash::confirm`]). A confirmation for a store
+    /// this no longer is -- the session it was shown for was left by `/new`
+    /// or a resume, or the store refused it and the next one waits under
+    /// another id -- is not made anywhere, and says so as the store's own
+    /// move under a confirmation says it ([`slash::CHANGED`]).
+    pub(crate) fn confirm(&self, confirmation: &slash::Confirmation) -> (Tone, String) {
+        let mut slot = self.slot();
+        if slot.at != confirmation.path {
+            return (Tone::Warning, slash::CHANGED.to_string());
+        }
+        let Some(held) = slot.held.as_mut() else {
+            return slash::confirm(confirmation);
+        };
+        let applied = held.apply(&confirmation.event);
+        if let Applied::Applied(next) = &applied {
+            *held = next.clone();
+            slot.changes += 1;
+        }
+        slash::answer(Ok(applied))
+    }
+
+    /// `/new`, `/clear` or `/reset`, at the keystroke: what is held is the
+    /// session being left, and goes with it, as upstream's reset clears the
+    /// state it would have written (`SessionRuntime.reset` ->
+    /// `clearPermissionState`, `src/core/session/session.zig:1430-1437`, from
+    /// `applyIdleLiveSessionTransition`, `app_session_runtime.zig:1816@481104fd`).
+    /// An open session's rules stay in its file; the runtime moves this to
+    /// the next session's once it has dropped that one
+    /// ([`Self::publish_pending`]).
+    pub(crate) fn forget_held(&self) {
+        let mut slot = self.slot();
+        if let Some(held) = slot.held.as_mut() {
+            if *held != State::default() {
+                *held = State::default();
+                slot.changes += 1;
+            }
+        }
+    }
+
+    /// The runtime's word that the open session's store is `at`: a resume, or
+    /// the session the first save opened. What was held for a session that
+    /// was not opened -- a resume replaces it -- goes, as upstream's resume
+    /// resets it (`prepareLiveSessionResume`, `app_session_runtime.zig:1744-1746`,
+    /// `:1816@481104fd`).
+    pub(crate) fn publish_open(&self, at: PathBuf) {
+        let mut slot = self.slot();
+        if slot.held.is_some() || slot.at != at {
+            slot.at = at;
+            slot.held = None;
+            slot.changes += 1;
+        }
+    }
+
+    /// The runtime's word that no session is open and the next save opens
+    /// the one whose store is `at`. Coming from an open one -- `/new` dropped
+    /// it -- nothing is held. Already held, what is held is kept, under the
+    /// new id when the store refused the last one: the next attempt writes it.
+    pub(crate) fn publish_pending(&self, at: PathBuf) {
+        let mut slot = self.slot();
+        let mut moved = false;
+        if slot.held.is_none() {
+            slot.held = Some(State::default());
+            moved = true;
+        }
+        if slot.at != at {
+            slot.at = at;
+            moved = true;
+        }
+        if moved {
+            slot.changes += 1;
+        }
+    }
+}
+
+impl Slot {
+    /// The rules to write into the session whose store is `at`, which is
+    /// about to be created, and from here on the store this names: `None`
+    /// when nothing has been held -- no file is written, which reads as no
+    /// rules -- and once something has, the whole state, so a generation a
+    /// revoke spent is never handed out again.
+    pub(crate) fn first_save(&mut self, at: &Path) -> Option<State> {
+        if self.at != at {
+            self.at = at.to_path_buf();
+            self.changes += 1;
+        }
+        self.held
+            .as_ref()
+            .filter(|held| **held != State::default())
+            .cloned()
+    }
+
+    /// The session whose store is `at` was created, with what
+    /// [`Self::first_save`] gave it: its file is the store now.
+    pub(crate) fn opened(&mut self, at: PathBuf) {
+        self.at = at;
+        self.held = None;
+        self.changes += 1;
     }
 }
 

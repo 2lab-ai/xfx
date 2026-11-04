@@ -45,7 +45,7 @@
 
 use crate::config::PermissionMode;
 use crate::output::{ShellSession, StatusSnapshot};
-use crate::permission::session_rules::{Rule as SavedRule, Stamp as SavedStamp};
+use crate::permission::session_rules::Rule as SavedRule;
 use crate::permission::RuleSet;
 use crate::workspace::access::terminal_safe;
 
@@ -141,16 +141,18 @@ pub(crate) enum Facts {
     /// open panel to say so before the runtime publishes again -- with the
     /// mode and the grant count unchanged too.
     ///
-    /// The saved-session store's file as it stands ([`SavedStamp`]), `None`
-    /// with no session open: upstream reads its store only when another fact
-    /// moves; xfx's store is a file another hand can change or break, so the
-    /// panel looks at it on each tick and reads it again when it moved.
+    /// How the session's saved-rule store stands
+    /// ([`super::permissions::StoreStamp`]): the rules held before the first
+    /// save, or the open session's file. Upstream reads its store only when
+    /// another fact moves; xfx's open store is a file another hand can change
+    /// or break, so the panel looks at it on each tick and reads it again
+    /// when it moved.
     Permissions {
         mode: PermissionMode,
         grants: usize,
         rules: usize,
         resets: u64,
-        store: Option<SavedStamp>,
+        store: super::permissions::StoreStamp,
     },
 }
 
@@ -920,7 +922,7 @@ mod tests {
             grants: 0,
             rules: 0,
             resets: 0,
-            store: None,
+            store: super::super::permissions::StoreStamp::default(),
         };
         let panel = Panel::open(Vec::new(), permissions.clone());
         assert_eq!(panel.title(), "Permissions");
@@ -1072,7 +1074,7 @@ mod tests {
             grants: 1,
             rules: 1,
             resets: 0,
-            store: None,
+            store: super::super::permissions::StoreStamp::default(),
         }
     }
 

@@ -1260,6 +1260,7 @@ pub(crate) fn open_conversation(
         config,
         model,
         permissions,
+        None,
         questioner,
         cancel,
     )
@@ -1279,12 +1280,19 @@ pub(crate) struct OpenFailure {
 /// [`open_conversation`], into the session `id` names: the TUI allocates
 /// its id at launch, in memory, so `/status` can show it before the first
 /// prompt writes anything (`docs/parity.md`, `/status`).
+///
+/// `held_rules` are the saved-session rules the TUI held for this session
+/// before it existed: written into its directory before its log is, so the
+/// session is never seen without them, and a session they cannot be written
+/// into is not opened ([`SessionStore::create_with`]).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn open_conversation_as(
     store: &SessionStore,
     id: SessionId,
     config: &RuntimeConfig,
     model: &str,
     permissions: PermissionSession,
+    held_rules: Option<&crate::permission::session_rules::State>,
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, OpenFailure> {
@@ -1292,8 +1300,11 @@ pub(crate) fn open_conversation_as(
         message,
         store_refused: false,
     })?;
+    // Why the rules could not be written, in the words a failed confirmation
+    // uses (`session_rules::update`), rather than the directory's.
+    let mut unwritten = None;
     let session = store
-        .create(
+        .create_with(
             id,
             NewSession {
                 origin_workspace_root: config.workspace_root.clone(),
@@ -1304,9 +1315,19 @@ pub(crate) fn open_conversation_as(
                 permission_mode: permissions.mode(),
                 provider: Some(config.provider),
             },
+            |dir| match held_rules {
+                Some(state) => crate::permission::session_rules::seed(dir, state)
+                    .inspect_err(|err| unwritten = Some(err.to_string())),
+                None => Ok(()),
+            },
         )
         .map_err(|err| OpenFailure {
-            message: err.to_string(),
+            message: match unwritten.take() {
+                Some(reason) => {
+                    format!("the saved-session permission rules cannot be written: {reason}")
+                }
+                None => err.to_string(),
+            },
             store_refused: true,
         })?;
     Ok(bind_conversation(

@@ -6297,7 +6297,9 @@ impl Shell {
             Reply::Confirm => {
                 let confirmation = confirm.confirmation().clone();
                 self.close_rule_confirm();
-                let (tone, body) = crate::permission::slash::confirm(&confirmation);
+                // Held, or in the open session's file, wherever the store the
+                // confirmation was shown is now ([`permissions::SavedRules::confirm`]).
+                let (tone, body) = self.work.saved_rules().confirm(&confirmation);
                 self.announce(allowlist_notice(
                     tone,
                     crate::permission::slash::TOPIC,
@@ -6483,24 +6485,20 @@ impl Shell {
     /// the configured table every decision reads ([`WorkHandle::rules`]), the
     /// live authority's reset count (`permissionsFacts`,
     /// `session_commands.zig:378-384@481104fd`, with the count xfx's grants
-    /// need), and where the saved session's store is with its file's stamp
-    /// ([`crate::permission::session_rules::stamp`]).
+    /// need), and how the session's saved-rule store stands
+    /// ([`permissions::SavedRules::stamp`]).
     fn permissions_in_force(
         &self,
     ) -> (
         info_panel::Facts,
         Vec<permissions::Granted>,
         std::sync::Arc<crate::permission::RuleSet>,
-        Option<std::path::PathBuf>,
     ) {
         // The reset count and the store's stamp before what they guard: a
         // reset or a write landing between the reads leaves facts older than
         // the rows, never newer, so the next tick rebuilds.
         let resets = self.work.resets();
-        let store = self.work.saved_rules_path();
-        let stamp = store
-            .as_deref()
-            .map(crate::permission::session_rules::stamp);
+        let stamp = self.work.saved_rules().stamp();
         let grants = self.work.grants();
         let rules = self.work.rules().current();
         let facts = info_panel::Facts::Permissions {
@@ -6510,20 +6508,19 @@ impl Shell {
             resets,
             store: stamp,
         };
-        (facts, grants, rules, store)
+        (facts, grants, rules)
     }
 
     /// A bare `/permissions` panel's rows and the facts they were built from
     /// (`openPermissionsSnapshot`, `session_commands.zig:356-370@481104fd`):
-    /// the authority in force ([`Self::permissions_in_force`]) and the saved
-    /// session's rules, read from their file now -- none while no session is
-    /// open -- or why that file could not be read.
+    /// the authority in force ([`Self::permissions_in_force`]) and the
+    /// session's saved rules as they stand now -- held for the session the
+    /// first save opens, as upstream's are in its state from the moment they
+    /// are confirmed (`savedPermissionRules`, `:386-398`), or read from the
+    /// open session's file -- or why that file could not be read.
     fn permissions_panel(&self) -> Result<(Vec<info_panel::Row>, info_panel::Facts), String> {
-        let (facts, grants, rules, store) = self.permissions_in_force();
-        let saved = match store {
-            Some(path) => crate::permission::session_rules::load(&path)?.rules,
-            None => Vec::new(),
-        };
+        let (facts, grants, rules) = self.permissions_in_force();
+        let saved = self.work.saved_rules().view().state?.rules;
         Ok((
             info_panel::permissions_rows(self.mode, &rules, &grants, &saved),
             facts,
@@ -11842,10 +11839,17 @@ impl CommandHandlers for Shell {
     fn permissions(&mut self, argument: &str) {
         use crate::permission::slash::{self, Managed, Request};
         let request = Request::parse(argument);
-        let rules_path = self.work.saved_rules_path();
-        let managed = slash::manage(
+        // The store as it stands, read once: held for the session the first
+        // save opens -- where upstream's session, open from launch, keeps a
+        // rule typed before the first prompt (`handlePermissionRuleManagement`,
+        // `app_commands.zig:598-726@481104fd`) -- or the open session's file.
+        // There is always one: this shell's next session has its id from
+        // launch.
+        let store = self.work.saved_rules().view();
+        let managed = slash::manage_with(
             &request,
-            rules_path.as_deref(),
+            Some(&store.at),
+            |_| store.state.clone(),
             self.asking(),
             |tool, arguments| self.prepare_rule_action(tool, arguments),
         );
@@ -13017,6 +13021,11 @@ impl Shell {
         // cancelled now, as upstream clears its session at the keystroke, and
         // one a prompt typed after this asks is the next one's.
         self.work.new_title_lineage();
+        // And the saved-session rules held for a session no prompt had opened
+        // yet go with it, at the keystroke too, as upstream's reset clears the
+        // state it held: a `remember` typed straight after this is the next
+        // session's, whenever the runtime reads the reset.
+        self.work.saved_rules().forget_held();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
         // Nor will a steer sent into that turn.
@@ -22869,29 +22878,247 @@ mod tests {
         let session = home.path().join("session");
         std::fs::create_dir_all(&session).expect("a session directory");
         let rules = crate::permission::session_rules::path_in(&session);
-        shell.work.publish_saved_rules(Some(rules.clone()));
+        shell.work.publish_saved_rules(rules.clone());
         (home, workspace, rules, shell)
     }
 
+    /// Every file under `root`, however deep.
+    fn files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut found = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).expect("a directory").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
+    /// The confirmation band's rows, uncoloured.
+    fn confirmation_rows(shell: &Fixture) -> Vec<String> {
+        shell.band_rows().iter().map(|row| sgr_free(row)).collect()
+    }
+
     #[test]
-    fn remember_needs_a_saved_session_and_says_so_in_upstreams_words() {
+    fn a_rule_remembered_before_the_first_prompt_is_held_and_written_nowhere_yet() {
+        // fx's session is open from launch: a `remember` typed before the
+        // first prompt opens its confirmation (`handlePermissionRuleManagement`,
+        // `src/core/app/app_commands.zig:598-726@481104fd`), and Enter puts the
+        // rule in the session's state at once (`input_approval_runtime.zig:
+        // 277-297`) and in the lines it holds until its first turn
+        // (`src/core/session_manager/session.zig:415-429`). Red before: xfx
+        // refused it, `require an active saved session`.
+        let (home, workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&"  Remember deny for this saved session?".to_string()),
+            "{band:?}"
+        );
+        assert!(
+            band.contains(
+                &"  $ write_file b.txt preimage=absent after=a1fce4363854ff88".to_string()
+            ),
+            "{band:?}"
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
+        );
+        // Held: nothing reaches the disk before the session's first save.
+        for root in [home.path(), workspace.path()] {
+            let written: Vec<_> = files_under(root)
+                .into_iter()
+                .filter(|path| {
+                    path.file_name()
+                        .is_some_and(|name| name == "permissions.json" || name == "b.txt")
+                })
+                .collect();
+            assert!(written.is_empty(), "{written:?}");
+        }
+        // And listed as the session's, through the panel's rows, as fx lists
+        // it (`cap/…/fx-p5-panels-permissions-40x120-saved`).
+        shell.route_bytes(b"/permissions\r");
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&format!("  Saved rules{}1", " ".repeat(9))),
+            "{band:?}"
+        );
+        assert!(
+            band.contains(&format!(
+                "{}\u{2022} 1 deny write_file b.txt preimage=absent after=a1fce4363854ff88",
+                " ".repeat(22)
+            )),
+            "{band:?}"
+        );
+    }
+
+    #[test]
+    fn a_rule_revoked_before_the_first_prompt_is_gone_and_its_id_is_never_reused() {
+        // fx's revoke takes the rule out of the state it holds, spending a
+        // generation (`applyRevoke`, `session_permission_state.zig`), so the
+        // rule does not come back and its id is not handed out again. Red
+        // before: neither form was taken before the first prompt.
         let (_home, _workspace, mut shell) = allowlist_shell();
         shell.route_bytes(
-            b"/permissions remember allow write_file {\"path\":\"a\",\"content\":\"x\"}\r",
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.route_bytes(b"\r");
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/permissions revoke 1\r");
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&"  Revoke this saved-session permission rule?".to_string()),
+            "{band:?}"
+        );
+        assert!(
+            band.contains(
+                &"  $ write_file a.txt preimage=absent after=2d711642b726b044".to_string()
+            ),
+            "{band:?}"
+        );
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
         );
         shell.route_bytes(b"/permissions revoke 1\r");
         assert_eq!(
             shell.document(),
             vec![
-                "✗ permissions: saved-session permission rules require an active saved session"
-                    .to_string(),
+                "! permissions: saved-session permission rule not found".to_string(),
                 String::new(),
-                "✗ permissions: saved-session permission rules require an active saved session"
-                    .to_string(),
+            ],
+            "the revoked rule came back"
+        );
+        // Remembered again, it is a new rule with a new id.
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/permissions\r");
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&format!("  Saved rules{}2", " ".repeat(9))),
+            "{band:?}"
+        );
+        for item in [
+            "2 deny write_file b.txt preimage=absent after=a1fce4363854ff88",
+            "4 allow write_file a.txt preimage=absent after=2d711642b726b044",
+        ] {
+            assert!(
+                band.contains(&format!("{}\u{2022} {item}", " ".repeat(22))),
+                "{item}: {band:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_session_before_the_first_prompt_forgets_the_rules_held_for_the_last() {
+        // fx's `/new` resets the session's state before it starts the next one
+        // (`SessionRuntime.reset` -> `clearPermissionState`,
+        // `src/core/session/session.zig:1430-1437`, from
+        // `applyIdleLiveSessionTransition`, `app_session_runtime.zig:1816@481104fd`):
+        // what was held for the session left is not the next one's.
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/new\r");
+        let _ = shell.document();
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "! permissions: saved-session permission rule not found".to_string(),
                 String::new(),
             ]
         );
-        assert!(shell.rule_confirm.is_none());
+    }
+
+    #[test]
+    fn a_confirmation_held_across_the_first_save_lands_in_the_file_it_was_for() {
+        // The runtime writes what is held into the session it opens and lets
+        // go of it under the store's one lock (`Runtime::open_next`): a
+        // `remember` shown while held and confirmed once the session is open
+        // is made in the session's file, against the generations the held
+        // rules carried there; one shown for a store that is no longer this
+        // shell's -- a resume took another session -- is made nowhere.
+        use crate::permission::session_rules;
+        let (home, _workspace, mut shell) = allowlist_shell();
+        let session = home.path().join("next");
+        let rules = session_rules::path_in(&session);
+        shell.work.saved_rules().publish_pending(rules.clone());
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some());
+        // The first save, as the runtime makes it.
+        {
+            let mut slot = shell.work.saved_rules().lock();
+            let held = slot.first_save(&rules).expect("a rule is held");
+            std::fs::create_dir(&session).expect("the session's directory");
+            session_rules::seed(&session, &held).expect("written");
+            slot.opened(rules.clone());
+        }
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document().iter().rev().nth(1).map(String::as_str),
+            Some("* permissions: saved-session permission rule updated")
+        );
+        let state = session_rules::load(&rules).expect("the store");
+        let shown: Vec<(u64, &str)> = state
+            .rules
+            .iter()
+            .map(|rule| (rule.id, rule.decision.label()))
+            .collect();
+        assert_eq!(shown, vec![(1, "allow"), (2, "deny")]);
+
+        // Another session's store now: a confirmation shown for this one is
+        // refused, and neither file moves.
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert!(shell.rule_confirm.is_some());
+        let other = home.path().join("other");
+        std::fs::create_dir(&other).expect("another session");
+        shell
+            .work
+            .publish_saved_rules(session_rules::path_in(&other));
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.document().iter().rev().nth(1).map(String::as_str),
+            Some("! permissions: saved-session permission rule changed before confirmation")
+        );
+        assert_eq!(session_rules::load(&rules).expect("the store"), state);
+        assert!(!session_rules::path_in(&other).exists());
     }
 
     #[test]

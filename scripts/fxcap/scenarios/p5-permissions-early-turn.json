@@ -1,0 +1,4 @@
+[
+ {"tool":{"name":"write_file","input":{"path":"b.txt","content":"y"}}},
+ {"delayMs":100,"chunks":["Not ","written."]}
+]

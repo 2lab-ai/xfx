@@ -525,6 +525,17 @@ pub fn path_in(session_dir: &Path) -> PathBuf {
     session_dir.join(FILE_NAME)
 }
 
+/// Writes `state` as the store of the session whose new directory is
+/// `session_dir`, before anything else is in it: the rules confirmed while
+/// the session was held in memory, as upstream's first turn writes the
+/// permission state it held (`hold`, `writeFirstTurn`,
+/// `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`).
+/// Through the same staged, owner-only file and rename as [`update`]; no
+/// lock, since nothing else can know the directory yet.
+pub fn seed(session_dir: &Path, state: &State) -> io::Result<()> {
+    write(session_dir, &path_in(session_dir), &state.encode())
+}
+
 /// The store at `path`: empty when there is no file, an error naming why when
 /// the file cannot be read or does not hold a valid store -- which a decision
 /// treats as a refusal, as upstream's failed snapshot fails the call.

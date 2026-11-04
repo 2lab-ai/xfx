@@ -165,6 +165,26 @@ pub fn manage(
     prompt_active: bool,
     prepare: impl FnOnce(&str, &serde_json::Value) -> Result<crate::tools::RuleAction, String>,
 ) -> Option<Managed> {
+    manage_with(
+        request,
+        rules_path,
+        super::session_rules::load,
+        prompt_active,
+        prepare,
+    )
+}
+
+/// [`manage`], over a store whose rules `load` reads for `rules_path` -- the
+/// file, or the TUI's rules held before its session's first save
+/// (`crate::tui`'s `SavedRules`). `rules_path` is where the store is kept or
+/// will be, and what the confirmation names.
+pub fn manage_with(
+    request: &Request,
+    rules_path: Option<&Path>,
+    load: impl FnOnce(&Path) -> Result<State, String>,
+    prompt_active: bool,
+    prepare: impl FnOnce(&str, &serde_json::Value) -> Result<crate::tools::RuleAction, String>,
+) -> Option<Managed> {
     if !matches!(
         request,
         Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage
@@ -177,7 +197,7 @@ pub fn manage(
     if prompt_active {
         return Some(Managed::say(Tone::Warning, TOPIC, PROMPT_ACTIVE));
     }
-    let state = match super::session_rules::load(path) {
+    let state = match load(path) {
         Ok(state) => state,
         Err(reason) => return Some(Managed::say(Tone::Error, TOPIC, reason)),
     };
@@ -231,8 +251,17 @@ pub fn manage(
 /// A store that cannot be read or written is an error naming why, and the
 /// file is left as it was.
 pub fn confirm(confirmation: &Confirmation) -> (Tone, String) {
+    answer(super::session_rules::update(
+        &confirmation.path,
+        &confirmation.event,
+    ))
+}
+
+/// What a confirmed change came to, said: [`confirm`]'s words for the file,
+/// and the TUI's for the rules it holds before the first prompt.
+pub fn answer(applied: Result<super::session_rules::Applied, String>) -> (Tone, String) {
     use super::session_rules::Applied;
-    match super::session_rules::update(&confirmation.path, &confirmation.event) {
+    match applied {
         Ok(Applied::Applied(_)) => (Tone::Neutral, UPDATED.to_string()),
         Ok(Applied::Stale) => (Tone::Warning, CHANGED.to_string()),
         Ok(Applied::Full) => (Tone::Warning, CAPACITY.to_string()),
