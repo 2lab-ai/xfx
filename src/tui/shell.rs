@@ -23259,6 +23259,9 @@ mod tests {
         shell.route_bytes(b"\r");
         shell.route_bytes(b"/new\r");
         let _ = shell.document();
+        // Until the runtime's fence, the session is still changing
+        // (`a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused`).
+        shell.apply(UiEvent::Fresh { through: 0 });
         shell.route_bytes(b"/permissions revoke 1\r");
         assert_eq!(
             shell.document(),

@@ -1,6 +1,7 @@
 # GREEN: python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receipts/permissions-early
-# xfx = target/debug/xfx at 699acf13 (banner v0.1.0-699acf1): this branch with P-permissions final (b60c673b)
-# merged; fx = v0.0.16 (sha256 8e6cda2e...); this branch's ledger
+# xfx sides of p5-panels-permissions and p5-permissions-early re-taken at dd9897d8 (banner v0.1.0-dd9897d,
+# PERM-EARLY-b: the seed's publish and the changing-session refusal are on their path); the rest are
+# 699acf13's (banner v0.1.0-699acf1). fx = v0.0.16 (sha256 8e6cda2e...); this branch's ledger
 
 p5-panels-permissions-40x120-after-grant             normalized-identical               -
 p5-panels-permissions-40x120-after-revoke            unresolved-defect                  tool-schema

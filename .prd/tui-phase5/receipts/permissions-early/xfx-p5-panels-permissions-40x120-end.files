@@ -1,39 +1,39 @@
 === ~/.xfx/history.jsonl (2250 bytes)
-{"schema_version":1,"timestamp_ms":1793788092642,"workspace_root":"<scratch>/work","text":"/permissions"}
-{"schema_version":1,"timestamp_ms":1793788094549,"workspace_root":"<scratch>/work","text":"/permissions auto"}
-{"schema_version":1,"timestamp_ms":1793788095574,"workspace_root":"<scratch>/work","text":"/permissions full-access"}
-{"schema_version":1,"timestamp_ms":1793788096603,"workspace_root":"<scratch>/work","text":"/permissions ask"}
-{"schema_version":1,"timestamp_ms":1793788097653,"workspace_root":"<scratch>/work","text":"/permissions reset"}
-{"schema_version":1,"timestamp_ms":1793788098689,"workspace_root":"<scratch>/work","text":"/permissions bogus"}
-{"schema_version":1,"timestamp_ms":1793788099724,"workspace_root":"<scratch>/work","text":"/permissions"}
-{"schema_version":1,"timestamp_ms":1793788101299,"workspace_root":"<scratch>/work","text":"/allowlist add command \"git *\""}
-{"schema_version":1,"timestamp_ms":1793788102311,"workspace_root":"<scratch>/work","text":"/permissions"}
-{"schema_version":1,"timestamp_ms":1793788103847,"workspace_root":"<scratch>/work","text":"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
-{"schema_version":1,"timestamp_ms":1793788106397,"workspace_root":"<scratch>/work","text":"/permissions"}
-{"schema_version":1,"timestamp_ms":1793788107942,"workspace_root":"<scratch>/work","text":"run a command"}
-{"schema_version":1,"timestamp_ms":1793788114029,"workspace_root":"<scratch>/work","text":"/permissions"}
-{"schema_version":1,"timestamp_ms":1793788115582,"workspace_root":"<scratch>/work","text":"/status"}
-{"schema_version":1,"timestamp_ms":1793788117129,"workspace_root":"<scratch>/work","text":"/permissions revoke 1"}
-{"schema_version":1,"timestamp_ms":1793788119698,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793789742170,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793789744057,"workspace_root":"<scratch>/work","text":"/permissions auto"}
+{"schema_version":1,"timestamp_ms":1793789745087,"workspace_root":"<scratch>/work","text":"/permissions full-access"}
+{"schema_version":1,"timestamp_ms":1793789746111,"workspace_root":"<scratch>/work","text":"/permissions ask"}
+{"schema_version":1,"timestamp_ms":1793789747146,"workspace_root":"<scratch>/work","text":"/permissions reset"}
+{"schema_version":1,"timestamp_ms":1793789748195,"workspace_root":"<scratch>/work","text":"/permissions bogus"}
+{"schema_version":1,"timestamp_ms":1793789749222,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793789750772,"workspace_root":"<scratch>/work","text":"/allowlist add command \"git *\""}
+{"schema_version":1,"timestamp_ms":1793789751798,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793789753334,"workspace_root":"<scratch>/work","text":"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
+{"schema_version":1,"timestamp_ms":1793789755880,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793789757413,"workspace_root":"<scratch>/work","text":"run a command"}
+{"schema_version":1,"timestamp_ms":1793789763453,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793789764996,"workspace_root":"<scratch>/work","text":"/status"}
+{"schema_version":1,"timestamp_ms":1793789766552,"workspace_root":"<scratch>/work","text":"/permissions revoke 1"}
+{"schema_version":1,"timestamp_ms":1793789769124,"workspace_root":"<scratch>/work","text":"/permissions"}
 
 === ~/.xfx/history.lock (0 bytes)
-=== ~/.xfx/sessions/1793788090302-972671ecb37154a9/events.jsonl (3168 bytes)
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":1,"event_id":"5fdc7b3b7a3e13a44373cb7e08751d36","timestamp_ms":1793788107955,"event":{"kind":"session_started","id":"1793788090302-972671ecb37154a9","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"ask","provider":"gateway"}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":2,"event_id":"001a60fca18aa5a5beaf97fbe431233b","timestamp_ms":1793788107969,"event":{"kind":"preferences_changed","model":null,"permission_mode":null,"effort":"auto","fast_mode":false,"ultrafast_mode":false}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":3,"event_id":"b9fe539c48830b9729995edd640f3d43","timestamp_ms":1793788107981,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":4,"event_id":"279d52c6fa96aed35b74fc05f8e9a61e","timestamp_ms":1793788107997,"event":{"kind":"user_message","text":"run a command"}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":5,"event_id":"e464149e117de106563d85eaf90c7344","timestamp_ms":1793788108011,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_2_0","name":"terminal","input":{"action":"exec","command":"echo hi"}}]}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":6,"event_id":"93f43f0593be9e016f1b1f9b238f3da1","timestamp_ms":1793788110994,"event":{"kind":"tool_result","call_id":"call_2_0","tool":"terminal","ok":true,"output":"<command>echo hi</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\nhi\n</stdout>\n<stderr>\n</stderr>\n","ending":{"kind":"exited","code":0}}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":7,"event_id":"a56bb3ea895a62311fbd1cfba37c5b51","timestamp_ms":1793788111218,"event":{"kind":"assistant_message","text":"Ran it.","tool_calls":[]}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":8,"event_id":"4a3bd05d277b2ec97eb21e215bd75466","timestamp_ms":1793788111235,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":80,"requests":[{"at_ms":1793788108011,"duration_ms":1,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0},{"at_ms":1793788111218,"duration_ms":205,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":9,"event_id":"6c70d62f803b38d0bab85abdaeb68602","timestamp_ms":1793788111254,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":2}}}
-{"schema_version":1,"log_generation":"f10914b6d13ea3a4c721b254c78baaaa","seq":10,"event_id":"e0188edb80e7445e5ef82ae4d665b17a","timestamp_ms":1793788111268,"event":{"kind":"permission_grant_recorded","tool":"terminal","target":"echo hi in <scratch>/work"}}
+=== ~/.xfx/sessions/1793789740756-313548554879cc70/events.jsonl (3168 bytes)
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":1,"event_id":"bd0d6ba03b238850a7425738ad8bca35","timestamp_ms":1793789757430,"event":{"kind":"session_started","id":"1793789740756-313548554879cc70","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"ask","provider":"gateway"}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":2,"event_id":"3a4b95df9f0f3025e1ce003845630ca4","timestamp_ms":1793789757445,"event":{"kind":"preferences_changed","model":null,"permission_mode":null,"effort":"auto","fast_mode":false,"ultrafast_mode":false}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":3,"event_id":"a025ba6aa0c2267dd9a52085f3a07b22","timestamp_ms":1793789757458,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":4,"event_id":"1ca352bf0f9e96e67791bc43b41c4fc7","timestamp_ms":1793789757472,"event":{"kind":"user_message","text":"run a command"}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":5,"event_id":"a2f12f524b503f61b651c111d065dc90","timestamp_ms":1793789757486,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_2_0","name":"terminal","input":{"action":"exec","command":"echo hi"}}]}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":6,"event_id":"5b2eef9b6752ffe87d02d7b1b00c233f","timestamp_ms":1793789760446,"event":{"kind":"tool_result","call_id":"call_2_0","tool":"terminal","ok":true,"output":"<command>echo hi</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\nhi\n</stdout>\n<stderr>\n</stderr>\n","ending":{"kind":"exited","code":0}}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":7,"event_id":"b9ed3eea2d9bedd2fe3c2cd55b42f4ac","timestamp_ms":1793789760669,"event":{"kind":"assistant_message","text":"Ran it.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":8,"event_id":"df9220869b2c79499d0163c850758147","timestamp_ms":1793789760691,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":80,"requests":[{"at_ms":1793789757486,"duration_ms":1,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0},{"at_ms":1793789760669,"duration_ms":206,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":9,"event_id":"57691c089185df51227dca80e6afba68","timestamp_ms":1793789760708,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":2}}}
+{"schema_version":1,"log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","seq":10,"event_id":"6b91647f307fad8b4f5c6225ac7fcb44","timestamp_ms":1793789760721,"event":{"kind":"permission_grant_recorded","tool":"terminal","target":"echo hi in <scratch>/work"}}
 
-=== ~/.xfx/sessions/1793788090302-972671ecb37154a9/permissions.json (51 bytes)
+=== ~/.xfx/sessions/1793789740756-313548554879cc70/permissions.json (51 bytes)
 {"schema_version":2,"next_generation":3,"rules":[]}
-=== ~/.xfx/sessions/1793788090302-972671ecb37154a9/permissions.lock (0 bytes)
-=== ~/.xfx/sessions/1793788090302-972671ecb37154a9/session.json (623 bytes)
-{"schema_version":1,"storage_format":"event_log_v1","id":"1793788090302-972671ecb37154a9","log_generation":"f10914b6d13ea3a4c721b254c78baaaa","created_at_ms":1793788107955,"updated_at_ms":1793788111268,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"ask","title":"run a command","history_turns":1,"permission_grants":1,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":10,"event_log_bytes":3168,"event_log_sha256":"053d763c084e6f2acfa86083635a15c1c3a003b0b42d1894f001c4844dfb540e"}
+=== ~/.xfx/sessions/1793789740756-313548554879cc70/permissions.lock (0 bytes)
+=== ~/.xfx/sessions/1793789740756-313548554879cc70/session.json (623 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793789740756-313548554879cc70","log_generation":"76f84bc0e9a50841a93e2ac5f19b6993","created_at_ms":1793789757430,"updated_at_ms":1793789760721,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"ask","title":"run a command","history_turns":1,"permission_grants":1,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":10,"event_log_bytes":3168,"event_log_sha256":"eb17f60e7c4561ee10d052411d0e50161d2cc547177e798df22f267db37bdbe4"}
 
 === ~/.xfx/settings.json (225 bytes)
 {
@@ -52,5 +52,5 @@
 
 === ~/.xfx/settings.lock (0 bytes)
 === ~/.xfx/usage.json (41 bytes)
-{"tracking_started_at_ms":1793788111235}
+{"tracking_started_at_ms":1793789760691}
 

@@ -91,6 +91,18 @@ Decisions (reversible; `docs/parity.md:94`):
    The panel's facts keep P-permissions-c's rule that an `Unknown` stamp is
    read again (`StoreStamp::is_unknown`).
 
+8. **PERM-EARLY-b (review round).** `remember`, `revoke` and a
+   confirmation's Enter are refused while the session is changing -- a reset
+   whose runtime fence (`UiEvent::Fresh`) has not arrived, when the store
+   still names the session being left's file, or a resume handed over and
+   not yet made (`TitleDesk::switch_pending`), whose session replaces what is
+   held -- with `! permissions: wait for the session to finish changing
+   before managing saved-session rules`. The seed publishes with `link(2)`,
+   which fails on anything another writer put at the store's path after the
+   look, and leaves it in place. The seed's failure is pinned to a refused
+   turn (`rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held`).
+   RED on `9b46e48e`: `red-b.txt`.
+
 ## RED
 
 - Unit (`red-unit.txt`): the three shell tests on `daff4834`'s tree fail at
@@ -106,8 +118,10 @@ Decisions (reversible; `docs/parity.md:94`):
 
 ## GREEN (`green.txt`, `pairs.py`, the v0.0.16 pin)
 
-Every xfx side is `699acf13`'s (banner `699acf1`), the merged head; the
-verdicts are those `11ea2120`'s sides had.
+Every xfx side is `699acf13`'s (banner `699acf1`), the merged head, but
+`p5-panels-permissions`' and `p5-permissions-early`'s, re-taken at `dd9897d8`
+(banner `dd9897d`) after PERM-EARLY-b; the verdicts are those `11ea2120`'s
+sides had.
 
 The nine pairs, row counts RED -> GREEN (`red.txt`):
 
