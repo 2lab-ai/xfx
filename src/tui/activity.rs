@@ -63,7 +63,7 @@ const DARK: char = ' ';
 const THINKING: &str = "Thinking";
 
 /// What it says once the answer is streaming.
-const GENERATING: &str = "Generatinq";
+const GENERATING: &str = "Generating";
 
 /// What it says while a tool runs.
 const RUNNING: &str = "Running";
