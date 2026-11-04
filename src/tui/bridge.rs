@@ -253,6 +253,14 @@ pub(crate) enum UiEvent {
         /// says nothing more about a change that was accepted.
         announced: bool,
     },
+    /// The reasoning effort alone, as the runtime applied it
+    /// ([`ModelChange::effort_only`]): `/settings`' row or `/effort`. The band
+    /// chose it and said so already; this moves the band's own record back to
+    /// it after a model change applied before it -- one held behind the same
+    /// turn -- moved the band to that change's level.
+    EffortApplied {
+        effort: crate::provider::effort::Effort,
+    },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
     /// One event per load. The load happens on the runtime thread because it
@@ -568,6 +576,17 @@ impl UiEvent {
                     ModelAnswer::Refused { reason } => ModelAnswer::Refused {
                         reason: inert_owned(reason),
                     },
+                },
+            },
+            // The level's name is one upstream would parse when it is read,
+            // and the channel's rule is held all the same, as for
+            // `ModelAnswered`'s.
+            Self::EffortApplied { effort } => Self::EffortApplied {
+                effort: match effort {
+                    crate::provider::effort::Effort::Named(name) => {
+                        crate::provider::effort::Effort::Named(inert_owned(name))
+                    }
+                    auto => auto,
                 },
             },
             // **Every string of every row.** A catalog is a document a daemon

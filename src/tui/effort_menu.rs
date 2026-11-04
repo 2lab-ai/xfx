@@ -26,6 +26,7 @@
 
 use crate::provider::effort::Effort;
 use crate::provider::model::CatalogEntry;
+use crate::provider::ProviderId;
 
 use super::input::Action;
 use super::model_menu::middle_ellipsized;
@@ -117,6 +118,10 @@ impl EffortAction {
 /// The menu while it is up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EffortMenu {
+    /// The provider and the model id it was opened for, as the band holds
+    /// them: what [`Self::is_for`] compares.
+    provider: ProviderId,
+    id: String,
     /// The model whose levels it lists, as the title shows it: one line, with
     /// nothing in it a terminal would obey.
     model: String,
@@ -139,7 +144,12 @@ impl EffortMenu {
     /// A level is offered only when it is one [`Effort::parse`] reads as a
     /// name, at most sixteen of them: so every label the menu draws is
     /// letters, digits, `-`, `_` and `.`, whatever a catalog sent.
-    pub(crate) fn open(model: &str, entry: &CatalogEntry, current: &Effort) -> Option<Self> {
+    pub(crate) fn open(
+        provider: ProviderId,
+        model: &str,
+        entry: &CatalogEntry,
+        current: &Effort,
+    ) -> Option<Self> {
         let options: Vec<Effort> = std::iter::once(Effort::Auto)
             .chain(
                 levels(entry)
@@ -156,12 +166,21 @@ impl EffortMenu {
             .position(|option| option == current)
             .unwrap_or(0);
         Some(Self {
+            provider,
+            id: model.to_string(),
             model: one_line(model),
             options,
             current,
             selected: current,
             window_start: 0,
         })
+    }
+
+    /// Whether it lists the levels of `model` under `provider`: what the band
+    /// asks once a model change or a provider switch has landed, so Enter
+    /// cannot apply one model's level to another and name it for the second.
+    pub(crate) fn is_for(&self, provider: ProviderId, model: &str) -> bool {
+        self.provider == provider && self.id == model
     }
 
     /// The marked level.
@@ -405,6 +424,7 @@ mod tests {
 
     fn astra(current: &Effort) -> EffortMenu {
         EffortMenu::open(
+            ProviderId::Gateway,
             "openai/gpt-6-astra",
             &entry(&["low", "medium", "high", "xhigh"]),
             current,
@@ -536,11 +556,18 @@ mod tests {
 
     #[test]
     fn a_row_without_levels_has_no_menu_and_only_parsable_names_are_offered() {
-        assert!(EffortMenu::open("fake/model-a", &entry(&[]), &Effort::Auto).is_none());
+        assert!(EffortMenu::open(
+            ProviderId::Gateway,
+            "fake/model-a",
+            &entry(&[]),
+            &Effort::Auto
+        )
+        .is_none());
         // An llmux row is not held to the Gateway's rule when it is read
         // (`crate::provider::model`), so the menu is: nothing a terminal would
         // obey reaches a row, and the default's spellings are not offered twice.
         let menu = EffortMenu::open(
+            ProviderId::Gateway,
             "odd\u{1b}[2J\nmodel",
             &entry(&["low", "evil\u{1b}[2J", "two words", "auto", "high"]),
             &Effort::Auto,
@@ -551,6 +578,63 @@ mod tests {
         assert_eq!(shown[0], "Effort 3  odd [2J model");
         assert_eq!(&shown[2..], ["  default  current", "  low", "  high"]);
         assert!(!rows.concat().contains("\u{1b}[2J"));
+    }
+
+    #[test]
+    fn it_offers_the_default_and_at_most_sixteen_levels() {
+        // `max_options = ReasoningEffort.max_options + 1` (`effort_menu.zig:11`,
+        // `types.zig:2416@481104fd`): a row that lists twenty levels shows
+        // `default` and its first sixteen, and the menu's budget is the title,
+        // the gap and those seventeen.
+        let names: Vec<String> = (0..20).map(|level| format!("l{level}")).collect();
+        let listed: Vec<&str> = names.iter().map(String::as_str).collect();
+        let menu = EffortMenu::open(
+            ProviderId::Gateway,
+            "acme/many",
+            &entry(&listed),
+            &Effort::Auto,
+        )
+        .expect("levels");
+        let levels = menu.levels();
+        assert_eq!(levels.len(), 17);
+        assert_eq!((levels[0], levels[1], levels[16]), ("default", "l0", "l15"));
+        assert!(menu.offers(&Effort::Named("l15".to_string())));
+        assert!(!menu.offers(&Effort::Named("l16".to_string())));
+        assert_eq!(menu.height(80, 0), 19);
+        assert_eq!(
+            plain(&menu.rows(120, 19, PALETTE)[0]),
+            "Effort 17  acme/many"
+        );
+    }
+
+    #[test]
+    fn page_keys_are_the_menus_and_a_page_wraps_as_a_step_does() {
+        assert_eq!(
+            EffortAction::of(Action::PageUp),
+            Some(EffortAction::Page(false))
+        );
+        assert_eq!(
+            EffortAction::of(Action::PageDown),
+            Some(EffortAction::Page(true))
+        );
+        assert_eq!(EffortAction::of(Action::ControlK), Some(EffortAction::Up));
+        let mut menu = astra(&Effort::Auto);
+        let visible = menu.visible_items(menu.height(40, 0));
+        // Five levels: twelve down is two down, twelve up from there is back.
+        menu.step_by(12, visible);
+        assert_eq!(menu.selected(), &Effort::Named("medium".to_string()));
+        menu.step_by(-12, visible);
+        assert_eq!(menu.selected(), &Effort::Auto);
+        menu.step_by(-12, visible);
+        assert_eq!(menu.selected(), &Effort::Named("high".to_string()));
+    }
+
+    #[test]
+    fn it_is_for_the_provider_and_the_model_it_was_opened_for() {
+        let menu = astra(&Effort::Auto);
+        assert!(menu.is_for(ProviderId::Gateway, "openai/gpt-6-astra"));
+        assert!(!menu.is_for(ProviderId::Gateway, "anthropic/claude-opus-5"));
+        assert!(!menu.is_for(ProviderId::Llmux, "openai/gpt-6-astra"));
     }
 
     #[test]

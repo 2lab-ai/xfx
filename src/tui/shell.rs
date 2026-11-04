@@ -3592,6 +3592,33 @@ impl Shell {
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
+        self.apply_event(event);
+        self.settle_effort_menu();
+    }
+
+    /// `/effort`'s menu, taken down once the model or the provider it was
+    /// opened for is no longer the one in force -- a model change, a provider
+    /// switch or a resume that landed while it was up -- so Enter cannot apply
+    /// the old model's level to the new one and name it for the new one.
+    /// Upstream's menu has no rule for this: its model changes are commands,
+    /// and typing one closes the menu (`dismissActiveMenusForComposerEdit`,
+    /// `app_input_runtime.zig:1984-1990@481104fd`; the menu is closed nowhere
+    /// else but Escape, Enter and another command's menu,
+    /// `app_commands.zig:1181`). Here a change can land after its command, so
+    /// the menu closes then.
+    fn settle_effort_menu(&mut self) {
+        if self
+            .effort_menu
+            .as_ref()
+            .is_some_and(|menu| !menu.is_for(self.provider, &self.model))
+        {
+            self.effort_menu = None;
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    fn apply_event(&mut self, event: UiEvent) {
         // The old conversation's events, after a reset handed its screen to
         // scrollback and before the runtime has said it is gone.
         if self.draining.is_some() && self.drained(&event) {
@@ -3865,6 +3892,13 @@ impl Shell {
                 }
                 // The hint row's model label follows the model in force,
                 // whichever way the answer went.
+                self.render.request(Reason::Footer);
+            }
+            // The effort the runtime applied on its own, after any model
+            // change held with it: the hint row shows it. Nothing is said --
+            // the band said it when it was asked for ([`Self::apply_effort`]).
+            UiEvent::EffortApplied { effort } => {
+                self.settings.effort = effort;
                 self.render.request(Reason::Footer);
             }
             // The catalog's rows, for `/model`'s menu and column if either is
@@ -10452,11 +10486,15 @@ impl Shell {
                     self.amended(delta);
                 }
             }
-            // Shift-Tab reaches here only with no question, catalog or menu
-            // up -- each is offered every keystroke first, and the catalog
-            // binds it -- which is upstream's own order: the menus that cycle
-            // a category take it, and otherwise it is the permission mode
-            // (`app_input_runtime.zig:1175-1185`).
+            // Shift-Tab reaches here past every surface that binds it -- a
+            // question, and the catalog, `/settings`, `/resume` and `/model`'s
+            // menus, each offered every keystroke first -- which is upstream's
+            // own order: the menus that cycle a category or a scope take it,
+            // and otherwise it is the permission mode
+            // (`.toggle_permission_mode`, `app_input_runtime.zig:1048-1057@481104fd`).
+            // `/effort`'s menu does not bind it, there or here: the mode
+            // cycles with the menu up, and the menu stays
+            // (`p5-effort-fork-effort-backtab`).
             Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
@@ -12401,9 +12439,9 @@ impl Shell {
     /// back.
     fn effort_command(&mut self, argument: &str) {
         let model = effort_menu::one_line(&self.model);
-        let menu = self
-            .catalog_row(&self.model)
-            .and_then(|entry| EffortMenu::open(&self.model, entry, &self.settings.effort));
+        let menu = self.catalog_row(&self.model).and_then(|entry| {
+            EffortMenu::open(self.provider, &self.model, entry, &self.settings.effort)
+        });
         let Some(menu) = menu else {
             let body = if matches!(
                 self.catalog_known,
@@ -13130,6 +13168,7 @@ impl Shell {
             | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
+            | UiEvent::EffortApplied { .. }
             | UiEvent::CatalogLoaded { .. }
             | UiEvent::CatalogUnread { .. }
             | UiEvent::Fatal(_) => false,
@@ -36360,6 +36399,130 @@ mod tests {
     }
 
     #[test]
+    fn page_keys_move_the_effort_menu_by_the_composers_row_cap_and_wrap() {
+        // As `/model`'s menu pages (`ModelAction::Page`): a page is the
+        // composer's row cap, and the menu wraps it as it wraps a step
+        // (`move` takes any delta with `@mod`, `effort_menu.zig:53-57@481104fd`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        let page = usize::from(layout::input_row_limit(shell.geometry.rows));
+        let levels = [
+            Effort::Auto,
+            Effort::Named("low".to_string()),
+            Effort::Named("medium".to_string()),
+            Effort::Named("high".to_string()),
+            Effort::Named("xhigh".to_string()),
+        ];
+        let marked = |shell: &Fixture| {
+            shell
+                .effort_menu
+                .as_ref()
+                .map(|menu| menu.selected().clone())
+        };
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(marked(&shell), Some(levels[page % 5].clone()));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(marked(&shell), Some(Effort::Auto));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(marked(&shell), Some(levels[(5 - page % 5) % 5].clone()));
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn the_effort_menu_closes_when_the_model_or_the_provider_it_was_opened_for_goes() {
+        // Upstream has no rule for an open menu under a model change that
+        // lands later, because its changes are commands and typing one closes
+        // the menu. Here a change can land after its command -- a model
+        // change held behind a turn, a provider switch, a resume -- and the
+        // menu closes then, so Enter cannot apply one model's level to another.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        // A catalog read landing is not one.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert!(shell.effort_menu.is_some());
+        shell.apply(UiEvent::ModelAnswered {
+            model: "anthropic/claude-opus-5".to_string(),
+            settings: TurnSettings::default(),
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: false,
+            announced: false,
+        });
+        assert!(shell.effort_menu.is_none(), "the menu outlived its model");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        let _ = shell.document();
+        while shell.controlled().is_some() {}
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "Enter applied the old model's level"
+        );
+        assert!(shell.document().is_empty());
+
+        shell.model = "openai/gpt-6-astra".to_string();
+        shell.route_bytes(b"/effort\r");
+        assert!(shell.effort_menu.is_some());
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "openai/gpt-6-astra".to_string(),
+            missing_credential: false,
+        });
+        assert!(
+            shell.effort_menu.is_none(),
+            "the menu outlived its provider"
+        );
+    }
+
+    #[test]
+    fn the_hint_row_ends_on_the_effort_given_after_a_held_model_change() {
+        // The band's half of the worker's
+        // `an_effort_the_band_saved_after_a_model_change_held_behind_a_turn_is_still_the_files`:
+        // a pick held behind the turn, then `/effort high`; the pick's answer
+        // moves the hint row to its level, and the runtime's word on the
+        // effort applied after it moves it back.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        let _started = turn_running(&mut shell, b"slow turn please\r");
+        let _turn = shell.picks_up();
+        let low = Effort::Named("low".to_string());
+        let high = Effort::Named("high".to_string());
+        shell.shell.request_change(ModelChange {
+            name: "openai/gpt-6-astra".to_string(),
+            effort: Some(low.clone()),
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        pasted(&mut shell, "/effort high");
+        shell.route_bytes(b"\r");
+        assert!(shell.hint().ends_with("high"), "{}", shell.hint());
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.apply(UiEvent::ModelAnswered {
+            model: "openai/gpt-6-astra".to_string(),
+            settings: TurnSettings {
+                effort: low,
+                ..TurnSettings::default()
+            },
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: true,
+            announced: true,
+        });
+        assert!(shell.hint().ends_with("low"), "{}", shell.hint());
+        shell.apply(UiEvent::EffortApplied { effort: high });
+        assert!(shell.hint().ends_with("high"), "{}", shell.hint());
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"high\"\n}\n");
+    }
+
+    #[test]
     fn a_failed_effort_write_is_said_and_the_level_is_still_named() {
         // `reportUserSettingsCommit` drops only the benign line: a write that
         // failed is said, then the announcement.
@@ -36414,6 +36577,27 @@ mod tests {
         assert_eq!(
             document,
             effort_said("nope is not available for odd ]0;x  model; levels: default, low")
+        );
+        // And the announcement of a level applied, from the menu and from the
+        // command alike.
+        shell.route_bytes(b"/effort\r");
+        down(&mut shell, 1);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/effort default\r");
+        let document = shell.document();
+        assert!(!document.concat().contains('\u{1b}'), "{document:?}");
+        assert!(!document.concat().contains('\u{7}'), "{document:?}");
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "* Reasoning effort set to low for odd ]0;x  model"),
+            "{document:?}"
+        );
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "* Reasoning effort set to default for odd ]0;x  model"),
+            "{document:?}"
         );
     }
 

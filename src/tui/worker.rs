@@ -4509,15 +4509,31 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
-    // `/settings`' effort row: the effort is the session's from here on, and
-    // that is all -- the band chose it, wrote it and said so
+    // `/settings`' effort row and `/effort`: the effort is the session's from
+    // here on -- the band chose it, wrote it and said so
     // ([`ModelChange::effort_only`]). Recorded in the session, where a resume
     // reads it back. Whatever the provider: the effort is global.
+    //
+    // **Written again, and the band told.** A model change held behind the
+    // same turn and applied before this one saved its own level with its model
+    // ([`Runtime::save_change`]) after the band's write, and its answer moved
+    // the band to that level; so the file is written again here and the band
+    // is handed the level back, and both end where the commands did -- as a
+    // speed is written again after a model change (`change_speed`). Quietly:
+    // the band said its own write's outcome, and this one is the same write.
     if change.effort_only {
         if let Some(effort) = change.effort {
-            state.settings.effort = effort;
+            state.settings.effort = effort.clone();
             state.record_settings();
             state.publish();
+            if let Some(path) = state.config.user_settings_path.as_ref() {
+                let _ = crate::provider::profile::write_preference(
+                    path,
+                    &[crate::config::EFFORT_KEY],
+                    serde_json::Value::String(effort.label().to_string()),
+                );
+            }
+            bridge::send_terminal(events, UiEvent::EffortApplied { effort }).await;
         }
         return Ended::Turn;
     }
@@ -9771,11 +9787,14 @@ mod tests {
     }
 
     #[test]
-    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
-        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
-        // band wrote `effort` and said so; the runtime only takes it up. The
-        // model stays, and the profile is not touched -- in particular no
-        // `models` entry is written for a model some other layer chose.
+    fn an_effort_alone_moves_the_sessions_effort_and_writes_effort_and_nothing_else() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`) or
+        // `/effort`: the band wrote `effort` and said so; the runtime takes it
+        // up, writes `effort` again -- the same value, in case a model change
+        // held with it wrote its own level since -- and hands the band the
+        // level back. The model stays, and nothing else in the profile is
+        // touched: in particular no `models` entry is written for a model some
+        // other layer chose.
         let (home, _workspace, mut state) = recording();
         std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
         std::fs::write(
@@ -9799,7 +9818,12 @@ mod tests {
                 effort_only: true,
             },
         );
-        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(
+            said,
+            [UiEvent::EffortApplied {
+                effort: high.clone()
+            }]
+        );
         assert_eq!(state.settings.effort, high);
         assert_eq!(
             recorded(&state).map(|settings| settings.effort),
@@ -9807,7 +9831,10 @@ mod tests {
             "a resume would not read it back"
         );
         assert_eq!(state.model(), model, "the model moved");
-        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"theme": "dark", "effort": "high"})
+        );
     }
 
     #[test]
@@ -10199,6 +10226,137 @@ mod tests {
             serde_json::json!({"models": {"gateway": "acme/two"}, "provider": "gateway",
                                "fast_mode": true, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
+        );
+    }
+
+    #[test]
+    fn an_effort_the_band_saved_after_a_model_change_held_behind_a_turn_is_still_the_files() {
+        // A `/model <id> low` put aside behind a turn, then `/effort high`
+        // (`/effort`'s menu or its argument, or `/settings`' row): the band
+        // writes `effort: high` at once (`Shell::apply_effort`). When the turn
+        // ends the pick is applied first and saved with its own level, `low`
+        // ([`Runtime::save_change`]), and its answer moves the band to `low`;
+        // the effort alone, applied after it, has to leave the file, the next
+        // request and the band on `high` -- where the commands did. The speed's
+        // version of this is the test above.
+        let (home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let low = crate::provider::effort::Effort::Named("low".to_string());
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        // The band's own write of `/effort high`, made while the turn ran.
+        crate::provider::profile::write_preference(
+            &path,
+            &[crate::config::EFFORT_KEY],
+            serde_json::Value::String("high".to_string()),
+        )
+        .expect("the band's write");
+        let _ = ran_change(
+            &mut state,
+            ModelChange {
+                name: model.clone(),
+                effort: Some(low.clone()),
+                speed: None,
+                picker: true,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Gateway,
+                effort_only: false,
+            },
+        );
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("low"));
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: model.clone(),
+                effort: Some(high.clone()),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            },
+        );
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("high"));
+        assert_eq!(
+            state.request_options().expect("no Ultra").reasoning,
+            Some("high".to_string()),
+            "the next request"
+        );
+        assert_eq!(
+            said,
+            [UiEvent::EffortApplied {
+                effort: high.clone()
+            }],
+            "the band is not told, and its hint row stays on the pick's level"
+        );
+    }
+
+    #[test]
+    fn an_effort_given_while_a_turn_runs_reaches_only_the_next_request() {
+        // fx's running turn keeps its level and the next one is sent the new
+        // one (`new/...effort-menu-40x120-bodies` `001` `low`, `002` `high`).
+        // Here: the effort alone read while work runs is put aside -- the
+        // settings the running turn's request was built from do not move --
+        // and the request built after it is applied carries the new level.
+        let (_home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "high"],
+            )]));
+        state.settings.effort = crate::provider::effort::Effort::Named("low".to_string());
+        let reasoning = |state: &Runtime| state.request_options().expect("no Ultra").reasoning;
+        assert_eq!(
+            reasoning(&state),
+            Some("low".to_string()),
+            "the running turn's"
+        );
+        let asked = ModelChange {
+            name: model.clone(),
+            effort: Some(crate::provider::effort::Effort::Named("high".to_string())),
+            speed: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: true,
+        };
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        control_tx
+            .send(TurnControl::Model(asked.clone()))
+            .expect("alive");
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            &Arc::new(CatalogAsks::AfterWork),
+            |through| stops.push(through),
+        ));
+        assert!(stops.is_empty(), "the effort stopped the turn");
+        assert_eq!(ended, Ended::Turn);
+        assert_eq!(
+            control.take_deferred(),
+            vec![Deferred::Model(asked.clone())]
+        );
+        assert_eq!(reasoning(&state), Some("low".to_string()), "moved mid-turn");
+        let _ = ran_change(&mut state, asked);
+        assert_eq!(
+            reasoning(&state),
+            Some("high".to_string()),
+            "the next turn's"
         );
     }
 
