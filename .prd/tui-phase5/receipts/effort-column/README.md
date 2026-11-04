@@ -89,6 +89,12 @@ identical:
   `effort-backtab` and `effort-nolevels`. Each matched on the first take.
   `effort-down` keeps the earlier take: it types no `/effort ` line and
   applies no level.
+- **On the final base** (`feat/p5-effort-menu` at `785e102f`, EF1 closed),
+  `effort-column` was captured once more, on the binary built at this
+  branch's code head. Its banner reads `v0.1.0-d02f5ec`. All 17 pairs
+  matched, and the settings again read `low`, `xhigh`, `medium`. EF1d-f
+  change only the worker's corrective-write reporting, `check-no-secrets.sh`
+  and the profile's fault hooks, so EF1's scenarios keep the take above.
 - In EF1's `effort-menu`, `/effort <level>` and the mid-turn `/effort high`
   now go through the column's Enter. They still pair, and the gateway bodies
   are unchanged: the slow turn is sent with `"reasoning":"low"`, and the next
