@@ -1551,22 +1551,25 @@ struct Runtime {
     /// the one it left ([`write_renamed_after_reset`]). Each with whether the
     /// shell has said it already ([`TurnControl::Rename`]'s `announced`).
     renamed_after_reset: Vec<(String, bool)>,
-    /// What a **held** model change wrote into the profile over the band's own
-    /// writes, in the batch of changes put aside behind a piece of work that is
-    /// being applied now ([`apply_deferred`]): its level and the switches
-    /// beside its model ([`Runtime::save_change`]). The band writes
+    /// Which of the band's preferences this thread has written, with a write
+    /// that landed, since the piece of work now running began: a model
+    /// change's level and the switches beside its model
+    /// ([`Runtime::save_change`]), and its own corrections of an effort or a
+    /// speed (the effort-only change, [`change_speed`]). The band writes
     /// `/effort`'s level and `/fast`'s switches itself, the moment they are
     /// given, and says how that went; the runtime writes them again when it
-    /// applies them. A held model change given before them is applied after
-    /// the band's write, so in that batch the runtime's write is the one that
-    /// puts the file right, and its failure is the runtime's to say. Outside a
-    /// batch -- nothing held, or a model change applied when it was given --
-    /// the runtime's write is the band's write again, and a failure of it was
-    /// the band's to say, and was ([`change_speed`] and the effort-only
-    /// change). Cleared when a batch starts and when it ends.
+    /// applies them. A change the band gave while work ran is held until the
+    /// work and the batch before it are done ([`apply_deferred`]), so any of
+    /// these writes that landed in that time landed **after** the band's: the
+    /// runtime's write is then the one that puts the file right, and its
+    /// failure is the runtime's to say. A change applied the moment it is
+    /// given has nothing between it and the band's write, so a failure of the
+    /// runtime's write is the band's failing again, already said. Cleared when
+    /// a piece of work begins and when a held batch ends; read, never taken,
+    /// so every correction in a batch answers for the writes before it.
     overwrote: Overwrote,
     /// Whether the changes being applied are a held batch ([`apply_deferred`]):
-    /// only then does a model change's save count as [`Self::overwrote`].
+    /// only then is a failed correction the runtime's to say.
     applying_held: bool,
     /// Where the prompts the person sends into a running turn wait for it
     /// ([`crate::agent::steering`]): opened for each turn, handed to its
@@ -2813,10 +2816,8 @@ impl Runtime {
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
             Ok(()) => {
-                if self.applying_held {
-                    self.overwrote.speed = true;
-                    self.overwrote.effort |= effort.is_some();
-                }
+                self.overwrote.speed = true;
+                self.overwrote.effort |= effort.is_some();
                 super::speed_save::shadowed(&self.config.sources, effort.is_some())
                     .map(|said| super::notice::Notice::neutral(topic, said))
             }
@@ -3042,6 +3043,9 @@ async fn turn_loop(
                 continue;
             }
             Taken::Model(change) => {
+                // A piece of work of its own: what was written before it began
+                // was written before anything it holds was given.
+                state.overwrote = Overwrote::default();
                 let ended =
                     change_model(&mut state, change, events, &cancel, &control, &mut queue).await;
                 // A change waiting on the catalog can be overtaken by anything
@@ -3109,6 +3113,9 @@ async fn turn_loop(
             Taken::Work(None) => return settled(state, changes),
             Taken::Work(Some(item)) => queue.took(item),
         };
+        // What this thread wrote before this work began was written before
+        // anything the work holds was given ([`Runtime::overwrote`]).
+        state.overwrote = Overwrote::default();
         let ended = match item {
             TurnWork::Submit(prompt) => {
                 run_turn(
@@ -4557,8 +4564,10 @@ async fn change_model(
     // is handed the level back, and both end where the commands did -- as a
     // speed is written again after a model change (`change_speed`). A write
     // that lands is not said again: the band said its own. **One that fails
-    // is said only when a held model change wrote `effort` in between**
-    // ([`Runtime::overwrote`]): then the band's success cannot speak for this
+    // is said only for a held change after a write of `effort` that landed
+    // after the band's** -- a model change's, or an earlier correction's in
+    // the same batch ([`Runtime::overwrote`]): then the band's success cannot
+    // speak for this
     // write, the level is still in force -- the band is handed it, the next
     // request carries it -- and the file is said not to hold it, in the words
     // every preference save uses (`reportUserSettingsFailure`,
@@ -4569,7 +4578,7 @@ async fn change_model(
             state.settings.effort = effort.clone();
             state.record_settings();
             state.publish();
-            let corrective = std::mem::take(&mut state.overwrote.effort);
+            let corrective = state.applying_held && state.overwrote.effort;
             let failed = state.config.user_settings_path.as_ref().and_then(|path| {
                 crate::provider::profile::write_preference(
                     path,
@@ -4578,6 +4587,9 @@ async fn change_model(
                 )
                 .err()
             });
+            if state.config.user_settings_path.is_some() && failed.is_none() {
+                state.overwrote.effort = true;
+            }
             bridge::send_terminal(events, UiEvent::EffortApplied { effort }).await;
             if let Some(err) = failed.filter(|_| corrective) {
                 bridge::send_terminal(
@@ -4832,10 +4844,11 @@ async fn apply_deferred(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
-    // A held batch: a model change in it writes over what the band wrote for
-    // the effort and the speed given after it ([`Runtime::overwrote`]).
+    // A held batch: what this thread wrote since the work began, and what the
+    // batch writes, landed after the band's writes for the changes in it
+    // ([`Runtime::overwrote`]) -- a model change applied the moment it was
+    // given, waiting on its catalog while these were held, included.
     state.applying_held = true;
-    state.overwrote = Overwrote::default();
     loop {
         let deferred = control.take_deferred();
         if deferred.is_empty() {
@@ -4918,8 +4931,9 @@ async fn apply_deferred(
 /// write that lands says nothing more: what the band said of its own write
 /// -- a layer above the profile, say -- is still true of this one, so of
 /// what the write reports only a failure is ever said. **A write that fails
-/// is said only when a held model change wrote the switches in between**
-/// ([`Runtime::overwrote`]), as upstream says a failed save
+/// is said only for a held change after a write of the switches that landed
+/// after the band's** -- a model change's, or an earlier correction's in the
+/// same batch ([`Runtime::overwrote`]) -- as upstream says a failed save
 /// (`reportUserSettingsFailure`, `session_commands.zig:110-133@481104fd`):
 /// then the band's success cannot speak for this write, and the file can be
 /// left holding the switches that change turned off. Otherwise it is the
@@ -4936,11 +4950,19 @@ async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<
     state.settings.ultrafast = change.ultrafast;
     state.record_settings();
     state.publish();
-    let corrective = std::mem::take(&mut state.overwrote.speed);
-    let failed = state
-        .save_speed(change.topic)
-        .filter(|notice| corrective && notice.tone == super::notice::Tone::Error);
-    if let Some(notice) = failed {
+    let corrective = state.applying_held && state.overwrote.speed;
+    // No profile, nothing written: `save_speed` says nothing either way.
+    if state.config.user_settings_path.is_none() {
+        return;
+    }
+    let report = state.save_speed(change.topic);
+    let failed = report
+        .as_ref()
+        .is_some_and(|notice| notice.tone == super::notice::Tone::Error);
+    if !failed {
+        state.overwrote.speed = true;
+    }
+    if let Some(notice) = report.filter(|_| corrective && failed) {
         bridge::send_terminal(events, UiEvent::Notice(notice)).await;
     }
 }
@@ -10566,6 +10588,128 @@ mod tests {
         assert_eq!(
             said.iter().filter(|event| **event == failure).count(),
             1,
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_later_effort_written_again_in_a_held_batch_says_when_its_write_failed() {
+        // A held batch of a pick with `low`, then `/effort medium`, then
+        // `/effort high`: the pick's save lands and so does `medium`'s, each
+        // over what the band wrote for `high`; `high`'s own write then fails.
+        // Each write that lands is one the next must answer for, so that
+        // failure is said -- once, for `high` -- with the file left on
+        // `medium` and `high` in force.
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let effort = |level: &str| {
+            TurnControl::Model(ModelChange {
+                name: model.clone(),
+                effort: Some(crate::provider::effort::Effort::Named(level.to_string())),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            })
+        };
+        let pick = TurnControl::Model(ModelChange {
+            name: model.clone(),
+            effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        fault::arm_after(fault::Boundary::Rename, 2);
+        let said = ran_held(&mut state, vec![pick, effort("medium"), effort("high")]);
+        fault::disarm();
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("medium"));
+        assert_eq!(
+            state.request_options().expect("no Ultra").reasoning,
+            Some("high".to_string())
+        );
+        let failures: Vec<&UiEvent> = said
+            .iter()
+            .filter(|event| matches!(event, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error))
+            .collect();
+        assert_eq!(
+            failures,
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                super::super::settings::EFFORT_TOPIC,
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+        assert_eq!(
+            said.last(),
+            Some(failures[0]),
+            "said after `high` was handed back: {said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_later_speed_written_again_in_a_held_batch_says_when_its_write_failed() {
+        // The same for the switches: a held model change, `/fast`, then
+        // `/ultrafast on`; the first two writes land and the third fails, and
+        // that failure -- the third's, under `ultrafast` -- is said once.
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let held_model = TurnControl::Model(ModelChange {
+            name: "acme/two".to_string(),
+            effort: None,
+            speed: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        let fast = TurnControl::Speed(SpeedChange {
+            fast: true,
+            ultrafast: false,
+            topic: "fast",
+            provider: ProviderId::Gateway,
+        });
+        let ultra = TurnControl::Speed(SpeedChange {
+            fast: false,
+            ultrafast: true,
+            topic: "ultrafast",
+            provider: ProviderId::Gateway,
+        });
+        fault::arm_after(fault::Boundary::Rename, 2);
+        let said = ran_held(&mut state, vec![held_model, fast, ultra]);
+        fault::disarm();
+        assert!(state.settings.ultrafast && !state.settings.fast);
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
+        assert_eq!(
+            settings(home.path())["ultrafast_mode"],
+            serde_json::json!(false)
+        );
+        let failures: Vec<&UiEvent> = said
+            .iter()
+            .filter(|event| matches!(event, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error))
+            .collect();
+        assert_eq!(
+            failures,
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                "ultrafast",
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
             "{said:?}"
         );
     }

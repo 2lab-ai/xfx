@@ -10021,6 +10021,21 @@ fn a_save_that_fails_is_said_once_for_fast_and_for_effort() {
     session.wait_for(READY);
     session.type_bytes(b"/model openai/gpt-6-astra\r");
     session.wait_for("Switched to openai/gpt-6-astra");
+    // The band says `Switched to` before the runtime saves the model, so the
+    // file is broken only once that save has landed: a save straddling the
+    // break would be a model change writing over it, which is another case.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while sandbox
+        .settings()
+        .is_none_or(|settings| settings["models"]["gateway"] != "openai/gpt-6-astra")
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the runtime never saved the model: {:?}",
+            sandbox.settings()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     std::fs::write(sandbox.settings_path(), "{").expect("break the profile");
     session.type_bytes(b"/fast\r");
     on_screen(&session, (40, 120), &["* fast: on"], &[]);

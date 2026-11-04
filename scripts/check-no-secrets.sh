@@ -226,7 +226,9 @@ scan() {
 		# A `.env` file is never a source file here: the design keeps
 		# credentials in the process environment, so one that is tracked is a
 		# mistake whatever it contains.
-		case "$(basename "$file")" in
+		# The last component by expansion, not `basename`: a name under a
+		# directory called `-x` would be its option.
+		case "${file##*/}" in
 		.env | .env.*)
 			fail "$file is tracked; credential files belong outside the repository"
 			;;
@@ -269,7 +271,9 @@ fi
 #     `git ls-files` would quote;
 #   - a key-shaped string in a file named `-`, which `grep` would otherwise
 #     read as its standard input;
-#   - a `.pyc` deleted from the working tree but still in the index.
+#   - a `.pyc` deleted from the working tree but still in the index;
+#   - a `.env` that is a symlink to nothing, which the name rule refuses
+#     whatever is under the name, and a `.env` under a directory named `-x`.
 # And `grep`'s failure to read a file (status 2) must be a failure.
 sample_dir="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secret-names.XXXXXX")"
 trap 'rm -f "$control" "$listing"; rm -rf "$sample_dir"' EXIT
@@ -279,11 +283,14 @@ printf 'sk-%s\n' "$filler" >"$sample_dir/$odd_text"
 printf 'x' >"$sample_dir/$odd_bytecode"
 printf 'sk-%s\n' "$filler" >"$sample_dir/-"
 printf 'x' >"$sample_dir/gone.pyc"
+ln -s nowhere "$sample_dir/.env"
+mkdir -p -- "$sample_dir/-x"
+printf 'A=1\n' >"$sample_dir/-x/.env"
 sample_tracked=no
 sample_report="$(
 	unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 	if command -v git >/dev/null 2>&1 && git -C "$sample_dir" init -q 2>/dev/null &&
-		git -C "$sample_dir" add -f -- "$odd_text" "$odd_bytecode" ./- gone.pyc; then
+		git -C "$sample_dir" add -f -- "$odd_text" "$odd_bytecode" ./- gone.pyc .env ./-x/.env; then
 		rm -f "$sample_dir/gone.pyc"
 		printf 'tracked\n'
 	fi
@@ -312,7 +319,15 @@ if [ "$sample_tracked" = yes ]; then
 	*"gone.pyc is tracked; Python's bytecode"*) ;;
 	*) fail "a tracked .pyc deleted from the working tree was not refused; this scan is not working" ;;
 	esac
+	case "$sample_report" in
+	*"check-no-secrets: .env is tracked; credential files"*) ;;
+	*) fail "a tracked .env that is a symlink to nothing was not refused; this scan is not working" ;;
+	esac
 fi
+case "$sample_report" in
+*"check-no-secrets: -x/.env is tracked; credential files"*) ;;
+*) fail "a .env under a directory named '-x' was not refused; this scan is not working" ;;
+esac
 case "$sample_report" in
 *"grep could not read every file"*"does-not-exist"*) ;;
 *) fail "a file grep could not read was not a failure; this scan is not working" ;;
