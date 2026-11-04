@@ -1563,10 +1563,20 @@ struct Runtime {
     /// these writes that landed in that time landed **after** the band's: the
     /// runtime's write is then the one that puts the file right, and its
     /// failure is the runtime's to say. A change applied the moment it is
-    /// given has nothing between it and the band's write, so a failure of the
-    /// runtime's write is the band's failing again, already said. Cleared when
-    /// a piece of work begins and when a held batch ends; read, never taken,
-    /// so every correction in a batch answers for the writes before it.
+    /// given never says its failure ([`Self::applying_held`] is false): that
+    /// is nearly always the band's own write failing again, already said.
+    /// Cleared when a piece of work begins and when a held batch ends; read,
+    /// never taken, so every correction in a batch answers for the writes
+    /// before it.
+    ///
+    /// **A boolean cannot order writes, so two cases are not covered**
+    /// (EF1-RESID, `.prd/tui-phase5/receipts/effort-menu/README.md`): a model
+    /// change applied at once whose save lands after the band's write of a
+    /// `/fast` or `/effort` given right behind it, with only the correction
+    /// failing, says nothing; and a held change that waits on the catalog
+    /// inside a batch lets changes given during that wait read a flag set
+    /// before their band writes, so a fault that starts in between is said
+    /// twice. Both need a fault that starts or ends between two writes.
     overwrote: Overwrote,
     /// Whether the changes being applied are a held batch ([`apply_deferred`]):
     /// only then is a failed correction the runtime's to say.
@@ -10658,6 +10668,119 @@ mod tests {
             Some(failures[0]),
             "said after `high` was handed back: {said:?}"
         );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn an_effort_correction_that_landed_answers_for_the_next_in_a_held_batch() {
+        // No model change in the batch: `/effort medium` then `/effort high`,
+        // and `/fast` then `/ultrafast on`, each held; the first correction
+        // lands over the band's write of the second, and the second fails.
+        // Only the first correction's own write can have set the flag, so
+        // this pins that a correction that lands sets it.
+        use crate::provider::profile::fault;
+        let error = |notice: &UiEvent| matches!(notice, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error);
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let effort = |level: &str| {
+            TurnControl::Model(ModelChange {
+                name: model.clone(),
+                effort: Some(crate::provider::effort::Effort::Named(level.to_string())),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            })
+        };
+        fault::arm_after(fault::Boundary::Rename, 1);
+        let said = ran_held(&mut state, vec![effort("medium"), effort("high")]);
+        fault::disarm();
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("medium"));
+        assert_eq!(
+            said.iter().filter(|event| error(event)).collect::<Vec<_>>(),
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                super::super::settings::EFFORT_TOPIC,
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_speed_correction_that_landed_answers_for_the_next_in_a_held_batch() {
+        // The speed half: `/fast` then `/ultrafast on`, held, no model change.
+        use crate::provider::profile::fault;
+        let error = |notice: &UiEvent| matches!(notice, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error);
+        let (home, _workspace, mut state) = recording();
+        let speed = |fast: bool, ultrafast: bool, topic: &'static str| {
+            TurnControl::Speed(SpeedChange {
+                fast,
+                ultrafast,
+                topic,
+                provider: ProviderId::Gateway,
+            })
+        };
+        fault::arm_after(fault::Boundary::Rename, 1);
+        let said = ran_held(
+            &mut state,
+            vec![speed(true, false, "fast"), speed(false, true, "ultrafast")],
+        );
+        fault::disarm();
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
+        assert_eq!(
+            said.iter().filter(|event| error(event)).collect::<Vec<_>>(),
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                "ultrafast",
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_correction_applied_the_moment_it_is_given_says_nothing_with_the_flag_set() {
+        // Two speeds applied at once, outside any held batch: the first lands
+        // and sets the flag, the second fails. The second is still the band's
+        // write again, which the band said, so nothing is said here -- the
+        // `applying_held` gate, with the flag set.
+        use crate::provider::profile::fault;
+        let (_home, _workspace, mut state) = recording();
+        let first = ran_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        assert!(first.is_empty(), "{first:?}");
+        assert!(state.overwrote.speed, "a landed correction sets the flag");
+        fault::arm(fault::Boundary::Rename);
+        let said = ran_speed(
+            &mut state,
+            SpeedChange {
+                fast: false,
+                ultrafast: true,
+                topic: "ultrafast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        fault::disarm();
+        assert!(state.settings.ultrafast);
+        assert!(said.is_empty(), "{said:?}");
     }
 
     #[cfg(feature = "fault-injection")]

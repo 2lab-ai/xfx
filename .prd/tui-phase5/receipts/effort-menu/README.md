@@ -134,6 +134,35 @@ unit.
 - Upstream's click after the announcement (`playInteractionSound`,
   `main.zig:800-802`): xfx ships no chimes.
 
+## Residual: EF1-RESID
+
+Recorded after review (EF1e, both engines MUST none at `4c4487f0`).
+
+The band writes the `/fast` switches and the `/effort` level itself, and says
+how that went. The runtime writes them again when it applies the change. It
+says a failure of that second write only inside a held batch, and only after
+another write that landed (`Runtime::overwrote` in `src/tui/worker.rs`). A
+boolean cannot order writes, so two paths remain. Each needs a fault that
+starts or ends between two writes.
+
+- **Immediate after immediate: no ✗.** Between turns you type `/model X` and
+  then `/fast` (or `/effort`). The band's save of the speed lands before the
+  runtime's save of `X`, which writes the switches off. Then only the
+  runtime's correction fails. That correction ran at once (not held), so it
+  says nothing. The file says off, the session runs fast, and the band said
+  ok.
+- **Nested catalog wait in a batch: two ✗.** A held model change that is not
+  announced waits on the catalog inside `apply_deferred`. Changes given during
+  that wait are applied by the same batch, which reads a flag set before their
+  band writes. If the fault starts in between (a hand edit during the catalog
+  read), the band says one ✗ and the runtime a second.
+
+The proposed fix, from the review, is either of:
+- stamp each settings write with a sequence number, so the runtime knows
+  whether its write came after the band's;
+- read the key back after a failed correction, and say the failure only when
+  the file does not hold the value in force.
+
 `.ansi` files are tmux's re-serialization of cell attributes
 (`capture-pane -e`). They are not the programs' wire bytes. Local paths are
 redacted with `scripts/fxcap/redact.py`.
