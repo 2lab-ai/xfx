@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7b4579a [debug] · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+┃ say the marker
+
+  MARKER-STATUS-TURN
+
+  0s (↑4 ↓40)
+
+┃ second turn please
+
+  SECOND TURN
+
+  5s (↑5 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

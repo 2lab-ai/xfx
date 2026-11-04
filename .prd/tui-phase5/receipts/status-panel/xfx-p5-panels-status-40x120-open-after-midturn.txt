@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7b4579a [debug] · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+┃ say the marker
+
+  MARKER-STATUS-TURN
+
+  0s (↑4 ↓40)
+
+┃ second turn please
+
+  SECOND TURN
+
+  5s (↑5 ↓40)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793752300008-c2a54bf1370272d1 · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Sandbox           none
+  Workspace         <tmp>/fxcap.sM1nko/work
+  Turns             2
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · 7b4579a25b78
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+

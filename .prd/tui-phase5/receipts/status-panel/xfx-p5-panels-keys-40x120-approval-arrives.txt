@@ -1,0 +1,40 @@
+
+* permissions: mode=ask
+  configured rules: (none)
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules: none
+
+* permission-mode: saved to user settings (scope=user); fresh sessions here use higher-precedence
+  permission_mode=process_override
+
+┃ run it
+
+  Let me run it.
+
+● 1 tool call · 1 command
+└ Ran echo keys
+
+  Ran keys.
+
+  2s (↑2 ↓80)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793752358071-7a2307aa8df9539b · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Sandbox           none
+  Workspace         <tmp>/fxcap.yN9qwO/work
+  Turns             1
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · 7b4579a25b78
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
