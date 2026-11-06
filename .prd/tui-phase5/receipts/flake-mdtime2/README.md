@@ -248,7 +248,21 @@ Largest reading per shape (`max/lin`), this check:
 
 ## Gates
 
-TBD
+All at `6b6b9cdf` (the test change and this receipt), with a short
+`TMPDIR`, one step at a time. Each heavy step started only after
+`pgrep -x cargo` and `pgrep -x 'xfx-[0-9a-f]+'` both came back empty.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4865 passed, 0 failed, 7 ignored (14 targets) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4894 passed, 0 failed, 7 ignored (14 targets) |
+| `scripts/check-xfx-identity.sh` · `check-no-stubs.sh` · `check-no-secrets.sh` | ok · ok · ok |
+| `cargo build --locked --release` and `--features fault-injection --target-dir target/faulty` | ok, ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures, no traceback in any scenario log |
 
 ## Re-run
 
