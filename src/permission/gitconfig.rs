@@ -187,8 +187,7 @@ pub(crate) fn run_git(
     for (name, value) in environment {
         command.env(name, value);
     }
-    let mut child = command
-        .spawn()
+    let mut child = crate::process::spawn(&mut command)
         .map_err(|err| format!("git could not be started: {err}"))?;
     let mut stdout = child.stdout.take().ok_or("git's output was not captured")?;
     let reader = std::thread::spawn(move || {

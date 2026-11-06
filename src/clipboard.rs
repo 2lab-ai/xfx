@@ -238,7 +238,7 @@ impl Clipboard {
         if let Some(search) = &self.search {
             command.env("PATH", search);
         }
-        let Ok(mut child) = command.spawn() else {
+        let Ok(mut child) = crate::process::spawn(&mut command) else {
             return false;
         };
         let stdin = child.stdin.take();
@@ -412,11 +412,9 @@ impl Clipboard {
         let dir = private_directory("xfx-clipboard")
             .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
         let path = dir.join("clipboard.png");
-        let outcome = self
-            .command("osascript")
-            .arg("-e")
-            .arg(clipboard_script(&path))
-            .status();
+        let mut command = self.command("osascript");
+        command.arg("-e").arg(clipboard_script(&path));
+        let outcome = crate::process::spawn(&mut command).and_then(|mut child| child.wait());
         let read = match outcome {
             Err(err) => Err(ImageReadError::Failed(crate::image::io_name(err.kind()))),
             Ok(status) if !status.success() => Err(ImageReadError::NoImage),
@@ -430,11 +428,11 @@ impl Clipboard {
 
     fn read_image_with_xclip(&self) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
         use std::io::Read;
-        let mut child = self
-            .command("xclip")
+        let mut command = self.command("xclip");
+        command
             .args(["-selection", "clipboard", "-t", "image/png", "-o"])
-            .stdout(Stdio::piped())
-            .spawn()
+            .stdout(Stdio::piped());
+        let mut child = crate::process::spawn(&mut command)
             .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
         let mut bytes = Vec::new();
         let read = child.stdout.take().map(|stdout| {

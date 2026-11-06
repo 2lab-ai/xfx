@@ -259,9 +259,8 @@ impl StdioTransport {
             use std::os::unix::process::CommandExt;
             builder.process_group(0);
         }
-        let mut child = builder
-            .spawn()
-            .map_err(|_| McpError::Named("McpSpawnFailed"))?;
+        let mut child =
+            crate::process::spawn(&mut builder).map_err(|_| McpError::Named("McpSpawnFailed"))?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr_pipe = child.stderr.take();

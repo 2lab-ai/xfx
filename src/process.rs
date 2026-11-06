@@ -52,7 +52,32 @@
 //! `Command::new` in the library's own code in this file.
 
 use std::ffi::OsStr;
-use std::process::Command;
+use std::process::{Child, Command};
+use std::sync::{Mutex, PoisonError};
+
+/// Held by every start of a child of xfx's ([`spawn`]).
+///
+/// macOS has no `pipe2`, so the standard library makes each pipe a start
+/// uses -- the child's input, output and error, and the one that says whether
+/// `exec` worked -- with `pipe` and only then marks it close-on-exec
+/// (`library/std/src/sys/pal/unix/pipe.rs`, Rust 1.99). A `fork` another
+/// thread makes in between hands that child both ends, and `exec` keeps
+/// them. [`command`]'s signal reset is a `pre_exec`, so every start takes
+/// the `fork` path, whose parent reads that last pipe until `exec` closes
+/// it: a child that inherited it -- an MCP server started beside it, which
+/// runs as long as the session -- holds it open, and the start never returns
+/// (MCP-Me: `mcp::tests::a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did`,
+/// one run in about five, a server "connecting" for good). One start at a
+/// time makes no pipe of one start reach another's child.
+static SPAWNING: Mutex<()> = Mutex::new(());
+
+/// `command` started, under the lock every start of xfx's takes
+/// ([`SPAWNING`]). The start alone is held -- a child that runs for an hour
+/// holds nothing -- and a start never waits for more than another start.
+pub fn spawn(command: &mut Command) -> std::io::Result<Child> {
+    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    command.spawn()
+}
 
 /// A command for `program` whose child starts with no signal blocked and
 /// `SIGPIPE` at its default, and without xfx's own credential.
@@ -145,6 +170,69 @@ pub fn collect_own_children() -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn children_started_at_once_never_hold_up_one_anothers_start() {
+        // MCP-Me: started from many threads at once, as a session starts its
+        // MCP servers, each start must return. A child that inherited
+        // another start's pipe from the `pipe`-then-close-on-exec window
+        // held that start until it exited -- here 30 s, for an MCP server
+        // the whole session. Twelve at a time, twenty times.
+        use std::process::Stdio;
+        use std::sync::{mpsc, Arc};
+        const AT_ONCE: usize = 12;
+        for round in 0..20 {
+            let children = Arc::new(Mutex::new(Vec::new()));
+            let (done, finished) = mpsc::channel();
+            for _ in 0..AT_ONCE {
+                let children = Arc::clone(&children);
+                let done = done.clone();
+                std::thread::spawn(move || {
+                    let mut sleeper = command("/bin/sleep");
+                    sleeper
+                        .arg("30")
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                    if let Ok(child) = spawn(&mut sleeper) {
+                        children
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(child);
+                    }
+                    let _ = done.send(());
+                });
+            }
+            drop(done);
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut returned = 0;
+            while returned < AT_ONCE {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if finished.recv_timeout(left).is_err() {
+                    break;
+                }
+                returned += 1;
+            }
+            // Every sleeper goes, a late one too, whatever the round found.
+            let reap = |children: &Arc<Mutex<Vec<Child>>>| {
+                for mut child in children
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .drain(..)
+                {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            };
+            reap(&children);
+            while finished.recv_timeout(Duration::from_secs(5)).is_ok() {}
+            reap(&children);
+            assert_eq!(
+                returned, AT_ONCE,
+                "round {round}: a start never returned while the others ran"
+            );
+        }
+    }
 
     /// Runs `body` on a thread that blocks every signal the TUI owns, as
     /// every thread a session starts does, and hands back what it returned.
@@ -441,6 +529,33 @@ mod tests {
                     }
                     if line.contains("Command::new(") || line.contains("tokio::process::Command") {
                         found.push(format!("{}:{}", path.display(), number + 1));
+                    }
+                    // And each one is started through [`spawn`]: a `spawn()`,
+                    // `status()` or `output()` on a command starts it without
+                    // the lock.
+                    let statement = lines[..=number]
+                        .iter()
+                        .rev()
+                        .take_while(|earlier| {
+                            let earlier = earlier.trim_end();
+                            !(earlier.ends_with(';')
+                                || earlier.ends_with('{')
+                                || earlier.ends_with('}'))
+                        })
+                        .chain(std::iter::once(&lines[number]))
+                        .copied()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let starts = line.contains(".spawn()")
+                        || ((line.contains(".status()") || line.contains(".output()"))
+                            && (statement.contains("process::command(")
+                                || statement.contains(".command(")));
+                    if starts {
+                        found.push(format!(
+                            "{}:{} (not through spawn)",
+                            path.display(),
+                            number + 1
+                        ));
                     }
                 }
             }

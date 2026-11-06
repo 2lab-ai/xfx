@@ -403,7 +403,8 @@ fn walk(
 fn ls_files(root: &Path, git: &Path, args: &[&str], stop: &AtomicBool) -> Option<String> {
     // `core.fsmonitor` is a command `ls-files` runs from the repository's
     // configuration when it reads the index; the listing does not need it.
-    let mut child = crate::process::command(git)
+    let mut command = crate::process::command(git);
+    command
         .args(["-c", "core.fsmonitor=false"])
         .arg("--no-optional-locks")
         .arg("ls-files")
@@ -412,9 +413,8 @@ fn ls_files(root: &Path, git: &Path, args: &[&str], stop: &AtomicBool) -> Option
         .current_dir(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    let mut child = crate::process::spawn(&mut command).ok()?;
     let mut raw = Vec::new();
     let read = child
         .stdout
