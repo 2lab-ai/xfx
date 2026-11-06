@@ -114,6 +114,8 @@ Unit tests (`src/session/store/fork/tests.rs`):
 2. **`O_NOFOLLOW` removed** from `load_not_through_a_link`: the refusal
    test fails on `a link to a store: forked <id>` (`mutant-nofollow.txt`).
 
+Mutants 3-5 are FK-RULESb's (below).
+
 ## Gates (short `TMPDIR`)
 
 The clippy, test, build and smoke rows ran at `13ec0d34`. The fix commit
@@ -177,3 +179,91 @@ remembered deny in a fork: fx v0.0.16's TUI applies a saved rule to a read
 and not to a write (`docs/parity.md`, `/permissions` row), and its fork
 carries its rules as of the cut, which xfx cannot read; the code citations
 in (b) are the fx fact.
+
+## FK-RULESb: three receipts the review asked for
+
+On `fix/p5-fork-rules` from `e11e3f36`, after both engines found no MUST.
+These are tests and receipts only. The one line outside a test file is a
+`#[cfg(test)]` call in `fork.rs`, compiled out of every other build, so
+the product is unchanged and the pairs were not re-taken.
+
+### 3. The deny filter removed (`mutant-deny-filter.txt`)
+
+The review names this filter (`carried_rules`, `fork.rs`,
+`.filter(|rule| rule.decision == Deny)`) as the line the safety rests on.
+On a throwaway clone with it removed:
+
+- `a_fork_carries_the_sources_remembered_denies_and_no_allow` fails at
+  `tests.rs:1536`: `ls` is `Allow` in the fork, where `Unresolved` is
+  expected (`an allow`).
+- With that assertion set aside on the clone, the same test fails at
+  `:1545`: the fork's ids are `[(1, 1), (2, 2), (4, 4)]`, where
+  `[(1, 1), (4, 4)]` is expected.
+- `a_fork_of_a_session_with_no_deny_has_no_rules_file` fails at `:1605`
+  on `allows only`: the fork has a rules file.
+
+The review cited these as `:263`, `:272` and `:325-336`, its own diff's
+line numbers. They are the same assertions.
+
+### 4. A seed that fails leaves no stage (`mutant-stage-cleanup.txt`)
+
+`a_fork_whose_rules_cannot_be_written_is_refused_and_its_stage_is_gone`
+(`src/session/store/fork/tests.rs`). The seam is
+`tests::before_rules(&stage.path)`, called just before
+`session_rules::seed`. It puts something at the stage's `permissions.json`:
+a file, a folder, or a link to `/dev/null`. The seed refuses each one.
+The test checks four things:
+
+- The fork returns `SessionError::Io` on that path.
+- The stage the seam was handed no longer exists.
+- `sessions/` and `sessions.staged/` are as they were before the fork.
+- The source's rules are byte for byte the same.
+
+With the hand removed, the same fork succeeds and holds the deny.
+
+Mutant 5 removes `Stage::drop`'s `remove_dir_all` on a clone. The test
+then fails on `a file: the stage was left behind`.
+
+### 5. A fork of a fork, then a revoke there
+
+`a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation`
+(`tests/tui.rs`) drives the real binary in a pty, in `auto`.
+
+1. Before the source's first prompt, the test remembers a deny (id 1) and
+   an allow (id 2), then revokes the allow. The source's store is
+   `{deny 1}` under next generation 4.
+2. Two turns, `/fork` before the second, a turn in that fork, then `/fork`
+   from the fork. The second fork's line 1 names the first fork, and its
+   plain line says `original session xfx --resume <fork 1>`.
+3. In the fork of the fork, the model makes the remembered write. The rule
+   refuses it (`execution-denied`, `a saved-session permission rule
+   denies`), and `b.txt` is never written.
+4. `/permissions revoke 1` is confirmed there, then a new deny is
+   remembered there.
+
+On disk afterwards:
+
+- The source and the first fork still hold `(id 1, generation 1, deny
+  write_file b.txt …)` under next generation 4.
+- The fork of the fork holds only the new rule, at `(id 5, generation 5)`
+  under next generation 6. The revoke spent generation 4, and the new rule
+  took the store's next generation. No id the source gave is reused.
+
+Mutant 4 removes the carry on a clone. The test fails at the revoke:
+`! permissions: saved-session permission rule not found`, because the
+deny never reached the fork (`mutant-carry-fork-of-fork.txt`).
+
+### Gates at `5f2ceba3` (short `TMPDIR`)
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings`, and `--features fault-injection` | ok, ok |
+| `cargo test --locked --no-fail-fast` | 4,724 passed, 0 failed, 7 ignored (+2) |
+| `cargo test … --features fault-injection` | 4,753 passed, 0 failed, 7 ignored (+2) |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+| `check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | at the receipt commit: ok |
+
+No pty test failed, so none was re-run.
