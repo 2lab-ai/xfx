@@ -154,6 +154,48 @@ on a server's screen, Enter, Esc on each screen, Ctrl-C, Ctrl-P, each screen's
 filter in the composer, no turn sent).
 
 
+## MCP-Mb: the approval shows what the child is given
+
+The coordinator settled the open question (MCP-M's brief meant S4's "values
+never shown" for MCP-V's echo of typed values, not for an approval): keep
+xfx's 2026-11-04 rule (`c4d252f5`, `docs/parity.md` `/mcp`, "Deliberately
+different from upstream's"). The approval's screen now shows, from the entry
+the runtime read (`ShownEntry`: its rows and the digest an approval binds,
+from one read), the command line or address and one `env: NAME=value` /
+`header: Name: value` row each (`header_env` as `X-Team: ${TEAM}`,
+`bearer_token_env` as `Authorization: Bearer ${TOKEN}`), every value as
+written, spelled as `approval_view::command_text` spells a command; a row over
+1024 bytes is its first 512 and last 256 bytes with `[N bytes in all;
+.mcp.json has every byte]` between, and such an entry is not approved;
+continuation rows led by `↳ ` when the entry has rows beyond its command or
+address. Values typed into `/mcp add` (`typed`) and a profile's in `list` and
+`show` stay unsaid.
+
+| | test | on `8f9104d8` (bounded: 900 s, 4 GiB) | on the head |
+|---|---|---|---|
+| RED | `tui::shell::tests::the_approval_shows_what_the_child_is_given_every_variable_and_header_as_written` (`PATH=./x:${PATH}`, `NODE_OPTIONS=--require ./evil.js`, a value with `U+202E` and a line break, an http entry's literal header) | fails: `"env: PATH=./x:${PATH}" is not on the screen`, the screen saying `It sets PATH, NODE_OPTIONS, ODD.` | passes: each row as written, `env: ODD=a\u{202e}b\x0ac`, `header: X-Team: blue \u{202e}x`, no `U+202E` on the screen |
+| too tall | `…::an_entry_too_tall_for_the_screen_is_not_drawn_whole_and_approve_refuses_it` (40 variables, 40-row screen) | -- | Enter approves nothing, says `xfx couldn't show all of what tall runs on this screen, so nothing was approved.`, the entry waits |
+| | `tui::mcp_menu::tests::a_row_too_long_to_show_is_shortened_saying_so_and_approves_nothing`, `…::an_approval_shows_each_variable_and_header_as_written_its_wrapped_rows_led`, `…::every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_sign` (the entry's rows from `runtime::entry_rows`) | -- | pass |
+
+The pairs did not move (no scenario's entry sets a variable or a header):
+`sweep.sh` on the head build (`51e51269`'s code, debug, sha256 `1eb6b5de1b71…`;
+`scoreboard-head-mb-120.md`, `-60.md`) -- `p5-mcp-menu-new` 23 / 34 at 40x120
+and at 40x60, the 11 left `remote`'s status only (`remote_only.py`: 11 of 11,
+0 other, both sizes); `p5-mcp-empty` 24 / 24; `p5-input-mcp` 9 / 9;
+`p5-mcp-dismiss` 2 / 2. `xfx-head/` holds this run's menu captures.
+
+Guards removed on the throwaway clone, each caught: the shortened entry
+approved -> `a_row_too_long_to_show_…`; the entry's rows after the first
+dropped (values hidden again) -> `the_approval_shows_what_the_child_is_given_…`.
+
+MCP-Mb gates on `51e51269` (the head after it changes this directory only):
+fmt ok; clippy ok, both feature sets; `cargo test` 4646 / 0 and 4669 / 0
+(fault-injection, lib 3772); identity, stubs, secrets ok; release and faulty
+release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios + the
+oracle, 1091 / 0; `tests/permissions.rs`
+`a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
+alone 3 of 3 (0.30-0.32 s).
+
 ## smoke-tui and the pty cases
 
 `scripts/smoke-tui.sh` has no scenario that meets the trust prompt (it opens
