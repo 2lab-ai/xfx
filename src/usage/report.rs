@@ -612,7 +612,7 @@ impl Question {
 /// Only an `AI_GATEWAY_API_KEY` is asked (`usage_host.zig:105-111`). A
 /// `VERCEL_OIDC_TOKEN` resolves first when both are set (`config.rs`
 /// `resolve_credential`), and is unsupported, as fx has it
-/// (`credentials.zig:61`, `usage_host.zig:128`); so is llmux.
+/// (`usage_host.zig:78,128`); so is llmux.
 pub fn question(config: &RuntimeConfig, endpoint: &Endpoint) -> Result<Question, Unavailable> {
     match config.provider {
         ProviderId::Llmux => Err(Unavailable::UnsupportedProvider),
