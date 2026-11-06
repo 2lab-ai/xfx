@@ -85,6 +85,9 @@ only scenarios that open the menu or apply a level, so `effort-menu`,
 were captured again on it: 27 pairs, all identical. `effort-nolevels` and
 `effort-down` open no menu and apply no level; their xfx screens are the
 EF1 take (banner `e0d97bd`, the base, as that build stamped it).
+`slash-rank` (EF1g) was taken on a release build, `cargo build --locked
+--release` of `785e102f`, whose `src/` `000100f5` leaves unchanged; a release
+build's banner is plain `v0.1.0`.
 
 `midturn` snaps the running turn's live output count (`Generating (2s)
 (↑4 ↓7)`) while the slow turn's chunks arrive 700 ms apart: one EF1 take of
@@ -157,14 +160,22 @@ both binaries:
 | `/ex` | `Commands 1`: `/exit` | the same | identical |
 | `/et` | `Commands 3`: `/reset`, `/setup`, `/settings` | the same | identical |
 
-`/e`'s count differs because fx v0.0.16 has commands that other units add
-(`/fork`, `/login`, `/logout`, `/feedback`, `/shell`). Its rows match. The
-three identical pairs are in `green.txt`.
+`/e`'s count differs by two commands that fx v0.0.16 has and xfx does not,
+each with an `e` after its slash: `/feedback` and `/shell`. Its rows match.
+The three identical pairs are in `green.txt`.
 
 Scenario 16 now types `/se`. There, `/setup`, the `/provider` alias, comes
 first, and `/reset`, a substring, comes after it. The scenario computes the
 expected list from the registry by fx's rule (`ranked_completions`), and
 requires that this list starts with the alias and holds a substring after it.
+
+`/se`'s substring tier is one entry, so it cannot pin tie order (EF1h). A
+second probe, `/et`, is all substring: `/reset`, the `/setup` alias,
+`/settings`, in registry order, which is the oracle's order. That order is not
+alphabetical (`/settings` would come before `/setup`), and it is not by where
+the match falls (`/setup` would come before `/reset`). The scenario requires
+the tier to hold two or more entries. In a scratch release build that sorted
+the substring tier by label, the probe fails, as shown in the EF1h report.
 
 ## Residual: EF1-RESID
 

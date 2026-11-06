@@ -7796,22 +7796,64 @@ def scenario_16(run):
     )
     ranked = trial.grid("menu-alias-ranking")
     expected = ranked_completions(registry, "/se")
-    alias_at = expected.index("/setup")
     substrings = [at for at, name in enumerate(expected) if not name.startswith("/se")]
     run.require(
-        expected[:1] == ["/setup"] and bool(substrings) and alias_at < min(substrings),
+        expected[:1] == ["/setup"] and bool(substrings),
         "the registry gives /se an alias first and a substring after it, or this pins nothing: %r"
         % (expected,),
+    )
+    run.require(
+        expected.index("/setup") < min(substrings),
+        "the alias is above every substring in the expected list: %r" % (expected,),
     )
     count = (menu_header(ranked) or (0,))[0]
     walked, _wrapped = walk_menu(trial, count, "the /se menu")
     run.require(
         count == len(expected) and [name for name, _category in walked] == expected,
-        "the alias prefix outranks every substring, ties in registry order: %r" % (walked,),
+        "the alias prefix outranks every substring: %r" % (walked,),
     )
     run.require(
         bool(walked) and walked[0][1] == next(spec.category for spec in registry if "/setup" in spec.aliases),
         "the alias is filed under its command's category: %r" % (walked[:1],),
+    )
+
+    # --- ties in the substring tier keep the registry's order ---------------
+    #
+    # `/et` is all substring: `/reset`, the `/setup` alias, `/settings` -- each
+    # with an `et` after its slash and none starting with it -- and upstream
+    # lists them in the registry's order, the alias under its own name
+    # (`nthSlashCommandCompletionMatch`,
+    # `src/core/slash_commands/command_specs.zig:549-565@481104fd`; fx v0.0.16
+    # shows `/reset`, `/setup`, `/settings`, identical to xfx, in
+    # `.prd/tui-phase5/receipts/effort-menu`). That order is neither the
+    # names' alphabetical one (`/settings` before `/setup`) nor the match's
+    # position (`/setup` before `/reset`), so a menu that sorted its ties
+    # either way would fail here. The old `/e` probe pinned this over some
+    # twenty substrings; `/se`'s tier is one entry and cannot.
+    # Waited for by the draft as well as by the list: `/se`'s menu has as many
+    # entries as this one, so a list read before `/et` is in the composer
+    # would be the last probe's.
+    expected = ranked_completions(registry, "/et")
+    trial.send(b"\x15")
+    trial.send("/et")
+    trial.wait_until(
+        "the menu to list the substrings of /et",
+        lambda _t: composer_text(trial.peek()) == "/et"
+        and (menu_header(trial.peek()) or (0,))[0] == len(expected)
+        and set(offered(trial.peek())) == set(expected[:6]),
+    )
+    tied = trial.grid("menu-substring-ties")
+    run.require(
+        len(expected) >= 2 and not any(name.startswith("/et") for name in expected),
+        "the registry gives /et a substring tier of two or more and nothing else, or this pins "
+        "no tie order: %r" % (expected,),
+    )
+    count = (menu_header(tied) or (0,))[0]
+    walked, _wrapped = walk_menu(trial, count, "the /et menu")
+    run.require(
+        count == len(expected) and [name for name, _category in walked] == expected,
+        "the substring tier keeps the registry's order, an alias under its own name: %r"
+        % (walked,),
     )
 
     # --- a word that names nothing lists nothing ---------------------------
