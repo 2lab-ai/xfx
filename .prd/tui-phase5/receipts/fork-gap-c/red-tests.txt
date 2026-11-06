@@ -1,0 +1,27 @@
+cargo test --locked --lib over this round's tests, on a throwaway clone holding b5868152's production code with this round's test module spliced in:
+
+test tui::shell::tests::an_undo_a_redo_or_a_select_all_closes_the_fork_and_effort_menus_as_an_edit_does ... FAILED
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_a_recalled_effort_menu ... ok
+test tui::shell::tests::a_line_sent_while_a_fork_is_on_its_way_drops_it_whatever_put_it_there ... ok
+test tui::shell::tests::an_escape_while_a_fork_is_on_its_way_drops_it ... FAILED
+test tui::shell::tests::opening_the_panel_or_the_effort_menu_closes_the_fork_menu ... ok
+test tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way ... FAILED
+test tui::shell::tests::effort_menu_opening_drops_a_fork_open_or_on_its_way ... ok
+test tui::shell::tests::a_recalled_prompt_sent_while_a_fork_is_on_its_way_opens_no_menu_over_its_turn ... ok
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_once_a_recalled_prompt_has_gone ... ok
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_the_catalog_ctrl_p_opened ... FAILED
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_a_panel_a_recalled_command_opened ... ok
+test tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row ... ok
+test tui::shell::tests::a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row ... ok
+test tui::shell::tests::the_skills_menu_opening_drops_a_fork_on_its_way ... FAILED
+test tui::shell::tests::the_receipt_names_the_painted_row_of_the_last_choice_at_every_height_with_and_without_the_gap ... ok
+thread 'tui::shell::tests::an_undo_a_redo_or_a_select_all_closes_the_fork_and_effort_menus_as_an_edit_does' (240365539) panicked at src/tui/shell.rs:41336:13:
+undo left the fork menu up
+thread 'tui::shell::tests::an_escape_while_a_fork_is_on_its_way_drops_it' (240365538) panicked at src/tui/shell.rs:41198:9:
+the menu opened after the Escape
+thread 'tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way' (240365541) panicked at src/tui/shell.rs:41293:13:
+/help: the answer opened the fork menu
+thread 'tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_the_catalog_ctrl_p_opened' (240365533) panicked at src/tui/shell.rs:41184:9:
+the answer closed the catalog
+thread 'tui::shell::tests::the_skills_menu_opening_drops_a_fork_on_its_way' (240365544) panicked at src/tui/shell.rs:41317:9:
+test result: FAILED. 10 passed; 5 failed; 0 ignored; 0 measured; 3840 filtered out; finished in 0.35s

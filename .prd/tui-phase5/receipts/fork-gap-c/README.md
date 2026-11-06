@@ -1,0 +1,103 @@
+# P5-FK-GAPc receipt: every opener, Escape, undo, redo and select-all drop a waiting `/fork`
+
+Branch `fix/p5-fork-status-gap`, on FK-GAPb (`b5868152`). This is the fix
+round from the FK-GAPb reviews (zbrain
+`workflow/2lab-ai/repos/xfx-tui-phase4/p5/FK-GAPb/reviews/`, `opus.md` and
+`gpt6.md`).
+
+## What was wrong
+
+- **opus MUST: `C-p` opened `/model`'s catalog with the ask standing.**
+  `model_catalog_shortcut` needs no line and no edit, and `open_models_with`
+  cleared `fork_menu` but not `fork_asked`. The answer then closed the
+  catalog and opened the fork menu (`fork_points`' own closes). The next
+  key gave the catalog's draft back through `amended`, which closed the
+  fork menu as well. So the FK-GAPb receipt's "nothing else in the slot can
+  be up while a `/fork` waits" was false, and that receipt now says so at
+  the claim.
+- **opus SHOULD: an Escape in the window did not drop the ask.** The menu
+  then opened after the user had pressed Escape, while the `/fork` parity
+  row says Escape closes it.
+- **Found while pinning:** upstream closes the fork and `/effort` menus on
+  an undo, a redo and a select-all whether or not the draft changes. That
+  is `dismissActiveMenusThenRedraw` first, at
+  `src/core/app/app_input_runtime.zig:332-333`, `:379-380` and
+  `:386-387@481104fd`. Here an undo went through `moved` and left both
+  menus up, and a waiting ask too.
+
+## The fix
+
+- **Every opener of a slot surface drops the ask**: `self.fork_menu = None`
+  became `self.close_fork_menu()` in `open_skills`, `help`, `resume`,
+  `usage`, `permissions` (the rule confirmation), `statusline`,
+  `workspace`, `mcp`, `settings` and `open_models_with`. That is the
+  dispatcher's decision for `open_models_with`, applied to every opener,
+  so the rule is one rule: whatever opens another surface while the
+  `/fork` waits drops it.
+  - Upstream blocks `C-p` over its open fork menu
+    (`modelPickerShortcutBlocked`, `app_input_runtime.zig:1964-1967`). Here
+    the menu is not open yet, and this unit already treats the window as
+    the composer's (Up recalls), so `C-p` opens the catalog and the `/fork`
+    is dropped.
+- **Escape drops the ask** and does nothing else: a new first `Escape` arm
+  in `act`. It is also counted as a key a menu takes, so it disarms other
+  gestures.
+- **`dismiss_for_edit`**: the close of the two menus that read no query
+  (`/effort`'s, and `/fork`'s with its ask). `amended` uses it, and so do
+  Undo, Redo and SelectAll before they act.
+- **Docs:**
+  - `fork_points` now says two rules keep one surface. The closes it keeps
+    are **not decorative**: on the `C-p` path they were all that kept the
+    fork menu from opening beside the catalog.
+  - `close_fork_menu` lists every kind of caller.
+  - `Disclosure::last_control_row` gives the rule and the gap as the
+    reason, not the activity row.
+  - The `/fork` row in `docs/parity.md` is extended.
+
+## RED (`b5868152`'s production code, this round's tests)
+
+On a throwaway clone of `b5868152`, with this round's test module spliced
+in (`red-tests.txt`). **5 fail:**
+
+| test | on `b5868152` |
+|---|---|
+| `a_fork_still_on_its_way_opens_nothing_over_the_catalog_ctrl_p_opened`: `fork_asked`, `C-p`, the answer | "the answer closed the catalog" |
+| `an_escape_while_a_fork_is_on_its_way_drops_it` | "the menu opened after the Escape" |
+| `every_command_that_opens_a_surface_drops_a_fork_on_its_way`: `/help` `/status` `/permissions` `/statusline` `/settings` `/usage` `/workspace` `/model` `/resume` `/mcp`, each handler reached through the router without the line-sent close | "/help: the answer opened the fork menu" |
+| `the_skills_menu_opening_drops_a_fork_on_its_way` | the fork menu opened beside `/skills`' |
+| `an_undo_a_redo_or_a_select_all_closes_the_fork_and_effort_menus_as_an_edit_does` | "undo left the fork menu up" |
+
+These pass on `b5868152` too. They pin wiring that was already there
+(test-only):
+
+- `a_line_sent_while_a_fork_is_on_its_way_drops_it_whatever_put_it_there`:
+  the `submit` close, reached on its own. The line is put in the composer
+  directly, then sent as a prompt, so no surface it opens closes the ask.
+- `effort_menu_opening_drops_a_fork_open_or_on_its_way`: the
+  `effort_command` close, with the fork menu up and then with the ask
+  waiting. The handler is called directly.
+- `a_recalled_prompt_sent_while_a_fork_is_on_its_way_opens_no_menu_over_its_turn`
+  (gpt6 1): recall, Return, the turn starts, the answer lands, no menu. The
+  recall-only pin is kept as it was.
+- `the_receipt_names_the_painted_row_of_the_last_choice_at_every_height_with_and_without_the_gap`
+  (gpt6 2). Every height 7..=40 at 80 columns, under a blank tail (gap 0)
+  and under a fork's plain line (gap 1). Wherever the question is inline,
+  the receipt's row is the painted row of `3  Don't apply`, and a delivered
+  frame is `ready`. At the fit boundary (`fits_approval` holds two rows for
+  a turn's row), the gap is kept and does not move the boundary. One row
+  shorter, the question goes to the alternate screen.
+- `slot_occupants` (opus, gpt6 3) counts all 18 fields `slot()` reads.
+
+## Each wiring reverted alone
+
+`mutants.txt`: a throwaway clone of `9bd8f0ff`'s tree, one revert at a
+time, the same test set each run.
+
+| revert | fails |
+|---|---|
+| the `submit` close | `a_line_sent_while_a_fork…` ("the menu opened over the turn") |
+| the `effort_command` close | `effort_menu_opening_drops_a_fork…` |
+| `open_models_with` back to `fork_menu = None` | the `C-p` test, and the table at `/model` |
+| the Escape arm | `an_escape_while_a_fork…` |
+| `help` back to `fork_menu = None` | the table at `/help` |
+| the Undo/Redo dismissal | `an_undo_a_redo_or_a_select_all…` ("undo left the fork menu up") |

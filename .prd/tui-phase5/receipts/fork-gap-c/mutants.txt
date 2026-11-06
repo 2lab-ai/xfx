@@ -1,0 +1,40 @@
+Throwaway clone of 9bd8f0ff's tree; each wiring reverted alone (mutants.py names them), the same test set run each time:
+
+applied submit
+test tui::shell::tests::a_line_sent_while_a_fork_is_on_its_way_drops_it_whatever_put_it_there ... FAILED
+thread 'tui::shell::tests::a_line_sent_while_a_fork_is_on_its_way_drops_it_whatever_put_it_there' (240385963) panicked at src/tui/shell.rs:41240:9:
+the menu opened over the turn
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.07s
+
+applied effort
+test tui::shell::tests::effort_menu_opening_drops_a_fork_open_or_on_its_way ... FAILED
+thread 'tui::shell::tests::effort_menu_opening_drops_a_fork_open_or_on_its_way' (240388237) panicked at src/tui/shell.rs:41275:9:
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.02s
+
+applied models
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_the_catalog_ctrl_p_opened ... FAILED
+test tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way ... FAILED
+thread 'tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_the_catalog_ctrl_p_opened' (240391719) panicked at src/tui/shell.rs:41207:9:
+the answer closed the catalog
+thread 'tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way' (240391725) panicked at src/tui/shell.rs:41316:13:
+/model: the answer opened the fork menu
+test result: FAILED. 10 passed; 2 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.02s
+
+applied escape
+test tui::shell::tests::an_escape_while_a_fork_is_on_its_way_drops_it ... FAILED
+thread 'tui::shell::tests::an_escape_while_a_fork_is_on_its_way_drops_it' (240396374) panicked at src/tui/shell.rs:41217:9:
+the menu opened after the Escape
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.07s
+
+applied help
+test tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way ... FAILED
+thread 'tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way' (240400581) panicked at src/tui/shell.rs:41316:13:
+/help: the answer opened the fork menu
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.01s
+
+applied undo
+test tui::shell::tests::an_undo_a_redo_or_a_select_all_closes_the_fork_and_effort_menus_as_an_edit_does ... FAILED
+thread 'tui::shell::tests::an_undo_a_redo_or_a_select_all_closes_the_fork_and_effort_menus_as_an_edit_does' (240404546) panicked at src/tui/shell.rs:41358:13:
+undo left the fork menu up
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.02s
+

@@ -46,7 +46,10 @@ closes the menu and drops a waiting ask; it is called by:
 
 The panel and `/effort`'s menu also close each other, as
 `closeInlineCommandMenusIfPresent` does. `fork_points` closes nothing more:
-nothing else in the slot can be up while a `/fork` waits. The panel,
+nothing else in the slot can be up while a `/fork` waits. **(Corrected in
+FK-GAPc: false at this receipt's head. `C-p` opened `/model`'s catalog with
+no line and no edit, so the ask stood, and only `fork_points`' own closes
+kept one surface. See `../fork-gap-c/README.md`.)** The panel,
 `/effort`'s and `/mcp`'s menus and a rule's confirmation open from a line
 sent. A turn's questions open only inside a turn: `/fork` is refused while
 one is in hand, and a later turn starts only from a line sent. The session
