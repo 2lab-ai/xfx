@@ -2,9 +2,8 @@
 //! thematic rules (`assistant_presentation.zig:2970-3935`).
 
 use std::cell::Cell;
-use std::time::Duration;
 
-use super::{code_only, contains, rule_only, text};
+use super::{assert_renders_in_linear_time, code_only, contains, rule_only, text};
 use crate::markdown::ansi::{DIM_CLOSE, DIM_OPEN, HORIZONTAL_RULE_WIDTH, TABLE_HORIZ};
 use crate::markdown::block_parse::is_pipe_line;
 use crate::markdown::text_util as tu;
@@ -347,10 +346,23 @@ fn heading_with_unmatched_strong_marker_keeps_it_literal() {
 
 #[test]
 fn long_lines_of_unmatched_or_unbalanced_delimiters_render_in_linear_time() {
-    let limit = Duration::from_millis(500);
-    let mut processor = MarkdownProcessor::new();
-    let mut out = Vec::new();
-    let mut line = String::new();
+    // Deeply nested successful pairs must not re-walk consumed ranges.
+    let out = assert_renders_in_linear_time("nested pairs", 32_000, |n| {
+        let mut line = "*a ".repeat(n);
+        line.push_str(&"b* ".repeat(n));
+        line.push('\n');
+        line
+    });
+    assert!(text(&out).starts_with("\x1b[3ma \x1b[3ma "));
+    // A closer that matches part of its run and then fails to place the rest
+    // must cache that failed remainder instead of rescanning other openers.
+    let out = assert_renders_in_linear_time("residual closers", 32_000, |n| {
+        let mut line = "*a ".repeat(n);
+        line.push_str(&"_b c__ ".repeat(n));
+        line.push('\n');
+        line
+    });
+    assert!(contains(&out, "\x1b[3mb c\x1b[23m_ "));
 
     let shapes: [(&str, &str, usize, &str); 11] = [
         ("", "*a _b ~~c ", 40_000, "\n"),
@@ -365,42 +377,14 @@ fn long_lines_of_unmatched_or_unbalanced_delimiters_render_in_linear_time() {
         ("", "![", 32 * 1024, "]\n"),
         ("", "[^", 32 * 1024, "]\n"),
     ];
-    // Deeply nested successful pairs must not re-walk consumed ranges.
-    out.clear();
-    line.clear();
-    line.push_str(&"*a ".repeat(32_000));
-    line.push_str(&"b* ".repeat(32_000));
-    line.push('\n');
-    let nested_started = super::thread_cpu_time();
-    processor.push(&line, &mut out);
-    let elapsed = super::thread_cpu_time() - nested_started;
-    assert!(elapsed < limit, "nested pairs took {elapsed:?}");
-    assert!(text(&out).starts_with("\x1b[3ma \x1b[3ma "));
-    // A closer that matches part of its run and then fails to place the rest
-    // must cache that failed remainder instead of rescanning other openers.
-    out.clear();
-    line.clear();
-    line.push_str(&"*a ".repeat(32_000));
-    line.push_str(&"_b c__ ".repeat(32_000));
-    line.push('\n');
-    let residual_started = super::thread_cpu_time();
-    processor.push(&line, &mut out);
-    let elapsed = super::thread_cpu_time() - residual_started;
-    assert!(elapsed < limit, "residual closers took {elapsed:?}");
-    assert!(contains(&out, "\x1b[3mb c\x1b[23m_ "));
     for (prefix, unit, repeat, suffix) in shapes {
-        out.clear();
-        line.clear();
-        line.push_str(prefix);
-        line.push_str(&unit.repeat(repeat));
-        line.push_str(suffix);
-        let started = super::thread_cpu_time();
-        processor.push(&line, &mut out);
-        let elapsed = super::thread_cpu_time() - started;
-        assert!(
-            elapsed < limit,
-            "{prefix:?}{unit:?}x{repeat} took {elapsed:?}"
-        );
+        let label = format!("{prefix:?}{unit:?}..{suffix:?}");
+        assert_renders_in_linear_time(&label, repeat, |n| {
+            let mut line = String::from(prefix);
+            line.push_str(&unit.repeat(n));
+            line.push_str(suffix);
+            line
+        });
     }
 }
 

@@ -13,8 +13,10 @@
 //! (:2213), `footnotes free allocation failures` (:2380), and `code block
 //! payload clone frees language if code allocation fails` (:3223).
 
+use std::time::Duration;
+
 use super::payload::{CodeBlockCompletion, ThematicRuleCompletion};
-use super::MarkdownCompletions;
+use super::{MarkdownCompletions, MarkdownProcessor};
 
 mod blocks;
 mod code_tables;
@@ -23,13 +25,92 @@ mod inline;
 mod links;
 mod setext_footnotes;
 
+/// How many times longer the long line is than the short one in
+/// [`assert_renders_in_linear_time`].
+const LINEAR_GROWTH: usize = 4;
+
+/// The most the long line's render may cost, as a multiple of the short
+/// one's. A linear pass costs [`LINEAR_GROWTH`] (4) times as much and a
+/// quadratic one its square (16); 8 sits halfway between them on a log scale,
+/// so either reading can be off by a factor of two before the check gets it
+/// wrong.
+const LINEAR_RATIO_LIMIT: f64 = 8.0;
+
+/// Each size is rendered this many times, alternating, and the cheapest run
+/// of each is compared. Noise only ever adds time, so the minimum is the
+/// closest reading of the work itself.
+const LINEAR_RUNS: usize = 3;
+
+/// A backstop against a render that never ends; it is not the linearity
+/// check. The slowest line here costs about 50 ms of CPU in a debug build on
+/// an M5 Max, and the `macos-15-intel` runner has been seen 17 times slower
+/// than that machine, which still leaves this ceiling about 12 times clear.
+const RENDER_CEILING: Duration = Duration::from_secs(10);
+
+/// Asserts that rendering `line(n)` costs about [`LINEAR_GROWTH`] times as
+/// much as rendering `line(n / LINEAR_GROWTH)`, and returns the bytes
+/// `line(n)` rendered to.
+///
+/// The claim is that the renderer is linear, not that the machine is fast,
+/// and a fixed budget cannot tell those apart: on PR #57's `macos-15-intel`
+/// runner (2026-11-06) a linear 400 KB line took 568 ms of CPU against a
+/// 500 ms limit, where an M5 Max takes 34 ms. Two sizes rendered by one
+/// thread moments apart share the machine's speed, so their ratio keeps only
+/// how the cost grows.
+#[track_caller]
+fn assert_renders_in_linear_time(label: &str, n: usize, line: impl Fn(usize) -> String) -> Vec<u8> {
+    assert_eq!(n % LINEAR_GROWTH, 0, "{label}: x{n} splits evenly");
+    let short_n = n / LINEAR_GROWTH;
+    let short_line = line(short_n);
+    let long_line = line(n);
+    let mut processor = MarkdownProcessor::new();
+    let mut short_out = Vec::new();
+    let mut long_out = Vec::new();
+    let mut short = Duration::MAX;
+    let mut long = Duration::MAX;
+    for _ in 0..LINEAR_RUNS {
+        for (size, input, out, best) in [
+            (short_n, &short_line, &mut short_out, &mut short),
+            (n, &long_line, &mut long_out, &mut long),
+        ] {
+            out.clear();
+            let started = thread_cpu_time();
+            processor.push(input, out);
+            let elapsed = thread_cpu_time() - started;
+            assert!(
+                elapsed < RENDER_CEILING,
+                "{label} x{size} took {elapsed:?}, past the {RENDER_CEILING:?} ceiling"
+            );
+            // The line is complete, so this push rendered it instead of
+            // holding it back for the next one to pay for.
+            assert!(
+                out.ends_with(b"\n"),
+                "{label} x{size} renders in its own push"
+            );
+            *best = (*best).min(elapsed);
+        }
+    }
+    let ratio = long.as_secs_f64() / short.as_secs_f64();
+    eprintln!(
+        "linear-time {label}: x{short_n} {short:?}, x{n} {long:?}, ratio {ratio:.2} \
+         (limit {LINEAR_RATIO_LIMIT})"
+    );
+    assert!(
+        ratio < LINEAR_RATIO_LIMIT,
+        "{label}: x{short_n} took {short:?} and x{n} took {long:?}, {ratio:.2} times as \
+         long; a linear render is {LINEAR_GROWTH} times and the limit is {LINEAR_RATIO_LIMIT}"
+    );
+    long_out
+}
+
 /// CPU time this thread has spent, for the linear-time tests.
 ///
-/// Those tests assert that a 64 KiB line renders well inside a limit a
-/// quadratic walk would blow by orders of magnitude. Wall time also counts
-/// every moment another process held the core, so on a loaded machine the
-/// limit failed with the algorithm unchanged; the thread's own CPU time counts
-/// only the work the claim is about.
+/// Wall time also counts every moment another process held the core, so on
+/// a loaded machine a timing failed with the algorithm unchanged; the
+/// thread's own CPU time counts only the work the claim is about. It still
+/// runs slower on a slower or busier core, which is why
+/// [`assert_renders_in_linear_time`] compares two sizes instead of holding
+/// one to a fixed budget.
 fn thread_cpu_time() -> std::time::Duration {
     let mut now = libc::timespec {
         tv_sec: 0,

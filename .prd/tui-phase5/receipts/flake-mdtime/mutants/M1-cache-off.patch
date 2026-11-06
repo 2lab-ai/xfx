@@ -1,0 +1,13 @@
+diff --git a/src/markdown/inline_render.rs b/src/markdown/inline_render.rs
+index 3993bcc9..1f2636fc 100644
+--- a/src/markdown/inline_render.rs
++++ b/src/markdown/inline_render.rs
+@@ -511,7 +511,7 @@ fn match_delimiters(tokens: &mut [Token<'_>], matches: &mut Vec<Match>) {
+             }
+             if !matched_in_search {
+                 if let Some(top) = stack.last() {
+-                    *bottom = top.seq;
++                    let _ = top; // MUTANT M1: failed-search cache disabled
+                 }
+             }
+         }
