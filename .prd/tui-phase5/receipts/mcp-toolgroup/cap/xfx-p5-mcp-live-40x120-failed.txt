@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e5069c6 [debug] · Run /help for commands
+
+┃ use the web echo tool
+
+● 2 tool calls · 1 read · 1 MCP call
+├ Searched capabilities echo text through the web server
+└ Ran MCP mcp_web_echo
+
+  done.
+
+  3s (↑5 ↓120)
+
+┃ and once more
+
+● 2 tool calls · 1 read · 1 MCP call · 1 cancelled
+├ Searched capabilities echo text through the web server
+└ Cancelled mcp_web_echo
+
+■ Cancelled mcp_web_echo · What can xfx do differently?
+
+┃ and a last time
+
+● 2 tool calls · 1 read · 1 MCP call · 1 failed
+├ Searched capabilities echo text through the web server
+└ Failed mcp_web_echo: {"server":"web","tool":"mcp_web_echo","error":{"kind":"McpProtocolError","message":"MCP tool cal…
+
+  it failed.
+
+  0s (↑4 ↓120)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+

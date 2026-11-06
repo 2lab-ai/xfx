@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e5069c6 [debug] · Run /help for commands
+
+┃ use the web echo tool
+
+● 2 tool calls · 1 read · 1 MCP call
+├ Searched capabilities echo text through the web server
+└ Running MCP mcp_web_echo
+
+  Running (3s) (↑5 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

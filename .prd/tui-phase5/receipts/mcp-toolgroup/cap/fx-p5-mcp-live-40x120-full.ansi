@@ -1,0 +1,40 @@
+[38;5;245m  2026-11-06 11:58:32.072 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-06 11:58:32.091 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 15ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-06 11:58:35.135 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 15ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-06 11:58:32.050 KST · Prompt[39m
+[38;5;255m┃[39m [1muse the web echo tool[0m
+
+[38;5;245m  2026-11-06 11:58:32.072 KST · Tool[39m
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 MCP call[39m
+├ Searched capabilities echo text through the web server
+│[38;5;245m  {"skills":[],"mcp_tools":[{"name":"mcp_web_echo","server":"web","description":"Echo the text back (fxcap HTTP fixture
+[39m│[38;5;245m  )","purpose":"Echo the text back (fxcap HTTP fixture)","usage":["mcp","web","echo"]}],"counts":{"skills":0,"mcp_tools
+[39m│[38;5;245m  ":1},"total_matches":{"skills":0,"mcp_tools":1}}[39m
+
+[38;5;245m  2026-11-06 11:58:32.091 KST · Tool[39m
+└ Ran MCP mcp_web_echo
+│[38;5;245m  text: hi[39m
+│[38;5;245m  {"server":"web","tool":"mcp_web_echo","result":{"content":[{"type":"text","text":"MCPHTTP_ECHO: hi"}],"isError":false
+[39m│[38;5;245m  }}[39m
+
+[38;5;245m  2026-11-06 11:58:35.135 KST · Response[39m
+  done.
+
+[38;5;245m  2026-11-06 11:58:35.127 KST · Usage[39m
+[38;5;245m  3s (↑5 ↓120)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

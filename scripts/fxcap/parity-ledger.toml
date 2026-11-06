@@ -523,3 +523,33 @@ fx_row = '^auto · model-a · fix the renderer loop, it redraw'
 xfx_row = '^auto · model-a · Fix the renderer loop$'
 fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
 why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."
+
+[[cause]]
+id = "U7-cancelled-glyph"
+kind = "unit"
+owner = "U7 cancelled glyph (input cluster I10, transcript T6), not yet a branch"
+scenarios = ["p5-mcp-live"]
+snaps = ["cancel", "end", "failed"]
+fx_row = '^▪ Cancelled '
+xfx_row = '^■ Cancelled '
+why = "fx v0.0.16 marks a cancelled call `▪` (U+25AA, c29d5bfc); xfx still writes `■` (U+25A0). The glyph's cell only: read as `■`, `cancel` and `end` are the same (.prd/tui-phase5/receipts/mcp-toolgroup/README.md)."
+
+[[cause]]
+id = "U5-transcript-local-time"
+kind = "unit"
+owner = "U5 Ctrl-O local time (transcript cluster T9), not yet a branch"
+scenarios = ["p5-mcp-live"]
+snaps = ["full"]
+fx_row = '^  \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [A-Z]+ · '
+xfx_row = '^  X{27} · '
+why = "fx v0.0.16 heads each Ctrl-O entry with the machine's local time (`KST`, c9bc4876), which the `transcript-timestamp` normalization (UTC only) does not mask; xfx still writes UTC. The timestamp rows only: every row of the MCP group is the same."
+
+[[cause]]
+id = "mcp-call-error-text"
+kind = "unit"
+owner = "MCP-W model-facing MCP feat/p5-mcp-wire (src/tools/mcp.rs), a row its spec does not list"
+scenarios = ["p5-mcp-live"]
+snaps = ["failed"]
+fx_row = '^└ Failed mcp_web_echo: MCP protocol error '
+xfx_row = '^└ Failed mcp_web_echo: \{"server":'
+why = "A failed MCP call's row ends with the tool's result, what the model is told: fx v0.0.16 sends `MCP protocol error -32603: fixture refuses`, xfx its `{server, tool, error: {kind, message}}` envelope (src/tools/mcp.rs:601-607). The row's words before the reason are the same."

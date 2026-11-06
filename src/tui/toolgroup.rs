@@ -39,7 +39,7 @@
 use crate::markdown::code_highlight::{self, Variant};
 use crate::markdown::{code_highlight_languages, theme as syntax};
 use crate::output::safe_one_line;
-use crate::tools::{Activity, LineChanges, Outcome, Shown};
+use crate::tools::{mcp, Activity, LineChanges, Outcome, Shown};
 
 use super::theme::{DocumentRow, Mode, Palette};
 
@@ -67,6 +67,15 @@ const CATEGORIES: [(Activity, &str); 5] = [
     (Activity::Edit, "edit"),
     (Activity::Command, "command"),
 ];
+
+/// What a call to one of an MCP server's own tools is counted as: a kind of
+/// its own, after every one in [`CATEGORIES`] when two counts tie
+/// (`vercel-labs/fx@481104fd src/ui/transcript/tool_group_projection.zig:
+/// 143-156`, `MCP call` at index 8, after `command`'s 5), and `MCP calls` for
+/// more than one (`:542`). Until fx v0.0.16 such a call was counted as a
+/// command (`fx-p5-mcp-turn-40x120-turn`: `2 commands` on 0.0.13, `2 MCP
+/// calls` on 0.0.16).
+const MCP_CALL: &str = "MCP call";
 
 /// The calls of one group, in the order they started.
 #[derive(Debug, Default)]
@@ -125,16 +134,55 @@ impl Call {
         )
     }
 
+    /// Whether this is a call to one of an MCP server's own tools: upstream
+    /// gives every such call a kind of its own, by the `mcp_` its name always
+    /// has (`unregisteredActivityKind`, `vercel-labs/fx@481104fd
+    /// src/core/tooling/tool_dispatch.zig:576-577`). Here it is the one
+    /// presentation every such call is shown with ([`mcp::shown`]), whose
+    /// activity stays a command's for what a stop does to it
+    /// ([`ToolGroup::running_command`]).
+    fn calls_mcp(&self) -> bool {
+        self.shown.presentation == mcp::DYNAMIC
+    }
+
+    /// Whether the row is a shell command's, whose words the highlighter
+    /// colours: not an MCP call's, which upstream leaves in the row's grey
+    /// since it stopped counting one as a command (`highlightCommandPhrase`,
+    /// `tool_group_projection.zig:749@481104fd`; `fx-p5-mcp-turn-40x120-turn`
+    /// row 7, `MCP` in 252 on 0.0.13 and 245 on 0.0.16).
+    fn runs_a_command(&self) -> bool {
+        self.shown.presentation.activity == Activity::Command && !self.calls_mcp()
+    }
+
     /// The argument the row names, flattened to one line.
     ///
     /// A file change that was refused or stopped is named by the tool's own
     /// word (`Denied file`, `Cancelled file`), as upstream's is: its row names
     /// the file it was given only once it has been given one
     /// (`tool_presentation.zig` `formatPlainAction`, `display_target`).
+    ///
+    /// An MCP call that did not run to its end -- it failed, was refused or
+    /// was stopped -- is named by its tool alone: `MCP` belongs to the verbs
+    /// upstream gives such a call while it runs and once it has (`Running
+    /// MCP`, `Ran MCP`), and to no other outcome (`dynamicMcpActionLabel`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_agent_runtime.zig:1376-1381`,
+    /// the same at c1db9191; `fx-p5-mcp-live-40x120-cancel` row 17,
+    /// `Cancelled mcp_web_echo`, and `-failed`, `Failed mcp_web_echo: …`).
+    /// The name is a server's tool's, so it is spelled as every name a server
+    /// supplies is ([`crate::mcp::terminal_safe`]).
     fn target(&self) -> String {
         let default = self.shown.presentation.default_target;
         let refused = matches!(self.state, State::Denied | State::Cancelled);
+        let ran = matches!(self.state, State::Running | State::Done(_));
         match &self.shown.target {
+            Some(target) if self.calls_mcp() => {
+                let named = if ran {
+                    target.as_str()
+                } else {
+                    target.strip_prefix("MCP ").unwrap_or(target)
+                };
+                crate::mcp::terminal_safe(named)
+            }
             Some(target) if !(refused && self.changes_a_file()) => spelled(target),
             _ => default.to_string(),
         }
@@ -168,7 +216,11 @@ impl Call {
         match &self.state {
             State::Failed(reason) if !reason.is_empty() => {
                 phrase.push_str(": ");
-                phrase.push_str(&flattened(reason));
+                if self.calls_mcp() {
+                    phrase.push_str(&server_spelled(reason));
+                } else {
+                    phrase.push_str(&flattened(reason));
+                }
             }
             // `formatToolStatusWithStats`: both counts, or the one that is
             // not zero, and nothing for a change of nothing. Monochrome, as
@@ -189,7 +241,7 @@ impl Call {
     /// words re-coloured by the shell highlighter inside it
     /// (`highlightCommandPhrase`, `:728`).
     fn painted(&self, base: &str, palette: Palette) -> String {
-        if self.shown.presentation.activity != Activity::Command {
+        if !self.runs_a_command() {
             return self.phrase();
         }
         format!(
@@ -450,26 +502,29 @@ impl ToolGroup {
 
 /// The header's words after its mark: the count, then each kind of work by how
 /// many calls did it, then each way the settled ones went wrong
-/// (`formatGroupHeader`, `:497-541`).
+/// (`formatGroupHeader`, `:497-541`). An MCP call is counted as [`MCP_CALL`]
+/// and as nothing else.
 fn summary(calls: &[&Call]) -> String {
     let total = calls.len();
     let mut out = format!("{total} tool call{}", if total == 1 { "" } else { "s" });
+    let mcp_calls = calls.iter().filter(|call| call.calls_mcp()).count();
     let mut counted: Vec<(usize, usize, &str)> = CATEGORIES
         .iter()
         .enumerate()
         .map(|(order, (activity, label))| {
             let count = calls
                 .iter()
-                .filter(|call| call.shown.presentation.activity == *activity)
+                .filter(|call| call.shown.presentation.activity == *activity && !call.calls_mcp())
                 .count();
             (count, order, *label)
         })
+        .chain([(mcp_calls, CATEGORIES.len(), MCP_CALL)])
         .filter(|(count, _, _)| *count > 0)
         .collect();
     // By count, most first; a tie keeps the categories' own order.
     counted.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     for (count, _, label) in counted {
-        let plural = if label == "command" && count != 1 {
+        let plural = if matches!(label, "command" | MCP_CALL) && count != 1 {
             "s"
         } else {
             ""
@@ -519,7 +574,7 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     // Upstream's `tool_stdout_style`: 245 on either screen, where the rows
     // above it are the statusline's 241 on a light one.
     let base = palette.tool_output();
-    let target = if call.shown.presentation.activity == Activity::Command {
+    let target = if call.runs_a_command() {
         highlighted(&call.target(), base, palette)
     } else {
         call.target()
@@ -562,6 +617,23 @@ fn flattened(reason: &str) -> String {
         .filter(|word| !word.is_empty())
         .collect();
     safe_one_line(&words.join(" "), TARGET_BYTES)
+}
+
+/// An MCP call's failure reason as the row shows it. Its words can be the
+/// server's own (an `isError` result's text), so it is spelled as every text
+/// a server supplies is: upstream's `encodeTerminalSafeInline`
+/// (`vercel-labs/fx@481104fd src/core/shared/text_utils.zig:397-417`), ASCII
+/// white space flattened to one space and then [`crate::mcp::terminal_safe`]
+/// -- every other control and every invisible or bidirectional code point
+/// written out rather than dropped, and the length bounded. Since fx v0.0.16
+/// such a row carries its reason, where a command's row did not
+/// (`fx-p5-mcp-live-40x120-failed` row 25).
+fn server_spelled(reason: &str) -> String {
+    let words: Vec<&str> = reason
+        .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+        .filter(|word| !word.is_empty())
+        .collect();
+    crate::mcp::terminal_safe(&words.join(" "))
 }
 
 #[cfg(test)]
@@ -1205,5 +1277,174 @@ mod tests {
         let tool = "\u{1b}[38;5;245mfile";
         assert!(drawn_in(&mut group, DARK)[3].contains(tool));
         assert!(drawn_in(&mut group, LIGHT)[3].contains(tool));
+    }
+
+    /// A call of an MCP server's own tool, as the runtime shows it.
+    fn mcp_call(name: &str) -> Shown {
+        mcp::shown(name)
+    }
+
+    fn search(query: &str) -> Shown {
+        shown(&mcp::CAPABILITY_SEARCH, json!({"query": query}))
+    }
+
+    #[test]
+    fn one_mcp_call_is_counted_as_an_mcp_call() {
+        // fx v0.0.16 `fx-p5-mcp-direct-40x120-turn` rows 5-6 (0.0.13: `1
+        // command`).
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_fixture_echo"));
+        ok(&mut group, "1");
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 MCP call",
+                "\u{2514} Ran MCP mcp_fixture_echo",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn several_mcp_calls_are_mcp_calls_and_their_rows_stay_in_the_rows_grey() {
+        // fx v0.0.16 `fx-p5-mcp-turn-40x120-turn` rows 5-8, colours included:
+        // `MCP` is no shell word now that the call is not a command's (0.0.13:
+        // `2 commands`, and `MCP` in 252).
+        let mut group = ToolGroup::default();
+        group.start("1".into(), search("echo text through the fixture"));
+        ok(&mut group, "1");
+        group.start("2".into(), mcp_call("mcp_fixture_echo"));
+        ok(&mut group, "2");
+        group.start("3".into(), mcp_call("mcp_fixture_echo"));
+        ok(&mut group, "3");
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 3 tool calls \u{b7} 2 MCP calls \u{b7} 1 read",
+                "\u{251c} Searched capabilities echo text through the fixture",
+                "\u{251c} Ran MCP mcp_fixture_echo",
+                "\u{2514} Ran MCP mcp_fixture_echo",
+                "",
+            ]
+        );
+        let rows = group.rows(DARK);
+        assert_eq!(
+            rows[0],
+            format!(
+                "{HINT}\u{25cf}{RESET} {TEXT}3 tool calls \u{b7} 2 MCP calls \u{b7} 1 read{RESET}"
+            )
+        );
+        assert_eq!(
+            rows[2],
+            format!("{TEXT}\u{251c} Ran MCP mcp_fixture_echo{RESET}")
+        );
+        assert_eq!(
+            rows[3],
+            format!("{TEXT}\u{2514} Ran MCP mcp_fixture_echo{RESET}")
+        );
+    }
+
+    #[test]
+    fn a_running_mcp_call_is_counted_and_an_mcp_call_comes_last_in_a_tie() {
+        // fx v0.0.16 `fx-p5-mcp-live-40x120-live`: the call still held by its
+        // server is counted already, and `1 read` leads `1 MCP call`.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), search("echo text through the web server"));
+        ok(&mut group, "1");
+        group.start("2".into(), mcp_call("mcp_web_echo"));
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 2 tool calls \u{b7} 1 read \u{b7} 1 MCP call",
+                "\u{251c} Searched capabilities echo text through the web server",
+                "\u{2514} Running MCP mcp_web_echo",
+                "",
+            ]
+        );
+        // After `command` too (`tool_group_projection.zig:143-156@481104fd`,
+        // index 8 against 5); a shell command keeps its own count and words.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        ok(&mut group, "1");
+        group.start("2".into(), command("ls"));
+        assert!(group.finish("2", true, "", Outcome::Exited(0), None));
+        assert_eq!(
+            plain(&group)[0],
+            "\u{25cf} 2 tool calls \u{b7} 1 command \u{b7} 1 MCP call"
+        );
+        assert!(group.rows(DARK)[2].contains(&format!("{WORD}ls{FG_OFF}")));
+    }
+
+    #[test]
+    fn a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone() {
+        // fx v0.0.16 `fx-p5-mcp-live-40x120-cancel` rows 15-19: the held call
+        // stopped with Ctrl-C. (The line's mark is the transcript's own.)
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        // What a stop does to it is unchanged: it settles as a command does.
+        assert!(group.running_command());
+        assert_eq!(group.cancel_running(), ["1".to_string()]);
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 MCP call \u{b7} 1 cancelled",
+                "\u{2514} Cancelled mcp_web_echo",
+                "",
+                "\u{25a0} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
+                "",
+            ]
+        );
+        // The tool's name in the tool grey, no word of it lifted.
+        let line = &group.rows(DARK)[3];
+        assert!(
+            line.contains(&format!("{RESET} {TEXT}mcp_web_echo{RESET}")),
+            "{line:?}"
+        );
+        // Refused, the same (`formatMissingSpecToolAction`,
+        // `app_agent_runtime.zig:1324-1329@481104fd`).
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        assert!(group.finish("1", false, "no", Outcome::Denied, None));
+        assert_eq!(plain(&group)[1], "\u{2514} Denied mcp_web_echo");
+        // Failed, with its reason after it: `fx-p5-mcp-live-40x120-failed`
+        // rows 23-25, the server answering with a JSON-RPC error. (The reason
+        // is the tool's result, what the model is told.)
+        let mut group = ToolGroup::default();
+        group.start("1".into(), search("echo text through the web server"));
+        ok(&mut group, "1");
+        group.start("2".into(), mcp_call("mcp_web_echo"));
+        let reason = "MCP protocol error -32603: fixture refuses";
+        assert!(group.finish("2", false, reason, Outcome::Finished, None));
+        assert_eq!(
+            plain(&group)[..3],
+            [
+                "\u{25cf} 2 tool calls \u{b7} 1 read \u{b7} 1 MCP call \u{b7} 1 failed",
+                "\u{251c} Searched capabilities echo text through the web server",
+                "\u{2514} Failed mcp_web_echo: MCP protocol error -32603: fixture refuses",
+            ]
+        );
+        assert_eq!(
+            group.rows(DARK)[2],
+            format!(
+                "{TEXT}\u{2514} Failed mcp_web_echo: MCP protocol error -32603: fixture refuses{RESET}"
+            )
+        );
+    }
+
+    #[test]
+    fn a_servers_words_in_a_failed_mcp_calls_row_are_written_out_not_obeyed() {
+        // A reason that is a server's text: its line breaks one space, an
+        // escape and a bidirectional override spelled out, as upstream's
+        // `encodeTerminalSafeInline` does, where every other tool's reason
+        // only has its controls blanked.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        let reason = "refused\r\n  by \u{1b}[31mthe\u{202e} server";
+        assert!(group.finish("1", false, reason, Outcome::Finished, None));
+        assert_eq!(
+            plain(&group)[1],
+            "\u{2514} Failed mcp_web_echo: refused by \\x1b[31mthe\\u{202e} server"
+        );
+        assert!(!group.rows(DARK)[1].contains('\u{202e}'));
     }
 }
