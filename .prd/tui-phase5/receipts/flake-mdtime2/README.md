@@ -1,8 +1,8 @@
 # flake-mdtime2: the markdown linear-time check, second flake
 
 `markdown::tests::code_tables::long_lines_of_unmatched_or_unbalanced_delimiters_render_in_linear_time`
-failed again on CI, now on the arm64 macOS runner, eleven hours after
-flake-mdtime's fix merged. That makes this a repeated failure of one check.
+failed again on CI, now on the arm64 macOS runner, an hour after
+flake-mdtime's fix (PR #61) merged at 2026-11-06 19:44Z. That makes this a repeated failure of one check.
 The cause is in the check, not in the renderer. The fix changes
 `src/markdown/tests/mod.rs` only. Old line numbers are at `main` @
 `d314549e`; new ones are at this branch's test commit.
@@ -60,9 +60,9 @@ twice apart within a second:
 **Reproduced here.** Under `taskpolicy -b` (background QoS) one x16384 push
 of the failing shape read anywhere from 311 µs to 1.06 ms, 3.4 times apart.
 The old check, run 30 times that way (the logs' summary is in § Ratios),
-failed 5 times, with the CI signature: the short side's cheapest run at or
-near full speed (307 µs, 309 µs and 330 µs against 291 µs alone) and the long
-side's 2.5 to 3.3 times its full-speed cost. Its readings spread from 0.38 to
+failed 5 times, with the CI signature: the short side's cheapest run 1.05
+to 1.39 times its cost alone, the long side's 2.4 to 3.3 times. For the
+three `"*"` shapes the short side read 307 to 330 µs against 291 µs alone. Its readings spread from 0.38 to
 2.50 times the linear 4.
 
 **A floor under the short render would not have helped.** One of the 5
