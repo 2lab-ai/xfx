@@ -87,11 +87,12 @@ The module is new, so "fails on the base" is "does not compile". RED is (a)
 the two failures the two-process test gave on the first draft, and (b) each
 guard taken out, one at a time, on a `git clone --no-local` copy in the
 scratchpad (never this worktree), only its guarding test run, under
-`gtimeout -k 10 600`; the unmutated copy passed first (26 passed). Redacted
-output: `red-mutants.txt`.
+`gtimeout -k 10 600`; the unmutated copy passed first (26 passed on
+`1f2f6425`; 27 on `85e18a25`, where M10 and M15 ran). Redacted output:
+`red-mutants.txt`.
 
-**Found by the two-process test on the first draft** (both fixed before the first commit, `22100308`; M15 and M10 put them
-back):
+**Found by the two-process test on the first draft** (both fixed before
+the first commit, `22100308`; M15 and M10 put them back):
 
 - `a reader found the file unreadable`: the reader refused any file whose
   link count was not 1, and a file a store renames over after a reader
@@ -104,7 +105,7 @@ back):
   `O_NOFOLLOW` and 921/854 without; one process alone, 0. The lock's create
   now retries `ENOENT` (at most 50 times, 10 ms apart).
 
-**Mutants** (all 16 killed; each on its first run):
+**Mutants** (all 16 killed, each on its first run against the test named):
 
 | Mutant | Property | Failing test and assertion |
 |---|---|---|
@@ -178,6 +179,43 @@ this module's to remove short of adding a path made from a model.
 - **Non-unix**: `read` is `None` and `store` fails. xfx's CI targets are
   Linux and macOS only.
 
+## Residuals
+
+- `[unverified]` Whether the macOS simultaneous-create `ENOENT` also hits
+  `mkdirat` or the `O_DIRECTORY` open of a `usage-cache` two processes make
+  for the first time at once. Only the lock's create retries it. The failure
+  would be `StoreError::Io`, which U3 shows as the unsaved fetch, not a wrong
+  number.
+- `[unverified]` Linux: the platform-dependent field widths (`st_nlink`,
+  `st_mode`, `st_size`) are converted without casts, but clippy and the tests
+  ran on macOS only (no Linux target installed); CI's Linux runners are the
+  check.
+- The race probe that measured the `ENOENT` used a shell `&` to start its two
+  processes, against the brief's rule; it wrote only under the scratchpad.
+
 ## Gates
 
-GATES_TABLE
+Run once, green, on `f00e6a28` (the code is `85e18a25`; only this receipt
+changed after it), rustc 1.99.1 on macOS (aarch64), with
+`TMPDIR` a short directory in the harness temp folder (`claude-501/p5uc`)
+and `HOME` under it:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4599 passed, 0 failed, 7 ignored (14 binaries); the 27 `usage::cache` and 4 `usage::view` tests among them |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4620 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
+| `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok, ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1107 checks, 0 failures |
+| MSRV: 1.96.1 `cargo check --locked --all-targets` | ok (on `22100308`'s code; the later commits are tests and docs) |
+| clippy and tests for `x86_64-unknown-linux-gnu` | not run here: no Linux target installed `[unverified]`; CI's Linux runners |
+
+No pty test failed, so none was re-run. **A short `TMPDIR` is needed**: a
+first run with `TMPDIR` in the session scratchpad (a 120-byte path) failed 12
+tests this unit does not touch -- 11 `tui::shell` tests whose temp paths no
+longer fit a 120-column row, and `image::tests::a_fifo_named_like_an_image_…`
+(`path must be shorter than SUN_LEN`) -- and passed whole with the short one.
