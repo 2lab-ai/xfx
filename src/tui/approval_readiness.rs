@@ -76,10 +76,12 @@ pub(crate) enum Outcome {
 pub(crate) struct Disclosure {
     /// Absolute terminal row, one-based, of the last control row.
     ///
-    /// Absolute rather than panel-local, because the band puts its activity row
-    /// above the panel when the geometry has one: a local index is not a row of
-    /// anybody's screen, and the guard in [`Intent::capture`] is about the
-    /// screen.
+    /// Absolute rather than panel-local, because the band puts rows of its own
+    /// above the panel -- the rule that heads it, and the blank row above a
+    /// panel over a document that does not end on one -- so a local index is
+    /// not a row of anybody's screen, and the guard in [`Intent::capture`] is
+    /// about the screen. The panel's caller hands it the row the geometry
+    /// paints the panel from (`super::layout::Geometry::panel_first`).
     pub last_control_row: u16,
     /// The three control labels reached the screen with nothing cut off.
     pub controls_whole: bool,

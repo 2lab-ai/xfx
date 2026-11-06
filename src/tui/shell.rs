@@ -5113,7 +5113,7 @@ impl Shell {
         self.effort_menu = None;
         self.sessions = None;
         self.provider_picker = None;
-        self.fork_menu = None;
+        self.close_fork_menu();
         self.skills_menu = Some(menu);
         self.refit();
         self.render.request(Reason::Modal);
@@ -6229,19 +6229,19 @@ impl Shell {
     /// the menu, the newest prompt selected -- or upstream's sentence for why
     /// there is none (`openForkMenu`, `app_session_runtime.zig:2072-2096@481104fd`).
     ///
-    /// **Nothing else in the slot can be up when it opens**, because whatever
-    /// opens one moves the composer on from the `/fork` and drops it
-    /// ([`Self::close_fork_menu`]). The pickers and the slash menu open from
-    /// an edit. The info panel, `/effort`'s, `/mcp`'s, `/statusline`'s,
-    /// `/usage`'s and `/workspace`'s menus, the catalog, the settings menu
-    /// and a rule's confirmation open from a line sent, and so does the
-    /// session picker (from `/resume`'s line, not its answer). A turn's
-    /// permission question and the model's questions open only inside a
-    /// turn: a `/fork` is refused while one is in hand
-    /// ([`Self::provider_work_busy`]), and a later turn starts only from a
-    /// line sent. So the slot holds one surface, as upstream's does. The
-    /// closes below are kept for a way in that does not pass through any of
-    /// those, so a menu opened that way cannot sit under this one.
+    /// **Two rules keep one surface in the slot**, as upstream's holds one.
+    /// Whatever opens another surface while the `/fork` waits drops it
+    /// ([`Self::close_fork_menu`]): an edit, a recall, an Escape, a line sent,
+    /// and every opener -- the info panel, the catalog, `/model`'s, `/effort`'s,
+    /// `/mcp`'s, `/statusline`'s, `/usage`'s, `/workspace`'s and `/skills`'
+    /// menus, the settings menu, the session picker, a rule's confirmation. A
+    /// turn's questions open only inside a turn, and a `/fork` is refused
+    /// while one is in hand ([`Self::provider_work_busy`]). And the closes
+    /// below put away whatever a late answer still lands on. **They are not
+    /// decorative**: until the openers dropped the ask, `C-p`'s catalog
+    /// (`model_catalog_shortcut`, which needs no line and no edit) was up when
+    /// the answer landed, and these closes were all that kept the fork menu
+    /// from opening beside it (review FK-GAPb, opus MUST).
     fn fork_points(&mut self, points: ForkPoints) {
         if !std::mem::take(&mut self.fork_asked) {
             return;
@@ -10575,6 +10575,7 @@ impl Shell {
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
                         || self.fork_menu.is_some()
+                        || self.fork_asked
                         || self.effort_menu.is_some()
                         || self.picker.is_some()
                         || self.full.is_open()
@@ -11106,6 +11107,14 @@ impl Shell {
             // A compaction's sentence goes first, and that is all this Escape
             // does (`dismissCompactionFeedback`, `app_input_runtime.zig:3158`,
             // `:3208`).
+            // A `/fork` still waiting for its answer: upstream's menu is open
+            // by now and takes this Escape, which closes it (`/fork`'s parity
+            // row), so the answer opens nothing and the Escape does nothing
+            // else ([`Self::close_fork_menu`]).
+            Action::Escape if self.fork_asked => {
+                self.close_fork_menu();
+                self.settle_band(now);
+            }
             // The ghost after the caret goes before a compaction's sentence
             // (`dismissVisibleInlinePicker`, `app_input_runtime.zig:3152-3157`).
             Action::Escape if self.ghost_dismissible() => self.dismiss_ghost(),
@@ -11204,7 +11213,11 @@ impl Shell {
             // keeps the transfer atomic: a caller that popped an entry and
             // forgot to stash it would silently destroy the redo path, so there
             // is no public pop ([`super::edit_history::EditHistory::undo`]).
+            // An edit upstream's way, whether or not it moves anything: the
+            // menus that read no query close first (`.undo`, `.redo`,
+            // `app_input_runtime.zig:380`, `:387@481104fd`).
             Action::Undo | Action::Redo => {
+                self.dismiss_for_edit();
                 let Shell {
                     edit_history,
                     editor,
@@ -11251,6 +11264,9 @@ impl Shell {
             // Super+A, Super+C, Super+X (`select_all`, `copy_selection`,
             // `cut_selection`, `app_input_runtime.zig:350-385`).
             Action::SelectAll => {
+                // `.select_all` closes the menus that read no query first
+                // (`app_input_runtime.zig:333@481104fd`).
+                self.dismiss_for_edit();
                 if self.editor.select_all() {
                     self.moved();
                 }
@@ -12273,7 +12289,7 @@ impl CommandHandlers for Shell {
         self.picker = None;
         self.file_picker = None;
         self.sessions = None;
-        self.fork_menu = None;
+        self.close_fork_menu();
         self.effort_menu = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
@@ -12324,7 +12340,7 @@ impl CommandHandlers for Shell {
         self.effort_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
-        self.fork_menu = None;
+        self.close_fork_menu();
         self.sessions = Some(SessionPicker::open(
             self.editor.text(),
             session_picker::page_for(self.geometry.rows),
@@ -12441,7 +12457,7 @@ impl CommandHandlers for Shell {
             .usage_read
             .as_ref()
             .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms));
-        self.fork_menu = None;
+        self.close_fork_menu();
         self.usage_menu = Some(Dashboard::open(scope, cached));
         self.read_usage(scope);
         // [`Self::run_command`] re-solved the band before routing here, for a
@@ -12564,7 +12580,7 @@ impl CommandHandlers for Shell {
                     self.settings_menu = None;
                     self.usage_menu = None;
                     self.info_panel = None;
-                    self.fork_menu = None;
+                    self.close_fork_menu();
                     self.effort_menu = None;
                     self.rule_confirm = Some(RuleConfirm::new(confirmation));
                     self.refit();
@@ -12633,7 +12649,7 @@ impl CommandHandlers for Shell {
             self.help_menu = None;
             self.workspace_menu = None;
             self.info_panel = None;
-            self.fork_menu = None;
+            self.close_fork_menu();
             self.effort_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
@@ -12715,7 +12731,7 @@ impl CommandHandlers for Shell {
                 self.usage_menu = None;
                 self.settings_menu = None;
                 self.info_panel = None;
-                self.fork_menu = None;
+                self.close_fork_menu();
                 self.workspace_menu = Some(workspace_menu::Menu::open());
                 self.refit();
                 self.render.request(Reason::Modal);
@@ -12759,7 +12775,7 @@ impl CommandHandlers for Shell {
             self.settings_menu = None;
             self.workspace_menu = None;
             self.info_panel = None;
-            self.fork_menu = None;
+            self.close_fork_menu();
             self.mcp_menu = Some(super::mcp_menu::McpMenu::open());
             self.refit();
             self.render.request(Reason::Modal);
@@ -12844,7 +12860,7 @@ impl CommandHandlers for Shell {
         self.file_picker = None;
         self.workspace_menu = None;
         self.info_panel = None;
-        self.fork_menu = None;
+        self.close_fork_menu();
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
         // The effort and speed rows are the catalog's answer for the model in
         // force, which upstream's menu reads from a cache filled at launch
@@ -13329,7 +13345,7 @@ impl Shell {
                 ModelMenu::loading(query)
             }
         };
-        self.fork_menu = None;
+        self.close_fork_menu();
         self.model_menu = Some(menu);
         self.refit();
         self.render.request(Reason::Modal);
@@ -14281,30 +14297,36 @@ impl Shell {
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
-        // `/effort`'s menu reads nothing from the composer, so an edit to it
-        // closes the menu, and the edit stands
-        // (`dismissActiveMenusForComposerEdit`,
-        // `app_input_runtime.zig:1984-1990@481104fd`). The band is re-solved
-        // below, for the rows the menu gave back.
-        if self.effort_menu.take().is_some() {
-            self.render.request(Reason::Modal);
-        }
+        // `/effort`'s and `/fork`'s menus read nothing from the composer, so
+        // an edit closes them -- and a `/fork` on its way, before its menu
+        // opens -- and the edit stands ([`Self::dismiss_for_edit`]).
+        self.dismiss_for_edit();
         // An edit went through: the next refusal is a new run, and is said.
         self.over_limit = false;
-        // `/fork`'s menu reads no search, so an edit closes it -- and one on
-        // its way from the runtime, before it opens -- and the edit stands
-        // (`dismissActiveMenusForComposerEdit`,
-        // `app_input_runtime.zig:1984-1990@481104fd`). A prompt waiting to go
-        // back into the composer after a fork stays out of it: what was typed
-        // is the user's.
+        // A prompt waiting to go back into the composer after a fork stays
+        // out of it: what was typed is the user's.
         self.fork_prompt = None;
-        if self.close_fork_menu() {
-            self.refit();
-            self.render.request(Reason::Modal);
-        }
         self.history.leave();
         self.recalled_slash = false;
         self.edited(delta);
+    }
+
+    /// Closes the menus that read no query from the composer -- `/effort`'s,
+    /// and `/fork`'s with a `/fork` still on its way ([`Self::close_fork_menu`])
+    /// -- as the keys upstream counts as edits do, whether or not they change
+    /// the text: typing, a paste, an undo or a redo, a select-all, among
+    /// others (`dismissActiveMenusForComposerEdit`,
+    /// `app_input_runtime.zig:1984-1990@481104fd`, called at `:333`,
+    /// `:380`, `:387` and with each deletion and insertion). `true` when one
+    /// was up; the band is re-solved for the rows it gave back.
+    fn dismiss_for_edit(&mut self) -> bool {
+        let effort = self.effort_menu.take().is_some();
+        let fork = self.close_fork_menu();
+        if effort || fork {
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+        effort || fork
     }
 
     /// Closes `/fork`'s menu, and drops a `/fork` still waiting for the
@@ -14319,9 +14341,10 @@ impl Shell {
     /// Nothing else can be run, recalled or opened while it is up -- the slot
     /// holds one surface. Here the menu opens when the runtime answers, and in
     /// between the composer is the user's: what moves it on from the `/fork`
-    /// -- an edit ([`Self::amended`]), a recall ([`Self::recall`]), a command
-    /// run ([`Self::run_command`]), a surface opened in the slot -- is the
-    /// user leaving the menu, and closes it as an edit closes upstream's.
+    /// -- an edit ([`Self::dismiss_for_edit`]), a recall ([`Self::recall`]),
+    /// an Escape, a line sent ([`Self::submit`]), a surface opened in the slot
+    /// (each opener calls this) -- is the user leaving the menu, and closes it
+    /// as those keys close upstream's.
     fn close_fork_menu(&mut self) -> bool {
         self.fork_asked = false;
         self.fork_menu.take().is_some()
@@ -41047,11 +41070,28 @@ mod tests {
     /// How many of the slot's surfaces a command or a `/fork` can open are
     /// up at once: upstream's slot holds one (`surface_frame.zig:398-408@481104fd`).
     fn slot_occupants(shell: &Shell) -> usize {
+        // Every field [`Shell::slot`] reads. The `/model ` and `/effort `
+        // column is not one: it is a view of the draft, so it cannot outlive
+        // the text that shows it.
         [
-            shell.info_panel.is_some(),
-            shell.fork_menu.is_some(),
-            shell.effort_menu.is_some(),
+            shell.panel.is_some(),
+            shell.ask.is_some(),
             shell.rule_confirm.is_some(),
+            shell.statusline_menu.is_some(),
+            shell.info_panel.is_some(),
+            shell.usage_menu.is_some(),
+            shell.workspace_menu.is_some(),
+            shell.mcp_menu.is_some(),
+            shell.settings_menu.is_some(),
+            shell.help_menu.is_some(),
+            shell.sessions.is_some(),
+            shell.fork_menu.is_some(),
+            shell.model_menu.is_some(),
+            shell.effort_menu.is_some(),
+            shell.skills_menu.is_some(),
+            shell.provider_picker.is_some(),
+            shell.file_picker.is_some(),
+            shell.picker.is_some(),
         ]
         .into_iter()
         .filter(|up| *up)
@@ -41147,6 +41187,188 @@ mod tests {
             shell.fork_menu.is_none(),
             "the recall left the ask standing"
         );
+    }
+
+    #[test]
+    fn a_fork_still_on_its_way_opens_nothing_over_the_catalog_ctrl_p_opened() {
+        // Review FK-GAPb, opus MUST: `C-p` opens `/model`'s catalog with no
+        // line sent and no edit made, so neither of those dropped the ask; the
+        // answer then closed the catalog and opened the fork menu, and the
+        // next key -- the catalog's draft given back -- closed that too.
+        // Upstream's `C-p` is refused over the open fork menu
+        // (`modelPickerShortcutBlocked`, `app_input_runtime.zig:1965-1967@481104fd`);
+        // here the menu is not open yet, so the catalog opening is the user
+        // moving on from the `/fork`.
+        let mut shell = harness_shell();
+        fork_asked(&mut shell);
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_some(), "C-p opened no catalog");
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.model_menu.is_some(), "the answer closed the catalog");
+        assert!(shell.fork_menu.is_none(), "the fork menu opened over it");
+        assert_eq!(slot_occupants(&shell), 1);
+    }
+
+    #[test]
+    fn an_escape_while_a_fork_is_on_its_way_drops_it() {
+        // Upstream's menu is open by now, and Escape closes it (`/fork`'s
+        // parity row); here the Escape lands before the answer, so the answer
+        // opens nothing.
+        let mut shell = shell(40, 120);
+        fork_asked(&mut shell);
+        escape(&mut shell);
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(
+            shell.fork_menu.is_none(),
+            "the menu opened after the Escape"
+        );
+        assert!(shell.document().is_empty(), "the Escape wrote something");
+    }
+
+    #[test]
+    fn a_line_sent_while_a_fork_is_on_its_way_drops_it_whatever_put_it_there() {
+        // Every key route that fills the composer -- an edit, a paste, a
+        // recall -- drops the ask itself; the Return that sends a line drops
+        // it too, for any route that does not. Pinned by putting the line in
+        // the composer directly, then sending it: a prompt, so no surface
+        // opened by it closes the ask on its own.
+        let mut shell = shell(40, 120);
+        fork_asked(&mut shell);
+        assert!(shell.editor.set_text("hello", Entities::new()));
+        shell.route_bytes(b"\r");
+        assert!(matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "hello"));
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none(), "the menu opened over the turn");
+    }
+
+    #[test]
+    fn a_recalled_prompt_sent_while_a_fork_is_on_its_way_opens_no_menu_over_its_turn() {
+        // The recall-only pin's second half: the recalled prompt sent, its
+        // turn started, and the late answer opening nothing over it.
+        let mut shell = shell(40, 120);
+        let _ = turn_running(&mut shell, b"hello\r");
+        assert!(matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "hello"));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        let _ = shell.document();
+        fork_asked(&mut shell);
+        recall_until(&mut shell, "hello");
+        shell.route_bytes(b"\r");
+        assert!(matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "hello"));
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(
+            shell.fork_menu.is_none(),
+            "the menu opened over the new turn"
+        );
+        assert_eq!(slot_occupants(&shell), 0);
+    }
+
+    #[test]
+    fn effort_menu_opening_drops_a_fork_open_or_on_its_way() {
+        // `/effort`'s own close, reached without the line-sent one before it:
+        // the handler called as the router would call it.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        forked_menu(&mut shell, three_points());
+        assert!(shell.fork_menu.is_some());
+        shell.effort_command("");
+        assert!(
+            shell.fork_menu.is_none(),
+            "/effort's menu opened over the fork menu"
+        );
+        assert!(shell.effort_menu.is_some());
+        escape(&mut shell);
+        fork_asked(&mut shell);
+        shell.effort_command("");
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(
+            shell.fork_menu.is_none(),
+            "the answer opened the menu beside /effort's"
+        );
+        assert_eq!(slot_occupants(&shell), 1);
+    }
+
+    #[test]
+    fn every_command_that_opens_a_surface_drops_a_fork_on_its_way() {
+        // Each command's handler, reached through the router without the
+        // line-sent close in front of it ([`Shell::submit`]): any way a
+        // handler is reached later -- a shortcut, a menu that composes a line
+        // -- still drops the waiting `/fork`, and its answer opens nothing.
+        for line in [
+            "/help",
+            "/status",
+            "/permissions",
+            "/statusline",
+            "/settings",
+            "/usage",
+            "/workspace",
+            "/model",
+            "/resume",
+            "/mcp",
+        ] {
+            let root = tempfile::tempdir().expect("a root");
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            fork_asked(&mut shell);
+            router::route(&router::classify(line), &mut *shell);
+            assert_eq!(slot_occupants(&shell), 1, "{line} opened no surface");
+            shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+            assert!(
+                shell.fork_menu.is_none(),
+                "{line}: the answer opened the fork menu"
+            );
+            assert_eq!(
+                slot_occupants(&shell),
+                1,
+                "{line}: two surfaces in the slot"
+            );
+        }
+    }
+
+    #[test]
+    fn the_skills_menu_opening_drops_a_fork_on_its_way() {
+        // `/skills` opens its menu once the refresh it asked for has read the
+        // skill roots ([`Shell::open_skills`], also where a pasted `$word`
+        // opens it); that opening drops the waiting `/fork` as every other
+        // one does.
+        let mut shell = skilled();
+        fork_asked(&mut shell);
+        router::route(&router::classify("/skills"), &mut **shell);
+        skills_landed(&mut shell);
+        assert!(shell.skills_menu.is_some(), "/skills opened no menu");
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none(), "the answer opened the fork menu");
+        assert_eq!(slot_occupants(&shell), 1);
+    }
+
+    #[test]
+    fn an_undo_a_redo_or_a_select_all_closes_the_fork_and_effort_menus_as_an_edit_does() {
+        // Upstream runs `dismissActiveMenusThenRedraw` first for each, whether
+        // or not it moves anything (`.select_all`, `.undo`, `.redo`,
+        // `app_input_runtime.zig:332-391@481104fd`); here an undo with nothing
+        // to take back used to leave both menus, and a `/fork` on its way, up.
+        for (name, key) in [
+            ("undo", &[0x1f_u8][..]),
+            ("redo", &b"\x1b[122;10u"[..]),
+            ("select-all", &b"\x1b[97;9u"[..]),
+        ] {
+            let root = tempfile::tempdir().expect("a root");
+            let mut shell = effort_shell(root.path());
+            forked_menu(&mut shell, three_points());
+            shell.route_bytes(key);
+            assert!(shell.fork_menu.is_none(), "{name} left the fork menu up");
+            shell.route_bytes(b"/effort\r");
+            assert!(shell.effort_menu.is_some());
+            shell.route_bytes(key);
+            assert!(shell.effort_menu.is_none(), "{name} left /effort's menu up");
+            fork_asked(&mut shell);
+            shell.route_bytes(key);
+            shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+            assert!(
+                shell.fork_menu.is_none(),
+                "{name}: the answer opened the menu"
+            );
+        }
     }
 
     #[test]
@@ -41444,6 +41666,80 @@ mod tests {
             shell.geometry.panel_first(),
             shell.geometry.band_top() + 2,
             "the panel is not under the blank row and the rule"
+        );
+    }
+
+    #[test]
+    fn the_receipt_names_the_painted_row_of_the_last_choice_at_every_height_with_and_without_the_gap(
+    ) {
+        // Review FK-GAPb (gpt6, nice-to-have 2): the pin above is one roomy
+        // screen at gap 1. Every height from the shortest band up to a roomy
+        // one, under a document that ends blank (no gap) and under a fork's
+        // plain line (the gap, while the screen has a row for it): wherever
+        // the question is inline, the receipt names the row its last choice
+        // is painted on, and a delivered frame makes it ready.
+        let mut inline = [0usize; 2];
+        let mut tightest = [None::<u16>; 2];
+        for rows in layout::MIN_ROWS..=40 {
+            for forked in [false, true] {
+                let mut case = shell(rows, 80);
+                if forked {
+                    let _ = forked_before_the_first_prompt(&mut case);
+                }
+                case.apply(UiEvent::Approval(question(asked())));
+                if case.panel.is_none() {
+                    continue;
+                }
+                inline[usize::from(forked)] += 1;
+                tightest[usize::from(forked)].get_or_insert(rows);
+                let painted = uncoloured_rows(&case.band_rows())
+                    .iter()
+                    .rposition(|row| row.contains("3  Don't apply"))
+                    .expect("the refusal is a row of the band");
+                let painted = case.geometry.band_top() + u16::try_from(painted).expect("small");
+                assert!(
+                    painted <= rows,
+                    "{rows}x80 forked={forked}: painted below the screen"
+                );
+                case.intend_approval();
+                assert_eq!(
+                    case.readiness.pending_control_row(),
+                    Some(painted),
+                    "{rows}x80 forked={forked} gap={}: the receipt names another row",
+                    case.geometry.gap
+                );
+                delivered(&mut case);
+                assert!(
+                    case.readiness.ready(ApprovalId(1), 80, rows),
+                    "{rows}x80 forked={forked}: a delivered frame is not ready"
+                );
+            }
+        }
+        assert!(
+            inline[0] > 0 && inline[1] > 0,
+            "no inline question: {inline:?}"
+        );
+        // The fit boundary: a question is inline only on a screen that holds
+        // it with a turn's row and its blank ([`layout::fits_approval`]), so
+        // the fork's blank row always has room there and does not move the
+        // boundary; one row shorter, the question goes to a screen of its own.
+        assert_eq!(tightest[0], tightest[1], "the blank row moved the boundary");
+        let tight = tightest[1].expect("an inline question after the fork");
+        assert!(
+            tight > layout::MIN_ROWS,
+            "no height below the boundary was tried"
+        );
+        let mut short = shell(tight, 80);
+        let _ = forked_before_the_first_prompt(&mut short);
+        short.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(short.geometry.gap, 1, "{tight}x80 dropped the blank row");
+        let mut shorter = shell(tight - 1, 80);
+        let _ = forked_before_the_first_prompt(&mut shorter);
+        shorter.apply(UiEvent::Approval(question(asked())));
+        assert!(
+            shorter.panel.is_none(),
+            "{}x80 put the question inline",
+            tight - 1
         );
     }
 
