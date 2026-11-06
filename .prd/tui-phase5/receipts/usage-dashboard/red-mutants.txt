@@ -1,25 +1,25 @@
-# Mutant RED runs (P5-US-U3, US-U3b)
+# Mutant RED runs (P5-US-U3, US-U3b, US-U3c)
 
 Each mutant was applied to a `git clone --no-local` copy of this branch in the
 session scratchpad (never the worktree), built there with its own target dir,
-and only `usage::dashboard` and `usage::policy` run, under `gtimeout -k 10
+and only `usage::dashboard`, `usage::policy` and `usage::cache` run, under `gtimeout -k 10
 600`, with a short `TMPDIR`. The unmutated copy passed first (the baseline
-line). The clone is at `9c6c6c50` (US-U3b), after US-U2c was merged; the commits
+line). The clone is at `04b84236` (US-U3c), after US-U2c was merged; the commits
 after it change only this receipt. The script restores the clone between
 mutants and checks it is clean at the end. Lines below are the copy's own
 output, redacted.
 
-# baseline (unmutated clone at 9c6c6c50 fix(usage): close leaves the fetch running, as fx; an older epoch is not shown (US-U3b))
-test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.41s
+# baseline (unmutated clone at 04b84236 fix(usage): US-U3c -- a later success clears an older failure; failure time; time under the lock)
+test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.06s
 
 ## M1-close-cancels (S1)
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..9e86f446 100644
+index aea1c6d6..7d60bec8 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -298,6 +298,7 @@ impl Dashboard {
+@@ -316,6 +316,7 @@ impl Dashboard {
      pub fn close(&mut self) {
          self.open = false;
          self.epoch += 1;
@@ -31,14 +31,17 @@ index dbc83818..9e86f446 100644
 
 ```
 == M1-close-cancels rc=101
+test usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close ... FAILED
 test usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown ... FAILED
 test usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new ... FAILED
-thread 'usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown' (238261490) panicked at src/usage/dashboard/tests.rs:1254:5:
+thread 'usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close' (240210211) panicked at src/usage/dashboard/tests.rs:1504:5:
+assertion failed: rig.cached(KEY_A).is_some_and(|file| file.contains("vendor-a/m-opus"))
+thread 'usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown' (240210303) panicked at src/usage/dashboard/tests.rs:1270:5:
 assertion `left == right` failed: the fetch ran to its end
   left: 1
  right: 3
-thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (238261483) panicked at src/usage/dashboard/tests.rs:1016:5:
-test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.22s
+thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (240210181) panicked at src/usage/dashboard/tests.rs:1028:5:
+test result: FAILED. 71 passed; 3 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.07s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -46,13 +49,13 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..ab06e677 100644
+index aea1c6d6..995ec8dc 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -260,7 +260,6 @@ impl Dashboard {
+@@ -279,7 +279,6 @@ impl Dashboard {
+             held.identity == identity && held.question.origin() == question.origin()
          });
          if !same {
-             self.epoch += 1;
 -            self.retire_fetch();
              self.entry = self
                  .home
@@ -63,28 +66,31 @@ index dbc83818..ab06e677 100644
 == M2-switch-keeps-the-old-fetch rc=101
 test usage::dashboard::tests::a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once ... FAILED
 test usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key ... FAILED
-test usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in ... FAILED
-thread 'usage::dashboard::tests::a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once' (238269705) panicked at src/usage/dashboard/tests.rs:822:5:
+test usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only ... FAILED
+test usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor ... FAILED
+thread 'usage::dashboard::tests::a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once' (240216416) panicked at src/usage/dashboard/tests.rs:834:5:
 assertion `left == right` failed: the second sign-in fetches at once
   left: 1
  right: 2
-thread 'usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key' (238269704) panicked at src/usage/dashboard/tests.rs:1352:5:
-thread 'usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in' (238269845) panicked at src/usage/dashboard/tests.rs:1409:5:
-test result: FAILED. 28 passed; 3 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 5.10s
+thread 'usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key' (240216396) panicked at src/usage/dashboard/tests.rs:1370:5:
+thread 'usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only' (240216430) panicked at src/usage/dashboard/tests.rs:1669:9:
+assertion failed: models(dashboard.snapshot().of(period)).iter().all(|model|
+thread 'usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor' (240216618) panicked at src/usage/dashboard/tests.rs:1429:5:
+test result: FAILED. 70 passed; 4 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.42s
 error: test failed, to rerun pass `--lib`
 ```
 
-## M3-no-admission (S5)
+## M3-no-admission (S4, S5)
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..eeeab143 100644
+index aea1c6d6..d714a558 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -614,13 +614,6 @@ impl Worker {
-         };
-         let fetched = entry_of(self.plan, self.started_ms, reports);
-         let now = (self.clock)();
+@@ -647,13 +647,6 @@ impl Worker {
+         if let Some(pause) = &self.before_admission {
+             pause();
+         }
 -        if self
 -            .admission
 -            .compare_exchange(LIVE, ADMITTED, Ordering::SeqCst, Ordering::SeqCst)
@@ -100,8 +106,12 @@ index dbc83818..eeeab143 100644
 ```
 == M3-no-admission rc=101
 test usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key ... FAILED
-thread 'usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key' (238280847) panicked at src/usage/dashboard/tests.rs:1383:5:
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.33s
+test usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go ... FAILED
+test usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only ... FAILED
+thread 'usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key' (240224859) panicked at src/usage/dashboard/tests.rs:1403:5:
+thread 'usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go' (240225123) panicked at src/usage/dashboard/tests.rs:1634:5:
+thread 'usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only' (240224943) panicked at src/usage/dashboard/tests.rs:1645:9:
+test result: FAILED. 71 passed; 3 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 20.42s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -109,13 +119,13 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..2892d1b6 100644
+index aea1c6d6..85e26b3c 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -334,7 +334,6 @@ impl Dashboard {
+@@ -351,7 +351,6 @@ impl Dashboard {
+         }
          self.quit = true;
          self.open = false;
-         self.epoch += 1;
 -        self.retire_fetch();
          self.session = None;
          let deadline = Instant::now() + QUIT_WAIT;
@@ -124,9 +134,11 @@ index dbc83818..2892d1b6 100644
 
 ```
 == M4-quit-keeps-the-fetch rc=101
+test usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go ... FAILED
 test usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it ... FAILED
-thread 'usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it' (238286347) panicked at src/usage/dashboard/tests.rs:1063:5:
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.37s
+thread 'usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go' (240261124) panicked at src/usage/dashboard/tests.rs:1623:5:
+thread 'usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it' (240261122) panicked at src/usage/dashboard/tests.rs:1075:5:
+test result: FAILED. 72 passed; 2 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 6.50s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -134,12 +146,12 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..7bc42257 100644
+index aea1c6d6..a74a00c3 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -248,9 +248,6 @@ impl Dashboard {
-     /// another origin -- takes effect here: the held sign-in's fetch is
-     /// cancelled and its answer dropped, and nothing of its numbers stays.
+@@ -268,9 +268,6 @@ impl Dashboard {
+     /// what is shown is the new sign-in's cache entry (the key's: the same key
+     /// on another origin keeps its numbers).
      pub fn open(&mut self, question: Question) {
 -        if self.quit {
 -            return;
@@ -152,9 +164,9 @@ index dbc83818..7bc42257 100644
 ```
 == M5-open-after-quit rc=101
 test usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it ... FAILED
-thread 'usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it' (238289182) panicked at src/usage/dashboard/tests.rs:1074:5:
+thread 'usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it' (240268235) panicked at src/usage/dashboard/tests.rs:1086:5:
 assertion failed: !dashboard.is_open()
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.40s
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.04s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -162,12 +174,12 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..53e77ee0 100644
+index aea1c6d6..3e9fc5d2 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -261,6 +261,7 @@ impl Dashboard {
+@@ -280,6 +280,7 @@ impl Dashboard {
+         });
          if !same {
-             self.epoch += 1;
              self.retire_fetch();
 +            self.floors.remove(&identity);
              self.entry = self
@@ -177,17 +189,22 @@ index dbc83818..53e77ee0 100644
 
 ```
 == M6-floor-forgotten-on-a-switch rc=101
-test usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in ... FAILED
+test usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor ... FAILED
+test usage::dashboard::tests::the_same_key_on_another_origin_shows_the_numbers_cached_from_the_first ... FAILED
 test usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight ... FAILED
-thread 'usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in' (238311897) panicked at src/usage/dashboard/tests.rs:1415:5:
+thread 'usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor' (240283067) panicked at src/usage/dashboard/tests.rs:1435:5:
 assertion `left == right` failed: inside the key's floor
   left: 3
  right: 0
-thread 'usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight' (238311851) panicked at src/usage/dashboard/tests.rs:1130:5:
+thread 'usage::dashboard::tests::the_same_key_on_another_origin_shows_the_numbers_cached_from_the_first' (240283072) panicked at src/usage/dashboard/tests.rs:1604:5:
+assertion `left == right` failed
+  left: 1
+ right: 0
+thread 'usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight' (240283037) panicked at src/usage/dashboard/tests.rs:1142:5:
 assertion `left == right` failed
   left: 4
  right: 2
-test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.34s
+test result: FAILED. 71 passed; 3 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.03s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -195,10 +212,10 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..6029b75a 100644
+index aea1c6d6..86fcedf3 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -409,7 +409,7 @@ impl Dashboard {
+@@ -426,7 +426,7 @@ impl Dashboard {
      /// The held sign-in's floor, with whether a fetch is in flight.
      fn state(&self, identity: &Identity) -> policy::State {
          policy::State {
@@ -213,12 +230,12 @@ index dbc83818..6029b75a 100644
 == M7-in-flight-not-seen rc=101
 test usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight ... FAILED
 test usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor ... FAILED
-thread 'usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight' (238314437) panicked at src/usage/dashboard/tests.rs:1103:9:
-thread 'usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor' (238314498) panicked at src/usage/dashboard/tests.rs:1213:5:
+thread 'usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight' (240304990) panicked at src/usage/dashboard/tests.rs:1115:9:
+thread 'usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor' (240305204) panicked at src/usage/dashboard/tests.rs:1229:5:
 assertion `left == right` failed
   left: 22
  right: 2
-test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.39s
+test result: FAILED. 72 passed; 2 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.25s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -242,25 +259,25 @@ index 81813ee1..ef6dc8fb 100644
 
 ```
 == M8-timer-while-closed rc=101
-test usage::policy::tests::the_timer_fires_every_15_minutes_while_open_never_while_closed ... FAILED
-test usage::dashboard::tests::nothing_is_requested_while_the_dashboard_is_closed ... FAILED
-test usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor ... FAILED
 test usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new ... FAILED
-thread 'usage::policy::tests::the_timer_fires_every_15_minutes_while_open_never_while_closed' (238317597) panicked at src/usage/policy.rs:237:9:
-assertion failed: !due(Trigger::Timer, false, started, t0 + TIMER_MS)
-thread 'usage::dashboard::tests::nothing_is_requested_while_the_dashboard_is_closed' (238317311) panicked at src/usage/dashboard/tests.rs:994:5:
+test usage::dashboard::tests::nothing_is_requested_while_the_dashboard_is_closed ... FAILED
+test usage::policy::tests::the_timer_fires_every_15_minutes_while_open_never_while_closed ... FAILED
+test usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor ... FAILED
+thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (240310324) panicked at src/usage/dashboard/tests.rs:1059:5:
 assertion `left == right` failed
   left: 2
  right: 1
-thread 'usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor' (238317569) panicked at src/usage/dashboard/tests.rs:1236:5:
+thread 'usage::dashboard::tests::nothing_is_requested_while_the_dashboard_is_closed' (240311125) panicked at src/usage/dashboard/tests.rs:1006:5:
+assertion `left == right` failed
+  left: 2
+ right: 1
+thread 'usage::policy::tests::the_timer_fires_every_15_minutes_while_open_never_while_closed' (240312096) panicked at src/usage/policy.rs:237:9:
+assertion failed: !due(Trigger::Timer, false, started, t0 + TIMER_MS)
+thread 'usage::dashboard::tests::the_timer_refreshes_only_while_open_and_only_through_the_floor' (240312062) panicked at src/usage/dashboard/tests.rs:1252:5:
 assertion `left == right` failed
   left: 4
  right: 3
-thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (238317298) panicked at src/usage/dashboard/tests.rs:1047:5:
-assertion `left == right` failed
-  left: 2
- right: 1
-test result: FAILED. 27 passed; 4 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.37s
+test result: FAILED. 70 passed; 4 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 9.79s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -286,58 +303,58 @@ index 81813ee1..5f620535 100644
 == M9-open-ignores-the-floor rc=101
 test usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown ... FAILED
 test usage::dashboard::tests::an_answer_the_cache_would_refuse_is_the_cache_failure ... FAILED
+test usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close ... FAILED
+test usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start ... FAILED
 test usage::policy::tests::a_clock_corrected_backward_does_not_hold_fetches_until_it_catches_up ... FAILED
 test usage::policy::tests::opening_fetches_unless_the_floor_or_a_recent_failure_holds_it ... FAILED
-test usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in ... FAILED
-test usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start ... FAILED
-test usage::dashboard::tests::the_floor_holds_open_and_the_15_minute_timer_never_r ... FAILED
-test usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight ... FAILED
+test usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor ... FAILED
 test usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new ... FAILED
-thread 'usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown' (238323208) panicked at src/usage/dashboard/tests.rs:1264:5:
+test usage::dashboard::tests::the_floor_holds_open_and_the_15_minute_timer_never_r ... FAILED
+test usage::dashboard::tests::the_same_key_on_another_origin_shows_the_numbers_cached_from_the_first ... FAILED
+test usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight ... FAILED
+thread 'usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown' (240320704) panicked at src/usage/dashboard/tests.rs:1280:5:
 assertion `left == right` failed
   left: Fetching
  right: Ready
-thread 'usage::dashboard::tests::an_answer_the_cache_would_refuse_is_the_cache_failure' (238323209) panicked at src/usage/dashboard/tests.rs:882:5:
+thread 'usage::dashboard::tests::an_answer_the_cache_would_refuse_is_the_cache_failure' (240320708) panicked at src/usage/dashboard/tests.rs:894:5:
 assertion `left == right` failed
   left: 2
  right: 1
-thread 'usage::policy::tests::a_clock_corrected_backward_does_not_hold_fetches_until_it_catches_up' (238323383) panicked at src/usage/policy.rs:223:9:
+thread 'usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close' (240320533) panicked at src/usage/dashboard/tests.rs:1511:5:
+assertion `left == right` failed: an older failure over fresh numbers
+  left: Fetching
+ right: Ready
+thread 'usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start' (240320959) panicked at src/usage/dashboard/tests.rs:1194:5:
+assertion `left == right` failed: the failure holds opening
+  left: 2
+ right: 1
+thread 'usage::policy::tests::a_clock_corrected_backward_does_not_hold_fetches_until_it_catches_up' (240321090) panicked at src/usage/policy.rs:223:9:
 assertion failed: !due(Trigger::Open, false, started_back, back + 1)
-thread 'usage::policy::tests::opening_fetches_unless_the_floor_or_a_recent_failure_holds_it' (238323386) panicked at src/usage/policy.rs:166:9:
+thread 'usage::policy::tests::opening_fetches_unless_the_floor_or_a_recent_failure_holds_it' (240321095) panicked at src/usage/policy.rs:166:9:
 assertion failed: !due(Trigger::Open, true, started, t0 + FLOOR_MS - 1)
-thread 'usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in' (238323355) panicked at src/usage/dashboard/tests.rs:1415:5:
+thread 'usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor' (240321018) panicked at src/usage/dashboard/tests.rs:1435:5:
 assertion `left == right` failed: inside the key's floor
   left: 3
  right: 0
-thread 'usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start' (238323330) panicked at src/usage/dashboard/tests.rs:1178:5:
-assertion `left == right` failed: the failure holds opening
-  left: 3
- right: 1
-thread 'usage::dashboard::tests::the_floor_holds_open_and_the_15_minute_timer_never_r' (238323342) panicked at src/usage/dashboard/tests.rs:615:5:
-assertion `left == right` failed
-  left: 7
- right: 6
-thread 'usage::dashboard::tests::the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight' (238323327) panicked at src/usage/dashboard/tests.rs:1120:5:
-assertion `left == right` failed
-  left: 6
- right: 1
-thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (238323201) panicked at src/usage/dashboard/tests.rs:1033:5:
+thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (240320441) panicked at src/usage/dashboard/tests.rs:1045:5:
 assertion `left == right` failed
   left: Fetching
+ right: Ready
+thread 'usage::dashboard::tests::the_floor_holds_open_and_the_15_minute_timer_never_r' (240321011) panicked at src/usage/dashboard/tests.rs:627:5:
 ```
 
 ## M10-invalid-answer-shown (cache failure)
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..adf9c3e3 100644
+index aea1c6d6..fed38a70 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -671,7 +671,7 @@ fn keep(
+@@ -704,7 +704,7 @@ fn keep(
      if let Some(home) = home {
-         match cache::store(home, identity, fetched.clone(), now, held) {
+         match cache::store_now(home, identity, fetched.clone(), clock, held) {
              Ok(stored) => return Done::Kept(stored),
--            Err(StoreError::Invalid) => return Done::Failed(Failure::Cache),
+-            Err(StoreError::Invalid) => return Done::Failed(Failure::Cache, clock()),
 +            Err(StoreError::Invalid) => return Done::Kept(fetched),
              Err(StoreError::Refused(_) | StoreError::Io(_)) => {}
          }
@@ -347,11 +364,11 @@ index dbc83818..adf9c3e3 100644
 ```
 == M10-invalid-answer-shown rc=101
 test usage::dashboard::tests::an_answer_the_cache_would_refuse_is_the_cache_failure ... FAILED
-thread 'usage::dashboard::tests::an_answer_the_cache_would_refuse_is_the_cache_failure' (238330228) panicked at src/usage/dashboard/tests.rs:872:5:
+thread 'usage::dashboard::tests::an_answer_the_cache_would_refuse_is_the_cache_failure' (240333200) panicked at src/usage/dashboard/tests.rs:884:5:
 assertion `left == right` failed
   left: Ready
  right: Failed(Cache)
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.35s
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.05s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -359,10 +376,10 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..e33aa8ff 100644
+index aea1c6d6..a30ff27e 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -377,7 +377,6 @@ impl Dashboard {
+@@ -394,7 +394,6 @@ impl Dashboard {
      pub fn snapshot(&mut self) -> Snapshot {
          let generation = self.generation;
          let now = self.now_ms();
@@ -375,16 +392,18 @@ index dbc83818..e33aa8ff 100644
 ```
 == M11-snapshot-does-not-reload rc=101
 test usage::dashboard::tests::a_dashboard_reads_what_another_process_stored_since ... FAILED
+test usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close ... FAILED
 test usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new ... FAILED
-thread 'usage::dashboard::tests::a_dashboard_reads_what_another_process_stored_since' (238340354) panicked at src/usage/dashboard/tests.rs:549:5:
+thread 'usage::dashboard::tests::a_dashboard_reads_what_another_process_stored_since' (240346613) panicked at src/usage/dashboard/tests.rs:561:5:
 assertion `left == right` failed
   left: None
  right: Some(1791774000000)
-thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (238340355) panicked at src/usage/dashboard/tests.rs:1034:5:
+thread 'usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close' (240346642) panicked at src/usage/dashboard/tests.rs:473:5:
+thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (240346617) panicked at src/usage/dashboard/tests.rs:1046:5:
 assertion `left == right` failed
   left: None
  right: Some(1791687600000)
-test result: FAILED. 29 passed; 2 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.24s
+test result: FAILED. 71 passed; 3 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.04s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -392,14 +411,14 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..ec03e086 100644
+index aea1c6d6..bd50d67a 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -526,7 +526,7 @@ impl Dashboard {
+@@ -554,7 +554,7 @@ impl Dashboard {
                  }
              }
-             Done::Failed(failure) => {
--                self.stamp(identity, now, |state| state.failed_at_ms = Some(now));
+             Done::Failed(failure, at_ms) => {
+-                self.stamp(identity, now, |state| state.failed_at_ms = Some(at_ms));
 +                self.stamp(identity, now, |_| {});
                  if current {
                      self.failure = Some(failure);
@@ -409,11 +428,11 @@ index dbc83818..ec03e086 100644
 ```
 == M12-failure-does-not-hold-the-floor rc=101
 test usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start ... FAILED
-thread 'usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start' (238343866) panicked at src/usage/dashboard/tests.rs:1178:5:
+thread 'usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start' (240364832) panicked at src/usage/dashboard/tests.rs:1194:5:
 assertion `left == right` failed: the failure holds opening
   left: 2
  right: 1
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.34s
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.06s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -421,10 +440,10 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..d843b93b 100644
+index aea1c6d6..1ea7b8ec 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -547,7 +547,6 @@ impl Dashboard {
+@@ -575,7 +575,6 @@ impl Dashboard {
          let _ = fetch
              .admission
              .compare_exchange(LIVE, RETIRED, Ordering::SeqCst, Ordering::SeqCst);
@@ -439,12 +458,12 @@ index dbc83818..d843b93b 100644
 test usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it ... FAILED
 test usage::dashboard::tests::a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once ... FAILED
 test usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key ... FAILED
-test usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in ... FAILED
-thread 'usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it' (238345670) panicked at src/usage/dashboard/tests.rs:1063:5:
-thread 'usage::dashboard::tests::a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once' (238345553) panicked at src/usage/dashboard/tests.rs:827:5:
-thread 'usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key' (238345552) panicked at src/usage/dashboard/tests.rs:1352:5:
-thread 'usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in' (238345712) panicked at src/usage/dashboard/tests.rs:1409:5:
-test result: FAILED. 27 passed; 4 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 6.13s
+test usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor ... FAILED
+thread 'usage::dashboard::tests::quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it' (240374269) panicked at src/usage/dashboard/tests.rs:1075:5:
+thread 'usage::dashboard::tests::a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once' (240374114) panicked at src/usage/dashboard/tests.rs:839:5:
+thread 'usage::dashboard::tests::a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key' (240374092) panicked at src/usage/dashboard/tests.rs:1370:5:
+thread 'usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor' (240374329) panicked at src/usage/dashboard/tests.rs:1429:5:
+test result: FAILED. 70 passed; 4 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 6.39s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -452,10 +471,10 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..55d4364f 100644
+index aea1c6d6..9a02d59e 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -256,7 +256,7 @@ impl Dashboard {
+@@ -276,7 +276,7 @@ impl Dashboard {
          self.open = true;
          let identity = question.identity();
          let same = self.session.as_ref().is_some_and(|held| {
@@ -463,14 +482,14 @@ index dbc83818..55d4364f 100644
 +            held.identity == identity
          });
          if !same {
-             self.epoch += 1;
+             self.retire_fetch();
 ```
 
 ```
 == M14-origin-ignored rc=101
-test usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in ... FAILED
-thread 'usage::dashboard::tests::the_same_key_to_another_origin_is_another_sign_in' (238349719) panicked at src/usage/dashboard/tests.rs:1409:5:
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 5.11s
+test usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor ... FAILED
+thread 'usage::dashboard::tests::the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor' (240380927) panicked at src/usage/dashboard/tests.rs:1429:5:
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.43s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -478,26 +497,26 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..0b561da1 100644
+index aea1c6d6..e38d9885 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -512,7 +512,7 @@ impl Dashboard {
+@@ -532,7 +532,7 @@ impl Dashboard {
          };
          self.retired.push(worker);
          let now = self.now_ms();
 -        let current = epoch == self.epoch;
 +        let current = { let _ = epoch; true };
-         match done {
-             Done::Kept(kept) => {
-                 self.stamp(identity, now, |state| state.failed_at_ms = None);
+         let held = self
+             .session
+             .as_ref()
 ```
 
 ```
 == M15-older-epoch-shown rc=101
 test usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown ... FAILED
-thread 'usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown' (238354753) panicked at src/usage/dashboard/tests.rs:1257:5:
+thread 'usage::dashboard::tests::an_answer_from_a_closed_or_older_generation_is_never_shown' (240385112) panicked at src/usage/dashboard/tests.rs:1273:5:
 assertion failed: !dashboard.snapshot().of(Period::Today).today_current
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.35s
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.06s
 error: test failed, to rerun pass `--lib`
 ```
 
@@ -505,10 +524,10 @@ error: test failed, to rerun pass `--lib`
 
 ```diff
 diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
-index dbc83818..0e25855b 100644
+index aea1c6d6..094ae0ca 100644
 --- a/src/usage/dashboard.rs
 +++ b/src/usage/dashboard.rs
-@@ -251,8 +251,6 @@ impl Dashboard {
+@@ -271,8 +271,6 @@ impl Dashboard {
          if self.quit {
              return;
          }
@@ -521,12 +540,170 @@ index dbc83818..0e25855b 100644
 
 ```
 == M16-open-does-not-settle rc=101
+test usage::dashboard::tests::a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in ... FAILED
+test usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close ... FAILED
 test usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new ... FAILED
-thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (238357315) panicked at src/usage/dashboard/tests.rs:1033:5:
+thread 'usage::dashboard::tests::a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in' (240389999) panicked at src/usage/dashboard/tests.rs:1539:5:
+assertion `left == right` failed: the failure was stamped when it was taken in
+  left: 1
+ right: 2
+thread 'usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close' (240390040) panicked at src/usage/dashboard/tests.rs:1511:5:
+assertion `left == right` failed: an older failure over fresh numbers
+  left: Fetching
+ right: Ready
+thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' (240390001) panicked at src/usage/dashboard/tests.rs:1045:5:
 assertion `left == right` failed
   left: Fetching
  right: Ready
-test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 3736 filtered out; finished in 0.24s
+test result: FAILED. 71 passed; 3 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.05s
+error: test failed, to rerun pass `--lib`
+```
+
+## M17-older-success-keeps-the-failure (MUST 1)
+
+```diff
+diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
+index aea1c6d6..c57a9502 100644
+--- a/src/usage/dashboard.rs
++++ b/src/usage/dashboard.rs
+@@ -540,7 +540,7 @@ impl Dashboard {
+         match done {
+             Done::Kept(kept) => {
+                 self.stamp(identity, now, |state| state.failed_at_ms = None);
+-                if held {
++                if held && current {
+                     // A later answer of this sign-in's than any failure shown,
+                     // whichever epoch it ended in (`usage.zig:587-595`).
+                     self.failure = None;
+```
+
+```
+== M17-older-success-keeps-the-failure rc=101
+test usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close ... FAILED
+thread 'usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close' (240395739) panicked at src/usage/dashboard/tests.rs:1511:5:
+assertion `left == right` failed: an older failure over fresh numbers
+  left: Failed(Server)
+ right: Ready
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.05s
+error: test failed, to rerun pass `--lib`
+```
+
+## M18-failure-stamped-when-taken-in (MUST 2)
+
+```diff
+diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
+index aea1c6d6..f54c8ae8 100644
+--- a/src/usage/dashboard.rs
++++ b/src/usage/dashboard.rs
+@@ -554,7 +554,7 @@ impl Dashboard {
+                 }
+             }
+             Done::Failed(failure, at_ms) => {
+-                self.stamp(identity, now, |state| state.failed_at_ms = Some(at_ms));
++                self.stamp(identity, now, |state| state.failed_at_ms = Some({ let _ = at_ms; now }));
+                 if current {
+                     self.failure = Some(failure);
+                 }
+```
+
+```
+== M18-failure-stamped-when-taken-in rc=101
+test usage::dashboard::tests::a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in ... FAILED
+test usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start ... FAILED
+thread 'usage::dashboard::tests::a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in' (240400840) panicked at src/usage/dashboard/tests.rs:1539:5:
+assertion `left == right` failed: the failure was stamped when it was taken in
+  left: 1
+ right: 2
+thread 'usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start' (240401104) panicked at src/usage/dashboard/tests.rs:1198:5:
+assertion `left == right` failed
+  left: 1
+ right: 2
+test result: FAILED. 72 passed; 2 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.08s
+error: test failed, to rerun pass `--lib`
+```
+
+## M19-store-time-before-the-lock (stale now)
+
+```diff
+diff --git a/src/usage/cache.rs b/src/usage/cache.rs
+index 81f126ee..76c7b264 100644
+--- a/src/usage/cache.rs
++++ b/src/usage/cache.rs
+@@ -911,9 +911,9 @@ mod fs {
+         held: Option<&Entry>,
+         deadline: std::time::Duration,
+     ) -> Result<Entry, StoreError> {
++        let now_ms = clock();
+         let dir = open_or_create_dir(home)?;
+         let _lock = lock(&dir, identity, deadline)?;
+-        let now_ms = clock();
+         let stored = match load(&dir, identity) {
+             Load::Found(entry) => Some(entry),
+             Load::Missing | Load::Unusable => None,
+```
+
+```
+== M19-store-time-before-the-lock rc=101
+test usage::dashboard::tests::a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today ... FAILED
+thread 'usage::dashboard::tests::a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today' (240406219) panicked at src/usage/dashboard/tests.rs:1573:5:
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.04s
+error: test failed, to rerun pass `--lib`
+```
+
+## M20-quit-does-not-wait (S1)
+
+```diff
+diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
+index aea1c6d6..7a857258 100644
+--- a/src/usage/dashboard.rs
++++ b/src/usage/dashboard.rs
+@@ -354,9 +354,7 @@ impl Dashboard {
+         self.retire_fetch();
+         self.session = None;
+         let deadline = Instant::now() + QUIT_WAIT;
+-        while self.retired.iter().any(|worker| !worker.is_finished()) && Instant::now() < deadline {
+-            std::thread::sleep(Duration::from_millis(2));
+-        }
++        let _ = deadline;
+         for worker in std::mem::take(&mut self.retired) {
+             if worker.is_finished() {
+                 let _ = worker.join();
+```
+
+```
+== M20-quit-does-not-wait rc=101
+test usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go ... FAILED
+thread 'usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go' (240412932) panicked at src/usage/dashboard/tests.rs:1623:5:
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 5.04s
+error: test failed, to rerun pass `--lib`
+```
+
+## M21-quit-waits-unbounded (S1)
+
+```diff
+diff --git a/src/usage/dashboard.rs b/src/usage/dashboard.rs
+index aea1c6d6..d94e56cf 100644
+--- a/src/usage/dashboard.rs
++++ b/src/usage/dashboard.rs
+@@ -354,7 +354,7 @@ impl Dashboard {
+         self.retire_fetch();
+         self.session = None;
+         let deadline = Instant::now() + QUIT_WAIT;
+-        while self.retired.iter().any(|worker| !worker.is_finished()) && Instant::now() < deadline {
++        while self.retired.iter().any(|worker| !worker.is_finished()) && { let _ = deadline; true } {
+             std::thread::sleep(Duration::from_millis(2));
+         }
+         for worker in std::mem::take(&mut self.retired) {
+```
+
+```
+== M21-quit-waits-unbounded rc=101
+test usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only ... FAILED
+test usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go ... FAILED
+thread 'usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only' (240418028) panicked at src/usage/dashboard/tests.rs:1693:5:
+assertion failed: started.elapsed() <= QUIT_WAIT + Duration::from_millis(200)
+thread 'usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go' (240418135) panicked at src/usage/dashboard/tests.rs:1623:5:
+test result: FAILED. 72 passed; 2 failed; 0 ignored; 0 measured; 3699 filtered out; finished in 20.37s
 error: test failed, to rerun pass `--lib`
 ```
 
