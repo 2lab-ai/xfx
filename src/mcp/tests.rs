@@ -1137,7 +1137,10 @@ fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
 }
 
 /// A stdio server with one tool, `echo`, whose `tools/call` answer is the
-/// `result` or `error` member `answer`, written verbatim into the frame.
+/// `result` or `error` member `answer`, written verbatim into the frame --
+/// or, when `answer` is `LONG=<n>`, an error whose message is `n` bytes,
+/// made by the server when it answers (bounded by `head -c`), so the
+/// environment it starts with stays small.
 fn answering_server(home: &Home, name: &str, answer: &str) -> ServerConfig {
     let script = home.dir.path().join(format!("{name}.sh"));
     let body = r#"while IFS= read -r line; do
@@ -1145,14 +1148,23 @@ fn answering_server(home: &Home, name: &str, answer: &str) -> ServerConfig {
   case "$line" in
     *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"t","version":"1"}}}\n' "$id" ;;
     *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}}\n' "$id" ;;
-    *'"method":"tools/call"'*) printf '{"jsonrpc":"2.0","id":%s,%s}\n' "$id" "$ANSWER" ;;
+    *'"method":"tools/call"'*)
+      if [ -n "${LONG:-}" ]; then
+        message=$(/usr/bin/head -c "$LONG" /dev/zero | /usr/bin/tr '\0' x)
+        printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"%s"}}\n' "$id" "$message"
+      else
+        printf '{"jsonrpc":"2.0","id":%s,%s}\n' "$id" "$ANSWER"
+      fi ;;
     *) if [ -n "$id" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id"; fi ;;
   esac
 done
 "#;
     std::fs::write(&script, body).expect("script");
     let mut server = ServerConfig::local(name, "/bin/sh", &[script.to_string_lossy().into_owned()]);
-    server.env = vec![("ANSWER".into(), answer.into())];
+    server.env = match answer.strip_prefix("LONG=") {
+        Some(bytes) => vec![("LONG".into(), bytes.into())],
+        None => vec![("ANSWER".into(), answer.into())],
+    };
     server
 }
 
@@ -1186,7 +1198,31 @@ fn a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did() {
             r#""error":{"code":-32000,"message":"a\u0000b"}"#,
             "MCP protocol error -32000: binary or non-utf8 tool output omitted (3 bytes)",
         ),
+        // The error's data, whatever it holds, is not told
+        // (`runtime.zig:117`, `:2371`; `model.zig:841`; `p5-mcp-errdata`).
+        (
+            "spaceddata",
+            r#""error":{"code":-32603,"message":"fixture refuses","data": { "b" : [ 2 , 1 ] ,  "a":1.0 } }"#,
+            "MCP protocol error -32603: fixture refuses",
+        ),
+        (
+            "nuldata",
+            r#""error":{"code":-32603,"message":"fixture refuses","data":{"k":"a\u0000b"}}"#,
+            "MCP protocol error -32603: fixture refuses",
+        ),
     ];
+    // A message over 64 KiB is no error fx reads
+    // (`parseProtocolError`, `features/tools.zig:305-307`).
+    let long = format!("LONG={}", 64 * 1024 + 1);
+    let cases: Vec<(&str, &str, &str)> = cases
+        .iter()
+        .copied()
+        .chain([(
+            "long",
+            long.as_str(),
+            "MCP protocol failure: InvalidEnvelope",
+        )])
+        .collect();
     for (name, answer, _) in &cases {
         config::add_profile_server(&home.profile(), answering_server(&home, name, answer))
             .expect("saved");

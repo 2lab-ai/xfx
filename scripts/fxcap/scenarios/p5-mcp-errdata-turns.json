@@ -1,0 +1,6 @@
+[
+ {"tool":{"id":"call_compact","name":"mcp_errs_echo","input":{"text":"compact"}}},
+ {"tool":{"id":"call_spaced","name":"mcp_errs_echo","input":{"text":"spaced"}}},
+ {"tool":{"id":"call_nul","name":"mcp_errs_echo","input":{"text":"nul"}}},
+ {"chunks":["refused."]}
+]

@@ -59,11 +59,13 @@ pub use runtime::{McpRuntime, Paths};
 #[derive(Debug, Clone, PartialEq)]
 pub enum McpError {
     Named(&'static str),
-    /// The server answered with a JSON-RPC error.
+    /// The server answered with a JSON-RPC error: its code and message, and
+    /// not its `data`, which fx v0.0.16 does not keep either
+    /// (`CallResult.failure`, `vercel-labs/fx@481104fd
+    /// src/core/mcp_host/runtime.zig:117`, `:2371`).
     Protocol {
         code: i64,
         message: String,
-        data: Option<serde_json::Value>,
     },
     /// A stopped server that could not be started again, and why.
     Restart(String),

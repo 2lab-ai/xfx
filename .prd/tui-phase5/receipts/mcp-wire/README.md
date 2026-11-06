@@ -44,6 +44,34 @@ denies only `capability_search` and `mcp_select_tool` is judged as no rule.
 With the deny check taken out of `select_unselected` it fails by itself:
 `Ask {"mcp_fixture_echo":"deny"} None: left: (true, 0, 0) right: (false, 0, 0)`.
 
+## MCP-Wc (follow-up round)
+
+Review asked whether a JSON-RPC error's `data` should be told as
+`; data=<data>`, since `write_protocol_diagnostic`
+(`src/core/mcp/tool_result.zig:199-214@481104fd`) writes it when it has one.
+It never has one on v0.0.16's path. The runtime keeps only a failed call's
+code and message (`src/core/mcp_host/runtime.zig:117`), filled at `:2371`:
+
+```
+.failure => |f| .{ .failure = .{ .code = f.code, .message = try alloc.dupe(u8, f.message) } },
+```
+
+`render` rebuilds the error from those two (`src/core/mcp_host/model.zig:841`)
+before the only `extract` (`:845`), so `parseProtocolError` fills
+`data_json` from nothing (`src/core/mcp/features/tools.zig:308-311`). So
+the round-two claim (`data` left out) was right, and its citation named the
+writer, not the line that drops `data`; the row now cites both.
+
+| scenario | fx v0.0.16 | xfx `510dcd20` | this branch |
+|---|---|---|---|
+| `p5-mcp-errdata` (new; a stdio server whose -32603 carries `data`: compact, spaced and reordered, with a NUL) | `MCP protocol error -32603: fixture refuses` three times | `errdata-510dcd20-bodies.txt`: identical | `errdata-bodies.txt`: identical, 4 of 4 |
+
+What this round changed: the sentence is held to fx's 64 KiB result cap
+with fx's marker (`prepareModelOutput`, `tool_result_limits.zig:7`, `:30-69`,
+`:126-143`), and `McpError::Protocol` no longer keeps the `data` nothing
+reads. `rpcerror`, `turn`, `direct` and `known` were retaken with this
+round's binary: still identical.
+
 ## Wire
 
 `wire-new-frames.txt` (`p5-mcp-wire-new`, the fixture's log of what each

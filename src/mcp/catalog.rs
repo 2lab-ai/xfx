@@ -720,12 +720,28 @@ pub fn call_answer(server: &str, alias: &str, result: &Value) -> CallAnswer {
 /// src/core/mcp/features/tools.zig:18`).
 const MAX_PROTOCOL_MESSAGE_BYTES: usize = 64 * 1024;
 
+/// The most bytes of a tool's result the model is sent, fx's default
+/// (`default_max_tool_result_bytes`, `vercel-labs/fx@481104fd
+/// src/core/tooling/tool_result_limits.zig:7`; xfx has no setting for it).
+const MAX_TOOL_RESULT_BYTES: usize = 64 * 1024;
+
 /// What the model is told when the server answers a call with a JSON-RPC
 /// error, as fx v0.0.16 tells it: `MCP protocol error <code>: <message>`
 /// (`write_protocol_diagnostic`, `vercel-labs/fx@481104fd
-/// src/core/mcp/tool_result.zig:199-214`). Its `data` is not passed on: fx
-/// rebuilds the answer from the code and the message alone before reading it
-/// (`render`, `src/core/mcp_host/model.zig:841`).
+/// src/core/mcp/tool_result.zig:199-214`).
+///
+/// **The error's `data` never reaches the model.** That writer would append
+/// `; data=<data>`, but on v0.0.16's one path to it the data is already gone:
+/// the runtime keeps only the code and the message of a failed call
+/// (`CallResult.failure`, `src/core/mcp_host/runtime.zig:117`, copied as
+/// `.{ .code = f.code, .message = ... }` at `:2371`), and `render` rebuilds
+/// the answer from those two before `extract` reads it
+/// (`src/core/mcp_host/model.zig:841`; the only caller, `:845`), so
+/// `parseProtocolError` finds no `data` to fill `data_json` with
+/// (`src/core/mcp/features/tools.zig:308-311`). `p5-mcp-errdata` pins it:
+/// compact data, spaced and reordered data, data with a NUL -- fx says the
+/// same sentence for each. So xfx does not keep it either
+/// ([`super::McpError::Protocol`]).
 ///
 /// The message is the server's text, and it reaches the model as the rest of
 /// a tool's output does -- as written, unless it is no text, one with a NUL,
@@ -733,18 +749,47 @@ const MAX_PROTOCOL_MESSAGE_BYTES: usize = 64 * 1024;
 /// (`sanitizeModelText`, `src/core/shared/text_utils.zig:535-538`). One over
 /// 64 KiB is no error fx reads: `MCP protocol failure: InvalidEnvelope`
 /// (`parseProtocolError`, `features/tools.zig:293-313`; `extract`,
-/// `tool_result.zig:29-53`).
-pub fn protocol_error(code: i64, message: &str) -> String {
-    if message.len() > MAX_PROTOCOL_MESSAGE_BYTES {
-        return "MCP protocol failure: InvalidEnvelope".to_string();
-    }
-    if message.contains('\0') {
-        return format!(
+/// `tool_result.zig:29-53`). Then the whole of it is held to the tool result
+/// cap as fx holds it ([`model_output`]).
+pub fn protocol_error(alias: &str, code: i64, message: &str) -> String {
+    let raw = if message.len() > MAX_PROTOCOL_MESSAGE_BYTES {
+        "MCP protocol failure: InvalidEnvelope".to_string()
+    } else if message.contains('\0') {
+        format!(
             "MCP protocol error {code}: binary or non-utf8 tool output omitted ({} bytes)",
             message.len()
+        )
+    } else {
+        format!("MCP protocol error {code}: {message}")
+    };
+    model_output(alias, &raw, MAX_TOOL_RESULT_BYTES)
+}
+
+/// `raw` as fx hands a tool's text to the model (`prepareModelOutput`,
+/// `vercel-labs/fx@481104fd src/core/tooling/tool_result_limits.zig:30-69`;
+/// `truncateText`, `:126-143`): text with a NUL is replaced, and one over
+/// `max_bytes` keeps the longest prefix, on a character boundary, that
+/// leaves room for the marker, then the marker. `raw` is a `&str`, so the
+/// UTF-8 half of `sanitizeModelText` holds already.
+fn model_output(tool: &str, raw: &str, max_bytes: usize) -> String {
+    if raw.contains('\0') {
+        return format!(
+            "binary or non-utf8 tool output omitted ({} bytes)",
+            raw.len()
         );
     }
-    format!("MCP protocol error {code}: {message}")
+    if raw.len() <= max_bytes {
+        return raw.to_string();
+    }
+    let marker = format!(
+        "\n... [tool result truncated for {tool}: original {} bytes; cap is {max_bytes} bytes]\n",
+        raw.len()
+    );
+    let mut keep = max_bytes.saturating_sub(marker.len());
+    while !raw.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    format!("{}{marker}", &raw[..keep])
 }
 
 /// A call that could not run because its stopped server would not start
@@ -916,30 +961,42 @@ mod tests {
     #[test]
     fn a_protocol_error_is_its_code_and_its_message_as_fx_reads_them() {
         assert_eq!(
-            protocol_error(-32603, "fixture refuses"),
+            protocol_error("mcp_s_t", -32603, "fixture refuses"),
             "MCP protocol error -32603: fixture refuses"
         );
         // The server's words as written, markup and all: fx passes them as
         // it passes a tool's output, only text with a NUL left out.
         assert_eq!(
-            protocol_error(1, "<b>&\u{202e}"),
+            protocol_error("mcp_s_t", 1, "<b>&\u{202e}"),
             "MCP protocol error 1: <b>&\u{202e}"
         );
         assert_eq!(
-            protocol_error(-1, "a\0b"),
+            protocol_error("mcp_s_t", -1, "a\0b"),
             "MCP protocol error -1: binary or non-utf8 tool output omitted (3 bytes)"
         );
         assert_eq!(
-            protocol_error(-1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES)),
-            format!(
-                "MCP protocol error -1: {}",
-                "x".repeat(MAX_PROTOCOL_MESSAGE_BYTES)
-            )
-        );
-        assert_eq!(
-            protocol_error(-1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES + 1)),
+            protocol_error("mcp_s_t", -1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES + 1)),
             "MCP protocol failure: InvalidEnvelope"
         );
+        // A message fx reads whole can still make the sentence longer than
+        // the result cap: the sentence is cut there, fx's marker after it
+        // (`tool_result_limits.zig:44-69`, `:126-143`).
+        let longest = protocol_error("mcp_s_t", -1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES));
+        let marker = format!(
+            "\n... [tool result truncated for mcp_s_t: original {} bytes; cap is 65536 bytes]\n",
+            "MCP protocol error -1: ".len() + MAX_PROTOCOL_MESSAGE_BYTES
+        );
+        assert_eq!(longest.len(), MAX_TOOL_RESULT_BYTES);
+        assert!(longest.starts_with("MCP protocol error -1: xxx"));
+        assert!(longest.ends_with(&marker));
+        // ... and on a character, never inside one.
+        let wide = protocol_error(
+            "mcp_s_t",
+            -1,
+            &"\u{e9}".repeat(MAX_PROTOCOL_MESSAGE_BYTES / 2),
+        );
+        assert!(wide.len() <= MAX_TOOL_RESULT_BYTES);
+        assert!(wide.contains("\u{e9}\n... [tool result truncated for mcp_s_t: original"));
     }
 
     #[test]

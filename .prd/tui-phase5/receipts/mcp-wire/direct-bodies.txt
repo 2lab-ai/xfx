@@ -1,4 +1,4 @@
-# p5-mcp-direct: fx v0.0.16 (sha 8e6cda2e) vs xfx at this branch (MCP-Wb)
+# p5-mcp-direct: fx v0.0.16 (sha 8e6cda2e) vs xfx at this branch (MCP-Wc)
 requests: fx=2 xfx=2
 002-completion.json vs 002-completion.json
   mcp tools same names: True  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool']

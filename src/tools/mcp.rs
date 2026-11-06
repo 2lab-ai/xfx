@@ -417,7 +417,7 @@ pub fn call(call: &ToolCall, context: &ToolContext) -> ToolResult {
             &failure,
         )),
         Err(McpError::Protocol { code, message, .. }) => {
-            ToolResult::failure(catalog::protocol_error(code, &message))
+            ToolResult::failure(catalog::protocol_error(alias, code, &message))
         }
         Err(err) => ToolResult::failure(format!(
             "{{\"server\":{},\"tool\":{},\"error\":{{\"kind\":{},\"message\":{}}}}}",
