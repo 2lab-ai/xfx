@@ -15626,7 +15626,9 @@ mod tests {
             )
             .expect("write .mcp.json");
             let xfx = home.path().join(".xfx");
-            std::fs::create_dir_all(&xfx).expect("~/.xfx");
+            // `~/.xfx` as xfx makes one: the settings and profile writers
+            // refuse one the umask left open ([`crate::profile_home`]).
+            crate::profile_home::made(&xfx);
             let profile_path = xfx.join("mcp.json");
             if let Some(profile) = profile {
                 std::fs::write(
