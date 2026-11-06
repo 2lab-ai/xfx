@@ -226,8 +226,9 @@ each).
 
 ## Gates
 
-At `aa49111f` (the code is the head's: the commits after it touch only this
-receipt), short `TMPDIR`, `FX_AUTO_UPGRADE=0`.
+At `aa49111f` (US-U4's code through `120f7b20`: the commits between touch
+only this receipt; US-U4b's gates are in its section below), short `TMPDIR`,
+`FX_AUTO_UPGRADE=0`.
 
 | gate | result |
 |---|---|
