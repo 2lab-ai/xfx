@@ -1,0 +1,62 @@
+test tui::full_transcript::tests::a_header_is_upstreams_utc_stamp_and_the_entrys_kind ... ok
+test tui::full_transcript::tests::a_long_result_keeps_its_head_and_says_how_much_more_the_log_holds ... ok
+test tui::full_transcript::tests::a_files_lines_lose_their_envelope_and_their_tabs_become_four_cells ... ok
+test tui::full_transcript::tests::a_command_result_is_its_streams_and_a_status_that_was_not_a_clean_exit ... ok
+test tui::full_transcript::tests::a_detail_is_made_inert_before_it_reaches_a_row ... ok
+test tui::full_transcript::tests::a_network_record_says_how_a_request_settled_as_upstreams_does ... ok
+test tui::full_transcript::tests::a_detail_row_wraps_under_its_rail_and_never_overruns_the_screen ... ok
+test tui::full_transcript::tests::a_call_still_running_when_its_turn_ends_is_cancelled_like_the_groups ... ok
+test tui::full_transcript::tests::a_calls_row_is_the_groups_in_the_default_foreground_with_its_command_words_coloured ... ok
+test tui::full_transcript::tests::a_file_change_waiting_on_its_approval_has_no_entry_until_it_settles ... ok
+test tui::full_transcript::tests::a_result_wraps_at_the_screens_edge_by_character_as_upstreams_stored_result_does ... ok
+test tui::full_transcript::tests::a_short_record_is_drawn_from_the_top ... ok
+test tui::full_transcript::tests::a_group_shows_its_header_over_its_first_call_and_each_call_under_its_own_header ... ok
+test tui::full_transcript::tests::a_trailing_line_break_is_no_rail_row_an_argument_drops_it_and_a_result_leaves_a_blank ... ok
+test tui::full_transcript::tests::a_change_is_shown_as_upstreams_diff_block_instead_of_its_arguments_with_no_review ... ok
+test tui::full_transcript::tests::a_questions_resolution_is_shown_as_the_document_has_it_under_no_header ... ok
+test tui::full_transcript::tests::a_file_change_says_nothing_under_its_row_but_a_refusal_of_its_own ... ok
+test tui::full_transcript::tests::a_notice_is_the_documents_notice_and_an_error_is_headed_error ... ok
+test tui::full_transcript::tests::a_replayed_change_shows_the_diff_the_log_kept ... ok
+test tui::full_transcript::tests::a_change_that_arrives_before_its_row_waits_for_it_and_a_refused_one_keeps_its_arguments ... ok
+test tui::full_transcript::tests::a_notice_rows_tree_branch_stands_under_its_glyph ... ok
+test tui::full_transcript::tests::arguments_the_row_already_shows_are_left_out_and_the_rest_listed_in_schema_order ... ok
+test tui::full_transcript::tests::details_that_arrive_before_the_calls_row_wait_for_it_and_die_with_the_turn ... ok
+test tui::full_transcript::tests::header_rows_are_dim_and_detail_rows_open_on_a_plain_rail ... ok
+test tui::full_transcript::tests::arguments_beside_a_heading_wider_than_the_screen_keep_their_rows ... FAILED
+test tui::full_transcript::tests::a_long_heading_wraps_under_its_rail_instead_of_being_cut ... FAILED
+test tui::full_transcript::tests::a_groups_header_wraps_instead_of_being_cut ... FAILED
+test tui::full_transcript::tests::a_short_argument_a_long_heading_contains_by_chance_keeps_its_row ... FAILED
+test tui::full_transcript::tests::the_footer_is_upstreams_four_rows_under_the_record ... ok
+test tui::full_transcript::tests::a_groups_rows_wrap_under_their_tree_rail_and_keep_the_commands_colours ... FAILED
+test tui::full_transcript::tests::the_session_record_is_upstreams_body_with_the_lines_xfx_has_a_fact_for ... ok
+test tui::full_transcript::tests::a_replayed_turn_carries_the_times_the_log_has_and_its_calls_details ... ok
+test tui::full_transcript::tests::each_entry_sits_under_its_header_with_one_blank_row_between_entries ... ok
+test tui::full_transcript::tests::records_sit_under_the_welcome_above_every_entry_in_the_order_they_came ... ok
+test tui::full_transcript::tests::a_short_screen_gives_up_the_footers_rows_before_the_record_and_never_overflows ... ok
+test tui::full_transcript::tests::answer_text_breaks_a_group_and_a_notice_does_not ... ok
+test tui::full_transcript::tests::every_attempt_the_turns_provider_settles_is_handed_to_the_ui_as_a_record ... ok
+test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
+test tui::full_transcript::tests::rows_added_under_a_screen_scrolled_up_do_not_move_it_and_at_the_tail_they_are_followed ... ok
+test tui::full_transcript::tests::tool_rows_fit_the_narrowest_screens ... FAILED
+test tui::full_transcript::tests::the_reading_position_holds_when_the_page_rebuilds_above_and_below_it ... FAILED
+test tui::full_transcript::tests::it_opens_at_the_tail_and_the_keys_page_scroll_and_close_as_upstreams ... ok
+test tui::full_transcript::tests::a_width_change_keeps_the_entry_the_reader_was_in ... FAILED
+test tui::full_transcript::tests::every_row_fits_the_screen_at_every_width ... ok
+thread 'tui::full_transcript::tests::arguments_beside_a_heading_wider_than_the_screen_keep_their_rows' (259154575) panicked at src/tui/full_transcript.rs:3604:9:
+assertion failed: !rows.contains('\u{2026}')
+thread 'tui::full_transcript::tests::a_long_heading_wraps_under_its_rail_instead_of_being_cut' (259154557) panicked at src/tui/full_transcript.rs:3471:9:
+thread 'tui::full_transcript::tests::a_groups_header_wraps_instead_of_being_cut' (259154554) panicked at src/tui/full_transcript.rs:3583:9:
+thread 'tui::full_transcript::tests::a_short_argument_a_long_heading_contains_by_chance_keeps_its_row' (259154567) panicked at src/tui/full_transcript.rs:3633:9:
+thread 'tui::full_transcript::tests::a_groups_rows_wrap_under_their_tree_rail_and_keep_the_commands_colours' (259154555) panicked at src/tui/full_transcript.rs:3492:9:
+assertion failed: !rows.concat().contains('\u{2026}')
+thread 'tui::full_transcript::tests::tool_rows_fit_the_narrowest_screens' (259154589) panicked at src/tui/full_transcript.rs:3662:9:
+assertion failed: screen_at(&record, 1).concat().contains('?')
+thread 'tui::full_transcript::tests::the_reading_position_holds_when_the_page_rebuilds_above_and_below_it' (259154587) panicked at src/tui/full_transcript.rs:3727:9:
+assertion `left == right` failed: the heading wraps to two rows
+  left: "│  command: sleep 9; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22"
+ right: "  zz"
+thread 'tui::full_transcript::tests::a_width_change_keeps_the_entry_the_reader_was_in' (259154573) panicked at src/tui/full_transcript.rs:3750:9:
+assertion `left == right` failed
+  left: "│  b line 2 of the b file"
+ right: "├ Read b.txt"
+test result: FAILED. 36 passed; 8 failed; 0 ignored; 0 measured; 3941 filtered out; finished in 0.01s

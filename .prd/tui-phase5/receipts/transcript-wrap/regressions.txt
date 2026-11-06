@@ -1,0 +1,24 @@
+RED (base d314549e) against GREEN (this branch), each snap's .ansi with row 1 (the banner), entry timestamps, network ms and turn seconds normalized:
+p5-transcript-cancel-40x120      cmd-esc          identical
+p5-transcript-cancel-40x120      cmd-running      identical
+p5-transcript-cancel-40x120      end.full         identical
+p5-transcript-cancel-40x120      esc              identical
+p5-transcript-cancel-40x120      full             identical
+p5-transcript-cancel-40x120      mid              identical
+p5-transcript-cancel-40x120      next             identical
+p5-transcript-diffctl-40x120     closed           identical
+p5-transcript-diffctl-40x120     edited           identical
+p5-transcript-diffctl-40x120     edited.full      identical
+p5-transcript-diffctl-40x120     full             identical
+p5-transcript-md-40x120          answered         identical
+p5-transcript-md-40x120          answered.full    identical
+p5-transcript-md-40x120          closed           identical
+p5-transcript-md-40x120          full-pgup        identical
+p5-transcript-md-40x120          full             identical
+p5-transcript-md-light-40x120    answered         identical
+p5-transcript-md-light-40x120    answered.full    identical
+p5-transcript-md-light-40x120    closed           identical
+p5-transcript-md-light-40x120    full-pgup        identical
+p5-transcript-md-light-40x120    full             identical
+p5-transcript-tz-40x120          full             identical
+p5-transcript-tzsys-40x120       full             identical

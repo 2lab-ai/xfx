@@ -1,0 +1,6 @@
+positional: 36 of 41 rows differ [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+  xfx row  1  (page offset)                │  11    a line 11 of the a file
+  xfx row  2  (page offset)                │  12    a line 12 of the a file
+  fx  row 35  (page offset)                │  2     d line 2 of the d file
+  fx  row 36  (page offset)                │  3     d line 3 of the d file
+aligned: 4 rows without a match, 0 unexplained

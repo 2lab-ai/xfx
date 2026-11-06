@@ -1,0 +1,10 @@
+positional: 36 of 41 rows differ [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+  xfx row  1  (page offset)                <banner>
+  fx  row  4  session-record                 system prompt: ready · 6249 bytes
+  fx  row  5  session-record                 tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+  fx  row  6  session-record                 more)
+  fx  row  7  session-record                 skills: loading
+  xfx row  5  session-record                 tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+  xfx row  6  session-record                 +5 more)
+  xfx row 36  (page offset)                │  4     a line 4 of the a file
+aligned: 8 rows without a match, 0 unexplained

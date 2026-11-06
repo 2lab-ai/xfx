@@ -1,0 +1,30 @@
+positional: 31 of 41 rows differ [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 36]
+  xfx row  1  (blank row beside a covered run) 
+  xfx row  2  UNEXPLAINED                    XXXXXXXXXXXXXXXXXXXXXXXXXXX · Tool
+  xfx row  3  UNEXPLAINED                  ├ Read d.txt
+  xfx row  4  UNEXPLAINED                  │  1     d line 1 of the d file
+  xfx row  5  UNEXPLAINED                  │  2     d line 2 of the d file
+  xfx row  6  UNEXPLAINED                  │  3     d line 3 of the d file
+  xfx row  7  UNEXPLAINED                  │  4     d line 4 of the d file
+  xfx row  8  UNEXPLAINED                  │  5     d line 5 of the d file
+  xfx row  9  UNEXPLAINED                  │  6     d line 6 of the d file
+  xfx row 10  UNEXPLAINED                  │  7     d line 7 of the d file
+  xfx row 11  UNEXPLAINED                  │  8     d line 8 of the d file
+  xfx row 12  UNEXPLAINED                  │  9     d line 9 of the d file
+  fx  row  6  UNEXPLAINED                  ├ Read e.txt
+  xfx row 18  UNEXPLAINED                  └ Read e.txt
+  fx  row 20  UNEXPLAINED                    XXXXXXXXXXXXXXXXXXXXXXXXXXX · Tool
+  fx  row 21  UNEXPLAINED                  ├ Subagent finished · inspect alpha and report one line
+  fx  row 22  UNEXPLAINED                  │ model-a
+  fx  row 23  tool-schema                  │  action: run
+  fx  row 24  UNEXPLAINED                  │  {"ok":true,"result":"Child finished.","error_code":null}
+  fx  row 25  (blank row beside a covered run) 
+  fx  row 26  UNEXPLAINED                    XXXXXXXXXXXXXXXXXXXXXXXXXXX · Tool
+  fx  row 27  UNEXPLAINED                  └ Subagent finished · inspect beta and report one line
+  fx  row 28  UNEXPLAINED                    model-a
+  fx  row 29  tool-schema                  │  action: run
+  fx  row 30  UNEXPLAINED                  │  {"ok":true,"result":"Child finished.","error_code":null}
+  fx  row 31  (blank row beside a covered run) 
+  fx  row 36  (page offset)                  <wall> (↑5 ↓120)
+  xfx row 36  (page offset)                  <wall> (↑5 ↓80)
+aligned: 28 rows without a match, 21 unexplained

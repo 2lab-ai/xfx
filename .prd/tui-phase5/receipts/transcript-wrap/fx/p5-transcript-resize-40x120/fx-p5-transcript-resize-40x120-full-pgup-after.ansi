@@ -1,0 +1,40 @@
+
+[38;5;245m  2026-11-06 21:41:10.887 UTC · Tool[39m
+├ Read b.txt
+│[38;5;245m  1     b line 1 of the b file[39m
+│[38;5;245m  2     b line 2 of the b file[39m
+│[38;5;245m  3     b line 3 of the b file[39m
+│[38;5;245m  4     b line 4 of the b file[39m
+│[38;5;245m  5     b line 5 of the b file[39m
+│[38;5;245m  6     b line 6 of the b file[39m
+│[38;5;245m  7     b line 7 of the b file[39m
+│[38;5;245m  8     b line 8 of the b file[39m
+│[38;5;245m  9     b line 9 of the b file[39m
+│[38;5;245m  10    b line 10 of the b file[39m
+│[38;5;245m  11    b line 11 of the b file[39m
+│[38;5;245m  12    b line 12 of the b file[39m
+
+[38;5;245m  2026-11-06 21:41:10.887 UTC · Tool[39m
+├ Read c.txt
+│[38;5;245m  1     c line 1 of the c file[39m
+│[38;5;245m  2     c line 2 of the c file[39m
+│[38;5;245m  3     c line 3 of the c file[39m
+│[38;5;245m  4     c line 4 of the c file[39m
+│[38;5;245m  5     c line 5 of the c file[39m
+│[38;5;245m  6     c line 6 of the c file[39m
+│[38;5;245m  7     c line 7 of the c file[39m
+│[38;5;245m  8     c line 8 of the c file[39m
+│[38;5;245m  9     c line 9 of the c file[39m
+│[38;5;245m  10    c line 10 of the c file[39m
+│[38;5;245m  11    c line 11 of the c file[39m
+│[38;5;245m  12    c line 12 of the c file[39m
+
+[38;5;245m  2026-11-06 21:41:10.887 UTC · Tool[39m
+├ Read d.txt
+│[38;5;245m  1     d line 1 of the d file[39m
+│[38;5;245m  2     d line 2 of the d file[39m
+│[38;5;245m  3     d line 3 of the d file[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

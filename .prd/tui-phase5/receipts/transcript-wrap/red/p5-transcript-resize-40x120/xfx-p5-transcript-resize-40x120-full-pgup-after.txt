@@ -1,0 +1,40 @@
+│  11    a line 11 of the a file
+│  12    a line 12 of the a file
+
+  2026-11-06 21:41:10.249 UTC · Tool
+├ Read b.txt
+│  1     b line 1 of the b file
+│  2     b line 2 of the b file
+│  3     b line 3 of the b file
+│  4     b line 4 of the b file
+│  5     b line 5 of the b file
+│  6     b line 6 of the b file
+│  7     b line 7 of the b file
+│  8     b line 8 of the b file
+│  9     b line 9 of the b file
+│  10    b line 10 of the b file
+│  11    b line 11 of the b file
+│  12    b line 12 of the b file
+
+  2026-11-06 21:41:10.268 UTC · Tool
+├ Read c.txt
+│  1     c line 1 of the c file
+│  2     c line 2 of the c file
+│  3     c line 3 of the c file
+│  4     c line 4 of the c file
+│  5     c line 5 of the c file
+│  6     c line 6 of the c file
+│  7     c line 7 of the c file
+│  8     c line 8 of the c file
+│  9     c line 9 of the c file
+│  10    c line 10 of the c file
+│  11    c line 11 of the c file
+│  12    c line 12 of the c file
+
+  2026-11-06 21:41:10.268 UTC · Tool
+├ Read d.txt
+│  1     d line 1 of the d file
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

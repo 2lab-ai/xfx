@@ -1,0 +1,40 @@
+
+[38;5;245m  2026-11-06 22:00:20.698 UTC · Tool[39m
+├ Read d.txt
+│[38;5;245m  1     d line 1 of the d file[39m
+│[38;5;245m  2     d line 2 of the d file[39m
+│[38;5;245m  3     d line 3 of the d file[39m
+│[38;5;245m  4     d line 4 of the d file[39m
+│[38;5;245m  5     d line 5 of the d file[39m
+│[38;5;245m  6     d line 6 of the d file[39m
+│[38;5;245m  7     d line 7 of the d file[39m
+│[38;5;245m  8     d line 8 of the d file[39m
+│[38;5;245m  9     d line 9 of the d file[39m
+│[38;5;245m  10    d line 10 of the d file[39m
+│[38;5;245m  11    d line 11 of the d file[39m
+│[38;5;245m  12    d line 12 of the d file[39m
+
+[38;5;245m  2026-11-06 22:00:20.711 UTC · Tool[39m
+├ Read e.txt
+│[38;5;245m  1     e line 1 of the e file[39m
+│[38;5;245m  2     e line 2 of the e file[39m
+│[38;5;245m  3     e line 3 of the e file[39m
+│[38;5;245m  4     e line 4 of the e file[39m
+│[38;5;245m  5     e line 5 of the e file[39m
+│[38;5;245m  6     e line 6 of the e file[39m
+│[38;5;245m  7     e line 7 of the e file[39m
+│[38;5;245m  8     e line 8 of the e file[39m
+│[38;5;245m  9     e line 9 of the e file[39m
+│[38;5;245m  10    e line 10 of the e file[39m
+│[38;5;245m  11    e line 11 of the e file[39m
+│[38;5;245m  12    e line 12 of the e file[39m
+
+[38;5;245m  2026-11-06 22:00:20.735 UTC · Tool[39m
+└ Running [38;5;252msleep[39m 9[38;5;252m;[39m [38;5;252mecho[39m  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w23
+  zz
+│[38;5;245m  command: sleep 9; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22[39m
+│[38;5;245m  w23 zz[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

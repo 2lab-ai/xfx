@@ -1,0 +1,12 @@
+positional: 10 of 41 rows differ [7, 13, 14, 15, 16, 17, 19, 21, 23, 25]
+  fx  row  7  UNEXPLAINED                  ● 8 tool calls · 5 read · 2 subagents · 1 command
+  xfx row  7  UNEXPLAINED                  ● 6 tool calls · 5 read · 1 command
+  fx  row 13  UNEXPLAINED                  ├ Read e.txt
+  fx  row 14  UNEXPLAINED                  ├ Subagent finished · inspect alpha and report one line
+  fx  row 15  UNEXPLAINED                  │ model-a
+  fx  row 16  UNEXPLAINED                  └ Subagent finished · inspect beta and report one line
+  fx  row 17  UNEXPLAINED                    model-a
+  xfx row 13  UNEXPLAINED                  └ Read e.txt
+  fx  row 21  UNEXPLAINED                    <wall> (↑5 ↓120)
+  xfx row 17  UNEXPLAINED                    <wall> (↑5 ↓80)
+aligned: 10 rows without a match, 10 unexplained
