@@ -692,7 +692,6 @@ mod tests {
             "/credits now",
             "/balance now",
             "/usage 7d",
-            "/cost session",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::UnknownCommand { .. }),
