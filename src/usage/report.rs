@@ -248,6 +248,23 @@ pub const MAX_DAY: i64 = i64::MAX / DAY_MS;
 /// fx clamps it (`formatDay`, `report.zig:184-194`), and one past [`MAX_DAY`]
 /// is that day, so no day read from a file can overflow the arithmetic.
 pub fn format_day(day: i64) -> String {
+    let MonthDay { year, month, day } = month_day(day);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// A UTC day's calendar date (`MonthDay`, `report.zig:148-154`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonthDay {
+    pub year: i64,
+    /// 1 through 12.
+    pub month: i64,
+    /// 1 through 31.
+    pub day: i64,
+}
+
+/// The calendar date of a UTC day number, clamped as [`format_day`] clamps it
+/// (`monthDay`, `report.zig:156-162`).
+pub fn month_day(day: i64) -> MonthDay {
     // Howard Hinnant's civil-from-days, the inverse of fx's `civilDay`
     // (`report.zig:133-142`).
     let z = day.clamp(0, MAX_DAY) + 719_468;
@@ -263,8 +280,38 @@ pub fn format_day(day: i64) -> String {
     } else {
         month_index - 9
     };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day_of_month:02}")
+    MonthDay {
+        year: year_of_era + era * 400 + i64::from(month <= 2),
+        month,
+        day: day_of_month,
+    }
+}
+
+/// The first UTC day of the calendar month that holds `day`, clamped as
+/// [`month_day`] clamps it (`monthStart`, `report.zig:164-166`).
+pub fn month_start(day: i64) -> i64 {
+    let day = day.clamp(0, MAX_DAY);
+    day - (month_day(day).day - 1)
+}
+
+/// The first UTC day of the next calendar month (`nextMonthStart`,
+/// `report.zig:168-173`).
+pub fn next_month_start(day: i64) -> i64 {
+    let mut next = (month_start(day) + 27).min(MAX_DAY);
+    while month_day(next).day != 1 && next < MAX_DAY {
+        next += 1;
+    }
+    next
+}
+
+/// The UTC day a budget next resets, when the budget says
+/// (`budgetResetDay`, `report.zig:175-182`).
+pub fn budget_reset_day(period: RefreshPeriod, today: i64) -> Option<i64> {
+    match period {
+        RefreshPeriod::Daily => Some(today.saturating_add(1)),
+        RefreshPeriod::Monthly => Some(next_month_start(today)),
+        RefreshPeriod::Weekly | RefreshPeriod::None => None,
+    }
 }
 
 /// The `/v1/report` path for per-model usage over the UTC days `first..=last`
@@ -532,10 +579,8 @@ pub enum Unavailable {
     ProviderRejected,
 }
 
-/// Why a fetch failed (`Failure`, `usage.zig:94-105`, less `cache`: fx's
-/// dashboard runtime reports a store's `error.InvalidCache` as it
-/// (`usage.zig:705-708`), so it arrives with that runtime (U3), from
-/// `crate::usage::cache::StoreError::Invalid`). Cached numbers stay on screen.
+/// Why a fetch failed (`Failure`, `usage.zig:94-105`). Cached numbers stay on
+/// screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Failure {
     /// No answer: nothing reachable, too slow, or too large.
@@ -548,6 +593,11 @@ pub enum Failure {
     Server,
     /// Any other status, a redirect included, or a body that is not a report.
     BadResponse,
+    /// The answer cannot be kept: merged with what is cached it is an entry
+    /// the cache would refuse (`crate::usage::cache::StoreError::Invalid`,
+    /// fx's `error.InvalidCache`). Never built here: the dashboard runtime
+    /// reports it, as fx's does (`usage.zig:705-708`).
+    Cache,
 }
 
 /// The failure a non-`200` status maps to (`statusFailure`,
@@ -593,6 +643,11 @@ impl Question {
     /// Who the numbers belong to, for the heading.
     pub fn label(&self) -> &'static str {
         API_KEY_LABEL
+    }
+
+    /// The origin the report is asked under: the configured Gateway's.
+    pub fn origin(&self) -> &str {
+        &self.origin
     }
 
     /// Whose usage cache entry the answers belong to: fx's `api_key` scope,
@@ -695,7 +750,7 @@ impl Fetch {
         let cancelled = cancel.clone();
         spawn(Box::new(move || {
             // Nobody left to tell is a fetch nobody waits for.
-            let _ = done.send(run(&question, &ranges, &cancelled));
+            let _ = done.send(fetch_on_this_thread(&question, &ranges, &cancelled));
         }))?;
         Ok(Self {
             outcome: Some(outcome),
@@ -729,8 +784,15 @@ impl Drop for Fetch {
     }
 }
 
-/// The worker's body: a runtime of its own for the length of the fetch.
-fn run(question: &Question, ranges: &[DayRange], cancel: &CancellationToken) -> Outcome {
+/// One fetch on the calling thread, which it blocks until the fetch ends or
+/// `cancel` is cancelled: [`Fetch`]'s worker body, and the dashboard's
+/// (`crate::usage::dashboard`), which stores the answer on the same thread. A
+/// runtime of its own for the length of the fetch.
+pub(crate) fn fetch_on_this_thread(
+    question: &Question,
+    ranges: &[DayRange],
+    cancel: &CancellationToken,
+) -> Outcome {
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1072,6 +1134,35 @@ mod tests {
         ] {
             assert_eq!(status_failure(status), failure, "{status}");
         }
+    }
+
+    #[test]
+    fn months_start_on_the_1st_and_budgets_reset_on_the_next_1st() {
+        // `report.zig:414-425@481104fd`.
+        let date = |year, month, day| MonthDay { year, month, day };
+        let oct_1 = month_start(OCT_11);
+        assert_eq!(month_day(oct_1), date(2026, 10, 1));
+        assert_eq!(month_start(oct_1), oct_1);
+        assert_eq!(month_day(next_month_start(OCT_11)), date(2026, 11, 1));
+        assert_eq!(month_day(next_month_start(OCT_11 + 60)), date(2027, 1, 1));
+        assert_eq!(
+            month_day(next_month_start(utc_day(1_833_062_400_000))),
+            date(2028, 3, 1)
+        );
+        assert_eq!(
+            budget_reset_day(RefreshPeriod::Monthly, OCT_11),
+            Some(next_month_start(OCT_11))
+        );
+        assert_eq!(
+            budget_reset_day(RefreshPeriod::Daily, OCT_11),
+            Some(OCT_11 + 1)
+        );
+        assert_eq!(budget_reset_day(RefreshPeriod::Weekly, OCT_11), None);
+        assert_eq!(budget_reset_day(RefreshPeriod::None, OCT_11), None);
+        // xfx's own: the ends of the range a file may hold neither overflow
+        // nor loop.
+        assert_eq!(month_start(-5), 0);
+        assert!(next_month_start(MAX_DAY) <= MAX_DAY);
     }
 
     // -- the parser beyond fx's vectors ------------------------------------

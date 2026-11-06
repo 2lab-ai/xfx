@@ -30,6 +30,8 @@
 //! records a request ([`start_tracking`]).
 
 pub mod cache;
+pub mod dashboard;
+pub mod policy;
 pub mod report;
 pub mod view;
 
