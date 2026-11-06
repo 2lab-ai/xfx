@@ -225,3 +225,41 @@ are inside `#[cfg(test)]` modules), short `TMPDIR`, `FX_AUTO_UPGRADE=0`.
 | `scripts/check-usage-clock.sh` | ok |
 | mutants (`mutants.txt`) | 10 of 10 killed at `205db24f` |
 | `tests/ledger_compat.rs` alone | 5 passed, three runs |
+
+## LAND-PREP: `origin/main` merged
+
+`origin/main` @ `d314549e` (#57 usage U1-U3, #60 PROC-SPAWN, #61 FLAKE-MDTIME)
+merged as `58beb00f`.
+
+- **One conflict**, `src/tui/shell.rs` `Shell::usage`. Main had replaced
+  `self.fork_menu = None` with `self.close_fork_menu()` (`9bd8f0ff`: every
+  surface opener drops a waiting `/fork` too) but still opened the ledger
+  dashboard (`Dashboard::open(scope, cached)`, `read_usage`); US-U4 had
+  replaced that with `close_usage()` + `open_usage_runtime()`. Kept both:
+  `close_fork_menu()`, then `close_usage()` and `open_usage_runtime()`
+  (`git show --remerge-diff 58beb00f -- src/tui/shell.rs`). Every other
+  `fork_menu = None` left in the merged file is one main kept too (four,
+  the same lines).
+- **#60's start rule** (`clippy.toml` `disallowed-methods`): the one direct
+  start in this branch's code and tests was `tests/ledger_compat.rs`'s
+  bounded `run()`, now `xfx::process::spawn(...)`. No `#[allow]` added. The
+  pty sessions go through `support::pty`, which main already routes.
+- Main's other usage changes merged clean: `src/usage/clock.rs`'s and
+  `src/usage/cache/tests.rs`'s starts and pipe through `crate::process`.
+
+### Gates at `58beb00f`
+
+Each full suite started only once `pgrep -x cargo` and
+`pgrep -x 'xfx-[0-9a-f]+'` found nothing (all clear at once, the clock check
+after 150 s); short `TMPDIR`, `FX_AUTO_UPGRADE=0`.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`, and `--features fault-injection` | ok; ok, ok |
+| `cargo test --locked --no-fail-fast` | 15 result lines ok: 4855 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 15 ok: 4884 passed, 0 failed |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok (9457 files), ok, ok (9457 files) |
+| release and faulty builds | ok, ok; `/v1/generation` and `usage.json` 0 times in each |
+| `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+| `scripts/check-usage-clock.sh`; `scripts/check-preview-contract.sh` | ok; ok |
