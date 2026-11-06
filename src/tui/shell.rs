@@ -6613,11 +6613,11 @@ impl Shell {
     }
 
     /// Writes what the MCP runtime has said since the last tick: its notices
-    /// -- a usage line under no topic, as upstream files one
-    /// (`noticeTopicForBody`, `app_commands.zig:1851-1853`) -- the trust
-    /// prompt's rows, and what the menu was waiting for. Everything a server
-    /// supplied is made inert first: a resource's text is the server's, not
-    /// xfx's.
+    /// -- every one under `mcp`, a usage line included, as fx v0.0.16 files
+    /// what a verb prints (`collectMcpHostFacts`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_commands.zig:340-354`) -- the trust prompt's rows,
+    /// and what the menu was waiting for. Everything a server supplied is
+    /// made inert first: a resource's text is the server's, not xfx's.
     fn settle_mcp(&mut self) {
         use crate::mcp::runtime::Event;
         let events = self.work.mcp().take_events();
@@ -6628,11 +6628,7 @@ impl Shell {
             match event {
                 Event::Notice { warning, body } => {
                     let body = super::bridge::inert(&body).into_owned();
-                    let topic = if body.starts_with("usage:") {
-                        ""
-                    } else {
-                        "mcp"
-                    };
+                    let topic = crate::mcp::command::TOPIC;
                     let notice = if warning {
                         notice::Notice::warning(topic, body)
                     } else {
@@ -11783,14 +11779,15 @@ impl CommandHandlers for Shell {
         }
     }
 
-    /// `/mcp` (`commandHandleMcp`, `app_commands.zig:1312-1405`): bare or
-    /// `list` opens the menu with the menus that share its slot closed
-    /// (`:1315-1332`); anything else is a subcommand, answered in order on
-    /// the MCP runtime's own thread so no server holds up the band
-    /// ([`crate::mcp::command`]).
+    /// `/mcp` (`commandHandleMcp`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_commands.zig:927-945`): bare, it opens the menu with
+    /// the menus that share its slot closed (`closeOtherMenusForMcp`,
+    /// `:325-338`); anything else is a verb -- `list` included, which prints
+    /// its table -- answered in order on the MCP runtime's own thread so no
+    /// server holds up the band ([`crate::mcp::command`]).
     fn mcp(&mut self, argument: &str) {
         let argument = argument.trim_matches([' ', '\t']);
-        if argument.is_empty() || argument == "list" {
+        if argument.is_empty() {
             self.picker = None;
             self.file_picker = None;
             self.help_menu = None;
@@ -14128,7 +14125,7 @@ mod tests {
         .anchored();
         let quiet =
             |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
-                runtime.submit(Job::Command("path".into()));
+                runtime.submit(Job::Command("remove nope".into()));
                 let deadline = std::time::Instant::now() + Duration::from_secs(60);
                 let mut said = Vec::new();
                 while !said.iter().any(|body: &String| body.contains("mcp.json")) {
@@ -14260,7 +14257,7 @@ mod tests {
                 let (done, finished) = std::sync::mpsc::channel();
                 let runtime = Arc::clone(&runtime);
                 std::thread::spawn(move || {
-                    runtime.run(Job::Command("reload".into()));
+                    runtime.run(Job::MenuReload);
                     let _ = done.send(());
                 });
                 finished
@@ -14436,7 +14433,7 @@ mod tests {
         assert!(shell.full.is_open());
         shell.consume(vec![Input::Text('1'), Input::Text('2')], Instant::now());
         // Nothing was handed to the runtime: a job behind it answers alone.
-        runtime.submit(Job::Command("path".into()));
+        runtime.submit(Job::Command("remove nope".into()));
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
         let mut said: Vec<String> = Vec::new();
         while !said.iter().any(|body| body.contains("mcp.json")) {
@@ -14559,7 +14556,7 @@ mod tests {
             let (done, finished) = std::sync::mpsc::channel();
             let runtime = Arc::clone(&runtime);
             std::thread::spawn(move || {
-                runtime.run(Job::Command("reload".into()));
+                runtime.run(Job::MenuReload);
                 let _ = done.send(());
             });
             finished
@@ -14574,7 +14571,7 @@ mod tests {
         let _ = until_prompted(&runtime, &[("proj".to_string(), second)]);
         assert!(shell.offer_to_trust_prompt(&Input::Text('2')));
         // Nothing was handed to the runtime: a job behind it answers alone.
-        runtime.submit(Job::Command("path".into()));
+        runtime.submit(Job::Command("remove nope".into()));
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
         let mut said: Vec<String> = Vec::new();
         while !said.iter().any(|body| body.contains("mcp.json")) {
@@ -14632,7 +14629,7 @@ mod tests {
         assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
         assert!(shell.mcp_prompt.is_some(), "the prompt is still up");
         // Nothing was handed to the runtime: a job behind it answers first.
-        runtime.submit(Job::Command("path".into()));
+        runtime.submit(Job::Command("remove nope".into()));
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
         let mut said: Vec<String> = Vec::new();
         while !said.iter().any(|body| body.contains("mcp.json")) {
@@ -14704,7 +14701,7 @@ mod tests {
         // answers; what they said, in order.
         let drained =
             |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
-                runtime.submit(Job::Command("path".into()));
+                runtime.submit(Job::Command("remove nope".into()));
                 let deadline = std::time::Instant::now() + Duration::from_secs(60);
                 let mut said = Vec::new();
                 loop {
@@ -14749,7 +14746,7 @@ mod tests {
             let (done, finished) = std::sync::mpsc::channel();
             let runtime = Arc::clone(&runtime);
             std::thread::spawn(move || {
-                runtime.run(Job::Command("reload".into()));
+                runtime.run(Job::MenuReload);
                 let _ = done.send(());
             });
             finished
@@ -14841,7 +14838,7 @@ mod tests {
             let (done, finished) = std::sync::mpsc::channel();
             let runtime = Arc::clone(&runtime);
             std::thread::spawn(move || {
-                runtime.run(Job::Command("reload".into()));
+                runtime.run(Job::MenuReload);
                 let _ = done.send(());
             });
             finished

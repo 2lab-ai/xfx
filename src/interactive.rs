@@ -311,9 +311,9 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         command: Slash::Mcp,
         name: "/mcp",
         aliases: &[],
-        // Upstream's row whole (`commands.zig:482`): its words, its place
-        // after `/undo`, and the Extensions tab.
-        summary: "manage local and remote MCP servers, resources, prompts, and project trust",
+        // Upstream's row whole (`src/builtins/commands.zig:463@481104fd`):
+        // its words, its place after `/undo`, and the Extensions tab.
+        summary: "manage MCP servers and their logins",
         category: "Extensions",
         has_args: true,
     },

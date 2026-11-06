@@ -1539,7 +1539,7 @@ mod tests {
         );
         runtime.suppress_prompts();
         write("second");
-        bounded_run(&runtime, Job::Command("reload".into()));
+        bounded_run(&runtime, Job::MenuReload);
         assert_eq!(proj(&runtime).state_label(), "Pending trust");
 
         let views = runtime.views();
@@ -1572,7 +1572,7 @@ mod tests {
         // The file changes again before the answer is saved: the approval is
         // for what the screen drew, and the newer entry still asks.
         write("third");
-        bounded_run(&runtime, Job::Command("reload".into()));
+        bounded_run(&runtime, Job::MenuReload);
         bounded_run(&runtime, Job::Trust { action, body });
         assert_eq!(proj(&runtime).state_label(), "Pending trust");
         let saved: serde_json::Value =
@@ -1764,10 +1764,7 @@ mod tests {
                 serde_json::json!({"mcpServers": servers}).to_string(),
             )
             .expect("write .mcp.json");
-            bounded_run(
-                &self.runtime,
-                crate::mcp::runtime::Job::Command("reload".into()),
-            );
+            bounded_run(&self.runtime, crate::mcp::runtime::Job::MenuReload);
         }
 
         /// The approvals saved, by name.

@@ -1120,15 +1120,16 @@ impl McpRuntime {
         Ok((servers, issues, choices, workspace.digests))
     }
 
-    /// A reload the person asked for by name -- `/mcp reload`, the menu's
-    /// `r` -- which also starts again a failed server whose configuration is
-    /// the same. Both are fx c1db9191's, whose `/mcp reload` reconnects
-    /// (`MCP reconnection started. …`, `app_commands.zig:1395-1404@c1db9191`);
-    /// fx v0.0.16 has no such verb (`/mcp reload is gone: fx reloads after
-    /// add, remove, approve, and reject.`, `src/core/mcp_host/verbs.zig:70
-    /// @481104fd`), and its reloads keep a server by its configuration
-    /// alone, whatever its state ([`Self::reload`]). Until `/mcp` is fx
-    /// v0.0.16's, the verb keeps doing what it says.
+    /// A reload the person asked for by name -- the menu's `r` -- which also
+    /// starts again a failed server whose configuration is the same. It is
+    /// fx c1db9191's, whose `/mcp reload` and `r` reconnect (`MCP
+    /// reconnection started. …`, `app_commands.zig:1395-1404@c1db9191`);
+    /// fx v0.0.16 has neither (`/mcp reload is gone: fx reloads after add,
+    /// remove, approve, and reject.`, `src/core/mcp_host/verbs.zig:70
+    /// @481104fd`, which `crate::mcp::command` now says), and its reloads keep
+    /// a server by its configuration alone, whatever its state
+    /// ([`Self::reload`]). Until the menu is fx v0.0.16's, `r` keeps doing
+    /// what it says.
     pub fn reconnect(self: &Arc<Self>, origin: Origin) {
         self.state().reconnect = true;
         self.reload(origin);

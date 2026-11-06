@@ -400,13 +400,13 @@ fn a_change_to_a_non_first_pending_server_sends_the_prompt_again_unasked() {
             .collect()
     };
     let _ = runtime.take_events();
-    bounded_run(&runtime, Job::Command("reload".into()));
+    bounded_run(&runtime, Job::MenuReload);
     assert_eq!(
         prompts(runtime.take_events()),
         Vec::<Vec<(String, String)>>::new()
     );
     write("b2");
-    bounded_run(&runtime, Job::Command("reload".into()));
+    bounded_run(&runtime, Job::MenuReload);
     assert_eq!(
         prompts(runtime.take_events()),
         [vec![
@@ -454,7 +454,7 @@ fn approving_a_listed_set_saves_only_the_entries_still_pending_as_listed() {
         "same": quiet("s"), "rewritten": quiet("r2"), "refused": quiet("f"),
         "taken": quiet("t"), "added": quiet("a"),
     }));
-    bounded_run(&runtime, Job::Command("reload".into()));
+    bounded_run(&runtime, Job::MenuReload);
     let deadline = Instant::now() + WAIT;
     while !runtime.views().iter().any(|view| view.name == "added") {
         assert!(
@@ -622,7 +622,7 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     let wrote = write(PermissionMode::Auto, rules);
     assert!(wrote.ok, "{wrote:?}");
 
-    bounded_run(&runtime, Job::Command("reload".into()));
+    bounded_run(&runtime, Job::MenuReload);
     let view = settled(&runtime, "proj");
     assert!(
         !ran.exists(),
@@ -685,44 +685,29 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
 }
 
 #[test]
-fn every_feature_command_answers_in_upstreams_shape() {
+fn every_feature_command_c1db9191_had_says_where_it_went() {
+    // fx v0.0.16 dropped `/mcp resource` and `/mcp prompt` with MCP v1, and
+    // moved `auth` (`src/core/mcp_host/verbs.zig:64-73@481104fd`): with a
+    // server up that would have answered each, each line now says only that,
+    // and nothing is asked of the server.
     let home = Home::new();
     config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
     let runtime = home.runtime();
     runtime.start();
     settled(&runtime, "fixture");
+    let _ = runtime.take_events();
+    let resources = "/mcp resource is gone: xfx doesn't support MCP resources and prompts yet.";
+    let prompts = "/mcp prompt is gone: xfx doesn't support MCP resources and prompts yet.";
     for (line, expected) in [
-        (
-            "resource list fixture",
-            "MCP resources from fixture (1):\n  fixture :: fixture://alpha — alpha\n",
-        ),
-        (
-            "resource read fixture fixture://alpha",
-            "[untrusted MCP resource content] fixture :: fixture://alpha\n\nfixture://alpha (text/plain)\nFIXTURE_RESOURCE_TEXT\n",
-        ),
-        (
-            "prompt list fixture",
-            "MCP prompts from fixture (1):\n  fixture :: review — Review prompt [tone*]\n",
-        ),
-        (
-            "prompt get fixture review {\"tone\":\"brief\"}",
-            "[untrusted MCP prompt content] fixture :: review\nReview prompt\n\nuser (text):\n{\"type\":\"text\",\"text\":\"FIXTURE_PROMPT_TEXT\"}\n",
-        ),
-        (
-            "prompt complete fixture review tone b",
-            "MCP completions from fixture (2 of 2):\n  brief\n  thorough\n",
-        ),
-        (
-            "auth fixture",
-            "MCP authentication for 'fixture' failed: McpAuthenticationNotRemote.",
-        ),
+        ("resource list fixture", resources),
+        ("resource read fixture fixture://alpha", resources),
+        ("prompt list fixture", prompts),
+        ("prompt get fixture review {\"tone\":\"brief\"}", prompts),
+        ("prompt complete fixture review tone b", prompts),
+        ("auth fixture", "/mcp auth is now /mcp login NAME."),
         (
             "logout fixture",
-            "MCP logout for 'fixture' failed: McpAuthenticationNotRemote.",
-        ),
-        (
-            "prompt get fixture review [1]",
-            "MCP prompt invocation failed: McpInvalidPromptArguments.",
+            "fixture runs a command, so it has no login.",
         ),
     ] {
         runtime.run(Job::Command(line.into()));
@@ -1687,7 +1672,7 @@ fn a_loopback_http_server_is_initialized_and_called_with_its_session_id() {
         ]
     );
     // A remote server's sign-in is the gated leaf: checked, then refused.
-    runtime.run(Job::Command("auth remote --open".into()));
+    runtime.run(Job::Command("login remote".into()));
     assert_eq!(notices(&runtime), [super::command::AUTH_UNAVAILABLE]);
     runtime.shutdown();
 }
@@ -1720,13 +1705,7 @@ fn removing_a_server_stops_its_process_and_the_reload_says_nothing_of_its_own() 
     runtime.run(Job::Command("remove fixture".into()));
     // Only the command's own words: the reload says nothing (fx v0.0.16,
     // `333d4764`), and stops the server before it returns.
-    assert_eq!(
-        notices(&runtime),
-        [format!(
-            "Removed MCP server 'fixture'.\n{}",
-            super::command::RELOAD_STARTED
-        )]
-    );
+    assert_eq!(notices(&runtime), ["Removed fixture from ~/.xfx/mcp.json."]);
     let pid = rustix::process::Pid::from_raw(pid).expect("pid");
     let deadline = Instant::now() + WAIT;
     while rustix::process::test_kill_process(pid).is_ok() {
@@ -1736,9 +1715,11 @@ fn removing_a_server_stops_its_process_and_the_reload_says_nothing_of_its_own() 
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+    // Edited in place, as fx v0.0.16 edits it: the old profile keeps its
+    // `mcp` key, written two-space (`src/core/mcp_host/config_file.zig@481104fd`).
     assert_eq!(
         std::fs::read_to_string(home.profile()).unwrap(),
-        r#"{"mcp":{}}"#
+        "{\n  \"mcp\": {}\n}\n"
     );
 }
 
@@ -2473,9 +2454,10 @@ fn a_feature_request_during_a_startup_backoff_waits_for_the_next_try() {
 
 #[test]
 fn an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not() {
-    // `/mcp reload` is c1db9191's and says it reconnects; fx v0.0.16 has no
-    // such verb, and its reloads keep a server by its configuration alone
-    // (`src/core/mcp_host/verbs.zig:70`, `src/mcp/engine.zig:167-186@481104fd`).
+    // The menu's `r` is c1db9191's and reconnects; fx v0.0.16 has no such
+    // reload -- its `/mcp reload` is gone -- and its reloads keep a server by
+    // its configuration alone (`src/core/mcp_host/verbs.zig:70`,
+    // `src/mcp/engine.zig:167-186@481104fd`).
     let home = Home::new();
     let attempts = home.dir.path().join("attempts");
     config::add_profile_server(
@@ -2500,17 +2482,18 @@ fn an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not(
     runtime.reload(super::runtime::Origin::Transcript);
     assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
     assert_eq!(tries(), 8, "a config reload is not a retry");
+    // `/mcp reload` went with c1db9191's `/mcp`: it says where, and starts
+    // nothing.
     runtime.run(Job::Command("reload".into()));
-    assert_eq!(notices(&runtime), [super::command::RELOAD_STARTED]);
+    assert_eq!(
+        notices(&runtime),
+        ["/mcp reload is gone: xfx reloads after add, remove, approve, and reject."]
+    );
+    assert_eq!(tries(), 8, "a verb that is gone started a server");
     let deadline = Instant::now() + WAIT;
-    while tries() < 16 {
-        assert!(Instant::now() < deadline, "the reload started nothing");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
-    // And the menu's `r`, the same reload.
+    // The menu's `r`, c1db9191's until the menu is v0.0.16's, does.
     runtime.run(Job::MenuReload);
-    while tries() < 24 {
+    while tries() < 16 {
         assert!(
             Instant::now() < deadline,
             "the menu's reload started nothing"
@@ -2721,7 +2704,7 @@ fn an_explicit_reload_starts_again_a_ready_server_whose_process_died() {
         assert!(Instant::now() < deadline, "its death was never seen");
         std::thread::sleep(Duration::from_millis(5));
     }
-    runtime.run(Job::Command("reload".into()));
+    runtime.run(Job::MenuReload);
     while pid_in(&log) == first || settled(&runtime, "fixture").status() != Status::Ready {
         assert!(
             Instant::now() < deadline,

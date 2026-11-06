@@ -347,7 +347,10 @@ fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_a
             .contains("exec /bin/sh"),
         "the model's write did not land"
     );
-    session.type_bytes(b"/mcp reload\r");
+    // fx v0.0.16 reloads after add, remove, approve and reject, and has no
+    // `/mcp reload`: an add is the reload that reads the model's rewrite.
+    session.type_bytes(b"/mcp add web http://127.0.0.1:9/mcp\r");
+    session.wait_for("Added web to ~/.xfx/mcp.json.");
     session.wait_for("command: /bin/sh -c");
     session.type_bytes(b"3");
     session.wait_for("Rejecting project MCP server 'proj'.");

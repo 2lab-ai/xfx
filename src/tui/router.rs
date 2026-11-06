@@ -124,8 +124,8 @@ pub(crate) trait CommandHandlers {
     /// when there was none, which opens the picker. What the rest may be is
     /// `crate::workspace::access::parse`'s to say, its refusal included.
     fn workspace(&mut self, argument: &str);
-    /// `/mcp`, with the rest of the line: empty or `list` opens the menu,
-    /// anything else is a subcommand for `crate::mcp::command`.
+    /// `/mcp`, with the rest of the line: empty opens the menu, anything
+    /// else -- `list` included -- is a verb for `crate::mcp::command`.
     fn mcp(&mut self, argument: &str);
     /// `/skills`, with the rest of the line -- already trimmed, and empty when
     /// there was none, which opens the menu. What the rest may be is
