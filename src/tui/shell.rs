@@ -1183,6 +1183,12 @@ pub(crate) struct Shell {
     /// back into the composer once the fork is the conversation
     /// (`submitForkMenuSelection`'s `replace`, `app_input_runtime.zig:1686`).
     fork_prompt: Option<String>,
+    /// That prompt, once the fork landed while a search had the composer --
+    /// `/mcp`'s filter, the catalog's, the settings', the model menu's, the
+    /// session picker's or `/skills`' search ([`Shell::composer_searched`]):
+    /// held, not written into the search, until the composer is its own
+    /// again ([`Shell::settle_fork_prompt`]).
+    fork_prompt_held: Option<String>,
     /// Whether the document ends on a fork's plain `original session …` line
     /// ([`Shell::forked`]), which upstream ends with its line break alone: the
     /// block written after it opens with the blank row a block is separated
@@ -2357,6 +2363,7 @@ impl Shell {
             fork_menu: None,
             fork_asked: false,
             fork_prompt: None,
+            fork_prompt_held: None,
             raw_gap: false,
             effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
@@ -6390,20 +6397,57 @@ impl Shell {
     /// `app_input_runtime.zig:1681-1689@481104fd`) -- unless the composer was
     /// written in since the Enter, whose text is the user's, or the prompt
     /// is past what the composer holds, which upstream leaves out too.
+    ///
+    /// Upstream forks in the Enter's own call, so nothing can open between
+    /// the choice and the prompt's return. Here the fork is the runtime's,
+    /// and a command recalled and sent in between can open a surface whose
+    /// search the composer is (`/mcp`'s menu, say): the prompt is not that
+    /// search's text, so it waits until the search is gone
+    /// ([`Self::settle_fork_prompt`]).
     fn forked_into(&mut self, replay: Hydration, source: String) {
         self.fork_menu = None;
         self.hydrate_as(replay, true, Reopened::Forked { source });
         if let Some(prompt) = self.fork_prompt.take() {
-            if self.editor.is_empty() {
-                self.edit_history.boundary();
-                if self
-                    .editor
-                    .set_text(&super::bridge::inert(&prompt), Entities::new())
-                {
-                    self.edited(None);
-                }
+            self.fork_prompt_held = Some(prompt);
+            self.settle_fork_prompt();
+        }
+    }
+
+    /// Puts a landed fork's prompt into the composer once no search has it
+    /// ([`Self::composer_searched`]), and only into an empty one: a composer
+    /// that holds text holds the user's, and the prompt is left out. After
+    /// every input, as [`Self::settle_model_draft`] is, and when the fork
+    /// lands.
+    fn settle_fork_prompt(&mut self) {
+        if self.fork_prompt_held.is_none() || self.composer_searched() {
+            return;
+        }
+        let Some(prompt) = self.fork_prompt_held.take() else {
+            return;
+        };
+        if self.editor.is_empty() {
+            self.edit_history.boundary();
+            if self
+                .editor
+                .set_text(&super::bridge::inert(&prompt), Entities::new())
+            {
+                self.edited(None);
             }
         }
+    }
+
+    /// Whether the composer is a surface's search rather than a draft: every
+    /// surface [`Self::reconcile_picker`] hands the draft to as its query.
+    fn composer_searched(&self) -> bool {
+        self.mcp_menu.is_some()
+            || self.help_menu.is_some()
+            || self.settings_menu.is_some()
+            || self.model_menu.is_some()
+            || self.sessions.is_some()
+            || self
+                .skills_menu
+                .as_ref()
+                .is_some_and(|menu| !menu.origin().is_mention())
     }
 
     /// Takes the picker down, and its search with it when `clear_query`.
@@ -6540,11 +6584,14 @@ impl Shell {
                 )
         );
         // Nor while the settings menu is up: the draft is its search, and a
-        // `/model ` typed there names a setting, not a model.
+        // `/model ` typed there names a setting, not a model. Nor under
+        // `/mcp`'s menu, whose filter the draft is and which is drawn in the
+        // slot over any column: a Tab or a space it passes on is the filter's.
         if !bound
             || self.help_menu.is_some()
             || self.model_menu.is_some()
             || self.settings_menu.is_some()
+            || self.mcp_menu.is_some()
         {
             return false;
         }
@@ -10764,6 +10811,8 @@ impl Shell {
             // that ended gives its draft back before the next key lands
             // (`settleModelPickerDraft`, `app_input_runtime.zig:617`).
             self.settle_model_draft();
+            // And a landed fork's prompt held while a search had the composer.
+            self.settle_fork_prompt();
             // **Before the focus, and that is the point of putting it here.**
             // A theme report is not a keystroke: nobody typed it, and every
             // branch below is written to swallow what it does not bind -- so a
@@ -10940,6 +10989,7 @@ impl Shell {
             }
         }
         self.settle_model_draft();
+        self.settle_fork_prompt();
     }
 
     /// One typed character.
@@ -14071,6 +14121,7 @@ impl Shell {
         self.fork_menu = None;
         self.fork_asked = false;
         self.fork_prompt = None;
+        self.fork_prompt_held = None;
         self.raw_gap = false;
         self.forget_session_title();
         self.tally = Tally::default();
@@ -14539,8 +14590,10 @@ impl Shell {
         // An edit went through: the next refusal is a new run, and is said.
         self.over_limit = false;
         // A prompt waiting to go back into the composer after a fork stays
-        // out of it: what was typed is the user's.
+        // out of it: what was typed is the user's -- a search's text too, as
+        // before the fork lands.
         self.fork_prompt = None;
+        self.fork_prompt_held = None;
         self.history.leave();
         self.recalled_slash = false;
         self.edited(delta);
@@ -33859,6 +33912,51 @@ mod tests {
     }
 
     #[test]
+    fn a_column_line_typed_into_the_mcp_filter_is_the_filter_not_a_column() {
+        // `/mcp`'s filter is the composer (`syncMcpHostMenu`), as the
+        // catalog's, the model menu's and the settings menu's searches are,
+        // and the menu is drawn in the slot over any column (`slot`). So no
+        // column takes a key under it: Tab on a bare `/effort` opened the
+        // `/effort ` column and wrote `/effort ` into the filter, and Tab or a
+        // space on `/effort ` or `/model ` went to a column nobody could see.
+        // Each key the menu does not bind stays the filter's.
+        let mut took = Vec::new();
+        for (filter, key, then) in [
+            ("/effort", "\t", "/effort"),
+            ("/effort ", "\t", "/effort "),
+            ("/effort ", " ", "/effort  "),
+            ("/model ", "\t", "/model "),
+            ("/model ", " ", "/model  "),
+        ] {
+            let root = tempfile::tempdir().expect("a root");
+            let mut shell = effort_shell(root.path());
+            shell.route_bytes(b"/mcp\r");
+            assert!(shell.mcp_menu.is_some(), "/mcp opened no menu");
+            shell.route_bytes(filter.as_bytes());
+            shell.route_bytes(key.as_bytes());
+            if shell.editor.text() != then {
+                took.push((filter, key, shell.editor.text().to_string()));
+            }
+            assert!(
+                matches!(shell.slot(), Some(Slot::Mcp(_))),
+                "{filter:?} then {key:?}"
+            );
+            // Once the menu is gone the same line is the column's.
+            if filter == "/effort" {
+                escape(&mut shell);
+                shell.route_bytes(filter.as_bytes());
+                shell.route_bytes(key.as_bytes());
+                assert_eq!(shell.editor.text(), "/effort ");
+                assert!(matches!(shell.slot(), Some(Slot::Column)));
+            }
+        }
+        assert!(
+            took.is_empty(),
+            "a column under the menu took the key (filter, key, filter after): {took:?}"
+        );
+    }
+
+    #[test]
     fn choosing_the_provider_in_force_is_already_using_and_hands_the_runtime_nothing() {
         // `app_auth_runtime.zig:1159-1167`: the current provider with a
         // credential it accepts is no switch. Nothing reaches the runtime, so
@@ -42440,6 +42538,70 @@ mod tests {
             shell.take_title().as_deref(),
             Some("first prompt alpha (fork)")
         );
+    }
+
+    #[test]
+    fn a_fork_that_lands_under_the_mcp_menu_keeps_its_prompt_out_of_the_filter() {
+        // The fork is the runtime's, so `/mcp` can open between the Enter that
+        // chose it and the fork landing: recalled and sent, as any command
+        // can. The menu's filter is the composer, and Escape clears it; the
+        // prompt the fork hands back is the composer's draft
+        // (`submitForkMenuSelection`'s `replace`,
+        // `app_input_runtime.zig:1686@481104fd`), not a filter. So it waits
+        // for the menu to close -- and the catalog's search the same way.
+        for (command, open) in [
+            (
+                "/mcp",
+                (|shell: &Shell| shell.mcp_menu.is_some()) as fn(&Shell) -> bool,
+            ),
+            ("/help", |shell: &Shell| shell.help_menu.is_some()),
+        ] {
+            let mut shell = fork_landed_under(command, open);
+            assert_eq!(
+                shell.editor.text(),
+                "",
+                "{command}: the fork's prompt went into the search"
+            );
+            escape(&mut shell);
+            assert!(!open(&shell), "{command}: Escape left it up");
+            assert_eq!(
+                shell.editor.text(),
+                "second prompt beta",
+                "{command}: the prompt did not come back once it closed"
+            );
+            assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        }
+        // A search typed into after the fork landed is an edit, as one
+        // before it is: the prompt is left out.
+        let mut shell = fork_landed_under("/mcp", |shell| shell.mcp_menu.is_some());
+        shell.route_bytes(b"zz");
+        escape(&mut shell);
+        assert!(shell.mcp_menu.is_none());
+        assert_eq!(shell.editor.text(), "");
+    }
+
+    /// `command` run once and closed, then a fork chosen, `command` recalled
+    /// and sent while the fork is on its way, and the fork landed under the
+    /// surface it opened (`open`).
+    fn fork_landed_under(command: &str, open: fn(&Shell) -> bool) -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(format!("{command}\r").as_bytes());
+        assert!(open(&shell), "{command} opened nothing");
+        escape(&mut shell);
+        assert!(!open(&shell));
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\x1b[A\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
+        shell.work.give_back();
+        recall_until(&mut shell, command);
+        shell.route_bytes(b"\r");
+        assert!(open(&shell), "the recalled {command} opened nothing");
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
+            source: "1793751392050-7d3ce346fd20313d".to_string(),
+        });
+        assert!(open(&shell), "the fork closed {command}");
+        shell
     }
 
     #[test]
