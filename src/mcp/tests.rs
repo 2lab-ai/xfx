@@ -2706,7 +2706,9 @@ fn a_reload_marks_every_server_it_drops_before_it_closes_any() {
         );
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(running(pids[0]), "the held close ran");
+    // Not asserted: the first server is still alive. Its own try, cancelled
+    // by the same marking, closes the connection the held stop took, so it
+    // may already be gone too.
     release.send(()).expect("released");
     reloaded.recv_timeout(WAIT).expect("the reload ended");
     assert!(!running(pids[0]) && !group_left(pids[0]));
