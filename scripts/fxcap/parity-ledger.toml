@@ -239,7 +239,7 @@ reason = "fx's approval goes on with a wrapped command line or address four colu
 owner = "MCP-M"
 resolution = "fx's approval marks a wrapped piece apart from a row of the entry, or a security review decides the approval may wrap as fx's does"
 expires = "date:2027-05-06"
-source = ["docs/parity.md:97", "src/tui/mcp_menu.rs:1436"]
+source = ["docs/parity.md:97", "src/tui/mcp_menu.rs:1439"]
 
 # --- causes -----------------------------------------------------------------
 #
