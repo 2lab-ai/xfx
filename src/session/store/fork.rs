@@ -151,6 +151,11 @@ impl SessionStore {
         let id = SessionId::generate();
         let destination = self.session_dir(&id);
         let stage_root = self.profile_dir.join(FORK_STAGE_DIR);
+        // A test's hand on the profile home once the source has been read and
+        // before anything of the fork is made; compiled out of every other
+        // build.
+        #[cfg(test)]
+        tests::before_stage(&self.profile_dir);
         ensure_private_dir(&stage_root)?;
         let stage = Stage::create(stage_root.join(id.as_str()))?;
 

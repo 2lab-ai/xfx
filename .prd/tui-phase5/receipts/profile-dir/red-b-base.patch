@@ -1,0 +1,256 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index f2ec825c..069efbdd 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -84,6 +84,8 @@ pub fn build_info() -> BuildInfo {
+ /// The build script `include!`s the same file. Nothing runs a build script's
+ /// own tests, so the library carries them.
+ #[cfg(test)]
++#[cfg(test)]
++mod red_profile_home_b;
+ mod build_meta;
+ 
+ /// The loopback server, proxy and copied test binary that prove a client
+diff --git a/src/red_profile_home_b.rs b/src/red_profile_home_b.rs
+new file mode 100644
+index 00000000..52c3ef7f
+--- /dev/null
++++ b/src/red_profile_home_b.rs
+@@ -0,0 +1,188 @@
++//! RED harness for PROFILE-DIRb on the base (5ca0bc18): the writers as base
++//! has them, against round b's new pins.
++
++use crate::session::prompt_history::PromptHistory;
++use crate::session::SessionStore;
++use crate::skills::command::{execute, parse, Outcome};
++use crate::skills::discovery::{discover, managed_root};
++use std::fs;
++use std::io;
++use std::os::unix::fs::PermissionsExt;
++use std::path::{Path, PathBuf};
++
++fn mode(path: &Path) -> u32 {
++    fs::symlink_metadata(path).expect("a stat").permissions().mode() & 0o777
++}
++
++struct Bench {
++    _root: tempfile::TempDir,
++    root: PathBuf,
++    home: PathBuf,
++    work: PathBuf,
++}
++
++impl Bench {
++    fn new() -> Self {
++        let root = tempfile::tempdir().expect("a root");
++        let canonical = fs::canonicalize(root.path()).expect("canonical");
++        let home = canonical.join("home");
++        let work = canonical.join("work");
++        fs::create_dir(&home).expect("a home");
++        fs::create_dir(&work).expect("a workspace");
++        let source = canonical.join("source").join("carried");
++        fs::create_dir_all(source.join("refs")).expect("a source");
++        fs::write(source.join("SKILL.md"), "---\nname: carried\ndescription: Carried\n---\n")
++            .expect("a SKILL.md");
++        Self { _root: root, root: canonical, home, work }
++    }
++    fn profile(&self) -> PathBuf {
++        self.home.join(".xfx")
++    }
++    /// A private `~/.xfx`, made by hand as the store makes it.
++    fn private_profile(&self) -> PathBuf {
++        let profile = self.profile();
++        fs::create_dir(&profile).expect("a profile");
++        fs::set_permissions(&profile, fs::Permissions::from_mode(0o700)).expect("private");
++        profile
++    }
++    fn skills(&self, home: &Path, line: &str) -> Result<(), String> {
++        match execute(&parse(line), &discover(&self.work, Some(home)), &managed_root(home), &self.work) {
++            Outcome::Changed { .. } => Ok(()),
++            Outcome::Said(said) => Err(said.last().cloned().unwrap_or_default()),
++            other => Err(format!("{other:?}")),
++        }
++    }
++}
++
++type Writer = (&'static str, fn(&Bench, &Path) -> Result<(), String>);
++
++/// Every writer, at the profile `profile` in the home `home`.
++fn writers() -> Vec<Writer> {
++    vec![
++        ("the session store", |_, p| SessionStore::open(p).map(drop).map_err(|e| e.to_string())),
++        ("a settings preference", |_, p| {
++            crate::provider::profile::write_preference(&p.join("settings.json"), &["k"], true.into())
++                .map_err(|e| e.to_string())
++        }),
++        ("/allowlist", |_, p| {
++            crate::provider::profile::write_permission(
++                &p.join("settings.json"),
++                None,
++                &crate::permission::allowlist::Patch::Add {
++                    category: "command".into(),
++                    pattern: "ls".into(),
++                    action: crate::permission::rules::RuleAction::Allow,
++                },
++            )
++            .map(drop)
++            .map_err(|e| e.to_string())
++        }),
++        ("a settings edit", |_, p| {
++            crate::provider::profile::edit_document::<io::Error>(&p.join("settings.json"), |d| {
++                d.insert("k".into(), true.into());
++                Ok(true)
++            })
++            .map(drop)
++            .map_err(|e| e.to_string())
++        }),
++        ("xfx setup's rewrite", |_, p| {
++            crate::provider::profile::rewrite_document(&p.join("settings.json"), |_| Ok(b"{}\n".to_vec()))
++                .map_err(|e| e.to_string())
++        }),
++        ("the MCP profile", |_, p| {
++            crate::mcp::config::add_profile_server(
++                &p.join("mcp.json"),
++                crate::mcp::config::ServerConfig::local("demo", "true", &[]),
++            )
++            .map_err(|e| e.to_string())
++        }),
++        ("the prompt history", |b, p| {
++            PromptHistory::in_profile(p)
++                .append(1, &b.work.to_string_lossy(), "hello")
++                .map(drop)
++                .map_err(|e| e.to_string())
++        }),
++        ("/skills create", |b, p| b.skills(p.parent().unwrap(), "create demo")),
++        ("/skills add", |b, p| {
++            let source = b.root.join("source").join("carried");
++            b.skills(p.parent().unwrap(), &format!("add {}", source.display()))
++        }),
++    ]
++}
++
++#[test]
++fn red_b_a_missing_home_is_refused_and_nothing_is_made() {
++    let mut made = Vec::new();
++    for (writer, write) in writers() {
++        let bench = Bench::new();
++        let home = bench.root.join("absent").join("home");
++        let answer = write(&bench, &home.join(".xfx"));
++        let modes = if bench.root.join("absent").exists() {
++            format!(
++                "absent {:o}, absent/HOME {:o}, absent/HOME/.xfx {:o}",
++                mode(&bench.root.join("absent")),
++                mode(&home),
++                mode(&home.join(".xfx"))
++            )
++        } else {
++            "nothing made".to_string()
++        };
++        println!("RED {writer}: answer={answer:?} {modes}");
++        if bench.root.join("absent").exists() {
++            made.push(writer);
++        }
++    }
++    assert!(made.is_empty(), "writers that made a missing home: {made:?}");
++}
++
++#[test]
++fn red_b_settings_transactions_leave_no_lock_in_an_open_home() {
++    let mut wrote = Vec::new();
++    for (writer, write) in writers() {
++        if !["/allowlist", "a settings edit", "xfx setup's rewrite"].contains(&writer) {
++            continue;
++        }
++        let bench = Bench::new();
++        let profile = bench.profile();
++        fs::create_dir(&profile).expect("a profile");
++        fs::set_permissions(&profile, fs::Permissions::from_mode(0o755)).expect("open");
++        let answer = write(&bench, &profile);
++        let entries: Vec<String> = fs::read_dir(&profile)
++            .expect("a listing")
++            .map(|e| e.expect("an entry").file_name().to_string_lossy().into_owned())
++            .collect();
++        println!("RED {writer}: answer={answer:?} entries={entries:?}");
++        if !entries.is_empty() {
++            wrote.push(writer);
++        }
++    }
++    assert!(wrote.is_empty(), "transactions that wrote into an open home: {wrote:?}");
++}
++
++#[test]
++fn red_b_an_open_lock_directory_is_refused_before_a_lock_is_taken_in_it() {
++    let bench = Bench::new();
++    let profile = bench.private_profile();
++    let locks = profile.join(".skill-install-locks");
++    fs::create_dir(&locks).expect("a lock directory");
++    fs::set_permissions(&locks, fs::Permissions::from_mode(0o755)).expect("open");
++    let source = bench.root.join("source").join("carried");
++    let answer = bench.skills(&bench.home, &format!("add {}", source.display()));
++    let entries: Vec<String> = fs::read_dir(&locks)
++        .expect("a listing")
++        .map(|e| e.expect("an entry").file_name().to_string_lossy().into_owned())
++        .collect();
++    println!("RED /skills add, .skill-install-locks 755: answer={answer:?} lock files={entries:?}");
++    assert!(answer.is_err() && entries.is_empty());
++}
++
++#[test]
++fn red_b_an_open_home_names_the_chmod_that_makes_it_private() {
++    let bench = Bench::new();
++    let profile = bench.profile();
++    fs::create_dir(&profile).expect("a profile");
++    fs::set_permissions(&profile, fs::Permissions::from_mode(0o755)).expect("open");
++    let said = SessionStore::open(&profile).expect_err("refused").to_string();
++    println!("RED the store's refusal: {said}");
++    assert!(said.contains(&format!("chmod 700 {}", profile.display())), "{said}");
++}
+diff --git a/src/session/store/fork.rs b/src/session/store/fork.rs
+index 20b785d3..61eae6a7 100644
+--- a/src/session/store/fork.rs
++++ b/src/session/store/fork.rs
+@@ -151,6 +151,8 @@ impl SessionStore {
+         let id = SessionId::generate();
+         let destination = self.session_dir(&id);
+         let stage_root = self.profile_dir.join(FORK_STAGE_DIR);
++        #[cfg(test)]
++        tests::before_stage(&self.profile_dir);
+         ensure_private_dir(&stage_root)?;
+         let stage = Stage::create(stage_root.join(id.as_str()))?;
+ 
+diff --git a/src/session/store/fork/tests.rs b/src/session/store/fork/tests.rs
+index cf64b230..5ee1d2f5 100644
+--- a/src/session/store/fork/tests.rs
++++ b/src/session/store/fork/tests.rs
+@@ -38,6 +38,31 @@ std::thread_local! {
+     /// handed. Per thread, so a test that sets it touches no other test's fork.
+     static BEFORE_RULES: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
+     static STAGE_SEEN: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
++    static BEFORE_STAGE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
++}
++
++pub(super) fn before_stage(profile: &Path) {
++    if let Some(hand) = BEFORE_STAGE.with(std::cell::Cell::get) {
++        hand(profile);
++    }
++}
++
++#[cfg(unix)]
++#[test]
++fn red_b_a_profile_home_gone_before_the_stage_is_made_is_not_made_again() {
++    let bench = bench();
++    let (recorder, source) = rich(&bench);
++    drop(recorder);
++    let profile = bench.store.profile_dir().to_path_buf();
++    BEFORE_STAGE.with(|cell| cell.set(Some(|p| fs::remove_dir_all(p).expect("taken away"))));
++    let result = bench.fork(&source, 3);
++    BEFORE_STAGE.with(|cell| cell.set(None));
++    let remade = fs::symlink_metadata(&profile)
++        .map(|m| format!("remade {:o}", m.permissions().mode() & 0o777))
++        .unwrap_or_else(|_| "not remade".to_string());
++    println!("RED fork with ~/.xfx removed before its stage: {} ; ~/.xfx {remade}",
++        match &result { Ok(_) => "the fork succeeded".to_string(), Err(e) => format!("refused: {e}") });
++    assert!(fs::symlink_metadata(&profile).is_err(), "the fork made the profile home again");
+ }
+ 
+ /// Called by `fork` with its stage, just before it writes the fork's

@@ -38,6 +38,16 @@ std::thread_local! {
     /// handed. Per thread, so a test that sets it touches no other test's fork.
     static BEFORE_RULES: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
     static STAGE_SEEN: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    /// What [`before_stage`] does on this test's thread.
+    static BEFORE_STAGE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Called by `fork` with the profile home once the source is read, just
+/// before the stage root is made.
+pub(super) fn before_stage(profile: &Path) {
+    if let Some(hand) = BEFORE_STAGE.with(std::cell::Cell::get) {
+        hand(profile);
+    }
 }
 
 /// Called by `fork` with its stage, just before it writes the fork's
@@ -1316,7 +1326,9 @@ fn a_forks_folders_are_private_from_creation_under_any_umask() {
             Ok(())
         });
     }
-    let output = crate::process::output(&mut runner).expect("a runner");
+    // Bounded: a child that hangs is killed and reaped, and the case fails;
+    // started through `process::spawn`, as every start is.
+    let output = crate::process::output_within(&mut runner, CHILD_LIMIT).expect("a runner");
     let report = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -1326,6 +1338,42 @@ fn a_forks_folders_are_private_from_creation_under_any_umask() {
     assert!(
         output.status.success() && report.contains("test result: ok. 1 passed"),
         "{report}"
+    );
+}
+
+/// How long the umask case's child may run: the copy runs one case, which
+/// takes well under a second; a child still running after this is hung.
+#[cfg(unix)]
+const CHILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+#[cfg(unix)]
+#[test]
+fn a_profile_home_gone_before_the_stage_is_made_is_not_made_again() {
+    // `ensure_private_dir` makes no parent: a `~/.xfx` removed under a
+    // running session -- here, after the source was read and before the
+    // stage root is made -- fails the fork rather than coming back with the
+    // umask's mode (it did, through a `create_dir_all` of the parent).
+    let bench = bench();
+    let (recorder, source) = rich(&bench);
+    drop(recorder);
+    let profile = bench.store.profile_dir().to_path_buf();
+    BEFORE_STAGE.with(|cell| {
+        cell.set(Some(|profile| {
+            fs::remove_dir_all(profile).expect("the profile home taken away")
+        }))
+    });
+    let result = bench.fork(&source, 3);
+    BEFORE_STAGE.with(|cell| cell.set(None));
+    match result {
+        Err(SessionError::Io { path, source }) => {
+            assert_eq!(path, profile.join(FORK_STAGE_DIR));
+            assert_eq!(source.kind(), io::ErrorKind::NotFound, "{source}");
+        }
+        other => panic!("a fork with its home gone: {other:?}"),
+    }
+    assert!(
+        fs::symlink_metadata(&profile).is_err(),
+        "the fork made the profile home again"
     );
 }
 

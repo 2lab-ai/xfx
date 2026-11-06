@@ -364,7 +364,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config_with_home(home.path(), workspace.path());
         let xfx_dir = home.path().join(".xfx");
-        std::fs::create_dir_all(&xfx_dir).expect("create the profile dir");
+        crate::profile_home::made(&xfx_dir);
         let sentinel = home.path().join("sentinel.json");
         std::fs::write(&sentinel, b"do not touch\n").expect("write the sentinel");
         #[cfg(unix)]
