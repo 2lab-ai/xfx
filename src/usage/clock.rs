@@ -17,11 +17,24 @@
 //! (`[profile.release]` leaves debug assertions off), has neither, so no
 //! environment can move a shipped binary's clock. The test
 //! `the_pinned_clock_is_read_only_with_debug_assertions` holds both halves,
-//! and `scripts/check-usage-clock.sh` (a CI step) runs it under each profile.
+//! and `scripts/check-usage-clock.sh` (a CI step) runs it under each profile;
+//! `scripts/smoke.sh`, which CI, preview and release run on the binary they
+//! ship, refuses a binary whose bytes carry the variable's name.
 //!
-//! Nothing reads this clock yet: the `/usage` dashboard (P5 US-U3, US-U4)
-//! takes every "now" from [`now_ms`], so a capture that pins it pins the
-//! dashboard.
+//! **For US-U3 and US-U4.** Nothing reads this clock yet. Every "now" in the
+//! dashboard runtime (US-U3: the open floor, the 15-minute timer, the minute
+//! redraw, a fetch's stamp) *and* the screen (US-U4: today's UTC day,
+//! `updated Nm ago`, the empty-period texts) must come from [`now_ms`], never
+//! from `SystemTime` or `system_now_ms` directly, or a capture that pins the
+//! clock pins half a dashboard. And the arithmetic on it must hold for any
+//! `i64` it returns: the pinned clock returns whatever integer the file holds,
+//! `i64::MIN` and `i64::MAX` included, and `system_now_ms` returns a negative
+//! time for a clock set before 1970 and `i64::MAX` past its range. So a
+//! difference saturates or is checked, never a bare `-` that overflows; a UTC
+//! day is `div_euclid`, which floors a negative time; and no difference is
+//! cast `as u64`. fx's own rule is the model: a clock that reads earlier than
+//! a stamp was corrected backward, and counts as time passed
+//! (`since`, `src/usage/policy.zig:31-35@481104fd`).
 
 #[cfg(debug_assertions)]
 use std::ffi::OsString;
@@ -55,8 +68,13 @@ fn now_ms_with(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> i64 {
 }
 
 /// The time the clock file holds, or `None` for a path that is not
-/// absolute, a file that cannot be read, or one that is not one integer
-/// (`readClockFile`, `usage_host.zig:212-219`).
+/// absolute, anything that is not a regular file, a file that cannot be read,
+/// or one that is not one integer (`readClockFile`, `usage_host.zig:212-219`).
+///
+/// Opened `O_NONBLOCK`: a plain `open(2)` of a FIFO with no writer blocks
+/// until one comes -- and so would the thread asking the time. The opened
+/// descriptor's own type then turns away a FIFO, a terminal or any other
+/// device, so the check and the read are of the same file.
 #[cfg(debug_assertions)]
 fn pinned(path: OsString) -> Option<i64> {
     use std::io::Read;
@@ -64,12 +82,19 @@ fn pinned(path: OsString) -> Option<i64> {
     if !path.is_absolute() {
         return None;
     }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(&path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
     let mut text = String::new();
-    std::fs::File::open(&path)
-        .ok()?
-        .take(MAX_CLOCK_BYTES)
-        .read_to_string(&mut text)
-        .ok()?;
+    file.take(MAX_CLOCK_BYTES).read_to_string(&mut text).ok()?;
     text.trim_matches([' ', '\t', '\r', '\n']).parse().ok()
 }
 
@@ -145,5 +170,68 @@ mod tests {
         assert!(near_system(now_ms_with(naming(dir.path()))), "a directory");
         assert!(near_system(now_ms_with(|_| None)), "unset");
         assert!(near_system(now_ms()), "the process's own environment");
+    }
+
+    /// The pinned clock hands back any `i64` as it is, the extremes and a
+    /// time before 1970 included: what US-U3 and US-U4 must be able to take.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_pinned_clock_returns_any_i64_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clock");
+        for ms in [i64::MIN, -1, 0, i64::MAX] {
+            std::fs::write(&file, format!("{ms}\n")).unwrap();
+            assert_eq!(now_ms_with(naming(&file)), ms);
+        }
+    }
+
+    /// A FIFO with no writer, a pipe holding a time, a device: none is a
+    /// regular file, so each reads as the system clock, and none blocks. The
+    /// FIFO is read on a thread with a deadline, so a blocking open fails the
+    /// test instead of hanging it.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_a_pipe_or_a_device_is_the_system_clock_and_never_blocks() {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("fifo");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let (sent, read) = std::sync::mpsc::channel();
+        let path = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = sent.send(now_ms_with(naming(&path)));
+        });
+        match read.recv_timeout(Duration::from_secs(10)) {
+            Ok(ms) => assert!(near_system(ms), "a FIFO with no writer: {ms}"),
+            Err(_) => {
+                // Opening the write end completes the open the reader is
+                // stuck in, so the thread ends rather than outliving the test.
+                let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+                panic!("reading the clock from a FIFO with no writer blocked for 10 s");
+            }
+        }
+
+        // A pipe whose writer wrote a time and closed: readable to its end,
+        // so only the descriptor's type turns it away.
+        let (pipe, mut writer) = std::io::pipe().unwrap();
+        writer.write_all(format!("{PINNED}\n").as_bytes()).unwrap();
+        drop(writer);
+        let by_fd = std::path::PathBuf::from(format!("/dev/fd/{}", pipe.as_raw_fd()));
+        assert!(
+            near_system(now_ms_with(naming(&by_fd))),
+            "a pipe holding a time"
+        );
+        drop(pipe);
+
+        assert!(
+            near_system(now_ms_with(naming(Path::new("/dev/null")))),
+            "a device"
+        );
     }
 }

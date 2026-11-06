@@ -5,7 +5,7 @@
 #   scripts/smoke.sh <path-to-xfx> [evidence-dir]
 #
 # It drives the real executable through the paths a release has to survive:
-# help and status, a content-only answer, a multi-step turn that reads a file,
+# the bytes carrying no test-only variable name, help and status, a content-only answer, a multi-step turn that reads a file,
 # edits it, runs an admitted command and is refused a destructive one, the
 # session lifecycle including resume, rebind, and `--no-save`, and finally the
 # interactive shell on a real pseudoterminal.
@@ -479,10 +479,50 @@ export XFX_PERMISSION_MODE="yolo"
 export XFX_MAX_AGENT_STEPS="1"
 
 # ---------------------------------------------------------------------------
+# 0. the bytes that ship carry no test-only seam
+# ---------------------------------------------------------------------------
+
+# `XFX_E2E_USAGE_CLOCK_FILE` pins /usage's clock for the capture harness, and
+# only a build with debug assertions compiles its reader (src/usage/clock.rs;
+# scripts/check-usage-clock.sh holds the profile). That is a claim about a
+# build profile; this is the same claim about the file a release publishes:
+# the variable's name is not in the binary's bytes at all. `strip` removes
+# symbols, not string literals, so a build that read the variable would carry
+# its name. The scan is of the whole file, in python, so it means the same on
+# every platform. A name the binary must carry, `XFX_GATEWAY_URL` (the variable
+# that points it at a Gateway), is looked for first: a scan that cannot find
+# that one is reading the wrong file and proves nothing.
+printf '0. test-only names in the shipped bytes\n'
+set +e
+bytes_report="$(python3 - "$binary" XFX_GATEWAY_URL XFX_E2E_USAGE_CLOCK_FILE <<'PYTHON'
+import sys
+
+path, present, absent = sys.argv[1], sys.argv[2], sys.argv[3:]
+with open(path, "rb") as f:
+    blob = f.read()
+if present.encode() not in blob:
+    print(f"the scan did not find {present}, which every build carries ({len(blob)} bytes read)")
+    sys.exit(2)
+found = [name for name in absent if name.encode() in blob]
+if found:
+    print("found " + ", ".join(found))
+    sys.exit(1)
+print(f"{len(blob)} bytes, {present} found")
+PYTHON
+)"
+bytes_status=$?
+set -e
+case "$bytes_status" in
+0) pass "the binary carries no test-only variable name: XFX_E2E_USAGE_CLOCK_FILE ($bytes_report)" ;;
+1) fail "the binary carries a test-only variable name, so it reads it: $bytes_report" ;;
+*) fail "the byte scan proved nothing: $bytes_report" ;;
+esac
+
+# ---------------------------------------------------------------------------
 # 1. what the product says about itself, without a credential or a network
 # ---------------------------------------------------------------------------
 
-printf '1. help, version, status, doctor\n'
+printf '\n1. help, version, status, doctor\n'
 gateway_url=""
 
 run_xfx help --help

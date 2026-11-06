@@ -14,7 +14,10 @@
 # features), so it costs CI one test run, not a build.
 #
 # A filter that matched nothing would pass `cargo test` silently, so each run
-# must also report exactly one test passed.
+# must also report exactly one test passed. The test runs on one thread, so
+# libtest always prints its marker on the test's own line, `test <name> ...
+# usage clock: <marker>` -- the layout a one-CPU host gets anyway -- and that
+# whole line is what is matched.
 
 set -euo pipefail
 
@@ -34,7 +37,7 @@ run() {
 	local label="$1" marker="$2"
 	shift 2
 	local output status=0
-	output="$(cargo test --locked --lib "$@" -- --exact --nocapture "$test_name" 2>&1)" || status=$?
+	output="$(cargo test --locked --lib "$@" -- --exact --nocapture --test-threads=1 "$test_name" 2>&1)" || status=$?
 	if [ "$status" -ne 0 ]; then
 		fail "cargo test failed ($label, status $status); its last lines follow"
 		printf '%s\n' "$output" | tail -n 20 | sed 's/^/    | /' >&2
@@ -44,7 +47,7 @@ run() {
 		fail "the filter did not run the one clock test ($label); a rename would look like this"
 		return
 	fi
-	if ! printf '%s\n' "$output" | grep -qxF "usage clock: $marker"; then
+	if ! printf '%s\n' "$output" | grep -qxF "test $test_name ... usage clock: $marker"; then
 		fail "the clock test did not say \`$marker\` ($label)"
 		return
 	fi
