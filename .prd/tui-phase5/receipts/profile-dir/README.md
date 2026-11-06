@@ -119,6 +119,30 @@ RED on round b's tree (`red-c.txt`, the new tests on a throwaway clone at
 reader case waits the grandchild's full 30 s and returns `Ok`. The missing-home
 loop passes there: the behaviour was right, the README sentence was not.
 
+## Round c, item 4: the merge of `main` after #57
+
+`737f7477` merges `origin/main` @ `d314549e` (#57 the usage cache, #60
+PROC-SPAWN, #61 FLAKE-MDTIME). One conflict, the fork umask case's child
+start: main's `process::output` against this branch's bounded
+`process::output_within`. The bounded wait is kept, and `output_within` now
+starts its child through `process::spawn`, under the one start lock, as
+PROC-SPAWN's `clippy.toml` requires.
+
+- **The scan, on the merged tree**, failed closed on the cache's two
+  `rustix::fs::mkdirat` lines, as expected, and on two false positives:
+  `open_or_create_dir(` read as `create_dir(`. The two lines are allowed,
+  with the reason in `ALLOWED`: the cache's fd-based opener
+  (`O_NOFOLLOW | O_DIRECTORY`, `open_dir_in`) refuses an open or linked
+  profile, the stronger model this module's doc names as the residual. A
+  banned spelling now has to be a call, not the tail of a longer name
+  (`a_banned_spelling_is_a_call_and_not_the_tail_of_a_longer_name`).
+- **The module doc and the `docs/parity.md` row** name the cache as the one
+  writer that makes `~/.xfx` its own way: `mkdirat` `0700` on the home's
+  descriptor, `fchmod`ed only when it made it, an existing one that is a link
+  or not private refused, a missing home refused (`open_home`), its refusals
+  in its own words. It is a library with no caller yet. The residual's
+  `open_dir_in` now names a function on this tree (`src/usage/cache.rs`).
+
 ## RED
 
 - **Round 1, on the base** (`red_profile_home.rs`, `red-unit.txt`, on a
@@ -232,6 +256,18 @@ Round c, on its own tree (`target/release/xfx` `27536f74…`), with `TMPDIR=<tmp
 | `cargo fmt --check`; both clippies | ok |
 | `cargo test --locked --no-fail-fast` | 4,779 passed, 1 failed, 7 ignored: `mcp::transport::tests::a_request_to_a_server_that_never_reads_stops_at_its_cancellation` (`!transport.alive()`, the run at load average 20.9 and twice its usual length) passed alone 3 of 3 |
 | `cargo test … --features fault-injection --no-fail-fast` | 4,809 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| release and faulty builds | ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+
+Round c, item 4, on the merged tree (`737f7477` and the doc edits of the commit after it; `target/release/xfx` `b9294018…`), with `TMPDIR=<tmp>`. Each step waited until no `cargo` or `xfx-<hash>` test binary ran on the machine (`pgrep -x`).
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; both clippies (with PROC-SPAWN's `disallowed-methods`) | ok |
+| `cargo test --locked --no-fail-fast` | 4,889 passed, 0 failed, 7 ignored |
+| `cargo test … --features fault-injection --no-fail-fast` | 4,918 passed, 0 failed, 7 ignored |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
 | release and faulty builds | ok |
 | `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |

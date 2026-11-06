@@ -10,6 +10,16 @@
 //! [`ensure`] and [`ensure_content`] are now how every one of them makes a
 //! directory there.
 //!
+//! One writer makes its own, the stronger way: the usage cache -- a library
+//! with no caller yet on this tree (`docs/parity.md`'s usage cache row) --
+//! (`crate::usage::cache`'s `fs` half, `src/usage/cache.rs`) makes `~/.xfx` and
+//! `usage-cache` with `mkdirat` `0700` on the home's descriptor, opens each with
+//! `O_NOFOLLOW | O_DIRECTORY` (`open_dir_in`), `fchmod`s one only when it made
+//! it, and refuses -- never repairs -- one that is a link or not private
+//! (`open_or_create_profile`, `open_or_create_dir`), in its own words. It holds
+//! `~/.xfx` to the same rule as everything here, and refuses a missing home as
+//! this module does (`open_home`).
+//!
 //! - **Made private.** A missing `~/.xfx`, and each missing directory below it
 //!   the writer needs, is made `0700` from its creation, one level at a time
 //!   (`DirBuilder::mode`), so no level is ever the umask's for a moment.
@@ -46,7 +56,8 @@
 //!   at all when `$HOME` is writable by others without the sticky bit, the
 //!   user's own misconfiguration. Two things are named and not done here: an
 //!   opener that pins the directory it checked (`O_NOFOLLOW | O_DIRECTORY`,
-//!   `fstat`, then `*at` calls, as the usage cache's `open_dir_in` does), and
+//!   `fstat`, then `*at` calls, as the usage cache's `open_dir_in`,
+//!   `src/usage/cache.rs`, already does for its own two directories), and
 //!   access-control lists, which the mode bits do not show on macOS and which
 //!   are not read.
 //!
