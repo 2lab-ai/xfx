@@ -91,9 +91,12 @@ pub enum Reply {
         headers: Vec<(String, String)>,
         body: String,
     },
-    /// The inner reply, written only once the flag is set (or the fixture is
-    /// dropped, or [`HANG_TIMEOUT`] passes): a provider that has the request
-    /// and has not answered it yet. Made by [`Reply::held`].
+    /// The inner reply, written only once the flag is set: a provider that has
+    /// the request and has not answered it yet. Made by [`Reply::held`].
+    ///
+    /// A hold nobody releases -- the fixture dropped first, or
+    /// [`HANG_TIMEOUT`] gone by -- is answered with a 500 rather than with the
+    /// reply, so a test that forgot its release fails instead of passing late.
     ///
     /// What a test does with that interval is look at the screen while the
     /// turn is still in hand. Without it, a turn that is answered at once can
@@ -114,6 +117,9 @@ impl Reply {
     }
 
     /// `reply`, held until the returned flag is set ([`Reply::Held`]).
+    ///
+    /// **The caller must set it within [`HANG_TIMEOUT`]** of the request
+    /// arriving; a hold still standing then is answered with a 500.
     pub fn held(reply: Reply) -> (Self, Arc<AtomicBool>) {
         let release = Arc::new(AtomicBool::new(false));
         (Self::Held(Arc::clone(&release), Box::new(reply)), release)
@@ -440,8 +446,16 @@ pub fn write_reply(writer: &mut TcpStream, reply: Option<Reply>, shutdown: &Arc<
             body,
         }) => write_status(writer, status, &headers, &body),
         Some(Reply::Held(release, reply)) => {
-            wait_for_release(&release, shutdown);
-            write_reply(writer, Some(*reply), shutdown);
+            if wait_for_release(&release, shutdown) {
+                write_reply(writer, Some(*reply), shutdown);
+            } else {
+                write_status(
+                    writer,
+                    500,
+                    &[],
+                    "fake server: a held reply was never released",
+                );
+            }
         }
         None => write_status(writer, 500, &[], "fake server: unscripted request"),
     }
@@ -450,8 +464,8 @@ pub fn write_reply(writer: &mut TcpStream, reply: Option<Reply>, shutdown: &Arc<
 /// Waits until a held answer is released, the fixture shuts down, or
 /// [`HANG_TIMEOUT`] passes -- polled, so that dropping the server can still
 /// join its threads and a test that fails before it releases fails rather
-/// than hangs.
-fn wait_for_release(release: &AtomicBool, shutdown: &AtomicBool) {
+/// than hangs. Whether it was released.
+fn wait_for_release(release: &AtomicBool, shutdown: &AtomicBool) -> bool {
     let deadline = std::time::Instant::now() + HANG_TIMEOUT;
     while !release.load(Ordering::SeqCst)
         && !shutdown.load(Ordering::SeqCst)
@@ -459,6 +473,7 @@ fn wait_for_release(release: &AtomicBool, shutdown: &AtomicBool) {
     {
         thread::sleep(ACCEPT_POLL);
     }
+    release.load(Ordering::SeqCst)
 }
 
 /// Holds a started response open until the client closes its end.
