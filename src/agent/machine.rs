@@ -54,16 +54,15 @@ use std::time::{Duration, Instant};
 use super::steering::Steering;
 use super::tokens::{self, Progress, Streamed};
 use crate::gateway::protocol::{
-    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message,
-    ResultStatus, ToolChoice,
+    Completion, CompletionRequest, ContentPart, FinishReason, Message, ResultStatus, ToolChoice,
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
 use crate::session::{
-    CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent,
-    TerminalReason, ToolEnding, TurnConclusion,
+    CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, SessionEvent, TerminalReason,
+    ToolEnding, TurnConclusion,
 };
-use crate::tools::{LineChanges, Outcome, Registry};
+use crate::tools::{Outcome, Registry};
 use crate::workspace::ProjectContext;
 
 use super::types::{
@@ -184,48 +183,6 @@ pub(crate) fn may_have_billed(err: &ProviderError) -> bool {
         | ProviderError::Protocol(_)
         | ProviderError::Sink(_)
         | ProviderError::Cancelled => true,
-    }
-}
-
-/// What one completed request cost, as `/usage` keeps it: the provider's own
-/// bill when it gave one ([`Completion::billing`]); otherwise the request as
-/// asked of `model`, its token totals when they were said, and **no cost** --
-/// a request whose spend nobody reported, which `/usage` counts as missing
-/// rather than as free. One whose generation was named is pending rather than
-/// missing: it keeps the id and where to ask, and the runtime asks
-/// (upstream's `.deferred`, `gateway.zig:650-660`). A turn's steps and a
-/// compaction's notes requests are kept alike (`crate::agent::compact`).
-pub(crate) fn request_usage(completion: &Completion, model: &str, took: Duration) -> RequestUsage {
-    let duration_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
-    let unbilled = |generation: Option<&Deferred>| RequestUsage {
-        at_ms: crate::session::event::system_now_ms(),
-        duration_ms,
-        model: model.to_string(),
-        input_tokens: completion.usage.input_tokens.unwrap_or(0),
-        output_tokens: completion.usage.output_tokens.unwrap_or(0),
-        cache_read_tokens: 0,
-        cache_write_tokens: 0,
-        reasoning_tokens: None,
-        cost: None,
-        generation_id: generation.map(|deferred| deferred.generation_id.clone()),
-        origin: generation.map(|deferred| deferred.origin.clone()),
-    };
-    match &completion.billing {
-        Some(Bill::Deferred(deferred)) => unbilled(Some(deferred)),
-        None => unbilled(None),
-        Some(Bill::Exact(bill)) => RequestUsage {
-            at_ms: bill.at_ms,
-            duration_ms,
-            model: bill.model.clone(),
-            input_tokens: bill.input_tokens,
-            output_tokens: bill.output_tokens,
-            cache_read_tokens: bill.cache_read_tokens,
-            cache_write_tokens: bill.cache_write_tokens,
-            reasoning_tokens: bill.reasoning_tokens,
-            cost: Some(bill.cost),
-            generation_id: bill.generation_id.clone(),
-            origin: None,
-        },
     }
 }
 
@@ -445,20 +402,17 @@ pub struct TurnMachine {
     steering: Option<Steering>,
     steps: u32,
     finalized: bool,
-    /// Every model request this turn completed, as `/usage` keeps it
-    /// ([`RequestUsage`]), in the order they were made.
-    requests: Vec<RequestUsage>,
-    /// A request was sent and then lost -- a broken stream, a stop -- so it
-    /// may have been billed with nothing to say what it cost.
-    unaccounted: bool,
+    /// A request of this turn -- a step's, or a notes request of a
+    /// compaction it ran -- completed, or was sent and lost (a broken stream,
+    /// a stop): the turn has a `usage_recorded` frame to write even if it
+    /// fails, so a replay's summary row reads what this one said
+    /// ([`Self::written`]). It was the local usage ledger's test for a turn
+    /// with something to record (US-U5 retired the ledger, not the frame).
+    spent: bool,
     /// Out as the turn's summary row counts it, over every request that has
     /// ended: attempts, not steps, and failed or stopped ones too
-    /// ([`super::tokens`]). Not [`Self::requests`]' sum, which is `/usage`'s
-    /// and holds only the requests that completed, at nought where the
-    /// provider said nothing.
+    /// ([`super::tokens`]).
     written: u64,
-    /// Lines this turn's file changes added and removed.
-    lines: LineChanges,
     /// The `tools` array every request of this turn carries: the registry
     /// less what the configured table refuses at every target, taken once
     /// when the turn begins ([`Registry::advertisement_under`]).
@@ -649,10 +603,8 @@ impl TurnMachine {
             steering: None,
             steps: 0,
             finalized: false,
-            requests: Vec::new(),
-            unaccounted: false,
+            spent: false,
             written: 0,
-            lines: LineChanges::default(),
             tools,
             compactor: None,
         }
@@ -750,8 +702,8 @@ impl TurnMachine {
         // in the log**, as upstream's does: one that fails leaves no turn
         // behind -- upstream persists a failed turn only once it has
         // execution to keep (`finishExecutionOnlyFailureIfNeeded`,
-        // `finalization.zig:213-246`) -- and only what its notes requests
-        // cost is written. One the user stopped is a turn that was asked and
+        // `finalization.zig:213-246`) -- and nothing is written of it. One
+        // the user stopped is a turn that was asked and
         // stopped, and is recorded as one (`persistCompactionInterruptedTurnOnce`,
         // `orchestrator.zig:7413-7423`).
         let mut start = Start::Fresh;
@@ -768,20 +720,6 @@ impl TurnMachine {
                 Ok(None) => start = Start::Checked,
                 Err(TurnError::Cancelled) => stopped = Some(TurnError::Cancelled),
                 Err(err) => {
-                    let requests = std::mem::take(&mut self.requests);
-                    if !requests.is_empty() || self.unaccounted {
-                        journal.record(SessionEvent::UsageRecorded {
-                            input_tokens: None,
-                            output_tokens: None,
-                            requests,
-                            unaccounted: self.unaccounted,
-                            lines_added: 0,
-                            lines_removed: 0,
-                            settled: Vec::new(),
-                            rejected: Vec::new(),
-                            turn_output_tokens: None,
-                        });
-                    }
                     events
                         .emit(&Event::Error {
                             message: err.to_string(),
@@ -825,28 +763,22 @@ impl TurnMachine {
             }
         }
 
-        // What the turn cost, after its last step and just before it is
+        // What the turn used, after its last step and just before it is
         // concluded. A turn that failed records one only when it has something
         // to say -- a request that completed before the failure, or one that
-        // was lost after it was sent -- because a turn refused before any
-        // request was made cost nothing, and a frame saying so would be a
-        // frame about nothing. Its two totals stay absent: they are the
-        // answering step's, and it had none.
+        // was lost after it was sent ([`Self::spent`]) -- because a turn
+        // refused before any request was made used nothing, and a frame saying
+        // so would be a frame about nothing. Its two totals stay absent: they
+        // are the answering step's, and it had none.
         let (input_tokens, output_tokens) = match &result {
             Ok(outcome) => (outcome.usage.input_tokens, outcome.usage.output_tokens),
             Err(_) => (None, None),
         };
-        if result.is_ok() || !self.requests.is_empty() || self.unaccounted {
+        if result.is_ok() || self.spent {
             journal.record(SessionEvent::UsageRecorded {
                 input_tokens,
                 output_tokens,
                 turn_output_tokens: Some(self.written),
-                requests: std::mem::take(&mut self.requests),
-                unaccounted: self.unaccounted,
-                lines_added: u64::try_from(self.lines.added).unwrap_or(u64::MAX),
-                lines_removed: u64::try_from(self.lines.removed).unwrap_or(u64::MAX),
-                settled: Vec::new(),
-                rejected: Vec::new(),
             });
         }
 
@@ -973,11 +905,10 @@ impl TurnMachine {
                 }
             }
 
-            let began = Instant::now();
             let measured = self.measured.take();
             let completion = match self.step(provider, events).await {
                 Ok(Stepped::Completed(completion)) => {
-                    self.account(&completion, began.elapsed());
+                    self.spent = true;
                     if let (Some(request), Some(input), Some(Compactor(compactor))) = (
                         measured,
                         completion.usage.input_tokens,
@@ -999,7 +930,7 @@ impl TurnMachine {
                     // may have been billed with nothing to say for how much
                     // (`ambiguous_delivery`, `session_usage.zig:43-53`).
                     if sent {
-                        self.unaccounted = true;
+                        self.spent = true;
                     }
                     self.steps += 1;
                     self.output.push_str(&partial);
@@ -1291,12 +1222,6 @@ impl TurnMachine {
                     .clipped(self.request.tools.limits().max_output_bytes),
             };
 
-            // Counted as soon as the file has changed, ahead of anything that
-            // can still fail this step: the lines are on disk either way.
-            if let Some(changes) = result.changes {
-                self.lines.added = self.lines.added.saturating_add(changes.added);
-                self.lines.removed = self.lines.removed.saturating_add(changes.removed);
-            }
             events
                 .emit(&Event::ToolResult {
                     call_id: call.id.clone(),
@@ -1514,8 +1439,8 @@ impl TurnMachine {
     }
 
     /// Runs one model step, spending at most `max_attempts` transport attempts.
-    /// Asks the compactor about the request this step would send, and keeps
-    /// what its notes requests cost with the turn's own.
+    /// Asks the compactor about the request this step would send, and counts
+    /// its notes requests among the turn's ([`Self::spent`]).
     async fn compact_before_step(
         &mut self,
         provider: &dyn Provider,
@@ -1540,9 +1465,7 @@ impl TurnMachine {
                 journal,
             })
             .await;
-        let (requests, unaccounted) = compactor.spent();
-        self.requests.extend(requests);
-        self.unaccounted |= unaccounted;
+        self.spent |= compactor.spent();
         if matches!(answer, Err(TurnError::Cancelled)) {
             self.compaction_stop = compactor.stopped();
         }
@@ -1696,7 +1619,7 @@ impl TurnMachine {
                         // One the endpoint refused, or that never left, was
                         // not.
                         if may_have_billed(&err) {
-                            self.unaccounted = true;
+                            self.spent = true;
                         }
                         return Err(TurnError::from(err));
                     }
@@ -1716,13 +1639,6 @@ impl TurnMachine {
                 }
             }
         }
-    }
-
-    /// Keeps what one completed request cost, for `/usage`
-    /// ([`request_usage`]).
-    fn account(&mut self, completion: &Completion, took: Duration) {
-        self.requests
-            .push(request_usage(completion, &self.request.model, took));
     }
 
     /// Waits out the backoff between two attempts.
@@ -1967,8 +1883,8 @@ mod tests {
                 }))
         }
 
-        fn spent(&mut self) -> (Vec<RequestUsage>, bool) {
-            (Vec::new(), self.asked.borrow().len() == 1)
+        fn spent(&mut self) -> bool {
+            self.asked.borrow().len() == 1
         }
     }
 
@@ -2008,8 +1924,8 @@ mod tests {
         let sent = provider.asked.borrow();
         assert_eq!(sent[0].messages[0].text(), "<compacted_conversation>");
         assert_eq!(sent[0].messages[1].text(), "now");
-        // What the notes requests cost is the turn's to record.
-        assert!(turn.unaccounted);
+        // A notes request is the turn's: it has a frame to write.
+        assert!(turn.spent);
     }
 
     #[tokio::test]
@@ -2106,6 +2022,64 @@ mod tests {
         fn state(&self) -> Option<&crate::session::DurableState> {
             None
         }
+    }
+
+    /// A turn whose compaction sent a notes request has a `usage_recorded`
+    /// frame to write even when its own first request is then refused -- a
+    /// status, which reached no model -- as the turn's frame was due when
+    /// the notes request was a ledger entry. Its totals stay absent.
+    #[tokio::test]
+    async fn a_turn_a_compaction_spent_on_writes_its_frame_though_its_request_is_refused() {
+        let (_dir, context) = tools();
+        let asked = std::rc::Rc::default();
+        let mut turn = machine(context).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::clone(&asked),
+            compact_on: vec![0],
+        }));
+        let provider = Script::new(vec![Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "bad request".to_string(),
+            retryable: false,
+            retry_after: None,
+        })]);
+        let mut journal = Kept::default();
+        turn.run_journaled(&provider, &mut Quiet, &mut journal)
+            .await
+            .expect_err("refused");
+        let frames: Vec<&SessionEvent> = journal
+            .0
+            .iter()
+            .filter(|event| matches!(event, SessionEvent::UsageRecorded { .. }))
+            .collect();
+        assert_eq!(
+            frames,
+            [&SessionEvent::UsageRecorded {
+                input_tokens: None,
+                output_tokens: None,
+                turn_output_tokens: Some(0),
+            }]
+        );
+
+        // Without the compaction it is a turn refused before any request
+        // reached a model: no frame.
+        let (_two, context) = tools();
+        let mut turn = machine(context);
+        let provider = Script::new(vec![Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "bad request".to_string(),
+            retryable: false,
+            retry_after: None,
+        })]);
+        let mut journal = Kept::default();
+        turn.run_journaled(&provider, &mut Quiet, &mut journal)
+            .await
+            .expect_err("refused");
+        assert!(!journal
+            .0
+            .iter()
+            .any(|event| matches!(event, SessionEvent::UsageRecorded { .. })));
     }
 
     #[tokio::test]

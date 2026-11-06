@@ -441,9 +441,9 @@ fn slash_usage_on_the_line_shell_says_where_the_dashboard_is() {
     let mut session = start(&sandbox, &pty, sandbox.command());
     session.type_line("/usage");
     session.wait_for("xfx: /usage shows its dashboard in the full-screen shell");
-    // `/cost` is the same command.
+    // `/cost` is not: v0.0.16 dropped it (`commands.zig:454@481104fd`).
     session.type_line("/cost");
-    session.wait_for_count("xfx: /usage shows its dashboard", 2);
+    session.wait_for("xfx: `/cost` is not an xfx command");
     assert_eq!(session.quit().code(), Some(0));
 }
 

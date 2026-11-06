@@ -321,6 +321,20 @@ expires = "date:2026-12-04"
 source = ["docs/parity.md:115", "docs/parity.md:120"]
 
 [[divergence]]
+id = "usage-no-sign-in"
+class = "user-decision"
+pins = ["v0.0.16"]
+scenarios = ["p5-usage-nokey"]
+snaps = ["*"]
+fx_row = '^  \(use /login, or set AI_GATEWAY_API_KEY\)$|^run /login · '
+xfx_row = '^  \(set AI_GATEWAY_API_KEY\)$|^run `xfx setup` · '
+reason = "With no credential fx's `/usage` says `(use /login, or set AI_GATEWAY_API_KEY)` and its hint row points at /login; xfx has no /login (the gated sign-in), so its `/usage` names the one variable it reads with -- `VERCEL_OIDC_TOKEN` is unsupported there, the user's 2026-11-06 decision -- and its hint row `xfx setup`, as its /status panel does (`status-panel-sign-in`). Decided by the dispatcher for US-U4, reversible."
+owner = "user decision Codex/Grok sign-in (#88)"
+resolution = "#88 answered: /login built, and the text fx's, or refused for good and written so"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:113", "src/tui/usage_menu.rs:790"]
+
+[[divergence]]
 id = "status-notice-h1"
 class = "replaced-in-next-pin"
 pins = ["c1db919"]

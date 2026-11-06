@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: session: on
+
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+✗ command: Unknown command. Try /help.
+
+┃
+
+auto · model-a · first question · 52k
+
+
+
+
+
+
+
+
+
+
+
+
+

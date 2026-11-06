@@ -1,0 +1,65 @@
+## M1 drop .mode(0o700) from the one-level make
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3890 filtered out; finished in 0.00s', 'test result: FAILED. 12 passed; 8 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.19s']
+  FAILED session::store::fork::tests::a_profile_home_gone_before_the_stage_is_made_is_not_made_again
+  FAILED profile_home::tests::a_private_level_that_is_a_link_is_refused_and_its_target_left_alone
+  FAILED profile_home::tests::every_level_below_the_profile_home_is_made_private
+  FAILED profile_home::tests::an_open_private_level_is_refused_before_a_lock_is_taken_in_it
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::a_content_level_that_is_there_is_used_as_it_is_and_a_link_to_one_is_followed
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::scan::no_product_code_makes_a_directory_but_on_the_lines_allowed
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M2 bypass the helper at /skills create
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3890 filtered out; finished in 0.39s', 'test result: FAILED. 13 passed; 7 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.18s']
+  FAILED profile_home::tests::a_content_level_that_is_there_is_used_as_it_is_and_a_link_to_one_is_followed
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::scan::every_profile_writer_makes_its_directories_through_the_helper
+  FAILED profile_home::tests::scan::no_product_code_makes_a_directory_but_on_the_lines_allowed
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M3 bypass the helper at the settings document writer
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3890 filtered out; finished in 0.14s', 'test result: FAILED. 14 passed; 6 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.18s']
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::scan::every_profile_writer_makes_its_directories_through_the_helper
+  FAILED profile_home::tests::scan::no_product_code_makes_a_directory_but_on_the_lines_allowed
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M4 accept an existing home without the check
+exit=101 ['test result: FAILED. 17 passed; 3 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.21s']
+  FAILED profile_home::tests::a_file_where_the_profile_home_goes_is_refused_and_left_alone
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+## M5 make a missing home again (round 1's make_all)
+exit=101 ['test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.26s']
+  FAILED profile_home::tests::a_missing_home_is_refused_and_nothing_is_made
+  FAILED profile_home::tests::scan::no_product_code_makes_a_directory_but_on_the_lines_allowed
+## M6 follow a link at a private level (treat it as content)
+exit=101 ['test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.20s']
+  FAILED profile_home::tests::a_private_level_that_is_a_link_is_refused_and_its_target_left_alone
+  FAILED profile_home::tests::an_open_private_level_is_refused_before_a_lock_is_taken_in_it
+## M7 /allowlist takes settings.lock before the home is checked
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3890 filtered out; finished in 0.13s', 'test result: FAILED. 15 passed; 5 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.20s']
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::scan::every_profile_writer_makes_its_directories_through_the_helper
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M8 the store makes a missing parent again (base's create_dir_all)
+exit=101 ['test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 3865 filtered out; finished in 5.20s', 'test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.42s']
+  FAILED session::store::fork::tests::a_profile_home_gone_before_the_stage_is_made_is_not_made_again
+  FAILED session::store::fork::tests::a_profile_home_gone_before_the_stage_is_made_is_not_made_again
+  FAILED profile_home::tests::scan::no_product_code_makes_a_directory_but_on_the_lines_allowed
+## M9 the source cut stops at the first test module (round 1's)
+exit=101 ['test result: FAILED. 17 passed; 3 failed; 0 ignored; 0 measured; 3871 filtered out; finished in 1.34s']
+  FAILED profile_home::tests::scan::a_test_module_is_cut_to_its_own_end_and_the_code_after_it_is_read
+  FAILED profile_home::tests::scan::test_files_are_known_by_their_declarations
+  FAILED profile_home::tests::scan::no_product_code_makes_a_directory_but_on_the_lines_allowed
+## M10 the bounded wait does not kill its child
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3890 filtered out; finished in 30.03s']
+  FAILED process::tests::a_child_past_its_limit_is_killed_and_reaped
+## clone clean after mutants: True

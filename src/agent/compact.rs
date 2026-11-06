@@ -44,14 +44,13 @@
 //! Nothing here touches a file or the terminal: the caller saves the event
 //! and shows progress, as upstream's caller does (`compactor.zig:22-23`).
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::io;
-use std::time::Instant;
 
 use serde_json::Value;
 
 use super::compaction_trace::{self as trace, Context, Kind};
-use super::machine::{may_have_billed, request_usage};
+use super::machine::may_have_billed;
 
 use crate::gateway::protocol::{
     CompletionRequest, ContentPart, FinishReason, Message, RequestOptions, Role, ToolChoice,
@@ -63,7 +62,7 @@ use crate::session::checkpoint::{
     REPLACED_MARK,
 };
 use crate::session::store::TURN_ABORTED;
-use crate::session::{turn_messages, DurableState, HistoryTurn, RequestUsage, SessionEvent};
+use crate::session::{turn_messages, DurableState, HistoryTurn, SessionEvent};
 
 /// The notes request's system message (`summarize.zig:159-162`).
 pub const SYSTEM_PROMPT: &str = "You write compaction notes on an AI coding assistant's work \
@@ -2782,8 +2781,8 @@ pub struct Caller<'a> {
     /// The reasoning efforts a model accepts, low to high, as its catalog row
     /// lists them; empty when unknown.
     pub efforts: &'a dyn Fn(&str) -> Vec<String>,
-    /// Where each notes request's cost is kept, whatever becomes of the
-    /// compaction.
+    /// Whether a notes request completed or was lost, whatever becomes of
+    /// the compaction ([`Spent`]).
     pub spent: &'a Spent,
     /// The request the turn was about to send, which a notes request may
     /// follow so the provider reuses what it cached of it, with the options
@@ -2793,46 +2792,23 @@ pub struct Caller<'a> {
     pub conversation: Option<(&'a CompletionRequest, &'a RequestOptions)>,
 }
 
-/// What a compaction's notes requests cost, for `/usage`.
+/// Whether a compaction's notes request completed, or was sent and lost.
 ///
-/// Upstream bills them to the session's usage like any other request
-/// (`CompactorCaller.usage`, `app_agent_runtime.zig:1127`;
-/// `text_completion.zig:203-204`) -- and only there: they are never reported
-/// to the context meter, which moves on a turn's usage alone
-/// (`agentReportUsage`, `app_callbacks.zig:1447-1451`). Kept per request as a
-/// turn's are ([`crate::session::RequestUsage`]), whether the compaction then
-/// succeeds or not: a request that was answered was billed.
+/// A turn that ran one has a `usage_recorded` frame to write even if it then
+/// fails (`crate::agent::machine`'s `spent`). It was each notes request's cost,
+/// for the local usage ledger, until US-U5 retired the ledger -- upstream's
+/// notes requests are billed nowhere locally since `a41fc2d4` -- and it never
+/// reaches the context meter, which moves on a turn's usage alone
+/// (`agentReportUsage`, `app_callbacks.zig:1447-1451`).
 #[derive(Debug, Default)]
 pub struct Spent {
-    requests: RefCell<Vec<RequestUsage>>,
-    /// A request was sent and then lost, so it may have been billed with
-    /// nothing to say what it cost (`crate::agent::machine`'s
-    /// `may_have_billed`).
-    unaccounted: Cell<bool>,
+    asked: Cell<bool>,
 }
 
 impl Spent {
-    /// What was kept, and whether a request was lost, emptying it.
-    pub fn take(&self) -> (Vec<RequestUsage>, bool) {
-        (self.requests.take(), self.unaccounted.replace(false))
-    }
-
-    /// The `usage_recorded` frame a compaction outside a turn writes for its
-    /// requests, or `None` when it sent none. Its totals stay absent: they
-    /// are a turn's answering step's, and this answered no turn.
-    pub fn frame(&self) -> Option<SessionEvent> {
-        let (requests, unaccounted) = self.take();
-        (!requests.is_empty() || unaccounted).then_some(SessionEvent::UsageRecorded {
-            input_tokens: None,
-            output_tokens: None,
-            requests,
-            unaccounted,
-            lines_added: 0,
-            lines_removed: 0,
-            settled: Vec::new(),
-            rejected: Vec::new(),
-            turn_output_tokens: None,
-        })
+    /// Whether one was since it was last asked, emptying it.
+    pub fn take(&self) -> bool {
+        self.asked.replace(false)
     }
 }
 
@@ -2964,19 +2940,15 @@ async fn send(
     context: Context,
 ) -> Result<String, Failure> {
     let model = request.model.as_str();
-    let began = Instant::now();
     let outcome = caller.provider.stream(request, &mut Discard).await;
     // What the provider reported the request used; the cache counts come
     // with a bill, when the provider sent one (`text_completion.zig:272-275`).
     let (usage, cached) = match &outcome {
         Ok(completion) => (
             completion.usage,
-            match &completion.billing {
-                Some(crate::gateway::protocol::Bill::Exact(bill)) => {
-                    (Some(bill.cache_read_tokens), Some(bill.cache_write_tokens))
-                }
-                _ => (None, None),
-            },
+            completion.billing.as_ref().map_or((None, None), |bill| {
+                (Some(bill.cache_read_tokens), Some(bill.cache_write_tokens))
+            }),
         ),
         Err(_) => (Default::default(), (None, None)),
     };
@@ -2997,7 +2969,7 @@ async fn send(
         Ok(completion) => completion,
         Err(err) => {
             if may_have_billed(&err) {
-                caller.spent.unaccounted.set(true);
+                caller.spent.asked.set(true);
             }
             if matches!(err, ProviderError::Cancelled) {
                 return Err(Failure::Cancelled);
@@ -3011,11 +2983,7 @@ async fn send(
             return Err(Failure::summary("ModelFailed", err.to_string()));
         }
     };
-    caller
-        .spent
-        .requests
-        .borrow_mut()
-        .push(request_usage(&completion, model, began.elapsed()));
+    caller.spent.asked.set(true);
     match completion.finish_reason {
         FinishReason::Stop if completion.tool_calls.is_empty() => {}
         FinishReason::Stop | FinishReason::ToolCalls => {
@@ -4330,7 +4298,7 @@ these notes.";
     }
 
     #[tokio::test]
-    async fn every_answered_notes_request_is_kept_for_usage_and_a_lost_one_is_marked() {
+    async fn a_notes_request_answered_or_lost_is_spent_and_one_refused_is_not() {
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
@@ -4339,44 +4307,24 @@ these notes.";
         .expect("plans")
         .expect("a turn");
         // Refused by the endpoint, then answered by the other family: the
-        // refusal never reached a model, so only the answer was billed.
-        let mut billed = text("## Turn 1\nIn between: read it.\n");
-        if let Ok(completion) = billed.as_mut() {
-            completion.usage = Usage {
-                input_tokens: Some(1200),
-                output_tokens: Some(40),
-            };
-        }
-        let provider = Scripted::new(vec![refused(), billed]);
+        // answer reached a model.
+        let provider = Scripted::new(vec![refused(), text("## Turn 1\nIn between: read it.\n")]);
         let asked = caller(&provider, true);
         assert!(finish(&plan, &asked).await.is_ok());
-        let (requests, unaccounted) = asked.spent.take();
-        assert!(!unaccounted, "a status is never billed");
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].model, "openai/gpt-6-sol");
-        assert_eq!(
-            (requests[0].input_tokens, requests[0].output_tokens),
-            (1200, 40)
-        );
-        assert_eq!(requests[0].cost, None, "nobody said what it cost");
+        assert!(asked.spent.take(), "an answered request is spent");
+        assert!(!asked.spent.take(), "taken once");
 
-        // Stopped mid-request: it may have been billed, and nothing says how
-        // much (`machine::may_have_billed`).
+        // Refused alone: it never reached a model (`machine::may_have_billed`).
+        let provider = Scripted::new(vec![refused()]);
+        let asked = caller(&provider, false);
+        assert!(finish(&plan, &asked).await.is_err());
+        assert!(!asked.spent.take(), "a status reaches no model");
+
+        // Stopped mid-request: it may have reached one.
         let provider = Scripted::new(vec![Err(ProviderError::Cancelled)]);
         let asked = caller(&provider, true);
         assert_eq!(finish(&plan, &asked).await, Err(Failure::Cancelled));
-        let frame = asked.spent.frame().expect("a lost request is a frame");
-        assert!(matches!(
-            frame,
-            SessionEvent::UsageRecorded {
-                input_tokens: None,
-                output_tokens: None,
-                ref requests,
-                unaccounted: true,
-                ..
-            } if requests.is_empty()
-        ));
-        assert_eq!(asked.spent.frame(), None, "taken once");
+        assert!(asked.spent.take(), "a lost request is spent");
     }
 
     #[test]
