@@ -23,7 +23,7 @@ const TEST_NOW: i64 = 6 * DAY_MS;
 
 /// The fake key. Its shape matches no credential pattern
 /// (`scripts/check-no-secrets.sh`).
-const KEY: &str = "xfx-usage-cache-test-key-0123456789-must-not-reach-disk";
+const KEY: &str = "fake-key-Zq7vK2mPx9LwR4tY8nB3cJ6hD1sF5gA0eU-not-real";
 
 fn one_row(cost: f64) -> Vec<ModelRow> {
     vec![ModelRow {
@@ -569,12 +569,18 @@ fn no_absolute_home_means_no_cache() {
 
 // -- S1: the key never reaches the disk ---------------------------------------
 
-/// Every way the key could be spelled in bytes: as is, in hex either case, and
-/// in base64 (standard and URL-safe) at each of the three byte alignments, by
-/// the run of characters that encodes only the key's own bytes.
+/// Every way the key, or any part of it long enough to read back, could be
+/// spelled in bytes: each run of [`WINDOW`] of its bytes as is and in hex
+/// either case, and the whole key in base64 (standard and URL-safe) at each of
+/// the three byte alignments, by the characters that encode only its bytes.
 fn key_spellings(key: &str) -> Vec<String> {
-    let hex: String = key.bytes().map(|b| format!("{b:02x}")).collect();
-    let mut spellings = vec![key.to_string(), hex.to_uppercase(), hex];
+    let mut spellings = Vec::new();
+    for part in key.as_bytes().windows(WINDOW) {
+        let hex: String = part.iter().map(|b| format!("{b:02x}")).collect();
+        spellings.push(String::from_utf8(part.to_vec()).expect("ASCII"));
+        spellings.push(hex.to_uppercase());
+        spellings.push(hex);
+    }
     for prefix in ["", "x", "xx"] {
         let encoded = base64(format!("{prefix}{key}").as_bytes());
         let interior = &encoded[4..encoded.len() - 4];
@@ -583,6 +589,9 @@ fn key_spellings(key: &str) -> Vec<String> {
     }
     spellings
 }
+
+/// The shortest run of the key's bytes the scan looks for.
+const WINDOW: usize = 12;
 
 fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -648,6 +657,12 @@ fn the_key_never_reaches_the_disk() {
             );
         }
     }
+    // And a part of it: any run of `WINDOW` bytes, in hex.
+    let part: String = KEY.as_bytes()[20..20 + WINDOW]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert!(spelled_in(part.as_bytes(), &spellings).is_some());
 
     let (root, home) = home();
     let id = Identity::of(API_KEY_SCOPE, KEY, "");
