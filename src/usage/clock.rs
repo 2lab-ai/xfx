@@ -72,7 +72,10 @@ fn now_ms_with(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> i64 {
 /// or one that is not one integer (`readClockFile`, `usage_host.zig:212-219`).
 ///
 /// Opened `O_NONBLOCK`: a plain `open(2)` of a FIFO with no writer blocks
-/// until one comes -- and so would the thread asking the time. The opened
+/// until one comes -- and so would the thread asking the time. And
+/// `O_NOCTTY`: the open happens before the type check, and opening a terminal
+/// (or a link to one) without it makes that terminal the controlling one of a
+/// session leader that has none, on Linux; std does not add it. The opened
 /// descriptor's own type then turns away a FIFO, a terminal or any other
 /// device, so the check and the read are of the same file.
 #[cfg(debug_assertions)]
@@ -87,7 +90,7 @@ fn pinned(path: OsString) -> Option<i64> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
     }
     let file = options.open(&path).ok()?;
     if !file.metadata().ok()?.is_file() {
@@ -114,7 +117,9 @@ mod tests {
     }
 
     fn near_system(ms: i64) -> bool {
-        (ms - crate::session::event::system_now_ms()).abs() < 60_000
+        ms.saturating_sub(crate::session::event::system_now_ms())
+            .saturating_abs()
+            < 60_000
     }
 
     #[test]
@@ -195,6 +200,7 @@ mod tests {
         use std::io::Write;
         use std::os::fd::AsRawFd;
         use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
         use std::time::Duration;
 
         let dir = tempfile::tempdir().unwrap();
@@ -209,11 +215,19 @@ mod tests {
         });
         match read.recv_timeout(Duration::from_secs(10)) {
             Ok(ms) => assert!(near_system(ms), "a FIFO with no writer: {ms}"),
-            Err(_) => {
-                // Opening the write end completes the open the reader is
-                // stuck in, so the thread ends rather than outliving the test.
-                let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
-                panic!("reading the clock from a FIFO with no writer blocked for 10 s");
+            Err(why) => {
+                // Free a reader stuck in open(2): opening the write end
+                // completes its open, so the thread ends rather than outliving
+                // the test. Non-blocking, so this cannot hang either: with no
+                // reader left (the thread died without sending) it fails at
+                // once with ENXIO, and there is nothing to free.
+                let _ = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&fifo);
+                panic!(
+                    "reading the clock from a FIFO with no writer did not answer in 10 s ({why:?})"
+                );
             }
         }
 

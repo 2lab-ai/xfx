@@ -491,22 +491,30 @@ export XFX_MAX_AGENT_STEPS="1"
 # its name. The scan is of the whole file, in python, so it means the same on
 # every platform. A name the binary must carry, `XFX_GATEWAY_URL` (the variable
 # that points it at a Gateway), is looked for first: a scan that cannot find
-# that one is reading the wrong file and proves nothing.
+# that one is reading the wrong file and proves nothing. Each verdict has its
+# own status -- 0 clean, 10 the name found, 11 the control missing, 12 the file
+# unreadable -- so anything else (python's own 1 for an uncaught exception, 2
+# for a usage error) is reported as the scan failing, never as a finding, and
+# every status but 0 fails the check. Its stderr is kept in the report.
 printf '0. test-only names in the shipped bytes\n'
 set +e
-bytes_report="$(python3 - "$binary" XFX_GATEWAY_URL XFX_E2E_USAGE_CLOCK_FILE <<'PYTHON'
+bytes_report="$(python3 - "$binary" XFX_GATEWAY_URL XFX_E2E_USAGE_CLOCK_FILE 2>&1 <<'PYTHON'
 import sys
 
 path, present, absent = sys.argv[1], sys.argv[2], sys.argv[3:]
-with open(path, "rb") as f:
-    blob = f.read()
+try:
+    with open(path, "rb") as f:
+        blob = f.read()
+except OSError as err:
+    print(f"could not read the binary: {err}")
+    sys.exit(12)
 if present.encode() not in blob:
     print(f"the scan did not find {present}, which every build carries ({len(blob)} bytes read)")
-    sys.exit(2)
+    sys.exit(11)
 found = [name for name in absent if name.encode() in blob]
 if found:
     print("found " + ", ".join(found))
-    sys.exit(1)
+    sys.exit(10)
 print(f"{len(blob)} bytes, {present} found")
 PYTHON
 )"
@@ -514,8 +522,10 @@ bytes_status=$?
 set -e
 case "$bytes_status" in
 0) pass "the binary carries no test-only variable name: XFX_E2E_USAGE_CLOCK_FILE ($bytes_report)" ;;
-1) fail "the binary carries a test-only variable name, so it reads it: $bytes_report" ;;
-*) fail "the byte scan proved nothing: $bytes_report" ;;
+10) fail "the binary carries a test-only variable name, so it reads it: $bytes_report" ;;
+11) fail "the byte scan proved nothing: $bytes_report" ;;
+12) fail "the byte scan could not run: $bytes_report" ;;
+*) fail "the byte scan failed (status $bytes_status): $(printf '%s' "$bytes_report" | tr '\n' ' ')" ;;
 esac
 
 # ---------------------------------------------------------------------------
