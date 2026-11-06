@@ -1,0 +1,24 @@
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+┃ /usage
+────────────────────────────────────────────────────────────────────────────────
+Commands 1
+
+  /usage   show local xfx tokens, models, and spend                     Account
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close

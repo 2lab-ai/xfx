@@ -1,0 +1,6 @@
+{
+ "/v1/report": {
+  "status": 401,
+  "body": "unauthorized"
+ }
+}

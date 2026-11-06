@@ -1,0 +1,41 @@
+# Mutant: every #[cfg(debug_assertions)] attribute removed from src/usage/clock.rs
+# (lines 26, 31, 36, 50, 60 at 5a2f4c2d), in a git clone --no-local copy under the
+# harness temp folder, built into its own target dir. scripts/check-usage-clock.sh:
+
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: cargo test failed (release, status 101); its last lines follow
+    | 
+    | running 1 test
+    | 
+    | thread 'usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions' (<tid>) panicked at src/usage/clock.rs:114:13:
+    | a release build ignores XFX_E2E_USAGE_CLOCK_FILE: read 1791819000000
+    | note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    | test usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions ... FAILED
+    | 
+    | failures:
+    | 
+    | failures:
+    |     usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions
+    | 
+    | test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3676 filtered out; finished in 0.03s
+    | 
+    | error: test failed, to rerun pass `--lib`
+check-usage-clock: cargo test failed (release, fault injection, status 101); its last lines follow
+    | 
+    | running 1 test
+    | 
+    | thread 'usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions' (<tid>) panicked at src/usage/clock.rs:114:13:
+    | a release build ignores XFX_E2E_USAGE_CLOCK_FILE: read 1791819000000
+    | note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    | test usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions ... FAILED
+    | 
+    | failures:
+    | 
+    | failures:
+    |     usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions
+    | 
+    | test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3683 filtered out; finished in 0.02s
+    | 
+    | error: test failed, to rerun pass `--lib`
+check-usage-clock: 2 problem(s) found
+exit=1

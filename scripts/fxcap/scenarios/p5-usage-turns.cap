@@ -1,9 +1,16 @@
 # p5 usage: /usage after two billed turns (billed-turns.json: cacheRead 4000
 # and 30000, reasoning 900), the footer's context and session segments on,
-# the keys (no Esc until the end: on v0.0.16's message-only screen Esc
-# closes it), /cost, /usage with an argument, /stats and /credits. Old fx counts
-# the turns locally; v0.0.16 asks the Gateway's /v1/report (the fake answers
-# 404). `home` keeps what each binary persisted; `gwlog` what was asked.
+# under the pinned clock (2026-10-12 15:30 UTC) and with no usage cache. The
+# first open's read is a path the fake does not know (`usage off`): 404, so
+# fx v0.0.16 shows its message-only failure, and the keys on it (no Esc until
+# the end: on that screen Esc closes it). Then r with the report answered
+# (p5-usage-report-turns.json, each read held 1.5 s): fetching..., then today,
+# the six finished days and the month to yesterday (policy.zig:57-89@481104fd),
+# the two turns as the report counts them. Then /cost, /usage with an argument,
+# /stats and /credits. Old fx counts the turns locally. `home` keeps what each
+# binary persisted; `gwlog` what was asked.
+clock 1791819000000
+usage off
 models models.json
 gateway billed-turns.json
 wait 2.5
@@ -45,9 +52,18 @@ snap right
 key Left
 wait 1
 snap left
+usage p5-usage-report-turns.json
 key r
-wait 2
+wait 1
+snap fetching
+wait 8
 snap r
+key Tab
+wait 0.7
+snap r-today
+key Tab
+wait 0.7
+snap r-7d
 key Escape
 wait 0.5
 snap esc
