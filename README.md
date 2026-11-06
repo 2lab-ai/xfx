@@ -33,11 +33,13 @@ four native target archives with their checksums and the `2lab-ai/tap/xfx`
 Homebrew formula, which selects and installs the archive matching your OS and
 architecture.
 
-The **preview channel** runs alongside that. Every push to `main` publishes a
-prerelease of that exact commit -- four native binaries and their checksums --
-and each binary reports `build_channel=preview` along with the twelve characters
-of the commit it was compiled from, so what you are running can be tied back to
-a source revision; a build from a tag answers `build_channel=release` instead.
+The **preview channel** runs alongside that. A preview is cut per epic, not per
+push: a merge to `main` that bumps `.github/preview-epoch` (one line naming the
+epic it closes) publishes a prerelease of that exact commit -- four native
+binaries and their checksums -- and each binary reports `build_channel=preview`
+along with the twelve characters of the commit it was compiled from, so what you
+are running can be tied back to a source revision; a build from a tag answers
+`build_channel=release` instead.
 [Install](#install) says how to get either in one command.
 
 ## What it does
@@ -247,6 +249,7 @@ cargo build --locked --release
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
+./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ```
 
