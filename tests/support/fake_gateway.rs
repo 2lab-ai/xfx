@@ -62,6 +62,22 @@ impl CapturedRequest {
     }
 }
 
+/// `requests` as `METHOD path bearer=yes|no`: what a case about the key going
+/// nowhere prints when it went somewhere.
+pub fn sent(requests: &[CapturedRequest]) -> Vec<String> {
+    requests
+        .iter()
+        .map(|request| {
+            let bearer = if request.header("authorization").is_some() {
+                "yes"
+            } else {
+                "no"
+            };
+            format!("{} {} bearer={bearer}", request.method, request.path)
+        })
+        .collect()
+}
+
 /// One scripted response.
 #[derive(Debug, Clone)]
 pub enum Reply {

@@ -18,9 +18,9 @@ use std::time::Instant;
 use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
 use serde_json::Value;
-use support::fake_gateway::FakeGateway;
+use support::fake_gateway::{sent, FakeGateway};
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
-use support::sandbox::Sandbox;
+use support::sandbox::{Sandbox, UNREADABLE_PROVIDER};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -5460,6 +5460,124 @@ fn a_bill_that_comes_later_is_asked_for_by_generation_and_partial_data_clears() 
     assert_eq!(session.wait_exit().code(), Some(0));
     // Asked until answered, and not again.
     assert_eq!(gateway.request_count(), 4);
+}
+
+/// No provider was chosen, so the Gateway's key goes nowhere: not with the
+/// turn, which refuses before it is built (`Bundle::select`), and not beside
+/// it either -- not for the catalog read at launch, not for the title the
+/// first prompt asks for, and not for `/credits`, which refuses with the
+/// turn's words. Red before: all three went to the compiled default's
+/// endpoint with the key.
+#[test]
+fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string(),
+    )])
+    .with_title("MARKER-TITLE");
+    let sandbox = Sandbox::new();
+    sandbox.write_profile(UNREADABLE_PROVIDER);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"hello there\r");
+    on_screen(&session, (40, 120), &["provider=rejected"], &[]);
+    session.type_bytes(b"/credits\r");
+    on_screen(&session, (40, 120), &["credits: "], &[]);
+
+    let asked: Vec<String> = sent(&gateway.catalog_requests())
+        .into_iter()
+        .chain(sent(&gateway.title_requests()))
+        .chain(sent(&gateway.requests()))
+        .collect();
+    assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2717} credits: provider=rejected: the `provider` setting is `not-a-provider`"],
+        &["MARKER-TITLE", "balance=42.17"],
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(!session.settled_text().contains(support::sandbox::TEST_KEY));
+}
+
+/// A session holding a bill still to be asked for, resumed under a provider
+/// selection xfx cannot read, asks the Gateway nothing about it: a bill is
+/// asked with the key a turn sends, and no turn can be. Red before: the
+/// resume asked `GET /v1/generation?id=` with the key.
+#[test]
+fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
+    const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ3";
+    let deferred = support::fake_gateway::sse_body(&[
+        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
+                "timestamp": iso_utc_minutes_ago(1) }),
+        support::fake_gateway::text_delta("answer_0", "MARKER-DEFERRED"),
+        serde_json::json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 12000, "cacheRead": 4000 },
+                "outputTokens": { "total": 800, "reasoning": 0 }
+            },
+            "providerMetadata": { "gateway": { "generationId": GENERATION } }
+        }),
+    ]);
+    // "Not written yet" for as long as the first session is open, so it is
+    // left with the bill pending.
+    let mut script = vec![support::fake_gateway::Reply::Sse(deferred)];
+    script.extend((0..40).map(|_| support::fake_gateway::Reply::Status(404, "not found".into())));
+    let gateway = FakeGateway::start(script);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut first = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    first.wait_for(READY);
+    first.type_bytes(b"count this\r");
+    first.wait_for("MARKER-DEFERRED");
+    let deadline = Instant::now() + std::time::Duration::from_secs(15);
+    while gateway.request_count() < 2 {
+        assert!(Instant::now() < deadline, "the bill was never asked for");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    first.type_bytes(&[0x04]);
+    assert_eq!(first.wait_exit().code(), Some(0));
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    // Counted once the count has held still for half a second, so a lookup
+    // the first process sent on its way out is not taken for one the resume
+    // sent.
+    let mut before = gateway.request_count();
+    let mut still = Instant::now();
+    let deadline = still + std::time::Duration::from_secs(10);
+    while still.elapsed() < std::time::Duration::from_millis(500) {
+        assert!(Instant::now() < deadline, "the first session kept asking");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let now = gateway.request_count();
+        if now != before {
+            (before, still) = (now, Instant::now());
+        }
+    }
+
+    sandbox.write_profile(UNREADABLE_PROVIDER);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    // A bill is asked the moment its session is opened, before the first
+    // round's second has passed: past it, nothing has been.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let asked = sent(&gateway.requests()[before..]);
+    assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
+
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
 }
 
 #[test]

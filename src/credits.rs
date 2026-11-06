@@ -145,7 +145,20 @@ pub struct Question {
 /// The Gateway is asked only **with** a credential, and only at the endpoint a
 /// turn would use: xfx does not contact a remote host on its own initiative,
 /// and a Gateway with no credential could not run a turn either.
+///
+/// **Nor where no provider was chosen.** A provider selection xfx could not
+/// read leaves `provider` on the compiled default, the Gateway, and poisons
+/// every turn ([`crate::config::RuntimeConfig::provider_rejected`]): the
+/// default is no choice, so its key is not sent for the balance either. The
+/// answer is the turn's own refusal, on one line -- the value it quotes is
+/// the settings file's text.
 pub fn question(config: &RuntimeConfig) -> Result<Question, Answer> {
+    if let Some(rejected) = &config.provider_rejected {
+        return Err(Answer::Failed(crate::output::safe_one_line(
+            &crate::output::rejected_provider_help(rejected),
+            usize::MAX,
+        )));
+    }
     match config.provider {
         ProviderId::Llmux => Err(Answer::Failed(UNAVAILABLE.to_string())),
         ProviderId::Gateway => {
@@ -457,6 +470,54 @@ mod tests {
             assert!(followed.is_empty(), "a {status} was followed: {followed:?}");
             assert_eq!(answer, Answer::Failed(format!("HTTP {status}")));
         }
+    }
+
+    #[test]
+    fn an_unreadable_provider_asks_nobody_and_says_so_in_the_turns_words() {
+        // A provider selection xfx could not read poisons the turn
+        // (`Bundle::select`); the Gateway it falls back to is no choice, so
+        // its key is not sent for the balance either. The value is the
+        // settings file's text, said on one line with no control in it.
+        use crate::config::{Environment, ProviderRejection};
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = RuntimeConfig::load_with(
+            &Environment::new(
+                None,
+                [("AI_GATEWAY_API_KEY".to_string(), KEY.to_string())].into(),
+            ),
+            workspace.path(),
+        )
+        .expect("a configuration");
+        assert!(question(&config).is_ok(), "a Gateway with a key asks");
+        let rejected = ProviderRejection {
+            key: "provider",
+            value: "not-a-provider".to_string(),
+        };
+        config.provider_rejected = Some(rejected.clone());
+        assert_eq!(config.provider, ProviderId::Gateway);
+        let Err(answer) = question(&config) else {
+            panic!("asked the Gateway with a provider nobody chose");
+        };
+        assert_eq!(
+            answer,
+            Answer::Failed(crate::output::rejected_provider_help(&rejected))
+        );
+
+        config.provider_rejected = Some(ProviderRejection {
+            key: "provider",
+            value: "gate\u{1b}[2Jway\nnext".to_string(),
+        });
+        let Err(Answer::Failed(reason)) = question(&config) else {
+            panic!("asked the Gateway with a provider nobody chose");
+        };
+        assert!(!reason.chars().any(char::is_control), "{reason:?}");
+        // P-status-b: a value that is not a provider name is told by its
+        // length, never shown -- so none of its bytes reach the line.
+        assert!(
+            !reason.contains("[2J") && !reason.contains("next"),
+            "{reason:?}"
+        );
+        assert!(reason.contains("(not shown)"), "{reason:?}");
     }
 
     #[test]
