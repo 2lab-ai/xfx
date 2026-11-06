@@ -1,0 +1,9 @@
+test profile_home::tests::an_open_home_names_the_chmod_that_makes_it_private_as_one_shell_word ... FAILED
+test profile_home::tests::a_missing_home_is_refused_by_every_writer_and_nothing_is_made ... ok
+test process::tests::a_child_whose_output_outlives_it_is_given_up_on_at_the_limit ... FAILED
+thread 'profile_home::tests::an_open_home_names_the_chmod_that_makes_it_private_as_one_shell_word' (254182256) panicked at src/profile_home/tests.rs:563:9:
+  left: "it is mode 750; session state must not be reachable by group or other (`chmod 700 ~x/.xfx` makes it private)"
+ right: "it is mode 750; session state must not be reachable by group or other (`chmod 700 './~x/.xfx'` makes it private)"
+thread 'process::tests::a_child_whose_output_outlives_it_is_given_up_on_at_the_limit' (254182254) panicked at src/process.rs:245:14:
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 3889 filtered out; finished in 30.04s
+exit=101

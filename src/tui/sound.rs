@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn a_save_that_failed_says_so_with_the_errors_words() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{ not json").expect("seed");
         let mut sound = Sound::new(Notifications::both(false), Some(path.clone()));
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn a_session_that_ends_lets_its_last_save_land() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         let mut sound = Sound::new(Notifications::both(true), Some(path.clone()));
         assert_eq!(sound.set(Level::Off).1, Ok(1));

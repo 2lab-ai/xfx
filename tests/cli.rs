@@ -105,6 +105,14 @@ impl Sandbox {
     fn write_user_settings(&self, body: &str) {
         let dir = self.profile_dir();
         fs::create_dir_all(&dir).expect("create profile dir");
+        // 0700, the way xfx creates it: every settings writer refuses a profile
+        // home that group or other can reach, as the session store does.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+                .expect("tighten the profile dir");
+        }
         fs::write(dir.join("settings.json"), body).expect("write user settings");
     }
 
