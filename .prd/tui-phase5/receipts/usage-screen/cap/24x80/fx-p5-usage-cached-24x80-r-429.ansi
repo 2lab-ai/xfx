@@ -1,0 +1,24 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────
+[1m[39musage:[0m API key …API_KEY)  rate limited, try again shortly, last updated just now
+
+[1mperiod[0m        [38;5;245mspent[39m  [38;5;245mrequests[39m  [38;5;245mtokens[39m
+today       $0.4735        16    110K
+7d           $23.41       240    5.8M
+month        $23.72       249    5.9M
+
+  [1mmodel (today)[0m                [38;5;245mspent[39m   [38;5;245mshare[39m  [38;5;245mrequests[39m  [38;5;245mtokens[39m
+[1m❯ anthropic/claude-opus-5    $0.4610   97.4%        13     93K[0m
+  fake/model-a               $0.0125    2.6%         3     17K
+[38;5;240m────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ model     enter detail     tab period     r refresh     esc close[39m
+
+
+
+
+
+
+
+
+

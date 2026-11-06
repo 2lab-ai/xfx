@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: session: on
+
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+──────────────────────────────────────────────────
+usage: API key (AI_…WAY_API_KEY)  updated just now
+
+period        spent  requests  tokens
+today       $0.4335         2     68K
+7d          $0.4835         6    106K
+month       $0.5825        13    170K
+
+  model (7d)                   spent  requests
+❯ anthropic/claude-opus-5    $0.4210         1
+  fake/model-a               $0.0625         5
+──────────────────────────────────────────────────
+↑↓ model  enter detail  tab period  r refresh  esc
+
+
+
+
+
