@@ -173,6 +173,13 @@ scheme clause removed: `left: None`), `shows_next_login_line_says_a_name_only_as
 (the `next login` row back to `safe`), `an_entry_rewritten_after_its_approval_was_saved_stays_pending`
 (`Choices::admission` by name alone: `left: Approved, right: Pending`).
 
+Gates on `9b6c1ca9`: fmt ok; clippy ok, both feature sets; `cargo test`
+4654 / 0 and 4677 / 0 (fault-injection); identity, stubs, secrets ok; release
+and faulty release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios +
+the oracle, 1091 / 0. Pairs re-run: 21 / 52 (`p5-mcp-empty` 21 of 24),
+notices 22 of 22 and 20 of 24 in order, `mcp.json` after-add and end
+byte-identical to fx's -- unchanged.
+
 ## Gates
 
 On `3c09b481` (the head after it changes comments, docs and this
