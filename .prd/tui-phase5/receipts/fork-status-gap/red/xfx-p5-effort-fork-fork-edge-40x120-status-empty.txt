@@ -1,0 +1,40 @@
+* session forked: slow turn please (fork)
+
+original session xfx --resume 1793964565362-65c516e1650882d9
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793964587297-160586314159e803 · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Sandbox           none
+  Workspace         <tmp>/fxcap.myk4ui/work
+  Turns             0
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · cf25feaff96f
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

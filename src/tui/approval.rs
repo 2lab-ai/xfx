@@ -406,34 +406,29 @@ impl Panel {
     }
 
     /// The panel's rows and what they really disclosed, for a panel whose first
-    /// row is at terminal row `band_top + offset`.
+    /// row is at terminal row `first_row`.
     ///
-    /// The two placing arguments are readiness's alone. `band_rows` puts the
-    /// activity row before the panel when the geometry has one
-    /// ([`super::shell::Shell::band_rows`]), so a panel-local index is not a row
-    /// of anybody's terminal -- and `Intent::capture`'s `last_control_row <=
-    /// rows` guard is about the terminal.
+    /// The placing argument is readiness's alone. The band puts rows of its own
+    /// before the panel -- the rule that heads it, and the blank row above a
+    /// panel over a document that does not end on one
+    /// ([`super::shell::Shell::band_rows`]) -- so a panel-local index is not a
+    /// row of anybody's terminal, and `Intent::capture`'s `last_control_row <=
+    /// rows` guard is about the terminal. The caller hands the row the geometry
+    /// paints the panel from ([`super::layout::Geometry::panel_first`]) rather
+    /// than counting what is above it.
     ///
     /// The subject, the scope and the change are whole **by construction**:
     /// every one of them is wrapped onto as many rows as it needs, never cut,
     /// and a panel taller than the band can hold is not installed at all
     /// ([`super::layout::fits_approval`]). What a narrow screen can still cut is
     /// a choice's words, and that is measured.
-    pub(crate) fn compose(
-        &self,
-        cols: u16,
-        terminal_rows: u16,
-        band_top: u16,
-        offset: u16,
-    ) -> Composition {
+    pub(crate) fn compose(&self, cols: u16, terminal_rows: u16, first_row: u16) -> Composition {
         let built = self.build(cols, terminal_rows, &Styles::PLAIN);
         let disclosure = Disclosure {
-            // The panel's first row is at `band_top + offset`, so a local index
-            // needs no further one-based correction: `band_top` is already a
-            // terminal row as the terminal counts them
-            // ([`super::layout::Geometry::band_top`]).
-            last_control_row: band_top
-                .saturating_add(offset)
+            // The panel's first row is `first_row`, so a local index needs no
+            // further one-based correction: it is already a terminal row as the
+            // terminal counts them ([`super::layout::Geometry::panel_first`]).
+            last_control_row: first_row
                 .saturating_add(u16::try_from(built.last_control).unwrap_or(u16::MAX)),
             controls_whole: built.controls_whole,
             scope_whole: true,
@@ -1418,7 +1413,7 @@ mod tests {
             // panel's rows are measured from the content rather than read out
             // of a table.
             let panel = Panel::new(asked);
-            let composed = panel.compose(80, 24, 1, 0);
+            let composed = panel.compose(80, 24, 1);
             let shown = unwrapped(&composed.rows);
             assert!(
                 shown.contains(&scope),
@@ -1851,7 +1846,7 @@ mod tests {
         let path = "deep/".repeat(60) + "notes.md";
         asked.subject = crate::permission::ApprovalSubject::Path(path.clone());
         let panel = Panel::new(asked);
-        let composed = panel.compose(80, 24, 1, 0);
+        let composed = panel.compose(80, 24, 1);
         let joined: String = composed
             .rows
             .iter()
@@ -1932,10 +1927,10 @@ mod tests {
         // sentence with the difference between one call and the whole session
         // cut out of it.
         let panel = Panel::new(request("edit_file"));
-        let wide = panel.compose(80, 24, 1, 0);
+        let wide = panel.compose(80, 24, 1);
         assert!(wide.disclosure.controls_whole && wide.disclosure.scope_whole);
         // 30 cells cuts the second label mid-sentence.
-        let narrow = panel.compose(30, 24, 1, 0);
+        let narrow = panel.compose(30, 24, 1);
         assert!(
             !narrow.disclosure.controls_whole,
             "a half-shown grant read as disclosed"
@@ -1944,24 +1939,23 @@ mod tests {
 
     #[test]
     fn the_last_control_row_is_the_terminal_row_that_row_is_really_on() {
-        // The band puts its activity row before the panel when the geometry has
-        // one (`super::super::shell::Shell::band_rows`), so a panel-local index
-        // is not a row of anybody's screen -- and the guard the disclosure feeds
-        // (`Intent::capture`) is about the screen.
+        // The band puts rows of its own before the panel
+        // (`super::super::shell::Shell::band_rows`), so a panel-local index is
+        // not a row of anybody's screen -- and the guard the disclosure feeds
+        // (`Intent::capture`) is about the screen. Where the band really paints
+        // it is the shell's case
+        // (`a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row`).
         let panel = Panel::new(request("edit_file"));
         let rows = panel.rows(80, 24);
         let last_choice = rows
             .iter()
             .rposition(|row| row.contains("3  Don't apply"))
             .expect("the refusal is a row of the panel");
-        for (band_top, offset) in [(10u16, 0u16), (10, 1), (1, 0)] {
+        for first_row in [10u16, 11, 1] {
             assert_eq!(
-                panel
-                    .compose(80, 24, band_top, offset)
-                    .disclosure
-                    .last_control_row,
-                band_top + offset + u16::try_from(last_choice).expect("a small index"),
-                "{band_top}+{offset}"
+                panel.compose(80, 24, first_row).disclosure.last_control_row,
+                first_row + u16::try_from(last_choice).expect("a small index"),
+                "{first_row}"
             );
         }
     }
@@ -2727,7 +2721,7 @@ mod tests {
             let mut panel = Panel::new(as_the_session_builds_it(durable));
             panel.apply(Action::Tab, 80);
             type_into(&mut panel, &"reason ".repeat(60));
-            let composed = panel.compose(80, 24, 1, 0);
+            let composed = panel.compose(80, 24, 1);
             assert!(
                 composed.disclosure.subject_whole,
                 "durable={durable}: a draft cut the target: {:?}",

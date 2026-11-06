@@ -2093,16 +2093,17 @@ fn a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route() {
 /// configuration says, so proving that it no longer does needs git. Every
 /// supported target's runner has it -- it is what checked the commit out.
 fn git(root: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        // A developer's own identity, hooks, and templates must not decide what
-        // this fixture is.
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .env("GIT_TEMPLATE_DIR", "")
-        .output()
-        .expect("git is required for this fixture");
+    let output = xfx::process::output(
+        Command::new("git")
+            .args(args)
+            .current_dir(root)
+            // A developer's own identity, hooks, and templates must not decide what
+            // this fixture is.
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_TEMPLATE_DIR", ""),
+    )
+    .expect("git is required for this fixture");
     assert!(
         output.status.success(),
         "git {args:?} failed: {}",
@@ -2647,15 +2648,16 @@ fn auto_mode_will_not_write_a_file_the_users_git_configuration_includes() {
 /// Runs the real git in `dir` with a clean environment and `home` as its
 /// home; required, not skipped.
 fn real_git(dir: &Path, home: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env_clear()
-        .env("HOME", home)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .output()
-        .expect("git on PATH: this test runs the real one");
+    let output = xfx::process::output(
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env_clear()
+            .env("HOME", home)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+    )
+    .expect("git on PATH: this test runs the real one");
     assert!(
         output.status.success(),
         "git {args:?}: {}",
@@ -2811,15 +2813,16 @@ fn an_include_path_is_protected_as_git_reads_its_bytes() {
 
 /// What the real git says, run in `dir` with a clean environment.
 fn git_says(dir: &Path, home: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env_clear()
-        .env("HOME", home)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .output()
-        .expect("git on PATH: this test runs the real one");
+    let output = xfx::process::output(
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env_clear()
+            .env("HOME", home)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+    )
+    .expect("git on PATH: this test runs the real one");
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
@@ -3007,12 +3010,13 @@ fn a_superproject_with_a_hundred_submodules_does_not_make_every_write_ask() {
         &["init", "-q", "--bare", ".git/modules/m0"],
     );
     for index in 1..100 {
-        let status = Command::new("cp")
-            .arg("-R")
-            .arg(modules.join("m0"))
-            .arg(modules.join(format!("m{index}")))
-            .status()
-            .expect("cp");
+        let status = xfx::process::status(
+            Command::new("cp")
+                .arg("-R")
+                .arg(modules.join("m0"))
+                .arg(modules.join(format!("m{index}"))),
+        )
+        .expect("cp");
         assert!(status.success());
     }
     let context = home_context(&tree, &home);
@@ -3857,9 +3861,7 @@ fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
 /// inside `Drop`, where panicking while another panic unwinds aborts the
 /// process and takes the real failure's message with it.
 fn sleepers(tag: &str) -> Vec<(String, String)> {
-    let Ok(listing) = Command::new("ps")
-        .args(["-eo", "pid=,pgid=,args="])
-        .output()
+    let Ok(listing) = xfx::process::output(Command::new("ps").args(["-eo", "pid=,pgid=,args="]))
     else {
         return Vec::new();
     };
@@ -3894,7 +3896,7 @@ struct SweepTag(String);
 impl Drop for SweepTag {
     fn drop(&mut self) {
         for (pid, _) in sleepers(&self.0) {
-            let _ = Command::new("kill").args(["-9", &pid]).status();
+            let _ = xfx::process::status(Command::new("kill").args(["-9", &pid]));
         }
     }
 }
@@ -4576,11 +4578,11 @@ impl Sandbox {
         let mut command = self.command(args, env);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
-        command.spawn().expect("spawn xfx")
+        xfx::process::spawn(&mut command).expect("spawn xfx")
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        Run::of(self.command(args, env).output().expect("spawn xfx"))
+        Run::of(xfx::process::output(&mut self.command(args, env)).expect("spawn xfx"))
     }
 
     fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {

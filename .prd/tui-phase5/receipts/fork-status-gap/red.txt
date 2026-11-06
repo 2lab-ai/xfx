@@ -1,0 +1,36 @@
+cells.py (row 1 not compared), the base cf25feaf against fx v0.0.16:
+DIFF fork-edge-40x120-status-empty.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+row 4: fx []
+row 4: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+row 5: xfx [(0, 'S', (('bold', True), ('fg', 255))), (1, 't', (('bold', True), ('fg', 255))), (2, 'a', (('bold', True), ('fg', 255))), (3, 't', (('bold', True), ('fg', 255)))]
+row 6: fx [(0, 'S', (('bold', True), ('fg', 255))), (1, 't', (('bold', True), ('fg', 255))), (2, 'a', (('bold', True), ('fg', 255))), (3, 't', (('bold', True), ('fg', 255)))]
+row 6: xfx []
+row 7: fx []
+row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'S', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252)))]
+row 8: fx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252)))]
+row 8: xfx [(2, 'M', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'd', (('bold', True), ('fg', 252))), (5, 'e', (('bold', True), ('fg', 252)))]
+row 9: fx [(2, 'M', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'd', (('bold', True), ('fg', 252))), (5, 'e', (('bold', True), ('fg', 252)))]
+row 9: xfx [(2, 'A', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'h', (('bold', True), ('fg', 252)))]
+row 10: fx [(2, 'A', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'h', (('bold', True), ('fg', 252)))]
+row 10: xfx [(2, 'P', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'm', (('bold', True), ('fg', 252)))]
+row 11: fx [(2, 'P', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'm', (('bold', True), ('fg', 252)))]
+row 11: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'a', (('bold', True), ('fg', 252))), (4, 'n', (('bold', True), ('fg', 252))), (5, 'd', (('bold', True), ('fg', 252)))]
+row 12: fx [(32, 'O', (('fg', 245),)), (33, 'y', (('fg', 245),)), (34, 'O', (('fg', 245),)), (35, 'M', (('fg', 245),))]
+row 12: xfx [(32, 'm', (('fg', 245),)), (33, 'y', (('fg', 245),)), (34, 'k', (('fg', 245),)), (35, '4', (('fg', 245),))]
+row 15: fx [(20, 'u', (('fg', 245),)), (21, 'n', (('fg', 245),)), (22, 'l', (('fg', 245),)), (23, 'i', (('fg', 245),))]
+row 15: xfx [(20, '2', (('fg', 245),)), (21, '5', (('fg', 245),))]
+row 17: fx [(2, 'U', (('bold', True), ('fg', 252))), (3, 'p', (('bold', True), ('fg', 252))), (4, 'd', (('bold', True), ('fg', 252))), (5, 'a', (('bold', True), ('fg', 252)))]
+row 17: xfx [(2, 'B', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'i', (('bold', True), ('fg', 252))), (5, 'l', (('bold', True), ('fg', 252)))]
+row 18: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252)))]
+row 18: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+row 19: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+row 19: xfx [(0, 'e', (('fg', 245),)), (1, 's', (('fg', 245),)), (2, 'c', (('fg', 245),)), (3, ' ', ())]
+row 20: fx [(0, 'e', (('fg', 245),)), (1, 's', (('fg', 245),)), (2, 'c', (('fg', 245),)), (3, ' ', ())]
+row 20: xfx []
+15 rows differ in their cells (row 1 not compared)
+
+status-panel/pairs.py over red/:
+p5-effort-fork-fork-edge-40x120-status-empty         unresolved-defect                  ?

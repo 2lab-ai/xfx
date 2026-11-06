@@ -49,10 +49,132 @@
 //! `SIGCHLD` disposition at either pin.
 //!
 //! The case `no_child_process_is_made_any_other_way` keeps every
-//! `Command::new` in the library's own code in this file.
+//! `Command::new` in the library's own code in this file; `clippy.toml` keeps
+//! every start of one in [`spawn`] and every pipe in [`pipe`].
 
 use std::ffi::OsStr;
-use std::process::Command;
+use std::io;
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// Held by every start of a child of xfx's ([`spawn`]), and by every pipe
+/// xfx makes itself ([`pipe`]).
+///
+/// macOS has no `pipe2`, so the standard library makes each pipe a start
+/// uses -- the child's input, output and error, and the one that says whether
+/// `exec` worked -- with `pipe` and only then marks it close-on-exec
+/// (`library/std/src/sys/pipe/unix.rs:32-41` in Rust 1.99.1, the stable
+/// toolchain the gates and CI build with; the repository pins no toolchain,
+/// and `Cargo.toml`'s `rust-version` is the 1.96 floor. Read in that
+/// toolchain's own source, `$(rustc --print sysroot)/lib/rustlib/src/rust/`.)
+/// A `fork` another thread makes in between hands that child both ends, and
+/// `exec` keeps them. [`command`]'s signal reset is a `pre_exec`, which takes
+/// every start off `posix_spawn` and onto the `fork` path
+/// (`sys/process/unix/unix.rs:467-470`), whose parent makes the status pipe
+/// (`:81`) and reads it until `exec` closes it (`:139-140`): a child that
+/// inherited it -- an MCP server started beside it, which runs as long as
+/// the session -- holds it open, and the start never returns (MCP-Me:
+/// `mcp::tests::a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did`,
+/// one run in about five, a server "connecting" for good). One start at a
+/// time makes no pipe of one start reach another's child.
+static SPAWNING: Mutex<()> = Mutex::new(());
+
+/// [`SPAWNING`], taken: what every start and every pipe waits for.
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    // A case that holds the lock learns here that the thread it is waiting
+    // on has got as far as the lock, rather than guessing with a sleep.
+    #[cfg(all(test, unix))]
+    tests::arrived();
+    SPAWNING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Holds every start and every pipe until it is dropped: for a case
+/// elsewhere that must see what its work does while another start is in
+/// flight.
+#[cfg(all(test, unix))]
+pub(crate) fn hold_every_start() -> MutexGuard<'static, ()> {
+    SPAWNING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) use tests::has_arrived;
+
+/// `command` started, under the lock every start of xfx's takes
+/// ([`SPAWNING`]). The start alone is held -- a child that runs for an hour
+/// holds nothing -- and a start never waits for more than another start.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the one start every other start goes through, under the lock"
+)]
+pub fn spawn(command: &mut Command) -> io::Result<Child> {
+    let _one_at_a_time = one_at_a_time();
+    command.spawn()
+}
+
+/// [`spawn`], unless `given_up` says so once the lock is held: then nothing
+/// is started, and the answer is `None`.
+///
+/// For work that can be given up while it waits for another start: a stop
+/// that lands in that wait refuses the child rather than starting it to kill
+/// it. `given_up` runs under the lock, so it must not start a child or make a
+/// pipe; a look at a flag is what it is for.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the one start every other start goes through, under the lock"
+)]
+pub fn spawn_unless(
+    command: &mut Command,
+    given_up: impl FnOnce() -> bool,
+) -> io::Result<Option<Child>> {
+    let _one_at_a_time = one_at_a_time();
+    if given_up() {
+        return Ok(None);
+    }
+    command.spawn().map(Some)
+}
+
+/// `Command::status`, started through [`spawn`]: the same start and the same
+/// wait (`library/std/src/process.rs:1096-1098` and `:1177-1182`, Rust 1.99.1,
+/// both `spawn(Stdio::Inherit, true)`).
+pub fn status(command: &mut Command) -> io::Result<ExitStatus> {
+    spawn(command)?.wait()
+}
+
+/// `Command::output` for a command that names none of its streams, started
+/// through [`spawn`]: input from nothing, output and errors read to their
+/// ends (`library/std/src/sys/process/mod.rs:55-56`, Rust 1.99.1).
+///
+/// It names all three streams, as `output` does only for the ones a caller
+/// left alone; a command that names one is started with [`spawn`] and
+/// `wait_with_output`.
+pub fn output(command: &mut Command) -> io::Result<Output> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    spawn(command)?.wait_with_output()
+}
+
+/// A pipe, both ends close-on-exec, made under the lock every start takes
+/// ([`SPAWNING`]).
+///
+/// macOS makes a pipe and only then marks it, as the standard library's own
+/// pipes are made ([`SPAWNING`]); a start that forked in between would hand
+/// both ends to its child -- an MCP server holds them all session. Made
+/// here, no start is in the middle of its `fork`.
+#[cfg(unix)]
+pub fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    let _no_start = one_at_a_time();
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the one pipe every other pipe goes through, under the lock"
+    )]
+    let (read, write) = rustix::pipe::pipe()?;
+    for end in [&read, &write] {
+        rustix::io::fcntl_setfd(end, rustix::io::FdFlags::CLOEXEC)?;
+    }
+    Ok((read, write))
+}
 
 /// A command for `program` whose child starts with no signal blocked and
 /// `SIGPIPE` at its default, and without xfx's own credential.
@@ -145,6 +267,202 @@ pub fn collect_own_children() -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn children_started_at_once_never_hold_up_one_anothers_start() {
+        // MCP-Me: started from many threads at once, as a session starts its
+        // MCP servers, each start must return. A child that inherited
+        // another start's pipe from the `pipe`-then-close-on-exec window
+        // held that start until it exited -- here 30 s, for an MCP server
+        // the whole session. Sixteen at a time, each with its input, output
+        // and error piped as an MCP server's are, thirty times; each start
+        // must also have started its child.
+        use std::sync::mpsc;
+        const AT_ONCE: usize = 16;
+        // A sleeper ends on its own after this long. So a start a sleeper's
+        // copy of its pipe held is let go by then at the latest, even one
+        // whose holder had not come back to be killed, and nothing this case
+        // starts outlives the case by more.
+        const SLEEP: Duration = Duration::from_secs(30);
+        let end = |child: &mut Child| {
+            let _ = child.kill();
+            let _ = child.wait();
+        };
+        for round in 0..30 {
+            let (done, finished) = mpsc::channel();
+            let workers: Vec<_> = (0..AT_ONCE)
+                .map(|_| {
+                    let done = done.clone();
+                    std::thread::spawn(move || {
+                        let mut sleeper = command("/bin/sleep");
+                        sleeper
+                            .arg(SLEEP.as_secs().to_string())
+                            .stdin(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped());
+                        let _ = done.send(spawn(&mut sleeper));
+                    })
+                })
+                .collect();
+            drop(done);
+            let mut started = Vec::new();
+            let mut failed = Vec::new();
+            let on_time = Instant::now() + Duration::from_secs(10);
+            while started.len() + failed.len() < AT_ONCE {
+                match finished.recv_timeout(on_time.saturating_duration_since(Instant::now())) {
+                    Ok(Ok(child)) => started.push(child),
+                    Ok(Err(err)) => failed.push(err.to_string()),
+                    Err(_) => break,
+                }
+            }
+            let returned = started.len() + failed.len();
+            // Every sleeper is this case's to end: those that came back, and
+            // a late one as it comes back. Killing the first lets go of a
+            // start their copies held; a holder still starting itself ends
+            // within `SLEEP`. Every worker sends once, so once all have,
+            // each join is immediate.
+            started.iter_mut().for_each(end);
+            let mut late = 0;
+            let cleanup = Instant::now() + SLEEP + Duration::from_secs(10);
+            while returned + late < AT_ONCE {
+                match finished.recv_timeout(cleanup.saturating_duration_since(Instant::now())) {
+                    Ok(Ok(mut child)) => end(&mut child),
+                    Ok(Err(_)) => {}
+                    Err(_) => break,
+                }
+                late += 1;
+            }
+            assert_eq!(
+                returned + late,
+                AT_ONCE,
+                "round {round}: a start had not returned {} s on, past every sleeper's own end",
+                (SLEEP + Duration::from_secs(20)).as_secs()
+            );
+            for worker in workers {
+                worker.join().expect("a worker");
+            }
+            assert_eq!(
+                returned, AT_ONCE,
+                "round {round}: {late} of {AT_ONCE} starts returned only once the others' children were killed"
+            );
+            assert!(
+                failed.is_empty(),
+                "round {round}: {} of {AT_ONCE} starts failed, so the round says nothing of the lock: {failed:?}",
+                failed.len()
+            );
+        }
+    }
+
+    /// The threads that have got as far as the start lock, in order: every
+    /// start and every pipe in this test binary reports here
+    /// ([`one_at_a_time`]).
+    static ARRIVALS: Mutex<Vec<std::thread::ThreadId>> = Mutex::new(Vec::new());
+
+    pub(super) fn arrived() {
+        ARRIVALS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(std::thread::current().id());
+    }
+
+    /// Whether `thread` has got as far as the start lock: one that has, and
+    /// finds it held, is waiting on it.
+    pub(crate) fn has_arrived(thread: std::thread::ThreadId) -> bool {
+        ARRIVALS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&thread)
+    }
+
+    #[test]
+    fn a_start_given_up_while_another_start_holds_the_lock_starts_nothing() {
+        // The clipboard's stop: given up while the start waits for another
+        // start, the child is refused, not started and then killed. The look
+        // is taken under the lock, however late the work got there: the case
+        // gives up only once the starter is at the lock.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let held = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+        let given_up = Arc::new(AtomicBool::new(false));
+        let starter = std::thread::spawn({
+            let given_up = Arc::clone(&given_up);
+            move || {
+                let mut tool = command("/usr/bin/true");
+                tool.stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                spawn_unless(&mut tool, || given_up.load(Ordering::Acquire))
+                    .expect("a start")
+                    .map(|mut child| child.wait().expect("a status"))
+            }
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !has_arrived(starter.thread().id()) {
+            assert!(
+                Instant::now() < deadline,
+                "the starter never reached the start lock"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        given_up.store(true, Ordering::Release);
+        drop(held);
+        assert_eq!(
+            starter.join().expect("the starter"),
+            None,
+            "a start given up in its wait for the lock still started its child"
+        );
+
+        let mut tool = command("/usr/bin/true");
+        tool.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = spawn_unless(&mut tool, || false)
+            .expect("a start")
+            .expect("a start nobody gave up");
+        assert!(child.wait().expect("a status").success());
+    }
+
+    #[test]
+    fn a_pipe_is_made_close_on_exec_and_never_beside_a_start() {
+        // `Wakeup`'s pipe, and every pipe xfx makes: made while a start
+        // holds the lock, it waits for the start to be done. Nothing may
+        // come before the maker is at the lock, and nothing while it waits.
+        use std::sync::mpsc;
+        let held = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+        let (made, pipes) = mpsc::channel();
+        let maker = std::thread::spawn(move || {
+            let _ = made.send(pipe().expect("a pipe"));
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let at_the_lock = has_arrived(maker.thread().id());
+            assert!(
+                pipes.try_recv().is_err(),
+                "a pipe was made while a start held the lock"
+            );
+            if at_the_lock {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the maker never reached the start lock"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        drop(held);
+        let (read, write) = pipes
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the pipe, once the start was done");
+        maker.join().expect("the maker");
+        for end in [&read, &write] {
+            assert!(
+                rustix::io::fcntl_getfd(end)
+                    .expect("its flags")
+                    .contains(rustix::io::FdFlags::CLOEXEC),
+                "an end of the pipe is not close-on-exec"
+            );
+        }
+    }
 
     /// Runs `body` on a thread that blocks every signal the TUI owns, as
     /// every thread a session starts does, and hands back what it returned.
@@ -263,10 +581,11 @@ mod tests {
         // The shell signals itself; a mask the child inherited would hold it
         // pending and the `echo` would run.
         let output = on_a_blocked_thread(|| {
-            undoing_the_runners_ignores(command("/bin/sh"), &[libc::SIGTERM])
-                .args(["-c", "kill -TERM $$; echo survived"])
-                .output()
-                .expect("a child")
+            super::output(
+                undoing_the_runners_ignores(command("/bin/sh"), &[libc::SIGTERM])
+                    .args(["-c", "kill -TERM $$; echo survived"]),
+            )
+            .expect("a child")
         });
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(output.status.signal(), Some(libc::SIGTERM), "{output:?}");
@@ -286,10 +605,11 @@ mod tests {
         ] {
             let fixture = (signal != libc::SIGPIPE).then_some(signal);
             let mut child = on_a_blocked_thread(move || {
-                undoing_the_runners_ignores(command("/bin/sleep"), fixture.as_slice())
-                    .arg("30")
-                    .spawn()
-                    .expect("a child")
+                spawn(
+                    undoing_the_runners_ignores(command("/bin/sleep"), fixture.as_slice())
+                        .arg("30"),
+                )
+                .expect("a child")
             });
             let pid = libc::pid_t::try_from(child.id()).expect("a pid");
             // SAFETY: `kill` on a child this case started and has not reaped.
@@ -306,10 +626,11 @@ mod tests {
             let script =
                 format!("trap 'echo {name}; exit 0' {name}; kill -{name} $$; sleep 5 & wait");
             let output = on_a_blocked_thread(move || {
-                undoing_the_runners_ignores(command("/bin/sh"), &[signal])
-                    .args(["-c", &script])
-                    .output()
-                    .expect("a child")
+                super::output(
+                    undoing_the_runners_ignores(command("/bin/sh"), &[signal])
+                        .args(["-c", &script]),
+                )
+                .expect("a child")
             });
             assert_eq!(
                 String::from_utf8_lossy(&output.stdout).trim(),
@@ -361,7 +682,7 @@ mod tests {
                 Ok(())
             });
         }
-        let output = runner.output().expect("a runner");
+        let output = super::output(&mut runner).expect("a runner");
         let report = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
@@ -406,11 +727,57 @@ mod tests {
     /// The rule, kept by reading the library's own code: every child process
     /// is made by [`command`]. A test module -- everything from a file's first
     /// unindented `#[cfg(test)]` or `#[cfg(all(test, …))]` that puts a `mod`
-    /// under it -- may start what it likes.
+    /// under it -- may make one as it likes.
+    ///
+    /// Every start of one, tests' too, goes through [`spawn`], and every pipe
+    /// through [`pipe`]: that half is clippy's, on the resolved call
+    /// (`clippy.toml`'s `disallowed-methods`), which sees a command started
+    /// in a later statement as well as in the one that made it. Kept here:
+    /// each entry is still a line of its own in `clippy.toml`, not commented
+    /// out, and no code but this file's lifts them -- by name, by the old
+    /// name, or by a group or `warnings` allow that holds them.
+    ///
+    /// A guard against the ordinary ways to slip past the rule by accident,
+    /// not a proof that none is left: a macro, an attribute under `cfg_attr`,
+    /// a raw `syscall`, or a dependency's own start are beyond what reading
+    /// lines can see.
     #[test]
     fn no_child_process_is_made_any_other_way() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut stack = vec![root.clone()];
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let rules = std::fs::read_to_string(manifest.join("clippy.toml")).expect("clippy.toml");
+        for path in [
+            "std::process::Command::spawn",
+            "std::process::Command::status",
+            "std::process::Command::output",
+            "tokio::process::Command::spawn",
+            "tokio::process::Command::status",
+            "tokio::process::Command::output",
+            "libc::fork",
+            "libc::vfork",
+            "libc::forkpty",
+            "libc::posix_spawn",
+            "libc::posix_spawnp",
+            "libc::popen",
+            "libc::system",
+            "libc::pipe",
+            "libc::socketpair",
+            "rustix::pipe::pipe",
+            "rustix::pipe::pipe_with",
+            "std::io::pipe",
+            "std::os::unix::net::UnixStream::pair",
+            "std::os::unix::net::UnixDatagram::pair",
+            "mio::unix::pipe::new",
+        ] {
+            let entry = format!("{{ path = \"{path}\", ");
+            assert!(
+                rules
+                    .lines()
+                    .any(|line| line.trim_start().starts_with(&entry)),
+                "clippy.toml no longer disallows {path}"
+            );
+        }
+        let root = manifest.join("src");
+        let mut stack = vec![root.clone(), manifest.join("tests")];
         let mut found = Vec::new();
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).expect("a source dir") {
@@ -424,30 +791,48 @@ mod tests {
                 {
                     continue;
                 }
+                let library = path.starts_with(&root);
                 let text = std::fs::read_to_string(&path).expect("a source file");
                 let lines: Vec<&str> = text.lines().collect();
+                let mut in_tests = !library;
                 for (number, line) in lines.iter().enumerate() {
-                    let opens_tests = (line.starts_with("#[cfg(test)]")
+                    in_tests |= (line.starts_with("#[cfg(test)]")
                         || line.starts_with("#[cfg(all(test"))
                         && lines[number + 1..]
                             .iter()
                             .find(|next| !next.starts_with("#["))
                             .is_some_and(|next| next.contains("mod "));
-                    if opens_tests {
-                        break;
-                    }
                     if line.trim_start().starts_with("//") {
                         continue;
                     }
-                    if line.contains("Command::new(") || line.contains("tokio::process::Command") {
+                    if !in_tests
+                        && (line.contains("Command::new(")
+                            || line.contains("tokio::process::Command"))
+                    {
                         found.push(format!("{}:{}", path.display(), number + 1));
+                    }
+                    if [
+                        "disallowed_method",
+                        "clippy::all",
+                        "clippy::style",
+                        "allow(warnings",
+                        "expect(warnings",
+                    ]
+                    .iter()
+                    .any(|lift| line.contains(lift))
+                    {
+                        found.push(format!(
+                            "{}:{} (lifts the start rule)",
+                            path.display(),
+                            number + 1
+                        ));
                     }
                 }
             }
         }
         assert!(
             found.is_empty(),
-            "a child process made without crate::process::command: {found:?}"
+            "a child process made or started without crate::process: {found:?}"
         );
     }
 
@@ -518,7 +903,7 @@ mod tests {
                 Ok(())
             });
         }
-        let output = probe.output().expect("the probe ran");
+        let output = super::output(&mut probe).expect("the probe ran");
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             output.status.success() && stdout.contains("sigchld probe: collected"),
@@ -537,9 +922,7 @@ mod tests {
         };
         assert!(ignored, "the probe was not started ignoring SIGCHLD");
         collect_own_children().expect("SIGCHLD taken back");
-        let status = command("/bin/sh")
-            .args(["-c", "exit 3"])
-            .status()
+        let status = super::status(command("/bin/sh").args(["-c", "exit 3"]))
             .expect("an inherited SIGCHLD ignore collected the child first");
         assert_eq!(status.code(), Some(3));
         println!("sigchld probe: collected");

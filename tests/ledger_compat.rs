@@ -141,15 +141,17 @@ const RUN_DEADLINE: Duration = Duration::from_secs(60);
 
 /// Runs `command` to its end, but no longer than [`RUN_DEADLINE`]: past it,
 /// the child -- this test's own -- is killed and reaped, and the test fails.
+/// Started through `xfx::process::spawn`, under the lock every start takes.
 /// Its two pipes are drained on threads of their own, so a full pipe cannot
 /// stall it either.
 fn run(command: &mut Command, what: &str) -> Output {
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("start xfx");
+    let mut child = xfx::process::spawn(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("start xfx");
     let drain = |pipe: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
             let mut bytes = Vec::new();

@@ -486,8 +486,7 @@ fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
         command.process_group(0);
     }
 
-    let mut child = command
-        .spawn()
+    let mut child = crate::process::spawn(&mut command)
         .map_err(|err| format!("{}: {err}", first_word(plan.command())))?;
 
     let limit = context.limits().max_command_output_bytes;
@@ -2173,7 +2172,8 @@ mod tests {
     /// and takes the real failure's message with it.
     #[cfg(unix)]
     fn tagged(tag: &str) -> Vec<rustix::process::Pid> {
-        let Ok(listing) = Command::new("ps").args(["-eo", "pid=,args="]).output() else {
+        let Ok(listing) = crate::process::output(Command::new("ps").args(["-eo", "pid=,args="]))
+        else {
             return Vec::new();
         };
         String::from_utf8_lossy(&listing.stdout)
@@ -2266,7 +2266,10 @@ mod tests {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
         command.process_group(0);
-        (command.spawn().expect("spawn a shell"), marker)
+        (
+            crate::process::spawn(&mut command).expect("spawn a shell"),
+            marker,
+        )
     }
 
     #[cfg(unix)]
@@ -2323,7 +2326,7 @@ mod tests {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
         command.process_group(0);
-        command.spawn().expect("spawn a shell")
+        crate::process::spawn(&mut command).expect("spawn a shell")
     }
 
     /// `stop` must leave the command's process group empty, even when the

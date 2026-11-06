@@ -1,0 +1,20 @@
+Throwaway clone of 1dc3c37c; the readiness row back to the counted forms -- FK-GAP's (`band_top + activity + gap`) and the one before it (`band_top + activity`):
+
+MUTANT: self.geometry.band_top() + u16::from(self.geometry.activity.is_some()) + self.geometry.gap,
+                        self.geometry.band_top() + u16::from(self.geometry.activity.is_some()) + self.geometry.gap,
+test tui::approval::tests::the_last_control_row_is_the_terminal_row_that_row_is_really_on ... ok
+test tui::approval_screen::tests::the_last_control_row_is_the_row_the_refusal_is_really_painted_on ... ok
+test tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row ... FAILED
+thread 'tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row' (237316910) panicked at src/tui/shell.rs:41437:9:
+  left: Some(13)
+ right: Some(14)
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.01s
+MUTANT: self.geometry.band_top() + u16::from(self.geometry.activity.is_some()),
+                        self.geometry.band_top() + u16::from(self.geometry.activity.is_some()),
+test tui::approval::tests::the_last_control_row_is_the_terminal_row_that_row_is_really_on ... ok
+test tui::approval_screen::tests::the_last_control_row_is_the_row_the_refusal_is_really_painted_on ... ok
+test tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row ... FAILED
+thread 'tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row' (237319062) panicked at src/tui/shell.rs:41437:9:
+  left: Some(12)
+ right: Some(14)
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.01s

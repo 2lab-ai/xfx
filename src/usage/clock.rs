@@ -234,7 +234,8 @@ mod tests {
 
         // A pipe whose writer wrote a time and closed: readable to its end,
         // so only the descriptor's type turns it away.
-        let (pipe, mut writer) = std::io::pipe().unwrap();
+        let (pipe, writer) = crate::process::pipe().unwrap();
+        let mut writer = std::fs::File::from(writer);
         writer.write_all(format!("{PINNED}\n").as_bytes()).unwrap();
         drop(writer);
         let by_fd = std::path::PathBuf::from(format!("/dev/fd/{}", pipe.as_raw_fd()));
