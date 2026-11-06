@@ -4134,6 +4134,38 @@ async fn a_turn_that_failed_after_a_request_still_writes_its_summary_frame() {
     // A failed turn had no answering step, so it has no totals.
     assert_eq!((*input_tokens, *output_tokens), (None, None));
     assert!(turn_output_tokens.is_some());
+
+    // And when the request that ends it reached no model -- refused with a
+    // status, which `may_have_billed` says was not billed -- the step that
+    // completed before it is what makes the frame due.
+    let provider = FallibleProvider::new(vec![
+        Ok(calls_step(vec![read_call("c1", "missing.md")]).completion),
+        Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "bad request".to_string(),
+            retryable: false,
+            retry_after: None,
+        }),
+    ]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("read it", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect_err("a refusal ends the turn");
+    assert!(matches!(
+        usage_frame(&journal),
+        SessionEvent::UsageRecorded {
+            input_tokens: None,
+            output_tokens: None,
+            turn_output_tokens: Some(_),
+        }
+    ));
 }
 
 #[tokio::test]

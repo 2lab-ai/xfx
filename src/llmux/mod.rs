@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn a_llmux_answer_is_billed_as_its_tokens_and_no_spend() {
+    fn a_llmux_answer_carries_its_cache_counts_in_a_bill_nothing_adds_up() {
         use crate::gateway::protocol::Usage;
         let usage = Usage {
             input_tokens: Some(100),

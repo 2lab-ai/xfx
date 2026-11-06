@@ -2021,6 +2021,64 @@ mod tests {
         }
     }
 
+    /// A turn whose compaction sent a notes request has a `usage_recorded`
+    /// frame to write even when its own first request is then refused -- a
+    /// status, which reached no model -- as the turn's frame was due when
+    /// the notes request was a ledger entry. Its totals stay absent.
+    #[tokio::test]
+    async fn a_turn_a_compaction_spent_on_writes_its_frame_though_its_request_is_refused() {
+        let (_dir, context) = tools();
+        let asked = std::rc::Rc::default();
+        let mut turn = machine(context).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::clone(&asked),
+            compact_on: vec![0],
+        }));
+        let provider = Script::new(vec![Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "bad request".to_string(),
+            retryable: false,
+            retry_after: None,
+        })]);
+        let mut journal = Kept::default();
+        turn.run_journaled(&provider, &mut Quiet, &mut journal)
+            .await
+            .expect_err("refused");
+        let frames: Vec<&SessionEvent> = journal
+            .0
+            .iter()
+            .filter(|event| matches!(event, SessionEvent::UsageRecorded { .. }))
+            .collect();
+        assert_eq!(
+            frames,
+            [&SessionEvent::UsageRecorded {
+                input_tokens: None,
+                output_tokens: None,
+                turn_output_tokens: Some(0),
+            }]
+        );
+
+        // Without the compaction it is a turn refused before any request
+        // reached a model: no frame.
+        let (_two, context) = tools();
+        let mut turn = machine(context);
+        let provider = Script::new(vec![Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "bad request".to_string(),
+            retryable: false,
+            retry_after: None,
+        })]);
+        let mut journal = Kept::default();
+        turn.run_journaled(&provider, &mut Quiet, &mut journal)
+            .await
+            .expect_err("refused");
+        assert!(!journal
+            .0
+            .iter()
+            .any(|event| matches!(event, SessionEvent::UsageRecorded { .. })));
+    }
+
     #[tokio::test]
     async fn a_compaction_the_first_request_needed_that_failed_leaves_no_turn_and_a_stopped_one_does(
     ) {
