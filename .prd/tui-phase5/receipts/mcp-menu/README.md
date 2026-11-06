@@ -320,6 +320,79 @@ part-way (the dispatcher's notice); its re-run then failed once in
 (`a word no skill matches showed the menu`), a skills test this unit does not
 touch, which passed in every other run and 5 of 5 alone.
 
+## Epic 2, part 1, and MCP-Md
+
+**The merges** (`63ec99e6`: MCP-S Sd/Se/Sf `e4e0b431`; `deb7690c`: MCP-C2
+`4613f3c8`). After the second, `/mcp show` and the menu printed a profile
+server's command line as MCP-C2 had expanded it -- a variable's value on the
+screen, where MCP-C2 says the values are for the server. `ab89b306` keeps the
+file's text (`ServerConfig::written`, `shown_command`); the review of part 1
+found the same for an approved project server, older than the merge (item 8
+below).
+
+**MCP-Md** -- the MCP-Mc confirmations (opus-X, opus-Y) and the part-1 review
+(EPIC2-INT1). Every test below but the pins fails on `08368feb` (the new tests
+put on that code in a throwaway clone, `bounded.py 1500 6144`: 9 of 14 failed
+in 5.8 s, peak 99 MiB) and passes on the head.
+
+| item | test | on `08368feb` |
+|---|---|---|
+| 1. a one-row panel opened the drawn gate | `tui::mcp_menu::tests::a_panel_of_the_title_alone_draws_no_question_and_takes_no_answer` | `attempt to subtract with overflow` (`mcp_menu.rs:1141`; a release build wraps and answers) |
+| 2. a control character inside a `${...}` word | `mcp::runtime::tests::a_control_character_beside_an_expansion_is_a_piece_of_its_own` | `"a\x1b${X}\x0ab" "${Y:-d\x1be}"`, where the head says `"a"$'\u001B'"${X}"$'\n'"b" $'${Y:-d\u001Be}'` |
+| 3. the full transcript kept the question drawn | `tui::shell::tests::the_full_transcript_over_a_question_leaves_it_unpainted_until_a_frame` (Ctrl-O, then Ctrl-O or Ctrl-C and Enter in one read) | `ToggleTranscript: answered unseen` (the profile emptied) |
+| 3. the model's panel kept it drawn | `…::a_model_question_over_the_menu_leaves_its_question_unpainted_until_a_frame` | `answered under the panel's frame` |
+| 4. an Enter another surface took did not count | `…::an_enter_another_surface_took_counts_for_the_held_rule` (the panel's Enter, a frame, Enter 200 ms later) | `a double tap answered Remove` |
+| 4. a swallowed tap held the window open, unsaid | `…::a_tap_the_menu_swallowed_keeps_no_window_open_and_is_said_once` (taps 200 and 380 ms after the asking Enter, then 600) | `left: 0, right: 1` (nothing said) |
+| 5. a long name hid `from FILE?` | `tui::mcp_menu::tests::remove_keeps_the_file_it_acts_on_whole_and_shortens_a_long_name` | `"› Remove nnnn…nnnn…   yes  no"` |
+| 8. an approved project server's values printed | `mcp::command::tests::an_approved_project_servers_variables_are_shown_as_written`; `tui::shell::tests::the_menu_shows_an_approved_project_servers_variables_as_written` | `command /bin/sh -c ': fake-sentinel-7c4e; exec /bin/sh "$1"' …`; `runs /bin/sh -c ': fake-sentinel-7c4e; …` |
+
+**The fixes.**
+- 1: `server_screen` saturates (`count.saturating_sub(1)`, `lines.saturating_sub(1)`) and composes no line for a panel of the title alone, and `rows` forgets what it drew whenever it cuts a composed row away. Each alone keeps the question undrawn; the test fails only with all three reverted.
+- 2: `shell_word`'s double-quoted form writes each control character outside the expansions as an ANSI-C piece between quoted ones; a control character inside a default, which has no exact double-quoted spelling, ANSI-C quotes the word whole, as before MCP-Mc.
+- 3: `open_full_transcript` and `ask_question` forget what the menu drew.
+- 4: every Enter while the menu is up counts for `MCP_ENTER_HELD`, whichever surface takes it (`McpEnters`). A swallowed Enter keeps the window open only when it comes within 150 ms of the one before (`MCP_ENTER_REPEAT`): a key held down, or a burst. A tap does not -- the brief asked that no swallow restart the window, and taken literally that would let a key held past 500 ms answer (the held test, `a_held_enter_after_a_choice_runs_reaches_no_other_question`, fails on that mutant). A swallow is said once until an Enter counts again: `That Enter came too soon after the last one to answer the question: press Enter again to answer it.`
+- 5: Remove's question keeps ` from FILE?` whole and shortens the name; where not even one cell of the name fits beside it (under 42 columns for `~/.xfx/mcp.json`, 36 for `.mcp.json`), Enter says `xfx couldn't show which file Remove X acts on at this width, so nothing was removed.` and the question stays up for a frame that draws it whole. Reject's names no file and is cut as before.
+- 8: `load_workspace` keeps an approved entry's command, arguments and URL as the file has them (`Written::of`); `show`'s `command` and `url` rows, the menu's `runs` and `http` rows and `approve`'s sentences read them (`shown_command`, `shown_url`). The server is given the expanded values, as before.
+
+**Pins (6, 7, 9),** each with its guard removed on the clone:
+`a_question_asked_again_waits_for_a_frame_of_its_own` (the reset when asking);
+`a_wrapped_piece_wider_on_the_screen_than_it_was_measured_is_not_drawn_whole`
+(the `Continued` arm of `fits`); the event-loop test now reads the menu's
+screen without composing (`Shell::mcp_screen`, test-only), so its tail proves
+the retry frame -- both `restore_primary` forgets still caught; the pty
+answers wait for the question on the screen and then 600 ms (`answer`,
+`tests/mcp.rs`); the menu's profile test and the new ones use a fake sentinel
+(`XFX_TEST_SENTINEL`, `McpRuntime::with_environment`, test-only) in the third
+word of a short command line, so the value is never cut off the row and its
+absence can fail. `mutants_md.py`, 24 mutants on the clone: every guard of
+this round caught alone, but the one-row panel's three (the saturating
+subtraction, the empty panel, `rows`' forget), each of which alone keeps the
+question undrawn -- reverted together, caught.
+
+**Parity.** `docs/parity.md`: the profile row's "values go … nowhere else"
+now says a server's own stderr, quoted as it wrote it, is the exception (the
+client runtime row); the project row and the `/mcp` row say `show`, the menu
+and `approve` show the file's text.
+
+**The pairs.** Every `p5-mcp-*` scenario at 40x120, `sweep.sh` on
+`08368feb`'s code (the part-1 sweep) and on MCP-Md's (`2a7c5e58`, debug):
+84 and 85 of 146, and nothing MCP-Md changed moved. The one pair that moved,
+`p5-mcp-menu-old` `end.full`, unresolved to normalized-identical, is the one
+that moves between runs of either build: it reads the hint row as `esc again
+to clear` expires (part 1: re-taken twice, 9 and 8 of 16 on one build, 8 and
+10 on the other). `p5-mcp-config-vars` 2 / 4 and `p5-mcp-menu-new` 22 / 34
+with the one approved divergence, as after part 1.
+
+MCP-Md gates on `2a7c5e58`, one run (the receipt commit after it changes
+this directory only): fmt ok; clippy ok, both feature sets; `cargo test` 4697
+/ 0 (lib 3821; MCP-S's `mcp::tests` 45, MCP-C2's `mcp::config::tests` 59,
+`tests/mcp.rs` 5); `--features fault-injection` 4726 / 0 (lib 3836,
+`mcp::tests` 53); identity, stubs, secrets ok (7297 files); release and
+faulty release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios +
+the oracle, 1091 / 0; `tests/permissions.rs`
+`a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
+alone 3 of 3 (0.34-0.35 s).
+
 ## smoke-tui and the pty cases
 
 `scripts/smoke-tui.sh` has no scenario that meets the trust prompt (it opens
