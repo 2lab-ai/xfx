@@ -5819,7 +5819,21 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
     // (`the_turns_clock_stops_while_the_question_is_up_and_starts_again_after_it`);
     // what a real terminal is shown here is that no frame paints a turn row
     // beside the question, however long it waits.
-    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    //
+    // **The turn is held at its first request until its row is on the
+    // terminal**, because nothing else orders the two. The row is painted by
+    // the UI thread's settle after it takes `TurnStarted`
+    // (`src/tui/shell.rs`'s `tick_activity`), and the loop takes up to
+    // `bridge::UI_EVENTS` events before it settles (`src/tui/event_loop.rs`'s
+    // `take_ui_events`). Answered at once, the turn can reach the question
+    // while the UI thread is off the CPU; the UI then takes `TurnStarted` and
+    // the question in one batch, the question is already up when the band is
+    // settled, and the turn never had a row -- which is how this case failed
+    // on loaded CI runners. Held, the row has a frame of its own first.
+    let mut script = support::sandbox::edit_then_finish();
+    let (first, release) = support::fake_gateway::Reply::held(script.remove(0));
+    script.insert(0, first);
+    let gateway = FakeGateway::start(script);
     let sandbox = Sandbox::new();
     let _notes = support::sandbox::with_notes(&sandbox);
     let pty = Pty::open();
@@ -5829,11 +5843,12 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
+    // Without the row, its absence below would prove nothing.
+    session.wait_until("the turn's row while its first request is held", |text| {
+        thinking_row(text)
+    });
+    release.store(true, std::sync::atomic::Ordering::SeqCst);
     let shown = session.wait_for(PERMISSION_TITLE);
-    assert!(
-        elapsed_on_activity_row(&shown).is_some(),
-        "the turn never had a row, so its absence below proves nothing"
-    );
     let asked = shown.rfind(PERMISSION_TITLE).expect("the panel");
 
     std::thread::sleep(std::time::Duration::from_secs(3));
@@ -5844,10 +5859,24 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
     session.type_bytes(b"\x1b[B");
     let text = session.wait_for_count(FRAME_END, frames + 1);
     let beside = &text[asked..];
+    // And on the screen, not only in the bytes after the title. A frame is
+    // written top to bottom and only its changed cells are sent, so a turn row
+    // the question's own frame left above the panel is in the stream *before*
+    // the title, and no later frame writes it again: the byte check alone
+    // passes a build that keeps the row up beside the question.
+    // Matched by the row's own shape (`super::activity`'s `marked_row`:
+    // ` <label> (`), because the document may say the same words -- a tool
+    // line reads `Running sleep 30`.
+    let screen = Screen::painted(&text, 24, 80).expect("a complete frame");
     for label in ["Thinking", "Running", "Generating"] {
         assert!(
             !beside.contains(label),
             "a turn row was painted beside the question: {beside:?}"
+        );
+        assert!(
+            screen.find(&format!(" {label} (")).is_none(),
+            "a turn row is on the screen beside the question: {:?}",
+            (1..=24).map(|row| screen.row_text(row)).collect::<Vec<_>>()
         );
     }
 
@@ -6832,24 +6861,16 @@ fn an_ordinary_exit_leaves_no_independent_diagnostic_behind() {
     );
 }
 
-/// The last elapsed time the activity row has shown, in seconds.
-fn elapsed_on_activity_row(text: &str) -> Option<u64> {
-    let mut latest = None;
-    let bytes = text.as_bytes();
-    for (index, byte) in bytes.iter().enumerate() {
-        if *byte != b's' {
-            continue;
-        }
-        let start = text[..index]
-            .rfind(|c: char| !c.is_ascii_digit())
-            .map_or(0, |boundary| boundary + 1);
-        if start < index {
-            if let Ok(seconds) = text[start..index].parse::<u64>() {
-                latest = Some(seconds);
-            }
-        }
-    }
-    latest
+/// Whether the turn's row has said `Thinking (<seconds>s)` -- the row's own
+/// text (`src/tui/activity.rs`'s `marked_row`), whole, so neither half can be
+/// satisfied by something else on the terminal.
+fn thinking_row(text: &str) -> bool {
+    const LABEL: &str = " Thinking (";
+    text.match_indices(LABEL).any(|(at, _)| {
+        let rest = &text[at + LABEL.len()..];
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        digits > 0 && rest[digits..].starts_with("s)")
+    })
 }
 
 // ---------------------------------------------------------------------------
