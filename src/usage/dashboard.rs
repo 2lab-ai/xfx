@@ -488,10 +488,10 @@ impl Dashboard {
             Done::Kept(kept) => {
                 self.stamp(identity, now, |state| state.failed_at_ms = None);
                 self.failure = None;
-                self.entry = Some(match self.entry.take() {
-                    Some(held) => cache::merge(held, kept, now),
-                    None => kept,
-                });
+                // What the worker kept already holds what the dashboard held
+                // and what the file held at the store, and is an entry the
+                // cache reads; the next snapshot merges anything newer.
+                self.entry = Some(kept);
             }
             Done::Failed(failure) => {
                 self.stamp(identity, now, |state| state.failed_at_ms = Some(now));

@@ -87,8 +87,9 @@ shell calls `quit()`.
   ADMITTED before it stores; if it loses, it drops the answer. **The
   linearization:** a worker that wins the swap before `close` runs stores
   *after* `close` returns, under its own identity -- it was the current
-  answer when it was taken, and the dashboard never shows it (the fetch it
-  came from is gone). One that loses never stores. fx's own stale guard is
+  answer when it was taken. The closed dashboard does not take it in (the
+  fetch it came from is gone); a later open of the same sign-in reads it from
+  the cache, as it would any process's answer. One that loses never stores. fx's own stale guard is
   the identity compare in `finishJob` (`:589,605`), which this replaces.
 - **Floors per sign-in.** `HashMap<Identity, policy::State>`: a start stamps
   `last_start_ms`, a failure `failed_at_ms`, a success clears the failure.
@@ -172,7 +173,7 @@ and the whole set was run again.)
 
 - **Where the store runs**: on the fetch's worker, as fx. The alternative,
   storing on the UI thread at `tick`, makes the stale check trivially atomic
-  but puts the store's fsync and its up-to-5 s lock wait on every redraw path.
+  but puts the store's fsync, and its lock wait of up to 5 s, on the UI thread once per fetch.
   The admission swap gives the same guarantee off the UI thread.
 - **The floor map** instead of fx's reset on a switch: the brief's property 2
   says "per sign-in", and fx's reset lets a switch away and back ask again at
@@ -191,7 +192,7 @@ and the whole set was run again.)
 
 1. **`r` and the floor.** Property 2 reads "never more than one fetch per
    sign-in per 60 s, however fast `r` ... arrive". fx (`policy.zig:8-9,46-53`,
-   16dc07ec "Refresh /usage on every r") and this unit's own scope ("`r`
+   16dc07ec "Refresh /usage on every r, with a floor per sign-in": the floor holds opening and the timer) and this unit's own scope ("`r`
    always refreshes, unless a fetch is already in flight") let `r` fetch again
    as soon as the previous fetch ends. Built: fx's. `r` is held only by a
    fetch in flight, so its rate is one fetch at a time (at most three
