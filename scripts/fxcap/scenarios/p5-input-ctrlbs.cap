@@ -1,0 +1,24 @@
+# Phase 5 input cluster: Ctrl-Backspace in the composer (0719b139 is
+# post-release; v0.0.16 should equal c1db919). kitty CSI u, xterm
+# modifyOtherKeys, then tmux own C-BSpace.
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type foo bar baz
+type [127;5u
+wait 0.5
+snap kitty-cbs
+key C-u
+type foo bar baz
+type [27;5;127~
+wait 0.5
+snap mok-cbs
+key C-u
+type foo bar baz
+key C-BSpace
+wait 0.5
+snap tmux-cbs
+key C-u
+type foo bar baz
+key M-BSpace
+wait 0.5
+snap alt-bs

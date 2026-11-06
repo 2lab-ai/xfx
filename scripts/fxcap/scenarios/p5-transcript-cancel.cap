@@ -1,0 +1,41 @@
+# Phase 5 transcript research: a cancelled turn. Escape twice over streamed
+# prose (the turn's own cancelled line), the next turn answered, then Escape
+# twice over a running `sleep 30` (the call's cancelled row in its group).
+# The cancelled marker is the change (c29d5bfc: U+25A0 -> U+25AA). Ctrl-O shows
+# both cancelled entries.
+gateway p5-transcript-cancel-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+wait 4
+type stream please
+wait 1
+key Enter
+wait 3
+snap mid
+key Escape
+wait 0.3
+key Escape
+wait 2
+snap esc
+type next
+wait 0.5
+key Enter
+wait 3
+snap next
+type run the long one
+wait 0.5
+key Enter
+wait 3
+snap cmd-running
+key Escape
+wait 0.3
+key Escape
+wait 2.5
+snap cmd-esc
+snapfull end
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+gwlog

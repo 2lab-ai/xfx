@@ -1,0 +1,36 @@
+# Phase 5 input cluster: the @ file picker on a 38-file workspace.
+# a5fe00d7 (up to 10 rows), 99e62b8e (scroll by the rows shown),
+# 55e13fad (ranking), 7c8ef4a3 (folder first, Enter selects a folder).
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-ws
+wait 4
+type @st
+wait 1.5
+snap at-st
+key Down Down Down Down Down Down Down Down Down Down Down Down
+wait 0.6
+snap at-st-down12
+key Up Up Up Up Up Up
+wait 0.6
+snap at-st-up6
+key Escape
+wait 0.3
+key C-u
+type @stat
+wait 1.2
+snap at-stat
+key Escape
+wait 0.3
+key C-u
+type @src/
+wait 1.2
+snap at-src
+key Enter
+wait 0.6
+snap at-src-enter
+key C-u
+type @src/
+wait 1.2
+key Tab
+wait 0.8
+snap at-src-tab

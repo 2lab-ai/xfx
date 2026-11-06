@@ -1,0 +1,32 @@
+# Phase 5 lifecycle: a session an older fx (v0.0.14, upstream's own fixture
+# tests/fixtures/v1-sessions/plain) saved in the v1 store, opened by id.
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-one-turn.json
+homefile .fx/sessions/cb1PK0RGxCmY/events.jsonl p5-lifecycle-v1-plain-events.jsonl
+homefile .fx/sessions/cb1PK0RGxCmY/permissions.json p5-lifecycle-v1-plain-permissions.json
+homefile .fx/sessions/cb1PK0RGxCmY/session.json p5-lifecycle-v1-plain-session.json
+homefile .fx/sessions/cb1PK0RGxCmY/session.lock p5-lifecycle-v1-plain-session.lock
+wait 3
+home h00-before
+type /resume
+key Enter
+wait 2
+snap v00-picker
+key Tab
+wait 1
+snap v00b-picker-all
+key Escape
+wait 1
+keep
+type /quit
+key Enter
+wait 2
+relaunch --resume cb1PK0RGxCmY
+wait 5
+snap v01-resumed
+snapfull v01-resumed
+home h01-after
+type continue it
+key Enter
+wait 3
+snap v02-continued

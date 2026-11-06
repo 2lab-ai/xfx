@@ -1,0 +1,25 @@
+# Phase 5 input cluster: a two-question ask_user_question, cancelled with
+# Escape (c29d5bfc's cancelled marker), then a six-question batch
+# (28cf53b5 raises the cap from 4 to 20).
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question-turns.json
+wait 4
+type ask me
+key Enter
+wait 3
+snap q2-panel
+key Down
+wait 0.4
+snap q2-down
+key Escape
+wait 3
+snap q2-cancelled
+type ask six
+key Enter
+wait 3
+snap q6
+key Escape
+wait 3
+snap q6-after
+snapfull q6-after
+gwlog

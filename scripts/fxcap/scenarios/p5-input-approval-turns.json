@@ -1,0 +1,5 @@
+[
+ {"tool":{"name":"shell","input":{"request":{"action":"run","command":"echo hi > out.txt && cat out.txt","yield_time_ms":30000}}}},
+ {"tool":{"name":"edit_file","input":{"path":"a.txt","old_string":"alpha","new_string":"ALPHA"}}},
+ {"delayMs":100,"chunks":["Done ","with approvals."]}
+]

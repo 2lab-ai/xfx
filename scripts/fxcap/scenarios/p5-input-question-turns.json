@@ -1,0 +1,5 @@
+[
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Which database should I use?","options":[{"label":"Postgres","description":"Relational, strong consistency"},{"label":"SQLite","description":"Single file, embedded"},{"label":"DynamoDB"}]},{"question":"Deploy now?","options":[{"label":"Yes"},{"label":"No","description":"Wait for review"}]}]}}},
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Q1 colour?","options":[{"label":"Red"},{"label":"Blue"}]},{"question":"Q2 size?","options":[{"label":"Small"},{"label":"Large"}]},{"question":"Q3 shape?","options":[{"label":"Round"},{"label":"Square"}]},{"question":"Q4 speed?","options":[{"label":"Fast"},{"label":"Slow"}]},{"question":"Q5 weight?","options":[{"label":"Light"},{"label":"Heavy"}]},{"question":"Q6 finish?","options":[{"label":"Matte"},{"label":"Gloss"}]}]}}},
+ {"delayMs":100,"chunks":["Six ","done."]}
+]

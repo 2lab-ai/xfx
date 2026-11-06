@@ -1,0 +1,16 @@
+# p5 usage (v0.0.16): /usage under VERCEL_OIDC_TOKEN, which outranks the
+# harness's AI_GATEWAY_API_KEY (credentials.zig:438@481104fd) and which
+# usage_host.fromParts maps to nothing (usage_host.zig:97-129@481104fd).
+env VERCEL_OIDC_TOKEN=fake-oidc-not-real
+models models.json
+wait 2.5
+type /usage
+key Enter
+wait 3
+snap open
+key r
+wait 1.5
+snap r
+key Escape
+wait 0.5
+snap closed

@@ -1,0 +1,25 @@
+fx: env FX_AUTO_UPGRADE=0
+# /effort on a model whose catalog row lists no levels (fake/model-a, the
+# harness default): bare, with a level, and the column (Space, Tab).
+models p5-effort-fork-models.json
+wait 3
+type /effort
+key Enter
+wait 1
+snap bare
+paste /effort high
+wait 0.4
+key Enter
+wait 1
+snap level
+type /effort
+key Space
+wait 0.8
+snap col-space
+key Enter
+wait 1
+snap col-enter
+type /effort
+key Tab
+wait 0.8
+snap col-tab

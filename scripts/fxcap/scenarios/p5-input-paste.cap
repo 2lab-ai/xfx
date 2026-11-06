@@ -1,0 +1,11 @@
+# Phase 5 input cluster: a paste whose end marker shares a read with Enter
+# (9e0eab41). One `type` carries all of it, so it lands in one read.
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type prior
+wait 0.5
+type [200~new[201~
+wait 1.5
+snap paste-enter
+snapfull paste-enter
+gwlog

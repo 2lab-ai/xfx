@@ -33,11 +33,13 @@ four native target archives with their checksums and the `2lab-ai/tap/xfx`
 Homebrew formula, which selects and installs the archive matching your OS and
 architecture.
 
-The **preview channel** runs alongside that. Every push to `main` publishes a
-prerelease of that exact commit -- four native binaries and their checksums --
-and each binary reports `build_channel=preview` along with the twelve characters
-of the commit it was compiled from, so what you are running can be tied back to
-a source revision; a build from a tag answers `build_channel=release` instead.
+The **preview channel** runs alongside that. A preview is cut per epic, not per
+push: a merge to `main` that bumps `.github/preview-epoch` (one line naming the
+epic it closes) publishes a prerelease of that exact commit -- four native
+binaries and their checksums -- and each binary reports `build_channel=preview`
+along with the twelve characters of the commit it was compiled from, so what you
+are running can be tied back to a source revision; a build from a tag answers
+`build_channel=release` instead.
 [Install](#install) says how to get either in one command.
 
 ## What it does
@@ -247,12 +249,63 @@ cargo build --locked --release
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
+./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ```
 
 `scripts/smoke.sh` drives the built binary end to end against a fake Gateway on
 a loopback port -- no credential, no network -- and leaves every captured stream
 in an evidence directory it prints at the end.
+
+### The parity sweep in CI
+
+[`sweep.yml`](.github/workflows/sweep.yml) runs the fx parity sweep
+(`scripts/fxcap/`) on every pull request and every push to `main`, on one
+fixed `macos-15` (arm64) runner, against the public fx v0.0.16 release.
+[`ci-fetch.sh`](scripts/fxcap/ci-fetch.sh) checks the sha256 of the release
+tarball and of the executable in it before anything runs, and fails on a
+mismatch. The job needs no secret and gets a read-only token. It runs three
+groups of scenarios:
+
+- the scenarios the change adds or edits, including any scenario that uses a
+  file the change edits;
+- the scenarios the change's receipts name;
+- the core set in [`ci-core.txt`](scripts/fxcap/ci-core.txt), which covers
+  the composer, a turn, an approval, a menu and a resize.
+
+The job fails when a snap pair that is identical to fx at the merge base is
+not identical at the head. Here, identical includes normalized-identical. A
+pair that the change adds is reported, not failed. A pair that a
+`nondeterminism` cause in the ledger covers is run up to three more times, on
+each build, before it counts. [`ci_sweep.py`](scripts/fxcap/ci_sweep.py) is the manual.
+
+When a push bumps `.github/preview-epoch` (an epic's preview), or when someone
+starts it by hand, [`sweep-full.yml`](.github/workflows/sweep-full.yml) runs
+every scenario and keeps the scoreboard as an artifact. That run reports the
+numbers and never fails on them. A green CI run does not replace the local
+sweep.
+
+**Why the job measures the base instead of reading a committed floor.** The
+job builds xfx twice, at the merge base and at the head, and runs both builds
+on the same runner against the same fx. Both runs use the head's scenarios and
+ledger, so only the xfx binary differs. The alternative was a committed list
+of identical pairs that each pull request updates. It was rejected for three
+reasons:
+
+- The list would come from a different machine, at a different time, than the
+  check that reads it. Timing on the runner would then show up as false
+  regressions, unless every update were regenerated in CI and copied back by
+  hand.
+- The 0.0.16 delta merges up to seven unit pull requests per epic in
+  parallel. Each one would rewrite the same file, so they would conflict.
+- A change could lower the list in the same diff that causes the regression.
+
+The cost is a second debug build, about a minute, and a base run of every
+scenario that has a pair the head does not pass. The base run confirms that the
+base did not pass those pairs either. With the core set as it is today, two
+scenarios (`allowlist-remember` and `h1-resize`) have such pairs, so every pull
+request pays about a minute for that base run. The cost stays until those pairs
+pass.
 
 ## Run
 

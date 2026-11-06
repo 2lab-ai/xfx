@@ -36944,7 +36944,27 @@ mod tests {
     }
 
     fn skilled_at(rows: u16, cols: u16) -> Skilled {
-        let root = tempfile::tempdir().expect("a root");
+        skilled_in(tempfile::tempdir().expect("a root"), rows, cols)
+    }
+
+    /// The words the cases over this fixture search the skills for where a
+    /// root holding one would add a skill to what the case sees: a search
+    /// reads each skill's path too (`skillMatchRank`). `he` and the letters
+    /// of `/skills` are typed as well, but both skills match those already.
+    const SEARCHED: [&str; 6] = ["de", "dem", "emo", "rel", "zz", "no-such-skill-here"];
+
+    /// The fixture over `root`, or over a root drawn again while the name of
+    /// the one in hand holds a [`SEARCHED`] word: that name is `.tmp` and six
+    /// random letters and digits, which held `zz` one run in two hundred.
+    /// Only the name is drawn; the directory it is in is the machine's, and
+    /// the same on every run.
+    fn skilled_in(mut root: tempfile::TempDir, rows: u16, cols: u16) -> Skilled {
+        while root.path().file_name().is_some_and(|name| {
+            let name = name.to_string_lossy().to_ascii_lowercase();
+            SEARCHED.iter().any(|word| name.contains(word))
+        }) {
+            root = tempfile::tempdir().expect("a root");
+        }
         let base = root.path().canonicalize().expect("canonical");
         let work = base.join("work");
         let home = base.join("home");
@@ -37002,7 +37022,22 @@ mod tests {
     #[test]
     fn a_dollar_opens_the_skills_menu_and_enter_makes_its_word_a_token() {
         // `fx-skills-40x120-dollar`, `-dollar-dem`, `-dollar-enter`, `-sent`.
-        let mut shell = skilled();
+        a_dollar_word_becomes_a_token(skilled());
+        // Handed a root whose name holds `dem`, the word the case searches
+        // for, the fixture draws another.
+        a_dollar_word_becomes_a_token(skilled_in(root_named(".tmpdem"), 40, 120));
+    }
+
+    /// A root whose name starts with `prefix`, for a case that needs the
+    /// random part of the fixture's root to be one draw rather than any.
+    fn root_named(prefix: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir()
+            .expect("a root")
+    }
+
+    fn a_dollar_word_becomes_a_token(mut shell: Skilled) {
         shell.route_bytes(b"$");
         let band = skills_band(&shell);
         assert!(
@@ -37081,7 +37116,12 @@ mod tests {
 
     #[test]
     fn a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu() {
-        let mut shell = skilled();
+        no_menu_for_a_word_nothing_matches(skilled());
+        // The draw that failed on CI, held: a root whose name has `zz` in it.
+        no_menu_for_a_word_nothing_matches(skilled_in(root_named(".tmpzz"), 40, 120));
+    }
+
+    fn no_menu_for_a_word_nothing_matches(mut shell: Skilled) {
         shell.route_bytes(b"$zz");
         assert!(shell.skills_menu.is_some());
         assert!(

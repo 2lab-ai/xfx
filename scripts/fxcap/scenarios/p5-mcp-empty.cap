@@ -1,0 +1,96 @@
+# p5 mcp: /mcp with no servers anywhere, on old (c1db919) and new (v0.0.16)
+# fx: the menu and its keys, then every subcommand either release knows.
+wait 3
+type /mcp
+wait 1
+snap complete
+key Enter
+wait 1.5
+snap menu
+key Down
+wait 0.5
+snap menu-down
+key Right
+wait 0.7
+snap menu-right
+key Escape
+wait 0.5
+snap menu-esc
+key C-u
+type /mcp help
+key Enter
+wait 1.5
+snap help
+type /mcp list
+key Enter
+wait 1.5
+snap list
+key Escape
+wait 0.3
+key C-u
+type /mcp path
+key Enter
+wait 1
+snap path
+type /mcp reload
+key Enter
+wait 2
+snap reload
+type /mcp auth nope
+key Enter
+wait 1
+snap auth-nope
+type /mcp trust
+key Enter
+wait 1
+snap trust-bare
+type /mcp resource list nope
+key Enter
+wait 1
+snap resource-nope
+type /mcp prompt
+key Enter
+wait 1
+snap prompt-bare
+type /mcp show nope
+key Enter
+wait 2
+snap show-nope
+type /mcp login nope
+key Enter
+wait 1
+snap login-nope
+type /mcp logout nope
+key Enter
+wait 1
+snap logout-nope
+type /mcp remove nope
+key Enter
+wait 1
+snap remove-nope
+type /mcp approve
+key Enter
+wait 1
+snap approve-bare
+type /mcp reject nope
+key Enter
+wait 1
+snap reject-nope
+type /mcp add
+key Enter
+wait 1
+snap add-bare
+type /mcp add -h
+key Enter
+wait 1
+snap add-help
+type /mcp list --connect
+key Enter
+wait 1
+snap list-connect
+type /mcp bogus
+key Enter
+wait 1
+snap bogus
+snapfull end
+home end

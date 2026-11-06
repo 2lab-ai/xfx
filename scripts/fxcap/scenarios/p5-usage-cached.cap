@@ -1,0 +1,57 @@
+# p5 usage (v0.0.16 only): /usage with a usage cache already on disk for the
+# harness's fake key (scope api_key, identity sha256 of
+# "fx-usage-cache-v1\\0api_key\\0fake-key-not-real\\0", src/usage/cache.zig:25-35@481104fd),
+# written for today's UTC day by p5-usage-mkcache.py (rerun it on another UTC day); the open's fetch gets 404. Table,
+# selection, detail screen, next model, periods (Tab, Right, Left, Shift-Tab),
+# C-j/C-k, r.
+fx: homefile .fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache.json
+models models.json
+wait 2.5
+type /usage
+key Enter
+wait 3
+snap open
+key Down
+wait 0.5
+snap down
+key Enter
+wait 0.7
+snap detail
+key Down
+wait 0.5
+snap detail-down
+key Tab
+wait 0.5
+snap detail-tab
+key Escape
+wait 0.5
+snap back
+key Tab
+wait 0.7
+snap tab-today
+key Tab
+wait 0.7
+snap tab-7d
+key Right
+wait 0.7
+snap right-month
+key Left
+wait 0.7
+snap left-7d
+key BTab
+wait 0.7
+snap btab-today
+key C-j
+wait 0.5
+snap cj
+key C-k
+wait 0.5
+snap ck
+key r
+wait 2
+snap r
+key Escape
+wait 0.5
+snap closed
+home end
+gwlog
