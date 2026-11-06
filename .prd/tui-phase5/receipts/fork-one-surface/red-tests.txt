@@ -1,0 +1,19 @@
+cargo test --locked --lib over the four new one-surface tests, on f2dcc4c8's code with the tests added and before the fix:
+
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_a_recalled_effort_menu ... FAILED
+test tui::shell::tests::opening_the_panel_or_the_effort_menu_closes_the_fork_menu ... FAILED
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_a_panel_a_recalled_command_opened ... FAILED
+test tui::shell::tests::a_fork_still_on_its_way_opens_nothing_once_a_recalled_prompt_has_gone ... FAILED
+thread 'tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_a_recalled_effort_menu' (236619664) panicked at src/tui/shell.rs:41058:9:
+assertion `left == right` failed: two surfaces in the slot
+  left: 2
+ right: 1
+thread 'tui::shell::tests::opening_the_panel_or_the_effort_menu_closes_the_fork_menu' (236619665) panicked at src/tui/shell.rs:41090:9:
+assertion failed: shell.fork_menu.is_none()
+thread 'tui::shell::tests::a_fork_still_on_its_way_opens_nothing_over_a_panel_a_recalled_command_opened' (236619663) panicked at src/tui/shell.rs:41035:9:
+assertion `left == right` failed: two surfaces in the slot
+  left: 2
+ right: 1
+thread 'tui::shell::tests::a_fork_still_on_its_way_opens_nothing_once_a_recalled_prompt_has_gone' (236619662) panicked at src/tui/shell.rs:41076:9:
+the recall left the ask standing
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 3840 filtered out; finished in 0.01s

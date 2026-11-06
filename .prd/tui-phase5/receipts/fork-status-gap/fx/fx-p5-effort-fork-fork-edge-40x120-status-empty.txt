@@ -1,0 +1,40 @@
+* session forked: slow turn please (fork)
+
+original session fx --resume aIMSvUzCy1hR
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           Oc6pBB3nfpUe · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Workspace         <tmp>/fsgsw/fxsw.ctgpkdln/001/fxcap.3fyFOf/work
+  Turns             0
+  Session grants    0
+  Step limit        unlimited
+  Ultrafast         not requested
+  Updates           stable
+  Build             stable · 481104fdbc24
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

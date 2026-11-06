@@ -1,0 +1,40 @@
+* session forked: slow turn please (fork)
+
+original session xfx --resume 1793966287951-ea45d0a2ad9c923c
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793966311298-7c5b52f8bdbccd3d · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Sandbox           none
+  Workspace         <tmp>/fsgsw/fxsw.ctgpkdln/001/fxcap.SNNRCB/work
+  Turns             0
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · ea3db6ea6c89
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

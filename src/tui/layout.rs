@@ -63,6 +63,10 @@ pub(crate) struct Geometry {
     /// The blank row under the activity row: one, or none on a screen too short
     /// for it.
     pub(crate) activity_padding: u16,
+    /// The blank row at the band's top, over a panel that has taken the
+    /// composer's rows, when the document does not end on one of its own:
+    /// one, or none ([`Geometry::gapped`]).
+    pub(crate) gap: u16,
     /// How many rows the menu or question occupies, and `0` when there is none.
     ///
     /// A count rather than a first/last pair, because the panel's rows are the
@@ -82,9 +86,50 @@ impl Geometry {
     /// The band's top row, and therefore the row an exit clears from.
     ///
     /// The activity row while a turn is running, and the composer's first row
-    /// otherwise.
+    /// otherwise -- or the blank row above a panel that has taken the
+    /// composer's, while the band has one ([`Self::gapped`]).
     pub(crate) fn band_top(&self) -> u16 {
-        self.activity.unwrap_or(self.input_first)
+        self.activity.unwrap_or(self.input_first) - self.gap
+    }
+
+    /// The same band with the blank row upstream keeps between the document
+    /// and a panel that has taken the composer's rows -- or without it --
+    /// anchored to the bottom of the screen, for the caller to float.
+    ///
+    /// Upstream's footer asks its frame for one blank row above it whenever a
+    /// modal hides the composer (`top_gap_rows = if (viewer_active or
+    /// modal_active) 1 else 0`, `src/ui/footer/surface_frame.zig:686@481104fd`;
+    /// `modal_active` is an approval, a question or a compact command menu --
+    /// `/statusline`, `/status`, `/usage`, `/workspace` --, `:392-395`,
+    /// `render_input.zig:427-433`). The frame takes the larger of that and the
+    /// transcript's own gap under its tail
+    /// (`idle_gap = @max(transcript_gap, input.footer.top_gap_rows)`,
+    /// `src/ui/render_engine/frame_layout.zig:388-395@481104fd`). xfx's
+    /// transcript gap is a row of the document -- the blank row a block ends
+    /// on -- so the band adds its own only when the document does not end on
+    /// one: under a fork's `original session …` line, which ends with its
+    /// line break alone (`frame_layout.zig:949-968`, "footer request reserves
+    /// a boundary gap after a user tail"). Closing the panel gives the row
+    /// back with the panel's.
+    ///
+    /// Only on a band with no turn's row: a running turn's activity takes the
+    /// branch above the idle gap (`.thinking`, `:369-385`), whose gap above
+    /// the row is the document's here (`ACTIVITY_PADDING`). And only on a
+    /// screen with a document row left beside it: upstream solves the footer
+    /// first and gives the gap only the rows it leaves
+    /// (`available_rows >= footer_height +| min_body_rows +| idle_gap`,
+    /// `:393`), so a short screen keeps the panel's rows and drops the blank.
+    pub(crate) fn gapped(&self, document_ends_blank: bool) -> Geometry {
+        let anchored = self.floated(u32::MAX);
+        let top = anchored.activity.unwrap_or(anchored.input_first);
+        let owed =
+            !document_ends_blank && anchored.input_rows() == 0 && anchored.activity.is_none();
+        let gap = u16::from(owed && top > 2);
+        Geometry {
+            gap,
+            content_bottom: top - gap - 1,
+            ..anchored
+        }
     }
 
     /// The panel's first row, or the bottom rule when there is no panel.
@@ -270,6 +315,7 @@ fn solve_padded(
         content_bottom,
         activity,
         activity_padding,
+        gap: 0,
         panel,
         divider,
         input_first,
@@ -425,6 +471,74 @@ mod tests {
             solve_with(7, 20, 4, true).is_none(),
             "no row at all is left"
         );
+    }
+
+    #[test]
+    fn a_panel_in_place_of_the_composer_keeps_a_blank_row_over_a_document_without_one() {
+        // `top_gap_rows = 1` under a modal (`surface_frame.zig:686@481104fd`),
+        // taken as the larger of it and the transcript's own gap
+        // (`frame_layout.zig:388-395`; "footer request reserves a boundary
+        // gap after a user tail", `:949-968`).
+        let modal = solve_band(24, 80, 0, false, 8).expect("a panel in place of the composer");
+        let gapped = modal.gapped(false);
+        assert_eq!(gapped.gap, 1);
+        assert_eq!(
+            gapped.band_top(),
+            modal.band_top() - 1,
+            "the blank is the band's top"
+        );
+        assert_eq!(
+            gapped.content_bottom,
+            modal.content_bottom - 1,
+            "and a document row"
+        );
+        assert_eq!(
+            (gapped.panel_first(), gapped.divider, gapped.hint),
+            (modal.panel_first(), modal.divider, modal.hint),
+            "a row under it moved"
+        );
+        assert_eq!(gapped.band_rows(), modal.band_rows() + 1);
+        assert_eq!(
+            gapped.content_bottom + gapped.band_rows(),
+            gapped.rows,
+            "the document and the band no longer tile the screen"
+        );
+        // The larger of the two gaps, never their sum: a document that ends on
+        // its blank row needs none of the band's, and one that comes to end on
+        // it gives the band's back.
+        assert_eq!(modal.gapped(true), modal);
+        assert_eq!(gapped.gapped(true), modal);
+        assert_eq!(gapped.gapped(false), gapped, "asked twice, grew twice");
+        // Only over a panel that took the composer's rows, and only with no
+        // turn's row: a composer, a menu under one and a running turn keep
+        // their own gaps.
+        let composer = solve(24, 80, 1).expect("a band");
+        assert_eq!(composer.gapped(false), composer);
+        let menu = solve_band(24, 80, 1, false, 8).expect("a menu under the composer");
+        assert_eq!(menu.gapped(false), menu);
+        let working = solve_band(24, 80, 0, true, 8).expect("a question in a turn");
+        assert_eq!(working.gapped(false), working);
+    }
+
+    #[test]
+    fn the_blank_row_over_a_panel_floats_with_the_band_and_gives_way_to_the_panel() {
+        let modal = solve_band(24, 80, 0, false, 8).expect("a panel in place of the composer");
+        // Under a three-row document the band floats up with its blank row as
+        // its top, from wherever it was solved.
+        let floated = modal.gapped(false).floated(3);
+        assert_eq!((floated.band_top(), floated.content_bottom), (4, 3));
+        assert_eq!(floated.panel_first(), modal.gapped(false).panel_first() - 9);
+        assert_eq!(modal.floated(3).gapped(false).floated(3), floated);
+        assert_eq!(floated.gapped(true).floated(3).band_top(), 4);
+        // A screen with one document row beside the panel keeps the panel's
+        // rows and drops the blank (`available_rows >= footer_height +|
+        // min_body_rows +| idle_gap`, `frame_layout.zig:393`).
+        let tight = solve_band(MIN_ROWS, MIN_COLS, 0, false, 3).expect("three panel rows");
+        assert_eq!(tight.content_bottom, 1);
+        assert_eq!(tight.gapped(false), tight);
+        let room = solve_band(MIN_ROWS, MIN_COLS, 0, false, 2).expect("two panel rows");
+        assert_eq!(room.gapped(false).gap, 1);
+        assert_eq!(room.gapped(false).content_bottom, 1);
     }
 
     #[test]
