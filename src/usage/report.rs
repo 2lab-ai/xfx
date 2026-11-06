@@ -15,7 +15,11 @@
 //! Only an `AI_GATEWAY_API_KEY` credential, fx's `api_key` scope
 //! (`src/core/app/usage_host.zig:105-111`). `VERCEL_OIDC_TOKEN` and llmux are
 //! [`Unavailable::UnsupportedProvider`], fx's answer for every source it has
-//! no reader for (`:72-80`, `:128`): no request is made for them.
+//! no reader for (`:72-80`, `:128`; the user chose fx's answer for both on
+//! 2026-11-06). A provider setting xfx could not read is
+//! [`Unavailable::ProviderRejected`]: it poisons every request that would carry
+//! the Gateway key (`RuntimeConfig::provider_rejected`). No request is made for
+//! any of them.
 //!
 //! # What the key is trusted to
 //!
@@ -24,8 +28,9 @@
 //!   accepted -- https anywhere, cleartext http only to a loopback address with
 //!   a port (`crate::gateway::Endpoint::checked`) -- and the report is asked
 //!   under that URL's origin, the host a turn already sends the same key to.
-//! - **No redirect is followed**, and an environment proxy is used only over
-//!   https ([`crate::gateway::bearer_rules`]). A `3xx` is an answer that is not
+//! - **No redirect is followed, and no proxy is used over cleartext**: an
+//!   environment proxy is honoured only for https, where it sees a TLS tunnel
+//!   ([`crate::gateway::bearer_rules`]). A `3xx` is an answer that is not
 //!   a report: `bad_response`, as fx's `.redirect_behavior = .unhandled` makes
 //!   it (`src/gateway/client.zig:418`, `src/usage/usage.zig:889-896`).
 //! - **The answer is bounded**: at most [`MAX_BODY_BYTES`], refused -- not
@@ -36,11 +41,13 @@
 //!   status code or a fixed phrase, never a byte of the response, so a server
 //!   that echoes the key back has nowhere to put it. A report whose model name
 //!   holds the key is refused rather than shown or cached.
+//! - **The worker lets go when nobody waits**: dropping a [`Fetch`] cancels it,
+//!   so a dashboard that is gone does not keep the key asking.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -88,39 +95,6 @@ const NO_CLIENT: &str = "no HTTP client could be started";
 const WORKER_GONE: &str = "the usage worker ended without an answer";
 /// What a failure says about a report that names the key.
 const KEY_IN_REPORT: &str = "unexpected report: a model name holds the key";
-
-/// Whose spend a report covers, chosen by how xfx is signed in (`Scope`,
-/// `report.zig:14-31`). Only [`Self::ApiKey`] is ever asked here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Scope {
-    /// fx login: the signed-in member (`metered_scope=user` with the team
-    /// header).
-    Member,
-    /// AI Gateway API key: that key only (`api_key_id=self`).
-    ApiKey,
-    /// A ChatGPT plan through Codex: its limits, not AI Gateway reports.
-    Codex,
-    /// A Grok plan: its allowance and credits, not AI Gateway reports.
-    Grok,
-}
-
-impl Scope {
-    /// Whether usage comes from AI Gateway reports rather than a provider's
-    /// plan (`readsReports`, `report.zig:28-30`).
-    pub fn reads_reports(self) -> bool {
-        matches!(self, Self::Member | Self::ApiKey)
-    }
-
-    /// The report filter for this scope, or `None` for a plan that is not
-    /// read from AI Gateway (`report.zig:200-204`).
-    fn filter(self) -> Option<&'static str> {
-        match self {
-            Self::Member => Some("metered_scope=user"),
-            Self::ApiKey => Some(API_KEY_FILTER),
-            Self::Codex | Self::Grok => None,
-        }
-    }
-}
 
 /// What one model, or a whole period, adds up to (`Totals`,
 /// `report.zig:33-102`).
@@ -222,6 +196,12 @@ fn percent_of(part: f64, whole: u64) -> Option<f64> {
 /// One model's row of a report (`ModelRow`, `report.zig:109-112`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelRow {
+    /// **The server's text, untrusted.** Bounded to 1-256 bytes of valid
+    /// UTF-8 and refused when it holds the key, nothing more: an escaped ESC,
+    /// CR/LF, C1, bidi and zero-width characters all survive decoding. A
+    /// renderer spells it through `crate::mcp::terminal_safe` -- not
+    /// `crate::tui::bridge::inert` alone, which keeps line breaks and bidi
+    /// controls, and never through `Debug` -- and a cache encodes it.
     pub model: String,
     pub totals: Totals,
 }
@@ -254,18 +234,8 @@ pub fn format_day(day: i64) -> String {
     format!("{year:04}-{month:02}-{day_of_month:02}")
 }
 
-/// Asked for a plan that AI Gateway does not report on (`error.NotAiGateway`,
-/// `report.zig:203`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NotAiGateway;
-
-/// The `/v1/report` path for per-model usage over the UTC days
-/// `first..=last` (`reportPath`, `report.zig:196-210`).
-pub fn report_path(scope: Scope, first: i64, last: i64) -> Result<String, NotAiGateway> {
-    let filter = scope.filter().ok_or(NotAiGateway)?;
-    Ok(path_with(filter, first, last))
-}
-
+/// The `/v1/report` path for per-model usage over the UTC days `first..=last`
+/// under `filter` (`reportPath`, `report.zig:196-210`).
 fn path_with(filter: &str, first: i64, last: i64) -> String {
     format!(
         "/v1/report?start_date={}&end_date={}&group_by=model&{filter}",
@@ -521,16 +491,16 @@ impl<'de> Visitor<'de> for JsonVisitor {
 pub enum Unavailable {
     /// Not signed in to AI Gateway.
     NoGatewaySignIn,
-    /// fx login without a team.
-    NoTeam,
     /// Signed in to a provider whose usage cannot be shown yet.
     UnsupportedProvider,
-    /// The provider's sign-in has expired; it renews on the next message.
-    RefreshNeeded,
+    /// A settings layer named a provider xfx could not read. xfx's own state,
+    /// with no fx twin: the turn refuses it too, and is told it the same way
+    /// (`crate::output::rejected_provider_help`).
+    ProviderRejected,
 }
 
-/// Why a fetch failed (`Failure`, `usage.zig:94-105`). Cached numbers stay on
-/// screen. [`Self::Cache`] is the cache's to report; a fetch never does.
+/// Why a fetch failed (`Failure`, `usage.zig:94-105`, less `cache`, which is
+/// the cache's to add). Cached numbers stay on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Failure {
     /// No answer: nothing reachable, too slow, or too large.
@@ -543,7 +513,6 @@ pub enum Failure {
     Server,
     /// Any other status, a redirect included, or a body that is not a report.
     BadResponse,
-    Cache,
 }
 
 /// The failure a non-`200` status maps to (`statusFailure`,
@@ -586,11 +555,6 @@ pub struct Question {
 }
 
 impl Question {
-    /// Whose usage this is: always the key's own.
-    pub fn scope(&self) -> Scope {
-        Scope::ApiKey
-    }
-
     /// Who the numbers belong to, for the heading.
     pub fn label(&self) -> &'static str {
         API_KEY_LABEL
@@ -612,8 +576,13 @@ impl Question {
 /// Only an `AI_GATEWAY_API_KEY` is asked (`usage_host.zig:105-111`). A
 /// `VERCEL_OIDC_TOKEN` resolves first when both are set (`config.rs`
 /// `resolve_credential`), and is unsupported, as fx has it
-/// (`usage_host.zig:78,128`); so is llmux.
+/// (`usage_host.zig:78,128`); so is llmux. An unreadable provider setting is
+/// refused before anything else: it left `provider` at the default, the
+/// Gateway, and that default must not be what sends the key.
 pub fn question(config: &RuntimeConfig, endpoint: &Endpoint) -> Result<Question, Unavailable> {
+    if config.provider_rejected.is_some() {
+        return Err(Unavailable::ProviderRejected);
+    }
     match config.provider {
         ProviderId::Llmux => Err(Unavailable::UnsupportedProvider),
         ProviderId::Gateway => {
@@ -655,7 +624,7 @@ pub enum Outcome {
 /// What [`Fetch::start`] hands its spawner: the work of one fetch.
 pub type Job = Box<dyn FnOnce() + Send + 'static>;
 
-/// A fetch running on a worker thread of its own.
+/// A fetch running on a worker thread of its own. Dropping it cancels it.
 #[derive(Debug)]
 pub struct Fetch {
     outcome: Option<Receiver<Outcome>>,
@@ -699,20 +668,17 @@ impl Fetch {
         Some(outcome)
     }
 
-    /// [`Self::try_outcome`], waiting at most `limit` for it.
-    pub fn wait_timeout(&mut self, limit: Duration) -> Option<Outcome> {
-        let outcome = match self.outcome.as_ref()?.recv_timeout(limit) {
-            Ok(outcome) => outcome,
-            Err(RecvTimeoutError::Timeout) => return None,
-            Err(RecvTimeoutError::Disconnected) => Outcome::Failed(Failed::network(WORKER_GONE)),
-        };
-        self.outcome = None;
-        Some(outcome)
-    }
-
     /// Stops the fetch: the request in flight is dropped and the outcome is
     /// [`Outcome::Cancelled`], unless it had already ended.
     pub fn cancel(&self) {
+        self.cancel.cancel();
+    }
+}
+
+/// A fetch nobody holds is a fetch nobody waits for: it stops, and its worker
+/// lets go of the key, rather than asking for up to 15 s per range left.
+impl Drop for Fetch {
+    fn drop(&mut self) {
         self.cancel.cancel();
     }
 }
@@ -847,7 +813,7 @@ mod tests {
     use std::io::Write;
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Instant;
 
     const KEY: &str = "xfx-usage-report-test-key-must-not-appear";
@@ -859,23 +825,20 @@ mod tests {
     // -- fx's vectors -------------------------------------------------------
 
     #[test]
-    fn paths_pick_the_filter_for_how_fx_is_signed_in() {
-        // `report.zig:352-368@481104fd`. The budget path (`:364-366`) is the
-        // member scope's, which is not asked here.
+    fn the_report_path_is_fxs_for_an_api_key() {
+        // `report.zig:352-362@481104fd`, the `api_key` vector. The member,
+        // budget and Codex vectors (`:355-358,363-367`) are the member scope's
+        // and the plans', which are not asked here.
         let day = utc_day(1_791_676_800_000);
         assert_eq!(day, OCT_11);
         assert_eq!(
-            report_path(Scope::Member, day - 6, day - 1).unwrap(),
-            "/v1/report?start_date=2026-10-05&end_date=2026-10-10&group_by=model&metered_scope=user"
-        );
-        assert_eq!(
-            report_path(Scope::ApiKey, day, day).unwrap(),
+            path_with(API_KEY_FILTER, day, day),
             "/v1/report?start_date=2026-10-11&end_date=2026-10-11&group_by=model&api_key_id=self"
         );
-        assert_eq!(report_path(Scope::Codex, day, day), Err(NotAiGateway));
-        assert_eq!(report_path(Scope::Grok, day, day), Err(NotAiGateway));
-        assert!(Scope::ApiKey.reads_reports() && Scope::Member.reads_reports());
-        assert!(!Scope::Codex.reads_reports() && !Scope::Grok.reads_reports());
+        assert_eq!(
+            path_with(API_KEY_FILTER, day - 6, day - 1),
+            "/v1/report?start_date=2026-10-05&end_date=2026-10-10&group_by=model&api_key_id=self"
+        );
     }
 
     #[test]
@@ -1145,7 +1108,6 @@ mod tests {
             &default_endpoint(),
         )
         .expect("a key is asked");
-        assert_eq!(asked.scope(), Scope::ApiKey);
         assert_eq!(asked.label(), "API key (AI_GATEWAY_API_KEY)");
         assert_eq!(
             asked.url(DayRange { first: OCT_11, last: OCT_11 }),
@@ -1206,12 +1168,96 @@ mod tests {
         }
     }
 
+    /// The fetch's outcome, or `None` when none came within `limit`.
+    fn wait(fetch: &mut Fetch, limit: Duration) -> Option<Outcome> {
+        let started = Instant::now();
+        loop {
+            if let Some(outcome) = fetch.try_outcome() {
+                return Some(outcome);
+            }
+            if started.elapsed() >= limit {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// Fetches `ranges` from `origin`, waiting a bounded time for the answer.
     fn fetch(origin: &str, ranges: Vec<DayRange>) -> Outcome {
-        Fetch::start(question_at(origin), ranges, on_a_thread)
-            .expect("a worker")
-            .wait_timeout(Duration::from_secs(25))
-            .expect("an outcome within 25 s")
+        let mut fetch = Fetch::start(question_at(origin), ranges, on_a_thread).expect("a worker");
+        wait(&mut fetch, Duration::from_secs(25)).expect("an outcome within 25 s")
+    }
+
+    /// Where [`keeping`] puts the worker's handle.
+    type Slot = Arc<Mutex<Option<std::thread::JoinHandle<()>>>>;
+
+    /// A spawner that keeps the worker's handle in `slot`, so a test can see
+    /// the thread end.
+    fn keeping(slot: &Slot) -> impl FnOnce(Job) -> io::Result<()> {
+        let slot = Arc::clone(slot);
+        move |job| {
+            let handle = std::thread::Builder::new()
+                .name("xfx-usage-test".to_string())
+                .spawn(job)?;
+            *slot.lock().expect("the slot") = Some(handle);
+            Ok(())
+        }
+    }
+
+    /// Whether the worker in `slot` ended, and was joined, within `limit`.
+    fn exited_within(slot: &Slot, limit: Duration) -> bool {
+        let handle = slot.lock().expect("the slot").take().expect("a worker");
+        let started = Instant::now();
+        while !handle.is_finished() {
+            if started.elapsed() >= limit {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        handle.join().is_ok()
+    }
+
+    /// A loopback server for one connection that sends a `200` head promising
+    /// 100000 bytes, then one byte a second -- progress that never finishes --
+    /// until a write fails (the client hung up), `stop` is set, or 30 s pass.
+    /// Returns how many bytes it dripped and whether the client hung up.
+    fn dripping(stop: &Arc<AtomicBool>) -> (String, std::thread::JoinHandle<(usize, bool)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let stop = Arc::clone(stop);
+        let thread = std::thread::spawn(move || {
+            let Some(mut connection) = accept_within(&listener, Duration::from_secs(20)) else {
+                return (0, false);
+            };
+            let _ = connection.set_read_timeout(Some(Duration::from_secs(5)));
+            let _ = connection.set_write_timeout(Some(Duration::from_secs(5)));
+            crate::test_net::read_request(&mut connection);
+            if connection
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 100000\r\n\r\n")
+                .is_err()
+            {
+                return (0, true);
+            }
+            let started = Instant::now();
+            let mut dripped = 0;
+            let mut next = Instant::now();
+            while !stop.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(30) {
+                if Instant::now() >= next {
+                    if connection
+                        .write_all(b" ")
+                        .and_then(|()| connection.flush())
+                        .is_err()
+                    {
+                        return (dripped, true);
+                    }
+                    dripped += 1;
+                    next += Duration::from_secs(1);
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            (dripped, false)
+        });
+        (origin, thread)
     }
 
     fn failed(outcome: Outcome) -> Failed {
@@ -1271,8 +1317,67 @@ mod tests {
         }
     }
 
+    /// A configuration loaded from `profile` as `~/.xfx/settings.json`.
+    fn config_with_profile(profile: &str, vars: &[(&str, &str)]) -> RuntimeConfig {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile dir");
+        std::fs::write(home.path().join(".xfx").join("settings.json"), profile).expect("a profile");
+        RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                vars.iter()
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect::<BTreeMap<_, _>>(),
+            ),
+            workspace.path(),
+        )
+        .expect("a configuration")
+    }
+
     #[test]
-    fn the_report_takes_no_proxy_to_a_loopback_gateway() {
+    fn an_unreadable_provider_setting_sends_the_key_nowhere() {
+        // `config.rs`: an unreadable `provider` is kept as `provider_rejected`
+        // with `provider` at the default, the Gateway, and must poison every
+        // request that would carry the Gateway credential.
+        let config =
+            config_with_profile(r#"{"provider":"gatewya"}"#, &[("AI_GATEWAY_API_KEY", KEY)]);
+        assert!(config.provider_rejected.is_some());
+        let gateway = Listener::answering(json_answer(REPORT));
+        let endpoint =
+            Endpoint::resolve(Some(&format!("{}/v4/ai/language-model", gateway.origin())))
+                .expect("loopback");
+        let answer = question(&config, &endpoint);
+        if let Ok(asked) = &answer {
+            let mut fetch =
+                Fetch::start(asked.clone(), vec![today()], on_a_thread).expect("a worker");
+            let _ = wait(&mut fetch, Duration::from_secs(25));
+        }
+        let requests = gateway.finish();
+        assert!(
+            answer.is_err() && requests.is_empty(),
+            "question: {answer:?}; requests that reached the Gateway: {}",
+            requests.len()
+        );
+        assert_eq!(answer.map(|_| ()), Err(Unavailable::ProviderRejected));
+        // A readable `backend` beside it is no rescue, and an unreadable
+        // `backend` poisons the same way.
+        for profile in [
+            r#"{"provider":"gatewya","backend":"gateway"}"#,
+            r#"{"backend":"nonsense"}"#,
+        ] {
+            let config = config_with_profile(profile, &[("AI_GATEWAY_API_KEY", KEY)]);
+            assert!(config.provider_rejected.is_some(), "{profile}");
+            assert_eq!(
+                question(&config, &default_endpoint()).map(|_| ()),
+                Err(Unavailable::ProviderRejected),
+                "{profile}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_report_takes_no_proxy_over_cleartext() {
         // Cleartext to loopback: a proxy from the environment would read the
         // key as sent (`crate::gateway::bearer_rules`).
         if let Some(origin) = crate::test_net::server_in_this_copy() {
@@ -1281,7 +1386,7 @@ mod tests {
             return;
         }
         crate::test_net::assert_no_proxy_is_used(
-            "usage::report::tests::the_report_takes_no_proxy_to_a_loopback_gateway",
+            "usage::report::tests::the_report_takes_no_proxy_over_cleartext",
             json_answer(REPORT),
         );
     }
@@ -1437,9 +1542,11 @@ mod tests {
     #[test]
     fn a_gateway_that_never_answers_fails_at_15_seconds() {
         // `usage_request_timeout_ms = 15_000`, from connecting to the last
-        // byte (`client.zig:269,299-308@481104fd`). Two at once: one that
+        // byte (`client.zig:269,299-308@481104fd`). Three at once: one that
         // never reads the request (the handshake is the kernel's), one that
-        // sends its head and stalls in the body.
+        // sends its head and stalls in the body, and one that keeps sending a
+        // byte a second and never finishes -- which no idle or read timeout
+        // would ever end.
         let silent = TcpListener::bind("127.0.0.1:0").expect("a port");
         let silent_origin = format!("http://127.0.0.1:{}", silent.local_addr().unwrap().port());
         let stop = Arc::new(AtomicBool::new(false));
@@ -1460,23 +1567,25 @@ mod tests {
             }
         });
 
+        let (drip_origin, dripper) = dripping(&stop);
+
         let started = Instant::now();
-        let mut fetches: Vec<Fetch> = [&silent_origin, &stalled_origin]
+        let mut fetches: Vec<Fetch> = [&silent_origin, &stalled_origin, &drip_origin]
             .into_iter()
             .map(|origin| {
                 Fetch::start(question_at(origin), vec![today()], on_a_thread).expect("a worker")
             })
             .collect();
         for fetch in &mut fetches {
-            let outcome = fetch
-                .wait_timeout(Duration::from_secs(25))
-                .expect("an outcome within 25 s");
+            let outcome = wait(fetch, Duration::from_secs(25)).expect("an outcome within 25 s");
             assert_eq!(failed(outcome), Failed::network(&no_answer()));
         }
         let elapsed = started.elapsed();
         stop.store(true, Ordering::SeqCst);
         staller.join().expect("the staller");
+        let (dripped, _) = dripper.join().expect("the dripper");
         drop(silent);
+        assert!(dripped >= 10, "the body kept coming: {dripped} bytes");
         assert!(
             elapsed >= DEADLINE && elapsed < DEADLINE + Duration::from_secs(5),
             "{elapsed:?}"
@@ -1484,16 +1593,18 @@ mod tests {
     }
 
     #[test]
-    fn a_fetch_runs_on_its_own_thread_and_can_be_cancelled() {
-        let silent = TcpListener::bind("127.0.0.1:0").expect("a port");
-        let origin = format!("http://127.0.0.1:{}", silent.local_addr().unwrap().port());
+    fn a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let (origin, server) = dripping(&stop);
+        let slot = Slot::default();
         let spawned = Arc::new(AtomicUsize::new(0));
         let counting = Arc::clone(&spawned);
+        let spawn = keeping(&slot);
         let asked = question_at(&origin);
         let started = Instant::now();
         let mut fetch = Fetch::start(asked, vec![today()], move |job| {
             counting.fetch_add(1, Ordering::SeqCst);
-            on_a_thread(job)
+            spawn(job)
         })
         .expect("a worker");
         assert_eq!(spawned.load(Ordering::SeqCst), 1);
@@ -1503,22 +1614,59 @@ mod tests {
             "start does not wait for the answer"
         );
         assert!(started.elapsed() < Duration::from_secs(1));
-        std::thread::sleep(Duration::from_millis(100));
+        // Into the body: the head and a byte or two have arrived.
+        std::thread::sleep(Duration::from_millis(1500));
         fetch.cancel();
         assert_eq!(
-            fetch.wait_timeout(Duration::from_secs(5)),
+            wait(&mut fetch, Duration::from_secs(5)),
             Some(Outcome::Cancelled)
         );
-        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(7));
         // Told once.
         assert_eq!(fetch.try_outcome(), None);
-        drop(silent);
+        // The thread ends, and with it the connection.
+        assert!(
+            exited_within(&slot, Duration::from_secs(5)),
+            "the worker outlived its cancel"
+        );
+        let (dripped, hung_up) = server.join().expect("the server");
+        assert!(
+            dripped >= 1 && hung_up,
+            "dripped {dripped}, hung up: {hung_up}"
+        );
+        stop.store(true, Ordering::SeqCst);
 
         // A spawner that cannot start a thread is an error, not a fetch.
         let refused = Fetch::start(question_at(&origin), vec![today()], |_| {
             Err(io::Error::other("no threads"))
         });
         assert!(refused.is_err());
+    }
+
+    #[test]
+    fn a_dropped_fetch_stops_and_lets_go_of_the_key() {
+        // Ranges left behind a dropped fetch would each ask again, for up to
+        // 15 s apiece, with nobody to tell.
+        let stop = Arc::new(AtomicBool::new(false));
+        let (origin, server) = dripping(&stop);
+        let slot = Slot::default();
+        let fetch = Fetch::start(
+            question_at(&origin),
+            vec![today(), today(), today()],
+            keeping(&slot),
+        )
+        .expect("a worker");
+        std::thread::sleep(Duration::from_millis(1500));
+        let dropped = Instant::now();
+        drop(fetch);
+        assert!(
+            exited_within(&slot, Duration::from_secs(5)),
+            "the worker outlived its fetch"
+        );
+        assert!(dropped.elapsed() < Duration::from_secs(5));
+        let (_, hung_up) = server.join().expect("the server");
+        stop.store(true, Ordering::SeqCst);
+        assert!(hung_up, "the connection outlived the fetch");
     }
 
     #[test]
