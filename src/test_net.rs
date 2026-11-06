@@ -155,7 +155,7 @@ impl Listener {
 }
 
 /// One request's head and as much body as its `Content-Length` says.
-fn read_request(connection: &mut std::net::TcpStream) -> String {
+pub(crate) fn read_request(connection: &mut std::net::TcpStream) -> String {
     let mut request = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {

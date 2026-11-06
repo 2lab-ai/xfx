@@ -29,6 +29,8 @@
 //! once, in the profile: [`COVERAGE_FILE`], written by the first turn that
 //! records a request ([`start_tracking`]).
 
+pub mod report;
+
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
