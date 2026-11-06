@@ -15,6 +15,7 @@ xfx: env XFX_PERMISSION_MODE=yolo
 env TZ=UTC
 work p5-transcript-ws
 wait 4
+snap start
 type read and wait
 wait 1
 key Enter
