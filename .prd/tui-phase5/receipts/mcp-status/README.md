@@ -172,3 +172,22 @@ ignored, with `fault-injection` 4592 / 0 / 7; identity, no-stubs, no-secrets
 ok; release and faulty release builds ok; `scripts/smoke.sh` 46 checks, 0
 failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios + the oracle,
 1091 checks, 0 failures.
+
+## MCP-Sd (review round, `0f66543e`)
+
+| finding | fix | RED on `e47b9c5c` | pin |
+|---|---|---|---|
+| MCP-Sc's stop waited for the try, but a close does not end every handshake: an HTTP request in flight keeps its reply after `close`, and a stdio server whose stdout a process outside its group holds gives no end of output -- a reload or `/quit` waited min(startup timeout, 20 s) | each server's `CancelToken`, cancelled first by a stop; `initialize`, `notifications/initialized` (`Transport::notify` takes a cancel) and `tools/list` wait on it | silent HTTP endpoint: reload 5.99 s, shutdown 6.00 s; stdio stdout held by a `setsid` grandchild: 5.97 s | `a_reload_ends_an_http_handshake_against_a_silent_endpoint_at_once`, `the_end_of_a_session_ends_an_http_handshake_…`, `a_stop_ends_a_stdio_handshake_whose_output_a_stray_grandchild_holds` (all < 2 s) |
+| `reload_once` put the new set in force before stopping what it dropped: a session end whose wait ran out reached neither | every dropped server marked stopped before any is closed and kept on `State::retiring` until its stop is done; `shutdown` stops that list too; concurrent stops of one server wait for each other's close (`Live::closing`) | -- (mutation: `shutdown` ignoring `retiring` fails the pin) | `the_end_of_a_session_stops_what_a_slow_reload_was_still_retiring` (three TERM-ignoring servers, a 50 ms wait) |
+| a restart's credit was spent apart from its try: with `restart_limit >= 2` a second call spent one and got the dead connection | the credit and the try are one step (`Opening::claim`); a call that finds a try under way waits for it and takes what it opened | -- (mutation: no wait fails the pin) | `two_calls_that_find_a_server_gone_spend_one_restart_and_start_one_process` (`Hold::BeforeHandOver`), `one_try_at_a_time_holds_a_server_and_none_once_it_is_stopped` |
+| `closed` unpinned | -- | -- (mutation: ignoring `closed` fails both) | `a_reload_after_the_end_of_a_session_starts_nothing`, `a_reload_queued_behind_one_the_end_of_a_session_outwaited_starts_nothing` |
+| `exit()` spun after a close took the child; the stop bound was understated | `exit()` returns at once; `STOP_WAIT`'s doc gives the real bound (one stop's own closes, then ≤ 20 s; stops of a reload or a session end run one after another) | -- | -- |
+
+Re-taken at `0f66543e`: `p5-mcp-failed` ×4 and `p5-mcp-fail startup` 0 rows
+from fx; `dismiss` ×2 status row identical.
+
+Gates at `0f66543e`: fmt, both clippy runs ok; `cargo test` 4575 / 0 / 7
+ignored, with `fault-injection` 4600 / 0 / 7; identity, no-stubs, no-secrets
+ok; release and faulty release builds ok; `scripts/smoke.sh` 46 checks, 0
+failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios + the oracle,
+1091 checks, 0 failures.
