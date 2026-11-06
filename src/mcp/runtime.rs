@@ -162,6 +162,12 @@ impl<'a> Opening<'a> {
 pub(crate) enum Hold {
     BeforeHandOver,
     BeforeOwnClose,
+    /// A stop has taken connections and is about to close them.
+    StopClosing,
+    /// A stop is about to wait for a try or another stop's close.
+    StopWaiting,
+    /// A call found a try under way and is about to wait for it.
+    WaitingForTry,
 }
 
 #[cfg(all(test, feature = "fault-injection"))]
@@ -507,6 +513,8 @@ pub struct Server {
     /// request still in flight, a stdio server whose output a process
     /// outside its group still holds open.
     cancel: CancelToken,
+    #[cfg(all(test, feature = "fault-injection"))]
+    hold: Mutex<Option<HoldHook>>,
     /// What a person is shown of it before approving it, built once when the
     /// reload that read it built the server ([`shown_entry`]): every view
     /// shares it rather than spelling the entry again per frame.
@@ -548,6 +556,8 @@ impl Server {
             claimed: AtomicBool::new(false),
             opened: Condvar::new(),
             cancel: CancelToken::new(),
+            #[cfg(all(test, feature = "fault-injection"))]
+            hold: Mutex::new(None),
             entry,
         })
     }
@@ -659,12 +669,16 @@ impl Server {
         // -- a reload's and the session's end at once -- that finds nothing
         // left to take waits for this close rather than returning before it.
         if !taken.is_empty() {
+            #[cfg(all(test, feature = "fault-injection"))]
+            self.held(Hold::StopClosing);
             for transport in taken {
                 transport.close();
             }
             self.live().closing -= 1;
             self.opened.notify_all();
         }
+        #[cfg(all(test, feature = "fault-injection"))]
+        self.held(Hold::StopWaiting);
         let deadline = Instant::now() + STOP_WAIT;
         let mut live = self.live();
         while live.opening || live.closing > 0 {
@@ -677,6 +691,18 @@ impl Server {
                 .wait_timeout(live, left)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
+        }
+    }
+
+    #[cfg(all(test, feature = "fault-injection"))]
+    fn held(&self, at: Hold) {
+        let hook = self
+            .hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook(at);
         }
     }
 
@@ -862,7 +888,7 @@ impl McpRuntime {
     }
 
     /// A test's own wait for a reload under way at the end.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "fault-injection"))]
     pub(crate) fn set_reload_wait(&self, wait: Duration) {
         *self
             .reload_wait
@@ -886,7 +912,21 @@ impl McpRuntime {
     /// Holds every try at the [`Hold`] points through `hook`.
     #[cfg(all(test, feature = "fault-injection"))]
     pub(crate) fn set_hold(&self, hook: impl Fn(Hold) + Send + Sync + 'static) {
-        *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(hook));
+        let hook: HoldHook = Arc::new(hook);
+        *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&hook));
+        for server in self.servers() {
+            *server.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&hook));
+        }
+    }
+
+    /// A server this runtime made, given its hold hook.
+    #[cfg(all(test, feature = "fault-injection"))]
+    fn adopt(&self, server: &Server) {
+        *server.hold.lock().unwrap_or_else(PoisonError::into_inner) = self
+            .hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
     }
 
     #[cfg(all(test, feature = "fault-injection"))]
@@ -1087,6 +1127,10 @@ impl McpRuntime {
                 .into_iter()
                 .map(|config| Server::new(config, &index))
                 .collect();
+            #[cfg(all(test, feature = "fault-injection"))]
+            for server in &state.servers {
+                self.adopt(server);
+            }
             state.issues = issues;
             state.choices = choices;
             state.digests = digests;
@@ -1263,7 +1307,12 @@ impl McpRuntime {
             });
             let server = match kept {
                 Some(server) => Arc::clone(server),
-                None => Server::new(config, &index),
+                None => {
+                    let server = Server::new(config, &index);
+                    #[cfg(all(test, feature = "fault-injection"))]
+                    self.adopt(&server);
+                    server
+                }
             };
             if server.should_connect() && !server.claimed.swap(true, Ordering::AcqRel) {
                 connecting.push(Arc::clone(&server));
@@ -1435,12 +1484,17 @@ impl McpRuntime {
         live.connection = Connection::Ready;
         live.needs_auth = false;
         live.failure = None;
-        live.transport = Some(transport);
+        // A restart's old connection, which is dead: its last reference goes
+        // after the lock does, since dropping it closes it -- a group's grace,
+        // a container's removal -- and every surface reads this lock.
+        let old = live.transport.replace(transport);
         live.protocol_version = Some(version);
         live.capabilities = capabilities;
         live.instructions = instructions;
         live.tools = tools;
         live.listed = Listed::default();
+        drop(live);
+        drop(old);
         Ok(())
     }
 
@@ -1821,7 +1875,7 @@ impl McpRuntime {
         let (server, tool) = self
             .tool_by_alias(alias)
             .ok_or(McpError::Named("McpToolNotFound"))?;
-        let transport = self.transport(&server)?;
+        let transport = self.transport(&server, cancel)?;
         let result = transport.request(
             "tools/call",
             json!({"name": tool.name, "arguments": arguments}),
@@ -1833,28 +1887,47 @@ impl McpRuntime {
 
     /// A ready server's connection, started again when it has gone and a
     /// restart is left.
-    fn transport(&self, server: &Arc<Server>) -> Result<Arc<dyn Transport>, McpError> {
+    fn transport(
+        &self,
+        server: &Arc<Server>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<Arc<dyn Transport>, McpError> {
         // A restart's credit is spent and its try marked under one lock, so
         // two calls that find it gone spend one restart and start one
-        // process; the other waits for that try and takes what it opened.
+        // process; the other waits for that try and takes what it opened --
+        // until its own call is cancelled, which leaves the try alone.
         let deadline = Instant::now() + server.config.startup_timeout() + STOP_WAIT;
-        let mut live = server.live();
+        #[cfg(all(test, feature = "fault-injection"))]
+        let mut announced = false;
         let opening = loop {
+            let mut live = server.live();
             match live.transport.clone() {
                 Some(transport) if transport.alive() => return Ok(transport),
                 None => return Err(McpError::Named("McpServerUnavailable")),
                 Some(_) => {}
             }
             if live.opening {
+                if cancel.is_some_and(CancelToken::is_cancelled) {
+                    return Err(McpError::Named("Cancelled"));
+                }
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
                     return Err(McpError::Named("McpRequestTimedOut"));
                 }
-                live = server
-                    .opened
-                    .wait_timeout(live, left)
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0;
+                #[cfg(all(test, feature = "fault-injection"))]
+                if !announced {
+                    announced = true;
+                    drop(live);
+                    self.held(Hold::WaitingForTry);
+                    continue;
+                }
+                drop(
+                    server
+                        .opened
+                        .wait_timeout(live, left.min(super::transport::CANCEL_POLL))
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0,
+                );
                 continue;
             }
             let credit = server.config.transport == Kind::Stdio
@@ -1874,7 +1947,6 @@ impl McpRuntime {
                 }
             }
         };
-        drop(live);
         match self.open_as(server, opening) {
             Ok(()) => server
                 .live()
@@ -1934,7 +2006,7 @@ impl McpRuntime {
         params: Value,
         cancel: Option<&CancelToken>,
     ) -> Result<Value, McpError> {
-        let transport = self.transport(server)?;
+        let transport = self.transport(server, cancel)?;
         transport.request(method, params, server.config.operation_timeout(), cancel)
     }
 

@@ -47,7 +47,7 @@ const STDERR_TAIL_BYTES: usize = 4 * 1024;
 const STDERR_SETTLE: Duration = Duration::from_millis(500);
 
 /// How often a waiting call looks at the turn's cancellation.
-const CANCEL_POLL: Duration = Duration::from_millis(20);
+pub(super) const CANCEL_POLL: Duration = Duration::from_millis(20);
 
 /// How long a stopping server is given after `SIGTERM` before `SIGKILL`.
 const STOP_GRACE: Duration = Duration::from_millis(500);
