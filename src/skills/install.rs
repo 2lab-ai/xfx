@@ -69,7 +69,12 @@ pub fn installed(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     match install_directory(managed, &directory, &fallback, filter.as_deref()) {
-        Err(_) => Err(FAILED.to_string()),
+        // A profile home xfx will not write in is said as the session store
+        // says it: "check the source path" would send the user the wrong way.
+        Err(err) => Err(crate::profile_home::Refused::of(&err).map_or_else(
+            || FAILED.to_string(),
+            |refused| format!("Failed to install: {refused}."),
+        )),
         Ok(installed) if installed.is_empty() => Err(match filter {
             Some(filter) => format!("Skill '{filter}' not found in the repository."),
             None => "No skills found (no SKILL.md files).".to_string(),
@@ -195,7 +200,7 @@ fn install_directory(
     fallback: &str,
     filter: Option<&str>,
 ) -> io::Result<Vec<String>> {
-    fs::create_dir_all(managed)?;
+    ensure_managed(managed, managed)?;
     let mut installed = Vec::new();
     // The directory itself, when it is one skill.
     if let Some(metadata) = read_metadata(&source.join("SKILL.md"), fallback) {
@@ -271,6 +276,26 @@ fn skill_files(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(found)
 }
 
+/// The profile home the managed root `~/.xfx/skills` is in: its parent.
+fn profile_of(managed: &Path) -> io::Result<&Path> {
+    managed
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "InvalidSkillsDirectory"))
+}
+
+/// Makes `dir` -- the managed root, or a directory in it -- if it is not there,
+/// the profile home above it as every writer in the profile makes it: each
+/// missing level `0700`, an existing `~/.xfx` that is not private refused
+/// rather than repaired. The managed root and a skill's directory are the
+/// user's content, so one that is a link to a directory is followed, as
+/// upstream follows it ([`crate::profile_home::ensure_content`]). Upstream
+/// makes these with the default mode (`makeDirRecursive`, `skills.zig:247`,
+/// `:252`, `ensureDir`, `:786-798@481104fd`); `docs/parity.md` says why xfx
+/// does not.
+pub(super) fn ensure_managed(managed: &Path, dir: &Path) -> io::Result<()> {
+    crate::profile_home::ensure_content(profile_of(managed)?, dir)
+}
+
 /// Copies `source` into `managed/<name>` whole, or not at all
 /// (`copySkillDirWithOptions`, `:690-735`): staged beside the destination,
 /// then the old one moved aside, the new one moved in, and the old one put
@@ -282,7 +307,7 @@ fn copy_skill(source: &Path, managed: &Path, name: &str) -> io::Result<()> {
             "invalid skill name",
         ));
     }
-    fs::create_dir_all(managed)?;
+    ensure_managed(managed, managed)?;
     let destination = managed.join(name);
     let transaction = transaction_root(managed)?;
     let result = (|| {
@@ -314,7 +339,7 @@ fn transaction_root(managed: &Path) -> io::Result<PathBuf> {
         fill_random(&mut token);
         let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
         let root = managed.join(format!(".skill-install-{hex}"));
-        match fs::create_dir(&root) {
+        match crate::profile_home::make_new(&root) {
             Ok(()) => return Ok(root),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
@@ -350,16 +375,13 @@ fn fill_random(token: &mut [u8; 16]) {
 #[cfg(unix)]
 fn lock(managed: &Path, name: &str) -> io::Result<File> {
     use rustix::fs::{flock, FlockOperation};
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-    let parent = managed
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "InvalidSkillsDirectory"))?;
+    use std::os::unix::fs::OpenOptionsExt;
+    let parent = profile_of(managed)?;
     let dir = parent.join(LOCK_DIR);
-    match fs::DirBuilder::new().mode(0o700).create(&dir) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error),
-    }
+    // Private state, as upstream's `openOrCreateVerifiedPrivateDirFromDir`
+    // holds it (`acquireSkillInstallLock`, `skills.zig:684-702@481104fd`): a
+    // link, another account's or an open one is refused, never followed.
+    crate::profile_home::ensure(parent, &dir)?;
     if !fs::symlink_metadata(&dir)?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -402,8 +424,12 @@ fn lock(_managed: &Path, _name: &str) -> io::Result<File> {
 
 /// A copy of `source` at `destination`: directories and regular files, links
 /// and anything named `.git…` left behind (`copyDirRecursive`, `:737-760`).
+///
+/// `destination` is new -- the stage in a fresh transaction, or a directory in
+/// it this copy has not made yet -- and each is made owner-only, as every
+/// directory in the profile is (`crate::profile_home`).
 fn copy_tree(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::create_dir_all(destination)?;
+    crate::profile_home::make_new(destination)?;
     for entry in fs::read_dir(source)? {
         let entry = entry?;
         let name = entry.file_name();
@@ -441,6 +467,7 @@ mod tests {
         );
         write(&source.join("foo/.git/HEAD"), "ref");
         write(&source.join("foo/notes/extra.md"), "extra");
+        fs::create_dir(root.join("home")).unwrap();
         let managed = root.join("home/.xfx/skills");
         let said = install(&managed, "./skill-src", None, &root.join("work"));
         assert_eq!(said, "Installed: foo");
@@ -461,6 +488,7 @@ mod tests {
     #[test]
     fn a_source_that_is_not_a_directory_is_a_failed_install_and_no_fetch() {
         let base = tempfile::tempdir().unwrap();
+        fs::create_dir(base.path().join("home")).unwrap();
         let managed = base.path().join("home/.xfx/skills");
         for source in [
             "owner/repo",
@@ -483,6 +511,7 @@ mod tests {
         let source = base.path().join("src");
         write(&source.join("a/SKILL.md"), "---\nname: a\n---\n");
         write(&source.join("b/SKILL.md"), "---\nname: b\n---\n");
+        fs::create_dir(base.path().join("home")).unwrap();
         let managed = base.path().join("home/.xfx/skills");
         let absolute = source.to_string_lossy().into_owned();
         assert_eq!(

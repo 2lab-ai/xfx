@@ -1,0 +1,29 @@
+diff --git a/src/profile_home/tests.rs b/src/profile_home/tests.rs
+index 93e31b1f..14db47c7 100644
+--- a/src/profile_home/tests.rs
++++ b/src/profile_home/tests.rs
+@@ -501,3 +501,24 @@ fn no_product_code_but_this_module_makes_a_directory_tree() {
+     }
+     assert!(offenders.is_empty(), "{offenders:?}");
+ }
++
++#[test]
++fn red_b_round1_ensure_refuses_a_linked_private_level() {
++    let bench = Bench::new();
++    let profile = made(&bench.profile()).to_path_buf();
++    let locks = profile.join(".skill-install-locks");
++    let elsewhere = bench.root.join("elsewhere");
++    fs::create_dir(&elsewhere).expect("a directory");
++    std::os::unix::fs::symlink(&elsewhere, &locks).expect("a link");
++    let answer = ensure(&profile, &locks);
++    println!("RED round 1 ensure(~/.xfx, ~/.xfx/.skill-install-locks -> elsewhere): {answer:?}");
++    assert!(answer.is_err(), "a linked private level was taken");
++}
++
++#[test]
++fn red_b_round1_cut_reads_code_after_a_test_module() {
++    let fixture = "fn before() {}\n#[cfg(test)]\nmod tests {\n    fn t() {}\n}\nfn after() { std::fs::create_dir_all(\"x\").ok(); }\n";
++    let code = product(fixture);
++    println!("RED round 1 product(): {code:?}");
++    assert!(code.contains("fn after"), "the code after the test module was cut: {code:?}");
++}

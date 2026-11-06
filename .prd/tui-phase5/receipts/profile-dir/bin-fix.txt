@@ -1,0 +1,45 @@
+# fix: c5904eaa0feffe00  umask 0022
+## xfx setup gateway, ~/.xfx fresh
+setup exit=0
+xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+drwx------ <tmp>/fix/fresh/HOME/.xfx
+entries in ~/.xfx: settings.json settings.lock 
+entries where a link points: 
+sessions exit=0
+[sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0
+## xfx setup gateway, ~/.xfx open
+setup exit=1
+xfx: cannot write <tmp>/fix/open/HOME/.xfx/settings.json: <tmp>/fix/open/HOME/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other (`chmod 700 <tmp>/fix/open/HOME/.xfx` makes it private)
+drwxr-xr-x <tmp>/fix/open/HOME/.xfx
+entries in ~/.xfx: 
+entries where a link points: 
+sessions exit=1
+xfx: <tmp>/fix/open/HOME/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other (`chmod 700 <tmp>/fix/open/HOME/.xfx` makes it private)
+## xfx setup gateway, ~/.xfx link
+setup exit=1
+xfx: cannot write <tmp>/fix/link/HOME/.xfx/settings.json: <tmp>/fix/link/HOME/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives
+lrwxr-xr-x <tmp>/fix/link/HOME/.xfx
+entries where a link points: 
+sessions exit=1
+xfx: <tmp>/fix/link/HOME/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives
+## xfx setup gateway, HOME not there
+setup exit=1
+xfx: cannot write <tmp>/fix/nohome/HOME/.xfx/settings.json: the home directory <tmp>/fix/nohome/HOME is not there, and xfx does not make one
+HOME still not there
+## XFX_TUI=1: /skills create demo, then /skills add <that skill>
+child status 0
+drwx------ <tmp>/fix/tui/HOME/.xfx
+drwx------ <tmp>/fix/tui/HOME/.xfx/.skill-install-locks
+drwx------ <tmp>/fix/tui/HOME/.xfx/sessions
+drwx------ <tmp>/fix/tui/HOME/.xfx/skills
+drwx------ <tmp>/fix/tui/HOME/.xfx/skills/demo
+* skills: Created <tmp>/fix/tui/HOME/.xfx/skills/demo/SKILL.md
+* skills: Installing from <tmp>/fix/tui/HOME/.xfx/skills/demo...
+* skills: Installed: demo
+## XFX_TUI=1: ~/.xfx removed under the running session, then /skills create demo
+child status 0
+drwx------ <tmp>/fix/tui-gone/HOME/.xfx
+drwx------ <tmp>/fix/tui-gone/HOME/.xfx/skills
+drwx------ <tmp>/fix/tui-gone/HOME/.xfx/skills/demo
+sessions after exit=0
+[sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0
