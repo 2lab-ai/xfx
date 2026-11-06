@@ -1,0 +1,8 @@
+RED round 1 product(): "fn before() {}"
+thread 'profile_home::tests::red_b_round1_cut_reads_code_after_a_test_module' (252870002) panicked at src/profile_home/tests.rs:523:5:
+the code after the test module was cut: "fn before() {}"
+RED round 1 ensure(~/.xfx, ~/.xfx/.skill-install-locks -> elsewhere): Ok(())
+thread 'profile_home::tests::red_b_round1_ensure_refuses_a_linked_private_level' (252870003) panicked at src/profile_home/tests.rs:515:5:
+a linked private level was taken
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3882 filtered out; finished in 0.00s
+exit=101

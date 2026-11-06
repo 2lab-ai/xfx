@@ -235,7 +235,7 @@ fn write_preferences_within(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = parent_of(path)?;
-    create_private_dir(dir)?;
+    crate::profile_home::ensure(dir, dir)?;
     let _across_processes = SettingsLock::acquire(dir, deadline)?;
     let mut document = read_existing(path)?;
     set_preferences(&mut document, preferences);
@@ -276,7 +276,7 @@ pub fn write_permission(
     if !applied.changed {
         return Ok(applied);
     }
-    create_private_dir(dir)?;
+    crate::profile_home::ensure(dir, dir)?;
     let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
     // Read again under the lock: another process may have written between
     // the first read -- which decided whether there was anything to do -- and
@@ -338,7 +338,7 @@ pub fn edit_document<E: From<io::Error>>(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = parent_of(path)?;
-    create_private_dir(dir)?;
+    crate::profile_home::ensure(dir, dir)?;
     let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
     let mut document = read_existing(path)?;
     if !edit(&mut document)? {
@@ -366,7 +366,7 @@ pub fn rewrite_document(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = parent_of(path)?;
-    create_private_dir(dir)?;
+    crate::profile_home::ensure(dir, dir)?;
     let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
     let document = decide(read_existing(path)?)?;
     write_document(path, &document)
@@ -491,11 +491,13 @@ pub fn saved_but_any_shadowed(fields: &[(&str, crate::config::SettingSource)]) -
 /// Writes `document` to `path` with the profile's own discipline.
 ///
 /// Everything `write` used to do after it had decided the bytes: the profile
-/// home is created owner-only if it is not there, and the file is replaced
-/// through a staged `create_new` and a rename.
+/// home is created owner-only if it is not there -- and refused, never
+/// repaired, when one that is there is not private
+/// ([`crate::profile_home::ensure`]) -- and the file is replaced through a
+/// staged `create_new` and a rename.
 pub fn write_document(path: &Path, document: &[u8]) -> io::Result<()> {
     let dir = parent_of(path)?;
-    create_private_dir(dir)?;
+    crate::profile_home::ensure(dir, dir)?;
     replace_private_file(dir, path, document)
 }
 
@@ -638,27 +640,6 @@ pub fn read_existing(path: &Path) -> io::Result<Map<String, Value>> {
             io::ErrorKind::InvalidData,
             format!("it is not valid JSON: {err}"),
         )),
-    }
-}
-
-/// Creates the profile home owner-only, if it is not already there.
-fn create_private_dir(dir: &Path) -> io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        // Created `0700` rather than created and then tightened: between the two
-        // there would be a window in which the profile home is world-readable.
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-    }
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(dir)
     }
 }
 
@@ -1027,7 +1008,7 @@ mod tests {
 
     #[test]
     fn restore_of_a_missing_preimage_unlinks_the_file() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         let preimage = snapshot(&path).expect("absent");
         write_document(
@@ -1051,7 +1032,7 @@ mod tests {
     #[test]
     fn restore_of_a_present_preimage_returns_exact_bytes_and_mode() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         let original = b"{\n  \"permission_mode\": \"auto\"\n}\n";
         fs::write(&path, original).expect("write");
@@ -1083,7 +1064,7 @@ mod tests {
     fn the_document_is_exactly_what_the_writer_puts_on_disk() {
         // One serializer, not two. `prepare` can only promise the bytes
         // `commit` will write if the same function produced them.
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         let existing = object(json!({"permission_mode": "auto"}));
         let document = document_for(existing.clone(), &selection()).expect("a document");
@@ -1143,7 +1124,7 @@ mod tests {
         // `{"rm*":"allow","*":"deny"}` denies everything, and sorted it would
         // allow `rm`. Upstream's writer keeps the order (`writeJsonValue` over
         // an insertion-ordered map, `settings_store.zig:1830-1850`).
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         fs::write(
             &path,
@@ -1161,7 +1142,7 @@ mod tests {
 
     #[test]
     fn a_value_in_the_way_of_a_preference_is_replaced_by_an_object() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         fs::write(&path, "{\"statusLine\":7,\"model\":\"m\"}\n").expect("seed");
         write_preference(&path, &["statusLine", "workspace"], json!(true)).expect("write");
@@ -1218,7 +1199,7 @@ mod tests {
     fn a_preference_is_never_written_over_a_file_xfx_cannot_read() {
         // "xfx could not parse this" is not "this is empty": the operator's file
         // stays exactly as it was, and the write says why it did not happen.
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         for original in ["{not json", "[1, 2]"] {
             fs::write(&path, original).expect("seed");
@@ -1236,7 +1217,7 @@ mod tests {
     #[test]
     fn a_preference_written_into_a_new_profile_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
         assert_eq!(
@@ -1292,7 +1273,7 @@ mod tests {
         // its rename. `flock` is per open file description, so a second open in
         // this process stands in for another process exactly.
         use rustix::fs::{flock, FlockOperation};
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         fs::write(&path, "{}\n").expect("seed");
         let held = fs::OpenOptions::new()
@@ -1325,7 +1306,7 @@ mod tests {
     #[test]
     fn a_lock_held_past_the_deadline_is_a_failure_rather_than_a_wait_for_ever() {
         use rustix::fs::{flock, FlockOperation};
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         let held = fs::OpenOptions::new()
             .read(true)
@@ -1347,7 +1328,7 @@ mod tests {
 
     #[test]
     fn several_preferences_are_one_write() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         fs::write(&path, "{\"theme\":\"dark\"}").expect("seed");
         write_preferences(
@@ -1443,7 +1424,7 @@ mod tests {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let path = home.path().join(".xfx").join("settings.json");
-        fs::create_dir_all(path.parent().expect("a parent")).expect("mkdir");
+        crate::profile_home::made(path.parent().expect("a parent"));
         // `models` holds a scalar where an object belongs: replaced, not
         // merged into and not refused.
         fs::write(&path, r#"{"permission_mode":"ask","models":"stray"}"#).expect("seed");
