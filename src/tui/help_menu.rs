@@ -796,7 +796,9 @@ mod tests {
         // `/provider`'s alias finds it as `/exit` finds `/quit`; its summary
         // is upstream's now and names no provider of xfx's.
         assert_eq!(found("setup"), ["/provider"]);
-        assert_eq!(found("provider"), ["/provider"]);
+        // `/usage`'s v0.0.16 summary, "show your provider's usage and spend"
+        // (`commands.zig:454@481104fd`), has the word too.
+        assert_eq!(found("provider"), ["/provider", "/usage"]);
         assert!(found("sessionzz").is_empty());
         // Nothing typed lists everything.
         assert_eq!(found("").len(), SLASH_REGISTRY.len());

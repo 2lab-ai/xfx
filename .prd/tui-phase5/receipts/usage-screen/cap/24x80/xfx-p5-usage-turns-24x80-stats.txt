@@ -1,0 +1,24 @@
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+* stats: ansi_bytes=7796, redraws=0, debounced_resizes=0, footer_updates=0,
+  stream_chunks=0
+
+┃
+
+auto · model-a · first question · 52k
+
+
+
+
+
+

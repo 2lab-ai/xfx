@@ -1,0 +1,41 @@
+# P5-US-U5: no bill is asked for. Two turns whose streams name their
+# generation and no cost (p5-usage-deferred-turns.json: fx c1db919's
+# `.deferred`, which it and the ledger xfx asked the Gateway for by id with
+# GET /v1/generation?id=<gen>, src/gateway/client.zig:285-372@c1db9191), then
+# /usage, an exit and a resume of the session, a third such turn, and /usage
+# again. fx v0.0.16 asks no generation (a41fc2d4); neither does xfx since U5.
+# `gwlog` keeps every request the fake was asked, GET /v1/generation included.
+models models.json
+gateway p5-usage-deferred-turns.json
+wait 2.5
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 3
+snap turns
+type /usage
+key Enter
+wait 2
+snap usage
+key Escape
+wait 0.5
+keep
+type /quit
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 4
+snap resumed
+type third question
+key Enter
+wait 3
+type /usage
+key Enter
+wait 2
+snap usage-resumed
+key Escape
+wait 0.5
+gwlog

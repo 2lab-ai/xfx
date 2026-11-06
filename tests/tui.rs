@@ -5218,32 +5218,50 @@ fn iso_utc_minutes_ago(minutes: u64) -> String {
     )
 }
 
+/// The harness's pinned usage clock, 2026-10-12 15:30 UTC (fx's own e2e
+/// time, `tests/e2e/usage-fakes.ts:10@481104fd`).
+const USAGE_CLOCK: i64 = 1_791_819_000_000;
+
+/// The `/v1/report` GETs `gateway` was asked, in order.
+fn report_gets(gateway: &FakeGateway) -> Vec<support::fake_gateway::CapturedRequest> {
+    gateway
+        .requests()
+        .into_iter()
+        .filter(|request| request.method == "GET" && request.path.starts_with("/v1/report?"))
+        .collect()
+}
+
+/// A sandbox file pinning `/usage`'s clock at `ms`, and the variable naming
+/// it (`XFX_E2E_USAGE_CLOCK_FILE`, honoured by a debug build only:
+/// `src/usage/clock.rs`).
+fn pin_usage_clock(sandbox: &Sandbox, command: &mut Command, ms: i64) -> std::path::PathBuf {
+    let file = sandbox.home.join("usage-clock");
+    std::fs::write(&file, format!("{ms}\n")).expect("the clock file");
+    command.env("XFX_E2E_USAGE_CLOCK_FILE", &file);
+    file
+}
+
+/// `/usage` reads AI Gateway's report with the session's key, off the UI
+/// thread -- today, then the finished week and the month to yesterday, under
+/// the pinned clock (`policy.zig:57-89`, `report.zig:196-210@481104fd`) -- and
+/// asks nothing before it opens or while it is closed, the 15-minute timer
+/// included (S1). A model name holding OSC and CSI sequences is drawn spelled
+/// and never reaches the terminal as one (S2); no screen names the key (S3).
+/// Then `/credits` asks the Gateway too.
 #[test]
-fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread() {
-    // One answer the Gateway billed (`vercel-labs/fx@c1db9191
-    // src/gateway/client.zig:3313-3395`), then the balance. Billed a minute
-    // ago by this machine's clock: a window ends now, and a bill dated after
-    // it is in none.
-    let billed = support::fake_gateway::sse_body(&[
-        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
-                "timestamp": iso_utc_minutes_ago(1) }),
-        support::fake_gateway::text_delta("answer_0", "MARKER-BILLED"),
-        serde_json::json!({
-            "type": "finish",
-            "finishReason": { "unified": "stop", "raw": "stop" },
-            "usage": {
-                "inputTokens": { "total": 12000, "cacheRead": 4000 },
-                "outputTokens": { "total": 800, "reasoning": 0 }
-            },
-            "providerMetadata": { "gateway": {
-                "routing": { "canonicalSlug": "fake/model-a" },
-                "cost": "0.0125",
-                "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
-            } }
-        }),
-    ]);
+fn usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert() {
+    let report = serde_json::json!({ "results": [
+        { "model": "anthropic/claude-opus-5", "request_count": 2, "input_tokens": 64000,
+          "output_tokens": 3900, "cached_input_tokens": 34000,
+          "cache_creation_input_tokens": 0, "reasoning_tokens": 900, "total_cost": 0.4335 },
+        { "model": "evil/\u{1b}]0;pwned\u{7}\u{1b}[2Jname", "request_count": 1,
+          "input_tokens": 10, "total_cost": 0.01 }
+    ] });
+    let empty = r#"{"results":[]}"#.to_string();
     let gateway = FakeGateway::start(vec![
-        support::fake_gateway::Reply::Sse(billed),
+        support::fake_gateway::Reply::Sse(report.to_string()),
+        support::fake_gateway::Reply::Sse(empty.clone()),
+        support::fake_gateway::Reply::Sse(empty),
         support::fake_gateway::Reply::Sse(
             r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string(),
         ),
@@ -5251,28 +5269,74 @@ fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread()
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(40, 120);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    let mut command = tui_with(&sandbox, &gateway);
+    let clock = pin_usage_clock(&sandbox, &mut command, USAGE_CLOCK);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(
+        report_gets(&gateway).is_empty(),
+        "a report was asked at launch"
+    );
 
-    session.type_bytes(b"count this\r");
-    session.wait_for("MARKER-BILLED");
-    session.wait_for("\u{2191}");
-    // The session's logs, read off the UI thread: the window is partial,
-    // because counting began with this very turn.
     session.type_bytes(b"/usage\r");
-    let text = session.wait_for("12.8K tokens");
-    assert!(text.contains("Partial data"), "{text:?}");
-    session.wait_for("$0.01 spent");
-    session.wait_for("1 request");
-    session.wait_for("fake/model-a");
-    // Shift-Tab to the session, which this turn completed in full.
-    session.type_bytes(b"\x1b[Z");
-    session.wait_for("Local xfx activity");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "usage: API key (AI_GATEWAY_API_KEY)",
+            "updated just now",
+            "today       $0.4435         3    102K",
+            "\u{276f} anthropic/claude-opus-5",
+            "evil/\\x1b]0;pwned\\x07\\x1b[2Jname",
+        ],
+        &[],
+    );
+    let asked: Vec<String> = report_gets(&gateway)
+        .iter()
+        .map(|r| r.path.clone())
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            "/v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self",
+            "/v1/report?start_date=2026-10-06&end_date=2026-10-11&group_by=model&api_key_id=self",
+            "/v1/report?start_date=2026-10-01&end_date=2026-10-11&group_by=model&api_key_id=self",
+        ]
+    );
+    for request in report_gets(&gateway) {
+        assert_eq!(
+            request.header("authorization"),
+            Some(format!("Bearer {}", support::sandbox::TEST_KEY).as_str())
+        );
+    }
+    // The hostile name's sequences never reached the terminal as sequences.
+    let painted = session.text();
+    assert!(
+        !painted.contains("\u{1b}]0;pwned"),
+        "the OSC reached the terminal"
+    );
+    assert!(
+        !painted.contains("\u{1b}[2Jname"),
+        "the CSI reached the terminal"
+    );
+
+    // Closed, an hour on: nothing is asked.
     session.type_bytes(&[0x1b]);
-    // Settled when the screen has the hint row back and no key help: a lone
-    // ESC is the Escape key only after 50 ms of quiet.
-    on_screen(&session, (40, 120), &["glm-5.2"], &["tab scope"]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["usage: API key"]);
+    for hour_quarter in 1..=4 {
+        std::fs::write(
+            &clock,
+            format!("{}\n", USAGE_CLOCK + hour_quarter * 16 * 60 * 1000),
+        )
+        .expect("the clock moves");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    assert_eq!(
+        report_gets(&gateway).len(),
+        3,
+        "a report was asked while closed"
+    );
 
     session.type_bytes(b"/credits\r");
     // Read off the screen: the label and the body are separate runs.
@@ -5282,15 +5346,69 @@ fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread()
         &["* credits: balance=42.17", "  used=7.83", "  plan=pro"],
         &[],
     );
-    let asked = &gateway.requests()[1];
+    let credits = gateway.requests().pop().expect("the credits request");
     assert_eq!(
-        (asked.method.as_str(), asked.path.as_str()),
+        (credits.method.as_str(), credits.path.as_str()),
         ("GET", "/coding-agent/v1/credits")
     );
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
-    assert_eq!(gateway.request_count(), 2);
+    assert_eq!(gateway.request_count(), 4);
+    assert!(!session.settled_text().contains(support::sandbox::TEST_KEY));
+}
+
+/// Quitting with a `/usage` fetch in flight lets go of it at once: the
+/// request in flight is dropped, the rest of the fetch is never asked, and the
+/// exit does not wait out its 15-second deadline (`Dashboard::quit`; S1).
+#[test]
+fn quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly() {
+    let (held, release) = support::fake_gateway::Reply::held(support::fake_gateway::Reply::Sse(
+        r#"{"results":[]}"#.to_string(),
+    ));
+    let gateway = FakeGateway::start(vec![held]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    pin_usage_clock(&sandbox, &mut command, USAGE_CLOCK);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"/usage\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["fetching\u{2026}", "  fetching usage from AI Gateway"],
+        &[],
+    );
+    assert_eq!(report_gets(&gateway).len(), 1);
+    // Closed, the fetch runs on (`usage.zig:300-304@481104fd`); quitting
+    // stops it.
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["fetching usage"]);
+    let quitting = std::time::Instant::now();
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(
+        quitting.elapsed() < std::time::Duration::from_secs(5),
+        "the exit waited {:?} for the fetch",
+        quitting.elapsed()
+    );
+    release.store(true, std::sync::atomic::Ordering::SeqCst);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(
+        report_gets(&gateway).len(),
+        1,
+        "the fetch went on after quit"
+    );
+    assert!(!sandbox
+        .home
+        .join(".xfx")
+        .join("usage-cache")
+        .read_dir()
+        .is_ok_and(|mut dir| dir.any(|entry| entry
+            .is_ok_and(|entry| entry.path().extension().is_some_and(|ext| ext == "json")))));
 }
 
 /// `/credits` is asked the moment it is typed, as upstream's is
@@ -5354,117 +5472,6 @@ fn credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
-/// A turn whose stream named its generation and not its cost is pending --
-/// `Partial data` -- until the Gateway gives the bill by id, asked again while
-/// it says it has not written it yet (`GET {origin}/v1/generation?id=`,
-/// `vercel-labs/fx@c1db9191 src/gateway/client.zig:285-372`, retried as
-/// `generation_usage.zig:58-67` and `session_usage.zig:3322-3423` say). Then
-/// the session's spend is the bill, and `Partial data` is gone.
-#[test]
-fn a_bill_that_comes_later_is_asked_for_by_generation_and_partial_data_clears() {
-    const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
-    let deferred = support::fake_gateway::sse_body(&[
-        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
-                "timestamp": iso_utc_minutes_ago(1) }),
-        support::fake_gateway::text_delta("answer_0", "MARKER-DEFERRED"),
-        serde_json::json!({
-            "type": "finish",
-            "finishReason": { "unified": "stop", "raw": "stop" },
-            "usage": {
-                "inputTokens": { "total": 12000, "cacheRead": 4000 },
-                "outputTokens": { "total": 800, "reasoning": 0 }
-            },
-            "providerMetadata": { "gateway": { "generationId": GENERATION } }
-        }),
-    ]);
-    let record = serde_json::json!({ "data": {
-        "id": GENERATION,
-        "model": "fake/model-a",
-        "created_at": iso_utc_minutes_ago(1),
-        "total_cost": 0.0125,
-        "native_tokens_prompt": 8000,
-        "native_tokens_completion": 800,
-        "native_tokens_cached": 4000,
-        "native_tokens_cache_creation": 0,
-        "native_tokens_reasoning": 0,
-        "billable_web_search_calls": 0
-    } });
-    let gateway = FakeGateway::start(vec![
-        support::fake_gateway::Reply::Sse(deferred),
-        // Not written yet, twice: asked again a second apart.
-        support::fake_gateway::Reply::Status(404, "not found".to_string()),
-        support::fake_gateway::Reply::Status(404, "not found".to_string()),
-        support::fake_gateway::Reply::Sse(record.to_string()),
-    ]);
-    let sandbox = Sandbox::new();
-    let pty = Pty::open();
-    pty.resize(40, 120);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
-    session.wait_for(READY);
-
-    session.type_bytes(b"count this\r");
-    session.wait_for("MARKER-DEFERRED");
-    session.wait_for("\u{2191}");
-    // Pending: the session scope says so, and counts none of it.
-    session.type_bytes(b"/usage\r");
-    session.wait_for("tab scope");
-    session.type_bytes(b"\x1b[Z");
-    on_screen(
-        &session,
-        (40, 120),
-        &["Partial data"],
-        &["Local xfx activity"],
-    );
-
-    // The third ask gets the bill; `r` reads the session again.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    while gateway.request_count() < 4 {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the bill was not asked for again: {:?}",
-            gateway
-                .requests()
-                .iter()
-                .map(|request| request.path.clone())
-                .collect::<Vec<_>>()
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    session.wait_until("the bill is shown", |_| {
-        session.type_bytes(b"r");
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        Screen::painted(&session.text(), 40, 120).is_some_and(|screen| {
-            screen.find("Local xfx activity").is_some() && screen.find("$0.01 spent").is_some()
-        })
-    });
-    on_screen(
-        &session,
-        (40, 120),
-        &["12.8K tokens", "fake/model-a"],
-        &["Partial data"],
-    );
-
-    let asked = gateway.requests();
-    for lookup in &asked[1..] {
-        assert_eq!(
-            (lookup.method.as_str(), lookup.path.as_str()),
-            ("GET", format!("/v1/generation?id={GENERATION}").as_str())
-        );
-        assert_eq!(
-            lookup.header("authorization"),
-            Some(format!("Bearer {}", support::sandbox::TEST_KEY).as_str())
-        );
-    }
-
-    session.type_bytes(&[0x1b]);
-    on_screen(&session, (40, 120), &["glm-5.2"], &["tab scope"]);
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
-    // Asked until answered, and not again.
-    assert_eq!(gateway.request_count(), 4);
-}
-
 /// No provider was chosen, so the Gateway's key goes nowhere: not with the
 /// turn, which refuses before it is built (`Bundle::select`), and not beside
 /// it either -- not for the catalog read at launch, not for the title the
@@ -5508,12 +5515,13 @@ fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
     assert!(!session.settled_text().contains(support::sandbox::TEST_KEY));
 }
 
-/// A session holding a bill still to be asked for, resumed under a provider
-/// selection xfx cannot read, asks the Gateway nothing about it: a bill is
-/// asked with the key a turn sends, and no turn can be. Red before: the
-/// resume asked `GET /v1/generation?id=` with the key.
+/// A session whose turn's stream named its generation and no cost, resumed
+/// under a provider selection xfx cannot read, asks the Gateway nothing: no
+/// turn can be sent, and nothing beside one is (a bill was, until US-U5 retired
+/// the ledger: `GET /v1/generation?id=` with the key; none is asked anywhere
+/// now, `tests/ledger_compat.rs`).
 #[test]
-fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
+fn a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing() {
     const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ3";
     let deferred = support::fake_gateway::sse_body(&[
         serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
@@ -5529,8 +5537,8 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
             "providerMetadata": { "gateway": { "generationId": GENERATION } }
         }),
     ]);
-    // "Not written yet" for as long as the first session is open, so it is
-    // left with the bill pending.
+    // Answers for anything asked after the turn, so an ask is counted rather
+    // than refused.
     let mut script = vec![support::fake_gateway::Reply::Sse(deferred)];
     script.extend((0..40).map(|_| support::fake_gateway::Reply::Status(404, "not found".into())));
     let gateway = FakeGateway::start(script);
@@ -5541,16 +5549,12 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
     first.wait_for(READY);
     first.type_bytes(b"count this\r");
     first.wait_for("MARKER-DEFERRED");
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
-    while gateway.request_count() < 2 {
-        assert!(Instant::now() < deadline, "the bill was never asked for");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    wait_for_the_turn_to_conclude(&sandbox);
     first.type_bytes(&[0x04]);
     assert_eq!(first.wait_exit().code(), Some(0));
     let ids = sandbox.session_ids();
     assert_eq!(ids.len(), 1, "{ids:?}");
-    // Counted once the count has held still for half a second, so a lookup
+    // Counted once the count has held still for half a second, so a request
     // the first process sent on its way out is not taken for one the resume
     // sent.
     let mut before = gateway.request_count();
@@ -5573,8 +5577,8 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
     let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
     second.wait_for(READY);
     second.wait_for("session resumed:");
-    // A bill is asked the moment its session is opened, before the first
-    // round's second has passed: past it, nothing has been.
+    // A bill was asked the moment its session was opened, before a second
+    // had passed: past it, nothing has been.
     std::thread::sleep(std::time::Duration::from_millis(1500));
     let asked = sent(&gateway.requests()[before..]);
     assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
@@ -11237,25 +11241,28 @@ fn compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it(
         "the kept turn was compacted"
     );
 
-    // What the notes request cost is in the session's `/usage` record, in a
-    // frame of its own just before the checkpoint: it answered no turn, so it
-    // carries no turn's totals (`app_agent_runtime.zig:1127`).
+    // The notes request writes no frame of its own: the local usage ledger
+    // that kept its cost is retired (US-U5), as upstream's is (`a41fc2d4`).
+    // The checkpoint follows the second turn's conclusion, and the log holds
+    // one `usage_recorded` per turn.
     let frames = session_frames(&sandbox);
     let at = frames
         .iter()
         .position(|frame| frame["event"]["kind"] == "context_checkpoint")
         .expect("the checkpoint");
-    let usage = &frames[at - 1]["event"];
-    assert_eq!(usage["kind"], "usage_recorded", "{usage}");
-    assert!(
-        usage.get("input_tokens").is_none_or(Value::is_null),
-        "{usage}"
+    assert_eq!(
+        frames[at - 1]["event"]["kind"],
+        "turn_concluded",
+        "{}",
+        frames[at - 1]
     );
-    let billed = usage["requests"].as_array().expect("requests");
-    assert_eq!(billed.len(), 1, "{usage}");
-    // The sandbox's model (`support::sandbox`), which the request names in a
-    // header rather than its body.
-    assert_eq!(billed[0]["model"], "zai/glm-5.2", "{usage}");
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| frame["event"]["kind"] == "usage_recorded")
+            .count(),
+        2
+    );
 
     // The checkpoint covers the first turn and keeps its exact texts.
     let frame = checkpoints(&sandbox).remove(0);
@@ -12520,12 +12527,14 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
         .iter()
         .position(|frame| frame["event"]["text"] == "second question")
         .expect("the stopped turn's prompt was recorded");
-    // The notes request was stopped after it was sent, so it may have been
-    // billed with nothing to say for how much: the turn's `/usage` record
-    // says so (`ambiguous_delivery`, `session_usage.zig:43-53`).
+    // The notes request was stopped after it was sent, so it may have reached
+    // a model (`ambiguous_delivery`, `session_usage.zig:43-53@c1db9191`): the
+    // turn writes its frame -- no totals, its summary row's output -- and,
+    // with the ledger retired (US-U5), nothing about what it cost.
     let usage = &frames[asked + 1]["event"];
     assert_eq!(usage["kind"], "usage_recorded", "{usage}");
-    assert_eq!(usage["unaccounted"], true, "{usage}");
+    assert!(usage.get("unaccounted").is_none(), "{usage}");
+    assert!(usage["turn_output_tokens"].is_u64(), "{usage}");
     let concluded = &frames[asked + 2]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");

@@ -1,0 +1,32 @@
+p5-usage-cached-40x120-back.ansi: 14 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-btab-today.ansi: 12 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-cj.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-ck.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-closed.ansi: 3 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-detail-down.ansi: 16 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-detail-tab.ansi: 16 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-detail.ansi: 16 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-down.ansi: 13 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-left-7d.ansi: 13 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-open.ansi: 13 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-r-401.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-r-429.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-r-500.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-r-bad.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-r-updating.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-r.ansi: 11 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-right-month.ansi: 14 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-tab-7d.ansi: 13 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-tab-today.ansi: 12 rows differ in their cells (row 1 not compared)
+p5-usage-cached-40x120-updating.ansi: 13 rows differ in their cells (row 1 not compared)
+
+base xfx open (510d4ee1, debug):
+x𝒇x v0.1.0-510d4ee [debug] · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Usage  [30 days]  7 days  24 hours  Session
+Tracking has not started
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+tab scope     ↑↓ model     enter expand     r refresh     esc close
+
+base gateway log, /v1/report GETs: 0

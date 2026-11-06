@@ -44,11 +44,13 @@
 // names the canonical slug, the cost (a decimal string) and the generation id
 // (vercel-labs/fx@c1db9191 src/gateway/client.zig:3313-3395, :3428-3456).
 // `deferred` is a turn whose bill comes later: the stream names its generation id and says
-// nothing of its cost, which both binaries record as pending (vercel-labs/fx@c1db9191
-// src/builtins/gateway.zig:650-660), and the bill is then served by id from
-// GET /v1/generation?id=<gen> (src/gateway/client.zig:285-372) in the record shape upstream
-// reads (src/gateway/generation_usage.zig:93-178): 404 -- "not written yet", which both ask
-// again -- for the first `notYet` asks, then the record.
+// nothing of its cost, which fx c1db919 (and xfx before US-U5) recorded as pending
+// (vercel-labs/fx@c1db9191 src/builtins/gateway.zig:650-660), and the bill is then served by
+// id from GET /v1/generation?id=<gen> (src/gateway/client.zig:285-372) in the record shape
+// upstream read (src/gateway/generation_usage.zig:93-178): 404 -- "not written yet", which
+// both asked again -- for the first `notYet` asks, then the record. fx v0.0.16 and xfx since
+// US-U5 ask for no bill (a41fc2d4), so for them a deferred turn is a turn and nothing more;
+// every ask is logged, so a log with none says so.
 // FAKEGW_CREDITS names the JSON served for GET /coding-agent/v1/credits; without it that path
 // answers 404 `not found`, which is the answer a capture of the error notice needs.
 // `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the

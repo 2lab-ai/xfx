@@ -1,0 +1,5 @@
+[
+ {"chunks":["First answer, billed later."],"deferred":{"gen":"gen_01JABCDEFGHJKMNPQRSTVWXYZ5","slug":"fake/model-a","cost":"0.0125","input":12000,"output":800,"cacheRead":4000,"reasoning":0,"notYet":2}},
+ {"chunks":["Second answer, billed later."],"deferred":{"gen":"gen_01JABCDEFGHJKMNPQRSTVWXYZ6","slug":"fake/model-a","cost":"0.0042","input":1200,"output":40,"notYet":1000}},
+ {"chunks":["Third answer, after the resume."],"deferred":{"gen":"gen_01JABCDEFGHJKMNPQRSTVWXYZ7","slug":"fake/model-a","cost":"0.0042","input":1200,"output":40,"notYet":1000}}
+]

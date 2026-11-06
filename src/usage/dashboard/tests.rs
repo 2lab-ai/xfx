@@ -870,6 +870,49 @@ fn a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once() {
 }
 
 #[test]
+fn a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same() {
+    // xfx's own (`Dashboard::sign_in_changed`): `/provider` or a resume
+    // changes the sign-in with `/usage` closed and a fetch it left running.
+    let rig = rig();
+    let mut dashboard = rig.dashboard();
+    rig.gateway.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(1);
+    dashboard.close();
+
+    // The same key, at the same origin: nothing is cancelled.
+    dashboard.sign_in_changed(Some(&rig.question(KEY_A)));
+    assert!(dashboard.fetch.is_some(), "the same sign-in lost its fetch");
+    assert!(!rig.gateway.hung_up(0));
+
+    // Another key: the request in flight is dropped, nothing more is asked
+    // with the old key, and its answer is never stored.
+    dashboard.sign_in_changed(Some(&rig.question(KEY_B)));
+    assert!(dashboard.fetch.is_none());
+    assert!(
+        rig.gateway.hung_up(0),
+        "the old key's request was not dropped"
+    );
+    rig.gateway.hold(false);
+    assert!(
+        rig.workers.all_ended_within(PATIENCE),
+        "the worker outlived the switch"
+    );
+    assert_eq!(rig.gateway.count(), 1, "{:?}", rig.gateway.paths());
+    assert!(rig.cached(KEY_A).is_none());
+    assert!(rig.gateway.seen().iter().all(|seen| seen.bearer == KEY_A));
+
+    // No sign-in at all lets go of the held one too; the floor is the key's,
+    // so reopening it within the minute asks nothing.
+    dashboard.open(rig.question(KEY_A));
+    let asked = rig.workers.fetches();
+    dashboard.sign_in_changed(None);
+    dashboard.open(rig.question(KEY_A));
+    assert_eq!(rig.workers.fetches(), asked, "the floor did not hold");
+    dashboard.quit();
+}
+
+#[test]
 fn an_empty_or_relative_home_is_no_home_and_a_fetch_still_shows() {
     // `usage.zig:1625-1636@481104fd`.
     let gateway = Gateway::new();
