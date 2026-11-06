@@ -22,21 +22,27 @@ by mutants instead (below). The `/usage` screen pairs are U4's.
 
 ## What it exports (for U2-U4)
 
-`Scope`, `Totals` (`total_tokens`, `add`, `cache_hit_pct`, `error_pct`,
-`p90_ttft_ms`, `p90_tps`, `valid`), `ModelRow`, `parse_model_rows`,
-`InvalidResponse`, `report_path`, `NotAiGateway`, `utc_day`, `format_day`,
-`Unavailable`, `Failure`, `status_failure`, `Failed`, `Question` and
-`question(config, endpoint)`, `DayRange`, `Outcome`, `Fetch` (`start`,
-`try_outcome`, `wait_timeout`, `cancel`), `Job`, and the constants
-`MAX_BODY_BYTES`, `MAX_MODELS`, `MAX_MODEL_NAME_BYTES`, `DEADLINE`,
-`API_KEY_LABEL`. The names follow fx's (`report.zig`, `usage.zig`); fx's
-`Rows` arena is a `Vec<ModelRow>`, and fx's `[2]i64` range is `DayRange`.
+After the US-U1b trim: `Totals` (`total_tokens`, `add`, `cache_hit_pct`,
+`error_pct`, `p90_ttft_ms`, `p90_tps`, `valid`), `ModelRow` (its `model` is
+untrusted server text: see its doc), `parse_model_rows`, `InvalidResponse`,
+`utc_day`, `format_day`, `Unavailable` (`NoGatewaySignIn`,
+`UnsupportedProvider`, `ProviderRejected`), `Failure` (`Network`, `Refused`,
+`NotAvailable`, `RateLimited`, `Server`, `BadResponse`), `status_failure`,
+`Failed`, `Question` (`label`) and `question(config, endpoint)`, `DayRange`,
+`Outcome`, `Fetch` (`start`, `try_outcome`, `cancel`; dropping it cancels),
+`Job`, and the constants `MAX_BODY_BYTES`, `MAX_MODELS`,
+`MAX_MODEL_NAME_BYTES`, `DEADLINE`, `API_KEY_LABEL`. The names follow fx's
+(`report.zig`, `usage.zig`); fx's `Rows` arena is a `Vec<ModelRow>`, and fx's
+`[2]i64` range is `DayRange`. Deleted until a unit builds them, with its own
+tests: fx's `Scope` (and `readsReports`), `reportPath` for other scopes and
+`error.NotAiGateway`, `Unavailable.{no_team,refresh_needed}`,
+`Failure.cache`, `wait_timeout`, `Question::scope`.
 
 ## fx's tests, ported
 
 | xfx test (`src/usage/report.rs`) | fx source |
 |---|---|
-| `paths_pick_the_filter_for_how_fx_is_signed_in` | `src/usage/report.zig:352-368@481104fd` (the `budgetPath` line, `:364-366`, is the member scope's: U9) |
+| `the_report_path_is_fxs_for_an_api_key` | `src/usage/report.zig:352-362@481104fd`, the `api_key` vector (the member, budget and Codex vectors, `:355-358,363-367`, belong to U9) |
 | `model_rows_parse_merge_duplicates_and_sort_by_cost` | `src/usage/report.zig:370-392@481104fd` |
 | `perf_percentages_merge_by_request_count_and_p90s_by_request_weight` | `src/usage/report.zig:394-412@481104fd` |
 | `malformed_reports_are_rejected_instead_of_shown` | `src/usage/report.zig:427-445@481104fd`, all ten vectors and the empty report |
@@ -52,9 +58,9 @@ budget (U9) and the fetch plan (U3); `cache.zig`, `view.zig` and
 
 | # | Property | Test(s) |
 |---|---|---|
-| 1 | The key goes only to the configured Gateway origin, under the bearer rule; cleartext only to loopback | `the_key_goes_to_the_configured_origin_with_fxs_query` (path, query, `authorization`, no team/account header; a non-loopback `http` endpoint cannot be built), `the_report_takes_no_proxy_to_a_loopback_gateway` (a copy of the test binary with `HTTP_PROXY`/`ALL_PROXY` set: the proxy receives nothing), `only_an_ai_gateway_api_key_is_asked_for_usage` (`VERCEL_OIDC_TOKEN`, both set, none, blank, llmux: no `Question` exists, so no request can be made) |
+| 1 | The key goes only to the configured Gateway origin, under the bearer rule: no redirect, no proxy over cleartext, cleartext only to loopback; nothing is sent under an unreadable provider setting | `the_key_goes_to_the_configured_origin_with_fxs_query` (path, query, `authorization`, no team/account header; a non-loopback `http` endpoint cannot be built), `the_report_takes_no_proxy_over_cleartext` (a copy of the test binary with `HTTP_PROXY`/`ALL_PROXY` set: the proxy receives nothing), `only_an_ai_gateway_api_key_is_asked_for_usage` (`VERCEL_OIDC_TOKEN`, both set, none, blank, llmux: no `Question` exists, so no request can be made), `an_unreadable_provider_setting_sends_the_key_nowhere` (US-U1b) |
 | 2 | A redirect is an error, never followed with the key | `a_redirect_is_an_error_and_never_followed_with_the_key` (301, 302, 303, 307, 308: `bad_response`, `HTTP 3xx`; the `Location` server receives nothing) |
-| 3 | The answer is bounded: 1 MiB, refused not read whole; 15 s, bounded test | `an_answer_over_1_mib_is_refused_without_being_read_whole` (exactly 1 MiB accepted; 1 MiB + 1 refused; a declared length over the cap refused at the head; an endless chunked body: the client hangs up, the server's write fails before its own 64 MiB bound), `a_body_over_the_cap_is_not_parsed`, `a_gateway_that_never_answers_fails_at_15_seconds` (a listener that never reads and one that stalls mid-body, both `network` at >= 15 s and < 20 s; each wait capped at 25 s, every server thread at 20-30 s), `a_fetch_runs_on_its_own_thread_and_can_be_cancelled` |
+| 3 | The answer is bounded: 1 MiB, refused not read whole; 15 s, bounded test | `an_answer_over_1_mib_is_refused_without_being_read_whole` (exactly 1 MiB accepted; 1 MiB + 1 refused; a declared length over the cap refused at the head; an endless chunked body: the client hangs up, the server's write fails before its own 64 MiB bound), `a_body_over_the_cap_is_not_parsed`, `a_gateway_that_never_answers_fails_at_15_seconds` (a listener that never reads, one that stalls mid-body, and one that drips a byte a second and never finishes, all `network` at >= 15 s and < 20 s; each wait capped at 25 s, every server thread at 20-30 s), `a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body` (the worker thread is joined within 5 s and the server sees the hang-up), `a_dropped_fetch_stops_and_lets_go_of_the_key` (US-U1b) |
 | 4 | The key never appears in output: failure values hold no key even when echoed, and are one bounded line | `the_key_never_appears_in_a_failure_even_when_echoed` (the key echoed in a 403's header, JSON body and `\u`-escaped body, a 400 with 4000 bytes and a newline, a 500 reason phrase, a non-JSON 200, a model name that is the escaped key, a refused row naming it: the `Failed` and the whole `Outcome`'s `Debug` hold no key, no newline, <= 128 bytes); `Question`'s `Debug` in `only_an_ai_gateway_api_key_is_asked_for_usage` |
 | 5 | Hostile rows rejected as fx rejects them | `malformed_reports_are_rejected_instead_of_shown` (fx's vectors, overflowing product and sum included), `numbers_are_read_as_fxs_parser_reads_them`, `a_key_twice_in_any_object_refuses_the_report`, `names_and_models_are_bounded_as_fx_bounds_them`, `perf_percentages_…` (a negative percent) |
 
@@ -109,9 +115,13 @@ M4 client could have buffered at most the 64 MiB the server would write).
 - **The worker's spawner is a parameter**, so the shell can start it the way
   it starts every non-UI thread (a closure around `spawn_unsignalled`) while
   this library stays outside `crate::tui`.
-- **OIDC and llmux are `UnsupportedProvider`**, fx's mapping, and the
-  research doc's default (a) for the open U8 decision. Choice (b) would be one
-  arm in `question`.
+- **OIDC and llmux are `UnsupportedProvider`**, fx's mapping. **The user
+  decided U8 on 2026-11-06: copy fx**, so both get fx's unsupported message.
+- **An unreadable provider setting is `ProviderRejected`** (US-U1b), checked
+  before anything else in `question`. It is xfx's own state with no fx twin:
+  `config.rs` keeps the rejection and leaves `provider` at the Gateway
+  default, and that default must not be what sends the key, as a turn
+  refuses it.
 - **The JSON is read the way fx's `std.json.Value` parse reads it**, where
   serde_json allows: a duplicate key anywhere is refused
   (`duplicate_field_behavior = .@"error"`, Zig 0.16.0
@@ -119,6 +129,49 @@ M4 client could have buffered at most the 64 MiB the server would write).
   not installed here, so `[unverified]` that 0.17 is the same), and an integer
   past `i64` is not a number (`number_string`, `dynamic.zig:30-47`). Three
   limits serde_json does not let this copy are in the parity row.
+
+## US-U1b (review round on `1b9f80ba`)
+
+Reviews: opus APPROVE, no MUST; gpt6 one MUST, confirmed by the dispatcher.
+Code: `3137a750`. Full redacted output of every run below: `red-u1b.txt`.
+
+**MUST: an unreadable provider setting sent the key.** `config.rs` keeps a
+`provider` (or `backend`) value it cannot read as `provider_rejected` and
+leaves `provider` at the default, the Gateway; that rejection must poison
+every request that would carry the Gateway key. `question()` ignored it.
+
+- RED, on the `1b9f80ba` code with only the new test added, bounded
+  (`gtimeout -k 10 600`, a fake key, a loopback listener):
+  `an_unreadable_provider_setting_sends_the_key_nowhere` failed with
+  `question: Ok(Question { origin: "http://127.0.0.1:…", credential:
+  Credential { source: AiGatewayApiKey, secret: "<redacted>" } }); requests
+  that reached the Gateway: 1`.
+- GREEN: `question()` returns `Err(Unavailable::ProviderRejected)` before
+  anything else, for `{"provider":"gatewya"}`, for the same beside a readable
+  `backend`, and for `{"backend":"nonsense"}`; the listener receives nothing.
+  Mutant M11 (the refusal removed) gives the RED line again.
+
+**Folded in:**
+
+| Item | Change | Test, and the mutant it kills |
+|---|---|---|
+| Drop | `impl Drop for Fetch` cancels its token | `a_dropped_fetch_stops_and_lets_go_of_the_key`: worker joined within 5 s, server sees the hang-up. M10 (`Drop` removed): `the worker outlived its fetch` |
+| Worker exit after `cancel()` | the test spawner keeps the `JoinHandle`; cancel now lands mid-body | `a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body`: joined within 5 s, server sees the hang-up |
+| Slow drip | a server that sends its head, then a byte a second, never finishing | `a_gateway_that_never_answers_fails_at_15_seconds`, third case (>= 10 bytes dripped). M3d (a 15 s timeout per `send()` and per `chunk()`, resetting on progress): the silent and stalled cases still pass, the drip fails -- `left: … "AI Gateway's answer stopped partway"` at the server's own 30 s bound. M3b (deadline on `send()` only) and M3c (reqwest `read_timeout`) fail the same test |
+| Trim | deleted `Scope`, `report_path`, `NotAiGateway`, `Unavailable::{NoTeam,RefreshNeeded}`, `Failure::Cache`, `wait_timeout`, `Question::scope` | `Scope` went whole: with `Member`, `Codex` and `Grok` gone its one variant was read by nothing. The tests wait with a bounded `try_outcome` loop |
+| `ModelRow.model` | documented as untrusted server text: render through `crate::mcp::terminal_safe`, not `bridge::inert` alone, never `Debug`; a cache encodes it | -- |
+| Docs | U8 recorded as decided (2026-11-06, copy fx); claim 1 reads "no proxy over cleartext"; the proxy test is renamed `the_report_takes_no_proxy_over_cleartext` | -- |
+
+**Residuals, not this round:** one refuse-on-cap reader shared with
+`mcp/transport.rs:1216-1228`, and one bearer GET shared with
+`credits.rs:183-208`; the backslash-in-URL question (gpt6 SHOULD 3:
+`Endpoint`'s hand-written authority parser versus the client's URL parser),
+PLAUSIBLE with no RED. Seen, not tested: `credits::question` matches on
+`config.provider` only (`src/credits.rs:148-163`), while a turn refuses a
+rejected provider in `Provider::select` (`src/provider/mod.rs:338-345`);
+whether `/credits` can be reached in a shell with a rejected provider is not
+established here `[unverified]` -- a lead for the credits owner, not this
+unit's change.
 
 ## Closed from the research doc
 
@@ -130,16 +183,16 @@ applied to the whole GET by `runBoundedHttpOperation` at `:299-308`, with
 
 ## Gates
 
-Run once, green, on `f0cfe711` (the code; this receipt is the only change
-after it), rustc 1.99.1:
+US-U1b, run once, green, on `3137a750` (the code; the receipt is the only
+change after it), rustc 1.99.1:
 
 | Gate | Result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 4566 passed, 0 failed, 7 ignored (14 binaries); the 20 `usage::report` tests among them |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 4587 passed, 0 failed, 7 ignored |
+| `cargo test --locked --no-fail-fast` | 4568 passed, 0 failed, 7 ignored (14 binaries); the 22 `usage::report` tests among them |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4589 passed, 0 failed, 7 ignored |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
 | `cargo test --locked --test parity` (the ledger row) | 24 passed |
 | `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok |
@@ -147,4 +200,5 @@ after it), rustc 1.99.1:
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1107 checks, 0 failures |
 | MSRV: 1.96.1 `cargo check --locked --all-targets` | ok |
 
-No pty test failed, so none was re-run.
+No pty test failed, so none was re-run. The first round's gates (on
+`f0cfe711`, 4566 and 4587 passed) were the same list, also green.
