@@ -244,6 +244,14 @@ into tests). Code: `bc42be90`, `934754b2`. Mutants on a clone at
 | euid wiring (opus) | -- | `a_directory_another_user_owns_is_refused_for_its_owner`: `verify_private_dir` on `/` (root's, 0755) for a non-root user must say the owner. M28 (the directory's `st_uid` passed for the euid): `Err(Refused("a directory open to group or other"))`. Skipped when the tests run as root |
 | read cap's call site (opus) | `load` calls `seam::after_stat()` between its size check and its read and records the bytes read (`#[cfg(test)]` only) | `a_load_reads_no_further_than_the_cap_when_the_file_grows_under_it`: the file grows by 4 MiB + 64 KiB inside that window; the read takes 4 MiB + 1 bytes and `read` is `None`. M29 (`load` reads without `read_capped`): `left: Some(4260338)`. The same mutant against the older growth test **survives** (`1 passed`), which is why the claim above is corrected |
 
+**Gates, US-U2c**, run once, green, on `fa178805` (rustc 1.99.1, macOS,
+short `TMPDIR`): fmt and both clippy runs ok (a first clippy on `bc42be90`
+failed `items_after_test_module` for the seam's place; `934754b2` moves it
+last in `fs`); `cargo test` 4610 passed / 0 failed / 7 ignored, with
+fault-injection 4631 / 0 / 7; identity, stubs and secrets ok; release and
+faulty builds ok; `smoke.sh` 46 checks / 0 failures; `smoke-tui.sh` 37
+scenarios + the oracle, 1107 checks / 0 failures. No pty test failed.
+
 ## Gates
 
 Run once, green, on `f00e6a28` (the code is `85e18a25`; only this receipt
