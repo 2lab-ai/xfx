@@ -22,7 +22,10 @@ What runs is one list of scenarios:
   changed    every scenario whose .cap the change adds or edits between
              --base and HEAD, and every .cap that names a file under
              scenarios/ the change adds or edits (a turns file, a seeded
-             profile, a workspace directory)
+             profile, a workspace directory) -- by its own name, or as
+             `@SCENARIOS@/<path>` in the .cap or in a file or directory it
+             names (a profile that starts a stdio MCP server kept beside it:
+             capture.sh writes that placeholder into every file it seeds)
   receipts   every scenario a receipt the change adds or edits names, in a
              receipt's own spelling of one: `scenarios/<name>.cap`,
              `<name>.cap`, or a capture's file name `fx-<name>-<rows>x<cols>-`
@@ -87,6 +90,10 @@ RECEIPT_NAME = re.compile(
     r"|(?<![\w-])x?fx-([a-z0-9][a-z0-9-]*?)-\d+x\d+-"  # a capture's file name
 )
 RECEIPT_MAX_BYTES = 1 << 20
+# capture.sh's placeholder for the scenario directory, and the path after it.
+PLACED = re.compile(r"@SCENARIOS@/([A-Za-z0-9._+-][A-Za-z0-9._/+-]*)")
+# A word of a .cap that can name a file under scenarios/: relative, no `..`.
+FILE_WORD = re.compile(r"^[A-Za-z0-9_+-][A-Za-z0-9._/+-]*$")
 
 
 class Refusal(Exception):
@@ -137,8 +144,45 @@ def reading_index(units):
 
 
 def tokens(path):
+    """A .cap's words, and the path after each `@SCENARIOS@/` in it; none for
+    one that is not a regular file inside its directory (capfile.units has
+    already refused such a one: this never opens it either)."""
+    if not capfile.regular_inside(path, os.path.dirname(path)):
+        return set()
     with open(path, encoding="utf-8", errors="replace") as f:
-        return set(f.read().split())
+        text = f.read()
+    return set(text.split()) | set(PLACED.findall(text))
+
+
+def placed_in(scenarios, words):
+    """The path after each `@SCENARIOS@/` in every file under scenarios/ a
+    word names, or under a directory it names: one level, as capture.sh
+    writes the placeholder into a seeded file and not into the files that
+    file names."""
+    root = os.path.realpath(scenarios)
+    found = set()
+    for word in words:
+        if not FILE_WORD.match(word) or ".." in word.split("/"):
+            continue
+        path = os.path.realpath(os.path.join(scenarios, word))
+        if not path.startswith(root + os.sep):
+            continue
+        if os.path.isfile(path):
+            files = [path]
+        elif os.path.isdir(path):
+            files = [os.path.join(d, f) for d, _, names in os.walk(path) for f in names]
+        else:
+            continue
+        for name in files:
+            # A link that leaves scenarios/ (to /dev/zero, which never ends,
+            # or to any file outside) and anything but a regular file is not
+            # read.
+            real = os.path.realpath(name)
+            if not real.startswith(root + os.sep) or not os.path.isfile(real) or os.path.getsize(real) > RECEIPT_MAX_BYTES:
+                continue
+            with open(real, encoding="utf-8", errors="replace") as f:
+                found.update(PLACED.findall(f.read()))
+    return found
 
 
 def changed_paths(tree, base):
@@ -168,7 +212,11 @@ def select(tree, base, core):
         add(index[name], "core")
 
     paths = changed_paths(tree, base)
-    caps = {f[: -len(".cap")]: tokens(os.path.join(scenarios, f)) for f in os.listdir(scenarios) if f.endswith(".cap")}
+    caps = {}
+    for f in os.listdir(scenarios):
+        if f.endswith(".cap"):
+            words = tokens(os.path.join(scenarios, f))
+            caps[f[: -len(".cap")]] = words | placed_in(scenarios, words)
     for p in paths:
         if not p.startswith(tree.rel + "/"):
             continue

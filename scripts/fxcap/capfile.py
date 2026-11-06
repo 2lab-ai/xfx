@@ -14,6 +14,9 @@ their snaps are paired by label.
 import os
 import re
 
+# The largest .cap read: every one in the repository is a few KB.
+MAX_BYTES = 1 << 20
+
 SNAP = re.compile(r"^(snap|snapfull) (.+)$")
 COMMAND_TOKEN = re.compile(r"^(/[A-Za-z][A-Za-z0-9_-]*)(?:\s|$)")
 
@@ -98,8 +101,24 @@ class Unit:
         return re.match(r"[a-z]*", self.name).group(0) or self.name
 
 
+def regular_inside(path, directory):
+    """Whether `path` is a regular file of at most MAX_BYTES that resolves
+    inside `directory`: what is safe to open and read whole. A link out of the
+    directory, a FIFO (its open never returns without a writer) or a device
+    (/dev/zero never ends) is not."""
+    root = os.path.realpath(directory)
+    real = os.path.realpath(path)
+    return real.startswith(root + os.sep) and os.path.isfile(real) and os.path.getsize(real) <= MAX_BYTES
+
+
 def units(directory):
+    """Every unit of `directory`. A .cap that is not a regular file inside it
+    (regular_inside) is refused, never opened: the sweep's denominator is
+    every .cap, so one is not dropped from it either."""
     names = sorted(f[: -len(".cap")] for f in os.listdir(directory) if f.endswith(".cap"))
+    for name in names:
+        if not regular_inside(os.path.join(directory, name + ".cap"), directory):
+            raise ValueError("%s.cap is not a regular file of at most %d bytes inside %s" % (name, MAX_BYTES, directory))
     present = set(names)
     out, taken = [], set()
     for name in names:

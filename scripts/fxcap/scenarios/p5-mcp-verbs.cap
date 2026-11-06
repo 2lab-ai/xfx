@@ -1,0 +1,124 @@
+# p5 mcp: the text subcommands of both releases against the same three
+# servers (fixture, remote, proj). Each release refuses the other's words.
+# The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+work p5-mcp-ws
+fx: homefile .fx/mcp.json p5-mcp-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-profile.json
+wait 5
+snap startup
+key Escape
+wait 1
+type /mcp list
+key Enter
+wait 2
+snap list
+key Escape
+wait 0.3
+key C-u
+type /mcp show fixture
+key Enter
+wait 4
+snap show-fixture
+type /mcp show remote
+key Enter
+wait 4
+snap show-remote
+type /mcp show proj
+key Enter
+wait 3
+snap show-proj
+type /mcp login fixture
+key Enter
+wait 2
+snap login-stdio
+type /mcp login remote
+key Enter
+wait 5
+snap login-remote
+type /mcp auth remote
+key Enter
+wait 5
+snap auth-remote
+type /mcp logout remote
+key Enter
+wait 2
+snap logout-remote
+type /mcp add two -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts
+key Enter
+wait 4
+snap add-new-syntax
+type /mcp add three @BUN@ @SCENARIOS@/p5-mcp-stdio.ts
+key Enter
+wait 4
+snap add-old-syntax
+type /mcp add --transport http web http://127.0.0.1:9/web
+key Enter
+wait 3
+snap add-old-http
+type /mcp add web2 http://127.0.0.1:9/web2
+key Enter
+wait 3
+snap add-new-http
+type /mcp add bad.name http://127.0.0.1:9/x
+key Enter
+wait 2
+snap add-badname
+home after-add
+type /mcp approve proj
+key Enter
+wait 4
+snap approve
+type /mcp trust approve proj
+key Enter
+wait 4
+snap trust-approve
+type /mcp list
+key Enter
+wait 2
+snap list-after
+key Escape
+wait 0.3
+key C-u
+type /mcp reject proj
+key Enter
+wait 3
+snap reject
+type /mcp remove two
+key Enter
+wait 3
+snap remove-two
+type /mcp remove three
+key Enter
+wait 3
+snap remove-three
+type /mcp remove web
+key Enter
+wait 3
+snap remove-web
+type /mcp remove web2
+key Enter
+wait 3
+snap remove-web2
+type /mcp resource list fixture
+key Enter
+wait 2
+snap resource-list
+type /mcp prompt list fixture
+key Enter
+wait 2
+snap prompt-list
+type /mcp show
+key Enter
+wait 1
+snap show-bare
+type /mcp 
+wait 1.5
+snap complete-args
+key C-u
+type /mcp show 
+wait 1.5
+snap complete-show
+key C-u
+snapfull end
+home end

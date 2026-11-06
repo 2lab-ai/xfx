@@ -13,6 +13,14 @@
 //             `resources/templates/list` and `prompts/list` empty; `ping` an empty result; any
 //             other method `Method not found`. GET (a listen stream) 405, DELETE (the session's
 //             end) 204.
+//   methodnotfound
+//             `ready`, except that `server/discover` gets HTTP 200 and the JSON-RPC error
+//             -32601 `Method not found` rather than a bare 404: the server the MCP research asks
+//             for (.prd/tui-phase5/research/mcp.md, Harness needs 1). fx v0.0.16 reads any error
+//             but three modern ones as a legacy answer and goes on to `initialize`
+//             (vercel-labs/fx@481104fd src/mcp/core/era.zig:387-402); the bare 404 is a legacy
+//             answer too, by another path (`classifyDiscoverHttp`, :408-413), and a 404 *with*
+//             -32601 would be a modern server without discovery, which this fixture never is.
 //   hang      holds every request open, answering nothing, until the mode is something else --
 //             then answers it as that mode would have: a server that is slow to come up, or
 //             comes up on cue (`hang`, then `ready`)
@@ -31,7 +39,7 @@ if (!modeFile) {
 }
 const started = Date.now();
 const log = (m: string) => console.log(`[mcphttp] ${m}`);
-const modes = new Set(["ready", "hang", "fail", "rpcerror"]);
+const modes = new Set(["ready", "methodnotfound", "hang", "fail", "rpcerror"]);
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const session = "fxcap-session-1";
 
@@ -44,11 +52,14 @@ const json = (frame: object, headers: Record<string, string> = {}) =>
   Response.json(frame, { headers: { ...headers, "content-type": "application/json" } });
 const result = (id: unknown, value: object) => json({ jsonrpc: "2.0", id, result: value });
 
-function ready(httpMethod: string, message: any): Response {
+function ready(httpMethod: string, message: any, discover = "404"): Response {
   if (httpMethod === "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST, DELETE" } });
   if (httpMethod === "DELETE") return new Response(null, { status: 204 });
   const id = message?.id;
   const method = message?.method;
+  if (method === "server/discover" && discover === "rpc") {
+    return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+  }
   if (method === "server/discover") return new Response(null, { status: 404 });
   if (id === undefined) return new Response(null, { status: 202 });
   switch (method) {
@@ -92,6 +103,7 @@ function ready(httpMethod: string, message: any): Response {
 
 function answerIn(now: string, httpMethod: string, message: any): Response {
   if (now === "ready") return ready(httpMethod, message);
+  if (now === "methodnotfound") return ready(httpMethod, message, "rpc");
   if (now === "rpcerror" && message?.id !== undefined) {
     return json({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "fixture refuses" } });
   }
