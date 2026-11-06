@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import textwrap
@@ -285,6 +286,101 @@ class CiSweep(unittest.TestCase):
         self.assertIn("gone\tremoved\n", r.stdout)
         self.assertEqual(os.listdir(self.state), [])
 
+    def test_a_file_named_through_the_scenario_directory_selects_its_users(self):
+        """capture.sh's `@SCENARIOS@/<path>`: in a typed line, in a seeded
+        profile, in a workspace directory's file -- one level, and never a
+        path outside scenarios/."""
+        server = '{"mcpServers":{"s":{"command":"@BUN@","args":["@SCENARIOS@/server.mjs"]}}}\n'
+        self.write(os.path.join(self.scen, "server.mjs"), "// one\n")
+        self.write(os.path.join(self.scen, "prof.json"), server)
+        os.makedirs(os.path.join(self.scen, "ws"))
+        self.write(os.path.join(self.scen, "ws", ".mcp.json"), server)
+        self.write(os.path.join(self.scen, "deeper.json"), '["@SCENARIOS@/prof.json"]\n')
+        caps = {
+            "viaprofile": "fx: homefile .fx/mcp.json prof.json\nsnap a\n",
+            "viawork": "work ws\nsnap a\n",
+            "viatype": "type /mcp add two -- @BUN@ @SCENARIOS@/server.mjs\nsnap a\n",
+            "viadeeper": "homefile x.json deeper.json\nsnap a\n",
+            "outside": "type /mcp ../scen/server.mjs /etc/hosts\nsnap a\n",
+        }
+        for name, text in caps.items():
+            self.write(os.path.join(self.scen, name + ".cap"), text)
+        self.commit("servers")
+        r = self.select("HEAD", "server.mjs", "// two\n")
+        for name in ("viaprofile", "viawork", "viatype"):
+            self.assertIn("%s\tuses server.mjs\n" % name, r)
+        # deeper.json names prof.json, not server.mjs: one level only.
+        self.assertNotIn("viadeeper", r)
+        self.assertNotIn("outside", r)
+        # The profile itself, edited, selects what names it either way.
+        r = self.select("HEAD", "prof.json", server + "\n")
+        self.assertIn("viaprofile\tuses prof.json\n", r)
+        self.assertIn("viadeeper\tuses prof.json\n", r)
+        self.assertNotIn("viatype", r)
+
+    def test_a_link_out_of_the_scenarios_is_never_read(self):
+        """A link under a named directory that leaves scenarios/ is not read:
+        here to a FIFO no one writes, whose open never returns (a link to
+        /dev/zero is the same path in the code, but a read of it that does not
+        end grows without bound -- 46 GB in three minutes, measured on the
+        unfixed code), and to a file that names a scenario file."""
+        outside = os.path.join(self.d, "outside.json")
+        self.write(outside, '["@SCENARIOS@/server.mjs"]\n')
+        fifo = os.path.join(self.d, "never")
+        os.mkfifo(fifo)
+        self.write(os.path.join(self.scen, "server.mjs"), "// one\n")
+        os.makedirs(os.path.join(self.scen, "ws"))
+        os.symlink(fifo, os.path.join(self.scen, "ws", "never"))
+        os.symlink(outside, os.path.join(self.scen, "ws", "out.json"))
+        self.write(os.path.join(self.scen, "ws", "in.json"), "[]\n")
+        self.write(os.path.join(self.scen, "linked.cap"), "work ws\nsnap a\n")
+        self.commit("links")
+        r = self.select("HEAD", "server.mjs", "// two\n")
+        self.assertNotIn("linked", r)
+        r = self.select("HEAD", "ws/in.json", "[1]\n")
+        self.assertIn("linked\tuses ws/in.json\n", r)
+
+    def test_a_cap_that_is_no_regular_file_in_the_scenarios_stops_the_selection_at_once(self):
+        """A `.cap` that is a link out of scenarios/ (here to a FIFO no one
+        writes, whose open never returns) is not read: the selection refuses
+        it, exit 2, within the bound, rather than waiting on it."""
+        fifo = os.path.join(self.d, "never.cap")
+        os.mkfifo(fifo)
+        os.symlink(fifo, os.path.join(self.scen, "hang.cap"))
+        self.commit("a linked cap")
+        code, out, err = self.select_run(self.base)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("hang.cap", err)
+        self.assertIn("not a regular file", err)
+
+    def select_run(self, base):
+        """--select against `base`, in its own process group, killed whole
+        after 60 s (a hung read is a failure, never a hang)."""
+        p = subprocess.Popen(
+            ["bash", CI_SWEEP, "--select", "--base", base, "--scenarios", self.scen, "--core", self.core],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            out, err = p.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            self.fail("the selection did not finish in 60 s")
+        return p.returncode, out, err
+
+    def select(self, base, name, text):
+        """The --select output once `name` under scenarios/ is `text`,
+        committed, against `base`."""
+        base = self.git("rev-parse", base).strip()
+        self.write(os.path.join(self.scen, name), text)
+        self.commit("edit " + name)
+        code, out, err = self.select_run(base)
+        self.assertEqual(code, 0, err)
+        return out
+
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 WORKFLOWS = [os.path.join(test_sweep.REPO, ".github", "workflows", n) for n in ("sweep.yml", "sweep-full.yml")]
@@ -336,6 +432,16 @@ class Workflows(unittest.TestCase):
             # neither word may appear in one.
             for expr in EXPRESSION.findall(text):
                 self.assertIsNone(re.search(r"\b(?:secrets|token)\b", expr, re.I), (name, expr))
+
+    def test_the_capture_tests_run_once_tmux_bun_and_curl_are_there(self):
+        # test-capture.sh runs tmux and bun: after the step that fetches bun
+        # onto the PATH and the one that installs tmux, before the sweep.
+        names = [st.get("name") for st in load_workflow(WORKFLOWS[0])["jobs"]["sweep"]["steps"]]
+        here = names.index("The capture harness's own tests")
+        self.assertLess(names.index("Fetch fx v0.0.16 and bun, each checked by sha256"), here)
+        self.assertLess(names.index("Install tmux"), here)
+        self.assertLess(here, names.index("Sweep the changed scenarios and the core set"))
+        self.assertEqual(step(load_workflow(WORKFLOWS[0]), "sweep", "The capture harness's own tests")["run"].strip(), "./scripts/fxcap/test-capture.sh")
 
     def test_only_a_pull_requests_run_is_cancelled_by_the_next(self):
         # A push to main is the backstop for a pull request built on an old

@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -486,6 +487,40 @@ class Capfile(unittest.TestCase):
         self.assertEqual(solo.labels(), ["a", "a.full"])
         self.assertEqual(solo.fx.duplicate_snaps, ["a"])
         self.assertEqual(solo.fx.typed_commands(), ["/model", "/mo"])
+
+    def test_a_cap_that_is_no_regular_file_inside_is_refused_without_reading_it(self):
+        # Each in a process of its own group, killed whole after 30 s: the
+        # FIFO's open would never return, and a hang must fail, not wait.
+        for target in ("fifo", "outside", "big"):
+            with self.subTest(target=target):
+                d = scratch()
+                scen = os.path.join(d, "scen")
+                os.makedirs(scen)
+                with open(os.path.join(scen, "ok.cap"), "w") as f:
+                    f.write("snap a\n")
+                if target == "fifo":
+                    os.mkfifo(os.path.join(d, "never"))
+                    os.symlink(os.path.join(d, "never"), os.path.join(scen, "bad.cap"))
+                elif target == "outside":
+                    with open(os.path.join(d, "out.cap"), "w") as f:
+                        f.write("snap a\n")
+                    os.symlink(os.path.join(d, "out.cap"), os.path.join(scen, "bad.cap"))
+                else:
+                    with open(os.path.join(scen, "bad.cap"), "w") as f:
+                        f.write("# x\n" * ((1 << 20) // 4 + 1))  # past capfile.MAX_BYTES, 1 MiB
+                p = subprocess.Popen(
+                    [sys.executable, "-I", "-c", "import sys; sys.dont_write_bytecode = True; sys.path.insert(0, %r)\n"
+                     "import capfile\ntry:\n    capfile.units(%r)\nexcept ValueError as e:\n    print(e)\n" % (HERE, scen)],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+                )
+                try:
+                    out, err = p.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    os.killpg(p.pid, signal.SIGKILL)
+                    p.communicate()
+                    self.fail("capfile.units did not finish in 30 s")
+                self.assertEqual(p.returncode, 0, err)
+                self.assertIn("bad.cap is not a regular file", out)
 
     def test_the_repos_scenarios(self):
         units = capfile.units(os.path.join(HERE, "scenarios"))

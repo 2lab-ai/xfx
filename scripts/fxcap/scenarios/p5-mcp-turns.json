@@ -1,0 +1,6 @@
+[
+ {"tool":{"id":"call_search","name":"capability_search","input":{"query":"echo text through the fixture"}}},
+ {"tool":{"id":"call_echo","name":"mcp_fixture_echo","input":{"text":"hi"}}},
+ {"tool":{"id":"call_echo2","name":"mcp_fixture_echo","input":{"text":"again"}}},
+ {"chunks":["done."]}
+]

@@ -1,0 +1,17 @@
+# p5 mcp: one turn that searches and calls the fixture's tool twice -- the
+# tool group's summary, the rows, and what the model is sent (gwlog).
+# The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+fx: homefile .fx/mcp.json p5-mcp-turn-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-turn-profile.json
+gateway p5-mcp-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 6
+snap ready
+type use the fixture echo tool
+key Enter
+wait 15
+snap turn
+snapfull end
+gwlog

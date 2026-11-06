@@ -1,0 +1,18 @@
+# H1 `mcphttp methodnotfound`: the run's loopback HTTP MCP server answers
+# `server/discover` with HTTP 200 and the JSON-RPC error -32601, as the MCP
+# research's harness need 1 asks, rather than `ready`'s bare 404. fx v0.0.16
+# reads it as a legacy answer and goes on to `initialize`
+# (vercel-labs/fx@481104fd src/mcp/core/era.zig:387-402), so the server comes
+# up ready with its one tool; the fixture's log has each frame and the mode it
+# was answered in. xfx sends no discover and is ready by `initialize` alone.
+mcphttp methodnotfound
+fx: homefile .fx/mcp.json h1-mcp.json
+xfx: homefile .xfx/mcp.json h1-mcp.json
+wait 5
+type /mcp list
+key Enter
+wait 1.5
+snap ready
+key Escape
+wait 0.5
+gwlog
