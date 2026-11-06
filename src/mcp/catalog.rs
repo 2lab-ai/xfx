@@ -959,6 +959,32 @@ mod tests {
     }
 
     #[test]
+    fn a_cut_keeps_whole_characters_at_either_parity_of_the_cap() {
+        // fx's own case (`prepareModelOutput keeps complete codepoints at
+        // the cap`, `vercel-labs/fx@481104fd
+        // src/core/tooling/tool_result_limits.zig:189-203`): one ASCII byte,
+        // then two-byte characters, so one of two caps a byte apart puts the
+        // cut inside a character.
+        let text = format!("x{}", "\u{e9}".repeat(300));
+        let mut inside = 0;
+        for cap in [128, 129] {
+            let marker = format!(
+                "\n... [tool result truncated for grep_files: original {} bytes; cap is {cap} bytes]\n",
+                text.len()
+            );
+            inside += usize::from(!text.is_char_boundary(cap - marker.len()));
+            let output = model_output("grep_files", &text, cap);
+            assert!(output.len() <= cap, "{cap}: {}", output.len());
+            let prefix = output.strip_suffix(&marker).expect("ends with the marker");
+            assert!(
+                prefix.starts_with('x') && prefix.ends_with('\u{e9}'),
+                "{cap}: {prefix:?}"
+            );
+        }
+        assert_eq!(inside, 1, "one of the two caps must cut inside a character");
+    }
+
+    #[test]
     fn a_protocol_error_is_its_code_and_its_message_as_fx_reads_them() {
         assert_eq!(
             protocol_error("mcp_s_t", -32603, "fixture refuses"),
