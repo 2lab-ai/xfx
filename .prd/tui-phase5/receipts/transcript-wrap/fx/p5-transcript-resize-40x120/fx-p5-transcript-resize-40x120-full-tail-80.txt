@@ -1,10 +1,18 @@
+├ Read d.txt
+│  1     d line 1 of the d file
+│  2     d line 2 of the d file
+│  3     d line 3 of the d file
+│  4     d line 4 of the d file
+│  5     d line 5 of the d file
+│  6     d line 6 of the d file
+│  7     d line 7 of the d file
 │  8     d line 8 of the d file
 │  9     d line 9 of the d file
 │  10    d line 10 of the d file
 │  11    d line 11 of the d file
 │  12    d line 12 of the d file
 
-  2026-11-06 21:41:10.887 UTC · Tool
+  2026-11-06 23:41:50.610 UTC · Tool
 ├ Read e.txt
 │  1     e line 1 of the e file
 │  2     e line 2 of the e file
@@ -19,21 +27,13 @@
 │  11    e line 11 of the e file
 │  12    e line 12 of the e file
 
-  2026-11-06 21:41:10.908 UTC · Tool
-└ Ran sleep 9; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12 w13 w14
-  w15 w16 w17 w18 w19 w20 w21 w22 w23 zz
+  2026-11-06 23:41:50.621 UTC · Tool
+└ Running sleep 20; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12
+  w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w23 zz
 │  action: run
-│  command: sleep 9; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12
+│  command: sleep 20; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12
 │  w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w23 zz
 │  yield_time_ms: 30000
-│ w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12 w13 w14 w15 w16 w17 w18
-│ w19 w20 w21 w22 w23 zz
-
-  2026-11-06 21:41:20.164 UTC · Response
-  Done reading.
-
-  2026-11-06 21:41:20.158 UTC · Usage
-  9s (↑3 ↓120)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
 

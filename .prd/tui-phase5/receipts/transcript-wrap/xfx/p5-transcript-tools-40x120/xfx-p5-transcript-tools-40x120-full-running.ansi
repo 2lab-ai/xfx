@@ -1,23 +1,23 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-e21d3aa [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-52b150c [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
-[38;5;245m  2026-11-06 21:58:17.303 UTC · Notice[39m
+[38;5;245m  2026-11-06 23:43:49.095 UTC · Notice[39m
 [38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
   [38;5;250mtools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
   [38;5;250m+5 more)[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-11-06 21:58:22.397 UTC · Notice[39m
+[38;5;245m  2026-11-06 23:43:53.578 UTC · Notice[39m
 [38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
   [38;5;250mfinish: tool_calls[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-06 21:58:22.335 UTC · Prompt[39m
+[38;5;245m  2026-11-06 23:43:53.507 UTC · Prompt[39m
 [38;5;255m┃[39m [1mcheck the files[0m
 
-[38;5;245m  2026-11-06 21:58:22.450 UTC · Response[39m
+[38;5;245m  2026-11-06 23:43:53.633 UTC · Response[39m
   Reading the files first.
 
-[38;5;245m  2026-11-06 21:58:22.450 UTC · Tool[39m
+[38;5;245m  2026-11-06 23:43:53.633 UTC · Tool[39m
 [38;5;255m●[39m [38;5;245m1 tool call · 1 command[39m
 └ Running [38;5;252mecho[39m word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15
   word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32

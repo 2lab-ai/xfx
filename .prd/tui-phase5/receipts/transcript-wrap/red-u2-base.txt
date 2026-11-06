@@ -1,0 +1,13 @@
+Round 2's U2 screen tests (the anchor test with its hold assertion first, the width and records tests) and their helpers pasted onto the base d314549e (a throwaway git clone --no-local), cargo test --lib full_transcript::tests:
+test tui::full_transcript::tests::a_reader_among_the_records_keeps_its_row_when_the_width_changes ... FAILED
+test tui::full_transcript::tests::the_reading_position_holds_when_the_page_rebuilds_above_and_below_it ... FAILED
+test tui::full_transcript::tests::a_width_change_keeps_the_entry_the_reader_was_in ... FAILED
+thread 'tui::full_transcript::tests::a_reader_among_the_records_keeps_its_row_when_the_width_changes' (261330531) panicked at src/tui/full_transcript.rs:3566:9:
+thread 'tui::full_transcript::tests::the_reading_position_holds_when_the_page_rebuilds_above_and_below_it' (261330552) panicked at src/tui/full_transcript.rs:3517:9:
+  left: ["│  a line 6 of the a file", "│  a line 7 of the a file", "│  a line 8 of the a file", "│  a line 9 of the a file", "│  a line 10 of the a file", "│  a line 11 of the a file", "│  a line 12 o
+ right: ["│  a line 11 of the a file", "│  a line 12 of the a file", "", "", "  2026-10-06 14:43:50.620 UTC · Tool", "├ Read b.txt", "│  b line 1 of the b file", "│  b line 2 of the b file", "│  b lin
+thread 'tui::full_transcript::tests::a_width_change_keeps_the_entry_the_reader_was_in' (261330538) panicked at src/tui/full_transcript.rs:3544:9:
+  left: "│  b line 2 of the b file"
+ right: "├ Read b.txt"
+test result: FAILED. 36 passed; 3 failed; 0 ignored; 0 measured; 3941 filtered out; finished in 0.01s
+error: test failed, to rerun pass `--lib`

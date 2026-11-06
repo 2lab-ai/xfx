@@ -2,157 +2,259 @@
 
 The unit is epic 4's first two (Transcript), shipped together: fx v0.0.16
 (`vercel-labs/fx@481104fd`) T1 and T2 of
-`research/tui-phase5:.prd/tui-phase5/research/transcript.md` (§2 T1, T2; §3 rows
-U1, U2). Base: `main` at `d314549e`.
+`research/tui-phase5:.prd/tui-phase5/research/transcript.md` (§2 T1, T2; §3
+rows U1, U2). Base: `main` at `d314549e`. This is round 2 (T-U1U2b, the
+review of `6c99caa5`); it replaces round 1's GREEN.
+
+**Builds.** Every `xfx/` capture is from a debug build of `52b150c`, the
+commit under this receipt; every `red/` capture from a build of the base
+`d314549e`. `publish.py`'s check, run as the captures were copied in: each
+xfx snap whose row 1 is the banner reads `x𝒇x v0.1.0-52b150c [debug]`
+(every scenario has at least one such snap), each red one
+`v0.1.0-d314549`. fx is the v0.16 reference binary (sha256 `8e6cda2e…`,
+unchanged after every run).
 
 ## What changed
 
+Round 1 (`e21d3aa1`):
+
 - **U1, T1.** `src/tui/full_transcript/tool_status.rs` ports
-  `wrapFullToolStatus` and its scanner (`src/ui/render_engine/transcript_blocks.zig:470-573,904-975@481104fd`)
-  and `expandedContinuationPrefix` (`src/ui/transcript/tool_group_projection.zig:1094-1100@481104fd`).
-  `tool_rows` hands the group header and the call's row to it instead of
-  `ellipsized` (`materializeExpandedOverride`, `tool_group_projection.zig:1061-1092@481104fd`):
-  `│ ` under `├`/`│`, two blanks under the header and `└`; the continuation
-  is reset, then the prefix in the default style, then the tracked attributes
-  and foreground (`CellSgr`, upstream's `assistant_pacer.SgrState`,
-  `src/ui/assistant/pacer.zig:42-155@481104fd`); a wide character a row
-  cannot hold is `?`; a prefix that leaves no room is dropped.
-- **Argument dedupe** (`argumentVisibleInToolHeading`,
+  `wrapFullToolStatus` and its scanner
+  (`src/ui/render_engine/transcript_blocks.zig:470-573,904-975@481104fd`) and
+  `expandedContinuationPrefix` (`src/ui/transcript/tool_group_projection.zig:1094-1100@481104fd`);
+  `tool_rows` wraps the group header and the call's row with it
+  (`materializeExpandedOverride`, `:1061-1092@481104fd`): `│ ` under `├`/`│`,
+  two blanks under the header and `└`, reset, prefix, then the tracked
+  attributes and foreground (`CellSgr`, `src/ui/assistant/pacer.zig:42-155@481104fd`),
+  `?` for a wide character a row cannot hold, a prefix with no room dropped.
+- **Dedupe** (`argumentVisibleInToolHeading`,
   `src/ui/full_transcript_screen.zig:6594-6619@481104fd`, 78424464): hidden
-  only when the value is non-empty, in the heading's first line, **and** the
-  heading's width fits `cols`.
-- **Raw statuses keep their replay** (`formatFullToolStatus`,
-  `transcript_blocks.zig:871-902@481104fd`, 4e4b599e): xfx's Ctrl-O has no raw
-  tool-status entry -- every call is drawn through its group, as upstream's
-  expanded override, and a question is its resolution's rows (`Body::Block`,
-  untouched). Nothing to port; said in `docs/parity.md`.
+  only when non-empty, in the heading's first line, and the heading fits.
+  **The first-line half can never matter here**: `spelled()`
+  (`src/tui/toolgroup.rs`) makes every control a space, so no heading has a
+  line break. It is kept as fx's rule, not tested.
 - **U2, T2.** `src/tui/full_transcript/position.rs` ports
   `transcript_presentation.State` (`src/core/output/transcript_presentation.zig:52-305@481104fd`)
-  without the anchor: offset from the top, `follow_tail`, bookmark entry +
-  intra row, `prepare_projection` (width change), `pin_reading_position`
-  (records keep their offset, b1a53b01), `select_visual_offset`,
-  `refresh_bookmark`. `View::select` pins on a page whose revision or width
-  changed since the last one (`presentationForRebuiltPage`,
-  `src/ui/transcript/runtime.zig:11584-11590@481104fd`) and selects on the
-  page as measured now (`selectProjectionViewportOffset`, `:11647-11660`).
-  Item rows: welcome = 1, records = 0, entry `i` = `i + 2`; an entry starts
-  at its header, under the separator (`renderEntriesForFullPresentationInterruptible`,
-  `transcript_blocks.zig:2084-2096@481104fd`).
+  without the anchor; `View::select` pins on a page whose revision or width
+  changed (`presentationForRebuiltPage`, `src/ui/transcript/runtime.zig:11584-11590@481104fd`)
+  and selects on the page measured now (`selectProjectionViewportOffset`,
+  `:11647-11660`).
 
-## Tests ported
+Round 2 (`25e2c4e`, `f3bf43f`, `52b150c`):
 
-| fx test (`@481104fd`) | xfx test |
-|---|---|
-| `full tool status paints its continuation prefix unstyled before replaying styles` (`transcript_blocks.zig:3918`) | `tool_status::a_continuation_prefix_is_painted_unstyled_before_the_styles_are_reopened` |
-| `full tool status drops a continuation prefix that leaves no room` (`:3948`) | `tool_status::a_continuation_prefix_that_leaves_no_room_is_left_off` |
-| `full tool status reopens a bounded style on every continuation row` (`:3955`) | `tool_status::a_long_highlighted_row_reopens_a_bounded_style_on_every_continuation` |
-| `full tool status marks a wide character that cannot fit` (`:3979`) | `tool_status::a_wide_character_that_cannot_fit_is_a_question_mark` |
-| (6f071dea's 14 KB heredoc, bounded: bytes ≤ source + 37/row, < 2 s) | `tool_status::a_fourteen_kilobyte_heredoc_wraps_in_time_and_space_linear_in_its_length` |
-| `expanded rows wrap under their tree rail and keep command styling` (`tool_group_projection.zig:2053`) | `a_groups_rows_wrap_under_their_tree_rail_and_keep_the_commands_colours` |
-| `expanded group headers wrap instead of clipping` (`:2133`) | `a_groups_header_wraps_instead_of_being_cut` |
-| `full projection wraps a long tool status instead of clipping it` (`full_transcript_screen.zig:969`) | `a_long_heading_wraps_under_its_rail_instead_of_being_cut` |
-| `full projection keeps semantic arguments beside a wrapped tool heading` (`:1046`) | `arguments_beside_a_heading_wider_than_the_screen_keep_their_rows` |
-| `full projection keeps short session input that a long heading contains by chance` (`:1089`) | `a_short_argument_a_long_heading_contains_by_chance_keeps_its_row` |
-| `transcript presentation pins the reading position to its entry for a rebuilt page` (`transcript_presentation.zig:397-448`) | `position::the_reading_position_is_pinned_to_its_entry_for_a_rebuilt_page` (the anchor case has no counterpart) |
-| `… clamps bookmarks and selects retained neighbor` (`:363`), `… scroll saturates` (`:331`), `… bookmark skips synthetic id-0 records` (`:464`) | `position::*` |
-| (screen level) | `the_reading_position_holds_when_the_page_rebuilds_above_and_below_it`, `a_position_inside_the_records_keeps_its_offset`, `a_width_change_keeps_the_entry_the_reader_was_in`, `tool_rows_fit_the_narrowest_screens` |
+- **One measure** (opus 5). A character's cells are the screen's
+  (`wrap::width`, which the frame clips by and the grid places by), and an
+  escape ends where the frame's tokenizer ends it (`pacer::escape_at`). fx's
+  `display_width` port and the screen disagree on 11 352 of the 2 224 104
+  codepoints and codepoint-in-context strings probed; U+17D8 is one cell to
+  the port and three to the screen. Breaks are fx's rule.
+- **A run of blanks is measured once** (gpt6-U1). fx re-reads the rest of the
+  run at every byte; a 200 000-tab row took 22.9 s. A differential test runs
+  the cached scanner against the uncached one on 400 random strings, every
+  start and every width from 0 to 13, and finds no break moved. A second one
+  runs the scanner against round 1's on an alphabet both measures agree on.
+- **A resolution runs on** (opus 2, reproduced). A question's resolution
+  keeps the rows it was written at. One wider than a narrowed screen goes on
+  to the next row, mid-word and in its colours, as fx's row walker lets a
+  static row (`ProjectionRowWalker.appendWithSoftWrapPrefix`,
+  `full_transcript_screen.zig:3968-4039@481104fd`). Round 1's "nothing to
+  apply to" was wrong about the screen. It was right that `formatFullToolStatus`
+  is not the path: fx's resolution is a `question_resolution` raw entry, not a
+  `tool_status` one.
+- **A width change is a rebuild** (gpt6-U2, with fx as the oracle). fx's
+  `prepare_projection` is reached only through `buildFullTranscriptProjection`
+  (`runtime.zig:10661-10676@481104fd`), which only `runtime.zig`'s tests call.
+  The live screen pins on each installed page. Round 1 queued the bookmark
+  instead. `p5-transcript-records` shows fx keeping a reader on its
+  `* session:` row across 120 → 80 → 120; round 1 moved it to the welcome's
+  blank row. Positions among the records keep their row offset through a
+  rebuild, a width change included.
+- **`docs/parity.md`** (C-o row): one measure, the run-on, a width change as a
+  rebuild. `TARGET_BYTES` (`src/tui/toolgroup.rs`, 1024 B then `…`) is named
+  **open, T-U4, once epic 2 has landed**, with fx's unported test.
+- **Ledger.** The whole-snap `full-transcript-shift` cover is off the four
+  scenarios. `transcript-page-offset` takes only rows 1-2 and 35-37 of the
+  `full-*` snaps of anchor, anchormid, resize, records and question.
+  `session-record` matches the tool list's later rows at any width.
+  `subagent-tool` (whole snap) covers only the tools scenario's snaps after
+  fx's subagent step.
 
 ## RED
 
-The screen-level tests, pasted onto the base in a throwaway `git clone
---no-local` (`position.rs`'s tests and `a_position_inside_the_records_keeps_its_offset`
-read the new type and were left out): **8 of the 9 pasted fail**
-(`red-tests.txt`) -- the six U1 tests (an `…` on the row, the heading cut),
-the anchor test (`after[..36] != before[..36]`) and the width test (`left:
-"│  b line 2 of the b file"`, `right: "├ Read b.txt"`). GREEN: `cargo test
---lib full_transcript`, 75 passed.
+- **Tests on the base**, pasted into a throwaway `git clone --no-local`:
+  - **Round 1 (`red-tests.txt`):** 8 tests were pasted and **8 failed**
+    (`a_position_inside_the_records_keeps_its_offset` reads the new type and
+    could not be pasted). Round 1's anchor test did not reach its hold
+    assertion. It stopped at the U1 precondition ("the heading wraps to two
+    rows", `red-tests.txt:54-57`), so round 1 had no U2 test RED; U2's RED was
+    only the anchormid capture.
+  - **Round 2 (`red-u2-base.txt`):** the anchor test now asserts the hold
+    first and fails there: `after[..36] != before[..36]`, `left: "│  a line 6
+    …"`, `right: "│  a line 11 …"`. The width test (`left: "│  b line 2 …"`,
+    `right: "├ Read b.txt"`) and the records width test fail too: 3 of 3.
+- **Round 2's tests on round 1's head** `6c99caa5` (`red-round1-head.txt`):
+  **5 fail.**
+  - the resolution, cut at 60 with `…`;
+  - the records width change, which moved the reader;
+  - a lone ESC before `€`, which became `"\u{1b}�"`;
+  - `"៘" at 8: "  ៘x ៘x" is 11 cells`;
+  - `22.9s for a run of 200 000 tabs`.
 
-## Captures
+  The zero-width and the attributes-only tests pass on round 1 as well. They
+  pin behaviour; they caught no defect.
+- **Captures** (`red.txt`, `check.py` on `fx/` against `red/`): the stitched
+  pages fail where the heading is cut, and `anchormid`'s hold fails. The
+  base's row 1 goes from `│  6  a line 6` to `● 6 tool calls …`. The records
+  top fails at 80, where the base moved to `  mcp: none`, and the question
+  fails at 60, where the base cut `fast loc…`.
 
-```
-FX_BIN=<fx v0.0.16, sha256 8e6cda2e…> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  <scenario> <size> <dir>
-XFX_BIN=<xfx>                         TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx <scenario> <size> <dir>
-```
+## GREEN: `check.py` on the captures (`green.txt`)
 
-`fx/` is v0.0.16, `red/` the base (`d314549e`), `xfx/` this branch's head.
-capture.sh found the fx binary's bytes unchanged after every run. The
-scenarios are the research's, with three changes each (said in their
-headers): xfx's own turns file (`terminal`/`exec` for fx's `shell`/`run`; the
-tools scenario's second step, two `subagent` calls, has no xfx tool and is
-left out), `xfx: env XFX_PERMISSION_MODE=yolo`, and `env TZ=UTC` on both so
-v0.0.16's local-time header (T-U5) reads UTC. `p5-transcript-resize` is new
-(capture.sh has `resize` on `main`): a page up mid-document while the command
-runs, the window narrowed to 80 columns with Ctrl-O up, closed and reopened,
-widened back, a page up, the command settling.
+`check.py` reads every pair cell by cell, styles included, after the
+ledger's normalizations. It takes out only two causes, by exact pattern:
 
-`pair.py` compares a pair: the ledger's normalizations (banner, timestamp,
-network ms), then `ledger.aligned`, and each row left without a match is
-covered by a named `[[cause]]` on its own side (`session-record`,
-`tool-schema`), is a blank above the footer (a shorter record leaves more), is
-one of at most two rows at a page's edge (`PAGE_OFFSET=2`: fx's command entry
-has two argument rows xfx's tool has not, `action: run` and
-`yield_time_ms`, so a page counted from the tail starts two rows later on fx),
-or is **UNEXPLAINED**. At the top of the document (`anchor`'s `full-pgup2`,
-`full-pgup2-after`) the edge rows are the other way round: fx's record is two
-rows longer at its head (`session-record`'s `system prompt:` and `skills:`
-lines), so fx's row 1 is the blank under its banner, xfx's is the banner, and
-xfx shows one more row at the bottom -- RED reads the same, not this unit's.
-`pairs/{red,green}/` hold every report.
+- fx's `│  action: run` and `│  yield_time_ms: N` (`tool-schema`), counted;
+- fx's `system prompt:` and `skills:` lines, and each side's tool list as one
+  row (`session-record`), counted.
 
-| scenario | snap | RED unexplained | GREEN unexplained |
-|---|---|---|---|
-| tools 40x120 | `full-running`, `full-pgup` | 4, 4 (the cut heading) | **0, 0** |
-| tools 40x80 | `full-running`, `full-pgup` | 6, 6 | **0, 0** |
-| anchormid 40x120 | `full-running` / `full-pgup` / `full-pgup-after` | 5 / 5 / 19 | **0 / 0 / 0** |
-| anchormid 40x120 | `full-end`, `running`, `end` | 0 | 0 |
-| anchor 40x120 | `full-running`, `full-pgup` | 5, 5 | **0, 0** |
-| anchor 40x120 | `full-pgup2`, `full-pgup2-after` (top of document) | 0 | 0 |
-| resize 40x120 | `full-running`, `full-pgup`, `full-pgup-80`, `full-tail-80` | 5, 5, 5, 6 | **0, 0, 0, 0** |
-| resize 40x120 | `full-tail-120`, `full-pgup-120`, `full-pgup-after` | 0 | 0 |
-| tools 40x120 / 40x80 | `end`, `end.full`, `full-pgup-after`, `full-tail`, `full-tail-up4` | 10, 10, 21, 21, 24 | the same, row for row |
+Nothing else is excused. There is no edge allowance. The claims:
 
-The last row's rows are fx's two subagent calls and the counts they change
-(`● 8 tool calls · 5 read · 2 subagents · 1 command`): xfx has no subagent
-tool (`docs/parity.md`, deferred). Not this unit's, and unchanged by it.
+- **stitch:** each side's windows, a page or an arrow apart, are checked
+  against each other where they overlap. They are joined into the bottom of
+  that side's document, and the two documents are compared bottom-up. A page
+  counted from the tail starts two rows later on fx, so the anchormid and
+  resize scenarios now take an arrow window (`Up`, 3 rows) above each claimed
+  page. That window is what gives every row of the page an fx partner.
+- **inside:** a pinned window is found whole, once, inside each side's
+  document and within the rows both sides cover. fx's window starts *d* rows
+  later; a view pinned at another width must start the same *d* as the view
+  it was pinned from: one signed shift.
+- **hold:** a side's two snaps are identical across a rebuild. **row1:** the
+  first row is unchanged across a width change. **insert:** at the top of the
+  document, where the new `* network:` record lands *inside* the view, the
+  rows above it are the same, then come its header and `* network:` row,
+  then the earlier rows pushed down by its height.
 
-**Row 1 holds** (`anchormid`, before the rebuild → after it): fx `│  9     a
-line 9 of the a file` → the same; RED `│  6     a line 6 …` → `● 6 tool calls
-· 5 read · 1 command` (jumped); GREEN `│  7     a line 7 …` → the same. The two
-rows between fx's `9` and xfx's `7` are the `tool-schema` rows below the
-page. Across the width change (`resize`): fx, RED and GREEN all keep row 1 at
-80 columns; after reopening at 80 and widening to 120 every side follows the
-tail.
+**Which rows have an fx partner.** A tail window's top two xfx rows are
+compared only when the stitch has a window above it; fx's page starts two
+rows later. So:
 
-## Regressions
+- anchormid's and resize's claimed pages (`full-pgup`, the pinned 80- and
+  120-column views) are fully compared, every row;
+- tools and question fit on one screen, and are compared whole;
+- anchor's three windows reach the document's top, and only xfx's banner is
+  left;
+- **two exceptions**:
+  - anchormid's `full-end`, a lone tail: xfx's top two rows are not compared;
+  - records' windows, at the top: fx's session record is two rows taller, so
+    xfx's last two record rows (`a line 6`, `a line 7`) are not compared.
 
-Every other `p5-*` scenario that renders Ctrl-O (`p5-transcript-cancel`,
-`-diffctl`, `-md`, `-md-light`, `-tz`, `-tzsys`), RED against GREEN: every
-snap's text is the same after the banner and the clocks: 23 of 23 identical
-(`regressions.txt`).
+The `green.txt` tally is in "Gates" below. Highlights:
 
-## `docs/parity.md` and the ledger
+- **tools** at 120 and at 80: the whole document is the same with exactly 2
+  `tool-schema` and 2 `session-record` rows taken out, and the heading is
+  wrapped as fx wraps it.
+- **anchormid:** the joined documents agree on 73 rows, and xfx's
+  `full-pgup` lies inside them. Every row of it is compared, which includes
+  `│  7     a line 7 …`, the row round 1's checker excused. fx's page starts 2
+  rows later. **Hold:** `full-pgup == full-pgup-back == full-pgup-after` on
+  both sides, all 36 rows (xfx row 1 `│  7`, fx `│  9`).
+- **anchor:** 103 rows the same from the top of the document down. Only xfx's
+  banner has no fx partner, because fx's two-pages-up stops one row lower.
+  At the top, the settling turn's `* network:` record lands inside the view,
+  under the record before it (xfx row 19, fx row 20). The view holds above
+  it, and the 13 (fx 12) rows under it are the ones that were there, pushed
+  down 5.
+- **resize:**
+  - the 120-column running page agrees with fx on 73 rows;
+  - the view pinned at 80 is found in the 80-column document with fx 2 rows
+    later, as at 120;
+  - widened back, the same holds;
+  - `full-tail-120-pgup == full-pgup-after` on both sides.
+- **records:** 33 rows the same from the top at 120, at 80 and at 120 again.
+  Row 1 is `* session: …` in every snap, on both sides.
+- **question:** at 60, the resolution runs on exactly as fx's does: `…the
+  nightly imp` / `ort job write …`, `…the fast loca` / `l disk`. `l disk`'s
+  cells are in 245 on both sides, the colour the row opened with: the
+  comparison includes styles, so the reopen is fx's.
 
-- `docs/parity.md`, the `full transcript (C-o)` row: the wrap, the dedupe
-  rule, the reading position; two new narrower points -- a call's row names
-  at most 1024 bytes of its argument and then `…` (`src/tui/toolgroup.rs`
-  `TARGET_BYTES`; fx's bound is 120 × 120 bytes,
-  `src/core/tooling/tool_presentation.zig:21-22@481104fd`; owner: the tools
-  cluster) and the raw-status replay that has nothing to apply to.
-- `scripts/fxcap/parity-ledger.toml`: `session-record` matches the tool
-  list's second row at any width; `full-transcript-shift` lists the four
-  scenarios.
+## The checkers against changed captures (`mutants.txt`)
 
-## Gates (at `e21d3aa1`, `TMPDIR=/private/tmp/claude-501/tw`, each full run after the idle wait)
+`mutants.py` copies the captures, changes one row, and runs three checks:
+round 1's `pair.py` (`PAGE_OFFSET=2`, round 1's ledger), `check.py`, and
+`sweep-view.py`. The last runs the sweep's own classification
+(`scripts/fxcap/sweep.py`) under round 1's ledger and under this one.
+
+- **Unchanged captures:** all three pass.
+- **xfx `full-pgup` row 1 (top edge), a printed digit changed** (`a line 7` →
+  `a line 8`):
+  - in that window only: round 1 passes it as "page offset". `check.py`
+    fails it, because xfx's own arrow window disagrees;
+  - in both xfx windows that show the row: round 1 passes it. `check.py`
+    fails it against fx: `fx '│  7     a line 7 …' / xfx '│  7     a line 8 …'`.
+- **fx `full-pgup` row 36 (bottom edge), `Tool` → `Toil`:** round 1 passes
+  it. `check.py` fails it: `fx '… · Toil' / xfx '… · Tool'`.
+- **xfx row 12 (mid-page), in both windows:**
+  - round 1's checker catches it;
+  - the sweep under round 1's ledger does not, since its whole-snap cover
+    names a cause for it;
+  - under this ledger the sweep lists 2 "rows no cause covers".
+
+On the two edge mutants the sweep under this ledger stays quiet: rows 1-2
+and 35-37 are what `transcript-page-offset` names. Those rows are
+`check.py`'s to read.
+
+`sweep-view.txt` is the sweep's view of every `full*` pair of the seven
+scenarios under this ledger: **0 rows no cause covers**.
+
+## Regressions (`regressions.txt`)
+
+Every other `p5-*` scenario that opens Ctrl-O was compared, red against xfx,
+every snap's `.ansi` with the build, clocks and network ms normalized:
+
+- `p5-transcript-cancel`, `-diffctl`, `-md`, `-md-light`, `-tz`, `-tzsys`.
+
+The result is in "Gates".
+
+## Notes for a re-run
+
+- anchormid's `full-pgup-up` and `full-pgup-back` land about a second before
+  the 9 s command settles. That is the research's turn, kept so its fx
+  captures still apply. resize has its own 20 s turn for this reason.
+- `Reading::refresh_bookmark` has no reader in xfx now: the pin overwrites
+  the bookmark before any selection reads it. It is kept because it is fx's
+  state, as `select_visual_offset` leaves it.
+- `origin/main` moved to `88c7a5be` after `46c4efa6`, which this branch
+  merged last. It is **not merged here**: a merge commit would be a head that
+  built none of these captures.
+
+## Files
+
+- `fx/`, `xfx/`, `red/`: the captures (redacted with `scripts/fxcap/redact.py`).
+- `check.py`, `sweep-view.py`, `mutants.py`: the checkers.
+- `green.txt`, `red.txt`, `sweep-view.txt`, `mutants.txt`, `regressions.txt`:
+  their output.
+- `red-tests.txt`, `red-u2-base.txt`, `red-round1-head.txt`: the RED test runs.
+
+## Gates
+
+Run on the tree at the receipt's first commit (`4a19a15e`, whose code is
+`52b150c`'s), `TMPDIR=/private/tmp/claude-501/tw`, each full run after the
+idle wait:
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 4887 passed, 0 failed, 7 ignored |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 4916 passed, 0 failed |
-| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` (after this receipt) | ok, ok, ok (8883 files) |
-| `scripts/fxcap/test-sweep.sh` (the ledger changed) | ok (24 + sweep tests) |
+| `cargo test --locked --no-fail-fast` | 4913 passed, 0 failed, 7 ignored |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4942 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok (9815 files) |
+| `scripts/fxcap/test-sweep.sh` (the ledger changed) | OK, both suites |
 | `cargo build --locked --release`; `--features fault-injection --target-dir target/faulty` | ok; ok |
 | `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+| `check.py` on `fx/` against `xfx/` (`green.txt`) | 34 claims, 34 hold |
+| `check.py` on `fx/` against `red/` (`red.txt`) | 34 claims, 12 fail |
+| `sweep-view.py` (`sweep-view.txt`) | 0 rows no cause covers |
+| `regressions.txt` | 23 of 23 snaps identical |
