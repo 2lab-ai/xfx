@@ -177,11 +177,12 @@ mod tests {
         // MCP servers, each start must return. A child that inherited
         // another start's pipe from the `pipe`-then-close-on-exec window
         // held that start until it exited -- here 30 s, for an MCP server
-        // the whole session. Twelve at a time, twenty times.
+        // the whole session. Sixteen at a time, each with its input, output
+        // and error piped as an MCP server's are, thirty times.
         use std::process::Stdio;
         use std::sync::{mpsc, Arc};
-        const AT_ONCE: usize = 12;
-        for round in 0..20 {
+        const AT_ONCE: usize = 16;
+        for round in 0..30 {
             let children = Arc::new(Mutex::new(Vec::new()));
             let (done, finished) = mpsc::channel();
             for _ in 0..AT_ONCE {
@@ -191,9 +192,9 @@ mod tests {
                     let mut sleeper = command("/bin/sleep");
                     sleeper
                         .arg("30")
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null());
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
                     if let Ok(child) = spawn(&mut sleeper) {
                         children
                             .lock()
