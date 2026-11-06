@@ -595,6 +595,61 @@ fn a_header_or_env_value_is_never_said_back_and_never_planted_in_the_project() {
     runtime.shutdown();
 }
 
+#[test]
+fn show_and_list_never_print_an_env_or_header_value_raw_or_expanded() {
+    // fx's `show` prints a stdio server's command line -- expanded, once a
+    // profile's `${VAR}` is (`src/core/mcp_host/verbs.zig:528@481104fd`) --
+    // and an HTTP server's URL, and never a variable or a header it sends.
+    // Each value here is a `${VAR:-default}` whose variable is unset, so a
+    // reader that expands a profile leaves the default and one that does not
+    // leaves the text as written -- neither drops the server -- and a plain
+    // value stands for one expanded already: the case holds either way.
+    let scratch = Scratch::new();
+    let (env_raw, env_expanded) = (
+        "${XFX_MCPV_TEST_UNSET:-expanded-env-secret}",
+        "expanded-env-secret",
+    );
+    let (header_raw, header_expanded) = (
+        "${XFX_MCPV_TEST_UNSET:-expanded-header-secret}",
+        "expanded-header-secret",
+    );
+    let (env_plain, header_plain) = ("plain-env-secret", "plain-header-secret");
+    scratch.write_profile(&format!(
+        r#"{{"mcpServers":{{"fixture":{{"command":"/bin/sh","args":["{}"],"env":{{"TOKEN":"{env_raw}","PLAIN":"{env_plain}"}}}},"remote":{{"type":"http","url":"http://127.0.0.1:9/mcp","headers":{{"X-Key":"{header_raw}","X-Plain":"{header_plain}"}}}}}}}}"#,
+        fixture()
+    ));
+    let runtime = scratch.runtime();
+    ready(&runtime, "fixture");
+    let mut answers: Vec<String> = Vec::new();
+    for line in [
+        "list",
+        "show fixture",
+        "show remote",
+        "login remote",
+        "logout remote",
+    ] {
+        answers.extend(said(&runtime, line));
+    }
+    // The case read the servers it set up: their rows are there.
+    let all = answers.join("\n");
+    assert!(
+        all.contains("    echo  Echo text back through the test fixture"),
+        "{all}"
+    );
+    assert!(all.contains("  url        http://127.0.0.1:9/mcp"), "{all}");
+    for secret in [
+        env_raw,
+        env_expanded,
+        env_plain,
+        header_raw,
+        header_expanded,
+        header_plain,
+    ] {
+        assert!(!all.contains(secret), "{secret} said back:\n{all}");
+    }
+    runtime.shutdown();
+}
+
 #[cfg(unix)]
 #[test]
 fn a_link_where_the_project_file_should_be_is_refused_in_fxs_words() {

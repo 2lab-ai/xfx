@@ -101,6 +101,7 @@ use super::image_paths;
 use super::inline_completion;
 use super::input::{Action, Decoder, Delivery, Input};
 use super::layout::{self, Geometry};
+use super::mcp_args::{self, McpArgs};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
 use super::model_menu::{self, ModelAction, ModelMenu};
 use super::notice::{self, unattributed};
@@ -1210,6 +1211,14 @@ pub(crate) struct Shell {
     /// because whether the draft is the picker's is a property of the whole
     /// text that [`Trigger::of`] -- one slash word -- does not read.
     provider_dismissed: bool,
+    /// `/mcp `'s argument completions, while the draft is a `/mcp ` line
+    /// ([`super::mcp_args`]): the provider column's kind -- a view of the
+    /// composer under its argument, opened and closed in
+    /// [`Self::reconcile_picker`] -- with the servers read at most twice a
+    /// second while it is up ([`Self::settle_mcp_args`]).
+    mcp_args: Option<McpArgs>,
+    /// Whether Escape closed it over the `/mcp ` line the draft still is.
+    mcp_args_dismissed: bool,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -2015,6 +2024,8 @@ enum Slot<'a> {
     /// The `/provider` column. Like the menu it owns nothing but rows, and the
     /// composer's argument is its query.
     Provider(&'a ProviderPicker),
+    /// `/mcp `'s argument completions: the same, under `/mcp `'s argument.
+    McpArgs(&'a McpArgs),
     /// The `@` file picker. It owns nothing but rows either.
     Files(&'a FilePicker),
     /// A completion menu for what the composer holds. It owns nothing but rows.
@@ -2268,6 +2279,8 @@ impl Shell {
             ),
             provider_picker: None,
             provider_dismissed: false,
+            mcp_args: None,
+            mcp_args_dismissed: false,
             activity_row: None,
             activity_more: Vec::new(),
             handoff: None,
@@ -2522,6 +2535,13 @@ impl Shell {
                 Some(Slot::Provider(column)) => column.rows(
                     self.geometry.cols,
                     self.provider_anchor(column),
+                    self.geometry.panel,
+                    self.palette,
+                ),
+                // The same, under `/mcp `'s argument.
+                Some(Slot::McpArgs(args)) => args.rows(
+                    self.geometry.cols,
+                    self.anchor_at(args.token_start()),
                     self.geometry.panel,
                     self.palette,
                 ),
@@ -2972,6 +2992,11 @@ impl Shell {
         if let Some(column) = self.provider_picker.as_ref() {
             return Some(Slot::Provider(column));
         }
+        // Only with a row to show: a `/mcp ` argument nothing completes
+        // leaves the slot, and Enter submits what was typed.
+        if let Some(args) = self.mcp_args.as_ref().filter(|args| args.visible()) {
+            return Some(Slot::McpArgs(args));
+        }
         // The `/model` column before the `@` word, as upstream asks
         // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`).
         if self.column.active(self.editor.text()).is_some() {
@@ -2991,11 +3016,17 @@ impl Shell {
     /// draft put at the start of its second row anchors at that row's start
     /// rather than past the edge of the screen.
     fn provider_anchor(&self, column: &ProviderPicker) -> u16 {
+        self.anchor_at(column.token_start())
+    }
+
+    /// The cell under byte `start` of the composer, which a column hangs
+    /// under (`projectedAnchorColumn`): on the row that byte is on, past the
+    /// prompt.
+    fn anchor_at(&self, start: usize) -> u16 {
         let text = self.editor.text();
-        // The column is rebuilt on every edit, so its offset is into this very
+        // A column is rebuilt on every edit, so its offset is into this very
         // text and after an ASCII prefix; checked anyway, because
         // `cursor_point` panics on an offset that is not a `char` boundary.
-        let start = column.token_start();
         if !text.is_char_boundary(start) {
             return PROMPT_CELLS;
         }
@@ -7220,6 +7251,8 @@ impl Shell {
                 self.picker = None;
                 self.file_picker = None;
                 self.provider_picker = None;
+                self.mcp_args = None;
+                self.mcp_args = None;
                 return;
             }
         }
@@ -7233,6 +7266,7 @@ impl Shell {
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             return;
         }
         // The same for the settings menu (`syncSettingsMenu`,
@@ -7247,6 +7281,7 @@ impl Shell {
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             return;
         }
         // The same for `/model`'s menu (`syncModelMenu`,
@@ -7256,6 +7291,7 @@ impl Shell {
             menu.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             self.file_picker = None;
             return;
         }
@@ -7265,6 +7301,7 @@ impl Shell {
             sessions.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             self.file_picker = None;
             return;
         }
@@ -7278,6 +7315,15 @@ impl Shell {
             // Still asked, so a completion menu Escape closed over `/provider`
             // is forgotten once the draft has become the column's: the trigger
             // changed kind, and that is what a dismissal lasts until.
+            let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
+            self.mcp_args = None;
+            return;
+        }
+        // `/mcp `'s argument the same way: a space in it, so never a slash
+        // word, and never an `@` word's either.
+        if self.reconcile_mcp_args() {
+            self.picker = None;
+            self.file_picker = None;
             let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
             return;
         }
@@ -7351,6 +7397,106 @@ impl Shell {
         }
         let query = self.editor.text().to_string();
         self.picker = Picker::open(&query, self.skills.skills());
+    }
+
+    /// Settles `/mcp `'s argument completions for the draft, and says
+    /// whether the draft is theirs -- a `/mcp ` line, open or dismissed.
+    ///
+    /// Rebuilt only when the text changed, which puts the mark back on the
+    /// first row, as fx's does; the servers are read when it opens and then
+    /// at most twice a second ([`Self::settle_mcp_args`]).
+    fn reconcile_mcp_args(&mut self) -> bool {
+        let text = self.editor.text();
+        if mcp_args::query_of(text).is_none() {
+            self.mcp_args_dismissed = false;
+            self.mcp_args = None;
+            return false;
+        }
+        if self.mcp_args_dismissed {
+            self.mcp_args = None;
+            return true;
+        }
+        if self
+            .mcp_args
+            .as_ref()
+            .is_some_and(|open| open.text() == text)
+        {
+            return true;
+        }
+        let entries = crate::mcp::command::completions(self.work.mcp());
+        self.mcp_args = McpArgs::open(text, entries, Instant::now());
+        true
+    }
+
+    /// Reads the servers again for the open completions, at most twice a
+    /// second (`refreshCompletion`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_mcp_runtime.zig:470-484`), so a status beside a name
+    /// is the server's now; a row that came or went asks the band again.
+    fn settle_mcp_args(&mut self, now: Instant) {
+        if !self.mcp_args.as_ref().is_some_and(|args| args.due(now)) {
+            return;
+        }
+        let entries = crate::mcp::command::completions(self.work.mcp());
+        let Some(args) = self.mcp_args.as_mut() else {
+            return;
+        };
+        let was = args.visible();
+        if args.refresh(entries, now) {
+            if was != args.visible() {
+                self.refit();
+            }
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Offers one keystroke to `/mcp `'s argument completions, and says
+    /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
+    /// Tab writes the marked line; Escape closes them until the draft stops
+    /// being a `/mcp ` line. Enter writes the marked line and is **not**
+    /// taken, so the composer submits it in place of what was typed
+    /// (`resolveSlashSubmission`, `vercel-labs/fx@481104fd
+    /// src/core/app/input_submit_runtime.zig:1819-1824`).
+    fn offer_to_mcp_args(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
+            return false;
+        }
+        let Some(args) = self.mcp_args.as_mut() else {
+            return false;
+        };
+        match action {
+            Action::Up | Action::ControlK | Action::Down | Action::ControlJ => {
+                let down = matches!(action, Action::Down | Action::ControlJ);
+                if args.step_by(if down { 1 } else { -1 }) {
+                    self.render.request(Reason::Modal);
+                }
+                true
+            }
+            Action::Tab => {
+                if let Some(line) = args.chosen().map(str::to_string) {
+                    self.replace_word(&line);
+                }
+                true
+            }
+            Action::Submit => {
+                if let Some(line) = args.chosen().map(str::to_string) {
+                    if line != self.editor.text() {
+                        self.replace_word(&line);
+                    }
+                }
+                false
+            }
+            Action::Escape => {
+                self.mcp_args = None;
+                self.mcp_args_dismissed = true;
+                self.refit();
+                self.render.request(Reason::Modal);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Settles the `/provider` column for the draft, and says whether the
@@ -8648,6 +8794,7 @@ impl Shell {
         // And what the MCP runtime has to say, and what the status line says
         // of its servers.
         self.settle_mcp();
+        self.settle_mcp_args(now);
         if self.mcp_status.refresh(now, self.work.mcp()) {
             self.render.request(Reason::Footer);
         }
@@ -9797,6 +9944,9 @@ impl Shell {
                 continue;
             }
             if self.offer_to_provider_picker(&event) {
+                continue;
+            }
+            if self.offer_to_mcp_args(&event) {
                 continue;
             }
             match event {
@@ -13322,6 +13472,7 @@ impl Shell {
             | Some(Slot::Models(_))
             | Some(Slot::Skills(_))
             | Some(Slot::Provider(_))
+            | Some(Slot::McpArgs(_))
             | Some(Slot::Files(_))
             | None => 0,
         };
@@ -13341,6 +13492,9 @@ impl Shell {
             Some(Slot::Skills(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
                 ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
+            }
+            Some(Slot::McpArgs(_)) => {
+                McpArgs::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
             }
             // Upstream's budget for a list (`activeListPickerReservedRows`)
             // leaves no room for a running turn's row, which xfx's band puts
@@ -30592,6 +30746,168 @@ mod tests {
             assert!(shell.document().is_empty(), "{typed:?} wrote a row");
             assert!(shell.sent.try_recv().is_err(), "{typed:?} sent something");
         }
+    }
+
+    /// A shell over an MCP runtime whose profile has one server it never
+    /// connects -- switched off -- so `/mcp `'s completions have a name.
+    fn mcp_args_shell() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile dir");
+        std::fs::write(
+            home.path().join(".xfx").join("mcp.json"),
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+        )
+        .expect("a profile");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(home.path().join(".xfx").join("settings.json")),
+            workspace: workspace.clone(),
+        });
+        runtime.start_and_wait(Duration::from_secs(60));
+        let _ = runtime.take_events();
+        let (work, sent, control) = WorkHandle::detached();
+        let shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        (
+            Fixture {
+                shell,
+                sent,
+                control,
+            },
+            runtime,
+            home,
+        )
+    }
+
+    /// One `/mcp ` completion row as the band paints it.
+    fn mcp_arg_row(label: &str, width: usize, description: &str, marked: bool) -> String {
+        format!(
+            "       {}{label}{}{}{}{description}{}",
+            if marked {
+                PALETTE.subtitle()
+            } else {
+                PALETTE.dim()
+            },
+            PALETTE.reset(),
+            " ".repeat(width - label.len() + 2),
+            PALETTE.dim(),
+            PALETTE.reset()
+        )
+    }
+
+    #[test]
+    fn a_mcp_line_opens_its_completions_under_the_argument_and_keeps_the_hint() {
+        // `fx-p5-mcp-verbs-40x120-complete-args`, `-complete-show`: at column
+        // 7, no header, six rows, the status line under them.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        let hint = shell.hint();
+        shell.route_bytes(b"/mcp ");
+        assert!(shell.picker.is_none(), "the slash menu is up too");
+        assert_eq!(
+            menu(&shell),
+            [
+                mcp_arg_row("list", 6, "configured servers", true),
+                mcp_arg_row("show", 6, "connect to a server and list its tools", false),
+                mcp_arg_row("add", 6, "add a server", false),
+                mcp_arg_row("remove", 6, "remove a server and its login", false),
+                mcp_arg_row("login", 6, "sign in to an HTTP server", false),
+                mcp_arg_row("logout", 6, "sign out of an HTTP server", false),
+            ]
+        );
+        assert_eq!(shell.hint(), hint, "the hint row was taken over");
+        shell.route_bytes(b"show ");
+        assert_eq!(
+            menu(&shell),
+            [
+                mcp_arg_row("show remote", 11, "disabled", true),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]
+        );
+        // Nothing to complete: no rows at all, and the band gives them back.
+        shell.route_bytes(b"zzz");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert!(shell.document().is_empty(), "a keystroke wrote a row");
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn tab_writes_the_marked_line_and_escape_closes_it_for_the_line() {
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp sh");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/mcp show");
+        shell.route_bytes(b" ");
+        shell.route_bytes(b"\x1b[B");
+        // One row, and the arrows wrap on it.
+        assert_eq!(
+            menu(&shell)[0],
+            mcp_arg_row("show remote", 11, "disabled", true)
+        );
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/mcp show remote");
+        // Escape: closed while the draft is a `/mcp ` line, back after it is not.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(menu(&shell).is_empty());
+        shell.route_bytes(b"x");
+        assert!(menu(&shell).is_empty(), "a dismissed list came back");
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/mcp ");
+        assert_eq!(menu(&shell).len(), 6);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn enter_on_a_mcp_line_submits_the_marked_completion() {
+        // `resolveSlashSubmission`: `/mcp l` runs the marked `/mcp list`, and
+        // `/mcp remove rem` the marked `/mcp remove remote` -- what fx's
+        // `p5-mcp-verbs` shows of `/mcp remove web` with only `web2` there.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        let answer = |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            loop {
+                let said: Vec<String> = runtime
+                    .take_events()
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        crate::mcp::runtime::Event::Notice { body, .. } => Some(body),
+                        _ => None,
+                    })
+                    .collect();
+                if !said.is_empty() {
+                    return said;
+                }
+                assert!(Instant::now() < deadline, "no answer");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        shell.route_bytes(b"/mcp l\r");
+        assert!(shell.editor.is_empty());
+        assert!(
+            answer(&runtime)[0].starts_with("NAME    SOURCE"),
+            "not the list"
+        );
+        shell.route_bytes(b"/mcp remove rem\r");
+        assert_eq!(answer(&runtime), ["Removed remote from ~/.xfx/mcp.json."]);
+        // With nothing to complete the line goes as typed.
+        shell.route_bytes(b"/mcp remove nope\r");
+        assert_eq!(
+            answer(&runtime),
+            ["No MCP server named nope in ~/.xfx/mcp.json or .mcp.json."]
+        );
+        runtime.shutdown();
     }
 
     #[test]
