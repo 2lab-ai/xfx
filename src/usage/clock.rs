@@ -21,12 +21,13 @@
 //! `scripts/smoke.sh`, which CI, preview and release run on the binary they
 //! ship, refuses a binary whose bytes carry the variable's name.
 //!
-//! **For US-U3 and US-U4.** Nothing reads this clock yet. Every "now" in the
-//! dashboard runtime (US-U3: the open floor, the 15-minute timer, the minute
-//! redraw, a fetch's stamp) *and* the screen (US-U4: today's UTC day,
-//! `updated Nm ago`, the empty-period texts) must come from [`now_ms`], never
-//! from `SystemTime` or `system_now_ms` directly, or a capture that pins the
-//! clock pins half a dashboard. And the arithmetic on it must hold for any
+//! **Who reads it.** `crate::usage::dashboard::wall_clock` is this clock, and
+//! it is the only clock `/usage` has: every "now" of the dashboard runtime
+//! (the open floor, the 15-minute timer, the minute redraw, a fetch's stamp)
+//! and of the screen (`crate::tui::usage_menu`: today's UTC day, `updated Nm
+//! ago`, the budget's reset day, all read off the snapshot's `now_ms`) comes
+//! from [`now_ms`], never from `SystemTime` or `system_now_ms` directly, or a
+//! capture that pins the clock would pin half a dashboard. And the arithmetic on it must hold for any
 //! `i64` it returns: the pinned clock returns whatever integer the file holds,
 //! `i64::MIN` and `i64::MAX` included, and `system_now_ms` returns a negative
 //! time for a clock set before 1970 and `i64::MAX` past its range. So a

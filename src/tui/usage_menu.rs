@@ -1,271 +1,108 @@
-//! `/usage` on this surface: the dashboard that takes the composer's place.
+//! `/usage` on this surface: fx v0.0.16's df-style dashboard, AI Gateway half.
 //!
-//! What the numbers are is [`crate::usage`]'s. This module is upstream's
-//! compact usage menu (`vercel-labs/fx@c1db9191
-//! src/ui/footer/compact_command_menu_presentation.zig:108-1008`, its state in
-//! `src/core/session/usage_menu.zig`): which window and which model are
-//! marked, and every row the band shows for them, between its two rules.
+//! What the numbers are, and when they are fetched, is
+//! [`crate::usage::dashboard`]'s. This module is the screen over one of its
+//! [`Snapshot`]s: upstream's navigation state (`State`,
+//! `vercel-labs/fx@481104fd src/core/session/usage_menu.zig:8-131`) and every
+//! row it draws (`src/ui/footer/usage_presentation.zig:19-878,1558-1625`), with
+//! the hint row's three Gateway lists (`input_presentation.zig:794-813`).
 //!
 //! # What it looks like
 //!
-//! A header -- `Usage` and the four windows, the one shown bracketed --
-//! then a status row that says how complete the window is, the overview
-//! (tokens, spend, requests; input, output, reasoning; cache read and write),
-//! the session's own clock and edits on the session scope, and one row per
-//! model: its tokens, its share of them, its spend. Enter opens the marked
-//! model's detail line under it. The composer row is not shown while it is up,
-//! and every keystroke is the dashboard's (`routeActiveModalInput`,
-//! `app_input_runtime.zig:1366-1395`).
+//! A heading, `usage: <who>` with the status in the right corner (`updated 2m
+//! ago`, `updating…`, a failure in normal weight); the period table (`today`,
+//! `7d`, `month`); the budget table when the cache holds one; the model table
+//! for the period Tab picks, at most [`MAX_MODEL_ROWS`] rows and a dim `N more`
+//! row summing everything below the window. Enter opens the selected model's
+//! detail screen: its period, tokens and perf tables. Lowercase headers, the
+//! table name bold and the column labels dim, numbers right-aligned under
+//! them, the selected model bold behind a `❯`, no colour. Tables are as wide
+//! as their content; a narrow screen drops columns before it cuts a name.
 //!
-//! # Left and Right look reversed, and are
+//! # Not drawn
 //!
-//! The header lists the widest window first; Left and Right step along
-//! upstream's enum, which runs the other way and stops at both ends
-//! (`Scope.previous`/`next`, `usage_report.zig:44-60`). So Left from `30 days`
-//! lands on `7 days`, to its right on the screen, and Right from `30 days`
-//! does nothing (`fx-usage-40x120-left`, `right1`). Tab and Shift-Tab walk the
-//! header itself, wrapping. Copied as upstream ships it.
+//! The Codex and Grok views (`usage_presentation.zig:879-1556`) and their two
+//! hint lists (`input_presentation.zig:798-805`): xfx has neither sign-in
+//! (U9).
+//!
+//! # Where it is not fx
+//!
+//! - **A model name is spelled, not replaced.** fx shows `?` for a control,
+//!   C1, bidi or zero-width character in a name (`safeText`, `:367-385`); here
+//!   every name goes through [`crate::mcp::terminal_safe`], which spells it
+//!   (`\x1b`, `\u{202e}`), so a name with a hidden character is not shown as
+//!   another name. Widths are measured on what is drawn.
+//! - **The no-sign-in text names no `/login`**, which xfx has not (the sign-in
+//!   waits on the user): `(set AI_GATEWAY_API_KEY)`.
+//! - **A provider setting no turn can be sent with** -- an unreadable
+//!   `provider`, a refused `XFX_GATEWAY_URL` -- is xfx's own state, with no fx
+//!   twin ([`Unavailable::ProviderRejected`]): its line sends the user to the
+//!   turn's refusal, which names it, in fx's shape for a sign-in that needs a
+//!   refresh (`(send a message to renew it, then reopen /usage)`,
+//!   `usage_presentation.zig:496`).
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
-use std::thread::JoinHandle;
-
-use crate::usage::{
-    compact, duration, grouped, money, share, Completeness, Coverage, Ledger, ModelUsage, Scope,
-    SessionActivity, Snapshot, Totals,
-};
+use crate::usage::dashboard::{Snapshot, Status};
+use crate::usage::fixed;
+use crate::usage::report::{month_day, Failure, ModelRow, Totals, Unavailable};
+use crate::usage::view::Period;
 
 use super::input::Action;
-use super::picker::{cells, ellipsized, pad_to};
-use super::theme::{Depth, Mode, Palette};
+use super::picker::cells;
+use super::theme::Palette;
 
-/// The columns between two of the dashboard's columns (`column_gap`).
-const COLUMN_GAP: usize = 4;
+/// The most model rows on screen at once; the window scrolls over the rest
+/// (`max_model_rows`, `usage_presentation.zig:19`).
+pub(crate) const MAX_MODEL_ROWS: usize = 10;
 
-/// The most model rows the dashboard lists (`max_usage_model_rows`).
-const MAX_MODEL_ROWS: usize = 20;
+/// What stands before an unselected model's name (`gutter`, `:613`).
+const GUTTER: usize = 2;
 
-/// The marked model's prefix, and every other row's.
+/// The detail screen's rows (`detail_rows`, `:139`): heading and blank, then
+/// three tables of a header and three periods, a blank between them.
+const DETAIL_ROWS: usize = 2 + 4 + 1 + 4 + 1 + 4;
+
+/// The rows a message-only screen takes: heading, blank, message.
+const MESSAGE_ROWS: usize = 3;
+
+/// The selected model's prefix.
 const MARK: &str = "\u{276f} ";
-const UNMARKED: &str = "  ";
 
-/// What the hint row says while the dashboard is up, widest first
-/// (`composeCompactCommandMenuHintRow`, `input_presentation.zig:766-790`).
-const KEY_HELP: [&str; 3] = [
-    "tab scope     \u{2191}\u{2193} model     enter expand     r refresh     esc close",
-    "tab scope  \u{2191}\u{2193} model  enter expand  r refresh  esc",
-    "tab \u{2191}\u{2193}  enter  r  esc",
+/// `usage: ` before the heading's left part.
+const PREFIX_WIDTH: usize = "usage: ".len();
+
+/// The least of the left part the status is drawn beside (`min_left`).
+const MIN_LEFT: usize = 12;
+
+/// What the hint row says, widest first, for each kind of screen
+/// (`composeCompactCommandMenuHintRow`'s `.usage` lists,
+/// `input_presentation.zig:794-813`).
+const MESSAGE_HELP: [&str; 3] = ["esc close", "esc close", "esc"];
+const DETAIL_HELP: [&str; 3] = [
+    "\u{2191}\u{2193} next model     esc back     r refresh",
+    "\u{2191}\u{2193} model  esc back  r refresh",
+    "\u{2191}\u{2193}  esc  r",
 ];
-
-/// The status row's sentences (`composeUsageStatusRow`, `:436-451`).
-const REFRESH_FAILED: &str = "Refresh failed \u{b7} showing previous data";
-const NOT_STARTED: &str = "Tracking has not started";
-const PARTIAL: &str = "Partial data \u{b7} some usage may be missing";
-const PARTIAL_NARROW: &str = "Partial data";
-/// Upstream's `Local fx activity`, with this product's name in it.
-const COMPLETE: &str = "Local xfx activity";
-
-/// What stands in the dashboard before a window has been read, or once
-/// reading it failed (`:170-178`).
-const LOADING: &str = "Loading usage";
-const UNAVAILABLE: &str = "Usage unavailable \u{b7} press r to retry";
-
-/// The name the reading thread is given, for a debugger or a panic message.
-const THREAD_NAME: &str = "xfx-usage";
-
-/// Why a read could not even be asked for: a session with no profile to read
-/// -- not reachable from a real session, which refuses to open without a home,
-/// and the answer for a shell a test built without one.
-const NO_PROFILE: &str = "no home directory is set";
-
-/// One read of the session logs, as the reading thread hands it back.
-#[derive(Debug)]
-pub(crate) struct Read {
-    /// When it was read: the moment every rolling window ends at.
-    pub(crate) at_ms: i64,
-    pub(crate) ledger: Result<Ledger, String>,
-}
-
-/// How a read is done: the session logs in the binary, a script in a test.
-/// `None` is a read that was cancelled part way.
-type ReadLedger =
-    Arc<dyn Fn(&Path, i64, &AtomicBool) -> Option<Result<Ledger, String>> + Send + Sync>;
-
-/// Reads the ledger **off the thread that holds the terminal**.
-///
-/// Upstream refreshes its rolling windows on a background thread and reads only
-/// the session scope where it is (`requestUsageDashboardRefresh`,
-/// `app_commands.zig:1157-1175`). Here the read is a replay of every session
-/// log the widest window can see, which is file reads and JSON on a scale the
-/// user's history decides -- a stall the band would show as a frozen screen.
-/// So it goes to one thread of its own, started on the first `/usage`, and
-/// what it read comes back on a channel the UI reads once a turn of its loop,
-/// the way [`super::sound`]'s saves do.
-///
-/// **And it is abandoned, not waited out, when the session ends**: upstream's
-/// dashboard sets its cancel flag and joins (`Runtime.deinit`,
-/// `usage_dashboard_runtime.zig:96-103`), and its read looks at the flag
-/// between sessions (`usage_recovery.zig:43-47`). So does this one
-/// ([`crate::usage::read_ledger`]), so a quit in the middle of a long read
-/// waits for one session log at most.
-pub(crate) struct Reader {
-    profile: Option<PathBuf>,
-    read: ReadLedger,
-    /// Set when the reader is dropped; the read in flight looks at it before
-    /// each session it opens.
-    cancel: Arc<AtomicBool>,
-    thread: Option<(Sender<i64>, JoinHandle<()>)>,
-    done: Sender<Read>,
-    results: Receiver<Read>,
-    /// How many reads a reader built by a test was asked for: one that starts
-    /// no thread, so what it answers is only ever what the test delivers.
-    #[cfg(test)]
-    asked: Option<usize>,
-}
-
-impl std::fmt::Debug for Reader {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Reader")
-            .field("profile", &self.profile)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Reader {
-    pub(crate) fn new(profile: Option<PathBuf>) -> Self {
-        Self::reading(
-            profile,
-            Arc::new(|profile: &Path, at_ms: i64, cancel: &AtomicBool| {
-                crate::usage::read_ledger(profile, at_ms, cancel)
-                    .map_err(|err| err.to_string())
-                    .transpose()
-            }),
-        )
-    }
-
-    fn reading(profile: Option<PathBuf>, read: ReadLedger) -> Self {
-        let (done, results) = mpsc::channel();
-        Self {
-            profile,
-            read,
-            cancel: Arc::new(AtomicBool::new(false)),
-            thread: None,
-            done,
-            results,
-            #[cfg(test)]
-            asked: None,
-        }
-    }
-
-    /// A reader of `profile` whose reads `read` does, on a thread of its own.
-    #[cfg(test)]
-    pub(crate) fn reading_with(
-        profile: PathBuf,
-        read: impl Fn(&Path, i64, &AtomicBool) -> Option<Result<Ledger, String>> + Send + Sync + 'static,
-    ) -> Self {
-        Self::reading(Some(profile), Arc::new(read))
-    }
-
-    /// A reader that reads nothing: asked, it counts the ask, and answers
-    /// only with what [`Self::deliver`] hands it -- so a case about what the
-    /// UI does with a read is not racing a real one.
-    #[cfg(test)]
-    pub(crate) fn by_hand() -> Self {
-        let mut reader = Self::new(Some(PathBuf::new()));
-        reader.asked = Some(0);
-        reader
-    }
-
-    /// How many reads a [`Self::by_hand`] reader was asked for.
-    #[cfg(test)]
-    pub(crate) fn asked(&self) -> usize {
-        self.asked.unwrap_or(0)
-    }
-
-    /// Asks for one read, as of `now_ms`, and returns without waiting.
-    pub(crate) fn request(&mut self, now_ms: i64) -> Result<(), String> {
-        let Some(profile) = self.profile.clone() else {
-            return Err(NO_PROFILE.to_string());
-        };
-        #[cfg(test)]
-        if let Some(asked) = self.asked.as_mut() {
-            *asked += 1;
-            return Ok(());
-        }
-        if self.thread.is_none() {
-            let (asks, asked) = mpsc::channel::<i64>();
-            let done = self.done.clone();
-            let read = Arc::clone(&self.read);
-            let cancel = Arc::clone(&self.cancel);
-            let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
-                for at_ms in asked {
-                    // Cancelled part way: the session is ending, and
-                    // nobody is left to show a partial read to.
-                    let Some(ledger) = read(&profile, at_ms, &cancel) else {
-                        return;
-                    };
-                    // Nobody left to tell is a session that has ended.
-                    let _ = done.send(Read { at_ms, ledger });
-                }
-            })
-            .map_err(|err| format!("no thread to read usage with: {err}"))?;
-            self.thread = Some((asks, thread));
-        }
-        let (asks, _) = self.thread.as_ref().expect("the reader was just started");
-        // The thread is gone only after a panic in it; it is not started
-        // again, because whatever killed it would kill the next.
-        asks.send(now_ms)
-            .map_err(|_| "the usage reader stopped".to_string())
-    }
-
-    /// A read that has finished, or `None` when none has since the last call.
-    pub(crate) fn finished(&self) -> Option<Read> {
-        self.results.try_recv().ok()
-    }
-
-    /// Stands in for the thread, for the cases about what the UI does with a
-    /// read.
-    #[cfg(test)]
-    pub(crate) fn deliver(&self, read: Read) {
-        let _ = self.done.send(read);
-    }
-}
-
-impl Drop for Reader {
-    /// Stops a read in flight at the next session it would open, and lets the
-    /// thread end, so nothing of the session is still reading the profile once
-    /// it is over. The join is short because the cancel came first: at most
-    /// the one session log the read is in the middle of. The thread takes no
-    /// signal while it lives ([`super::signals::spawn_unsignalled`]).
-    fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Release);
-        if let Some((asks, thread)) = self.thread.take() {
-            drop(asks);
-            let _ = thread.join();
-        }
-    }
-}
+const TABLE_HELP: [&str; 3] = [
+    "\u{2191}\u{2193} model     enter detail     tab period     r refresh     esc close",
+    "\u{2191}\u{2193} model  enter detail  tab period  r refresh  esc",
+    "\u{2191}\u{2193}  enter  tab  r  esc",
+];
 
 /// What one keystroke means to the dashboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MenuAction {
-    /// Tab, and Shift-Tab with `false`: the next window along the header,
-    /// wrapping.
-    Cycle(bool),
-    /// Left: one step towards the session, stopping there.
-    Previous,
-    /// Right: one step towards 30 days, stopping there.
+    /// Tab and Right: the next period, wrapping (`Period.next`).
     Next,
+    /// Shift-Tab and Left: the previous period, wrapping.
+    Previous,
     /// Up and Ctrl-K, and Down and Ctrl-J with `true`: the model above or
-    /// below, stopping at the ends (`moveModel`, `usage_menu.zig:131-145`).
+    /// below, stopping at the ends (`moveModel`, `usage_menu.zig:63-77`).
     Move(bool),
-    /// Enter: open or close the marked model's detail line.
-    Expand,
-    /// `r`: read the window again.
+    /// Enter: the selected model's detail screen.
+    Detail,
+    /// `r`: fetch now, unless a fetch is in flight.
     Reload,
-    /// Escape.
+    /// Escape: back to the tables, or close.
     Close,
 }
 
@@ -273,121 +110,107 @@ impl MenuAction {
     /// What a decoded keystroke means here, and `None` for every one the
     /// dashboard swallows without meaning anything by it.
     ///
-    /// Ctrl-J and Ctrl-K are upstream's too (`app_input_runtime.zig:1386-1393`,
-    /// bytes 10 and 11), and arrive as the actions those bytes decode to on the
-    /// composer. Shift-Tab reaches here as the permission-mode cycle's key and
-    /// is the dashboard's while it is up (`:2667-2670`).
+    /// Shift-Tab reaches here as the permission-mode cycle's key and is the
+    /// dashboard's while it is up (`toggle_permission_mode`,
+    /// `app_input_runtime.zig:2241-2244`); Ctrl-J and Ctrl-K are bytes 10 and
+    /// 11 (`:1204-1211`); Left and Right step the period both ways, wrapping
+    /// (`:2228-2239`).
     pub(crate) fn of_action(action: Action) -> Option<Self> {
         match action {
-            Action::Tab => Some(Self::Cycle(true)),
-            Action::BackTab => Some(Self::Cycle(false)),
-            Action::Left => Some(Self::Previous),
-            Action::Right => Some(Self::Next),
-            Action::Up | Action::KillToEnd => Some(Self::Move(false)),
-            Action::Down | Action::InsertNewline => Some(Self::Move(true)),
-            Action::Submit => Some(Self::Expand),
+            Action::Tab | Action::Right => Some(Self::Next),
+            Action::BackTab | Action::Left => Some(Self::Previous),
+            Action::Up | Action::ControlK => Some(Self::Move(false)),
+            Action::Down | Action::ControlJ => Some(Self::Move(true)),
+            Action::Submit => Some(Self::Detail),
             Action::Escape => Some(Self::Close),
             _ => None,
         }
     }
 
-    /// What a typed character means here: `r` or `R`, and nothing else.
+    /// What a typed character means here: `r` or `R`, and nothing else
+    /// (`app_input_runtime.zig:1200-1203`).
     pub(crate) fn of_text(character: char) -> Option<Self> {
         matches!(character, 'r' | 'R').then_some(Self::Reload)
     }
 }
 
-/// The dashboard: which window, which model, and what it is showing.
+/// The dashboard on screen: which period the model table lists, which model is
+/// selected, whether its detail screen is open, and the snapshot it draws
+/// (`State`, `usage_menu.zig:8-18`).
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Dashboard {
-    /// The window asked for, which is the one the header brackets -- even
-    /// while it is still being read (`navigationScope`).
-    scope: Scope,
-    /// The window being shown, or `None` while the first read is out.
-    snapshot: Option<Snapshot>,
-    /// The last read failed; what is shown, if anything, is older.
-    refresh_failed: bool,
+pub(crate) struct Screen {
+    period: Period,
     selected: usize,
-    expanded: Option<usize>,
-    /// The first model row in view.
     window_start: usize,
+    detail: bool,
+    snapshot: Snapshot,
 }
 
-impl Dashboard {
-    /// The dashboard on `scope`, showing `snapshot` when there is one to show
-    /// at once (`openOwned`) and `Loading usage` when there is not
-    /// (`openLoading`, `usage_menu.zig:15-55`).
-    pub(crate) fn open(scope: Scope, snapshot: Option<Snapshot>) -> Self {
+impl Screen {
+    /// The dashboard opened on `snapshot`, its model table on `period` -- the
+    /// one it listed when last closed -- and nothing else kept (`open`,
+    /// `usage_menu.zig:21-29`).
+    pub(crate) fn open(period: Period, snapshot: Snapshot) -> Self {
         Self {
-            scope: snapshot.as_ref().map_or(scope, |shown| shown.scope),
-            snapshot,
-            refresh_failed: false,
+            period,
             selected: 0,
-            expanded: None,
             window_start: 0,
+            detail: false,
+            snapshot,
         }
     }
 
-    /// The window the header brackets.
-    pub(crate) fn scope(&self) -> Scope {
-        self.scope
+    /// The period the model table lists, kept across opens.
+    pub(crate) fn period(&self) -> Period {
+        self.period
     }
 
-    /// Moves to `scope` with nothing to show for it yet: the selection goes,
-    /// and the body says `Loading usage` (`setLoadingScope`, `:56-69`).
-    pub(crate) fn loading(&mut self, scope: Scope) {
-        *self = Self::open(scope, None);
+    /// The snapshot on screen.
+    pub(crate) fn shown(&self) -> &Snapshot {
+        &self.snapshot
     }
 
-    /// Shows `snapshot`, keeping the marked and the open model by **name**
-    /// when the new window still has them (`replaceOwned`, `:76-111`).
-    pub(crate) fn show(&mut self, snapshot: Snapshot) {
-        let name = |snapshot: &Option<Snapshot>, index: Option<usize>| -> Option<String> {
-            let models = &snapshot.as_ref()?.models;
-            models
-                .get(index?.min(models.len().checked_sub(1)?))
-                .map(|m| m.model.clone())
-        };
-        let marked = name(&self.snapshot, Some(self.selected));
-        let opened = self.expanded.and_then(|index| {
-            self.snapshot
-                .as_ref()
-                .and_then(|shown| shown.models.get(index))
-                .map(|model| model.model.clone())
-        });
-        let find = |wanted: Option<String>| {
-            let wanted = wanted?;
-            snapshot
-                .models
-                .iter()
-                .position(|model| model.model == wanted)
-        };
-        self.selected =
-            find(marked).unwrap_or(self.selected.min(snapshot.models.len().saturating_sub(1)));
-        self.expanded = find(opened);
+    /// Draws `snapshot` instead, keeping the selected model by name when it is
+    /// still listed; a detail screen whose model left the list goes back to
+    /// the tables (`replace`, `usage_menu.zig:33-49`).
+    pub(crate) fn replace(&mut self, snapshot: Snapshot) {
+        let held = self.selected_name().map(str::to_owned);
+        let models = &snapshot.of(self.period).models;
+        let found = held
+            .as_deref()
+            .and_then(|name| models.iter().position(|model| model.model == name));
+        self.selected = found.unwrap_or_else(|| self.selected.min(models.len().saturating_sub(1)));
         self.window_start = self.window_start.min(self.selected);
-        self.scope = snapshot.scope;
-        self.snapshot = Some(snapshot);
-        self.refresh_failed = false;
+        if found.is_none() {
+            self.detail = false;
+        }
+        self.snapshot = snapshot;
     }
 
-    /// A read of `scope` failed: the header says the window that was asked
-    /// for, and whatever was shown stays, marked old (`recordRefreshFailure`,
-    /// `:113-123`).
-    pub(crate) fn failed(&mut self, scope: Scope) {
-        self.refresh_failed = true;
-        self.scope = scope;
+    /// Lists `period` in the model table; the selection starts over. Refused
+    /// on the detail screen. Answers whether anything changed (`setPeriod`,
+    /// `usage_menu.zig:54-60`).
+    pub(crate) fn set_period(&mut self, period: Period) -> bool {
+        if self.detail || period == self.period {
+            return false;
+        }
+        self.period = period;
+        self.selected = 0;
+        self.window_start = 0;
+        true
     }
 
-    /// Moves the mark one model, stopping at the ends, and keeps it among the
-    /// `visible` model rows. Answers whether it moved.
-    pub(crate) fn step(&mut self, down: bool, visible: usize) -> bool {
-        let count = self.models().len();
+    /// Moves the selection one model, stopping at the ends, and keeps it among
+    /// the `visible` model rows -- on the tables, or on the detail screen,
+    /// where it is the next model's details (`moveModel`,
+    /// `usage_menu.zig:63-77`). Answers whether it moved.
+    pub(crate) fn move_model(&mut self, down: bool, visible: usize) -> bool {
+        let count = self.listed().len();
         if count == 0 {
             return false;
         }
         let next = if down {
-            (self.selected + 1).min(count - 1)
+            self.selected.saturating_add(1).min(count - 1)
         } else {
             self.selected.saturating_sub(1)
         };
@@ -395,1183 +218,981 @@ impl Dashboard {
             return false;
         }
         self.selected = next;
-        self.keep_visible(visible);
-        true
-    }
-
-    /// Opens the marked model's detail line, or closes it (`toggleExpanded`,
-    /// `:147-155`). Answers whether there was a model to open.
-    pub(crate) fn toggle(&mut self, visible: usize) -> bool {
-        let count = self.models().len();
-        if count == 0 {
-            return false;
-        }
-        let selected = self.selected.min(count - 1);
-        self.expanded = if self.expanded == Some(selected) {
-            None
-        } else {
-            Some(selected)
-        };
-        self.keep_visible(visible);
-        true
-    }
-
-    fn keep_visible(&mut self, visible: usize) {
         let visible = visible.max(1);
         if self.selected < self.window_start {
             self.window_start = self.selected;
-        } else if self.selected >= self.window_start + visible {
+        } else if self.selected >= self.window_start.saturating_add(visible) {
             self.window_start = self.selected - (visible - 1);
         }
+        true
     }
 
-    fn models(&self) -> &[ModelUsage] {
-        self.snapshot
-            .as_ref()
-            .map_or(&[][..], |snapshot| snapshot.models.as_slice())
+    /// Enter: the selected model's detail screen, when a model is listed
+    /// (`openDetail`, `usage_menu.zig:80-84`).
+    pub(crate) fn open_detail(&mut self) -> bool {
+        if self.detail || self.listed().is_empty() {
+            return false;
+        }
+        self.detail = true;
+        true
     }
 
-    /// How many rows the dashboard wants on a screen `cols` wide
-    /// (`usageDesiredRowCount`, `:142-154`).
-    pub(crate) fn wanted_rows(&self, cols: u16) -> u16 {
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            return 2;
+    /// Escape on the detail screen: back to the tables (`closeDetail`,
+    /// `usage_menu.zig:87-91`). `false` on the tables, where Escape closes.
+    pub(crate) fn close_detail(&mut self) -> bool {
+        std::mem::replace(&mut self.detail, false)
+    }
+
+    fn listed(&self) -> &[ModelRow] {
+        &self.snapshot.of(self.period).models
+    }
+
+    fn selected_name(&self) -> Option<&str> {
+        self.listed()
+            .get(self.selected)
+            .map(|model| model.model.as_str())
+    }
+
+    /// Nothing to tabulate: not signed in, or nothing cached yet
+    /// (`messageOnly`, `usage_presentation.zig:93-101`).
+    fn message_only(&self) -> bool {
+        if matches!(self.snapshot.status, Status::Unavailable(_)) {
+            return true;
+        }
+        if Period::ALL
+            .iter()
+            .any(|period| !self.snapshot.of(*period).empty())
+        {
+            return false;
+        }
+        self.snapshot.status != Status::Ready
+    }
+
+    fn has_budget(&self) -> bool {
+        self.snapshot.budget().is_some()
+    }
+
+    /// The tables' rows above the first model row (`tableRows`, `:133-137`):
+    /// heading, blank, period header and three rows, blank, the budget's
+    /// header, row and blank when there is one, the model header.
+    fn table_rows(&self) -> usize {
+        2 + 4 + 1 + if self.has_budget() { 3 } else { 0 } + 1
+    }
+
+    /// The rows the dashboard wants (`desiredRowCount`, `:141-150`).
+    pub(crate) fn desired_rows(&self) -> usize {
+        if self.message_only() {
+            return MESSAGE_ROWS;
+        }
+        if self.detail {
+            return DETAIL_ROWS;
+        }
+        let models = self.listed().len();
+        if models == 0 {
+            return self.table_rows() + 1;
+        }
+        self.table_rows() + models.min(MAX_MODEL_ROWS) + usize::from(models > MAX_MODEL_ROWS)
+    }
+
+    /// The rows the band gives it on a screen `rows` tall: what it wants, and
+    /// never more than the screen less three
+    /// (`compact_command_menu_presentation.zig:41-46`). At least one.
+    pub(crate) fn height(&self, rows: u16) -> u16 {
+        u16::try_from(self.desired_rows())
+            .unwrap_or(u16::MAX)
+            .min(rows.saturating_sub(3))
+            .max(1)
+    }
+
+    /// How many model rows fit in `visible` rows, keeping one for the `N more`
+    /// line when not every model fits (`visibleModelItems`, `:153-159`): what
+    /// the arrows keep the selection among.
+    pub(crate) fn visible_models(&self, visible: u16) -> usize {
+        let models = self.listed().len();
+        let area = usize::from(visible).saturating_sub(self.table_rows());
+        if models <= area.min(MAX_MODEL_ROWS) {
+            return models.max(1);
+        }
+        area.saturating_sub(1).min(MAX_MODEL_ROWS).max(1)
+    }
+
+    /// Which rows the dashboard draws in `visible` rows (`layout`,
+    /// `:161-265`, the Gateway half).
+    fn layout(&self, visible: u16) -> Vec<Line> {
+        let mut lines = vec![Line::Heading, Line::Blank];
+        if self.message_only() {
+            lines.push(Line::Message);
+            return lines;
+        }
+        if self.detail {
+            lines.push(Line::DetailPeriodHeader);
+            lines.extend(Period::ALL.map(Line::DetailPeriod));
+            lines.push(Line::Blank);
+            lines.push(Line::TokensHeader);
+            lines.extend(Period::ALL.map(Line::Tokens));
+            lines.push(Line::Blank);
+            lines.push(Line::PerfHeader);
+            lines.extend(Period::ALL.map(Line::Perf));
+            return lines;
+        }
+        lines.push(Line::PeriodHeader);
+        lines.extend(Period::ALL.map(Line::Period));
+        lines.push(Line::Blank);
+        if self.has_budget() {
+            lines.push(Line::BudgetHeader);
+            lines.push(Line::Budget);
+            lines.push(Line::Blank);
+        }
+        lines.push(Line::ModelHeader);
+        let models = self.listed().len();
+        if models == 0 {
+            lines.push(Line::NoModels);
+            return lines;
+        }
+        let shown = self.visible_models(visible);
+        let start = self.window_start.min(models.saturating_sub(shown));
+        let end = start.saturating_add(shown).min(models);
+        lines.extend((start..end).map(Line::Model));
+        if end < models {
+            lines.push(Line::More(end));
+        }
+        lines
+    }
+
+    /// The dashboard's rows, top first, for a panel `visible` rows tall on a
+    /// screen `cols` wide (`composeRow`, `:267-314`). No row passes `cols`.
+    pub(crate) fn rows(&self, cols: u16, visible: u16, palette: Palette) -> Vec<String> {
+        let paint = Paint {
+            limit: usize::from(cols),
+            palette,
         };
-        let count = if snapshot.totals.is_none() {
-            2 + if snapshot.activity.is_some() { 3 } else { 0 }
-        } else {
-            let model_rows =
-                snapshot.models.len().min(MAX_MODEL_ROWS) + usize::from(self.expanded.is_some());
-            Layout::of(snapshot, cols).model_start + model_rows.max(1)
-        };
-        u16::try_from(count).unwrap_or(u16::MAX)
+        let mut lines = self.layout(visible);
+        lines.truncate(usize::from(visible));
+        lines
+            .into_iter()
+            .map(|line| {
+                let row = self.compose(line, &paint);
+                if row.is_empty() {
+                    row
+                } else {
+                    format!("{}{}", super::frame::clip(&row, cols), palette.reset())
+                }
+            })
+            .collect()
     }
 
-    /// How many rows the band gives it on a screen `rows` x `cols`: what it
-    /// wants, and never more than the screen less three
-    /// (`surface_frame.zig:586-592`). At least one.
-    pub(crate) fn height(&self, rows: u16, cols: u16) -> u16 {
-        self.wanted_rows(cols).min(rows.saturating_sub(3)).max(1)
-    }
-
-    /// How many model rows a panel `visible` rows tall shows
-    /// (`usageVisibleModelItems`, `:520-538`): what Up, Down and Enter keep the
-    /// mark among.
-    pub(crate) fn visible_models(&self, visible: u16, cols: u16) -> usize {
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            return 0;
-        };
-        if snapshot.models.is_empty() || snapshot.totals.is_none() {
+    /// The panel row the selection is on, for the caret: the selected model's
+    /// when it is in view, else the heading.
+    pub(crate) fn marked_row(&self, visible: u16) -> u16 {
+        if self.detail || self.message_only() {
             return 0;
         }
-        let start = if visible == 1 {
-            0
-        } else {
-            let natural = Layout::of(snapshot, cols).model_start;
-            if usize::from(visible) < natural + 1 {
-                constrained_model_start(visible)
-            } else {
-                natural
-            }
-        };
-        let area = usize::from(visible).saturating_sub(start);
-        if area == 0 {
-            return 0;
-        }
-        snapshot.models.len().min(MAX_MODEL_ROWS).min(
-            area.saturating_sub(usize::from(self.expanded.is_some()))
-                .max(1),
-        )
-    }
-
-    /// The panel row the mark is on, for the caret: the marked model's when
-    /// it is in view, else the header.
-    pub(crate) fn marked_row(&self, visible: u16, cols: u16) -> u16 {
-        // Which palette paints them does not move a row.
-        let any = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        let rows = self.rows(cols, visible, any);
-        rows.iter()
-            .position(|row| row.contains(MARK))
+        self.layout(visible)
+            .iter()
+            .take(usize::from(visible))
+            .position(|line| *line == Line::Model(self.selected))
             .and_then(|at| u16::try_from(at).ok())
             .unwrap_or(0)
     }
 
-    /// The dashboard's rows, top first, for a panel `visible` rows tall
-    /// (`composeUsageRow`, `:156-255`).
-    pub(crate) fn rows(&self, cols: u16, visible: u16, palette: Palette) -> Vec<String> {
-        let paint = Paint { cols, palette };
-        if visible <= 1 {
-            return vec![self.priority_row(&paint)];
-        }
-        let mut rows = vec![header(self.scope, &paint)];
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            rows.push(paint.dim(if self.refresh_failed {
-                UNAVAILABLE
-            } else {
-                LOADING
-            }));
-            return rows;
-        };
-        let Some(totals) = snapshot.totals else {
-            rows.push(paint.dim(self.status(snapshot, cols)));
-            if let Some(activity) = snapshot.activity {
-                rows.extend(activity_rows(activity, &paint));
-            }
-            rows.truncate(usize::from(visible));
-            return rows;
-        };
-        let layout = Layout::of(snapshot, cols);
-        if usize::from(visible) < layout.model_start + 1 {
-            return self.constrained_rows(snapshot, totals, visible, &paint);
-        }
-        rows.push(paint.dim(self.status(snapshot, cols)));
-        while rows.len() < layout.overview_start {
-            rows.push(String::new());
-        }
-        for row in 0..layout.overview_rows {
-            rows.push(overview_row(totals, layout.overview, row, &paint));
-        }
-        if let (Some(start), Some(activity)) = (layout.activity_start, snapshot.activity) {
-            while rows.len() < start {
-                rows.push(String::new());
-            }
-            rows.extend(activity_rows(activity, &paint));
-        }
-        while rows.len() < layout.models_header {
-            rows.push(String::new());
-        }
-        rows.push(paint.heading(&models_heading(snapshot, cols)));
-        if layout.columns {
-            if let Some(columns) = ModelColumns::of(snapshot, cols) {
-                rows.push(columns.row("Model", "Tokens", "Share", "Spend", false, &paint));
-            }
-        }
-        if snapshot.models.is_empty() {
-            rows.push(paint.dim("  No model usage in this scope."));
+    /// What the hint row says on a screen `cols` wide: the widest of this
+    /// screen's list that fits, else its narrowest.
+    pub(crate) fn key_help(&self, cols: u16) -> &'static str {
+        let list = if self.message_only() {
+            &MESSAGE_HELP
+        } else if self.detail {
+            &DETAIL_HELP
         } else {
-            let room = usize::from(visible).saturating_sub(layout.model_start);
-            rows.extend(self.model_rows(snapshot, totals, room, &paint));
-        }
-        rows.truncate(usize::from(visible));
-        rows
-    }
-
-    /// What the status row says about `snapshot`.
-    fn status(&self, snapshot: &Snapshot, cols: u16) -> &'static str {
-        if self.refresh_failed {
-            REFRESH_FAILED
-        } else if snapshot.coverage == Coverage::NotStarted {
-            NOT_STARTED
-        } else if snapshot.coverage == Coverage::Partial
-            || snapshot.completeness != Completeness::Complete
-        {
-            if cols < 48 {
-                PARTIAL_NARROW
-            } else {
-                PARTIAL
-            }
-        } else {
-            COMPLETE
-        }
-    }
-
-    /// A one-row panel: the marked model when there is one, else the status
-    /// (`composeUsagePriorityRow`, `:257-282`).
-    fn priority_row(&self, paint: &Paint) -> String {
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            return paint.dim(if self.refresh_failed {
-                UNAVAILABLE
-            } else {
-                LOADING
-            });
+            &TABLE_HELP
         };
-        match snapshot.totals {
-            Some(totals) if !snapshot.models.is_empty() => self
-                .model_rows(snapshot, totals, 1, paint)
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
-            _ => paint.dim(self.status(snapshot, paint.cols)),
+        list.iter()
+            .copied()
+            .find(|candidate| cells(candidate) <= usize::from(cols))
+            .unwrap_or(list[list.len() - 1])
+    }
+
+    fn compose(&self, line: Line, paint: &Paint) -> String {
+        match line {
+            Line::Heading => self.heading(paint),
+            Line::Blank => String::new(),
+            Line::Message => paint.text_row(self.message()),
+            Line::PeriodHeader => paint.cells(&PERIOD_HEADER, Kind::Header),
+            Line::Period(period) => self.period_row(period, paint),
+            Line::BudgetHeader => {
+                paint.cells(&budget_columns(&BUDGET_HEADER, paint.limit), Kind::Header)
+            }
+            Line::Budget => self.budget_row(paint),
+            Line::ModelHeader => self.model_header(paint),
+            Line::Model(index) => self.model_row(index, paint),
+            Line::More(first) => self.more_row(first, paint),
+            Line::NoModels => paint.text_row(no_models_text(self.period)),
+            Line::DetailPeriodHeader => paint.cells(&DETAIL_PERIOD_HEADER, Kind::Header),
+            Line::DetailPeriod(period) => self.detail_period_row(period, paint),
+            Line::TokensHeader => paint.cells(tokens_header(paint.limit), Kind::Header),
+            Line::Tokens(period) => self.tokens_row(period, paint),
+            Line::PerfHeader => paint.cells(perf_header(paint.limit), Kind::Header),
+            Line::Perf(period) => self.perf_row(period, paint),
         }
     }
 
-    /// A panel too short for the whole layout: header, status, a one-line
-    /// summary, the models header, then the models (`composeConstrainedUsageRow`,
-    /// `:335-364`).
-    fn constrained_rows(
-        &self,
-        snapshot: &Snapshot,
-        totals: Totals,
-        visible: u16,
-        paint: &Paint,
-    ) -> Vec<String> {
-        let start = constrained_model_start(visible);
-        let mut rows = vec![header(self.scope, paint)];
-        if start > 1 {
-            rows.push(paint.dim(self.status(snapshot, paint.cols)));
-        }
-        if start > 2 {
-            rows.push(paint.dim(&format!(
-                "{} tokens \u{b7} {}",
-                compact(totals.total_tokens),
-                money(totals.total_cost)
-            )));
-        }
-        if start > 3 {
-            rows.push(paint.heading(&models_heading(snapshot, paint.cols)));
-        }
-        let room = usize::from(visible).saturating_sub(start);
-        if snapshot.models.is_empty() {
-            rows.push(paint.dim(self.status(snapshot, paint.cols)));
+    // ---------------------------------------------------------------- heading
+
+    /// `usage: <who>` on the left, the status in the right corner; a narrow
+    /// screen shortens the left part first and drops the status only when even
+    /// a short name would not fit (`composeHeading`, `:389-416`).
+    fn heading(&self, paint: &Paint) -> String {
+        let limit = paint.limit;
+        let left = self.heading_left();
+        let status = self.heading_status();
+        let status_width = cells(&status);
+        let show_status = status_width > 0 && PREFIX_WIDTH + MIN_LEFT + 2 + status_width <= limit;
+        let left_room = if show_status {
+            limit - PREFIX_WIDTH - 2 - status_width
         } else {
-            rows.extend(self.model_rows(snapshot, totals, room, paint));
+            limit.saturating_sub(PREFIX_WIDTH)
+        };
+        let palette = paint.palette;
+        let shown = super::model_menu::middle_ellipsized(&left, left_room);
+        let mut row = format!("{}usage:{} {shown}", palette.bold(), palette.reset());
+        if show_status {
+            let used = PREFIX_WIDTH + cells(&shown);
+            row.push_str(&" ".repeat(limit.saturating_sub(used + status_width)));
+            // A failure reads in normal weight; routine freshness stays dim.
+            if matches!(self.snapshot.status, Status::Failed(_)) {
+                row.push_str(&status);
+            } else {
+                row.push_str(palette.dim());
+                row.push_str(&status);
+                row.push_str(palette.reset());
+            }
         }
-        rows.truncate(usize::from(visible));
-        rows
+        row
     }
 
-    /// The model rows that fit in `room` rows, the marked one in view and the
-    /// open one followed by its detail line (`composeUsageModelRow`, `:453-518`).
-    fn model_rows(
-        &self,
-        snapshot: &Snapshot,
-        totals: Totals,
-        room: usize,
-        paint: &Paint,
-    ) -> Vec<String> {
-        let count = snapshot.models.len();
-        let selected = self.selected.min(count - 1);
-        let shown = count.min(MAX_MODEL_ROWS).min(
-            room.saturating_sub(usize::from(self.expanded.is_some()))
-                .max(1),
+    /// Whose numbers these are, or on a detail screen which model
+    /// (`headingLeft`, `:420-444`). The label names a variable, never a key.
+    fn heading_left(&self) -> String {
+        if let Status::Unavailable(reason) = self.snapshot.status {
+            return unavailable_heading(reason).to_string();
+        }
+        if self.detail {
+            let models = self.listed();
+            if let Some(model) = models.get(self.selected) {
+                return format!(
+                    "{}, model {} of {}",
+                    crate::mcp::terminal_safe(&model.model),
+                    self.selected + 1,
+                    models.len()
+                );
+            }
+        }
+        if self.snapshot.label.is_empty() {
+            return "AI Gateway".to_string();
+        }
+        self.snapshot.label.to_string()
+    }
+
+    /// The heading's right corner (`headingStatus`, `:446-463`).
+    fn heading_status(&self) -> String {
+        let ago = self
+            .snapshot
+            .fetched_at_ms()
+            .map(|at| ago_text(self.snapshot.now_ms.saturating_sub(at)));
+        match self.snapshot.status {
+            Status::Fetching if self.message_only() => "fetching\u{2026}".to_string(),
+            Status::Fetching => "updating\u{2026}".to_string(),
+            Status::Ready => match ago {
+                Some(ago) => format!("updated {ago}"),
+                None => "nothing fetched today".to_string(),
+            },
+            Status::Failed(failure) => match ago {
+                Some(ago) => format!("{}, last updated {ago}", failure_text(failure)),
+                None => failure_text(failure).to_string(),
+            },
+            Status::Unavailable(_) => String::new(),
+        }
+    }
+
+    /// The one line under the heading when there is nothing to tabulate
+    /// (`composeMessage`, `:487-504`).
+    fn message(&self) -> &'static str {
+        match self.snapshot.status {
+            Status::Unavailable(reason) => unavailable_message(reason),
+            Status::Fetching => "fetching usage from AI Gateway",
+            Status::Failed(_) => "(press r to retry)",
+            Status::Ready => "no usage yet",
+        }
+    }
+
+    // ----------------------------------------------------------------- period
+
+    fn period_row(&self, period: Period, paint: &Paint) -> String {
+        let totals = &self.snapshot.of(period).totals;
+        let (spent, requests, tokens) = (
+            money(totals.total_cost),
+            grouped(totals.request_count),
+            compact(totals.total_tokens()),
         );
-        let max_start = count - shown;
-        let start = self
-            .window_start
-            .min(selected)
-            .max(selected.saturating_sub(shown - 1))
-            .min(max_start);
-        let mode = ModelMode::of(snapshot, paint.cols);
-        let mut rows = Vec::new();
-        for (index, model) in snapshot.models.iter().enumerate().skip(start) {
-            if rows.len() >= room {
-                break;
-            }
-            rows.push(model_row(
-                snapshot,
-                totals,
-                model,
-                index == selected,
-                mode,
-                paint,
-            ));
-            if self.expanded == Some(index) && rows.len() < room {
-                rows.push(paint.dim(&detail(&model.totals)));
+        let cells = [
+            Cell::left(period.label(), 8),
+            Cell::right(&spent, 11),
+            Cell::right(&requests, 10),
+            Cell::right(&tokens, 8),
+        ];
+        paint.cells(&cells, Kind::Data)
+    }
+
+    // ----------------------------------------------------------------- budget
+
+    /// `user  $316.00  $65.97  $250.03  21%  nov 1` (`composeBudgetRow`,
+    /// `:570-596`).
+    fn budget_row(&self, paint: &Paint) -> String {
+        let Some(budget) = self.snapshot.budget() else {
+            return String::new();
+        };
+        // A rounded integer, at most 999; `as` takes a negative or NaN ratio
+        // to 0 where fx's `@intFromFloat` would trap.
+        let use_pct = if budget.limit > 0.0 {
+            (budget.spent / budget.limit * 100.0).round().min(999.0) as u64
+        } else {
+            0
+        };
+        let resets = self
+            .snapshot
+            .budget_reset_day()
+            .map_or_else(|| "-".to_string(), short_day);
+        let (size, used, avail, pct) = (
+            money(budget.limit),
+            money(budget.spent),
+            money((budget.limit - budget.spent).max(0.0)),
+            format!("{use_pct}%"),
+        );
+        let full = [
+            Cell::left("user", 6),
+            Cell::right(&size, 12),
+            Cell::right(&used, 11),
+            Cell::right(&avail, 12),
+            Cell::right(&pct, 6),
+            Cell::right("", 2),
+            Cell::left(&resets, 6),
+        ];
+        paint.cells(&budget_columns(&full, paint.limit), Kind::Data)
+    }
+
+    // ----------------------------------------------------------------- models
+
+    /// The name column is as wide as the longest listed name (or the header),
+    /// so the table never stretches; share, then tokens, give way first
+    /// (`modelLayout`, `:625-636`). Measured on the names as drawn.
+    fn model_layout(&self, limit: usize) -> (ModelColumns, usize) {
+        let name_width = self
+            .listed()
+            .iter()
+            .map(|model| cells(&crate::mcp::terminal_safe(&model.model)))
+            .fold(cells(&model_header_text(self.period)), usize::max);
+        let room = limit.saturating_sub(GUTTER);
+        for columns in [
+            ModelColumns::Full,
+            ModelColumns::NoShare,
+            ModelColumns::Small,
+        ] {
+            if name_width + columns.width() <= room {
+                return (columns, name_width);
             }
         }
-        rows
+        (
+            ModelColumns::Small,
+            room.saturating_sub(ModelColumns::Small.width()).max(8),
+        )
+    }
+
+    fn model_header(&self, paint: &Paint) -> String {
+        let (columns, name_width) = self.model_layout(paint.limit);
+        let mut row = " ".repeat(GUTTER);
+        let header = model_header_text(self.period);
+        let used = paint.append(
+            &mut row,
+            &[Cell::left(&header, name_width)],
+            Kind::Header,
+            GUTTER,
+        );
+        let labels = columns.cells("spent", "share", "requests", "tokens");
+        paint.append(&mut row, &labels, Kind::Labels, used);
+        row
+    }
+
+    fn model_row(&self, index: usize, paint: &Paint) -> String {
+        let Some(model) = self.listed().get(index) else {
+            return String::new();
+        };
+        let total = self.snapshot.of(self.period).totals.total_cost;
+        let (columns, name_width) = self.model_layout(paint.limit);
+        let numbers = Numbers::of(&model.totals, total);
+        let selected = index == self.selected;
+        let palette = paint.palette;
+        let mut row = if selected {
+            format!("{}{MARK}", palette.bold())
+        } else {
+            " ".repeat(GUTTER)
+        };
+        append_name(
+            &mut row,
+            &crate::mcp::terminal_safe(&model.model),
+            name_width,
+        );
+        paint.append(
+            &mut row,
+            &numbers.cells(columns),
+            Kind::Data,
+            GUTTER + name_width,
+        );
+        if selected {
+            row.push_str(palette.reset());
+        }
+        row
+    }
+
+    /// The models below the window, summed, in dim (`composeMoreRow`,
+    /// `:718-748`). Rows above the window are not in it.
+    fn more_row(&self, first: usize, paint: &Paint) -> String {
+        let models = self.listed();
+        let mut sum = Totals::default();
+        for model in models.iter().skip(first) {
+            sum.add(&model.totals);
+        }
+        let total = self.snapshot.of(self.period).totals.total_cost;
+        let (columns, name_width) = self.model_layout(paint.limit);
+        let numbers = Numbers::of(&sum, total);
+        let palette = paint.palette;
+        let mut row = format!("{}{}", palette.dim(), " ".repeat(GUTTER));
+        let label = format!("{} more", models.len().saturating_sub(first));
+        append_name(&mut row, &label, name_width);
+        paint.append(
+            &mut row,
+            &numbers.cells(columns),
+            Kind::Data,
+            GUTTER + name_width,
+        );
+        row.push_str(palette.reset());
+        row
+    }
+
+    // ----------------------------------------------------------------- detail
+
+    /// The selected model's row for `period`, or `None` when it had no usage
+    /// then (`detailRow`, `:756-762`).
+    fn detail_row(&self, period: Period) -> Option<&ModelRow> {
+        let name = self.selected_name()?;
+        self.snapshot
+            .of(period)
+            .models
+            .iter()
+            .find(|model| model.model == name)
+    }
+
+    fn detail_period_row(&self, period: Period, paint: &Paint) -> String {
+        let total = self.snapshot.of(period).totals.total_cost;
+        let numbers = self
+            .detail_row(period)
+            .map_or_else(Numbers::none, |row| Numbers::of(&row.totals, total));
+        let cells = [
+            Cell::left(period.label(), 8),
+            Cell::right(&numbers.spent, 11),
+            Cell::right(&numbers.share, 8),
+            Cell::right(&numbers.requests, 10),
+            Cell::right(&numbers.tokens, 8),
+        ];
+        paint.cells(&cells, Kind::Data)
+    }
+
+    fn tokens_row(&self, period: Period, paint: &Paint) -> String {
+        let header = tokens_header(paint.limit);
+        let values: [String; 5] = match self.detail_row(period) {
+            Some(row) => [
+                row.totals.input_tokens,
+                row.totals.output_tokens,
+                row.totals.reasoning_tokens,
+                row.totals.cache_read_tokens,
+                row.totals.cache_write_tokens,
+            ]
+            .map(compact),
+            None => std::array::from_fn(|_| "-".to_string()),
+        };
+        let mut cells = vec![Cell::left(period.label(), header[0].width)];
+        cells.extend(
+            values
+                .iter()
+                .zip(&header[1..])
+                .map(|(value, column)| Cell::right(value, column.width)),
+        );
+        paint.cells(&cells, Kind::Data)
+    }
+
+    fn perf_row(&self, period: Period, paint: &Paint) -> String {
+        let header = perf_header(paint.limit);
+        let totals = self.detail_row(period).map(|row| &row.totals);
+        let hit = percent(totals.and_then(Totals::cache_hit_pct));
+        let ttft = duration(totals.and_then(Totals::p90_ttft_ms));
+        let tps = totals
+            .and_then(Totals::p90_tps)
+            .map_or_else(|| "-".to_string(), |tps| fixed(tps, 0));
+        let errors = percent(totals.and_then(Totals::error_pct));
+        let cells = [
+            Cell::left(period.label(), header[0].width),
+            Cell::right(&hit, header[1].width),
+            Cell::right(&ttft, header[2].width),
+            Cell::right(&tps, header[3].width),
+            Cell::right(&errors, header[4].width),
+        ];
+        paint.cells(&cells, Kind::Data)
     }
 }
 
-/// The models heading: with the count from 48 columns up
-/// (`composeUsageModelsHeader`, `:718-729`).
-fn models_heading(snapshot: &Snapshot, cols: u16) -> String {
-    if cols < 48 {
-        "Models".to_string()
+/// One row of the dashboard (`Line`, `usage_presentation.zig:31-76`, the
+/// Gateway half).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Line {
+    Heading,
+    Blank,
+    /// One line of guidance when there is nothing to tabulate.
+    Message,
+    PeriodHeader,
+    Period(Period),
+    BudgetHeader,
+    Budget,
+    ModelHeader,
+    Model(usize),
+    /// The models below the window, summed; carries the first one's index.
+    More(usize),
+    NoModels,
+    DetailPeriodHeader,
+    DetailPeriod(Period),
+    TokensHeader,
+    Tokens(Period),
+    PerfHeader,
+    Perf(Period),
+}
+
+/// The heading for a sign-in nothing can be fetched with (`headingLeft`,
+/// `:422-427`).
+fn unavailable_heading(reason: Unavailable) -> &'static str {
+    match reason {
+        Unavailable::NoGatewaySignIn => "not signed in to AI Gateway",
+        Unavailable::UnsupportedProvider => "this provider's usage isn't shown yet",
+        Unavailable::ProviderRejected => "the provider settings can't be used",
+    }
+}
+
+/// What to do about it (`composeMessage`, `:492-497`). fx's no-sign-in text
+/// names `/login`, which xfx has not.
+fn unavailable_message(reason: Unavailable) -> &'static str {
+    match reason {
+        Unavailable::NoGatewaySignIn => "(set AI_GATEWAY_API_KEY)",
+        Unavailable::UnsupportedProvider => {
+            "(use /provider and pick AI Gateway to see AI Gateway usage)"
+        }
+        Unavailable::ProviderRejected => "(send a message to see why, then reopen /usage)",
+    }
+}
+
+/// What a failed fetch says (`failureText`, `:474-485`).
+fn failure_text(failure: Failure) -> &'static str {
+    match failure {
+        Failure::Network => "couldn't reach AI Gateway",
+        Failure::Refused => "AI Gateway refused this sign-in",
+        Failure::NotAvailable => "usage reports aren't available for this team",
+        Failure::RateLimited => "rate limited, try again shortly",
+        Failure::Server => "AI Gateway error",
+        Failure::BadResponse => "unexpected AI Gateway response",
+        Failure::Cache => "couldn't save the usage cache",
+    }
+}
+
+/// An empty model table, per period (`noModelsText`, `:506-512`).
+fn no_models_text(period: Period) -> &'static str {
+    match period {
+        Period::Today => "no usage today (UTC)",
+        Period::Days7 => "no usage in the last 7 days",
+        Period::Month => "no usage this month",
+    }
+}
+
+fn model_header_text(period: Period) -> String {
+    format!("model ({})", period.label())
+}
+
+/// `just now`, `2m ago`, `3h ago`, `2d ago` (`agoText`, `:466-472`); a clock
+/// that reads earlier than the fetch is `just now`.
+fn ago_text(elapsed_ms: i64) -> String {
+    const MINUTE_MS: i64 = 60 * 1000;
+    let minutes = elapsed_ms.max(0).div_euclid(MINUTE_MS);
+    if minutes < 1 {
+        "just now".to_string()
+    } else if minutes < 60 {
+        format!("{minutes}m ago")
+    } else if minutes < 24 * 60 {
+        format!("{}h ago", minutes / 60)
     } else {
-        format!("Models {}", snapshot.models.len())
+        format!("{}d ago", minutes / (24 * 60))
     }
 }
 
-/// Where a constrained panel's model rows begin (`constrainedUsageModelStart`).
-fn constrained_model_start(visible: u16) -> usize {
-    if visible <= 4 {
-        usize::from(visible.saturating_sub(1))
-    } else {
-        4
-    }
-}
-
-/// What the hint row says while the dashboard is up, on a screen `cols` wide:
-/// the widest of [`KEY_HELP`] that fits, and the narrowest when none does.
-pub(crate) fn key_help(cols: u16) -> &'static str {
-    KEY_HELP
-        .iter()
+/// `nov 1` (`shortDay`, `:598-603`).
+fn short_day(day: i64) -> String {
+    const MONTHS: [&str; 12] = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    let date = month_day(day);
+    let month = usize::try_from(date.month - 1)
+        .ok()
+        .and_then(|at| MONTHS.get(at))
         .copied()
-        .find(|candidate| cells(candidate) <= usize::from(cols))
-        .unwrap_or(KEY_HELP[KEY_HELP.len() - 1])
+        .unwrap_or("");
+    format!("{month} {}", date.day)
+}
+
+// ------------------------------------------------------------------- columns
+
+/// One padded cell (`Cell`, `:316-320`).
+#[derive(Debug, Clone, Copy)]
+struct Cell<'a> {
+    text: &'a str,
+    width: usize,
+    left: bool,
+}
+
+impl<'a> Cell<'a> {
+    const fn left(text: &'a str, width: usize) -> Self {
+        Self {
+            text,
+            width,
+            left: true,
+        }
+    }
+
+    const fn right(text: &'a str, width: usize) -> Self {
+        Self {
+            text,
+            width,
+            left: false,
+        }
+    }
+}
+
+/// How a run of cells is styled (`Kind`, `:322-332`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// A table's header row: the first cell (the table name) bold, the column
+    /// labels dim.
+    Header,
+    /// More column labels on the same header row: all dim.
+    Labels,
+    Data,
+}
+
+const PERIOD_HEADER: [Cell<'static>; 4] = [
+    Cell::left("period", 8),
+    Cell::right("spent", 11),
+    Cell::right("requests", 10),
+    Cell::right("tokens", 8),
+];
+
+const BUDGET_HEADER: [Cell<'static>; 7] = [
+    Cell::left("budget", 6),
+    Cell::right("size", 12),
+    Cell::right("used", 11),
+    Cell::right("avail", 12),
+    Cell::right("use%", 6),
+    Cell::right("", 2),
+    Cell::left("resets", 6),
+];
+
+const DETAIL_PERIOD_HEADER: [Cell<'static>; 5] = [
+    Cell::left("period", 8),
+    Cell::right("spent", 11),
+    Cell::right("share", 8),
+    Cell::right("requests", 10),
+    Cell::right("tokens", 8),
+];
+
+const TOKENS_WIDE: [Cell<'static>; 6] = [
+    Cell::left("tokens", 8),
+    Cell::right("input", 9),
+    Cell::right("output", 9),
+    Cell::right("reasoning", 11),
+    Cell::right("cache read", 12),
+    Cell::right("cache write", 13),
+];
+
+const TOKENS_NARROW: [Cell<'static>; 6] = [
+    Cell::left("tokens", 6),
+    Cell::right("in", 7),
+    Cell::right("out", 7),
+    Cell::right("reason", 8),
+    Cell::right("cache rd", 10),
+    Cell::right("cache wr", 10),
+];
+
+const PERF_WIDE: [Cell<'static>; 5] = [
+    Cell::left("perf", 8),
+    Cell::right("cache hit", 11),
+    Cell::right("p90 ttft", 10),
+    Cell::right("p90 tok/s", 11),
+    Cell::right("errors", 8),
+];
+
+/// 38 columns, so every perf column shows down to 40-column screens.
+const PERF_NARROW: [Cell<'static>; 5] = [
+    Cell::left("perf", 5),
+    Cell::right("cache hit", 10),
+    Cell::right("p90 ttft", 9),
+    Cell::right("tok/s", 7),
+    Cell::right("errors", 7),
+];
+
+fn cells_width(cells: &[Cell<'_>]) -> usize {
+    cells.iter().map(|cell| cell.width).sum()
+}
+
+fn tokens_header(limit: usize) -> &'static [Cell<'static>] {
+    if limit >= cells_width(&TOKENS_WIDE) {
+        &TOKENS_WIDE
+    } else {
+        &TOKENS_NARROW
+    }
+}
+
+fn perf_header(limit: usize) -> &'static [Cell<'static>] {
+    if limit >= cells_width(&PERF_WIDE) {
+        &PERF_WIDE
+    } else {
+        &PERF_NARROW
+    }
+}
+
+/// The budget's columns at `limit` (`budgetColumns`, `:539-545`): all of them
+/// from 55 columns, no `resets` from 47, and below that no `size` either.
+fn budget_columns<'a>(full: &[Cell<'a>; 7], limit: usize) -> Vec<Cell<'a>> {
+    if limit >= 55 {
+        full.to_vec()
+    } else if limit >= 47 {
+        full[..5].to_vec()
+    } else {
+        vec![full[0], full[2], full[3], full[4]]
+    }
+}
+
+/// Which number columns the model table keeps (`ModelColumns`, `:606`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelColumns {
+    Full,
+    NoShare,
+    Small,
+}
+
+impl ModelColumns {
+    /// Their width (`modelColumnsWidth`, `:615-621`).
+    fn width(self) -> usize {
+        match self {
+            Self::Full => 11 + 8 + 10 + 8,
+            Self::NoShare => 11 + 10 + 8,
+            Self::Small => 11 + 10,
+        }
+    }
+
+    /// `spent`, then what is kept of share, requests and tokens
+    /// (`modelCells`, `:642-661`).
+    fn cells<'a>(
+        self,
+        spent: &'a str,
+        share: &'a str,
+        requests: &'a str,
+        tokens: &'a str,
+    ) -> Vec<Cell<'a>> {
+        let spent = Cell::right(spent, 11);
+        match self {
+            Self::Full => vec![
+                spent,
+                Cell::right(share, 8),
+                Cell::right(requests, 10),
+                Cell::right(tokens, 8),
+            ],
+            Self::NoShare => vec![spent, Cell::right(requests, 10), Cell::right(tokens, 8)],
+            Self::Small => vec![spent, Cell::right(requests, 10)],
+        }
+    }
+}
+
+/// A model's numbers in one period, formatted.
+struct Numbers {
+    spent: String,
+    share: String,
+    requests: String,
+    tokens: String,
+}
+
+impl Numbers {
+    fn of(totals: &Totals, period_cost: f64) -> Self {
+        Self {
+            spent: money(totals.total_cost),
+            share: percent(share_of(totals.total_cost, period_cost)),
+            requests: grouped(totals.request_count),
+            tokens: compact(totals.total_tokens()),
+        }
+    }
+
+    /// A period the model had no usage in: dashes.
+    fn none() -> Self {
+        Self {
+            spent: "-".to_string(),
+            share: "-".to_string(),
+            requests: "-".to_string(),
+            tokens: "-".to_string(),
+        }
+    }
+
+    fn cells(&self, columns: ModelColumns) -> Vec<Cell<'_>> {
+        columns.cells(&self.spent, &self.share, &self.requests, &self.tokens)
+    }
+}
+
+/// `name`, already spelled safe, middle-ellipsized into `width` columns and
+/// padded to them (`appendName`, `:709-716`).
+fn append_name(row: &mut String, name: &str, width: usize) {
+    let shown = super::model_menu::middle_ellipsized(name, width);
+    let pad = width.saturating_sub(cells(&shown));
+    row.push_str(&shown);
+    row.push_str(&" ".repeat(pad));
 }
 
 /// The screen width and palette every row is painted for.
 struct Paint {
-    cols: u16,
+    limit: usize,
     palette: Palette,
 }
 
 impl Paint {
-    fn width(&self) -> usize {
-        usize::from(self.cols)
+    /// `cells` padded to their widths, stopping before a cell that would pass
+    /// the limit (`composeCells`, `:334-341`).
+    fn cells(&self, cells: &[Cell<'_>], kind: Kind) -> String {
+        let mut row = String::new();
+        self.append(&mut row, cells, kind, 0);
+        row
     }
 
-    /// `text` in one style, ellipsized to the screen (`composeStyledRow`).
-    fn styled(&self, style: &str, text: &str) -> String {
+    /// Appends `cells` from column `used`; answers the column it stopped at
+    /// (`appendCells`, `:343-365`).
+    fn append(&self, row: &mut String, cells: &[Cell<'_>], kind: Kind, used: usize) -> usize {
+        let mut used = used;
+        for (index, cell) in cells.iter().enumerate() {
+            if used + cell.width > self.limit {
+                break;
+            }
+            let pad = " ".repeat(cell.width.saturating_sub(super::picker::cells(cell.text)));
+            let style = match kind {
+                Kind::Header if index == 0 => self.palette.bold(),
+                Kind::Header | Kind::Labels => self.palette.dim(),
+                Kind::Data => "",
+            };
+            if !cell.left {
+                row.push_str(&pad);
+            }
+            if style.is_empty() {
+                row.push_str(cell.text);
+            } else {
+                row.push_str(style);
+                row.push_str(cell.text);
+                row.push_str(self.palette.reset());
+            }
+            if cell.left {
+                row.push_str(&pad);
+            }
+            used += cell.width;
+        }
+        used
+    }
+
+    /// One dim line of guidance, two columns in, cut with an ellipsis
+    /// (`composeTextRow`, `row_text.zig:153-161`).
+    fn text_row(&self, text: &str) -> String {
+        let indent = GUTTER.min(self.limit);
         format!(
-            "{style}{}{}",
-            ellipsized(text, self.width()),
+            "{}{}{}{}",
+            self.palette.dim(),
+            " ".repeat(indent),
+            super::picker::ellipsized(text, self.limit - indent),
             self.palette.reset()
         )
     }
+}
 
-    fn dim(&self, text: &str) -> String {
-        self.styled(self.palette.dim(), text)
+// -------------------------------------------------------------------- format
+//
+// Every `{d:.N}` of fx's is [`fixed`]: Zig rounds the shortest decimal that
+// reads back as the number, half away from zero, where Rust's `{:.N}` rounds
+// the exact binary value to even (`14.5` is `15` there, `14` here).
+
+/// `part` of `whole` as a percent, or `None` with nothing to share
+/// (`shareOf`, `:1560-1563`).
+fn share_of(part: f64, whole: f64) -> Option<f64> {
+    (whole > 0.0).then(|| part / whole * 100.0)
+}
+
+/// `81.0%`, or `-` (`optionalPercent`, `:1569-1572`).
+fn percent(value: Option<f64>) -> String {
+    value.map_or_else(|| "-".to_string(), |value| format!("{}%", fixed(value, 1)))
+}
+
+/// `850ms`, `2.1s`, or `-` (`duration`, `:1575-1579`).
+fn duration(ms: Option<f64>) -> String {
+    match ms {
+        None => "-".to_string(),
+        Some(ms) if ms < 1000.0 => format!("{}ms", fixed(ms, 0)),
+        Some(ms) => format!("{}s", fixed(ms / 1000.0, 1)),
     }
+}
 
-    /// Upstream's `system_notice_label_style`: bold, in the label grey.
-    fn heading(&self, text: &str) -> String {
-        self.styled(self.palette.notice_heading(), text)
+/// `$1,234.56`, or four decimals below one dollar (`money`, `:1582-1588`).
+fn money(value: f64) -> String {
+    if value < 1.0 {
+        return format!("${}", fixed(value, 4));
     }
+    // Finite and not negative in a valid entry; a sum that overflowed to
+    // infinity saturates rather than wraps.
+    let cents = (value * 100.0).round() as u64;
+    format!("${}.{:02}", grouped(cents / 100), cents % 100)
+}
 
-    fn indent(&self) -> usize {
-        if self.cols <= 2 {
-            0
-        } else {
-            2
+/// `3,665` (`grouped`, `:1591-1604`).
+fn grouped(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+/// `950`, `12K`, `6.9M`, `1.2B` (`compact`, `:1607-1625`).
+fn compact(value: u64) -> String {
+    const UNITS: [(u64, &str); 4] = [
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ];
+    for (div, suffix) in UNITS {
+        if value >= div {
+            let scaled = value as f64 / div as f64;
+            let places = if scaled < 10.0 { 1 } else { 0 };
+            return format!("{}{suffix}", fixed(scaled, places));
         }
     }
-}
-
-/// The header: `Usage` and every window, the shown one bracketed and bold
-/// (`composeUsageHeaderRow`, `:284-333`). On a screen under 64 columns, or
-/// one too narrow for all four, only the shown one.
-fn header(active: Scope, paint: &Paint) -> String {
-    let palette = paint.palette;
-    let tab = |scope: Scope| {
-        if scope == active {
-            format!(
-                "{}[{}]{}",
-                palette.subtitle(),
-                scope.label(),
-                palette.reset()
-            )
-        } else {
-            format!("{}{}{}", palette.dim(), scope.label(), palette.reset())
-        }
-    };
-    let title = format!("{}Usage{}", palette.subtitle(), palette.reset());
-    let mut wide = title.clone();
-    for scope in Scope::HEADER {
-        wide.push_str("  ");
-        wide.push_str(&tab(scope));
-    }
-    if paint.cols >= 64 && cells(&wide) <= paint.width() {
-        return wide;
-    }
-    let compact = format!("{title}  {}", tab(active));
-    format!(
-        "{}{}",
-        super::frame::clip(&compact, paint.cols),
-        palette.reset()
-    )
-}
-
-/// The session's block: its heading, its clock, its edits
-/// (`composeCompactSessionActivityRow`, `:387-434`).
-fn activity_rows(activity: SessionActivity, paint: &Paint) -> Vec<String> {
-    vec![
-        paint.heading("Session activity"),
-        paint.dim(&format!(
-            "API {} \u{b7} Wall {}",
-            duration(activity.api_duration_ms),
-            duration(activity.wall_duration_ms)
-        )),
-        paint.dim(&format!(
-            "Code +{} \u{b7} -{}",
-            activity.lines_added, activity.lines_removed
-        )),
-    ]
-}
-
-/// How the overview is laid out on a screen of some width
-/// (`UsageOverviewMode`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Overview {
-    /// Three rows of three aligned columns: 110 columns and room for them.
-    Wide { second: usize, third: usize },
-    /// Three rows, each its cells joined by ` · `.
-    Medium,
-    /// Two rows: tokens and spend, then requests.
-    Narrow,
-}
-
-/// Where each part of the dashboard starts (`usageLayout`, `:557-591`).
-#[derive(Debug, Clone, Copy)]
-struct Layout {
-    overview: Overview,
-    overview_start: usize,
-    overview_rows: usize,
-    activity_start: Option<usize>,
-    models_header: usize,
-    columns: bool,
-    model_start: usize,
-}
-
-impl Layout {
-    fn of(snapshot: &Snapshot, cols: u16) -> Self {
-        let totals = snapshot.totals.unwrap_or(EMPTY_TOTALS);
-        let overview = match overview_columns(totals, cols) {
-            Some((second, third)) if cols >= 110 => Overview::Wide { second, third },
-            _ if cols >= 48 => Overview::Medium,
-            _ => Overview::Narrow,
-        };
-        let narrow = overview == Overview::Narrow;
-        let overview_start = if narrow { 2 } else { 3 };
-        let overview_rows = if narrow { 2 } else { 3 };
-        let mut cursor = overview_start + overview_rows;
-        let mut activity_start = None;
-        if snapshot.activity.is_some() {
-            if !narrow {
-                cursor += 1;
-            }
-            activity_start = Some(cursor);
-            cursor += 3;
-        }
-        if !narrow {
-            cursor += 1;
-        }
-        let models_header = cursor;
-        cursor += 1;
-        let columns = ModelMode::of(snapshot, cols) == ModelMode::Columns;
-        if columns {
-            cursor += 1;
-        }
-        Self {
-            overview,
-            overview_start,
-            overview_rows,
-            activity_start,
-            models_header,
-            columns,
-            model_start: cursor,
-        }
-    }
-}
-
-/// Totals of nothing, for a layout asked of a snapshot that has none.
-const EMPTY_TOTALS: Totals = Totals {
-    total_tokens: 0,
-    input_tokens: 0,
-    output_tokens: 0,
-    cache_read_tokens: 0,
-    cache_write_tokens: 0,
-    reasoning_tokens: None,
-    request_count: None,
-    total_cost: 0.0,
-};
-
-/// The overview's three cells on `row` (`usageOverviewCells`, `:630-672`).
-fn overview_cells(totals: Totals, narrow: bool, row: usize) -> [String; 3] {
-    let tokens = |value: u64, label: &str| format!("{} {label}", compact(value));
-    let requests = || match totals.request_count {
-        Some(count) => format!(
-            "{} {}",
-            grouped(count),
-            if count == 1 { "request" } else { "requests" }
-        ),
-        None => "Requests unavailable".to_string(),
-    };
-    if narrow {
-        return match row {
-            0 => [
-                tokens(totals.total_tokens, "tokens"),
-                money(totals.total_cost),
-                String::new(),
-            ],
-            _ => [requests(), String::new(), String::new()],
-        };
-    }
-    match row {
-        0 => [
-            tokens(totals.total_tokens, "tokens"),
-            format!("{} spent", money(totals.total_cost)),
-            requests(),
-        ],
-        1 => [
-            tokens(totals.input_tokens, "input"),
-            tokens(totals.output_tokens, "output"),
-            match totals.reasoning_tokens {
-                Some(value) => tokens(value, "reasoning"),
-                None => "Reasoning unavailable".to_string(),
-            },
-        ],
-        _ => [
-            tokens(totals.cache_read_tokens, "cache read"),
-            tokens(totals.cache_write_tokens, "cache write"),
-            String::new(),
-        ],
-    }
-}
-
-/// Where the overview's second and third columns start, or `None` when the
-/// three do not fit (`usageOverviewColumns`, `:674-695`).
-fn overview_columns(totals: Totals, cols: u16) -> Option<(usize, usize)> {
-    let mut widths = [0usize; 3];
-    for row in 0..3 {
-        for (width, cell) in widths.iter_mut().zip(overview_cells(totals, false, row)) {
-            *width = (*width).max(cells(&cell));
-        }
-    }
-    let indent = if cols <= 2 { 0 } else { 2 };
-    let second = indent + widths[0] + COLUMN_GAP;
-    let third = second + widths[1] + COLUMN_GAP;
-    (third + widths[2] <= usize::from(cols)).then_some((second, third))
-}
-
-/// One overview row (`composeUsageOverviewRow`, `:593-628`).
-fn overview_row(totals: Totals, overview: Overview, row: usize, paint: &Paint) -> String {
-    let [first, second, third] = overview_cells(totals, overview == Overview::Narrow, row);
-    match overview {
-        // `composeUsageMetricColumns`, `:697-716`.
-        Overview::Wide {
-            second: at_second,
-            third: at_third,
-        } => {
-            let mut text = String::from(paint.palette.dim());
-            text.push_str(&" ".repeat(paint.indent()));
-            text.push_str(&ellipsized(&first, at_second.saturating_sub(3)));
-            pad_to(&mut text, at_second);
-            text.push_str(&ellipsized(
-                &second,
-                at_third.saturating_sub(at_second).saturating_sub(1),
-            ));
-            if !third.is_empty() {
-                pad_to(&mut text, at_third);
-                text.push_str(&ellipsized(&third, paint.width().saturating_sub(at_third)));
-            }
-            text.push_str(paint.palette.reset());
-            text
-        }
-        Overview::Medium | Overview::Narrow => {
-            let text = match (second.is_empty(), third.is_empty()) {
-                (_, false) => format!("{first} \u{b7} {second} \u{b7} {third}"),
-                (false, true) => format!("{first} \u{b7} {second}"),
-                (true, true) => first,
-            };
-            paint.dim(&text)
-        }
-    }
-}
-
-/// How the model rows are laid out (`UsageModelMode`, `:820-825`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ModelMode {
-    /// Name, tokens, share and spend in aligned columns, under a header row.
-    Columns,
-    /// The name, then `tokens · share · spend` at one column.
-    Facts(usize),
-    /// The name, then `tokens · spend`.
-    Compact(usize),
-    /// The name alone.
-    NameOnly,
-}
-
-impl ModelMode {
-    fn of(snapshot: &Snapshot, cols: u16) -> Self {
-        if cols >= 110 && ModelColumns::of(snapshot, cols).is_some() {
-            return Self::Columns;
-        }
-        if cols >= 48 {
-            if let Some(at) = info_column(snapshot, cols, true) {
-                return Self::Facts(at);
-            }
-        }
-        match info_column(snapshot, cols, false) {
-            Some(at) => Self::Compact(at),
-            None => Self::NameOnly,
-        }
-    }
-}
-
-/// Where the model table's columns start (`usageModelColumns`, `:827-853`).
-#[derive(Debug, Clone, Copy)]
-struct ModelColumns {
-    token: usize,
-    share: usize,
-    spend: usize,
-}
-
-impl ModelColumns {
-    fn of(snapshot: &Snapshot, cols: u16) -> Option<Self> {
-        let total = snapshot.totals.map_or(0, |totals| totals.total_tokens);
-        let indent = if cols <= 2 { 0 } else { 2 };
-        let mut longest = cells("Model");
-        let (mut token_width, mut share_width, mut spend_width) =
-            (cells("Tokens"), cells("Share"), cells("Spend"));
-        for model in &snapshot.models {
-            longest = longest.max(cells(&printable(&model.model)));
-            token_width = token_width.max(cells(&compact(model.totals.total_tokens)));
-            share_width = share_width.max(cells(&share(model.totals.total_tokens, total)));
-            spend_width = spend_width.max(cells(&money(model.totals.total_cost)));
-        }
-        let fixed = COLUMN_GAP * 3 + token_width + share_width + spend_width;
-        let width = usize::from(cols);
-        if width < indent + 10 + fixed {
-            return None;
-        }
-        let name_width = longest.min(width - indent - fixed);
-        let token = indent + name_width + COLUMN_GAP;
-        let share = token + token_width + COLUMN_GAP;
-        let spend = share + share_width + COLUMN_GAP;
-        Some(Self {
-            token,
-            share,
-            spend,
-        })
-    }
-
-    /// One row of the table (`composeUsageModelColumnsRow`, `:792-818`): the
-    /// name in the row's own style -- bold behind `❯` when marked -- and the
-    /// three numbers dim.
-    fn row(
-        &self,
-        name: &str,
-        tokens: &str,
-        share: &str,
-        spend: &str,
-        marked: bool,
-        paint: &Paint,
-    ) -> String {
-        let palette = paint.palette;
-        let mut row = String::from(if marked {
-            palette.notice_heading()
-        } else {
-            palette.dim()
-        });
-        row.push_str(super::frame::clip(
-            if marked { MARK } else { UNMARKED },
-            paint.cols,
-        ));
-        let used = cells(&row);
-        row.push_str(&ellipsized(
-            name,
-            self.token.saturating_sub(used).saturating_sub(1),
-        ));
-        row.push_str(palette.reset());
-        pad_to(&mut row, self.token);
-        row.push_str(palette.dim());
-        row.push_str(&ellipsized(
-            tokens,
-            self.share.saturating_sub(self.token).saturating_sub(1),
-        ));
-        pad_to(&mut row, self.share);
-        row.push_str(&ellipsized(
-            share,
-            self.spend.saturating_sub(self.share).saturating_sub(1),
-        ));
-        pad_to(&mut row, self.spend);
-        row.push_str(&ellipsized(spend, paint.width().saturating_sub(self.spend)));
-        row.push_str(palette.reset());
-        row
-    }
-}
-
-/// Where a narrower screen puts a model's facts, or `None` when they do not
-/// fit beside a name (`usageModelInfoColumn`, `:855-878`).
-fn info_column(snapshot: &Snapshot, cols: u16, with_share: bool) -> Option<usize> {
-    let total = snapshot.totals.map_or(0, |totals| totals.total_tokens);
-    let indent = if cols <= 2 { 0 } else { 2 };
-    let mut longest = 0;
-    let mut widest = 0;
-    for model in &snapshot.models {
-        longest = longest.max(cells(&printable(&model.model)));
-        widest = widest.max(cells(&facts(model, total, with_share)));
-    }
-    let width = usize::from(cols);
-    if widest == 0 || width < indent + 8 + COLUMN_GAP + widest {
-        return None;
-    }
-    Some((indent + longest + COLUMN_GAP).min(width - widest))
-}
-
-/// A model's numbers on one string (`formatUsageModelFacts`, `:880-908`).
-fn facts(model: &ModelUsage, total: u64, with_share: bool) -> String {
-    let tokens = compact(model.totals.total_tokens);
-    let spend = money(model.totals.total_cost);
-    if with_share {
-        format!(
-            "{tokens} \u{b7} {} \u{b7} {spend}",
-            share(model.totals.total_tokens, total)
-        )
-    } else {
-        format!("{tokens} \u{b7} {spend}")
-    }
-}
-
-/// One model's row, in whichever layout the screen allows
-/// (`composeUsageModelSummaryRow`, `:750-790`).
-fn model_row(
-    snapshot: &Snapshot,
-    totals: Totals,
-    model: &ModelUsage,
-    marked: bool,
-    mode: ModelMode,
-    paint: &Paint,
-) -> String {
-    let name = printable(&model.model);
-    match mode {
-        ModelMode::Columns => match ModelColumns::of(snapshot, paint.cols) {
-            Some(columns) => columns.row(
-                &name,
-                &compact(model.totals.total_tokens),
-                &share(model.totals.total_tokens, totals.total_tokens),
-                &money(model.totals.total_cost),
-                marked,
-                paint,
-            ),
-            None => action_row(&name, "", marked, None, paint),
-        },
-        ModelMode::Facts(at) => action_row(
-            &name,
-            &facts(model, totals.total_tokens, true),
-            marked,
-            Some(at),
-            paint,
-        ),
-        ModelMode::Compact(at) => action_row(
-            &name,
-            &facts(model, totals.total_tokens, false),
-            marked,
-            Some(at),
-            paint,
-        ),
-        ModelMode::NameOnly => action_row(&name, "", marked, None, paint),
-    }
-}
-
-/// A name with its facts at `info_at` (`composeWorkspaceActionRow`,
-/// `:1161-1206`).
-fn action_row(
-    name: &str,
-    info: &str,
-    marked: bool,
-    info_at: Option<usize>,
-    paint: &Paint,
-) -> String {
-    let palette = paint.palette;
-    let width = paint.width();
-    let mut row = String::from(if marked {
-        palette.notice_heading()
-    } else {
-        palette.dim()
-    });
-    row.push_str(super::frame::clip(
-        if marked { MARK } else { UNMARKED },
-        paint.cols,
-    ));
-    let used = cells(&row);
-    if used >= width {
-        row.push_str(palette.reset());
-        return row;
-    }
-    let Some(at) = info_at.filter(|at| *at > used + 2 && !info.is_empty()) else {
-        row.push_str(&ellipsized(name, width - used));
-        row.push_str(palette.reset());
-        return row;
-    };
-    row.push_str(&ellipsized(name, at - used - 1));
-    row.push_str(palette.reset());
-    if cells(&row) >= at {
-        return row;
-    }
-    pad_to(&mut row, at);
-    row.push_str(palette.dim());
-    row.push_str(&ellipsized(info, width.saturating_sub(at)));
-    row.push_str(palette.reset());
-    row
-}
-
-/// The marked model's detail line (`formatUsageModelDetail`, `:910-934`).
-fn detail(totals: &Totals) -> String {
-    format!(
-        "Input {} \u{b7} Output {} \u{b7} Cache {}/{} \u{b7} Reasoning {} \u{b7} Requests {} \u{b7} {}",
-        compact(totals.input_tokens),
-        compact(totals.output_tokens),
-        compact(totals.cache_read_tokens),
-        compact(totals.cache_write_tokens),
-        totals
-            .reasoning_tokens
-            .map_or_else(|| "n/a".to_string(), compact),
-        totals
-            .request_count
-            .map_or_else(|| "n/a".to_string(), grouped),
-        money(totals.total_cost)
-    )
-}
-
-/// A model's name with nothing in it a terminal would obey: the name is the
-/// requested model's when the provider named none, and that is whatever was
-/// typed at `/model`.
-fn printable(name: &str) -> String {
-    super::bridge::inert(name).into_owned()
+    value.to_string()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::session::{RecordedUsage, RequestUsage};
-    use crate::usage::session_snapshot;
-
-    /// A real read of a profile with sessions in it, cancelled before it
-    /// began, opens none of them and says it was cancelled.
-    #[test]
-    fn a_cancelled_read_opens_no_session() {
-        let home = tempfile::tempdir().expect("a home");
-        let cancel = AtomicBool::new(true);
-        assert!(matches!(
-            crate::usage::read_ledger(home.path(), NOW, &cancel),
-            Ok(None)
-        ));
-        // Not cancelled, it is not said to be.
-        cancel.store(false, Ordering::Release);
-        assert!(!matches!(
-            crate::usage::read_ledger(home.path(), NOW, &cancel),
-            Ok(None)
-        ));
-    }
-
-    const NOW: i64 = 40 * 24 * 60 * 60 * 1000;
-
-    fn request(
-        model: &str,
-        input: u64,
-        output: u64,
-        cache: u64,
-        reasoning: u64,
-        cost: f64,
-    ) -> RequestUsage {
-        RequestUsage {
-            at_ms: NOW - 60_000,
-            duration_ms: 300,
-            model: model.to_string(),
-            input_tokens: input,
-            output_tokens: output,
-            cache_read_tokens: cache,
-            cache_write_tokens: 0,
-            reasoning_tokens: Some(reasoning),
-            cost: Some(cost),
-            generation_id: None,
-            origin: None,
-        }
-    }
-
-    /// The fx capture's two billed turns (`billed-turns.json`).
-    fn billed() -> RecordedUsage {
-        RecordedUsage {
-            requests: vec![
-                request("fake/model-a", 12000, 800, 4000, 0, 0.0125),
-                request("anthropic/claude-opus-5", 52000, 3100, 30000, 900, 0.421),
-            ],
-            ..RecordedUsage::default()
-        }
-    }
-
-    fn rolling(usage: &RecordedUsage, scope: Scope) -> Snapshot {
-        Ledger::from_sessions([usage], &[], Some(NOW - 120_000)).snapshot(scope, NOW)
-    }
-
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
-
-    /// The rows as plain text, colours taken out.
-    fn text(dashboard: &Dashboard, cols: u16, visible: u16) -> Vec<String> {
-        dashboard
-            .rows(cols, visible, PALETTE)
-            .iter()
-            .map(|row| plain(row))
-            .collect()
-    }
-
-    fn plain(row: &str) -> String {
-        let mut out = String::new();
-        let mut chars = row.chars().peekable();
-        while let Some(character) = chars.next() {
-            if character == '\u{1b}' {
-                for next in chars.by_ref() {
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-                continue;
-            }
-            out.push(character);
-        }
-        out
-    }
-
-    #[test]
-    fn the_thirty_day_window_reads_as_fxs_capture_does() {
-        // `fx-usage3-40x120-d30`, rows 4-14.
-        let dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        assert_eq!(dashboard.wanted_rows(120), 11);
-        assert_eq!(
-            text(&dashboard, 120, 11),
-            [
-                "Usage  [30 days]  7 days  24 hours  Session",
-                "Partial data \u{b7} some usage may be missing",
-                "",
-                "  67.9K tokens      $0.43 spent      2 requests",
-                "  64K input         3.9K output      900 reasoning",
-                "  34K cache read    0 cache write",
-                "",
-                "Models 2",
-                "  Model                      Tokens    Share    Spend",
-                "\u{276f} anthropic/claude-opus-5    55.1K     81.1%    $0.42",
-                "  fake/model-a               12.8K     18.9%    $0.01",
-            ]
-        );
-    }
-
-    #[test]
-    fn enter_opens_the_marked_model_and_down_moves_the_mark_not_the_line() {
-        // `fx-usage3-40x120-d30-expand`, then `-d30-down`.
-        let mut dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        assert!(dashboard.toggle(20));
-        assert_eq!(dashboard.wanted_rows(120), 12);
-        let rows = text(&dashboard, 120, 12);
-        assert_eq!(
-            rows[10],
-            "Input 52K \u{b7} Output 3.1K \u{b7} Cache 30K/0 \u{b7} Reasoning 900 \u{b7} Requests 1 \u{b7} $0.42"
-        );
-        assert!(dashboard.step(true, 20));
-        let rows = text(&dashboard, 120, 12);
-        assert_eq!(
-            rows[9],
-            "  anthropic/claude-opus-5    55.1K     81.1%    $0.42"
-        );
-        assert!(rows[10].starts_with("Input 52K"), "{rows:?}");
-        assert_eq!(
-            rows[11],
-            "\u{276f} fake/model-a               12.8K     18.9%    $0.01"
-        );
-        // The end stops it; it does not wrap.
-        assert!(!dashboard.step(true, 20));
-        assert!(dashboard.step(false, 20));
-        assert!(!dashboard.step(false, 20));
-    }
-
-    #[test]
-    fn the_session_scope_adds_its_clock_and_keeps_the_marked_model_by_name() {
-        // `fx-usage3-40x120-session`: the mark stayed on fake/model-a across
-        // three Tabs, and its detail line with it.
-        let mut dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        dashboard.step(true, 20);
-        dashboard.toggle(20);
-        dashboard.show(session_snapshot(&billed(), Some(NOW - 17_400), NOW));
-        assert_eq!(dashboard.scope(), Scope::Session);
-        let rows = text(&dashboard, 120, 16);
-        assert_eq!(rows[0], "Usage  30 days  7 days  24 hours  [Session]");
-        assert_eq!(rows[1], "Local xfx activity");
-        assert_eq!(
-            &rows[6..10],
-            [
-                "",
-                "Session activity",
-                "API 0s \u{b7} Wall 17s",
-                "Code +0 \u{b7} -0"
-            ]
-        );
-        assert_eq!(rows[11], "Models 2");
-        assert_eq!(
-            rows[14],
-            "\u{276f} fake/model-a               12.8K     18.9%    $0.01"
-        );
-        assert!(
-            rows[15].starts_with("Input 12K \u{b7} Output 800 \u{b7} Cache 4K/0"),
-            "{rows:?}"
-        );
-    }
-
-    #[test]
-    fn nothing_recorded_yet_is_two_rows() {
-        // `fx-usage-40x120-empty`.
-        let ledger = Ledger::from_sessions(std::iter::empty(), &[], None);
-        let dashboard = Dashboard::open(Scope::Days30, Some(ledger.snapshot(Scope::Days30, NOW)));
-        assert_eq!(dashboard.wanted_rows(120), 2);
-        assert_eq!(
-            text(&dashboard, 120, 2),
-            [
-                "Usage  [30 days]  7 days  24 hours  Session",
-                "Tracking has not started"
-            ]
-        );
-    }
-
-    #[test]
-    fn a_window_of_unpriced_requests_is_partial_with_no_models() {
-        // `fx-usage-40x120-open`, after one turn the fake gateway did not bill.
-        let mut unbilled = billed();
-        unbilled.requests.truncate(1);
-        unbilled.requests[0].cost = None;
-        let dashboard = Dashboard::open(Scope::Days30, Some(rolling(&unbilled, Scope::Days30)));
-        assert_eq!(
-            text(&dashboard, 120, 10),
-            [
-                "Usage  [30 days]  7 days  24 hours  Session",
-                "Partial data \u{b7} some usage may be missing",
-                "",
-                "  0 tokens        $0.00 spent      0 requests",
-                "  0 input         0 output         Reasoning unavailable",
-                "  0 cache read    0 cache write",
-                "",
-                "Models 0",
-                "  Model    Tokens    Share    Spend",
-                "  No model usage in this scope.",
-            ]
-        );
-    }
-
-    #[test]
-    fn loading_and_failing_say_so_in_the_body() {
-        let mut dashboard = Dashboard::open(Scope::Days30, None);
-        assert_eq!(dashboard.wanted_rows(120), 2);
-        assert_eq!(text(&dashboard, 120, 2)[1], "Loading usage");
-        dashboard.failed(Scope::Days7);
-        assert_eq!(
-            text(&dashboard, 120, 2),
-            [
-                "Usage  30 days  [7 days]  24 hours  Session",
-                "Usage unavailable \u{b7} press r to retry"
-            ]
-        );
-        // With something already shown, it stays, marked old.
-        let mut dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        dashboard.failed(Scope::Days30);
-        assert_eq!(
-            text(&dashboard, 120, 11)[1],
-            "Refresh failed \u{b7} showing previous data"
-        );
-    }
-
-    #[test]
-    fn the_colours_are_upstreams() {
-        let mut dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        dashboard.toggle(20);
-        let palette = PALETTE;
-        let rows = dashboard.rows(120, 12, palette);
-        // The title and the shown window bold in the hint grey, the others dim.
-        assert!(
-            rows[0].starts_with(&format!(
-                "{}Usage{}  {}[30 days]",
-                palette.subtitle(),
-                palette.reset(),
-                palette.subtitle()
-            )),
-            "{:?}",
-            rows[0]
-        );
-        assert!(
-            rows[0].contains(&format!("{}7 days", palette.dim())),
-            "{:?}",
-            rows[0]
-        );
-        // The models heading and the marked name bold in the label grey.
-        assert!(
-            rows[7].starts_with(palette.notice_heading()),
-            "{:?}",
-            rows[7]
-        );
-        assert!(
-            rows[9].starts_with(&format!("{}\u{276f} anthropic", palette.notice_heading())),
-            "{:?}",
-            rows[9]
-        );
-        // Its numbers dim, after the name's colour is closed.
-        assert!(
-            rows[9].contains(&format!("{}    {}55.1K", palette.reset(), palette.dim())),
-            "{:?}",
-            rows[9]
-        );
-        // Everything else dim.
-        for at in [1, 3, 4, 5, 8, 10, 11] {
-            assert!(rows[at].starts_with(palette.dim()), "{at}: {:?}", rows[at]);
-        }
-    }
-
-    #[test]
-    fn a_narrow_screen_folds_the_overview_and_the_header() {
-        let dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        let rows = text(&dashboard, 60, 20);
-        assert_eq!(rows[0], "Usage  [30 days]");
-        assert_eq!(rows[3], "67.9K tokens \u{b7} $0.43 spent \u{b7} 2 requests");
-        // No column header under `Models` below 110 columns: the facts sit at
-        // one column after the name.
-        assert_eq!(rows[7], "Models 2");
-        assert_eq!(
-            rows[8],
-            "\u{276f} anthropic/claude-opus-5    55.1K \u{b7} 81.1% \u{b7} $0.42"
-        );
-        let rows = text(&dashboard, 40, 20);
-        assert_eq!(rows[1], "Partial data");
-        assert_eq!(rows[2], "67.9K tokens \u{b7} $0.43");
-        assert_eq!(rows[3], "2 requests");
-        assert_eq!(rows[4], "Models");
-    }
-
-    #[test]
-    fn a_short_panel_keeps_the_mark_in_view() {
-        let dashboard = Dashboard::open(Scope::Days30, Some(rolling(&billed(), Scope::Days30)));
-        let rows = text(&dashboard, 120, 6);
-        assert_eq!(rows.len(), 6);
-        assert_eq!(rows[2], "67.9K tokens \u{b7} $0.43");
-        assert_eq!(rows[3], "Models 2");
-        assert!(rows[4].starts_with("\u{276f} anthropic"), "{rows:?}");
-        let one = text(&dashboard, 120, 1);
-        assert!(one[0].starts_with("\u{276f} anthropic"), "{one:?}");
-        assert_eq!(dashboard.height(10, 120), 7);
-        assert_eq!(dashboard.height(2, 120), 1);
-    }
-
-    #[test]
-    fn keys_mean_upstreams_things() {
-        assert_eq!(
-            MenuAction::of_action(Action::Tab),
-            Some(MenuAction::Cycle(true))
-        );
-        assert_eq!(
-            MenuAction::of_action(Action::BackTab),
-            Some(MenuAction::Cycle(false))
-        );
-        assert_eq!(
-            MenuAction::of_action(Action::Left),
-            Some(MenuAction::Previous)
-        );
-        assert_eq!(MenuAction::of_action(Action::Right), Some(MenuAction::Next));
-        assert_eq!(
-            MenuAction::of_action(Action::KillToEnd),
-            Some(MenuAction::Move(false))
-        );
-        assert_eq!(
-            MenuAction::of_action(Action::InsertNewline),
-            Some(MenuAction::Move(true))
-        );
-        assert_eq!(
-            MenuAction::of_action(Action::Submit),
-            Some(MenuAction::Expand)
-        );
-        assert_eq!(
-            MenuAction::of_action(Action::Escape),
-            Some(MenuAction::Close)
-        );
-        assert_eq!(MenuAction::of_action(Action::Cancel), None);
-        assert_eq!(MenuAction::of_text('r'), Some(MenuAction::Reload));
-        assert_eq!(MenuAction::of_text('R'), Some(MenuAction::Reload));
-        assert_eq!(MenuAction::of_text('q'), None);
-        assert_eq!(key_help(120), KEY_HELP[0]);
-        assert_eq!(key_help(50), KEY_HELP[1]);
-        assert_eq!(key_help(20), KEY_HELP[2]);
-    }
-}
+mod tests;

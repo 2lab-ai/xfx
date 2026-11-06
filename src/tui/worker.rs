@@ -300,8 +300,8 @@ pub(crate) struct WorkHandle {
     /// The session's saved-session rules: held for the session the next save
     /// opens, or where the open one keeps them ([`SavedRules`]).
     saved_rules: SavedRules,
-    /// What `/usage`'s session scope reads, as the runtime last published it.
-    spend: SessionSpend,
+    /// What `/usage` asks with, as the runtime last published it ([`UsageBoard`]).
+    usage: UsageBoard,
     /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
     credits: CreditsBoard,
     /// The session's MCP servers ([`crate::mcp::McpRuntime`]): the same
@@ -630,16 +630,21 @@ impl WorkHandle {
         self.grants.read().0 < self.live.resets()
     }
 
-    /// The live conversation's recorded spend, for `/usage`'s session scope,
-    /// from the runtime's last publication. Never waits for the runtime.
-    pub(crate) fn spent(&self) -> Spent {
-        self.spend.read()
+    /// What `/usage` would ask with now, or why it asks nobody, from the
+    /// runtime's last publication. Never waits for the runtime.
+    pub(crate) fn usage_question(
+        &self,
+    ) -> Result<crate::usage::report::Question, crate::usage::report::Unavailable> {
+        self.usage.read()
     }
 
-    /// Stands in for the runtime's publication of the conversation's spend.
+    /// Stands in for the runtime's publication of what `/usage` asks.
     #[cfg(test)]
-    pub(crate) fn publish_spent(&self, spent: Spent) {
-        self.spend.publish(spent);
+    pub(crate) fn publish_usage(
+        &self,
+        question: Result<crate::usage::report::Question, crate::usage::report::Unavailable>,
+    ) {
+        self.usage.publish(question);
     }
 
     /// What `/credits` would ask now, or the answer it has without asking,
@@ -794,7 +799,7 @@ impl WorkHandle {
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRules::default(),
-                spend: SessionSpend::default(),
+                usage: UsageBoard::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::titles::TitleDesk::new(true).0,
@@ -927,37 +932,63 @@ impl Default for CreditsBoard {
     }
 }
 
-/// What `/usage`'s session scope reads, as the runtime last published it:
-/// the live conversation's recorded spend and when its session began.
+/// What `/usage` asks with: the Gateway key and the origin a turn is sent to,
+/// or why it asks nobody ([`usage_question`]) -- published by the runtime,
+/// which is the thread a provider switch changes them on, and read by the UI
+/// without waiting for it, as [`CreditsBoard`] is.
 ///
-/// Upstream reads its session scope synchronously, from the session it holds
-/// (`loadUsageSnapshot(.session)`, `app_commands.zig:1207-1212`). Here the
-/// conversation is the runtime thread's, which may be a minute into a turn or
-/// parked at an approval; so the runtime **publishes** it beside `/status`'s
-/// snapshot ([`Runtime::publish`]) and the UI reads the newest one -- as of the
-/// last turn's end, mid-turn, as `/status`'s counts are.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct SessionSpend(Arc<Mutex<Spent>>);
+/// The key crosses here because the report is asked off the runtime thread
+/// (`crate::usage::dashboard`'s worker). It is the credential's own type,
+/// whose `Debug` is redacted.
+#[derive(Debug, Clone)]
+pub(crate) struct UsageBoard(Arc<Mutex<UsageQuestion>>);
 
-/// One publication of [`SessionSpend`].
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Spent {
-    pub(crate) usage: crate::session::RecordedUsage,
-    /// When the session began, for the wall clock ([`Runtime`]'s
-    /// `began_ms`); `None` only before the runtime has published at all.
-    pub(crate) started_at_ms: Option<i64>,
-}
+/// One publication of [`UsageBoard`].
+type UsageQuestion = Result<crate::usage::report::Question, crate::usage::report::Unavailable>;
 
-impl SessionSpend {
-    fn publish(&self, spent: Spent) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = spent;
+impl UsageBoard {
+    fn new(question: UsageQuestion) -> Self {
+        Self(Arc::new(Mutex::new(question)))
     }
 
-    pub(crate) fn read(&self) -> Spent {
+    fn publish(&self, question: UsageQuestion) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = question;
+    }
+
+    fn read(&self) -> UsageQuestion {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+}
+
+impl Default for UsageBoard {
+    /// A board nothing has published to: no sign-in `/usage` can read.
+    fn default() -> Self {
+        Self::new(Err(crate::usage::report::Unavailable::NoGatewaySignIn))
+    }
+}
+
+/// What `/usage` would ask with `config`
+/// ([`crate::usage::report::question`]), at the endpoint every turn is sent
+/// to (`crate::provider`'s `Bundle::select`). An `XFX_GATEWAY_URL` the bearer
+/// rule refuses is a setting no turn can be sent with either:
+/// [`crate::usage::report::Unavailable::ProviderRejected`], which says to send
+/// a message to see why -- the turn's refusal names it.
+fn usage_question(config: &crate::config::RuntimeConfig) -> UsageQuestion {
+    use crate::usage::report::{question, Unavailable};
+    match crate::gateway::Endpoint::from_process() {
+        Ok(endpoint) => question(config, &endpoint),
+        // What the question says first stands: an unreadable provider, then
+        // llmux; only a Gateway sign-in is held back by its endpoint.
+        Err(_) => match question(
+            config,
+            &crate::gateway::Endpoint::resolve(None).expect("the compiled default endpoint"),
+        ) {
+            Ok(_) => Err(Unavailable::ProviderRejected),
+            Err(reason) => Err(reason),
+        },
     }
 }
 
@@ -1199,8 +1230,10 @@ pub(crate) fn spawn(
     // on the UI thread, read by every conversation the runtime opens.
     let rules = LiveRules::new(config.permission.effective().clone());
     let loops_rules = rules.clone();
-    let spend = SessionSpend::default();
-    let publishes_spend = spend.clone();
+    // Published from the start, so a `/usage` typed before the runtime's
+    // first publication asks what that publication would say.
+    let usage = UsageBoard::new(usage_question(&config));
+    let publishes_usage = usage.clone();
     // Published from the start, so a `/credits` typed before the runtime's
     // first publication asks what that publication would say.
     let credits = CreditsBoard::new(crate::credits::question(&config));
@@ -1256,7 +1289,7 @@ pub(crate) fn spawn(
         state.live = loops_live;
         state.steering = loops_steering;
         state.rules = loops_rules;
-        state.spend = publishes_spend;
+        state.usage = publishes_usage;
         state.credits = publishes_credits;
         state.mcp = loops_mcp;
         state.titles = loops_titles;
@@ -1307,7 +1340,7 @@ pub(crate) fn spawn(
                 steering,
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules,
-                spend,
+                usage,
                 credits,
                 mcp,
                 titles,
@@ -1636,20 +1669,9 @@ struct Runtime {
     /// The configured table the UI writes and every conversation's authority
     /// reads ([`WorkHandle::rules`]). Read here, never written.
     rules: LiveRules,
-    /// Where `/usage`'s session scope reads the conversation's spend from,
-    /// written by [`Runtime::publish`] beside the other two.
-    spend: SessionSpend,
-    /// When the session `/usage` calls the session began, for its wall clock:
-    /// this runtime's start, the moment `/new` dropped the conversation, or
-    /// the resumed session's own creation. A provider switch keeps the
-    /// conversation and so the clock.
-    ///
-    /// Upstream's session exists from launch and its clock with it (`reset`,
-    /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
-    /// was created (`:1810-1816`). xfx opens the session log at the first
-    /// prompt, so the log's own creation is the first prompt's time, and the
-    /// clock is kept here instead.
-    began_ms: i64,
+    /// Where `/usage` reads what to ask with ([`UsageBoard`]), written by
+    /// [`Runtime::publish`] beside the others.
+    usage: UsageBoard,
     /// Asks the Gateway for the bills the conversation's streams did not
     /// carry ([`Runtime::ask_for_bills`]), and hands the answers to
     /// [`turn_loop`] to write down ([`Runtime::settle_bill`]).
@@ -1775,8 +1797,7 @@ impl Runtime {
             applying_held: false,
             steering: Steering::new(),
             rules: LiveRules::new(config_rules),
-            spend: SessionSpend::default(),
-            began_ms: crate::session::event::system_now_ms(),
+            usage: UsageBoard::default(),
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
             mcp: crate::mcp::McpRuntime::inert(),
@@ -1824,14 +1845,7 @@ impl Runtime {
             Some(open) => self.saved_rules.publish_open(open),
             None => self.saved_rules.publish_pending(self.next_rules_path()),
         }
-        self.spend.publish(Spent {
-            usage: self
-                .conversation
-                .as_ref()
-                .map(|conversation| conversation.recorder.state().usage.clone())
-                .unwrap_or_default(),
-            started_at_ms: Some(self.began_ms),
-        });
+        self.usage.publish(usage_question(&self.config));
         self.credits.publish(crate::credits::question(&self.config));
         self.titles.publish_asker(self.title_asker());
     }
@@ -2764,8 +2778,6 @@ impl Runtime {
         );
         self.unrecorded_resume = Some(conversation.recorder.id().clone());
         self.opened = Some(conversation.recorder.id().clone());
-        // A resumed session's clock is its own: from when it was created.
-        self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
         self.conversation_lineage = Some(self.titles.lineage());
         self.publish_title_session();
@@ -3594,7 +3606,6 @@ async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, throug
     // conversation is cancelled already, and what was asked since is the next
     // one's.
     state.conversation_lineage = None;
-    state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
@@ -6384,7 +6395,7 @@ mod tests {
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRules::default(),
-                spend: SessionSpend::default(),
+                usage: UsageBoard::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
@@ -6452,7 +6463,7 @@ mod tests {
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRules::default(),
-                spend: SessionSpend::default(),
+                usage: UsageBoard::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
@@ -6499,7 +6510,7 @@ mod tests {
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRules::default(),
-                spend: SessionSpend::default(),
+                usage: UsageBoard::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
@@ -6869,7 +6880,7 @@ mod tests {
             steering: Steering::new(),
             steers: Arc::new(AtomicU64::new(0)),
             saved_rules: SavedRules::default(),
-            spend: SessionSpend::default(),
+            usage: UsageBoard::default(),
             credits: CreditsBoard::default(),
             mcp: crate::mcp::McpRuntime::inert(),
             titles: super::super::titles::TitleDesk::new(true).0,
@@ -7950,66 +7961,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_session_scope_reads_the_conversations_spend_and_a_clock_a_reset_restarts() {
-        let (_home, _workspace, mut state) = recording();
-        let spend = SessionSpend::default();
-        state.spend = spend.clone();
-        // From the runtime's start, as upstream's session is from launch.
-        state.began_ms = 1_000;
-        let recorder = &mut state
-            .conversation
-            .as_mut()
-            .expect("the fixture opened a conversation")
-            .recorder;
-        recorder.commit(SessionEvent::UserMessage {
-            text: "asked".to_string(),
-        });
-        recorder.commit(SessionEvent::UsageRecorded {
-            input_tokens: Some(1200),
-            output_tokens: Some(40),
-            turn_output_tokens: None,
-            requests: vec![crate::session::RequestUsage {
-                at_ms: 2_000,
-                duration_ms: 700,
-                model: "fake/model-a".to_string(),
-                input_tokens: 1200,
-                output_tokens: 40,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                reasoning_tokens: None,
-                cost: Some(0.01),
-                generation_id: None,
-                origin: None,
-            }],
-            unaccounted: false,
-            lines_added: 4,
-            lines_removed: 1,
-            settled: Vec::new(),
-            rejected: Vec::new(),
-        });
-        state.publish();
-        let spent = spend.read();
-        assert_eq!(spent.started_at_ms, Some(1_000));
-        assert_eq!(spent.usage.requests.len(), 1);
-        assert_eq!((spent.usage.lines_added, spent.usage.lines_removed), (4, 1));
-
-        // `/new`: no spend, and a clock started again.
-        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
-        on_a_runtime(async {
-            drop_conversation(&mut state, &events, 0).await;
-        });
-        let spent = spend.read();
-        assert!(spent.usage.requests.is_empty());
-        assert!(
-            spent.started_at_ms.is_some_and(|at| at > 1_000),
-            "{spent:?}"
-        );
-    }
-
     /// A request whose stream named its generation and not its bill is asked
     /// about with the Gateway key, and the answer is written into the log of
-    /// the session it belongs to -- `/usage`'s session scope reads it at once,
+    /// the session it belongs to -- the live conversation holds it at once,
     /// and the log says it on the next read (`applyGeneration`,
     /// `session_usage.zig:1080-1126`). An answer about another session is not
     /// written into this one.
@@ -8037,8 +7991,16 @@ mod tests {
         .expect("open a conversation");
         let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
         state.conversation = Some(conversation);
-        let spend = SessionSpend::default();
-        state.spend = spend.clone();
+        let held = |state: &Runtime| {
+            state
+                .conversation
+                .as_ref()
+                .expect("opened")
+                .recorder
+                .state()
+                .usage
+                .clone()
+        };
         const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
         let bill = crate::gateway::protocol::Billing {
             at_ms: 1_900,
@@ -8088,7 +8050,7 @@ mod tests {
         });
         let session = recorder.id().clone();
         state.publish();
-        assert_eq!(spend.read().usage.pending().count(), 1);
+        assert_eq!(held(&state).pending().count(), 1);
 
         state.ask_for_bills();
         let answered = on_a_runtime(async {
@@ -8103,10 +8065,10 @@ mod tests {
             ..answered.clone()
         };
         state.settle_bill(&elsewhere);
-        assert_eq!(spend.read().usage.pending().count(), 1);
+        assert_eq!(held(&state).pending().count(), 1);
 
         state.settle_bill(&answered);
-        let settled = &spend.read().usage.requests[0];
+        let settled = held(&state).requests[0].clone();
         assert_eq!(settled.cost, Some(0.0125));
         assert_eq!((settled.at_ms, settled.duration_ms), (1_900, 700));
         assert!(!settled.pending());
@@ -8115,7 +8077,7 @@ mod tests {
             .store
             .detail(&crate::session::Selector::Id(session), workspace.path())
             .expect("the log reads back");
-        assert_eq!(detail.state.usage.requests[0], *settled);
+        assert_eq!(detail.state.usage.requests[0], settled);
     }
 
     /// A pending bill is asked for with the key a turn sends, so it is not
@@ -9783,7 +9745,7 @@ mod tests {
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRules::default(),
-                spend: SessionSpend::default(),
+                usage: UsageBoard::default(),
                 credits: CreditsBoard::default(),
                 mcp: crate::mcp::McpRuntime::inert(),
                 titles: super::super::titles::TitleDesk::new(true).0,
@@ -13706,7 +13668,6 @@ mod tests {
             .recorder
             .id()
             .clone();
-        runtime.began_ms = 1_234;
         // In Fast, and the log says so: the switch turns it off with the
         // model it replaces, and a resume reads the log's.
         runtime.settings.fast = true;
@@ -13732,7 +13693,6 @@ mod tests {
         assert_eq!(kept.recorder.id(), &id, "the switch opened another session");
         assert_eq!(kept.recorder.state().provider.as_deref(), Some("llmux"));
         assert_eq!(kept.recorder.state().model, "fable");
-        assert_eq!(runtime.began_ms, 1_234, "the switch restarted the clock");
         assert!(!runtime.settings.fast);
         assert_eq!(
             kept.recorder

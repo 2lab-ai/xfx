@@ -83,7 +83,7 @@ pub(crate) trait CommandHandlers {
     fn sound(&mut self, argument: &str);
     /// `/stats`: what this surface's terminal writer has done so far.
     fn stats(&mut self);
-    /// `/usage` (or its alias `/cost`): the spend dashboard. It takes nothing.
+    /// `/usage`: the provider's usage dashboard. It takes nothing.
     fn usage(&mut self);
     /// `/credits` (or its alias `/balance`): what the Gateway account has
     /// left. It takes nothing.
@@ -503,7 +503,11 @@ mod tests {
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
         assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
-        assert_eq!(routed("/cost"), vec!["usage".to_string()]);
+        // v0.0.16 dropped `/cost` (`commands.zig:454@481104fd`).
+        assert!(matches!(
+            classify("/cost"),
+            Submitted::UnknownCommand { .. }
+        ));
         assert_eq!(routed("/balance"), vec!["credits".to_string()]);
         assert_eq!(
             classify("/exit"),
@@ -653,7 +657,6 @@ mod tests {
             "/stats ",
             "/status\t",
             "/usage ",
-            "/cost",
             "/credits ",
             "/balance",
         ] {

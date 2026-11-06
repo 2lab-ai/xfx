@@ -126,7 +126,7 @@ use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
-use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
+use super::usage_menu::{MenuAction as UsageAction, Screen as UsageScreen};
 use super::worker::{Rejected, WorkHandle};
 use super::workspace_menu::{self, MenuAction as WorkspaceAction};
 use crate::agent::tokens::{Estimator, Progress};
@@ -247,6 +247,11 @@ const FORK_FAILED: &str = "Unable to fork the session.";
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
+
+/// The name each `/usage` fetch's thread is given, for a debugger or a panic
+/// message.
+#[cfg(not(test))]
+const USAGE_THREAD: &str = "xfx-usage";
 
 /// The rail every composer row starts with, followed by one space
 /// (`input_presentation.zig:977-992`).
@@ -1456,21 +1461,25 @@ pub(crate) struct Shell {
     /// arguments and its whole result -- by the runtime's journal
     /// ([`UiEvent::ToolDetail`]).
     full: FullTranscript,
-    /// `/usage`'s dashboard, while it is up ([`super::usage_menu`]).
+    /// `/usage`'s screen, while it is up ([`super::usage_menu`]).
     ///
     /// A focus like the `/statusline` picker, not a view of the draft: the
     /// composer row is not shown while it is up and every keystroke is its
     /// (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`). A
     /// question outranks it in [`Self::slot`] and takes the keys while it is
-    /// up; the dashboard is back when it has been answered.
-    usage_menu: Option<Dashboard>,
-    /// The thread that reads the session logs for the rolling windows, and
-    /// what it has read ([`usage_menu::Reader`]).
-    usage_reader: usage_menu::Reader,
-    /// The last read that came back, kept for the rolling windows Tab walks
-    /// to and for the next `/usage` to open on (`usage_dashboard`'s cache):
-    /// when it was read, and what. A newer read replaces it.
-    usage_read: Option<(i64, crate::usage::Ledger)>,
+    /// up; the dashboard is back when it has been answered. **Closed only
+    /// through [`Self::close_usage`]**, which closes the runtime with it.
+    usage_menu: Option<UsageScreen>,
+    /// The period the model table lists, kept while the screen is closed
+    /// (`close`, `usage_menu.zig:51-53@481104fd`).
+    usage_period: crate::usage::view::Period,
+    /// `/usage`'s runtime ([`crate::usage::dashboard`]): what the usage cache
+    /// holds and when the Gateway is asked. It asks nothing until `/usage`
+    /// opens it, is ticked only while the screen is up
+    /// ([`Self::settle_usage`]), is told a sign-in switch
+    /// ([`Self::usage_sign_in_changed`]) and stops for good when the session
+    /// ends ([`Self::leave_by`]).
+    usage: crate::usage::dashboard::Dashboard,
     /// The `/credits` questions in flight, each on a thread of its own, and
     /// the answers that have come back ([`super::credits_ask::Asks`]).
     credit_asks: super::credits_ask::Asks,
@@ -2062,7 +2071,7 @@ enum Slot<'a> {
     /// more keys than the catalog does, and owns nothing else.
     Settings(&'a SettingsMenu),
     /// `/usage`'s dashboard. The same: the focus and the composer's rows.
-    Usage(&'a Dashboard),
+    Usage(&'a UsageScreen),
     /// The `/workspace` picker. The same kind: the focus, and the composer's
     /// rows.
     Workspace(&'a workspace_menu::Menu),
@@ -2185,13 +2194,22 @@ impl Shell {
             .map(crate::session::prompt_history::PromptHistory::in_profile);
         #[cfg(test)]
         let history_store = None;
-        // The profile `/usage` reads its sessions from -- the same exception
-        // for a shell a test built, which reads none unless the test says
-        // where ([`Self::read_usage_from`]).
+        // `/usage`'s runtime, over the usage cache under the profile's home.
+        // A shell a test built has no cache and starts no fetch: its spawner
+        // refuses, so a case that wants one puts its own in
+        // ([`Self::usage_runtime`]).
         #[cfg(not(test))]
-        let profile = config.profile_dir.clone();
+        let usage = crate::usage::dashboard::Dashboard::new(
+            crate::usage::cache::Home::new(config.home()),
+            crate::usage::dashboard::wall_clock(),
+            Box::new(|job| super::signals::spawn_unsignalled(USAGE_THREAD, job)),
+        );
         #[cfg(test)]
-        let profile = None;
+        let usage = crate::usage::dashboard::Dashboard::new(
+            None,
+            crate::usage::dashboard::wall_clock(),
+            Box::new(|_| Err(std::io::Error::other("a test shell fetches nothing"))),
+        );
         let mut shell = Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -2392,8 +2410,8 @@ impl Shell {
             metrics: Metrics::default(),
             full: FullTranscript::default(),
             usage_menu: None,
-            usage_reader: usage_menu::Reader::new(profile),
-            usage_read: None,
+            usage_period: crate::usage::view::Period::Month,
+            usage,
             // A shell a test built asks nobody: a question published to it is
             // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
             #[cfg(not(test))]
@@ -2586,8 +2604,8 @@ impl Shell {
                 }
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for (`composeUsageRow` is handed them).
-                Some(Slot::Usage(dashboard)) => {
-                    dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                Some(Slot::Usage(screen)) => {
+                    screen.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
                 // In the rows the geometry gave it, with the servers as they
                 // stand now.
@@ -2746,11 +2764,11 @@ impl Shell {
                     .key_help(self.geometry.panel, self.geometry.cols)
                     .to_string(),
             ),
-            // And the dashboard's (`composeCompactCommandMenuHintRow`, the
-            // `.usage` variants).
-            Some(Slot::Usage(_)) => self.painted(
+            // And the dashboard's, for the screen it is on
+            // (`composeCompactCommandMenuHintRow`, the `.usage` variants).
+            Some(Slot::Usage(screen)) => self.painted(
                 self.palette.dim(),
-                usage_menu::key_help(self.geometry.cols).to_string(),
+                screen.key_help(self.geometry.cols).to_string(),
             ),
             // And `/mcp`'s, for the screen it is on
             // (`composeMcpMenuHintRow`, `input_presentation.zig:607-692`).
@@ -3078,8 +3096,8 @@ impl Shell {
         if let Some(panel) = self.info_panel.as_ref() {
             return Some(Slot::Info(panel));
         }
-        if let Some(dashboard) = self.usage_menu.as_ref() {
-            return Some(Slot::Usage(dashboard));
+        if let Some(screen) = self.usage_menu.as_ref() {
+            return Some(Slot::Usage(screen));
         }
         if let Some(menu) = self.workspace_menu.as_ref() {
             return Some(Slot::Workspace(menu));
@@ -3222,10 +3240,10 @@ impl Shell {
                 return (self.geometry.panel_first(), 0);
             }
             // The dashboard has the focus the same way: the start of the
-            // marked model's row, which Enter and the arrows act on, or of the
-            // header when no model is in view.
-            if let Some(dashboard) = self.usage_menu.as_ref() {
-                let row = dashboard.marked_row(self.geometry.panel, self.geometry.cols);
+            // selected model's row, which Enter and the arrows act on, or of
+            // the heading when no model is in view.
+            if let Some(screen) = self.usage_menu.as_ref() {
+                let row = screen.marked_row(self.geometry.panel);
                 return (self.geometry.panel_first().saturating_add(row), 0);
             }
             // The `/workspace` picker's the same way.
@@ -3532,6 +3550,7 @@ impl Shell {
             self.catalog_known = CatalogKnown::Unasked;
             self.column.reset();
             self.held_speed.clear();
+            self.usage_sign_in_changed();
         }
         // The session's own, put back with it -- the Fast binding kept only
         // for the selection this session was configured with
@@ -4055,6 +4074,8 @@ impl Shell {
                 self.settings.fast = false;
                 self.settings.ultrafast = false;
                 self.held_speed.clear();
+                // A fetch `/usage` has in flight with the old key stops.
+                self.usage_sign_in_changed();
                 // Upstream's sentence for a finished switch, and all of it
                 // (`app_auth_runtime.zig:1383-1386`, topic `provider` at
                 // `:1410-1414`): the session, and with it the title, go on.
@@ -6237,7 +6258,7 @@ impl Shell {
         self.settings_menu = None;
         self.provider_picker = None;
         self.statusline_menu = None;
-        self.usage_menu = None;
+        self.close_usage();
         self.workspace_menu = None;
         self.fork_menu = Some(menu);
         self.refit();
@@ -7044,7 +7065,7 @@ impl Shell {
         self.skills_menu = None;
         self.settings_menu = None;
         self.statusline_menu = None;
-        self.usage_menu = None;
+        self.close_usage();
         self.workspace_menu = None;
         self.mcp_menu = None;
         self.info_panel = Some(panel);
@@ -7197,11 +7218,12 @@ impl Shell {
 
     /// One keystroke, while `/usage`'s dashboard has the focus
     /// (`routeActiveModalInput` and `routeCompactCommandMenuEscapeAction`,
-    /// `app_input_runtime.zig:1366-1395`, `:2640-2690`): Tab and Shift-Tab
-    /// walk the header, Left and Right walk the windows the other way and
-    /// stop at the ends, the arrows and Ctrl-J/Ctrl-K move the mark, Enter
-    /// opens the marked model, `r` reads the window again, Escape closes it.
-    /// Everything else is swallowed.
+    /// `app_input_runtime.zig:1186-1211`, `:2228-2244@481104fd`): Tab, Right,
+    /// Shift-Tab and Left walk the model table's period both ways, wrapping,
+    /// and do nothing on a detail screen; the arrows and Ctrl-J/Ctrl-K move the
+    /// selection, on the detail screen too; Enter opens the selected model's
+    /// details; `r` fetches unless a fetch is in flight; Escape goes back from
+    /// the details, then closes (`:2825-2832`). Everything else is swallowed.
     fn offer_to_usage(&mut self, event: Input) {
         let request = match event {
             Input::Action(action) => UsageAction::of_action(action),
@@ -7211,39 +7233,40 @@ impl Shell {
         let Some(request) = request else {
             return;
         };
-        let Some(dashboard) = self.usage_menu.as_mut() else {
+        let Some(screen) = self.usage_menu.as_mut() else {
             return;
         };
-        let scope = dashboard.scope();
-        let visible = dashboard.visible_models(self.geometry.panel, self.geometry.cols);
-        match request {
-            UsageAction::Cycle(forward) => self.show_usage(scope.cycled(forward)),
-            // A step that stays put asks nothing (`if (next != current)`).
-            UsageAction::Previous if scope.previous() != scope => self.show_usage(scope.previous()),
-            UsageAction::Next if scope.next() != scope => self.show_usage(scope.next()),
-            UsageAction::Previous | UsageAction::Next => {}
+        let visible = screen.visible_models(self.geometry.panel);
+        let changed = match request {
+            // Never fetches (`refreshUsageMenu`, `app_commands.zig:833-836`).
+            UsageAction::Next => screen.set_period(screen.period().next()),
+            UsageAction::Previous => screen.set_period(screen.period().previous()),
             UsageAction::Move(down) => {
-                if dashboard.step(down, visible) {
+                if screen.move_model(down, visible) {
                     self.render.request(Reason::Modal);
                 }
+                return;
             }
-            UsageAction::Expand => {
-                if dashboard.toggle(visible) {
-                    self.refit();
-                    self.render.request(Reason::Modal);
-                }
-            }
-            // The session is read where it is; a window is asked of the
-            // reader again, and what is shown stays until it answers
-            // (`reloadUsageMenu`, `app_commands.zig:1094-1112`).
-            UsageAction::Reload if scope == crate::usage::Scope::Session => self.show_usage(scope),
-            UsageAction::Reload => self.read_usage(scope),
+            UsageAction::Detail => screen.open_detail(),
             UsageAction::Close => {
-                self.usage_menu = None;
-                // The composer's row comes back with the dashboard's going.
-                self.refit();
-                self.render.request(Reason::Modal);
+                if !screen.close_detail() {
+                    self.close_usage();
+                }
+                true
             }
+            // `reloadUsageMenu` (`app_commands.zig:839-844`): fetches unless a
+            // fetch is in flight, then draws what is there now.
+            UsageAction::Reload => {
+                self.usage.refresh();
+                self.install_usage_snapshot();
+                return;
+            }
+        };
+        if changed {
+            // Another screen, or another period's list, is another height;
+            // and the composer's row comes back with the dashboard's going.
+            self.refit();
+            self.render.request(Reason::Modal);
         }
     }
 
@@ -7531,50 +7554,53 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
-    /// Puts `scope` on the dashboard (`refreshUsageMenu`,
-    /// `app_commands.zig:1064-1092`): the session at once, from what the
-    /// runtime last published; a rolling window from the last read when there
-    /// is one, else `Loading usage` and a read.
-    fn show_usage(&mut self, scope: crate::usage::Scope) {
-        let snapshot = if scope == crate::usage::Scope::Session {
-            let spent = self.work.spent();
-            Some(crate::usage::session_snapshot(
-                &spent.usage,
-                spent.started_at_ms,
-                crate::session::event::system_now_ms(),
-            ))
-        } else {
-            self.usage_read
-                .as_ref()
-                .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms))
-        };
-        let Some(dashboard) = self.usage_menu.as_mut() else {
-            return;
-        };
-        match snapshot {
-            Some(snapshot) => dashboard.show(snapshot),
-            None => {
-                dashboard.loading(scope);
-                self.read_usage(scope);
-            }
+    /// Draws what `/usage`'s runtime holds now, opening the screen on the
+    /// period it last listed or replacing what it shows (`installUsageSnapshot`,
+    /// `app_commands.zig:867-875@481104fd`).
+    fn install_usage_snapshot(&mut self) {
+        let snapshot = self.usage.snapshot();
+        match self.usage_menu.as_mut() {
+            Some(screen) => screen.replace(snapshot),
+            None => self.usage_menu = Some(UsageScreen::open(self.usage_period, snapshot)),
         }
         self.refit();
         self.render.request(Reason::Modal);
     }
 
-    /// Asks the reader for the session logs again, for `scope`. A read that
-    /// could not even be asked for is a failed one.
-    fn read_usage(&mut self, scope: crate::usage::Scope) {
-        if self
-            .usage_reader
-            .request(crate::session::event::system_now_ms())
-            .is_err()
-        {
-            if let Some(dashboard) = self.usage_menu.as_mut() {
-                dashboard.failed(scope);
-            }
-            self.refit();
-            self.render.request(Reason::Modal);
+    /// Takes `/usage`'s screen away, and closes its runtime with it
+    /// (`closeUsageMenu`, `app_commands.zig:862-865@481104fd`): the period it
+    /// listed is kept for the next open, nothing new is fetched, and the 15
+    /// minute timer stops. Every way the screen goes comes through here.
+    fn close_usage(&mut self) {
+        if let Some(screen) = self.usage_menu.take() {
+            self.usage_period = screen.period();
+        }
+        if self.usage.is_open() {
+            self.usage.close();
+        }
+    }
+
+    /// Opens `/usage`'s runtime with the sign-in the runtime last published,
+    /// or with why there is none (`commandShowUsage`, `app_commands.zig:823-828`).
+    fn open_usage_runtime(&mut self) {
+        match self.work.usage_question() {
+            Ok(question) => self.usage.open(question),
+            Err(reason) => self.usage.open_unavailable(reason),
+        }
+    }
+
+    /// The sign-in a turn is sent with changed -- a provider switch landed, a
+    /// session was resumed onto another provider. With `/usage` up it opens
+    /// again with the new one, the screen kept; with it closed its runtime is
+    /// told, and cancels a fetch the old key has in flight
+    /// ([`crate::usage::dashboard::Dashboard::sign_in_changed`]).
+    fn usage_sign_in_changed(&mut self) {
+        if self.usage_menu.is_some() {
+            self.open_usage_runtime();
+            self.install_usage_snapshot();
+        } else {
+            let current = self.work.usage_question().ok();
+            self.usage.sign_in_changed(current.as_ref());
         }
     }
 
@@ -7592,32 +7618,19 @@ impl Shell {
         }
     }
 
-    /// Takes every read of the session logs that has finished, keeps the
-    /// newest, and shows it when a rolling window is up to show it on
-    /// (`collectUsageDashboardFacts`, `app_commands.zig:1114-1139`).
+    /// Every pass while `/usage` is up, and only then
+    /// (`collectUsageDashboardFacts`, `app_commands.zig:846-860@481104fd`): the
+    /// runtime takes in a fetch that ended and starts the 15-minute one when
+    /// due, and the screen is drawn again when the runtime moved or the minute
+    /// turned (`updated 2m ago`, and today at midnight). Nothing ticks it while
+    /// the screen is closed, so nothing is asked then.
     fn settle_usage(&mut self) {
-        while let Some(read) = self.usage_reader.finished() {
-            let Some(dashboard) = self.usage_menu.as_mut() else {
-                if let Ok(ledger) = read.ledger {
-                    self.usage_read = Some((read.at_ms, ledger));
-                }
-                continue;
-            };
-            let scope = dashboard.scope();
-            match read.ledger {
-                Ok(ledger) => {
-                    if scope != crate::usage::Scope::Session {
-                        dashboard.show(ledger.snapshot(scope, read.at_ms));
-                    }
-                    self.usage_read = Some((read.at_ms, ledger));
-                }
-                // The session scope is not the reader's, and is not made old
-                // by a read it did not ask for.
-                Err(_) if scope != crate::usage::Scope::Session => dashboard.failed(scope),
-                Err(_) => {}
-            }
-            self.refit();
-            self.render.request(Reason::Modal);
+        let Some(screen) = self.usage_menu.as_ref() else {
+            return;
+        };
+        self.usage.tick();
+        if self.usage.redraw_due(screen.shown()) {
+            self.install_usage_snapshot();
         }
     }
 
@@ -7743,11 +7756,11 @@ impl Shell {
         });
     }
 
-    /// Gives `/usage` a reader that reads nothing and answers only what the
-    /// case delivers ([`usage_menu::Reader::by_hand`]).
+    /// Puts `dashboard` in place of `/usage`'s runtime, for a case that drives
+    /// its own clock and fetches.
     #[cfg(test)]
-    pub(crate) fn read_usage_by_hand(&mut self) {
-        self.usage_reader = usage_menu::Reader::by_hand();
+    pub(crate) fn usage_runtime(&mut self, dashboard: crate::usage::dashboard::Dashboard) {
+        self.usage = dashboard;
     }
 
     /// Turns one footer segment on or off, keeps it in the profile, and --
@@ -9418,6 +9431,10 @@ impl Shell {
     /// arriving during the drain must not overwrite the one the user caused.
     fn leave_by(&mut self, why: Leaving) {
         self.leaving.get_or_insert(why);
+        // `/usage` asks nothing more: its fetch in flight is cancelled and
+        // its key let go of now, not when the shell is dropped after the
+        // restore (`Dashboard::deinit`, `usage.zig:265-278@481104fd`).
+        self.usage.quit();
     }
 
     /// Decodes one read's `bytes` -- in the order the terminal delivered
@@ -12379,11 +12396,12 @@ impl CommandHandlers for Shell {
         self.announce(notice::Notice::neutral("stats", self.metrics.body()));
     }
 
-    /// Upstream's `commandShowUsage` (`app_commands.zig:1024-1062`): the
-    /// menus that share the slot close and the dashboard opens on `30 days`
-    /// -- on the last read when there is one, else `Loading usage` -- and the
-    /// session logs are read again either way (`openUsageDashboard`,
-    /// `:1141-1155`). Nothing is written to the document.
+    /// Upstream's `commandShowUsage` (`app_commands.zig:808-829@481104fd`):
+    /// the menus that share the slot close -- the dashboard too, if it is up
+    /// (`closeInlineCommandMenusIfPresent`, `:1172-1180`) -- and the runtime
+    /// opens with the sign-in in force, or with why there is none: what the
+    /// usage cache holds is drawn at once, and a fetch starts when the floor
+    /// allows. Nothing is written to the document.
     fn usage(&mut self) {
         self.picker = None;
         self.help_menu = None;
@@ -12394,18 +12412,12 @@ impl CommandHandlers for Shell {
         self.statusline_menu = None;
         self.workspace_menu = None;
         self.info_panel = None;
-        let scope = crate::usage::Scope::Days30;
-        let cached = self
-            .usage_read
-            .as_ref()
-            .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms));
         self.fork_menu = None;
-        self.usage_menu = Some(Dashboard::open(scope, cached));
-        self.read_usage(scope);
+        self.close_usage();
+        self.open_usage_runtime();
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with a composer in it.
-        self.refit();
-        self.render.request(Reason::Modal);
+        self.install_usage_snapshot();
     }
 
     /// Upstream's `commandShowCredits` (`app_commands.zig:2052-2082`), asked
@@ -12520,7 +12532,7 @@ impl CommandHandlers for Shell {
                     self.help_menu = None;
                     self.statusline_menu = None;
                     self.settings_menu = None;
-                    self.usage_menu = None;
+                    self.close_usage();
                     self.info_panel = None;
                     self.fork_menu = None;
                     self.effort_menu = None;
@@ -12670,7 +12682,7 @@ impl CommandHandlers for Shell {
                 self.effort_menu = None;
                 self.provider_picker = None;
                 self.statusline_menu = None;
-                self.usage_menu = None;
+                self.close_usage();
                 self.settings_menu = None;
                 self.info_panel = None;
                 self.fork_menu = None;
@@ -12713,7 +12725,7 @@ impl CommandHandlers for Shell {
             self.effort_menu = None;
             self.provider_picker = None;
             self.statusline_menu = None;
-            self.usage_menu = None;
+            self.close_usage();
             self.settings_menu = None;
             self.workspace_menu = None;
             self.info_panel = None;
@@ -12797,7 +12809,7 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.effort_menu = None;
         self.statusline_menu = None;
-        self.usage_menu = None;
+        self.close_usage();
         self.provider_picker = None;
         self.file_picker = None;
         self.workspace_menu = None;
@@ -13208,7 +13220,7 @@ impl Shell {
             self.settings_menu = None;
             self.provider_picker = None;
             self.statusline_menu = None;
-            self.usage_menu = None;
+            self.close_usage();
             self.workspace_menu = None;
             self.effort_menu = Some(menu);
             // [`Self::run_command`] re-solved the band before routing here,
@@ -14342,7 +14354,7 @@ impl Shell {
                 workspace_menu::Menu::height(rows, self.workspace_access.entries())
             }
             Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
-            Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
+            Some(Slot::Usage(screen)) => screen.height(rows),
             Some(Slot::Info(panel)) => panel.height(rows, cols),
             Some(Slot::Catalog(_))
             | Some(Slot::Mcp(_))
@@ -14668,7 +14680,7 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::Ordering;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -37162,126 +37174,363 @@ mod tests {
             .collect()
     }
 
-    /// What the reader would have read: the fx capture's two billed turns.
-    fn billed_ledger(at_ms: i64) -> crate::usage::Ledger {
-        let request =
-            |model: &str, input, output, cache, reasoning, cost| crate::session::RequestUsage {
-                at_ms: at_ms - 60_000,
-                duration_ms: 300,
-                model: model.to_string(),
-                input_tokens: input,
-                output_tokens: output,
-                cache_read_tokens: cache,
-                cache_write_tokens: 0,
-                reasoning_tokens: Some(reasoning),
-                cost: Some(cost),
-                generation_id: None,
-                origin: None,
-            };
-        let usage = crate::session::RecordedUsage {
-            requests: vec![
-                request("fake/model-a", 12000, 800, 4000, 0, 0.0125),
-                request("anthropic/claude-opus-5", 52000, 3100, 30000, 900, 0.421),
-            ],
-            ..crate::session::RecordedUsage::default()
-        };
-        crate::usage::Ledger::from_sessions([&usage], &[], Some(at_ms - 120_000))
+    /// 2026-10-12 15:30 UTC, the capture harness's pinned clock
+    /// (`scripts/fxcap/scenarios/p5-usage-cached.cap`).
+    const USAGE_NOW: i64 = 1_791_819_000_000;
+    /// The fake key every `/usage` case asks with; never on a screen.
+    const USAGE_KEY: &str = "fake-key-usage-shell-must-not-appear";
+
+    /// A `/usage` runtime the case drives: a clock it moves, a usage cache in
+    /// a home of its own, and a spawner that keeps every fetch it is asked to
+    /// start -- holding it, so it is "in flight" until the case runs it.
+    struct UsageRig {
+        now: Arc<std::sync::atomic::AtomicI64>,
+        jobs: Arc<std::sync::Mutex<Vec<crate::usage::report::Job>>>,
+        home: tempfile::TempDir,
     }
 
-    fn deliver(shell: &mut Fixture, ledger: Result<crate::usage::Ledger, String>) {
-        let at_ms = crate::session::event::system_now_ms();
-        shell
-            .usage_reader
-            .deliver(super::super::usage_menu::Read { at_ms, ledger });
-        shell.settle_band(Instant::now());
+    impl UsageRig {
+        fn put_in(shell: &mut Fixture) -> Self {
+            let now = Arc::new(std::sync::atomic::AtomicI64::new(USAGE_NOW));
+            let jobs = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let home = tempfile::tempdir().expect("a home");
+            let clock: crate::usage::dashboard::Clock = {
+                let now = Arc::clone(&now);
+                Arc::new(move || now.load(Ordering::SeqCst))
+            };
+            let held = Arc::clone(&jobs);
+            let spawn: crate::usage::dashboard::Spawn = Box::new(move |job| {
+                held.lock().expect("the jobs").push(job);
+                std::thread::Builder::new().spawn(|| {})
+            });
+            shell.usage_runtime(crate::usage::dashboard::Dashboard::new(
+                crate::usage::cache::Home::new(Some(home.path())),
+                clock,
+                spawn,
+            ));
+            Self { now, jobs, home }
+        }
+
+        /// How many fetches the runtime has started.
+        fn started(&self) -> usize {
+            self.jobs.lock().expect("the jobs").len()
+        }
+
+        fn advance(&self, by_ms: i64) {
+            self.now.fetch_add(by_ms, Ordering::SeqCst);
+        }
+
+        /// Runs the fetch the runtime started `index`th, here.
+        fn run(&self, index: usize) {
+            let job = {
+                let mut jobs = self.jobs.lock().expect("the jobs");
+                std::mem::replace(&mut jobs[index], Box::new(|| {}))
+            };
+            job();
+        }
+
+        /// A usage cache for `question` holding today's numbers and the
+        /// finished days, fetched five minutes ago.
+        fn seed(&self, question: &crate::usage::report::Question, models: &[(&str, f64)]) {
+            use crate::usage::cache::{Entry, Finished, Today};
+            let now = self.now.load(Ordering::SeqCst);
+            let day = crate::usage::report::utc_day(now);
+            let rows: Vec<crate::usage::report::ModelRow> = models
+                .iter()
+                .map(|(model, cost)| crate::usage::report::ModelRow {
+                    model: (*model).to_string(),
+                    totals: crate::usage::report::Totals {
+                        request_count: 3,
+                        input_tokens: 1000,
+                        total_cost: *cost,
+                        ..crate::usage::report::Totals::default()
+                    },
+                })
+                .collect();
+            let at_ms = now - 5 * 60 * 1000;
+            let entry = Entry {
+                today: Some(Today {
+                    day,
+                    at_ms,
+                    models: rows.clone(),
+                }),
+                finished: Some(Finished {
+                    day,
+                    at_ms,
+                    days_7: rows.clone(),
+                    month: rows,
+                }),
+                budget: None,
+            };
+            let home = crate::usage::cache::Home::new(Some(self.home.path())).expect("a home");
+            crate::usage::cache::store(&home, &question.identity(), entry, now, None)
+                .expect("the cache is written");
+        }
+    }
+
+    /// What `/usage` asks with `key` for a Gateway at `origin`: the question
+    /// a runtime publishes for that configuration.
+    fn usage_question_at(origin: &str, key: &str) -> crate::usage::report::Question {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), key.to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let endpoint =
+            crate::gateway::Endpoint::resolve(Some(&format!("{origin}/v4/ai/language-model")))
+                .expect("a loopback endpoint");
+        crate::usage::report::question(&config, &endpoint).expect("a key is asked")
+    }
+
+    /// A loopback port that counts the connections made to it for `listen`,
+    /// answering none of them.
+    fn counting_port(listen: Duration) -> (String, std::thread::JoinHandle<usize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        listener.set_nonblocking(true).expect("a polled listener");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("an address").port()
+        );
+        let counted = std::thread::spawn(move || {
+            let until = Instant::now() + listen;
+            let mut connections = 0;
+            while Instant::now() < until {
+                match listener.accept() {
+                    Ok(_) => connections += 1,
+                    Err(_) => std::thread::sleep(Duration::from_millis(2)),
+                }
+            }
+            connections
+        });
+        (origin, counted)
     }
 
     #[test]
     fn usage_opens_the_dashboard_in_place_of_the_composer_and_writes_nothing() {
-        // `fx-usage-40x120-empty`: no composer row, the dashboard between two
-        // rules, its key help on the hint row.
+        // `new/nokey-40x120-open@481104fd`: no composer row, the dashboard
+        // between two rules, its key help on the hint row -- with xfx's own
+        // no-sign-in text.
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/usage\r");
         assert!(shell.document().is_empty(), "/usage wrote to the document");
         assert!(shell.usage_menu.is_some());
         assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
-        // Nothing read yet: the test shell has no profile to read, so the
-        // read failed where it was asked.
         assert_eq!(
-            usage_band(&shell)[1..3],
+            usage_band(&shell)[1..4],
             [
-                "Usage  [30 days]  7 days  24 hours  Session",
-                "Usage unavailable \u{b7} press r to retry"
+                "usage: not signed in to AI Gateway",
+                "",
+                "  (set AI_GATEWAY_API_KEY)"
             ]
         );
         assert_eq!(
             usage_band(&shell).last().map(String::as_str),
-            Some(
-                "tab scope     \u{2191}\u{2193} model     enter expand     r refresh     esc close"
-            )
+            Some("esc close")
         );
         assert!(shell.band_rows().last().unwrap().starts_with(PALETTE.dim()));
         assert!(shell.sent.try_recv().is_err(), "/usage reached the runtime");
+        // `r` there asks nothing, and Escape closes it.
+        shell.route_bytes(b"r");
+        escape(&mut shell);
+        assert!(shell.usage_menu.is_none());
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert_eq!(shell.hint(), IDLE_HINT);
+    }
+
+    /// S1: the key is sent only while `/usage` is up. Nothing at launch, nothing
+    /// while it is closed -- the 15-minute timer included -- and nothing after
+    /// the session ends; opening asks once, past the minute's floor.
+    #[test]
+    fn usage_asks_nothing_at_launch_while_closed_or_after_quit() {
+        let mut shell = shell(40, 120);
+        let rig = UsageRig::put_in(&mut shell);
+        let (origin, counted) = counting_port(Duration::from_secs(3));
+        shell
+            .work
+            .publish_usage(Ok(usage_question_at("http://127.0.0.1:9", USAGE_KEY)));
+        for _ in 0..3 {
+            shell.settle_band(Instant::now());
+        }
+        assert_eq!(rig.started(), 0, "a fetch at launch");
+
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(rig.started(), 1, "opening fetches");
+        assert!(shell.usage.is_open());
+        escape(&mut shell);
+        assert!(shell.usage_menu.is_none() && !shell.usage.is_open());
+        // An hour of passes with the screen closed: no timer, no fetch.
+        for _ in 0..4 {
+            rig.advance(16 * 60 * 1000);
+            shell.settle_band(Instant::now());
+        }
+        assert_eq!(rig.started(), 1, "a fetch while /usage was closed");
+
+        // The same key on another origin, past the key's floor: the fetch the
+        // close left running is let go of, and one starts for the new origin.
+        shell
+            .work
+            .publish_usage(Ok(usage_question_at(&origin, USAGE_KEY)));
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(rig.started(), 2);
+        // It is out, so neither `r` nor the timer starts another.
+        shell.route_bytes(b"r");
+        rig.advance(16 * 60 * 1000);
+        shell.settle_band(Instant::now());
+        assert_eq!(rig.started(), 2, "a second fetch beside one in flight");
+        escape(&mut shell);
+
+        shell.route_bytes(b"/quit\r");
+        assert!(shell.leaving());
+        // Quit let go of the key: both fetches were cancelled, so run now they
+        // ask nobody.
+        rig.run(1);
+        rig.run(0);
+        assert_eq!(counted.join().expect("the port"), 0, "a fetch after quit");
+        // And nothing opens or fetches after it.
+        shell.usage.open(usage_question_at(&origin, USAGE_KEY));
+        assert!(!shell.usage.refresh());
+        shell.settle_band(Instant::now());
+        assert_eq!(rig.started(), 2, "a fetch after quit");
+    }
+
+    /// S1, the switch: a provider switch landing while `/usage` is closed
+    /// cancels the fetch the old key has in flight -- run afterwards, it
+    /// connects to nobody -- and a resume onto another provider does the same.
+    #[test]
+    fn a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight() {
+        let mut shell = shell(40, 120);
+        let rig = UsageRig::put_in(&mut shell);
+        let (origin, counted) = counting_port(Duration::from_secs(2));
+        shell
+            .work
+            .publish_usage(Ok(usage_question_at(&origin, USAGE_KEY)));
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(rig.started(), 1);
+        escape(&mut shell);
+        // The switch: the runtime publishes the new sign-in, then says so.
+        shell
+            .work
+            .publish_usage(Err(crate::usage::report::Unavailable::UnsupportedProvider));
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        rig.run(0);
+        assert_eq!(counted.join().expect("the port"), 0, "the old key was sent");
+        // The next `/usage` says why it has nothing, and asks nobody.
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "usage: this provider's usage isn't shown yet"
+        );
+        assert_eq!(rig.started(), 1);
+
+        // A switch landing **with the screen up** opens it again on the new
+        // sign-in, keeping the screen: another key, so another floor.
+        shell.work.publish_usage(Ok(usage_question_at(
+            "http://127.0.0.1:9",
+            "another-fake-key",
+        )));
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Gateway,
+            model: "fake/model-a".to_string(),
+            missing_credential: false,
+        });
+        assert!(shell.usage_menu.is_some());
+        assert_eq!(rig.started(), 2);
+        assert!(usage_band(&shell)[1].starts_with("usage: API key (AI_GATEWAY_API_KEY)"));
     }
 
     #[test]
-    fn a_read_fills_the_window_and_the_keys_walk_it() {
+    fn the_screen_draws_the_cache_at_once_and_the_keys_walk_it() {
+        // `new/cached-40x120-*@481104fd`: the cache drawn with `updating…`
+        // while the fetch is out; ↓, Enter, ↓ on the details, Tab doing
+        // nothing there, Escape back, Tab, Right, Left, Shift-Tab, C-j, C-k.
         let mut shell = shell(40, 120);
-        shell.read_usage_by_hand();
+        let rig = UsageRig::put_in(&mut shell);
+        let question = usage_question_at("http://127.0.0.1:9", USAGE_KEY);
+        rig.seed(
+            &question,
+            &[("anthropic/claude-opus-5", 19.17), ("openai/gpt-5.6", 4.10)],
+        );
+        shell.work.publish_usage(Ok(question));
         shell.route_bytes(b"/usage\r");
-        // Asked, and not answered yet: `Loading usage`.
-        assert_eq!(shell.usage_reader.asked(), 1);
-        assert_eq!(usage_band(&shell)[2], "Loading usage");
-        let now = crate::session::event::system_now_ms();
-        deliver(&mut shell, Ok(billed_ledger(now)));
         let band = usage_band(&shell);
-        assert_eq!(shell.geometry.panel, 11);
-        assert_eq!(band[2], "Partial data \u{b7} some usage may be missing");
-        assert_eq!(band[4], "  67.9K tokens      $0.43 spent      2 requests");
-        assert_eq!(
-            band[10],
-            "\u{276f} anthropic/claude-opus-5    55.1K     81.1%    $0.42"
-        );
-        // The caret is on the marked model, at its start.
-        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 9, 0));
-
-        // Enter opens it, and the band grows by its detail line.
-        shell.route_bytes(b"\r");
-        assert_eq!(shell.geometry.panel, 12);
         assert!(
-            usage_band(&shell)[11].starts_with("Input 52K"),
-            "{:?}",
-            usage_band(&shell)
+            band[1].starts_with("usage: API key (AI_GATEWAY_API_KEY)"),
+            "{band:?}"
         );
-        // Down moves the mark under it (`fx-usage3-40x120-d30-down`).
-        shell.route_bytes(b"\x1b[B");
-        assert!(usage_band(&shell)[12].starts_with("\u{276f} fake/model-a"));
+        assert!(band[1].ends_with("updating\u{2026}"), "{band:?}");
+        assert_eq!(band[3], "period        spent  requests  tokens");
+        assert_eq!(
+            band[8],
+            "  model (month)                spent   share  requests  tokens"
+        );
+        assert!(
+            band[9].starts_with("\u{276f} anthropic/claude-opus-5"),
+            "{band:?}"
+        );
+        assert_eq!(
+            band.last().map(String::as_str),
+            Some("\u{2191}\u{2193} model     enter detail     tab period     r refresh     esc close")
+        );
+        // The caret on the selected row.
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 8, 0));
 
-        // Tab: 7 days, from the read already in hand -- no second read.
+        shell.route_bytes(b"\x1b[B");
+        assert!(usage_band(&shell)[10].starts_with("\u{276f} openai/gpt-5.6"));
+        shell.route_bytes(b"\r");
+        let detail = usage_band(&shell);
+        assert!(
+            detail[1].starts_with("usage: openai/gpt-5.6, model 2 of 2"),
+            "{detail:?}"
+        );
+        assert_eq!(shell.geometry.panel, 16);
+        assert_eq!(
+            detail.last().map(String::as_str),
+            Some("\u{2191}\u{2193} next model     esc back     r refresh")
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert!(usage_band(&shell)[1].starts_with("usage: anthropic/claude-opus-5, model 1 of 2"));
         shell.route_bytes(b"\t");
-        assert_eq!(shell.usage_reader.asked(), 1);
-        assert_eq!(
-            usage_band(&shell)[1],
-            "Usage  30 days  [7 days]  24 hours  Session"
+        assert!(
+            usage_band(&shell)[1].contains("model 1 of 2"),
+            "Tab on the details"
         );
-        // Shift-Tab back, then Left: one step towards the session, which the
-        // header prints to the right (`fx-usage-40x120-left`).
-        shell.route_bytes(b"\x1b[Z");
-        assert_eq!(
-            usage_band(&shell)[1],
-            "Usage  [30 days]  7 days  24 hours  Session"
+        escape(&mut shell);
+        assert!(
+            shell.usage_menu.is_some(),
+            "Escape on the details closed it"
         );
-        shell.route_bytes(b"\x1b[D");
-        assert_eq!(
-            usage_band(&shell)[1],
-            "Usage  30 days  [7 days]  24 hours  Session"
-        );
-        // Right twice: back to 30 days, and then nowhere further
-        // (`fx-usage-40x120-right1`).
-        shell.route_bytes(b"\x1b[C\x1b[C");
-        assert_eq!(
-            usage_band(&shell)[1],
-            "Usage  [30 days]  7 days  24 hours  Session"
+        assert!(usage_band(&shell)[9].starts_with("\u{276f} anthropic"));
+
+        for (keys, period) in [
+            (&b"\t"[..], "today"),
+            (b"\t", "7d"),
+            (b"\x1b[C", "month"),
+            (b"\x1b[D", "7d"),
+            (b"\x1b[Z", "today"),
+            (b"\x1b[Z", "month"),
+        ] {
+            shell.route_bytes(keys);
+            assert!(
+                usage_band(&shell)[8].starts_with(&format!("  model ({period})")),
+                "{keys:?}: {:?}",
+                usage_band(&shell)
+            );
+        }
+        shell.route_bytes(b"\n");
+        assert!(usage_band(&shell)[10].starts_with("\u{276f} openai"), "C-j");
+        shell.route_bytes(&[0x0b]);
+        assert!(
+            usage_band(&shell)[9].starts_with("\u{276f} anthropic"),
+            "C-k"
         );
 
         // Everything else is swallowed: no letter reaches the hidden
@@ -37292,133 +37541,51 @@ mod tests {
         assert_eq!(shell.controlled(), None);
         assert!(shell.document().is_empty());
 
-        // Escape: gone, and the composer is back.
+        // The period is kept across a close; nothing else is.
+        shell.route_bytes(b"\t");
         escape(&mut shell);
         assert!(shell.usage_menu.is_none());
-        assert_eq!(shell.geometry.input_rows(), 1);
-        assert_eq!(shell.hint(), IDLE_HINT);
-        assert!(shell.document().is_empty());
-    }
-
-    #[test]
-    fn the_session_scope_is_the_runtimes_last_publication() {
-        // `fx-usage2-40x120-session`: what the session has recorded, its
-        // clock and its edits -- read at once, never from the reader.
-        let mut shell = shell(40, 120);
-        let now = crate::session::event::system_now_ms();
-        let mut usage = crate::session::RecordedUsage::default();
-        usage.requests.push(crate::session::RequestUsage {
-            at_ms: now,
-            duration_ms: 1_200,
-            model: "fake/model-a".to_string(),
-            input_tokens: 1200,
-            output_tokens: 40,
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
-            reasoning_tokens: None,
-            cost: None,
-            generation_id: None,
-            origin: None,
-        });
-        usage.lines_added = 2;
-        shell.work.publish_spent(super::super::worker::Spent {
-            usage,
-            started_at_ms: Some(now - 12_400),
-        });
-        shell.route_bytes(b"/cost\r");
-        assert!(shell.usage_menu.is_some(), "/cost is /usage");
-        shell.route_bytes(b"\x1b[Z");
-        let band = usage_band(&shell);
-        assert_eq!(band[1], "Usage  30 days  7 days  24 hours  [Session]");
-        assert_eq!(band[2], "Partial data \u{b7} some usage may be missing");
-        assert_eq!(band[4], "  0 tokens        $0.00 spent      0 requests");
-        assert_eq!(band[5], "  0 input         0 output         0 reasoning");
-        assert_eq!(band[8], "Session activity");
-        assert_eq!(band[9], "API 1s \u{b7} Wall 12s");
-        assert_eq!(band[10], "Code +2 \u{b7} -0");
-        assert_eq!(band[14], "  No model usage in this scope.");
-        // `r` reads it again, and it is still the session.
-        shell.route_bytes(b"r");
-        assert_eq!(
-            usage_band(&shell)[1],
-            "Usage  30 days  7 days  24 hours  [Session]"
-        );
-    }
-
-    /// Quitting does not wait out a read of the session logs: the reader is
-    /// cancelled and stops at the next session it would open
-    /// (`usage_dashboard_runtime.zig:96-103`), so a slow one -- a long history
-    /// -- costs the exit the one log it is in.
-    #[test]
-    fn quit_returns_promptly_with_a_slow_usage_read_in_flight() {
-        let mut fixture = shell(40, 120);
-        let started = Arc::new(AtomicBool::new(false));
-        let stopped = Arc::new(AtomicBool::new(false));
-        let (reading, saw_cancel) = (Arc::clone(&started), Arc::clone(&stopped));
-        fixture.usage_reader = usage_menu::Reader::reading_with(
-            std::path::PathBuf::from("/nowhere"),
-            move |_, _, cancel| {
-                reading.store(true, Ordering::SeqCst);
-                // A history that takes half a minute to read, a session at a
-                // time.
-                let deadline = Instant::now() + Duration::from_secs(30);
-                while Instant::now() < deadline {
-                    if cancel.load(Ordering::Acquire) {
-                        saw_cancel.store(true, Ordering::SeqCst);
-                        return None;
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                Some(Err("never cancelled".to_string()))
-            },
-        );
-        fixture.route_bytes(b"/usage\r");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !started.load(Ordering::SeqCst) {
-            assert!(Instant::now() < deadline, "the read never started");
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        // The dashboard takes every key while it is up; closed, `/quit`.
-        escape(&mut fixture);
-        assert!(fixture.usage_menu.is_none());
-        fixture.route_bytes(b"/quit\r");
-        assert!(fixture.leaving());
-        let quitting = Instant::now();
-        drop(fixture);
-        assert!(
-            quitting.elapsed() < Duration::from_secs(1),
-            "the exit waited {:?} for the read",
-            quitting.elapsed()
-        );
-        assert!(stopped.load(Ordering::SeqCst), "the read was not cancelled");
-    }
-
-    #[test]
-    fn a_failed_read_keeps_what_is_shown_and_says_it_is_old() {
-        let mut shell = shell(40, 120);
-        shell.read_usage_by_hand();
         shell.route_bytes(b"/usage\r");
-        let now = crate::session::event::system_now_ms();
-        deliver(&mut shell, Ok(billed_ledger(now)));
-        shell.route_bytes(b"r");
-        assert_eq!(shell.usage_reader.asked(), 2, "`r` read again");
-        deliver(&mut shell, Err("unreadable".to_string()));
+        assert!(usage_band(&shell)[8].starts_with("  model (today)"));
+        assert_eq!(rig.started(), 1, "reopened within the floor");
+    }
+
+    /// S3: no row the dashboard draws -- the heading included, in any state
+    /// -- shows the key; the heading names the variable.
+    #[test]
+    fn no_usage_screen_shows_the_key() {
+        let mut shell = shell(40, 120);
+        // A spawner that refuses is a fetch that fails: the failure state.
+        let question = usage_question_at("http://127.0.0.1:9", USAGE_KEY);
+        shell.work.publish_usage(Ok(question.clone()));
+        shell.route_bytes(b"/usage\r");
         let band = usage_band(&shell);
-        assert_eq!(band[2], "Refresh failed \u{b7} showing previous data");
-        assert_eq!(band[4], "  67.9K tokens      $0.43 spent      2 requests");
-        // The next `/usage` opens on the read in hand rather than on nothing.
+        assert_eq!(
+            band[1],
+            format!(
+                "usage: API key (AI_GATEWAY_API_KEY){}couldn't reach AI Gateway",
+                " ".repeat(120 - 35 - 25)
+            )
+        );
+        let rig = UsageRig::put_in(&mut shell);
+        rig.seed(&question, &[("anthropic/claude-opus-5", 1.0)]);
         escape(&mut shell);
         shell.route_bytes(b"/usage\r");
-        assert_eq!(
-            usage_band(&shell)[4],
-            "  67.9K tokens      $0.43 spent      2 requests"
-        );
+        shell.route_bytes(b"\r");
+        for cols in [120, 50, 40] {
+            shell.resize(40, cols);
+            for row in shell.band_rows() {
+                assert!(!row.contains(USAGE_KEY), "{row:?}");
+            }
+        }
+        assert!(!format!("{:?}", shell.usage_menu).contains(USAGE_KEY));
     }
 
     #[test]
     fn usage_and_credits_take_nothing_after_them() {
         // `fx-credits-404-40x120-arg`: `/credits now` is a command nobody has.
-        for line in ["/usage 7d", "/cost now", "/credits now", "/balance x"] {
+        // And `/cost`, which v0.0.16 dropped (`commands.zig:454@481104fd`).
+        for line in ["/usage 7d", "/cost", "/credits now", "/balance x"] {
             let mut shell = shell(24, 80);
             shell.route_bytes(format!("{line}\r").as_bytes());
             assert_eq!(
