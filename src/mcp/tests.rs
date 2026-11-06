@@ -850,7 +850,7 @@ fn a_search_selects_the_tool_and_a_rule_or_full_access_admits_its_call() {
     assert!(ran.ok, "{ran:?}");
     assert_eq!(
         ran.output,
-        r#"{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"FIXTURE_ECHO:hi"}]}}"#
+        r#"{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"FIXTURE_ECHO:hi"}],"isError":false}}"#
     );
 
     // A deny keeps it out of every search.
@@ -877,14 +877,495 @@ fn a_search_selects_the_tool_and_a_rule_or_full_access_admits_its_call() {
         selected.output,
         "Selected dynamic MCP tool `mcp_fixture_echo`. Its executable schema will be available on the next model step; call `mcp_fixture_echo` with arguments matching the selected schema."
     );
-    let features = call(
+    // fx v0.0.16 has no `mcp_features`, and neither has xfx: the model
+    // cannot reach a resource or a prompt.
+    assert!(crate::tools::Registry::builtin()
+        .spec("mcp_features")
+        .is_none());
+    runtime.shutdown();
+}
+
+/// Answers every question it is put with one answer, and counts them.
+struct Answering {
+    answer: crate::permission::ApprovalAnswer,
+    asked: Arc<Mutex<usize>>,
+}
+
+impl crate::permission::ApprovalPrompter for Answering {
+    fn request(
+        &mut self,
+        _: &crate::permission::ApprovalRequest,
+    ) -> std::io::Result<crate::permission::ApprovalAnswer> {
+        *self.asked.lock().unwrap() += 1;
+        Ok(self.answer)
+    }
+}
+
+/// How many `tools/call` frames the fixture logged in `log`.
+fn calls_logged(log: &Path) -> usize {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains(r#""method":"tools/call""#))
+        .count()
+}
+
+/// What one call came to, as the model and the server see it.
+#[derive(Debug, PartialEq)]
+struct Came {
+    /// Whether the machine took the name for a tool at all
+    /// (`select_unselected`); a name it does not ends the turn as
+    /// `ToolCallUnsupported` and nothing is judged or sent.
+    a_tool: bool,
+    /// Each call's result: `ok`, its outcome, and the model's text.
+    results: Vec<(bool, crate::tools::Outcome, String)>,
+    /// Questions put to the person.
+    asked: usize,
+    /// `tools/call` frames the server received.
+    sent: usize,
+}
+
+#[test]
+fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
+    // fx v0.0.16 runs a live MCP tool the model calls without loading it
+    // (`advertiseUnselectedMcpCalls`, `orchestrator.zig:2497-2538@481104fd`)
+    // and sends it "through normal validation and MCP permission". So here:
+    // every mode, every kind of rule (a name, a glob, an ask, a deny, a
+    // deny of everything) and every answer a person can give, once on a
+    // tool selected first and once on the same call unselected, through the
+    // machine's own two steps -- `select_unselected`, then `call`. The two
+    // must be judged alike: the same questions, the same result, and the
+    // server reached exactly as often. A deny the selected tool met after it
+    // was selected (a rule written mid-turn) leaves the unselected one no
+    // tool at all, so nothing is sent either way.
+    use crate::permission::ApprovalAnswer;
+    let home = Home::new();
+    let log = home.dir.path().join("wire.log");
+    let mut server = fixture_server("fixture");
+    server.env = vec![("MCP_FIXTURE_LOG".into(), log.to_string_lossy().into_owned())];
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    let (owner, tool) = runtime
+        .tool_by_alias("mcp_fixture_echo")
+        .expect("the fixture's tool");
+    let chosen =
+        crate::mcp::catalog::select(&tool, owner.instructions().as_deref()).expect("within budget");
+
+    let modes = [
+        PermissionMode::Ask,
+        PermissionMode::Auto,
+        PermissionMode::Yolo,
+    ];
+    // What each table is, for the expected outcome below.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        NoRule,
+        Allows,
+        Asks,
+        Denies,
+    }
+    let rules = [
+        (json!({}), Kind::NoRule),
+        (json!({"mcp_fixture_echo": "allow"}), Kind::Allows),
+        (json!({"mcp_fixture_*": "allow"}), Kind::Allows),
+        (json!({"mcp_fixture_echo": "ask"}), Kind::Asks),
+        (json!({"mcp_fixture_echo": "deny"}), Kind::Denies),
+        (json!({"mcp_*": "deny"}), Kind::Denies),
+        (json!({"*": "deny"}), Kind::Denies),
+        // The rule after it, naming the tool, decides.
+        (
+            json!({"*": "deny", "mcp_fixture_echo": "allow"}),
+            Kind::Allows,
+        ),
+        // A deny on the two meta-tools is about them, not the server's tools:
+        // a call by name is judged as if no rule spoke (fx hands the lookup
+        // the table and the tool's own name, `tool_runtime.zig:1042-1053`).
+        (
+            json!({"capability_search": "deny", "mcp_select_tool": "deny"}),
+            Kind::NoRule,
+        ),
+    ];
+    // The outcome every case must have, unselected, by the rules alone
+    // (`tool_admission.zig:161-165`, `:1116-1157`, `:1426-1442`): whether the
+    // name is a tool at all, the questions put, and the frames sent for the
+    // two calls. A deny the table holds leaves no tool; an allow sends both
+    // unasked; full access sends both whatever else (an ask rule included);
+    // `auto` holds a call no rule decides; a question answered once asks
+    // each time, "always" once, "deny" refuses each time, nobody to ask
+    // refuses.
+    let expected = |mode: PermissionMode, kind: Kind, answer: Option<ApprovalAnswer>| {
+        let asked = |answer: Option<ApprovalAnswer>| match answer {
+            None => (0, 0),
+            Some(ApprovalAnswer::Once) => (2, 2),
+            Some(ApprovalAnswer::Always) => (1, 2),
+            Some(ApprovalAnswer::Deny) => (2, 0),
+        };
+        match (kind, mode) {
+            (Kind::Denies, _) => (false, 0, 0),
+            (Kind::Allows, _) | (_, PermissionMode::Yolo) => (true, 0, 2),
+            (Kind::NoRule, PermissionMode::Auto) => (true, 0, 0),
+            (Kind::NoRule | Kind::Asks, _) => {
+                let (questions, sent) = asked(answer);
+                (true, questions, sent)
+            }
+        }
+    };
+    let answers = [
+        None,
+        Some(ApprovalAnswer::Once),
+        Some(ApprovalAnswer::Always),
+        Some(ApprovalAnswer::Deny),
+    ];
+    let mut cases = 0;
+    let mut sent_somewhere = false;
+    let mut refused_somewhere = false;
+    for mode in modes {
+        for (table, kind) in &rules {
+            for answer in answers {
+                let came = |selected_first: bool| -> Came {
+                    let asked = Arc::new(Mutex::new(0));
+                    let mut session = PermissionSession::new(mode)
+                        .with_rules(RuleSet::parse(table).expect("rules"));
+                    if let Some(answer) = answer {
+                        session = session.with_prompter(Box::new(Answering {
+                            answer,
+                            asked: Arc::clone(&asked),
+                        }));
+                    }
+                    let scope = AccessScope::primary_only(home.workspace()).expect("scope");
+                    let context = ToolContext::new(scope)
+                        .with_permissions(session)
+                        .with_mcp(Arc::clone(&runtime));
+                    if selected_first {
+                        context.select_mcp(vec![chosen.clone()]);
+                    }
+                    let before = calls_logged(&log);
+                    let a_tool = crate::tools::mcp::select_unselected(&context, "mcp_fixture_echo");
+                    let mut results = Vec::new();
+                    if a_tool {
+                        // Twice, so an "always" answered on the first is
+                        // seen deciding the second.
+                        for text in ["one", "two"] {
+                            let result = call(&context, "mcp_fixture_echo", json!({"text": text}));
+                            results.push((result.ok, result.outcome, result.output));
+                        }
+                        // Selected from now on: advertised in the next request.
+                        assert!(crate::tools::mcp::is_selected(&context, "mcp_fixture_echo"));
+                    } else {
+                        assert!(context.mcp_selected().is_empty());
+                    }
+                    let asked = *asked.lock().unwrap();
+                    Came {
+                        a_tool,
+                        results,
+                        asked,
+                        sent: calls_logged(&log) - before,
+                    }
+                };
+                let selected = came(true);
+                let unselected = came(false);
+                let case = format!("{mode:?} {table} {answer:?}");
+                assert_eq!(
+                    (unselected.a_tool, unselected.asked, unselected.sent),
+                    expected(mode, *kind, answer),
+                    "{case}: {unselected:?}"
+                );
+                assert!(selected.a_tool, "{case}");
+                assert_eq!(
+                    unselected.sent, selected.sent,
+                    "{case}: {selected:?} {unselected:?}"
+                );
+                assert_eq!(
+                    unselected.asked, selected.asked,
+                    "{case}: {selected:?} {unselected:?}"
+                );
+                if unselected.a_tool {
+                    assert_eq!(unselected.results, selected.results, "{case}");
+                } else {
+                    // Refused outright by the table: the selected call is an
+                    // unknown tool's, and neither reached the server.
+                    assert_eq!(selected.sent, 0, "{case}");
+                    assert!(
+                        selected.results.iter().all(|(ok, ..)| !ok),
+                        "{case}: {selected:?}"
+                    );
+                }
+                sent_somewhere |= selected.sent > 0;
+                refused_somewhere |= selected.results.iter().any(|(ok, ..)| !ok);
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 3 * 9 * 4);
+    assert!(sent_somewhere && refused_somewhere);
+
+    // The rules that matter, spelled out: `auto` holds an unselected call
+    // with no rule, as it holds a selected one; full access runs it.
+    let held = {
+        let context = context(&home, &runtime, PermissionMode::Auto, RuleSet::default());
+        assert!(crate::tools::mcp::select_unselected(
+            &context,
+            "mcp_fixture_echo"
+        ));
+        call(&context, "mcp_fixture_echo", json!({"text": "hi"}))
+    };
+    assert_eq!(held.outcome, crate::tools::Outcome::Denied, "{held:?}");
+    assert!(
+        held.output.contains("not admitted in auto mode"),
+        "{}",
+        held.output
+    );
+    let ran = {
+        let context = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+        assert!(crate::tools::mcp::select_unselected(
+            &context,
+            "mcp_fixture_echo"
+        ));
+        call(&context, "mcp_fixture_echo", json!({"text": "hi"}))
+    };
+    assert!(ran.ok, "{ran:?}");
+    // A name no live server has is no tool.
+    let none = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    assert!(!crate::tools::mcp::select_unselected(
+        &none,
+        "mcp_fixture_nope"
+    ));
+    assert!(!crate::tools::mcp::select_unselected(
+        &none,
+        "mcp_other_echo"
+    ));
+    runtime.shutdown();
+}
+
+/// A stdio server with one tool, `echo`, whose `tools/call` answer is the
+/// `result` or `error` member `answer`, written verbatim into the frame --
+/// or, when `answer` is `LONG=<n>`, an error whose message is `n` bytes,
+/// made by the server when it answers (bounded by `head -c`), so the
+/// environment it starts with stays small.
+fn answering_server(home: &Home, name: &str, answer: &str) -> ServerConfig {
+    let script = home.dir.path().join(format!("{name}.sh"));
+    let body = r#"while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/^{"jsonrpc":"2.0","id":\([0-9][0-9]*\),.*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"t","version":"1"}}}\n' "$id" ;;
+    *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}}\n' "$id" ;;
+    *'"method":"tools/call"'*)
+      if [ -n "${LONG:-}" ]; then
+        message=$(/usr/bin/head -c "$LONG" /dev/zero | /usr/bin/tr '\0' x)
+        printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"%s"}}\n' "$id" "$message"
+      else
+        printf '{"jsonrpc":"2.0","id":%s,%s}\n' "$id" "$ANSWER"
+      fi ;;
+    *) if [ -n "$id" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id"; fi ;;
+  esac
+done
+"#;
+    std::fs::write(&script, body).expect("script");
+    let mut server = ServerConfig::local(name, "/bin/sh", &[script.to_string_lossy().into_owned()]);
+    server.env = match answer.strip_prefix("LONG=") {
+        Some(bytes) => vec![("LONG".into(), bytes.into())],
+        None => vec![("ANSWER".into(), answer.into())],
+    };
+    server
+}
+
+#[test]
+fn a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did() {
+    // At `call()`, what the model is told and that it is a failure, never a
+    // success: an `isError` result (`classifyCall`, `protocol/tools.zig:
+    // 255-273@481104fd`), an answer that is no tool result (`copyCall`,
+    // `runtime.zig:2363-2378`, `ended`, `model.zig:855-878`), and a JSON-RPC
+    // error (`write_protocol_diagnostic`, `tool_result.zig:199-214`) -- its
+    // data left out, as `render` leaves it out (`model.zig:841`).
+    let home = Home::new();
+    let cases = [
+        (
+            "iserror",
+            r#""result":{"content":[{"type":"text","text":"no such issue"}],"isError":true}"#,
+            r#"{"server":"iserror","tool":"mcp_iserror_echo","result":{"content":[{"type":"text","text":"no such issue"}],"isError":true}}"#,
+        ),
+        (
+            "malformed",
+            r#""result":{"content":"no such issue"}"#,
+            "MCP server 'malformed' ended the call: the server's answer was malformed. The tool may have run.",
+        ),
+        (
+            "refusing",
+            r#""error":{"code":-32603,"message":"fixture refuses <now> & \"always\"","data":{"why":"x"}}"#,
+            r#"MCP protocol error -32603: fixture refuses <now> & "always""#,
+        ),
+        (
+            "nul",
+            r#""error":{"code":-32000,"message":"a\u0000b"}"#,
+            "MCP protocol error -32000: binary or non-utf8 tool output omitted (3 bytes)",
+        ),
+        // The error's data, whatever it holds, is not told
+        // (`runtime.zig:117`, `:2371`; `model.zig:841`; `p5-mcp-errdata`).
+        (
+            "spaceddata",
+            r#""error":{"code":-32603,"message":"fixture refuses","data": { "b" : [ 2 , 1 ] ,  "a":1.0 } }"#,
+            "MCP protocol error -32603: fixture refuses",
+        ),
+        (
+            "nuldata",
+            r#""error":{"code":-32603,"message":"fixture refuses","data":{"k":"a\u0000b"}}"#,
+            "MCP protocol error -32603: fixture refuses",
+        ),
+    ];
+    // A message over 64 KiB is no error fx reads
+    // (`parseProtocolError`, `features/tools.zig:305-307`).
+    let long = format!("LONG={}", 64 * 1024 + 1);
+    let cases: Vec<(&str, &str, &str)> = cases
+        .iter()
+        .copied()
+        .chain([(
+            "long",
+            long.as_str(),
+            "MCP protocol failure: InvalidEnvelope",
+        )])
+        .collect();
+    for (name, answer, _) in &cases {
+        config::add_profile_server(&home.profile(), answering_server(&home, name, answer))
+            .expect("saved");
+    }
+    let runtime = home.runtime();
+    runtime.start();
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    for (name, _, told) in &cases {
+        assert_eq!(settled(&runtime, name).status(), Status::Ready, "{name}");
+        let alias = format!("mcp_{name}_echo");
+        assert!(
+            crate::tools::mcp::select_unselected(&full, &alias),
+            "{name}"
+        );
+        let result = call(&full, &alias, json!({}));
+        assert!(!result.ok, "{name}: {result:?}");
+        assert_eq!(result.outcome, crate::tools::Outcome::Finished, "{name}");
+        assert_eq!(result.output, *told, "{name}");
+    }
+    runtime.shutdown();
+}
+
+#[test]
+fn the_servers_block_counts_a_servers_tools_only_once_the_model_has_read_them() {
+    // fx v0.0.16's block names a server's tool count only once its catalog
+    // has read the list (`modelSnapshot`, `model.zig:472-500@481104fd`): not
+    // at the first request (`p5-mcp-turn`'s bodies), and from a search, a
+    // selection or a call on, for as long as a reload keeps the server.
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let unread = "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" />\n</mcp_servers>\n";
+    let read = "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n";
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(unread));
+    // The runtime knows the count all along; only the model's block waits.
+    assert_eq!(settled(&runtime, "fixture").tool_count, Some(1));
+
+    // A search that finds nothing still read the list.
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    let found = call(
         &full,
-        "mcp_features",
-        json!({"action": "resource_read", "server": "fixture", "uri": "fixture://alpha"}),
+        "capability_search",
+        json!({"query": "weather forecast"}),
+    );
+    assert!(
+        found.output.contains(r#""state":"no_match""#),
+        "{}",
+        found.output
+    );
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(read));
+
+    // A reload that keeps the server keeps its list.
+    runtime.reload(super::runtime::Origin::Transcript);
+    settled(&runtime, "fixture");
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(read));
+
+    // One that starts it anew does not; then a direct call reads it again.
+    config::remove_profile_server(&home.profile(), "fixture").expect("removed");
+    let mut changed = fixture_server("fixture");
+    changed.env = vec![("XFX_TEST_CHANGED".into(), "1".into())];
+    config::add_profile_server(&home.profile(), changed).expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(unread));
+    // A call by name a rule refuses is no tool, and fx read the list
+    // before it asked the table (`toolSchema`, `model.zig:296-318`).
+    let refused = context(
+        &home,
+        &runtime,
+        PermissionMode::Yolo,
+        RuleSet::parse(&json!({"mcp_fixture_echo": "deny"})).expect("rules"),
+    );
+    assert!(!crate::tools::mcp::select_unselected(
+        &refused,
+        "mcp_fixture_echo"
+    ));
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(read));
+    runtime.shutdown();
+}
+
+#[test]
+fn an_open_search_that_finds_nothing_names_a_server_it_could_not_look_in() {
+    // fx v0.0.16 (`47154a8f`; `withUnavailableLocked`, `model.zig:282-294`;
+    // `renderCombined`, `capability_search.zig:301-304@481104fd`).
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "bad",
+            "/bin/sh",
+            &["-c".into(), "echo boom >&2; exit 3".into()],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let bad = settled(&runtime, "bad");
+    assert_eq!(bad.status(), Status::Failed, "{bad:?}");
+    let failure = bad.failure.clone().expect("why it failed");
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+
+    let nothing = call(
+        &full,
+        "capability_search",
+        json!({"query": "weather forecast"}),
     );
     assert_eq!(
-        features.output,
-        r#"{"trust":"untrusted_external","authority":"none","action":"resource_read","server":"fixture","identity":"fixture://alpha","contents":[{"uri":"fixture://alpha","mimeType":"text/plain","type":"text","text":"FIXTURE_RESOURCE_TEXT"}]}"#
+        nothing.output,
+        format!(
+            r#"{{"skills":[],"mcp_tools":[],"counts":{{"skills":0,"mcp_tools":0}},"total_matches":{{"skills":0,"mcp_tools":0}},"state":"no_match","mcp_unavailable":[{}]}}"#,
+            Value::from(crate::mcp::catalog::encode_scalar(&format!(
+                "MCP server 'bad' is unavailable: {failure}"
+            )))
+        )
+    );
+    // A search that found something, or one that named a server, says
+    // nothing of the rest.
+    let found = call(
+        &full,
+        "capability_search",
+        json!({"query": "echo text back"}),
+    );
+    assert!(
+        !found.output.contains("mcp_unavailable"),
+        "{}",
+        found.output
+    );
+    let named = call(
+        &full,
+        "capability_search",
+        json!({"query": "weather forecast", "server": "fixture"}),
+    );
+    assert!(
+        !named.output.contains("mcp_unavailable"),
+        "{}",
+        named.output
     );
     runtime.shutdown();
 }
@@ -1003,7 +1484,7 @@ fn a_global_deny_hides_the_mcp_meta_tools_and_refuses_a_call_to_one_anyway() {
         "{searched:?}"
     );
     assert!(denied.mcp_selected().is_empty());
-    // Full access offers all three, and the search runs.
+    // Full access offers both, and the search runs.
     let full = context(
         &home,
         &runtime,

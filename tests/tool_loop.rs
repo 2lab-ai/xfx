@@ -215,11 +215,6 @@ fn assert_bounded_property(schema: &Value, name: &str, property: &Value) {
     );
     match property["type"].as_str() {
         Some("string" | "integer" | "boolean") => {}
-        // Upstream's two string maps (`tools.zig:675-676`): advertised as a
-        // bare object, as upstream does, and held to string values and a size
-        // by `mcp_features`' decoder. No other property may be one.
-        Some("object")
-            if schema["name"] == "mcp_features" && matches!(name, "arguments" | "context") => {}
         Some("array") => assert_bounded_array_of_closed_objects(schema, name, property),
         other => panic!("`{name}` in {schema} has an unbounded type: {other:?}"),
     }

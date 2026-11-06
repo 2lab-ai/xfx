@@ -4,18 +4,17 @@
 //! (`cap/fx-mcp-fixture-40x120-bodies/001-completion.json`). Every request
 //! carries one system block naming the configured servers and their states
 //! ([`render_servers`], `vercel-labs/fx@c1db9191
-//! src/core/mcp/model_catalog.zig:8-15`, `:206-276`), and three meta-tools:
+//! src/core/mcp/model_catalog.zig:8-15`, `:206-276`), and two meta-tools:
 //! `capability_search` finds tools by what they do and **selects** the ones it
 //! finds, whose schemas are then advertised from the next model step on
 //! (`selectSearchSchemas`, `tool_search.zig:242-270`); `mcp_select_tool`
-//! selects one by exact name; `mcp_features` reaches resources, prompts and
-//! completion. Here is all of it but the tool specs themselves, which are in
+//! selects one by exact name. (fx v0.0.16 dropped the third, `mcp_features`.)
+//! Here is all of it but the tool specs themselves, which are in
 //! [`crate::tools::mcp`].
 
 use serde_json::{Map, Value};
 
-use super::runtime::{McpRuntime, McpTool, Prompt, Resource, ServerView, Status};
-use super::McpError;
+use super::runtime::{McpRuntime, McpTool, ServerView, Status};
 
 /// The block's header (`model_catalog.zig:9-12`).
 const HEADER: &str = "Configured MCP servers visible to this model turn are listed below.\nA listed server is not a reason to use MCP. Use capability_search only when the task clearly needs a capability not already available locally. Pass the task and an optional exact server name. Call tools advertised after search directly. Use mcp_select_tool when a relevant result is not yet callable. Use returned identities and refine the query when needed.\n<mcp_servers>\n";
@@ -75,6 +74,62 @@ fn availability(view: &ServerView) -> &'static str {
         Status::NeedsAuth => "authentication_required",
         Status::Failed => "failed",
         Status::Unavailable => "unavailable",
+    }
+}
+
+/// The servers block a turn's requests carry, as `runtime`'s servers stand
+/// now. A server's `tools="N"` is there only once the model's catalog has
+/// read its list -- a search, a selection or a call has reached it (fx
+/// v0.0.16's `modelSnapshot`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/model.zig:472-500`: `.tool_count = if (l.state ==
+/// .loaded) l.tools.len else null`). So a turn's first request has none
+/// (`p5-mcp-turn`'s bodies), and a later turn's has the count of a server an
+/// earlier turn searched; that count is the list's, whatever the server's
+/// state now.
+pub fn servers_block(runtime: &McpRuntime) -> String {
+    let views: Vec<ServerView> = runtime
+        .views()
+        .into_iter()
+        .map(|mut view| {
+            let known = runtime
+                .server(&view.name)
+                .is_some_and(|server| server.tools_known());
+            view.tool_count = known.then_some(view.tools_held);
+            view
+        })
+        .collect();
+    render_servers(&views)
+}
+
+/// Records what the model's catalog read of `name`'s list: a ready server's
+/// list is known from now on, and one that failed or needs a login has none
+/// (`refresh`, `vercel-labs/fx@481104fd src/core/mcp_host/model.zig:
+/// 617-669`). A server still coming up keeps what it had: fx waits for it,
+/// and xfx does not.
+fn note_read(runtime: &McpRuntime, view: &ServerView) {
+    let Some(server) = runtime.server(&view.name) else {
+        return;
+    };
+    match view.status() {
+        Status::Ready => server.set_tools_known(true),
+        Status::Failed | Status::NeedsAuth => server.set_tools_known(false),
+        Status::Connecting | Status::Disabled | Status::Unavailable => {}
+    }
+}
+
+/// Records that the model's catalog read the list of the server holding
+/// `alias` -- a selection or a call reached it (`ensure` and
+/// `ensureCurrent`, `vercel-labs/fx@481104fd src/core/mcp_host/model.zig:
+/// 513-533`). fx loads every server whose name `alias` could start with
+/// until one holds it; xfx reads every ready server's list at once, so only
+/// the holder is marked.
+pub fn note_selected(runtime: &McpRuntime, server: &super::runtime::Server) {
+    if runtime
+        .views()
+        .iter()
+        .any(|view| view.name == server.config.name && view.status() == Status::Ready)
+    {
+        server.set_tools_known(true);
     }
 }
 
@@ -289,6 +344,7 @@ pub fn search(runtime: &McpRuntime, query: &str, server: Option<&str>) -> Search
         let Some(view) = views.iter().find(|view| view.name == name) else {
             return combined(&[], 0, Some(r#""server_not_found""#.to_string()), None);
         };
+        note_read(runtime, view);
         if view.status() == Status::Failed {
             if let Some(failure) = &view.failure {
                 let message = format!("MCP server '{name}' is unavailable: {failure}");
@@ -299,6 +355,12 @@ pub fn search(runtime: &McpRuntime, query: &str, server: Option<&str>) -> Search
                     Some(message),
                 );
             }
+        }
+    } else {
+        // An open search reads every server's list (`searchTools`,
+        // `vercel-labs/fx@481104fd src/core/mcp_host/model.zig:237-254`).
+        for view in &views {
+            note_read(runtime, view);
         }
     }
     let candidates: Vec<(std::sync::Arc<super::runtime::Server>, McpTool)> = runtime
@@ -359,6 +421,11 @@ pub fn search(runtime: &McpRuntime, query: &str, server: Option<&str>) -> Search
         })
         .collect();
     let mut result = combined(&items, total, None, None);
+    // An open search that found nothing says which servers it could not look
+    // in, and why (fx v0.0.16, `47154a8f`).
+    if server.is_none() && total == 0 {
+        result.output = with_unavailable(result.output, &unavailable(&views));
+    }
     result.selected = selected;
     if result.output.len() > SEARCH_RESULT_BYTES {
         result.output = combined(
@@ -371,6 +438,54 @@ pub fn search(runtime: &McpRuntime, query: &str, server: Option<&str>) -> Search
         result.selected.clear();
     }
     result
+}
+
+/// Why each server a search could not look in was skipped, in the
+/// configuration's order (`withUnavailableLocked` and `unavailableText`,
+/// `vercel-labs/fx@481104fd src/core/mcp_host/model.zig:282-294`,
+/// `:708-719`): one that needs a login names the command that signs in to it
+/// (`needsLoginText`, `.shell`: this is the TUI's catalog), one that failed
+/// says why, in the runtime's words. fx also names a server held back for a
+/// missing or unusable variable; xfx's runtime has no such state yet, and
+/// such a server fails, so its reason is its failure's.
+fn unavailable(views: &[ServerView]) -> Vec<String> {
+    views
+        .iter()
+        .filter_map(|view| match view.status() {
+            Status::NeedsAuth => Some(format!(
+                "MCP server '{}' needs a login. Ask the user to run /mcp login {}, then try again.",
+                view.name, view.name
+            )),
+            Status::Failed => Some(format!(
+                "MCP server '{}' is unavailable: {}",
+                view.name,
+                view.failure.as_deref().unwrap_or("it did not start")
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `output`, a combined answer, with `reasons` as its `mcp_unavailable` last
+/// (`withUnavailable`, `vercel-labs/fx@481104fd src/core/mcp/tool_search.zig:
+/// 25-41`; `renderCombined`, `src/tools/capabilities/capability_search.zig:
+/// 301-304`), each encoded as every string the model reads here is; nothing
+/// when there is none.
+fn with_unavailable(mut output: String, reasons: &[String]) -> String {
+    if reasons.is_empty() || !output.ends_with('}') {
+        return output;
+    }
+    output.pop();
+    output.push_str(",\"mcp_unavailable\":[");
+    output.push_str(
+        &reasons
+            .iter()
+            .map(|reason| Value::from(encode_scalar(reason)).to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    output.push_str("]}");
+    output
 }
 
 /// Ranks `documents` for `query`, best first, keeping only clear matches.
@@ -553,14 +668,128 @@ fn combined(
 // results
 // ---------------------------------------------------------------------------
 
+/// What a `tools/call` answer tells the model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallAnswer {
+    /// A tool result: the envelope, and whether the server said it failed.
+    Result { envelope: String, is_error: bool },
+    /// An answer that is not a tool result.
+    Malformed(String),
+}
+
 /// A dynamic tool's result for the model (`write_envelope`,
-/// `tool_result.zig:402-412`): the server, the tool, and the server's result.
-pub fn tool_envelope(server: &str, alias: &str, result: &Value) -> String {
+/// `tool_result.zig:402-412`): the server, the tool, and the server's result
+/// as fx v0.0.16 reads it -- its `content`, its `structuredContent` when it
+/// has one, and `isError`, `false` when the server left it out, and nothing
+/// else (`classifyCall`, `vercel-labs/fx@481104fd
+/// src/mcp/protocol/tools.zig:255-273`, rewritten by `render`,
+/// `src/core/mcp_host/model.zig:835-850`). A `content` that is not an array,
+/// or an `isError` that is not a boolean, is no tool result: fx ends the call
+/// as malformed, saying the tool may have run (`copyCall`,
+/// `src/core/mcp_host/runtime.zig:2363-2378`; `ended`, `model.zig:855-878`).
+pub fn call_answer(server: &str, alias: &str, result: &Value) -> CallAnswer {
+    let content = result.get("content").filter(|content| content.is_array());
+    let is_error = match result.get("isError") {
+        None => Some(false),
+        Some(Value::Bool(is_error)) => Some(*is_error),
+        Some(_) => None,
+    };
+    let (Some(content), Some(is_error)) = (content, is_error) else {
+        return CallAnswer::Malformed(format!(
+            "MCP server '{server}' ended the call: the server's answer was malformed. The tool may have run."
+        ));
+    };
+    let mut read = Map::new();
+    read.insert("content".into(), content.clone());
+    if let Some(structured) = result.get("structuredContent") {
+        read.insert("structuredContent".into(), structured.clone());
+    }
+    read.insert("isError".into(), Value::Bool(is_error));
     let mut envelope = Map::new();
     envelope.insert("server".into(), Value::from(server));
     envelope.insert("tool".into(), Value::from(alias));
-    envelope.insert("result".into(), result.clone());
-    Value::Object(envelope).to_string()
+    envelope.insert("result".into(), Value::Object(read));
+    CallAnswer::Result {
+        envelope: Value::Object(envelope).to_string(),
+        is_error,
+    }
+}
+
+/// The most bytes of a JSON-RPC error's message fx reads as one
+/// (`max_description_bytes`, `vercel-labs/fx@481104fd
+/// src/core/mcp/features/tools.zig:18`).
+const MAX_PROTOCOL_MESSAGE_BYTES: usize = 64 * 1024;
+
+/// The most bytes of a tool's result the model is sent, fx's default
+/// (`default_max_tool_result_bytes`, `vercel-labs/fx@481104fd
+/// src/core/tooling/tool_result_limits.zig:7`; xfx has no setting for it).
+const MAX_TOOL_RESULT_BYTES: usize = 64 * 1024;
+
+/// What the model is told when the server answers a call with a JSON-RPC
+/// error, as fx v0.0.16 tells it: `MCP protocol error <code>: <message>`
+/// (`write_protocol_diagnostic`, `vercel-labs/fx@481104fd
+/// src/core/mcp/tool_result.zig:199-214`).
+///
+/// **The error's `data` never reaches the model.** That writer would append
+/// `; data=<data>`, but on v0.0.16's one path to it the data is already gone:
+/// the runtime keeps only the code and the message of a failed call
+/// (`CallResult.failure`, `src/core/mcp_host/runtime.zig:117`, copied as
+/// `.{ .code = f.code, .message = ... }` at `:2371`), and `render` rebuilds
+/// the answer from those two before `extract` reads it
+/// (`src/core/mcp_host/model.zig:841`; the only caller, `:845`), so
+/// `parseProtocolError` finds no `data` to fill `data_json` with
+/// (`src/core/mcp/features/tools.zig:308-311`). `p5-mcp-errdata` pins it:
+/// compact data, spaced and reordered data, data with a NUL -- fx says the
+/// same sentence for each. So xfx does not keep it either
+/// ([`super::McpError::Protocol`]).
+///
+/// The message is the server's text, and it reaches the model as the rest of
+/// a tool's output does -- as written, unless it is no text, one with a NUL,
+/// which is `binary or non-utf8 tool output omitted (<bytes> bytes)`
+/// (`sanitizeModelText`, `src/core/shared/text_utils.zig:535-538`). One over
+/// 64 KiB is no error fx reads: `MCP protocol failure: InvalidEnvelope`
+/// (`parseProtocolError`, `features/tools.zig:293-313`; `extract`,
+/// `tool_result.zig:29-53`). Then the whole of it is held to the tool result
+/// cap as fx holds it ([`model_output`]).
+pub fn protocol_error(alias: &str, code: i64, message: &str) -> String {
+    let raw = if message.len() > MAX_PROTOCOL_MESSAGE_BYTES {
+        "MCP protocol failure: InvalidEnvelope".to_string()
+    } else if message.contains('\0') {
+        format!(
+            "MCP protocol error {code}: binary or non-utf8 tool output omitted ({} bytes)",
+            message.len()
+        )
+    } else {
+        format!("MCP protocol error {code}: {message}")
+    };
+    model_output(alias, &raw, MAX_TOOL_RESULT_BYTES)
+}
+
+/// `raw` as fx hands a tool's text to the model (`prepareModelOutput`,
+/// `vercel-labs/fx@481104fd src/core/tooling/tool_result_limits.zig:30-69`;
+/// `truncateText`, `:126-143`): text with a NUL is replaced, and one over
+/// `max_bytes` keeps the longest prefix, on a character boundary, that
+/// leaves room for the marker, then the marker. `raw` is a `&str`, so the
+/// UTF-8 half of `sanitizeModelText` holds already.
+fn model_output(tool: &str, raw: &str, max_bytes: usize) -> String {
+    if raw.contains('\0') {
+        return format!(
+            "binary or non-utf8 tool output omitted ({} bytes)",
+            raw.len()
+        );
+    }
+    if raw.len() <= max_bytes {
+        return raw.to_string();
+    }
+    let marker = format!(
+        "\n... [tool result truncated for {tool}: original {} bytes; cap is {max_bytes} bytes]\n",
+        raw.len()
+    );
+    let mut keep = max_bytes.saturating_sub(marker.len());
+    while !raw.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    format!("{}{marker}", &raw[..keep])
 }
 
 /// A call that could not run because its stopped server would not start
@@ -572,222 +801,6 @@ pub fn restart_failed(server: &str, alias: &str, failure: &str) -> String {
         Value::from(alias),
         Value::from(format!("MCP server stopped and could not be restarted: {failure}"))
     )
-}
-
-/// The opening every `mcp_features` answer shares (`writeFeatureEnvelopeStart`,
-/// `feature_result.zig:300-307`).
-fn feature_start(action: &str, server: &str) -> String {
-    format!(
-        "{{\"trust\":\"untrusted_external\",\"authority\":\"none\",\"action\":{},\"server\":{}",
-        Value::from(action),
-        Value::from(server)
-    )
-}
-
-/// A server without the capability (`renderUnsupportedForModel`,
-/// `feature_result.zig:309-330`).
-pub fn feature_unsupported(action: &str, server: &str) -> String {
-    let feature = if action.starts_with("prompt") {
-        "prompts"
-    } else {
-        "resources"
-    };
-    format!(
-        "{},\"unsupported\":true,\"message\":{}}}",
-        feature_start(action, server),
-        Value::from(format!(
-            "{server} did not advertise a {feature} capability, so this feature is unavailable on that server. Use its tools or pick another server."
-        ))
-    )
-}
-
-/// `renderResourceCatalogForModel` (`feature_result.zig:119-150`).
-pub fn feature_resources(action: &str, server: &str, items: &[Resource]) -> String {
-    let mut out = feature_start(action, server);
-    out.push_str(",\"items\":[");
-    for (index, item) in items.iter().enumerate() {
-        if index > 0 {
-            out.push(',');
-        }
-        out.push_str(&format!(
-            "{{\"server\":{},\"identity\":{},\"name\":{}",
-            Value::from(server),
-            Value::from(item.uri.as_str()),
-            Value::from(item.name.as_str())
-        ));
-        for (key, value) in [
-            ("title", &item.title),
-            ("description", &item.description),
-            ("mimeType", &item.mime_type),
-        ] {
-            if let Some(value) = value {
-                out.push_str(&format!(",\"{key}\":{}", Value::from(value.as_str())));
-            }
-        }
-        out.push_str(&format!(",\"template\":{}}}", item.template));
-    }
-    out.push_str("]}");
-    out
-}
-
-/// `renderResourceReadForModel` (`feature_result.zig:152-189`): text kept,
-/// a blob described rather than sent.
-pub fn feature_read(server: &str, uri: &str, contents: &[Value]) -> String {
-    let mut out = feature_start("resource_read", server);
-    out.push_str(&format!(
-        ",\"identity\":{},\"contents\":[",
-        Value::from(uri)
-    ));
-    for (index, content) in contents.iter().enumerate() {
-        if index > 0 {
-            out.push(',');
-        }
-        let mut item = Map::new();
-        item.insert(
-            "uri".into(),
-            content
-                .get("uri")
-                .cloned()
-                .unwrap_or_else(|| Value::from(uri)),
-        );
-        for key in ["mimeType", "annotations", "_meta"] {
-            if let Some(value) = content.get(key) {
-                item.insert(key.into(), value.clone());
-            }
-        }
-        if let Some(text) = content.get("text").and_then(Value::as_str) {
-            item.insert("type".into(), Value::from("text"));
-            item.insert("text".into(), Value::from(text));
-        } else {
-            item.insert("type".into(), Value::from("blob"));
-            item.insert(
-                "delivery".into(),
-                Value::from("binary resource content was not sent to the model"),
-            );
-        }
-        out.push_str(&Value::Object(item).to_string());
-    }
-    out.push_str("]}");
-    out
-}
-
-/// `renderPromptCatalogForModel` (`feature_result.zig:191-232`).
-pub fn feature_prompts(server: &str, items: &[Prompt]) -> String {
-    let mut out = feature_start("prompt_list", server);
-    out.push_str(",\"items\":[");
-    for (index, item) in items.iter().enumerate() {
-        if index > 0 {
-            out.push(',');
-        }
-        out.push_str(&format!(
-            "{{\"server\":{},\"identity\":{}",
-            Value::from(server),
-            Value::from(item.name.as_str())
-        ));
-        for (key, value) in [("title", &item.title), ("description", &item.description)] {
-            if let Some(value) = value {
-                out.push_str(&format!(",\"{key}\":{}", Value::from(value.as_str())));
-            }
-        }
-        out.push_str(",\"arguments\":[");
-        for (position, argument) in item.arguments.iter().enumerate() {
-            if position > 0 {
-                out.push(',');
-            }
-            out.push_str(&format!(
-                "{{\"name\":{},\"required\":{}",
-                Value::from(argument.name.as_str()),
-                argument.required
-            ));
-            if let Some(description) = &argument.description {
-                out.push_str(&format!(
-                    ",\"description\":{}",
-                    Value::from(description.as_str())
-                ));
-            }
-            out.push('}');
-        }
-        out.push_str("]}");
-    }
-    out.push_str("]}");
-    out
-}
-
-/// `renderPromptGetForModel` (`feature_result.zig:234-262`).
-pub fn feature_prompt(server: &str, name: &str, result: &Value) -> String {
-    let mut out = feature_start("prompt_get", server);
-    out.push_str(&format!(",\"identity\":{}", Value::from(name)));
-    if let Some(description) = result.get("description").and_then(Value::as_str) {
-        out.push_str(&format!(",\"description\":{}", Value::from(description)));
-    }
-    out.push_str(",\"messages\":[");
-    for (index, message) in result
-        .get("messages")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .enumerate()
-    {
-        if index > 0 {
-            out.push(',');
-        }
-        let content = message.get("content").cloned().unwrap_or(Value::Null);
-        out.push_str(&format!(
-            "{{\"role\":{},\"contentKind\":{},\"content\":{}}}",
-            message.get("role").cloned().unwrap_or(Value::from("user")),
-            Value::from(
-                content
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or("text")
-            ),
-            content
-        ));
-    }
-    out.push_str("]}");
-    out
-}
-
-/// `renderCompletionForModel` (`feature_result.zig:264-298`).
-pub fn feature_completion(
-    action: &str,
-    server: &str,
-    identity: &str,
-    argument: &str,
-    completion: &Value,
-) -> String {
-    let mut out = feature_start(action, server);
-    out.push_str(&format!(
-        ",\"identity\":{},\"argument\":{},\"values\":{}",
-        Value::from(identity),
-        Value::from(argument),
-        completion
-            .get("values")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new()))
-    ));
-    if let Some(total) = completion.get("total").and_then(Value::as_u64) {
-        out.push_str(&format!(",\"total\":{total}"));
-    }
-    if let Some(more) = completion.get("hasMore").and_then(Value::as_bool) {
-        out.push_str(&format!(",\"hasMore\":{more}"));
-    }
-    out.push('}');
-    out
-}
-
-/// What a feature operation's failure tells the model.
-pub fn feature_failure(action: &str, server: &str, err: &McpError) -> String {
-    match err {
-        McpError::Named("McpResourcesUnsupported" | "McpPromptsUnsupported") => {
-            feature_unsupported(action, server)
-        }
-        err => format!(
-            "{},\"error\":{}}}",
-            feature_start(action, server),
-            Value::from(err.to_string())
-        ),
-    }
 }
 
 #[cfg(test)]
@@ -903,18 +916,146 @@ mod tests {
     }
 
     #[test]
-    fn feature_answers_are_upstreams_envelopes() {
+    fn a_call_answer_is_v0016s_content_structured_content_and_is_error() {
+        use serde_json::json;
+        // `p5-mcp-turn`'s `004-completion.json` on fx v0.0.16: the server's
+        // `content`, then `"isError":false` the fixture never sent.
         assert_eq!(
-            feature_unsupported("resource_list", "fixture"),
-            r#"{"trust":"untrusted_external","authority":"none","action":"resource_list","server":"fixture","unsupported":true,"message":"fixture did not advertise a resources capability, so this feature is unavailable on that server. Use its tools or pick another server."}"#
-        );
-        assert_eq!(
-            tool_envelope(
+            call_answer(
                 "fixture",
                 "mcp_fixture_echo",
-                &serde_json::json!({"content": [{"type": "text", "text": "LEGACY_MCP_TOOL_RESULT:hi"}]})
+                &json!({"content": [{"type": "text", "text": "LEGACY_MCP_TOOL_RESULT:hi"}]})
             ),
-            r#"{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"LEGACY_MCP_TOOL_RESULT:hi"}]}}"#
+            CallAnswer::Result {
+                envelope: r#"{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"LEGACY_MCP_TOOL_RESULT:hi"}],"isError":false}}"#.into(),
+                is_error: false,
+            }
         );
+        // `structuredContent` between them, whatever it holds; every other
+        // key dropped, wherever the server put it (`render`, `model.zig:838`).
+        assert_eq!(
+            call_answer(
+                "s",
+                "mcp_s_t",
+                &json!({"_meta": {"k": 1}, "isError": true, "structuredContent": {"n": 2}, "content": [], "extra": "x"})
+            ),
+            CallAnswer::Result {
+                envelope: r#"{"server":"s","tool":"mcp_s_t","result":{"content":[],"structuredContent":{"n":2},"isError":true}}"#.into(),
+                is_error: true,
+            }
+        );
+        let malformed = CallAnswer::Malformed(
+            "MCP server 's' ended the call: the server's answer was malformed. The tool may have run."
+                .into(),
+        );
+        for result in [
+            json!({}),
+            json!({"content": "text"}),
+            json!({"content": [], "isError": "false"}),
+            json!({"content": null}),
+        ] {
+            assert_eq!(call_answer("s", "mcp_s_t", &result), malformed, "{result}");
+        }
+    }
+
+    #[test]
+    fn a_cut_keeps_whole_characters_at_either_parity_of_the_cap() {
+        // fx's own case (`prepareModelOutput keeps complete codepoints at
+        // the cap`, `vercel-labs/fx@481104fd
+        // src/core/tooling/tool_result_limits.zig:189-203`): one ASCII byte,
+        // then two-byte characters, so one of two caps a byte apart puts the
+        // cut inside a character.
+        let text = format!("x{}", "\u{e9}".repeat(300));
+        let mut inside = 0;
+        for cap in [128, 129] {
+            let marker = format!(
+                "\n... [tool result truncated for grep_files: original {} bytes; cap is {cap} bytes]\n",
+                text.len()
+            );
+            inside += usize::from(!text.is_char_boundary(cap - marker.len()));
+            let output = model_output("grep_files", &text, cap);
+            assert!(output.len() <= cap, "{cap}: {}", output.len());
+            let prefix = output.strip_suffix(&marker).expect("ends with the marker");
+            assert!(
+                prefix.starts_with('x') && prefix.ends_with('\u{e9}'),
+                "{cap}: {prefix:?}"
+            );
+        }
+        assert_eq!(inside, 1, "one of the two caps must cut inside a character");
+    }
+
+    #[test]
+    fn a_protocol_error_is_its_code_and_its_message_as_fx_reads_them() {
+        assert_eq!(
+            protocol_error("mcp_s_t", -32603, "fixture refuses"),
+            "MCP protocol error -32603: fixture refuses"
+        );
+        // The server's words as written, markup and all: fx passes them as
+        // it passes a tool's output, only text with a NUL left out.
+        assert_eq!(
+            protocol_error("mcp_s_t", 1, "<b>&\u{202e}"),
+            "MCP protocol error 1: <b>&\u{202e}"
+        );
+        assert_eq!(
+            protocol_error("mcp_s_t", -1, "a\0b"),
+            "MCP protocol error -1: binary or non-utf8 tool output omitted (3 bytes)"
+        );
+        assert_eq!(
+            protocol_error("mcp_s_t", -1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES + 1)),
+            "MCP protocol failure: InvalidEnvelope"
+        );
+        // A message fx reads whole can still make the sentence longer than
+        // the result cap: the sentence is cut there, fx's marker after it
+        // (`tool_result_limits.zig:44-69`, `:126-143`).
+        let longest = protocol_error("mcp_s_t", -1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES));
+        let marker = format!(
+            "\n... [tool result truncated for mcp_s_t: original {} bytes; cap is 65536 bytes]\n",
+            "MCP protocol error -1: ".len() + MAX_PROTOCOL_MESSAGE_BYTES
+        );
+        assert_eq!(longest.len(), MAX_TOOL_RESULT_BYTES);
+        assert!(longest.starts_with("MCP protocol error -1: xxx"));
+        assert!(longest.ends_with(&marker));
+        // ... and on a character, never inside one.
+        let wide = protocol_error(
+            "mcp_s_t",
+            -1,
+            &"\u{e9}".repeat(MAX_PROTOCOL_MESSAGE_BYTES / 2),
+        );
+        assert!(wide.len() <= MAX_TOOL_RESULT_BYTES);
+        assert!(wide.contains("\u{e9}\n... [tool result truncated for mcp_s_t: original"));
+    }
+
+    #[test]
+    fn an_open_search_that_found_nothing_names_what_it_could_not_look_in() {
+        let mut login = view("linear", Connection::Failed, None);
+        login.needs_auth = true;
+        let mut failed = view("say \"hi\"", Connection::Failed, None);
+        failed.failure = Some("its process exited with code 3".into());
+        let silent = view("quiet", Connection::Failed, None);
+        let reasons = unavailable(&[
+            view("ready", Connection::Ready, Some(1)),
+            login,
+            failed,
+            silent,
+            view("off", Connection::Disabled, None),
+            view("starting", Connection::Connecting, None),
+        ]);
+        assert_eq!(
+            reasons,
+            [
+                "MCP server 'linear' needs a login. Ask the user to run /mcp login linear, then try again.",
+                "MCP server 'say \"hi\"' is unavailable: its process exited with code 3",
+                "MCP server 'quiet' is unavailable: it did not start",
+            ]
+        );
+        // Last, after `state`, each encoded as upstream encodes text for the
+        // model (`tool_search.zig:43-52`,
+        // `capability_search.zig:423-434@481104fd`).
+        assert_eq!(
+            with_unavailable(combined(&[], 0, None, None).output, &reasons[..2]),
+            r#"{"skills":[],"mcp_tools":[],"counts":{"skills":0,"mcp_tools":0},"total_matches":{"skills":0,"mcp_tools":0},"state":"no_match","mcp_unavailable":["MCP server 'linear' needs a login. Ask the user to run /mcp login linear, then try again.","MCP server 'say &quot;hi&quot;' is unavailable: its process exited with code 3"]}"#
+        );
+        let nothing = combined(&[], 0, None, None).output;
+        assert_eq!(with_unavailable(nothing.clone(), &[]), nothing);
     }
 }

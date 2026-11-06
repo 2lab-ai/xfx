@@ -123,7 +123,6 @@ pub fn answer(frame: Value) -> Result<Value, McpError> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
-            data: error.get("data").cloned(),
         });
     }
     frame.remove("result").ok_or(McpError::Named("McpNoResult"))
@@ -1329,7 +1328,6 @@ mod tests {
             Err(McpError::Protocol {
                 code: -32601,
                 message: "Method not found".into(),
-                data: None
             })
         );
         assert_eq!(

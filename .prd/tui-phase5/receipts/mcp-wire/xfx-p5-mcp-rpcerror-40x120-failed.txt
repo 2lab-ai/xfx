@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-867dea7 [debug] · Run /help for commands
+
+┃ use the web echo tool
+
+● 1 tool call · 1 command
+└ Ran MCP mcp_web_echo
+
+  done.
+
+  0s (↑5 ↓80)
+
+┃ and once more
+
+● 1 tool call · 1 command · 1 failed
+└ Failed MCP mcp_web_echo
+
+  it failed.
+
+  0s (↑3 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
