@@ -241,6 +241,11 @@ pub enum SessionError {
     /// different: a symlinked or foreign-owned `~/.xfx` does not leak one file,
     /// it redirects or exposes the whole store.
     InsecureParent { path: PathBuf, detail: String },
+    /// A fork was asked for at a point the session does not have: before a
+    /// turn 0, past its turns, or keeping a turn that has not ended
+    /// (upstream's `InvalidForkPoint`, `vercel-labs/fx@481104fd
+    /// src/core/session_manager/session.zig:1708`).
+    InvalidForkPoint { id: String, detail: String },
     /// The store cannot be used at all: no home directory, or a read-only store
     /// asked to write.
     Unavailable { detail: String },
@@ -287,6 +292,9 @@ impl fmt::Display for SessionError {
             ),
             Self::InsecureParent { path, detail } => {
                 write!(f, "{} cannot hold session state: {detail}", path.display())
+            }
+            Self::InvalidForkPoint { id, detail } => {
+                write!(f, "session `{id}` cannot be forked there: {detail}")
             }
             Self::Unavailable { detail } => write!(f, "{detail}"),
             Self::Io { path, source } => write!(f, "cannot use {}: {source}", path.display()),
@@ -681,7 +689,9 @@ pub struct DurableState {
     pub renamed: Option<String>,
     /// The effort and speed switches the session last recorded, or `None` for
     /// a session that never recorded them -- a resume then keeps what the
-    /// profile says.
+    /// profile says. The TUI records them at a session's first save
+    /// (`crate::tui::worker`'s `open_next`), so `None` is a log an older
+    /// build wrote, `ask` or the line shell, which send no effort.
     pub turn_settings: Option<crate::provider::effort::TurnSettings>,
     /// What the session's `usage_recorded` frames say about its spend, for
     /// `/usage` ([`crate::usage`]).
@@ -1756,6 +1766,23 @@ impl SessionStore {
 
     /// Opens a new session, whose first event is its own creation.
     pub fn create(&self, id: SessionId, spec: NewSession) -> Result<WritableSession, SessionError> {
+        self.create_with(id, spec, |_| Ok(()))
+    }
+
+    /// [`Self::create`], with `seed` run on the session's new, empty, owner-only
+    /// directory **before its log exists**: a file the session keeps beside
+    /// its log -- the saved-session rules a person confirmed before the first
+    /// prompt -- is in place before anyone can see the session, as upstream's
+    /// first turn writes what it held in the one staged publish that makes
+    /// the session visible (`writeFirstTurn`, `stage`,
+    /// `src/core/session_manager/session.zig:503-539@481104fd`). A seed that
+    /// fails fails the create, and nothing is published.
+    pub fn create_with(
+        &self,
+        id: SessionId,
+        spec: NewSession,
+        seed: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<WritableSession, SessionError> {
         self.require_writable()?;
         let dir = self.session_dir(&id);
         match fs::create_dir(&dir) {
@@ -1768,6 +1795,7 @@ impl SessionStore {
             Err(err) => return Err(io_error(&dir, err)),
         }
         set_private_dir_mode(&dir)?;
+        seed(&dir).map_err(|err| io_error(&dir, err))?;
 
         let log_path = dir.join(EVENTS_FILE);
         let file = create_private_file(&log_path)?;
@@ -1801,6 +1829,7 @@ impl SessionStore {
                 model: spec.model,
                 permission_mode: spec.permission_mode.label().to_string(),
                 provider: spec.provider.map(|provider| provider.label().to_string()),
+                forked_from: None,
             },
         )?;
         self.publish(&mut session)?;
@@ -2933,9 +2962,19 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             model,
             permission_mode,
             provider,
+            forked_from,
         } => {
             let mode = PermissionMode::parse(permission_mode)
                 .ok_or_else(|| format!("unknown permission mode `{permission_mode}`"))?;
+            // The origin a fork names is an id a session could be stored
+            // under, another session's, and a frame of its log: what
+            // [`SessionStore::fork`] writes, and nothing a reader would have
+            // to second-guess before it names it.
+            if let Some(origin) = forked_from {
+                if SessionId::parse(&origin.id).is_err() || origin.id == *id || origin.seq == 0 {
+                    return Err("a fork names an origin xfx would not have written".to_string());
+                }
+            }
             state.id = id.clone();
             state.created_at_ms = envelope.timestamp_ms;
             state.origin_workspace_root = origin_workspace_root.clone();
@@ -3337,7 +3376,7 @@ fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
             fs::create_dir_all(parent).map_err(|err| io_error(parent, err))?;
         }
     }
-    match fs::create_dir(path) {
+    match create_private_dir(path) {
         Ok(()) => {
             set_private_dir_mode(path)?;
             verify_store_dir(path)
@@ -3414,6 +3453,20 @@ fn set_private_dir_mode(path: &Path) -> Result<(), SessionError> {
 #[cfg(not(unix))]
 fn set_private_dir_mode(_path: &Path) -> Result<(), SessionError> {
     Ok(())
+}
+
+/// Makes one directory, owner-only from the moment it exists: the mode is the
+/// creation's, not a chmod's after it, so no umask leaves it open to anyone
+/// in between. Callers chmod it to `0700` afterwards all the same.
+#[cfg(unix)]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    fs::create_dir(path)
 }
 
 /// Creates a new, empty, owner-only file, refusing to reuse an existing one.
@@ -3798,6 +3851,7 @@ mod tests {
             model: "m".to_string(),
             permission_mode: "auto".to_string(),
             provider: None,
+            forked_from: None,
         }
     }
 
@@ -3843,6 +3897,7 @@ mod tests {
             model: model.clone(),
             permission_mode: permission_mode.clone(),
             provider: Some(provider.to_string()),
+            forked_from: None,
         };
         assert_eq!(
             reduce(vec![opened_under("gateway")])
@@ -4903,6 +4958,61 @@ mod tests {
             .collect();
         assert_eq!(outs, [Some(80), Some(40), Some(0)]);
         assert_eq!(state.total_output_tokens, 120);
+    }
+
+    #[test]
+    fn a_seed_is_in_the_session_before_its_log_and_one_that_fails_leaves_none_to_see() {
+        // What the TUI held before a session's first save goes into its
+        // directory before its log exists (`create_with`), as upstream's
+        // first turn writes its held lines in the one publish that makes the
+        // session visible (`writeFirstTurn`, `src/core/session_manager/
+        // session.zig:503-539@481104fd`): a seed that fails opens nothing,
+        // and nothing is listed.
+        let root = tempfile::TempDir::new().expect("a profile root");
+        let store = SessionStore::open(&root.path().join("profile")).expect("a store");
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        let spec = || NewSession {
+            origin_workspace_root: workspace.clone(),
+            workspace_root: workspace.clone(),
+            model: "m".to_string(),
+            permission_mode: PermissionMode::Auto,
+            provider: None,
+        };
+        let refused = SessionId::generate();
+        let failed = store.create_with(refused.clone(), spec(), |dir| {
+            assert!(
+                std::fs::read_dir(dir)
+                    .expect("the directory")
+                    .next()
+                    .is_none(),
+                "the seed ran after the log was made"
+            );
+            Err(io::Error::other("no room"))
+        });
+        assert!(failed.is_err());
+        assert!(!store.session_dir(&refused).join(EVENTS_FILE).exists());
+        assert!(!store.session_dir(&refused).join(MANIFEST_FILE).exists());
+        let listed = store
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .expect("a listing");
+        assert!(listed.sessions.is_empty(), "{:?}", listed.sessions);
+
+        let id = SessionId::generate();
+        let session = store
+            .create_with(id.clone(), spec(), |dir| {
+                std::fs::write(dir.join("seeded"), b"before the log")
+            })
+            .expect("a session");
+        assert_eq!(
+            std::fs::read(store.session_dir(&id).join("seeded")).expect("the seed"),
+            b"before the log"
+        );
+        drop(session);
+        let listed = store
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .expect("a listing");
+        assert_eq!(listed.sessions.len(), 1);
     }
 
     #[test]
@@ -6171,3 +6281,6 @@ mod tests {
 /// A conversation carried across a provider switch, as each wire is sent it.
 #[cfg(test)]
 mod carry_tests;
+
+/// A new session that starts from an earlier prompt of another (`/fork`).
+mod fork;

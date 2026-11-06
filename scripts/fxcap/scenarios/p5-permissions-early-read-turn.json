@@ -1,0 +1,4 @@
+[
+ {"tool":{"name":"read_file","input":{"path":"a.txt"}}},
+ {"delayMs":100,"chunks":["Read ","done."]}
+]

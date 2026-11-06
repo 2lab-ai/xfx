@@ -1,0 +1,30 @@
+=== ~/.xfx/history.jsonl (564 bytes)
+{"schema_version":1,"timestamp_ms":1793781714107,"workspace_root":"<scratch>/work","text":"/model anthropic/claude-opus-5 high fast"}
+{"schema_version":1,"timestamp_ms":1793781715137,"workspace_root":"<scratch>/work","text":"first prompt please"}
+{"schema_version":1,"timestamp_ms":1793781718770,"workspace_root":"<scratch>/work","text":"/quit"}
+{"schema_version":1,"timestamp_ms":1793781726057,"workspace_root":"<scratch>/work","text":"after the resume"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1793781711622-3a9171daf6e295bd/events.jsonl (3133 bytes)
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":1,"event_id":"3d2a22be19c8565d2baee4a39c815370","timestamp_ms":1793781715138,"event":{"kind":"session_started","id":"1793781711622-3a9171daf6e295bd","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"anthropic/claude-opus-5","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":2,"event_id":"f466acbae37102f082476260f0df829c","timestamp_ms":1793781715157,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":3,"event_id":"a545ff8ea6c8b100ffd1dc0d160b9dde","timestamp_ms":1793781715177,"event":{"kind":"user_message","text":"first prompt please"}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":4,"event_id":"87419078f69d2478243437b5a1439f23","timestamp_ms":1793781715250,"event":{"kind":"assistant_message","text":"FIRST answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":5,"event_id":"71d71b6be467487486770c18431dbb14","timestamp_ms":1793781715268,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1793781715250,"duration_ms":53,"model":"anthropic/claude-opus-5","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":6,"event_id":"7fe1f857fdd57f37e37b6e822484819e","timestamp_ms":1793781715287,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":7,"event_id":"db6e2a7f35d1c30bb3e66860888236e4","timestamp_ms":1793781726057,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":8,"event_id":"989e3f994c26e5a17a473dd47a5459ca","timestamp_ms":1793781726150,"event":{"kind":"user_message","text":"after the resume"}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":9,"event_id":"25696e749f72ab138ef48bf4fcbb7d9c","timestamp_ms":1793781726316,"event":{"kind":"assistant_message","text":"RESUMED answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":10,"event_id":"ef08396020d384cdfd813494ddc50973","timestamp_ms":1793781726392,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1793781726316,"duration_ms":89,"model":"anthropic/claude-opus-5","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"96fabe68de90e813ce5a666fa957865c","seq":11,"event_id":"5ed2541455844cb1797899d4cc6345cf","timestamp_ms":1793781726453,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1793781711622-3a9171daf6e295bd/session.json (641 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793781711622-3a9171daf6e295bd","log_generation":"96fabe68de90e813ce5a666fa957865c","created_at_ms":1793781715138,"updated_at_ms":1793781726453,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"anthropic/claude-opus-5","permission_mode":"auto","title":"first prompt please","history_turns":2,"permission_grants":0,"total_input_tokens":2400,"total_output_tokens":80,"last_event_seq":11,"event_log_bytes":3133,"event_log_sha256":"f1400942e86e4252788de17be8a99bf6368b046f99f3beba410885dc2636e99d"}
+
+=== ~/.xfx/settings.json (70 bytes)
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway"}
+
+=== ~/.xfx/settings.lock (0 bytes)
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1793781715268}
+

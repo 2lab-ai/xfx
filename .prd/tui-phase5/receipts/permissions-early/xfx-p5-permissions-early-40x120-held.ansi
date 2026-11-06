@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-dd9897d [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* permissions: saved-session permission rule updated[39m
+
+[38;5;250m* permissions: saved-session permission rule updated[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mPermissions[0m
+
+[1m[38;5;252m  Mode[0m                [38;5;245mauto[39m
+[1m[38;5;252m  Configured rules[0m    [38;5;245mnone[39m
+[1m[38;5;252m  Session grants[0m      [38;5;245mnone[39m
+[1m[38;5;252m  Saved rules[0m         [38;5;245m2[39m
+[1m[38;5;252m  [0m                    [38;5;245m• 1 allow write_file b.txt preimage=absent after=a1fce4363854ff88[39m
+[1m[38;5;252m  [0m                    [38;5;245m• 2 deny read_file a.txt[39m
+[1m[38;5;252m  Change mode[0m         [38;5;245m/permissions ask, auto, full-access, or reset[39m
+[1m[38;5;252m  Remember[0m            [38;5;245m/permissions remember allow|deny <tool-name> <arguments-json>[39m
+[1m[38;5;252m  Revoke[0m              [38;5;245m/permissions revoke <rule-id>[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mesc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

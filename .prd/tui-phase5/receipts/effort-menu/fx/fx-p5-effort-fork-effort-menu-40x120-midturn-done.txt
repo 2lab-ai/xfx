@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* Reasoning effort set to medium for openai/gpt-6-astra
+
+* Reasoning effort set to high for openai/gpt-6-astra
+
+* effort: bogus is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh
+
+* effort: max is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh
+
+* effort: levels for openai/gpt-6-astra: default, low, medium, high, xhigh
+
+* Reasoning effort set to default for openai/gpt-6-astra
+
+* Reasoning effort set to low for openai/gpt-6-astra
+
+┃ slow turn please
+
+* Next turn will use reasoning effort high for openai/gpt-6-astra
+
+  SLOW one two three four five six seven eight nine ten.
+
+  7s (↑4 ↓40)
+
+┃
+
+auto · gpt-6-astra · high
+
+
+
+
+
+
+
+
+
+
+
+
+

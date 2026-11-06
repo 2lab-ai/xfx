@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cbea384 [debug] · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793779369468-cb939fadef33afaf · not saved yet
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Sandbox           none
+  Workspace         <tmp>/fxcap.scebyR/work
+  Turns             0
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · cbea384ecdf6
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

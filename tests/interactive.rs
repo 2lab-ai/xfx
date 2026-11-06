@@ -648,6 +648,29 @@ fn slash_compact_says_where_compaction_runs_and_asks_nobody() {
 }
 
 #[test]
+fn slash_effort_says_where_the_effort_is_chosen_and_saves_nothing() {
+    // fx v0.0.16's `/effort` is a menu in its footer and a level the next
+    // request carries; this shell has no footer and sends no effort, so it
+    // says where the effort is chosen, bare or with a level, and keeps
+    // nothing -- no session, no setting.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/effort high");
+    let text = session.wait_for("asks for none");
+    assert!(
+        text.contains("xfx: /effort chooses the reasoning effort the full-screen shell asks for"),
+        "{text}"
+    );
+    session.type_line("/effort");
+    session.wait_for("asks for none");
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
     // The same switch, saved to the same file the full-screen shell reads; and
     // the line that says so, because this shell's question is the shared stdin
@@ -673,6 +696,28 @@ fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
         sandbox.settings(),
         Some(json!({"notifications": {"turn_end": false, "attention_required": false}}))
     );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_fork_says_where_the_menu_is_and_forks_nothing() {
+    // fx v0.0.16's `/fork` is a menu in its footer and a session it switches
+    // to with the prompt back in its composer; this shell has neither, so it
+    // says where the menu is -- after a turn too, with a session to fork --
+    // and writes nothing: no second session, no line in the first.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/fork");
+    let text = session.wait_for("has no menu");
+    assert!(
+        text.contains(
+            "xfx: /fork picks the prompt to fork the session before in the full-screen shell"
+        ),
+        "{text}"
+    );
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
     assert_eq!(session.quit().code(), Some(0));
 }
 

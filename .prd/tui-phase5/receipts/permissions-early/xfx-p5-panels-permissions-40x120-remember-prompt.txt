@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-dd9897d [debug] · Run /help for commands
+
+* permissions: mode set to auto
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared
+
+✗ usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* allowlist: added command: "git *" (scope=local)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Permission needed · Choose one                                                                       Permission rule
+
+  Remember deny for this saved session?
+  Confirm this exact saved-session permission rule. The action will not run.
+  $ write_file b.txt preimage=absent after=a1fce4363854ff88
+
+  ❯ 1. Confirm
+    2. Cancel
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–2 choose    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+

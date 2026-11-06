@@ -1,0 +1,29 @@
+# PERM-EARLY-b RED. Tests written first, on 9b46e48e's code.
+# cargo test --locked --lib -- tui::shell::tests::a_rule_typed_while tui::worker::tests::rules_held_past_what
+test tui::shell::tests::a_rule_typed_while_a_resume_is_on_its_way_is_refused ... FAILED
+test tui::shell::tests::a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused ... FAILED
+test tui::worker::tests::rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held ... ok
+thread 'tui::shell::tests::a_rule_typed_while_a_resume_is_on_its_way_is_refused' panicked at src/tui/shell.rs:23319:9:
+  left: ["* permissions: saved-session permission rule updated", ""]
+thread 'tui::shell::tests::a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused' panicked at src/tui/shell.rs:23256:9:
+a rule confirmed while the reset drained went into the left session
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 3744 filtered out; finished in 0.29s
+
+# item 4 pins behaviour 9b46e48e already has (it passes there); with the refusal mapping at
+# src/interactive.rs:1318-1331 reverted (message = the store error), it fails:
+test tui::worker::tests::rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held ... FAILED
+thread 'tui::worker::tests::rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held' panicked at src/tui/worker.rs:9115:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3746 filtered out; finished in 0.12s
+Some("cannot use <session dir>: the saved-session permission rules are invalid: the file is empty or too large")
+
+# item 3: the seed's seam (seed_with, before_publish) added with the rename publish kept; a file
+# planted after the stage is written is replaced and the seed succeeds:
+test permission::session_rules::tests::a_seed_never_replaces_a_store_another_hand_put_there_after_its_check ... FAILED
+
+thread 'permission::session_rules::tests::a_seed_never_replaces_a_store_another_hand_put_there_after_its_check' panicked at src/permission/session_rules.rs:1000:34:
+seeded over another hand's store: ()
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3747 filtered out; finished in 0.02s
+
+
+# item 2's confirm-time check: with it disabled (if false && ...), the resume test fails:
+test tui::shell::tests::a_rule_typed_while_a_resume_is_on_its_way_is_refused ... FAILED

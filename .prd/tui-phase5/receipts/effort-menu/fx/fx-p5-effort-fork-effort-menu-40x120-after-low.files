@@ -1,0 +1,23 @@
+=== ~/.fx/backups/settings.json.backup.1793747762039-0000000000000001-3c4b7426186de24f1283ad3804e45602 (65 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway"}
+
+=== ~/.fx/backups/settings.json.backup.1793747765279-0000000000000002-75ea1d209e65d587450cc40a507d5918 (83 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"medium"}
+
+=== ~/.fx/backups/settings.json.backup.1793747771125-0000000000000003-dae83bba60afc7d00c99755828de65b1 (81 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high"}
+
+=== ~/.fx/backups/settings.json.backup.1793747772610-0000000000000004-a25af7a7de756d8e12a5c0973a44d3b1 (81 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"auto"}
+
+=== ~/.fx/history.jsonl (532 bytes)
+{"schema_version":1,"timestamp_ms":1793747758466,"workspace_root":"<scratch>/work","text":"/effort"}
+{"schema_version":1,"timestamp_ms":1793747766758,"workspace_root":"<scratch>/work","text":"/effort bogus"}
+{"schema_version":1,"timestamp_ms":1793747768218,"workspace_root":"<scratch>/work","text":"/effort max"}
+{"schema_version":1,"timestamp_ms":1793747769674,"workspace_root":"<scratch>/work","text":"/effort two words"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/settings.json (80 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"low"}
+
+=== ~/.fx/settings.lock (0 bytes)

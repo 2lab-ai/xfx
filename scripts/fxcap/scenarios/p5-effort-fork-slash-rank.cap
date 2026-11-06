@@ -1,0 +1,28 @@
+fx: env FX_AUTO_UPGRADE=0
+# The slash popup's ranking once `/effort` is a command (EF1g): `/e` now opens
+# on `/effort`, a name prefix, ahead of the `/exit` alias -- in fx v0.0.16 too
+# -- so smoke-tui's scenario 16 pins the alias tier with `/se` instead, where
+# the `/setup` alias leads, `/settings` follows and `/reset` (a substring) is
+# last (`completionCommandMatchRank`, `bestCompletionCommandMatch`,
+# `nthSlashCommandCompletionMatch`,
+# `src/core/slash_commands/command_specs.zig:520-565@481104fd`). `/ex` and
+# `/et` are the alias alone and the substring tier alone.
+wait 3
+type /e
+wait 0.6
+snap e
+key C-u
+wait 0.3
+type /se
+wait 0.6
+snap se
+key C-u
+wait 0.3
+type /ex
+wait 0.6
+snap ex
+key C-u
+wait 0.3
+type /et
+wait 0.6
+snap et

@@ -2,8 +2,11 @@
 # launch, the keys it takes, every subcommand (each still a transcript
 # notice), a configured rule, a remembered rule, a session grant from an
 # approval, `/status`'s grant count, a revoke, and the profile after.
+# The tools are each product's own: fx's `shell` is xfx's `terminal`, so each
+# binary gets its own turn (as `p5-panels-keys.cap` does).
 fx: env FX_AUTO_UPGRADE=0
-gateway p5-panels-perm-turn.json
+fx: gateway p5-panels-perm-turn.json
+xfx: gateway p5-panels-perm-turn-xfx.json
 wait 2
 type /permissions
 wait 0.3

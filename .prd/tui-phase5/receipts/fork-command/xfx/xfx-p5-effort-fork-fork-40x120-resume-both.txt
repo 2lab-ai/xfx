@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2fbc088 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Sessions 2  [Current workspace]  All workspaces
+
+  first prompt alpha (fork)    work · now · 2 turns
+  first prompt alpha           work · now · 3 turns
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

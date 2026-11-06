@@ -163,7 +163,10 @@ pub struct StatusSnapshot {
     /// gateway provider, which has no configured url to report.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_url: Option<String>,
-    /// A provider selection xfx could not read, quoted, when a layer wrote one.
+    /// A provider selection xfx could not read, when a layer wrote one: as
+    /// written when it has a provider name's shape
+    /// ([`looks_like_a_provider_name`]), any other value by its length only
+    /// (`<N characters, not shown>`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_rejected: Option<String>,
     pub build_channel: String,
@@ -179,7 +182,37 @@ pub struct StatusSnapshot {
     pub history_turns: u64,
     pub session_permission_grants: u64,
     pub agent_step_limit: u32,
+    /// Whether the next turn asks for Ultra mode (`/ultrafast`), which the
+    /// serving model may still not grant. Only the TUI's `/status` panel shows
+    /// it (`Ultrafast`, `output_contracts.zig:773@481104fd`); the `status`
+    /// command's lines and JSON are unchanged.
+    #[serde(skip)]
+    pub ultrafast_requested: bool,
+    /// The interactive shell's session, which only the `/status` panel shows
+    /// (`StatusSnapshot.session`, `output_contracts.zig:702-704@481104fd`).
+    /// `None` outside a shell: `xfx status` runs in no session.
+    #[serde(skip)]
+    pub session: Option<ShellSession>,
 }
+
+/// The shell's session as the `/status` panel says it
+/// (`StatusSnapshot.ShellSession`, `output_contracts.zig:719-727@481104fd`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellSession {
+    /// The store refused this shell a session, so it saves nothing.
+    Unavailable,
+    /// The session this shell records into, or will at its first prompt.
+    Open {
+        id: String,
+        /// `xfx --resume <id>` opens it now: its log is on disk.
+        saved: bool,
+    },
+}
+
+/// What the `/status` panel's `Settings` row says, in place of `Auth`, when
+/// the profile settings could not be read at open
+/// (`settings_error`, `output_contracts.zig:705-707@481104fd`).
+const SETTINGS_UNREADABLE: &str = "couldn't be read: ";
 
 /// What `status` reports about the session a turn here would continue.
 ///
@@ -204,7 +237,7 @@ impl StatusSnapshot {
             provider_rejected: config
                 .provider_rejected
                 .as_ref()
-                .map(|r| one_line(&r.value)),
+                .map(|r| shown_provider_value(&r.value)),
             build_channel: build.channel.to_string(),
             build_revision: build.revision.map(str::to_string),
             auth: auth.source,
@@ -216,7 +249,105 @@ impl StatusSnapshot {
             history_turns: session.history_turns,
             session_permission_grants: session.permission_grants,
             agent_step_limit: config.max_agent_steps,
+            ultrafast_requested: config.ultrafast_mode,
+            session: None,
         }
+    }
+
+    /// The `/status` panel's rows, a label and a value each, in upstream's
+    /// order with the session first (`StatusSnapshot.panelRows`,
+    /// `vercel-labs/fx@481104fd src/core/output/output_contracts.zig:731-783`).
+    ///
+    /// `settings_error` is why the profile settings did not read when the
+    /// panel opened, if they did not: a `Settings` row then stands where the
+    /// credential's rows would (`:754-764`).
+    ///
+    /// Where xfx has other facts than upstream, the rows follow xfx's
+    /// (`docs/parity.md`, `/status`): `Provider` and `Endpoint` for a provider
+    /// that is not the Gateway -- the llmux daemon, or a selection xfx could
+    /// not read -- and no `Connected` row, which lists signed-in providers xfx
+    /// has none of; a `Sandbox` row after `Permissions`, the confinement in
+    /// force being a safety fact; and no `Updates` row, xfx having no updater.
+    ///
+    /// The values are not made terminal-safe here: the panel's rows are, at
+    /// the door, whoever builds them (`crate::tui`'s `info_panel::Row`).
+    pub fn panel_rows(&self, settings_error: Option<&str>) -> Vec<(&'static str, String)> {
+        let mut rows = Vec::with_capacity(16);
+        if let Some(session) = &self.session {
+            rows.push((
+                "Session",
+                match session {
+                    ShellSession::Unavailable => {
+                        "none \u{b7} this shell can't save sessions".to_string()
+                    }
+                    ShellSession::Open { id, saved } => format!(
+                        "{id} \u{b7} {}",
+                        if *saved { "saved" } else { "not saved yet" }
+                    ),
+                },
+            ));
+        }
+        rows.push(("Model", self.model.clone()));
+        if self.provider != ProviderId::Gateway.label() {
+            rows.push((
+                "Provider",
+                ProviderId::parse(&self.provider)
+                    .map_or_else(|| self.provider.clone(), |id| id.entry().name.to_string()),
+            ));
+        }
+        if let Some(url) = &self.provider_url {
+            rows.push(("Endpoint", url.clone()));
+        }
+        match settings_error {
+            Some(error) => rows.push(("Settings", format!("{SETTINGS_UNREADABLE}{error}"))),
+            None => {
+                let mut auth = self.auth.clone();
+                if self.auth_refreshable {
+                    auth.push_str(" \u{b7} refreshable");
+                }
+                rows.push(("Auth", auth));
+                if let Some(help) = &self.auth_help {
+                    rows.push(("Auth help", help.clone()));
+                }
+            }
+        }
+        rows.push((
+            "Permissions",
+            crate::config::PermissionMode::parse(&self.permission_mode).map_or_else(
+                || self.permission_mode.clone(),
+                |mode| mode.display_label().to_string(),
+            ),
+        ));
+        rows.push(("Sandbox", self.sandbox.clone()));
+        rows.push(("Workspace", self.workspace.clone()));
+        rows.push(("Turns", self.history_turns.to_string()));
+        rows.push(("Session grants", self.session_permission_grants.to_string()));
+        rows.push((
+            "Step limit",
+            match self.agent_step_limit {
+                0 => "unlimited".to_string(),
+                limit => limit.to_string(),
+            },
+        ));
+        rows.push((
+            "Ultrafast",
+            if self.ultrafast_requested {
+                "requested"
+            } else {
+                "not requested"
+            }
+            .to_string(),
+        ));
+        rows.push((
+            "Build",
+            match &self.build_revision {
+                Some(revision) if !revision.is_empty() => {
+                    format!("{} \u{b7} {revision}", self.build_channel)
+                }
+                _ => self.build_channel.clone(),
+            },
+        ));
+        rows
     }
 
     /// One `[status] key=value` line per fact, in a fixed order.
@@ -293,13 +424,20 @@ impl StatusSnapshot {
 
 /// What `status` and `doctor` say about a provider selection xfx could not read.
 ///
-/// It names the setting and quotes the value, because the operator has to be
-/// able to find it in a file xfx will not edit for them.
+/// It names the setting, because the operator has to be able to find it in a
+/// file xfx will not edit for them, and quotes the value as written when it
+/// has a provider name's shape ([`looks_like_a_provider_name`]); any other
+/// value it gives by its length only.
 pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
     let quoted = if rejected.value.is_empty() {
         "a value that is not a string".to_string()
-    } else {
+    } else if looks_like_a_provider_name(&rejected.value) {
         format!("`{}`", rejected.value)
+    } else {
+        format!(
+            "a value of {} characters that is not a provider name (not shown)",
+            rejected.value.chars().count()
+        )
     };
     format!(
         "provider=rejected: the `{}` setting is {quoted}, which xfx cannot read; set it to `{}` or `{}`. \
@@ -309,6 +447,35 @@ pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
         ProviderId::Gateway.label(),
         ProviderId::Llmux.label()
     )
+}
+
+/// The longest rejected provider value shown as written.
+const SHOWN_PROVIDER_VALUE_MAX: usize = 16;
+
+/// Whether a provider value xfx could not read has the shape it shows as
+/// written: a lowercase word of at most 16 characters, `[a-z0-9._-]` with a
+/// letter first -- the shape of a misspelt provider name, `anthropc`. Any
+/// other value -- a key pasted into the setting by mistake, say, which
+/// `status`, `doctor`, `/status` and every refused turn would otherwise print,
+/// and which no terminal escaping hides -- is given by its length only. A
+/// value in the shape is shown whatever it is.
+fn looks_like_a_provider_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    value.len() <= SHOWN_PROVIDER_VALUE_MAX
+        && chars.next().is_some_and(|first| first.is_ascii_lowercase())
+        && chars
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
+/// A rejected provider value as the `provider_rejected` field carries it:
+/// the value when it looks like a provider name ([`looks_like_a_provider_name`]),
+/// otherwise how long it is and that it is not shown.
+fn shown_provider_value(value: &str) -> String {
+    if value.is_empty() || looks_like_a_provider_name(value) {
+        value.to_string()
+    } else {
+        format!("<{} characters, not shown>", value.chars().count())
+    }
 }
 
 /// The label a snapshot uses for the configured provider.
@@ -526,7 +693,7 @@ impl DoctorSnapshot {
             provider_rejected: config
                 .provider_rejected
                 .as_ref()
-                .map(|r| one_line(&r.value)),
+                .map(|r| shown_provider_value(&r.value)),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             permission_mode: config.permission_mode.label().to_string(),
@@ -1623,6 +1790,270 @@ mod tests {
         assert!(snapshot
             .render_text()
             .contains("[status] session_permission_grants=2\n"));
+    }
+
+    /// A gateway configuration with a key, so `Auth` names its variable.
+    fn keyed_config() -> (tempfile::TempDir, RuntimeConfig) {
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                None,
+                std::collections::BTreeMap::from([(
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "fake-key-not-real".to_string(),
+                )]),
+            ),
+            workspace.path(),
+        )
+        .expect("load config");
+        (workspace, config)
+    }
+
+    /// `snapshot`'s panel rows with `settings_error`, as `label=value` text.
+    fn panel(snapshot: &StatusSnapshot, settings_error: Option<&str>) -> Vec<String> {
+        snapshot
+            .panel_rows(settings_error)
+            .into_iter()
+            .map(|(label, value)| format!("{label}={value}"))
+            .collect()
+    }
+
+    #[test]
+    fn the_status_panel_rows_are_upstreams_in_its_order_with_xfxs_sandbox_and_no_updates() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-open`: Session, Model,
+        // Auth, Permissions, Workspace, Turns, Session grants, Step limit,
+        // Ultrafast, Updates, Build -- with xfx's Sandbox after Permissions
+        // and no Updates (`docs/parity.md`, `/status`).
+        let (_workspace, config) = keyed_config();
+        let mut snapshot = StatusSnapshot::new(
+            &config,
+            crate::build_info(),
+            SessionFacts {
+                history_turns: 2,
+                permission_grants: 1,
+            },
+        );
+        snapshot.model = "fake/model-a".to_string();
+        snapshot.workspace = "/w/work".to_string();
+        snapshot.agent_step_limit = 0;
+        snapshot.build_channel = "stable".to_string();
+        snapshot.build_revision = Some("481104fdbc24".to_string());
+        snapshot.session = Some(ShellSession::Open {
+            id: "1730000000000-0123456789abcdef".to_string(),
+            saved: false,
+        });
+        assert_eq!(
+            panel(&snapshot, None),
+            [
+                "Session=1730000000000-0123456789abcdef \u{b7} not saved yet",
+                "Model=fake/model-a",
+                "Auth=AI_GATEWAY_API_KEY",
+                "Permissions=auto",
+                "Sandbox=none",
+                "Workspace=/w/work",
+                "Turns=2",
+                "Session grants=1",
+                "Step limit=unlimited",
+                "Ultrafast=not requested",
+                "Build=stable \u{b7} 481104fdbc24",
+            ]
+        );
+
+        snapshot.session = Some(ShellSession::Open {
+            id: "s1".to_string(),
+            saved: true,
+        });
+        assert_eq!(panel(&snapshot, None)[0], "Session=s1 \u{b7} saved");
+        snapshot.session = Some(ShellSession::Unavailable);
+        assert_eq!(
+            panel(&snapshot, None)[0],
+            "Session=none \u{b7} this shell can't save sessions"
+        );
+        // No shell, no row: `xfx status` runs in no session.
+        snapshot.session = None;
+        assert_eq!(panel(&snapshot, None)[0], "Model=fake/model-a");
+    }
+
+    #[test]
+    fn the_status_panel_says_full_access_a_step_limit_ultrafast_and_a_bare_channel() {
+        let (_workspace, config) = keyed_config();
+        let mut snapshot =
+            StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        snapshot.permission_mode = crate::config::PermissionMode::Yolo.label().to_string();
+        snapshot.agent_step_limit = 40;
+        snapshot.ultrafast_requested = true;
+        snapshot.build_channel = "debug".to_string();
+        snapshot.build_revision = None;
+        let rows = panel(&snapshot, None);
+        for row in [
+            "Permissions=full access",
+            "Step limit=40",
+            "Ultrafast=requested",
+            "Build=debug",
+        ] {
+            assert!(rows.contains(&row.to_string()), "{row}: {rows:?}");
+        }
+    }
+
+    #[test]
+    fn the_status_panel_names_a_provider_that_is_not_the_gateway_and_its_endpoint() {
+        // `:741-753@481104fd`: Provider, then Endpoint, after Model -- for the
+        // llmux daemon, and for a selection xfx could not read, which has no
+        // endpoint and whose `Auth help` quotes the value.
+        let (_workspace, mut config) = keyed_config();
+        config.provider = ProviderId::Llmux;
+        config.llmux_url = Some("http://127.0.0.1:3456".to_string());
+        config.model = "fake/model-a".to_string();
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let rows = panel(&snapshot, None);
+        assert_eq!(
+            rows[..4],
+            [
+                "Model=fake/model-a".to_string(),
+                "Provider=llmux".to_string(),
+                "Endpoint=http://127.0.0.1:3456".to_string(),
+                format!("Auth={LLMUX_AUTH_LABEL}"),
+            ],
+            "{rows:?}"
+        );
+        assert!(!rows.iter().any(|row| row.starts_with("Connected=")));
+
+        config.provider_rejected = Some(ProviderRejection {
+            key: "provider",
+            value: "codexx".to_string(),
+        });
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let rows = panel(&snapshot, None);
+        assert_eq!(rows[1], "Provider=rejected", "{rows:?}");
+        assert_eq!(rows[2], format!("Auth={MISSING_AUTH_LABEL}"), "{rows:?}");
+        assert!(
+            rows[3].starts_with("Auth help=") && rows[3].contains("codexx"),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_pasted_into_provider_is_said_by_its_length_and_never_printed() {
+        // Review P-status-b item 2: a credential-shaped `provider` reaches no
+        // renderer -- `status` text and JSON, `doctor`, the `/status` panel's
+        // Auth help, a refused turn's sentence -- through real loading.
+        const PASTED: &str = "sk-fake-0123456789ABCDEFabcdef0123456789";
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let profile = home.path().join(".xfx");
+        std::fs::create_dir_all(&profile).expect("a profile");
+        std::fs::write(
+            profile.join("settings.json"),
+            format!("{{\"provider\":\"{PASTED}\"}}"),
+        )
+        .expect("settings");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                std::collections::BTreeMap::new(),
+            ),
+            workspace.path(),
+        )
+        .expect("load config");
+        assert_eq!(
+            config.provider_rejected.as_ref().map(|r| r.value.as_str()),
+            Some(PASTED),
+            "the loader no longer keeps the value this test is about"
+        );
+        let status = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let doctor = DoctorSnapshot::new(&config, Vec::new());
+        let help = rejected_provider_help(config.provider_rejected.as_ref().expect("rejected"));
+        let panel = panel(&status, None).join("\n");
+        let refused = crate::provider::Bundle::select(&config, &crate::gateway::CancelToken::new())
+            .err()
+            .expect("a rejected provider runs no turn");
+        for (what, text) in [
+            ("status text", status.render_text()),
+            ("status json", status.render_json()),
+            ("doctor text", doctor.render_text()),
+            ("doctor json", doctor.render_json()),
+            ("help", help.clone()),
+            ("panel", panel.clone()),
+            ("refused turn", refused),
+        ] {
+            assert!(!text.contains(PASTED), "{what} printed the value: {text}");
+            assert!(
+                !text.contains("0123456789"),
+                "{what} printed part of it: {text}"
+            );
+        }
+        assert!(
+            status
+                .render_text()
+                .contains("[status] provider_rejected=<40 characters, not shown>\n"),
+            "{}",
+            status.render_text()
+        );
+        assert!(
+            help.contains("is a value of 40 characters that is not a provider name (not shown)"),
+            "{help}"
+        );
+        assert!(panel.contains("Provider=rejected"), "{panel}");
+    }
+
+    #[test]
+    fn a_misspelt_provider_name_is_still_quoted_as_written() {
+        let rejection = |value: &str| ProviderRejection {
+            key: "provider",
+            value: value.to_string(),
+        };
+        for name in ["anthropc", "codexx", "llmux2", "open-ai", "a.b_c"] {
+            assert!(
+                rejected_provider_help(&rejection(name)).contains(&format!("is `{name}`")),
+                "{name}"
+            );
+            assert_eq!(shown_provider_value(name), name);
+        }
+        for pasted in [
+            "Gateway",
+            "0abc",
+            "seventeen-letters",
+            "two words",
+            "sk_live_51H",
+            "gw\u{1b}[2J",
+        ] {
+            assert!(
+                !rejected_provider_help(&rejection(pasted)).contains(pasted),
+                "{pasted:?}"
+            );
+            assert!(!shown_provider_value(pasted).contains(pasted), "{pasted:?}");
+        }
+        assert!(rejected_provider_help(&rejection("")).contains("a value that is not a string"));
+    }
+
+    #[test]
+    fn the_status_panel_shows_settings_it_could_not_read_where_the_credential_was() {
+        // `:754-764@481104fd`: `Settings  couldn't be read: <error>` in place
+        // of Auth and Auth help, everything else as before.
+        let (_workspace, config) = empty_config();
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let without = panel(&snapshot, None);
+        assert!(without.contains(&format!("Auth={MISSING_AUTH_LABEL}")));
+        assert!(without.contains(&format!("Auth help={MISSING_AUTH_HELP}")));
+        let with = panel(&snapshot, Some("InvalidSettingsFormat"));
+        assert_eq!(with[1], "Settings=couldn't be read: InvalidSettingsFormat");
+        assert!(!with.iter().any(|row| row.starts_with("Auth")), "{with:?}");
+        assert_eq!(with.len(), without.len() - 1, "{with:?}");
+    }
+
+    #[test]
+    fn the_panels_session_and_ultrafast_change_nothing_the_status_command_prints() {
+        let (_workspace, config) = keyed_config();
+        let plain = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
+        let mut shown = plain.clone();
+        shown.session = Some(ShellSession::Open {
+            id: "s1".to_string(),
+            saved: true,
+        });
+        shown.ultrafast_requested = !plain.ultrafast_requested;
+        assert_eq!(shown.render_text(), plain.render_text());
+        assert_eq!(shown.render_json(), plain.render_json());
+        assert!(!shown.render_json().contains("s1"));
     }
 
     // -- sessions ----------------------------------------------------------

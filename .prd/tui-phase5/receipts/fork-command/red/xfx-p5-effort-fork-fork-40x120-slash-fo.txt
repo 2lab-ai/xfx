@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2fbc088 [debug] · Run /help for commands
+
+┃ first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑6 ↓40)
+
+┃ second prompt beta
+
+  BETA answer.
+
+  0s (↑5 ↓40)
+
+┃ third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to
+┃ cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven
+┃ eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth
+┃ and a fifth line at a hundred and twenty columns, sixteen seventeen eighteen nineteen twenty twenty-one twenty-two
+┃ twenty-three twenty-four
+
+  GAMMA answer.
+
+  0s (↑128 ↓40)
+
+┃ /fo
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+

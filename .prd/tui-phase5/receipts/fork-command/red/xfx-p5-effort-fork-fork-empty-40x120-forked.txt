@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2fbc088 [debug] · Run /help for commands
+
+┃ only prompt omega
+
+  ALPHA answer.
+
+  0s (↑5 ↓40)
+
+✗ command: Unknown command. Try /help.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

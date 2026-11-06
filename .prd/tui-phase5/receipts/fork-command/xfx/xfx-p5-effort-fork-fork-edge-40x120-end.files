@@ -1,0 +1,38 @@
+=== ~/.xfx/history.jsonl (1030 bytes)
+{"schema_version":1,"timestamp_ms":1793752957329,"workspace_root":"<scratch>/work","text":"/fork"}
+{"schema_version":1,"timestamp_ms":1793752958768,"workspace_root":"<scratch>/work","text":"/fork 2"}
+{"schema_version":1,"timestamp_ms":1793752959801,"workspace_root":"<scratch>/work","text":"slow turn please"}
+{"schema_version":1,"timestamp_ms":1793752961321,"workspace_root":"<scratch>/work","text":"/fork"}
+{"schema_version":1,"timestamp_ms":1793752971383,"workspace_root":"<scratch>/work","text":"quick second"}
+{"schema_version":1,"timestamp_ms":1793752974404,"workspace_root":"<scratch>/work","text":"/fork"}
+{"schema_version":1,"timestamp_ms":1793752981986,"workspace_root":"<scratch>/work","text":"/resume"}
+{"schema_version":1,"timestamp_ms":1793752984531,"workspace_root":"<scratch>/work","text":"/quit"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1793752959801-1bd636f375a1c99a/events.jsonl (3134 bytes)
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":1,"event_id":"61085a541692c1ae264db551887f8983","timestamp_ms":1793752959803,"event":{"kind":"session_started","id":"1793752959801-1bd636f375a1c99a","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":2,"event_id":"bdf5fcceae837e84345b2ce041996f98","timestamp_ms":1793752959825,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":3,"event_id":"cde11611ebff46ca90c97cd66119cb9e","timestamp_ms":1793752959841,"event":{"kind":"user_message","text":"slow turn please"}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":4,"event_id":"c9351316b7e4d5665efea6280681d77e","timestamp_ms":1793752966872,"event":{"kind":"assistant_message","text":"SLOW one two three four five six seven eight nine ten.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":5,"event_id":"1daf5afdba833e64702d1dd10c643841","timestamp_ms":1793752966891,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1793752966872,"duration_ms":7017,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":6,"event_id":"4afb60bf8a0c6e52f4b38af06cba8ccd","timestamp_ms":1793752966912,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":7,"event_id":"1612778feb96501b609917eb47feb19b","timestamp_ms":1793752971384,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":8,"event_id":"dac94b4a545f4aa53cb50849f1f72a89","timestamp_ms":1793752971409,"event":{"kind":"user_message","text":"quick second"}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":9,"event_id":"279ac62fe1a96b7e6d645a56538a6188","timestamp_ms":1793752971476,"event":{"kind":"assistant_message","text":"AFTER answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":10,"event_id":"986e389eef829de8ed7b72efd37c01a3","timestamp_ms":1793752971489,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1793752971476,"duration_ms":53,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"eb6e4ab9114fa9287d69898052e0698c","seq":11,"event_id":"9e91cbdd0460b3a930821b8028dde1db","timestamp_ms":1793752971503,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1793752959801-1bd636f375a1c99a/session.json (627 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793752959801-1bd636f375a1c99a","log_generation":"eb6e4ab9114fa9287d69898052e0698c","created_at_ms":1793752959803,"updated_at_ms":1793752971503,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"slow turn please","history_turns":2,"permission_grants":0,"total_input_tokens":2400,"total_output_tokens":80,"last_event_seq":11,"event_log_bytes":3134,"event_log_sha256":"c7cc4bac7f975ae4aa05513dc393adf906fcbdeb5695da69ae1cc8b605c056dc"}
+
+=== ~/.xfx/sessions/1793752977611-4aa704f2498bae3f/events.jsonl (937 bytes)
+{"schema_version":1,"log_generation":"fc10d53e93963a1ec5820b2b4701c759","seq":1,"event_id":"fc56ae1344528e545e108b272f746c5b","timestamp_ms":1793752977611,"event":{"kind":"session_started","id":"1793752977611-4aa704f2498bae3f","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway","forked_from":{"id":"1793752959801-1bd636f375a1c99a","seq":2}}}
+{"schema_version":1,"log_generation":"fc10d53e93963a1ec5820b2b4701c759","seq":2,"event_id":"591cee031f4bf2fae54c06ff4a3af7a0","timestamp_ms":1793752959825,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"fc10d53e93963a1ec5820b2b4701c759","seq":3,"event_id":"0f8557742163a597e0e4bb0c68d6c50c","timestamp_ms":1793752977611,"event":{"kind":"session_renamed","title":"slow turn please (fork)"}}
+
+=== ~/.xfx/sessions/1793752977611-4aa704f2498bae3f/session.json (628 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793752977611-4aa704f2498bae3f","log_generation":"fc10d53e93963a1ec5820b2b4701c759","created_at_ms":1793752977611,"updated_at_ms":1793752977611,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"slow turn please (fork)","history_turns":0,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":3,"event_log_bytes":937,"event_log_sha256":"e1cd297c733a230fb11c5f6a822e9d4bddc02b8f95c7bf5ab1bd8053e4352ee4"}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1793752966891}
+

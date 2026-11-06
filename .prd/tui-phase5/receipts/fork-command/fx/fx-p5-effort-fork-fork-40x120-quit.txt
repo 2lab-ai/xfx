@@ -1,0 +1,40 @@
+
+┃ first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑6 ↓40)
+
+┃ second prompt beta
+
+  DELTA answer.
+
+  0s (↑5 ↓40)
+
+
+Continue session with: fx --resume IONosbZ9GXTx
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Nov  4 09:06:31 2026)

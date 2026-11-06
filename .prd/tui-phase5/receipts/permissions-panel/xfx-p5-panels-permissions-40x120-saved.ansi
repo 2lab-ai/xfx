@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-6d495f1 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* permissions: mode set to auto[39m
+
+[38;5;252m! permissions:[38;5;250m mode set to full access[39m
+
+[38;5;250m* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared[39m
+
+[38;5;252m✗ [38;5;250musage: /permissions [ask|auto|full-access|reset][39m
+  [38;5;250m       /permissions remember <allow|deny> <tool-name> <arguments-json>[39m
+  [38;5;250m       /permissions revoke <rule-id>[39m
+
+[38;5;250m* allowlist: added command: "git *" (scope=local)[39m
+
+[38;5;252m✗ permissions:[38;5;250m saved-session permission rules require an active saved session[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mPermissions[0m
+
+[1m[38;5;252m  Mode[0m                [38;5;245mask[39m
+[1m[38;5;252m  Configured rules[0m    [38;5;245m1[39m
+[1m[38;5;252m  [0m                    [38;5;245m• allow bash → git *[39m
+[1m[38;5;252m  Session grants[0m      [38;5;245mnone[39m
+[1m[38;5;252m  Saved rules[0m         [38;5;245mnone[39m
+[1m[38;5;252m  Change mode[0m         [38;5;245m/permissions ask, auto, full-access, or reset[39m
+[1m[38;5;252m  Remember[0m            [38;5;245m/permissions remember allow|deny <tool-name> <arguments-json>[39m
+[1m[38;5;252m  Revoke[0m              [38;5;245m/permissions revoke <rule-id>[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mesc close[39m
+
+
+
+
+
+
+
+
+

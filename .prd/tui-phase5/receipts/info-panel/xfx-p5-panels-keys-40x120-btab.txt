@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e0d97bd [debug] · Run /help for commands
+
+* status: model=fake/model-a
+  provider=gateway
+  build_channel=debug
+  build_revision=e0d97bd5c59c
+  auth=AI_GATEWAY_API_KEY
+  auth_refreshable=false
+  permission_mode=ask
+  sandbox=none
+  workspace=<tmp>/fxcap.aHHpOJ/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=25
+
+* permission-mode: saved to user settings (scope=user); fresh sessions here use higher-precedence
+  permission_mode=process_override
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -511,7 +511,13 @@ mod tests {
             panic!("asked the Gateway with a provider nobody chose");
         };
         assert!(!reason.chars().any(char::is_control), "{reason:?}");
-        assert!(reason.contains("`gate [2Jway next`"), "{reason:?}");
+        // P-status-b: a value that is not a provider name is told by its
+        // length, never shown -- so none of its bytes reach the line.
+        assert!(
+            !reason.contains("[2J") && !reason.contains("next"),
+            "{reason:?}"
+        );
+        assert!(reason.contains("(not shown)"), "{reason:?}");
     }
 
     #[test]

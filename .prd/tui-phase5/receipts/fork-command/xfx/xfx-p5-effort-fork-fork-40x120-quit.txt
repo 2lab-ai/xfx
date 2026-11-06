@@ -1,0 +1,40 @@
+
+┃ first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑6 ↓40)
+
+┃ second prompt beta
+
+  DELTA answer.
+
+  0s (↑5 ↓40)
+
+
+Continue session with: xfx --resume 1793752935460-b0e45d442b892b70
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Nov  4 09:42:31 2026)

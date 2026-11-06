@@ -1,0 +1,45 @@
+# Phase 5 panels: a bare `/permissions` listing a saved-session rule. The
+# rule is remembered after the first prompt, where both products have a saved
+# session (xfx opens its session there; `p5-panels-permissions.cap` remembers
+# one before it, which fx keeps and xfx refuses), then revoked.
+# The tools are each product's own: fx's `shell` is xfx's `terminal`.
+fx: env FX_AUTO_UPGRADE=0
+fx: gateway p5-panels-perm-turn.json
+xfx: gateway p5-panels-perm-turn-xfx.json
+wait 2
+type /permissions ask
+key Enter
+wait 1
+type run a command
+key Enter
+wait 3
+snap approval
+type 2
+wait 3
+snap after-grant
+type /permissions remember deny write_file {"path":"b.txt","content":"y"}
+key Enter
+wait 1.5
+snap remember-prompt
+key Enter
+wait 1
+snap remember-done
+type /permissions
+key Enter
+wait 1
+snap saved
+key Escape
+wait 0.5
+snap saved-esc
+type /permissions revoke 1
+key Enter
+wait 1.5
+snap revoke-prompt
+key Enter
+wait 1
+type /permissions
+key Enter
+wait 1
+snap after-revoke
+key Escape
+wait 0.5
