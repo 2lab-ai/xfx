@@ -49,8 +49,8 @@
 //! - **Before any server starts** ([`prepare_to_start`]; `loadHost`,
 //!   `src/builtins/mcp.zig:121-134@481104fd`), a profile server's `${VAR}`
 //!   is expanded, and a server whose name a terminal can't show is skipped,
-//!   each with a note. The file keeps `${VAR}`; the values go only to the
-//!   server they start or reach.
+//!   each with a note. The file keeps `${VAR}`; the values go to the server
+//!   they start or reach, and to a screen only as that server's own stderr.
 
 use std::fmt;
 use std::fs;
@@ -155,8 +155,9 @@ pub enum Admission {
 /// Once through [`prepare_to_start`], a profile server's command, arguments,
 /// `env` values and header values are what its `${VAR}`s expanded to, and an
 /// approved workspace server's are too ([`load_workspace`]): values from the
-/// environment, a credential among them, for the server and never for a
-/// screen. What a person is shown of an entry is read from its file, and
+/// environment, a credential among them, for the server: no screen of xfx's
+/// shows one, though a server's own stderr, quoted in its failure, may. What
+/// a person is shown of an entry is its file's text ([`ServerConfig::written`]), and
 /// `{:?}` names the server and only counts what it runs and sends (the
 /// `Debug` below).
 #[derive(Clone, PartialEq)]
@@ -167,11 +168,12 @@ pub struct ServerConfig {
     /// The program, for a stdio server.
     pub command: String,
     pub args: Vec<String>,
-    /// A profile stdio server's command and arguments as its file has them,
-    /// kept by [`prepare_to_start`] before it expands them: what a screen
-    /// shows of the server ([`Self::shown_command`]). `None` for a server
-    /// the profile's expansion never saw.
-    pub written: Option<(String, Vec<String>)>,
+    /// Its command, arguments and URL as its file has them, kept before an
+    /// expansion fills them -- a profile server's by [`prepare_to_start`],
+    /// an approved workspace server's by [`load_workspace`]: what a screen
+    /// shows of the server ([`Self::shown_command`], [`Self::shown_url`]).
+    /// `None` for a server nothing expanded.
+    pub written: Option<Written>,
     /// A stdio server's own variables, set over the few of xfx's it is given
     /// ([`super::transport::server_environment`]).
     pub env: Vec<(String, String)>,
@@ -278,12 +280,20 @@ impl ServerConfig {
     }
 
     /// The command and arguments a screen shows (`/mcp show`, the menu's
-    /// `runs`): as the file has them -- a value an expansion put in is for
-    /// the server alone.
+    /// `runs`, `approve`'s sentence): as the file has them -- a value an
+    /// expansion put in is for the server.
     pub fn shown_command(&self) -> (&str, &[String]) {
         match &self.written {
-            Some((command, args)) => (command, args),
+            Some(written) => (&written.command, &written.args),
             None => (&self.command, &self.args),
+        }
+    }
+
+    /// The URL a screen shows, the same way.
+    pub fn shown_url(&self) -> &str {
+        match &self.written {
+            Some(written) => &written.url,
+            None => &self.url,
         }
     }
 
@@ -293,6 +303,53 @@ impl ServerConfig {
 
     pub fn operation_timeout(&self) -> Duration {
         Duration::from_millis(u64::from(self.operation_timeout_ms))
+    }
+}
+
+/// A server's command, arguments and URL as its file has them
+/// ([`ServerConfig::written`]).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Written {
+    pub command: String,
+    pub args: Vec<String>,
+    pub url: String,
+}
+
+impl Written {
+    /// What `entry`, a server's object as its file has it, runs and reaches:
+    /// a `command` string and its `args`, or a `command` list, and a `url`.
+    /// What isn't a string is left empty -- nothing is shown in its place.
+    fn of(entry: &Value) -> Self {
+        let strings = |value: Option<&Value>| -> Vec<String> {
+            value
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let (command, args) = match entry.get("command") {
+            Some(Value::String(command)) => (command.clone(), strings(entry.get("args"))),
+            Some(Value::Array(_)) => {
+                let mut words = strings(entry.get("command"));
+                if words.is_empty() {
+                    (String::new(), Vec::new())
+                } else {
+                    let command = words.remove(0);
+                    (command, words)
+                }
+            }
+            _ => (String::new(), Vec::new()),
+        };
+        let url = entry
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        Self { command, args, url }
     }
 }
 
@@ -2289,6 +2346,7 @@ pub fn load_workspace(
         let digest = entry_digest(value);
         let admission = choices.admission(name, &digest);
         result.digests.push((name.clone(), digest));
+        let raw = value;
         let value = if admission == Admission::Approved {
             match expand_entry(value, &lookup) {
                 Ok(value) => value,
@@ -2303,6 +2361,15 @@ pub fn load_workspace(
             value.clone()
         };
         match parse_entry(name, &value, Source::Workspace, Some(admission)) {
+            // What a screen shows of an approved one is its file's text,
+            // `${VAR}` and all: the values are for the server (EPIC2-INT1).
+            Ok(mut config) if admission == Admission::Approved => {
+                config.written = Some(Written::of(raw));
+                match withheld_source(&config) {
+                    Some((field, variable)) => result.issues.push(withheld(name, field, variable)),
+                    None => result.servers.push(config),
+                }
+            }
             Ok(config) => match withheld_source(&config) {
                 Some((field, variable)) => result.issues.push(withheld(name, field, variable)),
                 None => result.servers.push(config),
@@ -2529,7 +2596,8 @@ fn expand_text(
 ///
 /// The profile on disk is never what changes: a profile server here carries
 /// the values its variables had, which go to the server it starts or
-/// reaches and nowhere else -- no note, row or error names one.
+/// reaches -- no note, row or error of xfx's names one; what the server
+/// prints to its stderr, quoted in its failure as it wrote it, is its own.
 pub fn prepare_to_start(
     servers: &mut Vec<ServerConfig>,
     notes: &mut Vec<String>,
@@ -2608,9 +2676,11 @@ fn expand_profile_server(
     environment: &dyn Fn(&str) -> Option<String>,
     budget: &mut ExpansionBudget,
 ) -> Result<(), Unresolved> {
-    if server.transport == Transport::Stdio {
-        server.written = Some((server.command.clone(), server.args.clone()));
-    }
+    server.written = Some(Written {
+        command: server.command.clone(),
+        args: server.args.clone(),
+        url: server.url.clone(),
+    });
     let mut expand = |value: &mut String, field: &'static str| {
         *value = expand_template(value, field, environment, budget)?;
         Ok(())

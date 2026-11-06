@@ -308,7 +308,7 @@ pub(crate) fn rows_of(runtime: &McpRuntime) -> (Vec<Row>, usize) {
                             let (program, args) = config.shown_command();
                             command::command_line(program, args)
                         }
-                        Transport::Http | Transport::Sse => config.url.clone(),
+                        Transport::Http | Transport::Sse => config.shown_url().to_string(),
                     }
                 }
                 None => String::new(),
@@ -482,9 +482,10 @@ pub(crate) struct McpMenu {
     /// the file its question named. An answer is about these, and a read
     /// that finds the name in the other file since cancels it.
     question: Option<(String, File)>,
-    /// A frame has drawn the question's row, and nothing has written over
-    /// the screen since: no answer is taken before (`Drawn` for Approve).
-    question_drawn: Cell<bool>,
+    /// Whether a frame has drawn the question's row, whole, and nothing has
+    /// written over the screen since: no answer is taken before (`Drawn`
+    /// for Approve).
+    question_drawn: Cell<Asked>,
     /// The list's filter, kept while a server's screen filters its tools.
     list_filter: String,
     /// What the composer holds: the list's filter, or the open server's tools'.
@@ -510,7 +511,7 @@ impl McpMenu {
             top: 0,
             answer_no: false,
             question: None,
-            question_drawn: Cell::new(false),
+            question_drawn: Cell::new(Asked::NotDrawn),
             list_filter: String::new(),
             filter: String::new(),
             rows,
@@ -577,7 +578,7 @@ impl McpMenu {
         if let Some(drawn) = self.drawn.borrow_mut().as_mut() {
             drawn.whole = false;
         }
-        self.question_drawn.set(false);
+        self.question_drawn.set(Asked::NotDrawn);
     }
 
     /// Reads the servers again when [`REFRESH`] has passed since the last
@@ -851,7 +852,7 @@ impl McpMenu {
                             return Effect::None;
                         };
                         self.question = Some((row.name.clone(), row.file()));
-                        self.question_drawn.set(false);
+                        self.question_drawn.set(Asked::NotDrawn);
                         self.screen = Screen::Confirm(choice);
                         self.answer_no = false;
                         *self.drawn.borrow_mut() = None;
@@ -901,8 +902,17 @@ impl McpMenu {
     fn confirmed(&mut self, choice: Choice, row: &Row) -> Effect {
         let shown = command::typed(&row.name);
         if choice.asks_on_row() {
-            if !self.question_drawn.get() {
-                return Effect::None;
+            match self.question_drawn.get() {
+                Asked::Whole => {}
+                Asked::NotDrawn => return Effect::None,
+                // The screen is too narrow for the question's file and its
+                // name's first character: said, and asked again once a frame
+                // draws it whole.
+                Asked::Cut => {
+                    return Effect::Refused(format!(
+                        "xfx couldn't show which file Remove {shown} acts on at this width, so nothing was removed."
+                    ))
+                }
             }
             let asked = self.question.take();
             if asked.as_ref() != Some(&(row.name.clone(), row.file())) {
@@ -1018,6 +1028,11 @@ impl McpMenu {
             }
             Screen::Confirm(_) => self.confirm_rows(width, count, palette),
         };
+        // A row composed and then cut away was never on the screen: a
+        // question among them is not known drawn.
+        if out.len() > count {
+            self.forget_drawn();
+        }
         out.truncate(count);
         out
     }
@@ -1127,7 +1142,12 @@ impl McpMenu {
         // A filter typed since the last key can leave fewer items than the
         // selection's place; draw it on the last one left.
         let cursor = self.cursor.min(layout.selectable().saturating_sub(1));
-        let window = count - 1;
+        // A panel of the title alone shows no line (opus-X): composing them
+        // anyway marked a question drawn that `rows` then cut away.
+        let window = count.saturating_sub(1);
+        if window == 0 {
+            return out;
+        }
         if layout.lines() <= window {
             out.extend(
                 (0..layout.lines())
@@ -1138,7 +1158,7 @@ impl McpMenu {
         let top = layout.top(self.top, cursor, window);
         let mut lines = window;
         if top + lines < layout.lines() {
-            lines -= 1;
+            lines = lines.saturating_sub(1);
         }
         lines = lines.min(layout.lines() - top);
         let below = layout.lines() - top - lines;
@@ -1216,12 +1236,16 @@ impl McpMenu {
             // chosen one is bright, and ← → move between them.
             if self.screen == Screen::Confirm(choice) {
                 const ANSWERS: &str = "   yes  no";
-                // The row is in this frame: its answer may be taken.
-                self.question_drawn.set(true);
-                out.push_str(&ellipsized(
-                    &command::safe_within(&question(row, choice), 4096),
+                // The row is in this frame: its answer may be taken, once
+                // the question is on it whole.
+                let (text, whole) = asked(
+                    row,
+                    choice,
                     width.saturating_sub(2).saturating_sub(ANSWERS.len()),
-                ));
+                );
+                self.question_drawn
+                    .set(if whole { Asked::Whole } else { Asked::Cut });
+                out.push_str(&text);
                 out.push_str(palette.reset());
                 out.push_str("   ");
                 let (yes, no) = if self.answer_no {
@@ -1426,6 +1450,37 @@ fn question(row: &Row, choice: Choice) -> String {
         Choice::Remove => format!("Remove {name} from {}?", row.file().label()),
         _ => format!("Reject {name}? xfx won't start it in this project."),
     }
+}
+
+/// The question in `room` cells, and whether it is there whole. Remove's
+/// keeps ` from FILE?` whole and shortens the name instead (opus-X): cut
+/// from its end, a long name hid which file the answer acts on. Where not
+/// even the name's first cell fits beside it, the question is cut as any
+/// row is and not whole. Reject's names no file and is cut from its end.
+fn asked(row: &Row, choice: Choice, room: usize) -> (String, bool) {
+    let spelled = |text: &str| command::safe_within(text, 4096);
+    if choice == Choice::Remove {
+        let head = "Remove ";
+        let tail = format!(" from {}?", row.file().label());
+        let fixed = cells(head) + cells(&tail);
+        if room > fixed {
+            let name = ellipsized(&spelled(&command::typed(&row.name)), room - fixed);
+            return (format!("{head}{name}{tail}"), true);
+        }
+        return (ellipsized(&spelled(&question(row, choice)), room), false);
+    }
+    (ellipsized(&spelled(&question(row, choice)), room), true)
+}
+
+/// What the last frame showed of a question asked on its row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// No frame since it was asked, or something wrote over it since.
+    NotDrawn,
+    /// On the screen whole: an answer may be taken.
+    Whole,
+    /// On the screen without the file it acts on.
+    Cut,
 }
 
 /// One line of the approval's screen below its title.

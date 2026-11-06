@@ -936,7 +936,7 @@ fn show(runtime: &McpRuntime, name: &str, said: &mut Said) {
             ))
         }
         Transport::Http | Transport::Sse => {
-            out.push_str(&format!("  url        {}\n", safe(&config.url)))
+            out.push_str(&format!("  url        {}\n", safe(config.shown_url())))
         }
     }
     out.push_str(&format!(
@@ -1213,8 +1213,11 @@ fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
                 return format!("Rejected {shown}. xfx won't start it in this project.");
             }
             let (how, target) = match config.transport {
-                Transport::Stdio => ("runs", command_line(&config.command, &config.args)),
-                Transport::Http | Transport::Sse => ("connects to", config.url.clone()),
+                Transport::Stdio => {
+                    let (command, args) = config.shown_command();
+                    ("runs", command_line(command, args))
+                }
+                Transport::Http | Transport::Sse => ("connects to", config.shown_url().to_string()),
             };
             format!("Approved {shown}, which {how}: {}", safe(&target))
         })

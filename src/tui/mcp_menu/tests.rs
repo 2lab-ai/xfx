@@ -1117,3 +1117,109 @@ fn a_line_wider_on_the_screen_than_it_was_measured_is_not_drawn_whole() {
         Effect::Refused(why) if why.contains("couldn't show all")
     ));
 }
+
+#[test]
+fn a_panel_of_the_title_alone_draws_no_question_and_takes_no_answer() {
+    // opus-X: at one row the screen's window was `count - 1` = 0, `lines -=
+    // 1` underflowed (a wrap in a release build), every line was composed,
+    // the question marked drawn, and `rows` cut it all away but the title.
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    assert_eq!(menu.rows(120, 1, PALETTE).len(), 1);
+    assert_eq!(menu.press(Key::Enter), Effect::None, "answered unseen");
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    drawn(&menu, 120);
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Run(Run::Remove { .. })
+    ));
+}
+
+#[test]
+fn remove_keeps_the_file_it_acts_on_whole_and_shortens_a_long_name() {
+    // opus-X: cut from its end, a long name pushed `from FILE?` off the row
+    // while the question still counted as drawn.
+    let long = "n".repeat(80);
+    let ask = |cols: u16| {
+        let mut menu = McpMenu::open(vec![ready(&long)], 0, Instant::now());
+        menu.press(Key::Enter);
+        menu.press(Key::Enter);
+        assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+        let rows = drawn(&menu, cols);
+        let asked = rows
+            .iter()
+            .find(|row| row.contains("Remove "))
+            .unwrap_or_else(|| panic!("{rows:?}"))
+            .clone();
+        (menu, asked)
+    };
+    let (mut menu, asked) = ask(80);
+    assert!(
+        asked.contains(" from ~/.xfx/mcp.json?   yes  no"),
+        "{asked:?}"
+    );
+    assert!(asked.contains("n\u{2026} from"), "{asked:?}");
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Run(Run::Remove { .. })
+    ));
+    // Too narrow for the file and a cell of the name: said, and asked again
+    // once a frame draws it whole.
+    let (mut menu, asked) = ask(40);
+    assert!(!asked.contains("mcp.json?"), "{asked:?}");
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Refused(why) if why.contains("couldn't show which file")
+    ));
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    drawn(&menu, 120);
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Run(Run::Remove { .. })
+    ));
+}
+
+#[test]
+fn a_question_asked_again_waits_for_a_frame_of_its_own() {
+    // opus-X pin: asking resets what the last question drew -- Esc does not,
+    // so an answer to the second ask would ride on the first one's frame.
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    drawn(&menu, 120);
+    menu.press(Key::Escape);
+    assert_eq!(menu.screen(), Screen::Server);
+    menu.press(Key::Enter);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+}
+
+#[test]
+fn a_wrapped_piece_wider_on_the_screen_than_it_was_measured_is_not_drawn_whole() {
+    // opus-X pin, the `Continued` arm of `fits`: the first piece fits, and
+    // the rest of the row -- `❤️` one cell a character, two a cluster --
+    // would be cut on the screen.
+    let wide = format!("{} {}", "x".repeat(30), "\u{2764}\u{fe0f}".repeat(30));
+    let row = Row {
+        entry: entry(&[&format!("command: {wide}")], "digest-w"),
+        ..pending("proj")
+    };
+    let mut menu = McpMenu::open(vec![row], 0, Instant::now());
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    let rows = drawn(&menu, 40);
+    assert_eq!(
+        rows[3].trim_end(),
+        format!("    {}", "x".repeat(30)),
+        "{rows:?}"
+    );
+    assert!(rows[4].starts_with("  \u{21b3} \u{2764}"), "{rows:?}");
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Refused(why) if why.contains("couldn't show all")
+    ));
+}

@@ -223,6 +223,71 @@ const RESUME_LABEL: &str = "Continue session with:";
 /// repeat after it is this close.
 const MCP_ENTER_HELD: Duration = Duration::from_millis(500);
 
+/// An Enter this soon after the one before it is a repeat of a key held
+/// down, or of a burst read at once: swallowed, it keeps [`MCP_ENTER_HELD`]'s
+/// window open. A person tapping again takes longer, and a tap swallowed
+/// does not -- the next one past the window answers (opus-Y).
+const MCP_ENTER_REPEAT: Duration = Duration::from_millis(150);
+
+/// What the menu says of an Enter it swallowed, once each time (opus-Y: a
+/// key that seems to do nothing is a key pressed again).
+const MCP_ENTER_TOO_SOON: &str =
+    "That Enter came too soon after the last one to answer the question: press Enter again to answer it.";
+
+/// Every Enter while `/mcp`'s menu is up, whatever takes it -- the menu, the
+/// model's question panel, a permission question, the composer -- and the
+/// last one that counted ([`MCP_ENTER_HELD`]).
+#[derive(Debug, Clone, Copy, Default)]
+struct McpEnters {
+    /// The last Enter that counted: one taken, or a repeat swallowed.
+    taken: Option<Instant>,
+    /// The last Enter of all.
+    seen: Option<Instant>,
+    /// The swallow since the last Enter that counted has been said.
+    said: bool,
+}
+
+/// One Enter, as [`McpEnters::enter`] saw it.
+#[derive(Debug, Clone, Copy)]
+struct McpEnter {
+    /// Within [`MCP_ENTER_HELD`] of the last one that counted.
+    held: bool,
+    /// Within [`MCP_ENTER_REPEAT`] of the one before it.
+    repeat: bool,
+    /// What `taken` was before this one.
+    before: Option<Instant>,
+}
+
+impl McpEnters {
+    /// An Enter at `now`: it counts, unless the menu swallows it
+    /// ([`Self::swallowed`]).
+    fn enter(&mut self, now: Instant) -> McpEnter {
+        let within = |at: Option<Instant>, gap: Duration| {
+            at.is_some_and(|at| now.saturating_duration_since(at) < gap)
+        };
+        let enter = McpEnter {
+            held: within(self.taken, MCP_ENTER_HELD),
+            repeat: within(self.seen, MCP_ENTER_REPEAT),
+            before: self.taken,
+        };
+        self.seen = Some(now);
+        self.taken = Some(now);
+        if !enter.held {
+            self.said = false;
+        }
+        enter
+    }
+
+    /// The menu swallowed `enter`: a repeat keeps the window open, a tap
+    /// does not. Whether to say so.
+    fn swallowed(&mut self, enter: McpEnter) -> bool {
+        if !enter.repeat {
+            self.taken = enter.before;
+        }
+        !std::mem::replace(&mut self.said, true)
+    }
+}
+
 /// The command it names, without the id.
 const RESUME_COMMAND: &str = "xfx --resume";
 
@@ -1148,8 +1213,8 @@ pub(crate) struct Shell {
     /// `/mcp`'s menu, while it is up ([`super::mcp_menu`]): a view of the
     /// composer, which holds its filter.
     mcp_menu: Option<super::mcp_menu::McpMenu>,
-    /// When the menu last took an Enter ([`MCP_ENTER_HELD`]).
-    mcp_enter: Option<Instant>,
+    /// Every Enter while the menu is up ([`MCP_ENTER_HELD`]).
+    mcp_enter: McpEnters,
     /// What the status line's right-hand slot says about MCP
     /// ([`statusline::McpStatus`]): rebuilt from the runtime by
     /// [`Self::settle_band`], cleared by a prompt sent ([`Self::send`]).
@@ -2251,7 +2316,7 @@ impl Shell {
                     .and_then(std::path::Path::parent),
             ),
             mcp_menu: None,
-            mcp_enter: None,
+            mcp_enter: McpEnters::default(),
             mcp_status: statusline::McpStatus::default(),
             rule_confirm: None,
             workspace_identity: {
@@ -4332,6 +4397,9 @@ impl Shell {
             return;
         }
         self.full.open();
+        // It covers `/mcp`'s menu: what the menu drew is not on the screen
+        // while it is up, nor after it closes until a frame paints it (opus-Y).
+        self.forget_mcp_drawn();
         // The alternate plane, through the machinery the large-change review
         // uses: the loop pays what the primary plane owes, takes the plane in
         // the same write, and gives it back whole (`super::event_loop`'s
@@ -4475,6 +4543,13 @@ impl Shell {
         if let Some(menu) = self.mcp_menu.as_ref() {
             menu.forget_drawn();
         }
+    }
+
+    /// `/mcp`'s menu's screen, read without composing a frame -- which would
+    /// mark its question drawn.
+    #[cfg(test)]
+    pub(crate) fn mcp_screen(&self) -> Option<super::mcp_menu::Screen> {
+        self.mcp_menu.as_ref().map(super::mcp_menu::McpMenu::screen)
     }
 
     /// What `/mcp`'s menu last drew is no longer known to be on the screen:
@@ -6489,10 +6564,11 @@ impl Shell {
     /// **xfx's, over fx's:** while Ctrl-O's full transcript covers the menu
     /// it takes no key at all -- what that screen does not bind would
     /// otherwise answer a question nobody can see (opus-C); and an Enter
-    /// that comes within [`MCP_ENTER_HELD`] of the Enter before it answers
-    /// no question: that is a key held down, or a burst read at once, not
-    /// an answer to what was shown.
-    fn offer_to_mcp(&mut self, event: &Input, now: Instant) -> bool {
+    /// that comes within [`MCP_ENTER_HELD`] of the Enter before it -- the
+    /// menu's or any other surface's while the menu is up (opus-Y) --
+    /// answers no question, and says so: that is a key held down, a burst
+    /// read at once, or a second tap, not an answer to what was shown.
+    fn offer_to_mcp(&mut self, event: &Input, enter: Option<McpEnter>) -> bool {
         use super::mcp_menu::{Key, Screen};
         let Some(menu) = self.mcp_menu.as_ref() else {
             return false;
@@ -6543,14 +6619,14 @@ impl Shell {
             },
             _ => return false,
         };
-        if key == Key::Enter {
-            let held = self
-                .mcp_enter
-                .is_some_and(|last| now.saturating_duration_since(last) < MCP_ENTER_HELD);
-            self.mcp_enter = Some(now);
-            if held && confirming {
-                return true;
+        if let Some(enter) = enter.filter(|enter| key == Key::Enter && enter.held && confirming) {
+            if self.mcp_enter.swallowed(enter) {
+                self.write_notice(&notice::Notice::warning(
+                    crate::mcp::command::TOPIC,
+                    MCP_ENTER_TOO_SOON,
+                ));
             }
+            return true;
         }
         self.mcp_key(key);
         true
@@ -7985,6 +8061,9 @@ impl Shell {
         // behind a question is a menu whose keys the panel is swallowing.
         self.dismiss_picker();
         self.ask = Some(panel);
+        // Over `/mcp`'s menu, if it is up: what the menu drew is covered
+        // until a frame paints it again (opus-Y).
+        self.forget_mcp_drawn();
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
@@ -9824,6 +9903,12 @@ impl Shell {
             if disarms && self.gestures.other_key() {
                 self.render.request(Reason::Footer);
             }
+            // Every Enter while `/mcp`'s menu is up, whichever surface takes
+            // it, is one the menu's held rule counts (opus-Y): an Enter the
+            // model's panel took, then a second tap once the question is
+            // painted again, is a double tap, not an answer.
+            let enter = (matches!(event, Input::Action(Action::Submit)) && self.mcp_menu.is_some())
+                .then(|| self.mcp_enter.enter(now));
             // The full transcript, while it is up, has the keys it binds;
             // everything else goes where it would have gone with the screen
             // closed -- the composer, the band's menus -- as upstream routes
@@ -9884,7 +9969,7 @@ impl Shell {
             }
             // `/mcp`'s menu takes the keys it binds; the rest go to the
             // composer, which holds its filter, as fx v0.0.16's does.
-            if self.offer_to_mcp(&event, now) {
+            if self.offer_to_mcp(&event, enter) {
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -14243,6 +14328,15 @@ mod tests {
 
     impl McpCase {
         fn new(project: serde_json::Value, profile: Option<serde_json::Value>) -> Self {
+            Self::reading(project, profile, &[])
+        }
+
+        /// [`Self::new`], its servers' `${VAR}` reading `overrides` first.
+        fn reading(
+            project: serde_json::Value,
+            profile: Option<serde_json::Value>,
+            overrides: &[(&str, &str)],
+        ) -> Self {
             let home = tempfile::tempdir().expect("a home");
             let workspace = home.path().join("work");
             std::fs::create_dir_all(&workspace).expect("a workspace");
@@ -14262,11 +14356,14 @@ mod tests {
                 .expect("write the profile");
             }
             let settings = xfx.join("settings.json");
-            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-                profile: Some(profile_path.clone()),
-                settings: Some(settings.clone()),
-                workspace: workspace.clone(),
-            });
+            let runtime = crate::mcp::McpRuntime::with_environment(
+                crate::mcp::Paths {
+                    profile: Some(profile_path.clone()),
+                    settings: Some(settings.clone()),
+                    workspace: workspace.clone(),
+                },
+                overrides,
+            );
             runtime.start_and_wait(Duration::from_secs(60));
             let (work, sent, _control) = WorkHandle::detached();
             let shell = Shell::new(
@@ -14765,27 +14862,81 @@ mod tests {
         );
     }
 
+    /// A fake value, set only in the runtime a case builds, and a command
+    /// line short enough that no row cuts it before its `${...}`.
+    const SENTINEL: (&str, &str) = ("XFX_TEST_SENTINEL", "fake-sentinel-7c4e");
+
+    fn sentinel_entry() -> serde_json::Value {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        serde_json::json!({"command": "/bin/sh", "args": [
+            "-c", ": ${XFX_TEST_SENTINEL}; exec /bin/sh \"$1\"", "sh", fixture,
+        ]})
+    }
+
     #[test]
     fn the_menu_shows_a_profile_servers_variable_as_written() {
         // Epic 2's merge: the menu's `runs` row is the running server's
         // command line, and MCP-C2 expands a profile server's `${VAR}` before
         // it starts; the value is for the server, never a screen
         // (`mcp::command::tests::a_profile_servers_expanded_variable_is_shown_by_show_as_written`).
-        let value = std::env::var("PATH").expect("PATH is set");
-        let fixture =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
-        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture, "--path=${PATH}"]});
-        let mut case = McpCase::new(
+        // The variable is the row's third word, so no width cuts it, and the
+        // value is the case's own (EPIC2-INT1 review).
+        let mut case = McpCase::reading(
             serde_json::json!({}),
-            Some(serde_json::json!({"keep": entry})),
+            Some(serde_json::json!({"keep": sentinel_entry()})),
+            &[SENTINEL],
         );
+        case.ready("keep");
         case.open();
         case.reread();
         case.keys([Input::Action(Action::Submit)]);
-        // The fixture's path is long: the row is cut inside the variable.
         let screen = case.screen();
-        assert!(screen.contains("'--path=${"), "{screen}");
-        assert!(!screen.contains(&value), "the menu printed the value");
+        assert!(screen.contains(": ${XFX_TEST_SENTINEL};"), "{screen}");
+        assert!(
+            !screen.contains(SENTINEL.1),
+            "the menu printed the value: {screen}"
+        );
+    }
+
+    #[test]
+    fn the_menu_shows_an_approved_project_servers_variables_as_written() {
+        // EPIC2-INT1 review: an approved `.mcp.json` entry is expanded
+        // before it is parsed, so its screen's `runs` and `http` rows were
+        // the values from the environment.
+        let mut case = McpCase::reading(
+            serde_json::json!({
+                "proj": sentinel_entry(),
+                "web": {"type": "http", "url": "http://127.0.0.1:9/mcp?k=${XFX_TEST_SENTINEL}"},
+            }),
+            None,
+            &[SENTINEL],
+        );
+        for name in ["proj", "web"] {
+            case.runtime
+                .submit(crate::mcp::runtime::Job::Command(format!("approve {name}")));
+        }
+        let _ = case.drained();
+        case.ready("proj");
+        for (at, row) in [
+            (0, ": ${XFX_TEST_SENTINEL};"),
+            (1, "/mcp?k=${XFX_TEST_SENTINEL}"),
+        ] {
+            case.open();
+            case.reread();
+            let keys: Vec<Input> = (0..at)
+                .map(|_| Input::Action(Action::Down))
+                .chain([Input::Action(Action::Submit)])
+                .collect();
+            case.keys(keys);
+            let screen = case.screen();
+            assert!(screen.contains(row), "{screen}");
+            assert!(
+                !screen.contains(SENTINEL.1),
+                "the menu printed the value: {screen}"
+            );
+            case.keys([Input::Action(Action::Cancel)]);
+        }
     }
 
     #[test]
@@ -14807,6 +14958,196 @@ mod tests {
         assert!(case.drained().is_empty());
         assert_eq!(case.files(), before, "a question nobody saw was answered");
         assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+    }
+
+    /// Every file a choice could write, as [`McpCase::files`] reads them.
+    type Files = Vec<(std::path::PathBuf, Option<Vec<u8>>)>;
+
+    /// A case whose profile server `keep` is asked Remove, the question
+    /// painted by a frame, and the profile as it was.
+    fn asked_to_remove_keep() -> (McpCase, Files) {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let before = case.files();
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+        (case, before)
+    }
+
+    /// One read of `events`, `after` the last.
+    fn one_read(case: &mut McpCase, after: Duration, events: Vec<Input>) {
+        case.clock += after;
+        case.shell.consume(events, case.clock);
+    }
+
+    /// The model's question: one, answered by Enter.
+    fn one_question() -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(7),
+            entries: vec![QuestionEntry {
+                question: "Go on?".to_string(),
+                options: vec![choice("Yes", None), choice("No", None)],
+            }],
+        }
+    }
+
+    fn still_asked(case: &McpCase) -> bool {
+        case.shell
+            .mcp_menu
+            .as_ref()
+            .map(super::super::mcp_menu::McpMenu::screen)
+            == Some(super::super::mcp_menu::Screen::Confirm(
+                super::super::mcp_menu::Choice::Remove,
+            ))
+    }
+
+    #[test]
+    fn the_full_transcript_over_a_question_leaves_it_unpainted_until_a_frame() {
+        // opus-Y: Ctrl-O and then, in one read, the key that closes the full
+        // transcript and an Enter: the transcript is closed but still on the
+        // screen, and the Enter answered with the frame from before Ctrl-O.
+        for closer in [Action::ToggleTranscript, Action::Cancel] {
+            let (mut case, before) = asked_to_remove_keep();
+            one_read(
+                &mut case,
+                Duration::from_secs(1),
+                vec![Input::Action(Action::ToggleTranscript)],
+            );
+            assert!(case.shell.full.is_open());
+            one_read(
+                &mut case,
+                Duration::from_secs(1),
+                vec![Input::Action(closer), Input::Action(Action::Submit)],
+            );
+            assert!(!case.shell.full.is_open(), "{closer:?} left it open");
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{closer:?}: answered unseen");
+            assert!(still_asked(&case), "{closer:?}");
+            // A frame paints it: then Enter answers.
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_secs(1),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_ne!(
+                case.files(),
+                before,
+                "{closer:?}: a painted question took no answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_model_question_over_the_menu_leaves_its_question_unpainted_until_a_frame() {
+        // opus-Y: the model's panel takes the menu's slot; answered, the menu
+        // is back, but no frame has painted its question since.
+        let (mut case, before) = asked_to_remove_keep();
+        case.shell.ask_question(one_question());
+        assert!(case.shell.ask.is_some());
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.shell.ask.is_none(), "Enter did not answer the panel");
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "answered under the panel's frame");
+        assert!(still_asked(&case));
+        // And Enter, Enter in one read, the panel over the question again.
+        case.shell.ask_question(one_question());
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit), Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(
+            case.files(),
+            before,
+            "Enter, Enter answered the panel and Remove"
+        );
+    }
+
+    #[test]
+    fn an_enter_another_surface_took_counts_for_the_held_rule() {
+        // opus-Y: the model's panel took an Enter and the menu's question was
+        // painted again; a second tap 200 ms later is a double tap, not an
+        // answer -- and it is said, once.
+        let (mut case, before) = asked_to_remove_keep();
+        case.shell.ask_question(one_question());
+        let _ = case.written();
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.shell.ask.is_none());
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_millis(200),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "a double tap answered Remove");
+        assert!(case.written().contains(MCP_ENTER_TOO_SOON));
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_millis(400),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_ne!(
+            case.files(),
+            before,
+            "an Enter past the window took no answer"
+        );
+    }
+
+    #[test]
+    fn a_tap_the_menu_swallowed_keeps_no_window_open_and_is_said_once() {
+        // opus-Y: every swallowed Enter restarted the window, so someone
+        // tapping because nothing happened was never answered, and nothing
+        // was said. A tap swallowed now leaves the window where the last
+        // Enter that counted put it; a key held down still keeps it open
+        // (`a_held_enter_after_a_choice_runs_reaches_no_other_question`).
+        let (mut case, before) = asked_to_remove_keep();
+        let _ = case.written();
+        for gap in [200, 180] {
+            one_read(
+                &mut case,
+                Duration::from_millis(gap),
+                vec![Input::Action(Action::Submit)],
+            );
+            let _ = case.screen();
+        }
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "a tap within the window answered");
+        assert_eq!(case.written().matches(MCP_ENTER_TOO_SOON).count(), 1);
+        // 600 ms after the Enter that asked.
+        one_read(
+            &mut case,
+            Duration::from_millis(220),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_ne!(case.files(), before, "a tap past the window was swallowed");
     }
 
     #[test]

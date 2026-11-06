@@ -798,6 +798,29 @@ impl std::fmt::Debug for McpRuntime {
 impl McpRuntime {
     /// A runtime over `paths`, with nothing loaded and nothing started.
     pub fn new(paths: Paths) -> Arc<Self> {
+        Self::reading(paths, Box::new(|name| std::env::var(name).ok()))
+    }
+
+    /// [`Self::new`], whose servers' `${VAR}` read `overrides` first and the
+    /// environment after: a test's own fake values, never the machine's.
+    #[cfg(test)]
+    pub(crate) fn with_environment(paths: Paths, overrides: &[(&str, &str)]) -> Arc<Self> {
+        let overrides: HashMap<String, String> = overrides
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        Self::reading(
+            paths,
+            Box::new(move |name| {
+                overrides
+                    .get(name)
+                    .cloned()
+                    .or_else(|| std::env::var(name).ok())
+            }),
+        )
+    }
+
+    fn reading(paths: Paths, environment: Box<Lookup>) -> Arc<Self> {
         Arc::new(Self {
             paths,
             state: Mutex::new(State {
@@ -820,7 +843,7 @@ impl McpRuntime {
             reload_wait: Mutex::new(STOP_WAIT),
             #[cfg(all(test, feature = "fault-injection"))]
             hold: Mutex::new(None),
-            environment: Box::new(|name| std::env::var(name).ok()),
+            environment,
         })
     }
 
@@ -2274,9 +2297,14 @@ fn prompt_value(text: &str) -> String {
 /// expanded (`config::expand_text`), and a shell expands them in double
 /// quotes -- with every other `$`, `"`, `\` and `` ` `` escaped, since
 /// nothing else in it is (opus-B, `c4d252f5`'s single quotes said the
-/// opposite); else single-quoted; else -- when it holds a control character
-/// -- ANSI-C quoted with the character spelled out, so the shown word means
-/// what the shell would be given.
+/// opposite), and each control character outside the expansions written as
+/// an ANSI-C piece of its own between the quoted ones (`"a"$'\u001B'"${X}"`,
+/// opus-X: inside the double quotes a spelled `\x1b` read as a backslash);
+/// else single-quoted; else -- when it holds a control character -- ANSI-C
+/// quoted with the character spelled out, so the shown word means what the
+/// shell would be given. A control character inside an expansion's default
+/// has no exact double-quoted spelling, and such a word is ANSI-C quoted
+/// whole: the byte exact, the expansion read as text.
 fn shell_word(word: &str) -> String {
     let bare = |byte: u8| byte.is_ascii_alphanumeric() || b"/._-+=:,@%".contains(&byte);
     if !word.is_empty() && word.bytes().all(bare) {
@@ -2290,33 +2318,30 @@ fn shell_word(word: &str) -> String {
     }
     let mut out = String::from("$'");
     for character in word.chars() {
-        match character {
-            '\\' => out.push_str(r"\\"),
-            '\'' => out.push_str(r"\'"),
-            '\n' => out.push_str(r"\n"),
-            '\t' => out.push_str(r"\t"),
-            '\r' => out.push_str(r"\r"),
-            other if other.is_control() => out.push_str(&format!("\\u{:04X}", u32::from(other))),
-            other => out.push(other),
-        }
+        ansi_c(character, &mut out);
     }
     out.push('\'');
     out
 }
 
+/// `character` as it is written inside `$'...'`.
+fn ansi_c(character: char, out: &mut String) {
+    match character {
+        '\\' => out.push_str(r"\\"),
+        '\'' => out.push_str(r"\'"),
+        '\n' => out.push_str(r"\n"),
+        '\t' => out.push_str(r"\t"),
+        '\r' => out.push_str(r"\r"),
+        other if other.is_control() => out.push_str(&format!("\\u{:04X}", u32::from(other))),
+        other => out.push(other),
+    }
+}
+
 /// `word` double-quoted, its expansions as they are and the rest escaped,
 /// when it holds an expansion `config::expand_text` would make; `None`
-/// otherwise.
+/// otherwise, and when a default holds a control character.
 fn expanded_word(word: &str) -> Option<String> {
-    let escape = |text: &str, out: &mut String| {
-        for character in text.chars() {
-            if matches!(character, '$' | '"' | '\\' | '`') {
-                out.push('\\');
-            }
-            out.push(character);
-        }
-    };
-    let mut out = String::from("\"");
+    let mut out = Pieces::default();
     let mut rest = word;
     let mut any = false;
     while let Some(start) = rest.find("${") {
@@ -2332,23 +2357,73 @@ fn expanded_word(word: &str) -> Option<String> {
         if !config::is_env_name(name) {
             break;
         }
-        any = true;
-        escape(&rest[..start], &mut out);
-        out.push_str("${");
-        out.push_str(name);
-        if let Some(default) = default {
-            out.push_str(":-");
-            escape(default, &mut out);
+        if default.is_some_and(|default| default.chars().any(char::is_control)) {
+            return None;
         }
-        out.push('}');
+        any = true;
+        out.text(&rest[..start]);
+        out.raw("${");
+        out.raw(name);
+        if let Some(default) = default {
+            out.raw(":-");
+            out.text(default);
+        }
+        out.raw("}");
         rest = &after[end + 1..];
     }
     if !any {
         return None;
     }
-    escape(rest, &mut out);
-    out.push('"');
-    Some(out)
+    out.text(rest);
+    Some(out.finish())
+}
+
+/// A word written as double-quoted pieces, and an ANSI-C piece for each
+/// control character between them: `"a"$'\u001B'"${X}"`.
+#[derive(Default)]
+struct Pieces {
+    out: String,
+    quoted: bool,
+}
+
+impl Pieces {
+    /// Text as a shell reads it back: `$`, `"`, `\` and `` ` `` escaped
+    /// inside the quotes, a control character outside them.
+    fn text(&mut self, text: &str) {
+        for character in text.chars() {
+            if character.is_control() {
+                if self.quoted {
+                    self.out.push('"');
+                    self.quoted = false;
+                }
+                self.out.push_str("$'");
+                ansi_c(character, &mut self.out);
+                self.out.push('\'');
+                continue;
+            }
+            if matches!(character, '$' | '"' | '\\' | '`') {
+                self.raw("\\");
+            }
+            let mut buf = [0u8; 4];
+            self.raw(character.encode_utf8(&mut buf));
+        }
+    }
+
+    /// `text` as it is, inside the quotes.
+    fn raw(&mut self, text: &str) {
+        if !self.quoted {
+            self.out.push('"');
+            self.quoted = true;
+        }
+        self.out.push_str(text);
+    }
+
+    fn finish(mut self) -> String {
+        if self.quoted {
+            self.out.push('"');
+        }
+        self.out
+    }
 }
 
 #[cfg(test)]
@@ -2549,6 +2624,24 @@ mod tests {
         assert_eq!(
             what_it_runs(&config),
             "url: https://example.test/mcp\n  header: X-A: static-secret\n  header: X-Team: ${TEAM}\n  header: Authorization: Bearer ${TOKEN}"
+        );
+    }
+
+    #[test]
+    fn a_control_character_beside_an_expansion_is_a_piece_of_its_own() {
+        // opus-X: inside the double quotes the escape a control character is
+        // spelled as read as a backslash. Beside an expansion it is an ANSI-C
+        // piece between quoted ones; inside a default, which has no exact
+        // double-quoted spelling, the word is ANSI-C quoted whole, as it was
+        // before the expansions were double-quoted.
+        let config = ServerConfig::local(
+            "p",
+            "/bin/node",
+            &["a\u{1b}${X}\nb".into(), "${Y:-d\u{1b}e}".into()],
+        );
+        assert_eq!(
+            what_it_runs(&config),
+            r#"command: /bin/node "a"$'\u001B'"${X}"$'\n'"b" $'${Y:-d\u001Be}'"#
         );
     }
 

@@ -12037,8 +12037,11 @@ mod tests {
             enter(&mut shell);
             enter(&mut shell);
             frame(&mut shell, &mut band, false);
-            assert!(
-                shell.band_rows().concat().contains("Remove keep from"),
+            let asked =
+                super::super::mcp_menu::Screen::Confirm(super::super::mcp_menu::Choice::Remove);
+            assert_eq!(
+                shell.mcp_screen(),
+                Some(asked),
                 "the question was never asked"
             );
             // Ctrl-O over it, and Ctrl-O back: the band that returns refused.
@@ -12058,8 +12061,11 @@ mod tests {
                 "the refused return gave the plane back"
             );
             enter(&mut shell);
-            assert!(
-                shell.band_rows().concat().contains("Remove keep from"),
+            // Read without composing a frame: `band_rows` would mark the
+            // question drawn, and the retry below would prove nothing (opus-Y).
+            assert_eq!(
+                shell.mcp_screen(),
+                Some(asked),
                 "a question no frame painted was answered (screen refuses: {screen_refuses})"
             );
             assert_eq!(
@@ -12070,8 +12076,9 @@ mod tests {
             frame(&mut shell, &mut band, false);
             assert!(!band.on_alternate(), "the retry never gave the plane back");
             enter(&mut shell);
-            assert!(
-                !shell.band_rows().concat().contains("Remove keep from"),
+            assert_ne!(
+                shell.mcp_screen(),
+                Some(asked),
                 "a painted question took no answer"
             );
         }

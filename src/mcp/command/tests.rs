@@ -74,11 +74,19 @@ impl Scratch {
 
     /// A runtime over this home, its startup load done.
     fn runtime(&self) -> Arc<McpRuntime> {
-        let runtime = McpRuntime::new(Paths {
-            profile: Some(self.profile()),
-            settings: Some(self.settings()),
-            workspace: self.root.join("work"),
-        });
+        self.runtime_reading(&[])
+    }
+
+    /// [`Self::runtime`], its servers' `${VAR}` reading `overrides` first.
+    fn runtime_reading(&self, overrides: &[(&str, &str)]) -> Arc<McpRuntime> {
+        let runtime = McpRuntime::with_environment(
+            Paths {
+                profile: Some(self.profile()),
+                settings: Some(self.settings()),
+                workspace: self.root.join("work"),
+            },
+            overrides,
+        );
         runtime.start_and_wait(Duration::from_secs(60));
         runtime.take_events();
         runtime
@@ -1304,6 +1312,16 @@ fn a_name_or_a_target_reaches_the_screen_spelled() {
     );
 }
 
+/// A fake value, set only in the runtime a case builds.
+const SENTINEL: (&str, &str) = ("XFX_TEST_SENTINEL", "fake-sentinel-7c4e");
+
+/// The fixture, run through a `-c` line whose third word is the variable.
+fn sentinel_entry() -> serde_json::Value {
+    serde_json::json!({"command": "/bin/sh", "args": [
+        "-c", ": ${XFX_TEST_SENTINEL}; exec /bin/sh \"$1\"", "sh", fixture(),
+    ]})
+}
+
 #[test]
 fn a_profile_servers_expanded_variable_is_shown_by_show_as_written() {
     // Epic 2's merge: MCP-C2 expands a profile server's `${VAR}` before it
@@ -1312,19 +1330,54 @@ fn a_profile_servers_expanded_variable_is_shown_by_show_as_written() {
     // menu print the running server's command line. Both print the entry as
     // its file has it, as they did before the profile was expanded (the
     // menu's case: `tui::shell::tests::the_menu_shows_a_profile_servers_variable_as_written`).
-    let value = std::env::var("PATH").expect("PATH is set");
     let scratch = Scratch::new();
     scratch.write_profile(
-        &serde_json::json!({"mcpServers": {"fixture": {
-            "command": "/bin/sh",
-            "args": [fixture(), "--path=${PATH}"],
-        }}})
-        .to_string(),
+        &serde_json::json!({"mcpServers": {"fixture": sentinel_entry()}}).to_string(),
     );
-    let runtime = scratch.runtime();
+    let runtime = scratch.runtime_reading(&[SENTINEL]);
     ready(&runtime, "fixture");
     let shown = said(&runtime, "show fixture").join("\n");
-    assert!(shown.contains("--path=${PATH}"), "{shown}");
-    assert!(!shown.contains(&value), "show printed the value");
+    assert!(shown.contains(": ${XFX_TEST_SENTINEL};"), "{shown}");
+    assert!(
+        !shown.contains(SENTINEL.1),
+        "show printed the value: {shown}"
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn an_approved_project_servers_variables_are_shown_as_written() {
+    // EPIC2-INT1 review: an approved `.mcp.json` entry is expanded before
+    // it is parsed, so `show`'s `command` and `url` rows and `approve`'s
+    // sentences printed the values from the environment. The server gets
+    // them; a screen shows the file's text (the menu's case:
+    // `tui::shell::tests::the_menu_shows_an_approved_project_servers_variables_as_written`).
+    let scratch = Scratch::new();
+    std::fs::write(
+        scratch.project(),
+        serde_json::json!({"mcpServers": {
+            "proj": sentinel_entry(),
+            "web": {"type": "http", "url": "http://127.0.0.1:9/mcp?k=${XFX_TEST_SENTINEL}"},
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let runtime = scratch.runtime_reading(&[SENTINEL]);
+    for name in ["proj", "web"] {
+        let answer = said(&runtime, &format!("approve {name}")).join("\n");
+        assert!(answer.contains("${XFX_TEST_SENTINEL}"), "{answer}");
+    }
+    ready(&runtime, "proj");
+    let mut shown = said(&runtime, "show proj").join("\n");
+    assert!(shown.contains(": ${XFX_TEST_SENTINEL};"), "{shown}");
+    shown.push_str(&said(&runtime, "show web").join("\n"));
+    assert!(
+        shown.contains("url        http://127.0.0.1:9/mcp?k=${XFX_TEST_SENTINEL}"),
+        "{shown}"
+    );
+    // `--all` names every server not rejected, approved ones included.
+    shown.push_str(&said(&runtime, "approve --all").join("\n"));
+    assert_eq!(shown.matches("which runs: ").count(), 1, "{shown}");
+    assert!(!shown.contains(SENTINEL.1), "a value was printed: {shown}");
     runtime.shutdown();
 }

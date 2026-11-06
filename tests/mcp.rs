@@ -85,13 +85,21 @@ fn close_the_menu(session: &mut Session) {
     }
 }
 
-/// A key the menu takes, and a moment for the frame it asks for. An Enter
-/// waits past the 500 ms in which a second Enter reads as the first one held
-/// down and answers no question (`MCP_ENTER_HELD`).
+/// A key the menu takes, and a moment for the frame it asks for.
 fn press(session: &Session, key: &[u8]) {
     session.type_bytes(key);
-    let settle = if key == ENTER { 700 } else { 300 };
-    std::thread::sleep(std::time::Duration::from_millis(settle));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+}
+
+/// Enter, yes to `question` once the screen shows it after byte `from` of
+/// the session's output: 600 ms after the question is on the screen, past
+/// the 500 ms in which an Enter after the one that asked is that one held
+/// down and answers nothing (`MCP_ENTER_HELD`) -- counted from the screen,
+/// not from when the earlier Enter was typed (opus-Y).
+fn answer(session: &Session, from: usize, question: &str) {
+    session.wait_until(question, |text| text[from..].contains(question));
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    press(session, ENTER);
 }
 
 const DOWN: &[u8] = b"\x1b[B";
@@ -299,9 +307,9 @@ fn a_project_server_waits_unasked_and_the_menu_rejects_it_into_settings() {
     session.wait_for("xfx won't start it in this project.");
     // A letter at the question is a no, and reaches nothing else.
     press(&session, b"x");
+    let from = session.text().len();
     press(&session, ENTER);
-    session.wait_for_count("start it in this project.", 2);
-    press(&session, ENTER);
+    answer(&session, from, "start it in this project.");
     let saved = || -> Value {
         std::fs::read_to_string(sandbox.home.join(".xfx/settings.json"))
             .ok()
@@ -376,10 +384,10 @@ fn a_project_server_the_model_rewrites_after_approval_waits_to_be_approved_again
     session.wait_for("proj is waiting for approval \u{b7} /mcp");
     session.type_bytes(b"/mcp\r");
     session.wait_for("Needs attention");
+    let from = session.text().len();
     press(&session, ENTER);
     press(&session, ENTER);
-    session.wait_for("Approve proj for this project? It runs:");
-    press(&session, ENTER);
+    answer(&session, from, "Approve proj for this project? It runs:");
     // Approved and up: its tools load on its screen.
     session.wait_for("Tools 1");
     close_the_menu(&mut session);
@@ -419,8 +427,9 @@ fn a_project_server_the_model_rewrites_after_approval_waits_to_be_approved_again
     // Not approved: Esc goes back, and Reject rejects it.
     press(&session, b"\x1b");
     press(&session, DOWN);
+    let from = session.text().len();
     press(&session, ENTER);
-    press(&session, ENTER);
+    answer(&session, from, "start it in this project.");
     let saved = || -> Value {
         std::fs::read_to_string(sandbox.home.join(".xfx/settings.json"))
             .ok()
