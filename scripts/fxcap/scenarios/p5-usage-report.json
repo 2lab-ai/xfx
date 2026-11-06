@@ -1,0 +1,39 @@
+{
+ "/v1/report": {
+  "byRange": {
+   "2026-10-12..2026-10-12": [
+    {
+     "model": "anthropic/claude-opus-5",
+     "request_count": 13,
+     "input_tokens": 56000,
+     "output_tokens": 3300,
+     "cached_input_tokens": 32000,
+     "cache_creation_input_tokens": 2000,
+     "reasoning_tokens": 1000,
+     "total_cost": 0.461,
+     "cache_hit_pct": 76.9,
+     "http_failure_pct": 0,
+     "malformed_response_pct": 0,
+     "p90_ttft_ms": 1800,
+     "p90_tps": 60
+    },
+    {
+     "model": "fake/model-a",
+     "request_count": 3,
+     "input_tokens": 12000,
+     "output_tokens": 800,
+     "cached_input_tokens": 4000,
+     "cache_creation_input_tokens": 0,
+     "reasoning_tokens": 0,
+     "total_cost": 0.0125,
+     "cache_hit_pct": 33.3,
+     "http_failure_pct": 0,
+     "malformed_response_pct": 0,
+     "p90_ttft_ms": 920,
+     "p90_tps": 88
+    }
+   ]
+  },
+  "delayMs": 3000
+ }
+}

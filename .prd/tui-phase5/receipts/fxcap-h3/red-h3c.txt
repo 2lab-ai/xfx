@@ -1,0 +1,25 @@
+# H3c demonstrations at 8b9da914.
+# 1. smoke.sh on a copy of target/release/xfx at mode 0111 (executable, unreadable):
+#    section 0 reports that the scan could not run. RED: 69985f92's smoke.sh on the same
+#    file (run beside it) printed "FAIL  the binary carries a test-only variable name, so
+#    it reads it: " with an empty report (python's uncaught PermissionError, exit 1).
+# 2. On a git clone --no-local (removed after), the FIFO test with a reader thread that
+#    panics before it sends (recv_timeout answers Disconnected at once):
+#    (a) H3b's cleanup, a blocking write open: the test hangs in the cleanup until
+#        timeout 120 ends it (exit 124, no result line; libtest: running for over 60 s);
+#    (b) H3c's cleanup, O_NONBLOCK: ENXIO at once, the test fails in 0.01 s.
+#    The failure text then said "in 10 s"; b2f3e3bd changes it to "within 10 s".
+
+== unreadable binary: mode 111
+smoke exit=1
+0. test-only names in the shipped bytes
+  FAIL  the byte scan could not run: could not read the binary: [Errno 13] Permission denied: '<tmp>/h3c-bin/xfx'
+47 check(s), 1 failure(s)
+== clone at 8b9da914, git dir .git
+== (a) blocking cleanup, reader dead:  1 file changed, 3 insertions(+), 5 deletions(-)
+exit=124 after 120s (build included); 
+left running from (a): none
+== (b) non-blocking cleanup, reader dead:  1 file changed, 2 insertions(+), 1 deletion(-)
+exit=101 after 7s (build included); reading the clock from a FIFO with no writer did not answer in 10 s (Disconnected) test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3678 filtered out; finished in 0.01s 
+== done
+exit=0

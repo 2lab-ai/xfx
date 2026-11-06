@@ -1,17 +1,28 @@
-# p5 usage (v0.0.16 only): twelve models this month from a seeded cache
-# (p5-usage-mkcache.py): the ten-row cap, the "N more" row, the window
-# following the selection down and back, at this terminal's height.
+# p5 usage (v0.0.16): twelve models this month (p5-usage-mkcache.py), and
+# today's two from the report, under the pinned clock (2026-10-12 15:30 UTC):
+# the ten-row cap, the "N more" row, the window following the selection down
+# and back, at this terminal's height (usage_presentation.zig:19,
+# :718-748@481104fd).
+clock 1791819000000
 fx: homefile .fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache-many.json
+xfx: homefile .xfx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache-many.json
+usage p5-usage-report.json
 models models.json
 wait 2.5
 type /usage
 key Enter
-wait 3
+wait 4.5
 snap open
 key Down Down Down Down Down Down Down Down Down Down Down
 wait 0.7
 snap bottom
-key Up Up Up Up Up Up Up Up Up Up Up
+key Down Down Down
+wait 0.7
+snap last
+key Up Up Up Up Up Up Up Up Up Up Up Up Up Up
 wait 0.7
 snap top
 key Escape
+wait 0.5
+snap closed
+gwlog
