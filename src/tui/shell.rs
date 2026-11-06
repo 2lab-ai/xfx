@@ -23558,9 +23558,7 @@ mod tests {
         shell.route_bytes(b"/permissions\r");
         assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
         std::fs::remove_file(&rules).expect("the store gone");
-        let status = std::process::Command::new("mkfifo")
-            .arg(&rules)
-            .status()
+        let status = crate::process::status(std::process::Command::new("mkfifo").arg(&rules))
             .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
 
@@ -36895,9 +36893,7 @@ mod tests {
         std::thread::spawn(move || {
             let mut shell = attaching();
             let fifo = shell.workspace.join("x.png");
-            let status = std::process::Command::new("mkfifo")
-                .arg(&fifo)
-                .status()
+            let status = crate::process::status(std::process::Command::new("mkfifo").arg(&fifo))
                 .expect("run mkfifo");
             assert!(status.success(), "mkfifo failed: {status:?}");
             path_tx.send(fifo).expect("the path");

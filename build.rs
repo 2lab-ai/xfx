@@ -10,6 +10,14 @@
 //! The rules themselves live in `src/build_meta.rs` and are included rather
 //! than imported, because a build script cannot depend on the crate it builds.
 //! That file is where their tests are.
+//!
+//! The library starts every child under one lock (`src/process.rs`,
+//! `clippy.toml`); a build script cannot reach it, and needs none: it is a
+//! process of its own that starts one `git` at a time from its one thread.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "a build script is its own single-threaded process and cannot reach the library's start lock"
+)]
 
 use std::process::Command;
 
