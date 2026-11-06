@@ -121,3 +121,26 @@ At `4227a0b3` (the receipt commit changes no code):
 | `cargo test --locked --no-fail-fast` | 4559 passed, 0 failed, 7 ignored |
 | `cargo test --locked --features fault-injection --no-fail-fast` | 4580 passed, 0 failed, 7 ignored |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
+
+## MCP-Sb (review round, `c729f5fd`)
+
+Two engines reviewed `af2c3fbc`; their findings and what was done:
+
+| finding | fix | RED on `af2c3fbc` | pin |
+|---|---|---|---|
+| a try's connection was local to `open()`, so a reload that dropped or replaced a server mid-handshake, or the session's end, left its process running until its startup timeout -- beside its replacement | the connection is the server's as soon as it starts (`Live::starting`); `stop()` closes it and waits out a try handing its process over (`Live::opening`, ≤ 3.5 s); the stopped check and the publish share the lock a stop takes -- fx's `Engine.stopping` / `Engine.deinit` (`src/mcp/engine.zig:145-161`, `:194-199@481104fd`) | `the old server outlived the reload that dropped it`; `removed, still running` | `a_server_held_mid_handshake_is_gone_before_its_replacement_starts` (the replacement itself reports `gone`), `…_when_a_reload_removes_it_or_the_session_ends` (pid and group) |
+| a resource or prompt read during a startup backoff answered from default capabilities | `feature_server` waits through `Retrying` as through `Connecting` | `Named("McpResourcesUnsupported")` | `a_feature_request_during_a_startup_backoff_waits_for_the_next_try` |
+| `/mcp reload` says `MCP reconnection started.` and kept a failed server failed | fx v0.0.16 has no reload verb (`verbs.zig:70`); the c1db9191 verb and the menu's `r` now also start a failed server again (`McpRuntime::reconnect`); reloads after add, remove and trust keep fx's config-only rule | -- | `an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not` |
+| `worth_retrying` unpinned | -- | -- | `a_server_that_answers_401_is_asked_once_and_needs_a_login` |
+| `exit_of`'s `NOWAIT` unpinned | -- | removing `NOWAIT` fails it | `a_servers_exit_is_read_without_collecting_it_and_close_collects_it_and_its_group` |
+| per-line cut indistinguishable from the whole cut | -- | removing the per-line cut fails it | `HEAD…TAIL` sentinel in `a_failure_quotes_the_last_three_stderr_lines_…`; `a_servers_hostile_stderr_reaches_capability_search_spelled_and_bounded` (a real child) |
+| stderr now reaches the model | recorded in `docs/parity.md` (`MCP client runtime`), with fx's same path: `unavailableText`, `src/core/mcp_host/model.zig:705-711`; `lastError`, `runtime.zig:1281`, `:2020-2036@481104fd` | -- | the `capability_search` case above |
+
+Re-taken at `c729f5fd`: `p5-mcp-failed` ×4 and `p5-mcp-fail startup` still 0
+rows from fx; `dismiss` ×2 status row still identical.
+
+Gates at `c729f5fd`: fmt, both clippy runs ok; `cargo test` 4566 passed / 0
+failed / 7 ignored, with `fault-injection` 4587 / 0 / 7; identity, no-stubs,
+no-secrets ok; release and faulty release builds ok; `scripts/smoke.sh` 46
+checks, 0 failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios +
+the oracle, 1091 checks, 0 failures.
