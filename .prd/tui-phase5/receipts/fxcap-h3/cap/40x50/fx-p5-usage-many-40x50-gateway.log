@@ -1,0 +1,5 @@
+[fakegw] listening 57633
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=789ms -> 200 at=790ms headers=authorization
+[fakegw] usage /v1/report -> 200 rows=2 held 3000ms
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=3325ms -> 200 at=6328ms headers=authorization

@@ -1,0 +1,39 @@
+# H3b demonstrations, on a git clone --no-local of feat/p5-fxcap-h3 at 220f8acd under the
+# harness temp folder, each build in the clone's own target dir (never the worktree).
+# S1: main() calls xfx::usage::clock::now_ms() (black_box), as US-U3 will; smoke.sh on the
+#     debug build fails section 0, on the release build passes it.
+# S2: S1 plus every cfg(debug_assertions) removed from clock.rs above its tests: the release
+#     build carries the name and smoke.sh fails it.
+# S3: O_NONBLOCK removed: the FIFO test fails at its 10 s deadline instead of hanging.
+# S4: the regular-file check removed: the pipe holding a time is read as the clock.
+# The head's own builds carry the name in neither profile today (nothing calls now_ms yet):
+# smoke.sh section 0 passes on both, 47 checks 0 failures each. On /usr/bin/true it fails
+# closed: the byte scan proved nothing: the scan did not find XFX_GATEWAY_URL.
+
+clone at 220f8acd, git dir .git
+== S1 reached:  1 file changed, 1 insertion(+)
+debug bytes: 1
+smoke reached-debug: exit=1;   FAIL  the binary carries a test-only variable name, so it reads it: found XFX_E2E_USAGE_CLOCK_FILE
+47 check(s), 1 failure(s)
+release bytes: 0
+smoke reached-release: exit=0;   ok    the binary carries no test-only variable name: XFX_E2E_USAGE_CLOCK_FILE (11329664 bytes, XFX_GATEWAY_URL found)
+47 check(s), 0 failure(s)
+removed 5 gate attributes
+== S2 reached + ungated:  2 files changed, 1 insertion(+), 5 deletions(-)
+release bytes: 1
+smoke ungated-release: exit=1;   FAIL  the binary carries a test-only variable name, so it reads it: found XFX_E2E_USAGE_CLOCK_FILE
+47 check(s), 1 failure(s)
+90:        options.custom_flags(libc::O_NONBLOCK);
+== S3 no O_NONBLOCK:  1 file changed, 1 deletion(-)
+test usage::clock::tests::a_fifo_a_pipe_or_a_device_is_the_system_clock_and_never_blocks ... FAILED
+thread 'usage::clock::tests::a_fifo_a_pipe_or_a_device_is_the_system_clock_and_never_blocks' (<tid>) panicked at src/usage/clock.rs:215:17:
+reading the clock from a FIFO with no writer blocked for 10 s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3678 filtered out; finished in 10.01s
+S3 took 39s (build included)
+== S4 no is_file:  1 file changed, 3 deletions(-)
+test usage::clock::tests::a_fifo_a_pipe_or_a_device_is_the_system_clock_and_never_blocks ... FAILED
+thread 'usage::clock::tests::a_fifo_a_pipe_or_a_device_is_the_system_clock_and_never_blocks' (<tid>) panicked at src/usage/clock.rs:223:9:
+a pipe holding a time
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3678 filtered out; finished in 0.00s
+== done
+exit=0

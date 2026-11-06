@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+──────────────────────────────────────────────────
+usage: API key (AI_…WAY_API_KEY)  updated just now
+
+period        spent  requests  tokens
+today       $0.4735        16    110K
+7d           $42.47        62    4.3M
+month        $78.47       202    8.0M
+
+  model (month)                    spent  requests
+❯ vendor-00/mod…-long-name-00     $12.00        10
+  vendor-01/mod…-long-name-01     $11.00        11
+  vendor-02/mod…-long-name-02     $10.00        12
+  vendor-03/mod…-long-name-03      $9.00        13
+  vendor-04/mod…-long-name-04      $8.00        14
+  vendor-05/mod…-long-name-05      $7.00        15
+  vendor-06/mod…-long-name-06      $6.00        16
+  vendor-07/mod…-long-name-07      $5.00        17
+  vendor-08/mod…-long-name-08      $4.00        18
+  vendor-09/mod…-long-name-09      $3.00        19
+  4 more                           $3.47        57
+──────────────────────────────────────────────────
+↑↓ model  enter detail  tab period  r refresh  esc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

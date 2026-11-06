@@ -1,0 +1,5 @@
+{
+ "/v1/report": {
+  "body": "<html>not a report</html>"
+ }
+}
