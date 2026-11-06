@@ -350,7 +350,7 @@ in 5.8 s, peak 99 MiB) and passes on the head.
 - 1: `server_screen` saturates (`count.saturating_sub(1)`, `lines.saturating_sub(1)`) and composes no line for a panel of the title alone, and `rows` forgets what it drew whenever it cuts a composed row away. Each alone keeps the question undrawn; the test fails only with all three reverted.
 - 2: `shell_word`'s double-quoted form writes each control character outside the expansions as an ANSI-C piece between quoted ones; a control character inside a default, which has no exact double-quoted spelling, ANSI-C quotes the word whole, as before MCP-Mc.
 - 3: `open_full_transcript` and `ask_question` forget what the menu drew.
-- 4: every Enter while the menu is up counts for `MCP_ENTER_HELD`, whichever surface takes it (`McpEnters`). A swallowed Enter keeps the window open only when it comes within 150 ms of the one before (`MCP_ENTER_REPEAT`): a key held down, or a burst. A tap does not -- the brief asked that no swallow restart the window, and taken literally that would let a key held past 500 ms answer (the held test, `a_held_enter_after_a_choice_runs_reaches_no_other_question`, fails on that mutant). A swallow is said once until an Enter counts again: `That Enter came too soon after the last one to answer the question: press Enter again to answer it.`
+- 4: every Enter while the menu is up counts for `MCP_ENTER_HELD`, whichever surface takes it (`McpEnters`). A swallowed Enter keeps the window open only when it comes within 150 ms of the one before (`MCP_ENTER_REPEAT`): a key held down, or a burst. A tap does not -- the brief asked that no swallow restart the window, and taken literally that would let a key held past 500 ms answer (the held test, `a_held_enter_after_a_choice_runs_reaches_no_other_question`, fails on that mutant). A swallow is said once until an Enter counts again. (Superseded by MCP-Me R2, below: every Enter now holds the window.)
 - 5: Remove's question keeps ` from FILE?` whole and shortens the name; where not even one cell of the name fits beside it (under 42 columns for `~/.xfx/mcp.json`, 36 for `.mcp.json`), Enter says `xfx couldn't show which file Remove X acts on at this width, so nothing was removed.` and the question stays up for a frame that draws it whole. Reject's names no file and is cut as before.
 - 8: `load_workspace` keeps an approved entry's command, arguments and URL as the file has them (`Written::of`); `show`'s `command` and `url` rows, the menu's `runs` and `http` rows and `approve`'s sentences read them (`shown_command`, `shown_url`). The server is given the expanded values, as before.
 
@@ -392,6 +392,117 @@ faulty release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios +
 the oracle, 1091 / 0; `tests/permissions.rs`
 `a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
 alone 3 of 3 (0.34-0.35 s).
+
+## MCP-Me: the skills flake, and MCP-Md's two regressions
+
+**The flake.** `tui::shell::tests::a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu`
+failed now and then under the full suite (`a word no skill matches showed
+the menu`, `shell.rs:37939` on `1db520e1`). It is not load and not MCP-M:
+
+- The case types `$zz` (`shell.rs:37937`) and asserts no `Skills ` heading. A
+  `$` search ranks a skill by its name, description, source and **path**
+  (`rank`, `src/tui/skills_menu.rs:149-170`, the path at `:165`), and shows
+  the menu while anything ranks (`visible`, `:377`).
+- The fixture's skills live under `tempfile::tempdir()` (`skilled_at`,
+  `shell.rs:37798-37799`): `.tmp` and six random letters and digits
+  (`tempfile` 3.27.0, `NUM_RAND_CHARS = 6`, `rng.alphanumeric()`). The match
+  is case-blind, so a root whose name holds `zz` in any case -- p = 0.0051 by
+  a two-state count over the six characters -- puts both skills on the menu.
+  The product is right; the case's word was not one nothing matches.
+- Attribution. The full lib suite with fault-injection, ten times each, one
+  at a time, `TMPDIR=/private/tmp/claude-501/fi`: `6df717af` (the MCP-V base
+  MCP-M started from) 0 of 10, `1db520e1` 0 of 10. The case alone, 1500
+  times each, no other load: `6df717af` 6 of 1500, `1db520e1` 6 of 1500
+  (0.40 %, against 0.51 % predicted), every failing root holding `zz`:
+  `.tmpmUN5Zz`, `.tmpzZ5pYc`, `.tmpZZIA94`, `.tmpRZlZzH`, `.tmpD2ZzrE`,
+  `.tmpLZZMlS` on the base; `.tmp2NUZzX`, `.tmp0z3zzS`, `.tmpIK7rZz`,
+  `.tmpazzTg7`, `.tmpzzZ8HO`, `.tmp7XHfzz` on the head.
+- Deterministic RED on `1db520e1`: the fixture's root named `.tmpzZ…` -- 3 of
+  3 runs fail at `shell.rs:37939` with the same sentence.
+- Fix (the test's): the word is `z:` -- `:` is in no `tempfile` name -- the
+  case first asserts no skill's name, description, source or path holds it,
+  and it runs twice, the second time in a root named `.tmpzZ…`
+  (`skilled_under`). With the word put back to `zz`, that second run fails at
+  once (mutant on the clone).
+- 30 full-suite fault-injection runs in a row, one at a time: on `209d3ab5`, 30 of 30 passed (`test result: ok. 3831 passed`, 12-14 s each), the skills case ok in every one. The first series, on `c142070f`, passed the skills case 26 of 26 and stopped at run 26 on the flake below.
+
+**A second flake the 30 runs found: an MCP server's start that never
+returned.** The first series stopped at run 26 on
+`mcp::tests::a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did`
+(`nul never settled`, `src/mcp/tests.rs:85`, after the 60 s wait). Alone it
+failed often (a stuck run in 1-5 tries at times, none in 30 at others):
+- A stuck run, sampled (`sample`): the server's `xfx-mcp-connect` thread
+  blocked in `std::process::Command::spawn` -> `read`, from
+  `StdioTransport::spawn` (`src/mcp/transport.rs:263`, called from
+  `McpRuntime::open_as`, `runtime.rs:1357`) -- the parent's read of the pipe
+  that says whether `exec` worked. Every server's process was up.
+  `lsof`: a sibling server (`refusing.sh`) held both ends of that pipe as
+  its fds 57 and 58.
+- Why: macOS has no `pipe2`, so std makes each pipe a start uses with
+  `pipe` and marks it close-on-exec after (`library/std/src/sys/pal/unix/pipe.rs`,
+  Rust 1.99), and `process::command`'s signal reset is a `pre_exec`
+  (`src/process.rs`, `261f2c4b`), which puts every start on the `fork` path
+  and its status-pipe read. A `fork` from a start on another thread in that
+  window gives its child the pipe; an MCP server runs all session, so the
+  start never returns and the server stays "connecting". Older than MCP-M;
+  in the product, any two starts at once -- the MCP servers a session
+  starts, one thread each, or a terminal command beside them.
+- Fix: `process::spawn` takes one lock for the start alone, and every start
+  in the library goes through it -- MCP stdio and `docker rm`, the terminal
+  tool, the clipboard, `git ls-files`, `git config`;
+  `process::tests::no_child_process_is_made_any_other_way` now also refuses a
+  `spawn()`, or a `status()`/`output()` on a command, that does not.
+- RED/GREEN: `process::tests::children_started_at_once_never_hold_up_one_anothers_start`
+  (16 `sleep 30` at once, stdio piped as an MCP server's, 30 rounds) fails 3
+  of 3 with the lock taken out (clone) and passes with it; an MCP start put
+  back on `spawn()` fails the lint. The MCP case alone, 200 runs on the
+  fixed head: 0 stuck; on `c142070f`, 2 of 40 stuck (each `tests.rs:85` after its 60 s).
+
+**R1 (opus-Md): a control byte in one default made the whole word literal.**
+`expanded_word` gave up on a default holding one, and `shell_word` ANSI-C
+quoted the word, so `${T}` beside `${Z:-<ESC>}` read as text while xfx
+expands it. The byte now stays inside the double quotes for the row's own
+spelling, as `08368feb` had it; beside an expansion it is still an ANSI-C
+piece. `mcp::runtime::tests::a_control_character_beside_an_expansion_is_a_piece_of_its_own`
+(a `${T}${Z:-\x1b}` case added): on `1db520e1` `… $'${Y:-d\u001Be}' $'${T}${Z:-\u001B}'`,
+on the head `… "${Y:-d\x1be}" "${T}${Z:-\x1b}"`.
+
+**R2 (opus-Md): a slow key repeat answered.** MCP-Md put the window back on a
+swallowed Enter 150 ms or more after the one before, so a repeat slower than
+that read as taps and answered about 500 ms after the question. Every Enter
+now holds the window, swallowed or not (`McpEnters`: one timestamp and the
+said flag); the swallow is said once, `That Enter came too soon after the
+last one to answer the question: wait a moment, then press Enter.` (this
+supersedes MCP-Md's item 4 above). Pinned by
+`a_held_enter_after_a_choice_runs_reaches_no_other_question` holding Enter
+40 times at 200 ms (on `1db520e1`: the 200 ms run fails at
+`assert!(case.drained().is_empty())`, the 40 ms one passes) and
+`a_swallowed_enter_keeps_the_window_open_and_is_said_once` (on `1db520e1`:
+`an Enter within the window answered`).
+
+**Edge (opus-Md): a bare `…` counted as a name.** Remove's question is whole
+only when the name keeps its first character beside the `…`, or fits whole
+(a one-character name in one cell). `tui::mcp_menu::tests::a_name_cut_to_its_ellipsis_alone_is_not_a_question_drawn_whole`
+(42 columns: `"› Remove … from ~/.xfx/mcp.json?   yes  no"` on `1db520e1`, cut
+and refused on the head; 43 columns `Remove n… from`, and `q` at 42, answered).
+
+Each fix removed on the clone (`mutants_me.py`, 5 mutants, and `mutants_me2.py`, 2 for the spawn lock): every one caught.
+`docs/parity.md` `/mcp`: the double-quoted spelling with the ANSI-C pieces
+and the default's byte; the held rule counting every Enter, the swallow said
+once, the forgets on the full transcript and the model's panel.
+
+MCP-Me gates on `209d3ab5`, one run (the receipt commit after it changes
+this directory only): fmt ok; clippy ok, both feature sets; `cargo test` 4699
+/ 0 (lib 3823; `mcp::tests` 45, `mcp::config::tests` 59, `tests/mcp.rs` 5);
+`--features fault-injection` 4728 / 0 (lib 3838, `mcp::tests` 53); identity,
+stubs, secrets ok (7298 files); release and faulty release builds ok;
+`smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios + the oracle, 1091 / 0;
+`tests/permissions.rs`
+`a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
+alone 3 of 3 (0.31-0.33 s).
+
+**The pairs.** Every `p5-mcp-*` scenario at 40x120 on the MCP-Me build
+(debug): 85 of 146, every pair's verdict as on MCP-Md's.
 
 ## smoke-tui and the pty cases
 
