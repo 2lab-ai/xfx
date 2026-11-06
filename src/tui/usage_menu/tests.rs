@@ -668,6 +668,10 @@ fn settled(dashboard: &mut crate::usage::dashboard::Dashboard) -> Snapshot {
     }
 }
 
+/// One state the runtime is driven into: its name, what the Gateway answers
+/// (none: nothing listens), and the status it ends in.
+type Case<'a> = (&'a str, Option<(u16, String)>, Status);
+
 #[test]
 fn no_screen_the_runtime_reaches_names_the_key() {
     // S3 through the production path: a question carrying a sentinel key,
@@ -706,7 +710,7 @@ fn no_screen_the_runtime_reaches_names_the_key() {
     let echo = |name: &str| {
         format!(r#"{{"results":[{{"model":"{name}","request_count":1,"total_cost":0.1}}]}}"#)
     };
-    let cases: [(&str, Option<(u16, String)>, Status); 9] = [
+    let cases: [Case<'_>; 9] = [
         ("ready", Some((200, report.to_string())), Status::Ready),
         (
             "401",
