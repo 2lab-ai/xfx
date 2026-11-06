@@ -721,38 +721,6 @@ mod fs {
         decode(identity, &bytes).map_or(Load::Unusable, Load::Found)
     }
 
-    /// Test-only: what runs between a load's size check and its read, and how
-    /// many bytes the read took, per thread. Compiled only into tests.
-    #[cfg(test)]
-    pub(super) mod seam {
-        use std::cell::{Cell, RefCell};
-
-        thread_local! {
-            static AFTER_STAT: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
-            static READ: Cell<Option<usize>> = const { Cell::new(None) };
-        }
-
-        /// Runs `hook` in this thread's next load, after the size check.
-        pub(in super::super) fn on_after_stat(hook: impl FnOnce() + 'static) {
-            AFTER_STAT.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
-        }
-
-        /// How many bytes this thread's last load read, once.
-        pub(in super::super) fn last_read() -> Option<usize> {
-            READ.with(Cell::take)
-        }
-
-        pub(super) fn after_stat() {
-            if let Some(hook) = AFTER_STAT.with(|slot| slot.borrow_mut().take()) {
-                hook();
-            }
-        }
-
-        pub(super) fn read(len: usize) {
-            READ.with(|read| read.set(Some(len)));
-        }
-    }
-
     /// At most one byte past [`MAX_FILE_BYTES`] of `file`: bounded again as it
     /// is read, in case it grew after its size was looked at.
     pub(super) fn read_capped(file: File) -> io::Result<Vec<u8>> {
@@ -941,6 +909,38 @@ mod fs {
         let entry = decode(identity, &bytes).ok_or(StoreError::Invalid)?;
         replace(&dir, identity, &bytes)?;
         Ok(entry)
+    }
+
+    /// Test-only: what runs between a load's size check and its read, and how
+    /// many bytes the read took, per thread. Compiled only into tests.
+    #[cfg(test)]
+    pub(super) mod seam {
+        use std::cell::{Cell, RefCell};
+
+        thread_local! {
+            static AFTER_STAT: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+            static READ: Cell<Option<usize>> = const { Cell::new(None) };
+        }
+
+        /// Runs `hook` in this thread's next load, after the size check.
+        pub(in super::super) fn on_after_stat(hook: impl FnOnce() + 'static) {
+            AFTER_STAT.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        }
+
+        /// How many bytes this thread's last load read, once.
+        pub(in super::super) fn last_read() -> Option<usize> {
+            READ.with(Cell::take)
+        }
+
+        pub(super) fn after_stat() {
+            if let Some(hook) = AFTER_STAT.with(|slot| slot.borrow_mut().take()) {
+                hook();
+            }
+        }
+
+        pub(super) fn read(len: usize) {
+            READ.with(|read| read.set(Some(len)));
+        }
     }
 }
 
