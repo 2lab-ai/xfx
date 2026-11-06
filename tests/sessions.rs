@@ -1558,7 +1558,7 @@ impl Sandbox {
             command.env(key, value);
         }
         command.args(args);
-        Run::of(command.output().expect("spawn xfx"))
+        Run::of(xfx::process::output(&mut command).expect("spawn xfx"))
     }
 }
 

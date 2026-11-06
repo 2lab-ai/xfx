@@ -403,7 +403,8 @@ fn walk(
 fn ls_files(root: &Path, git: &Path, args: &[&str], stop: &AtomicBool) -> Option<String> {
     // `core.fsmonitor` is a command `ls-files` runs from the repository's
     // configuration when it reads the index; the listing does not need it.
-    let mut child = crate::process::command(git)
+    let mut command = crate::process::command(git);
+    command
         .args(["-c", "core.fsmonitor=false"])
         .arg("--no-optional-locks")
         .arg("ls-files")
@@ -412,9 +413,8 @@ fn ls_files(root: &Path, git: &Path, args: &[&str], stop: &AtomicBool) -> Option
         .current_dir(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    let mut child = crate::process::spawn(&mut command).ok()?;
     let mut raw = Vec::new();
     let read = child
         .stdout
@@ -1353,15 +1353,16 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
         let run = |args: &[&str]| {
-            let status = Command::new(&git)
-                .args(args)
-                .current_dir(root)
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .expect("git runs");
+            let status = crate::process::status(
+                Command::new(&git)
+                    .args(args)
+                    .current_dir(root)
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null()),
+            )
+            .expect("git runs");
             assert!(status.success(), "git {args:?}");
         };
         run(&["init", "--quiet"]);

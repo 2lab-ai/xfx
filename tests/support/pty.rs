@@ -262,7 +262,7 @@ impl Session {
                 });
             }
         }
-        let child = command.spawn().expect("spawn xfx on the pty");
+        let child = xfx::process::spawn(&mut command).expect("spawn xfx on the pty");
 
         let master = Arc::clone(&pty.master);
         let output = Arc::new(Mutex::new(Vec::new()));
