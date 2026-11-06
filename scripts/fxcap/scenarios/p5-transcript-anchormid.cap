@@ -1,13 +1,16 @@
-# Phase 5 transcript research: the Ctrl-O reading position across a page
-# rebuild (026a8f4e, b1a53b01). Five reads make a document taller than the
-# screen; then a command whose heading wraps to two rows while it is
-# `Running` and fits one as `Ran`. Ctrl-O while it runs, a page up so the
-# view stops following, then the same view after the command settles: its
-# heading loses a row, a `* network:` record lands above the view, and the
-# answer lands below. One page up only: the view sits mid-document.
-gateway p5-transcript-anchor-turns.json
+# Phase 5 T-U2 (the Ctrl-O reading position across a page rebuild, fx
+# 026a8f4e, b1a53b01), mid-document: p5-transcript-anchor with one page up
+# only. While the view is up, the command settles (its heading loses a row),
+# a `* network:` record lands above the view and the answer lands below; row
+# 1 of `full-pgup` and `full-pgup-after` says whether the view held. `end` is
+# Ctrl-O again at the tail, where the settled `Ran` heading fits one row.
+# fx's `shell`/`run` is xfx's `terminal`/`exec`; TZ=UTC on both (T-U5).
+fx: gateway p5-transcript-anchor-turns.json
+xfx: gateway p5-transcript-anchor-xfx.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
 work p5-transcript-ws
 wait 4
 type read and wait
@@ -23,6 +26,11 @@ wait 1
 snap full-pgup
 wait 10
 snap full-pgup-after
+key C-o
+wait 1
+key C-o
+wait 2
+snap full-end
 key C-o
 wait 1
 snap end

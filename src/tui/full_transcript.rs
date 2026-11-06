@@ -53,7 +53,13 @@
 //! `restore_primary`), so the primary document is exactly as it was when the
 //! screen closes. Rows above a footer of four: a blank row, `┃ full detail ·
 //! …`, a blank row and the hint row (`paint_plan.zig:993-1048`). It opens at
-//! the tail, follows it while it is there, and holds still while it is not.
+//! the tail and follows it while it is there. While it is not, it keeps the
+//! entry it shows, and how far into it, across a page that rebuilds or a
+//! width that changes ([`position`], v0.0.16's 026a8f4e and b1a53b01).
+//!
+//! A tool group's header and each call's row wrap under their tree rail
+//! rather than being cut at the screen's edge ([`tool_status`], v0.0.16's
+//! 427d481f).
 //!
 //! # What differs from upstream's screen, and why
 //!
@@ -98,9 +104,21 @@ use super::toolgroup::ToolGroup;
 use super::transcript::{ellipsized, Gutter, Landed, Role, Transcript};
 use super::wrap;
 
+mod position;
+mod tool_status;
+
+use position::{ItemRow, Reading, RECORD};
+
 /// The footer's one line of text (`paint_plan.zig:1003`).
 pub(crate) const FOOTER: &str =
     "full detail \u{b7} ctrl+o close \u{b7} pgup/pgdn scroll \u{b7} esc close";
+
+/// The welcome line's id on a page ([`FullTranscript::measure`]): after the
+/// records' [`RECORD`] and before every entry's.
+const WELCOME: usize = 1;
+
+/// The document's first entry's id on a page.
+const FIRST_ENTRY: usize = 2;
 
 /// How many rows an arrow key moves the screen
 /// (`transcript/runtime.zig:6876`, `full_transcript_wheel_rows`).
@@ -850,31 +868,76 @@ pub(crate) struct FullTranscript {
 
 /// The screen, while it is up.
 struct View {
-    /// How many rows above the tail the screen shows: `0` follows it.
-    scroll: Cell<usize>,
-    /// The width and the number of rows the last screen was laid out from, so
-    /// that rows added under a screen that is not at the tail can be stepped
-    /// over rather than scrolled into it.
-    laid: Cell<Option<(u16, usize)>>,
+    /// Where the reader is ([`position`]).
+    reading: Cell<Reading>,
+    /// The page the screen was last drawn from: what it was laid out for, and
+    /// where each entry starts on it.
+    page: RefCell<Option<Page>>,
+}
+
+/// One page as it was measured.
+struct Page {
+    cols: u16,
+    /// [`FullTranscript::revision`] when it was laid out: any change to the
+    /// record moves it on, so a different one is a rebuilt page.
+    revision: u64,
+    items: Vec<ItemRow>,
+}
+
+/// The page the screen shows now, and the first of its rows on screen.
+struct Selected {
+    offset: usize,
+    total: usize,
+    items: Vec<ItemRow>,
 }
 
 impl View {
-    /// How far above the tail the screen is, once the rows added under it
-    /// since it was last laid out have been stepped over.
+    fn at_tail() -> Self {
+        Self {
+            reading: Cell::new(Reading::default()),
+            page: RefCell::new(None),
+        }
+    }
+
+    /// Where the screen stands on the page as it is now, `viewport` rows at a
+    /// time.
     ///
-    /// Rows added under a screen that is not at the tail move the tail away
-    /// from what the screen shows; stepping over them keeps it still, as
-    /// upstream's bookmark does. A screen at the tail follows it. Asked by the
-    /// paint and by a keystroke alike, so a key pressed between a change and
-    /// the frame that would show it moves from where the reader really is.
-    fn settled(&self, cols: u16, total: usize) -> usize {
-        if let Some((laid_cols, laid_total)) = self.laid.get() {
-            if laid_cols == cols && total > laid_total && self.scroll.get() > 0 {
-                self.scroll.set(self.scroll.get() + (total - laid_total));
+    /// A page that rebuilt since the last one -- anything recorded, or a
+    /// width it was not laid out at -- has the reading position pinned to the
+    /// entry it showed on the last page first, and found on this one
+    /// (upstream pins it on each page it installs, `presentationForRebuiltPage`,
+    /// `transcript/runtime.zig:11584-11590@481104fd`, and selects on the page
+    /// it measures, `selectProjectionViewportOffset`, `:11647-11660`). A
+    /// screen at the tail follows it; rows added under a screen that is not
+    /// leave it where it is. Asked by the paint and by a keystroke alike, so a
+    /// key pressed between a change and the frame that would show it moves
+    /// from where the reader really is.
+    fn select(
+        &self,
+        record: &FullTranscript,
+        cols: u16,
+        viewport: usize,
+        palette: Palette,
+    ) -> Selected {
+        let (total, items) = record.measure(cols, palette);
+        let mut reading = self.reading.get().prepare_projection(cols);
+        if let Some(page) = self.page.borrow().as_ref() {
+            if page.cols != cols || page.revision != record.revision {
+                reading = reading.pin_reading_position(&page.items);
             }
         }
-        self.laid.set(Some((cols, total)));
-        self.scroll.get()
+        let (reading, offset) = reading.select_visual_offset(total, viewport, &items);
+        self.reading.set(reading);
+        *self.page.borrow_mut() = Some(Page {
+            cols,
+            revision: record.revision,
+            items: items.clone(),
+        });
+        Selected {
+            offset,
+            total,
+            items,
+        }
     }
 }
 
@@ -1198,10 +1261,7 @@ impl FullTranscript {
 
     /// Opens the screen at the tail.
     pub(crate) fn open(&mut self) {
-        self.view = Some(View {
-            scroll: Cell::new(0),
-            laid: Cell::new(None),
-        });
+        self.view = Some(View::at_tail());
     }
 
     pub(crate) fn close(&mut self) {
@@ -1220,24 +1280,23 @@ impl FullTranscript {
         let Some(view) = &self.view else {
             return Reply::Unbound;
         };
-        // How far one key moves the screen, up (toward the head) or down.
+        // How far one key moves the screen, up (toward the head) or down
+        // (upstream's `scroll`, then the selection its next frame makes).
         let moved = |up: bool, rows_moved: Option<usize>| {
             let page = Layout::of(rows).viewport.max(1);
-            let total = self.total(cols, palette);
-            let furthest = total.saturating_sub(page);
-            let scroll = view.settled(cols, total).min(furthest);
+            let now = view.select(self, cols, page, palette);
             let step = rows_moved.unwrap_or(page);
-            let moved = if up {
-                scroll.saturating_add(step)
+            let (reading, offset) = view
+                .reading
+                .get()
+                .scroll(up, step)
+                .select_visual_offset(now.total, page, &now.items);
+            view.reading.set(reading);
+            if offset == now.offset {
+                Reply::Held
             } else {
-                scroll.saturating_sub(step)
+                Reply::Moved
             }
-            .min(furthest);
-            if moved == view.scroll.get() {
-                return Reply::Held;
-            }
-            view.scroll.set(moved);
-            Reply::Moved
         };
         match action {
             Action::ToggleTranscript | Action::Escape | Action::Cancel => Reply::Close,
@@ -1254,14 +1313,17 @@ impl FullTranscript {
     /// `cols`. `status` is the hint row as the band would paint it.
     pub(crate) fn rows(&self, cols: u16, rows: u16, palette: Palette, status: &str) -> Vec<String> {
         let layout = Layout::of(rows);
-        let total = self.total(cols, palette);
-        let scroll = self
-            .view
-            .as_ref()
-            .map_or(0, |view| view.settled(cols, total));
-        let shown = total.min(layout.viewport);
-        let furthest = total - shown;
-        let start = furthest - scroll.min(furthest);
+        let (start, total) = match &self.view {
+            Some(view) => {
+                let selected = view.select(self, cols, layout.viewport, palette);
+                (selected.offset, selected.total)
+            }
+            None => {
+                let total = self.measure(cols, palette).0;
+                (total.saturating_sub(layout.viewport), total)
+            }
+        };
+        let shown = total.saturating_sub(start).min(layout.viewport);
         let mut screen = self.window(start, shown, cols, palette);
         screen.resize(layout.viewport, String::new());
         let reset = palette.reset();
@@ -1305,21 +1367,42 @@ impl FullTranscript {
         (u16::try_from(row).unwrap_or(rows).clamp(1, rows.max(1)), 0)
     }
 
-    /// How many rows the whole record lays out as at this width.
-    fn total(&self, cols: u16, palette: Palette) -> usize {
-        let welcome = if self.welcome { 1 } else { 0 };
-        let mut total = welcome;
-        for entry in self.shown() {
+    /// How many rows the whole record lays out as at this width, and where
+    /// each entry starts among them.
+    ///
+    /// The welcome line is entry [`WELCOME`], a record [`RECORD`] and the
+    /// document's `i`th entry `i + FIRST_ENTRY`, so the ids rise in the order
+    /// they are shown, as upstream's do. An entry starts at its header, below
+    /// the blank row that parts it from the one above; one that lays out as
+    /// nothing starts where the next one's blank row is, as upstream marks a
+    /// hidden entry before the separator it skips
+    /// (`renderEntriesForFullPresentationInterruptible`,
+    /// `transcript_blocks.zig:2084-2096@481104fd`).
+    fn measure(&self, cols: u16, palette: Palette) -> (usize, Vec<ItemRow>) {
+        let mut items = Vec::with_capacity(1 + self.records.len() + self.entries.len());
+        let mut total = 0;
+        if self.welcome {
+            items.push(ItemRow {
+                id: WELCOME,
+                row: 0,
+            });
+            total = 1;
+        }
+        let ids = std::iter::repeat_n(RECORD, self.records.len())
+            .chain((0..self.entries.len()).map(|index| index + FIRST_ENTRY));
+        for (id, entry) in ids.zip(self.shown()) {
             let rows = self.laid_out(entry, cols, palette);
             if rows.is_empty() {
+                items.push(ItemRow { id, row: total });
                 continue;
             }
             if total > 0 {
                 total += 1;
             }
+            items.push(ItemRow { id, row: total });
             total += rows.len();
         }
-        total
+        (total, items)
     }
 
     /// `count` rows of the record from row `start`, laid out at `cols`.
@@ -1519,21 +1602,33 @@ impl FullTranscript {
         }
         let block = group.expanded(palette);
         let mut rows = Vec::new();
+        // Each row wrapped under its rail rather than cut at the edge
+        // (`materializeExpandedOverride`, `tool_group_projection.zig:
+        // 1061-1092@481104fd`).
         if position == 0 {
             if let Some(header) = block.first() {
-                rows.push(ellipsized(header, cols));
+                rows.extend(tool_status::expanded_rows(header, cols));
             }
         }
-        let heading = block
-            .get(1 + position)
-            .map(|row| ellipsized(row, cols))
-            .unwrap_or_default();
+        let heading = block.get(1 + position).cloned().unwrap_or_default();
+        // An argument the heading already shows has no row of its own -- but
+        // only one in the heading's first line, all the heading shows of a
+        // status, and only while the heading fits one row: a short value
+        // turns up inside a long command by chance, and a wrapped heading
+        // must not hide more than a clipped one did
+        // (`argumentVisibleInToolHeading`, `full_transcript_screen.zig:
+        // 6594-6619@481104fd`, 78424464).
         let plain_heading = unpainted(&heading);
-        rows.push(heading);
+        let first_line = plain_heading.split(['\n', '\r']).next().unwrap_or_default();
+        let heading_fits = markdown::display_width::visible_width_ignoring_ansi(heading.as_bytes())
+            <= usize::from(cols);
+        rows.extend(tool_status::expanded_rows(&heading, cols));
         if call.change.is_none() {
             for argument in &call.arguments {
-                let shown_already =
-                    argument.text && plain_heading.contains(argument.value.as_str());
+                let shown_already = argument.text
+                    && !argument.value.is_empty()
+                    && heading_fits
+                    && first_line.contains(argument.value.as_str());
                 let exec = call.shown.presentation.activity == Activity::Command
                     && argument.name == "action"
                     && argument.value == "exec";
@@ -3071,7 +3166,7 @@ mod tests {
         }
         record.open();
         // 30 notices of two rows plus a blank between: 89 rows, 36 shown.
-        assert_eq!(record.total(120, DARK), 89);
+        assert_eq!(record.measure(120, DARK).0, 89);
         let top = |record: &FullTranscript| screen(record)[0].clone();
         let at_tail = top(&record);
         assert_eq!(screen(&record)[35], "* n: 29");
@@ -3079,10 +3174,13 @@ mod tests {
         assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
         assert_eq!(screen(&record)[35], screen(&record)[35]);
         let page_up = screen(&record);
-        // A page is the 36 rows the screen shows.
-        assert_eq!(record.view.as_ref().unwrap().scroll.get(), 36);
+        // A page is the 36 rows the screen shows: from row 53, the tail's
+        // first, to row 17.
+        let offset =
+            |record: &FullTranscript| record.view.as_ref().unwrap().reading.get().scroll_rows;
+        assert_eq!(offset(&record), 89 - 36 - 36);
         assert_eq!(record.key(Action::Up, 120, 40, DARK), Reply::Moved);
-        assert_eq!(record.view.as_ref().unwrap().scroll.get(), 39);
+        assert_eq!(offset(&record), 89 - 36 - 36 - 3);
         assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
         assert_eq!(screen(&record), page_up);
         assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
@@ -3430,5 +3528,361 @@ mod tests {
                 assert!(wrap::width(&row) <= cols, "{cols}: {row:?}");
             }
         }
+    }
+
+    // -- v0.0.16: tool rows wrap (427d481f, 6f071dea, 78424464) -------------
+
+    /// The whole screen with no colour, `cols` wide and 40 rows high.
+    fn screen_at(record: &FullTranscript, cols: u16) -> Vec<String> {
+        plain(&record.rows(cols, 40, DARK, ""))
+    }
+
+    /// The record's rows on that screen, without the footer under them (whose
+    /// own text is cut with an ellipsis on a narrow screen).
+    fn record_at(record: &FullTranscript, cols: u16) -> Vec<String> {
+        let mut rows = screen_at(record, cols);
+        rows.truncate(Layout::of(40).viewport);
+        rows
+    }
+
+    fn with_arguments(record: &mut FullTranscript, id: &str, tool: &str, input: &Value) {
+        record.observe(&UiEvent::ToolDetail {
+            call_id: id.into(),
+            detail: Detail::Arguments(arguments(tool, input)),
+        });
+    }
+
+    #[test]
+    fn a_long_heading_wraps_under_its_rail_instead_of_being_cut() {
+        // `full projection wraps a long tool status instead of clipping it`
+        // (`full_transcript_screen.zig:969-995@481104fd`).
+        let mut record = record();
+        record.tool_started(
+            "c",
+            &command("printf a deliberately long query that reaches FULL_STATUS_TAIL"),
+        );
+        let rows = record_at(&record, 24);
+        let at = rows
+            .iter()
+            .position(|row| row.starts_with("\u{2514} Running printf a"))
+            .expect("the heading");
+        assert!(rows[at + 1].starts_with("  "), "{rows:?}");
+        assert!(rows.concat().contains("FULL_STATUS_TAIL"), "{rows:?}");
+        assert!(!rows.concat().contains('\u{2026}'), "{rows:?}");
+        for row in record.rows(24, 40, DARK, "") {
+            assert!(wrap::width(&row) <= 24, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn a_groups_rows_wrap_under_their_tree_rail_and_keep_the_commands_colours() {
+        // `expanded rows wrap under their tree rail and keep command styling`
+        // (`tool_group_projection.zig:2053-2131@481104fd`), at 24 columns.
+        let first = "printf 'alpha beta gamma delta epsilon zeta eta theta'";
+        let last = "printf 'iota kappa lambda mu nu xi omicron pi rho'";
+        let mut record = record();
+        for (id, text) in [("c1", first), ("c2", last)] {
+            record.tool_started(id, &command(text));
+            record.tool_finished(id, true, "", Outcome::Exited(0), None);
+        }
+        let painted = record.rows(24, 40, DARK, "");
+        let rows = record_at(&record, 24);
+        assert!(!rows.concat().contains('\u{2026}'));
+        let header = rows
+            .iter()
+            .position(|row| row.starts_with('\u{25cf}'))
+            .expect("the header");
+        let first_child = rows
+            .iter()
+            .position(|row| row.starts_with('\u{251c}'))
+            .expect("the first call");
+        let last_child = rows
+            .iter()
+            .position(|row| row.starts_with('\u{2514}'))
+            .expect("the last call");
+        // The header itself is wider than 24 columns and wraps before the
+        // first call, under two blanks.
+        assert!(first_child > header + 1, "{rows:?}");
+        assert!(rows[header + 1].starts_with("  "), "{rows:?}");
+        assert!(last_child > first_child + 1, "{rows:?}");
+
+        let geometry = super::super::layout::solve(40, 120, 1).expect("a band");
+        let mut grid = super::super::grid::Grid::blank(40, 24);
+        for (index, row) in painted.iter().enumerate() {
+            grid.place_row(u16::try_from(index + 1).expect("line"), row, &geometry);
+        }
+        let colour =
+            |line: usize, column: u16| match grid.cell(u16::try_from(line + 1).unwrap(), column) {
+                Some(super::super::grid::Cell::Lead { sgr, .. }) => sgr.color().expect("a colour"),
+                other => panic!("row {line}, column {column}: {other:?}"),
+            };
+        let last_content = |line: usize| colour(line, wrap::width(&rows[line]));
+        // Each call is an entry of its own, under its own header: the first
+        // call's rows end at the blank row before the second's.
+        let first_end = first_child
+            + rows[first_child..]
+                .iter()
+                .position(String::is_empty)
+                .expect("the blank row after the first call");
+        assert!(first_end > first_child + 1, "{rows:?}");
+        // A call that is not the last continues under an unstyled rail, and
+        // its quoted argument keeps the string's colour across every wrap.
+        for (line, row) in rows
+            .iter()
+            .enumerate()
+            .take(first_end)
+            .skip(first_child + 1)
+        {
+            assert!(row.starts_with("\u{2502} "), "{row:?}");
+            assert_eq!(colour(line, 1), super::super::check::Color::Default);
+            let before = last_content(line - 1);
+            assert_ne!(before, super::super::check::Color::Default, "row {line}");
+            assert_eq!(colour(line, 3), before, "row {line}");
+        }
+        // The last call indents past its glyph.
+        let end = rows[last_child..]
+            .iter()
+            .position(String::is_empty)
+            .map_or(rows.len(), |blank| last_child + blank);
+        assert!(end > last_child + 1, "{rows:?}");
+        for row in &rows[last_child + 1..end] {
+            assert!(row.starts_with("  ") && !row.starts_with("   "), "{row:?}");
+        }
+        // Nothing is hidden: each call's rows hold its whole command.
+        let joined = |from: usize, to: usize| -> String {
+            rows[from..to]
+                .iter()
+                .map(|row| row.chars().skip(2).collect::<String>())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(joined(first_child, first_end), format!("Ran {first}"));
+        assert_eq!(joined(last_child, end), format!("Ran {last}"));
+    }
+
+    #[test]
+    fn a_groups_header_wraps_instead_of_being_cut() {
+        // `expanded group headers wrap instead of clipping`
+        // (`tool_group_projection.zig:2133-2162@481104fd`), at 16 columns.
+        let mut record = record();
+        record.tool_started("r", &read("a.zig"));
+        record.tool_finished("r", true, "", Outcome::Finished, None);
+        record.tool_started("c", &command("zig build"));
+        record.tool_finished("c", true, "", Outcome::Exited(1), None);
+        let rows = record_at(&record, 16);
+        let header = rows
+            .iter()
+            .position(|row| row.starts_with('\u{25cf}'))
+            .expect("the header");
+        let first_child = rows
+            .iter()
+            .position(|row| row.starts_with('\u{251c}'))
+            .expect("the first call");
+        assert!(first_child > header + 1, "{rows:?}");
+        assert!(
+            rows[header..first_child].concat().contains("failed"),
+            "{rows:?}"
+        );
+        assert!(!rows.concat().contains('\u{2026}'));
+    }
+
+    #[test]
+    fn arguments_beside_a_heading_wider_than_the_screen_keep_their_rows() {
+        // `full projection keeps semantic arguments beside a wrapped tool
+        // heading` (`full_transcript_screen.zig:1046-1087@481104fd`): a
+        // heading wider than the screen never hides an argument.
+        let text = "printf a deliberately long command with FULL_ARGUMENT_TAIL";
+        let input = json!({"action": "exec", "command": text, "profile": "clean"});
+        let mut record = record();
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_started("c", &command(text));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        let rows = record_at(&record, 24).concat();
+        assert!(rows.contains("FULL_ARGUMENT_TAIL"));
+        assert!(!rows.contains('\u{2026}'));
+        assert!(rows.contains("command: printf"), "{rows}");
+        assert!(!rows.contains("action: exec"));
+        assert!(rows.contains("profile: clean"));
+        assert!(!rows.contains("{\"command\""));
+
+        // The same call at a width its heading fits: the command is the
+        // heading's, and has no row of its own.
+        let rows = screen_at(&record, 120);
+        assert!(rows
+            .iter()
+            .any(|row| row == &format!("\u{2514} Ran {text}")));
+        assert!(!rows.concat().contains("command: printf"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_short_argument_a_long_heading_contains_by_chance_keeps_its_row() {
+        // `full projection keeps short session input that a long heading
+        // contains by chance` (`full_transcript_screen.zig:1089-1128@481104fd`,
+        // a terminal session's `chars: y` inside `python3`). xfx's terminal
+        // has no sessions; the rule is the same for any short text value.
+        let launch = "cd . && python3 - <<'PYEOF' import pathlib led = pathlib.Path(\"docs/workflows/ledger.md\"); s = led.read_text() old = \"Fixed in draft\" assert old in s";
+        let input = json!({"action": "exec", "command": launch, "chars": "y"});
+        let mut record = record();
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_started("c", &command(launch));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        let rows = screen_at(&record, 80).concat();
+        assert!(rows.contains("Ran cd . && python3"), "{rows}");
+        assert!(rows.contains("chars: y"), "{rows}");
+        // The rule's other half: an empty value is never "shown already".
+        let input = json!({"action": "exec", "command": "ls", "note": ""});
+        let mut record = self::record();
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_started("c", &command("ls"));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        assert!(
+            screen_at(&record, 80)
+                .iter()
+                .any(|row| row == "\u{2502}  note:"),
+            "{:?}",
+            screen_at(&record, 80)
+        );
+    }
+
+    #[test]
+    fn tool_rows_fit_the_narrowest_screens() {
+        // A prefix wider than the room is left off, and a wide character a
+        // row cannot hold is a `?` (`transcript_blocks.zig:922-923,941@481104fd`).
+        let mut record = record();
+        record.tool_started("c", &command("echo \u{65e5}\u{672c} wide words"));
+        record.tool_started("d", &command("ls"));
+        for cols in 1u16..=6 {
+            let rows = record.rows(cols, 40, DARK, "");
+            for row in &rows {
+                assert!(wrap::width(row) <= cols, "{cols}: {row:?}");
+            }
+        }
+        assert!(screen_at(&record, 1).concat().contains('?'));
+    }
+
+    // -- v0.0.16: the reading position holds (026a8f4e, b1a53b01) ----------
+
+    /// `p5-transcript-anchormid`'s record: the session's, a prompt, five reads
+    /// of twelve lines each and a command whose `Running` heading is wider
+    /// than 120 columns and whose `Ran` one is not.
+    fn reading_session(prompt: &str) -> FullTranscript {
+        let mut record = record();
+        record.welcome();
+        record.full_detail(Notice::neutral(
+            "session",
+            "provider: gateway \u{b7} model: fake/model-a\nmcp: none",
+        ));
+        record.prompt(prompt);
+        for name in ["a", "b", "c", "d", "e"] {
+            let id = format!("r{name}");
+            record.tool_started(&id, &read(&format!("{name}.txt")));
+            let lines: String = (1..=12)
+                .map(|n| format!("{name} line {n} of the {name} file\n"))
+                .collect();
+            record.observe(&UiEvent::ToolDetail {
+                call_id: id.clone(),
+                detail: Detail::Result(lines),
+            });
+            record.tool_finished(&id, true, "", Outcome::Finished, None);
+        }
+        let words: Vec<String> = (0..24).map(|n| format!("w{n:02}")).collect();
+        let long = format!("sleep 9; echo  {} zz", words.join(" "));
+        with_arguments(
+            &mut record,
+            "c",
+            "terminal",
+            &json!({"action": "exec", "command": long}),
+        );
+        record.tool_started("c", &command(&long));
+        record
+    }
+
+    /// What arrives while the reader is a page up: the command settles (its
+    /// heading loses a row), a `* network:` record lands above every entry,
+    /// and the answer lands below.
+    fn settle_under(record: &mut FullTranscript) {
+        record.full_detail(Notice::neutral(
+            "network",
+            "provider: gateway \u{b7} model: fake/model-a \u{b7} 14ms\nfinish: tool_calls\ntokens: 1200 in \u{b7} 40 out",
+        ));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        record.answer("Done reading.");
+        record.turn_over();
+    }
+
+    #[test]
+    fn the_reading_position_holds_when_the_page_rebuilds_above_and_below_it() {
+        // fx v0.0.16 `p5-transcript-anchormid` `full-pgup` and
+        // `full-pgup-after`: row 1 is `│  9     a line 9 of the a file` in
+        // both; c1db919 jumped five rows to `a line 3`.
+        let mut record = reading_session("read and wait");
+        record.open();
+        let tail = screen(&record);
+        let heading = tail
+            .iter()
+            .position(|row| row.starts_with("\u{2514} Running sleep 9;"))
+            .expect("the heading");
+        assert_eq!(tail[heading + 1], "  zz", "the heading wraps to two rows");
+        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
+        let before = screen(&record);
+        settle_under(&mut record);
+        let after = screen(&record);
+        assert_eq!(after[..36], before[..36]);
+        // And it still moves from where it is.
+        assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
+        assert_eq!(screen(&record)[0], before[3]);
+    }
+
+    #[test]
+    fn a_position_inside_the_records_keeps_its_offset() {
+        // b1a53b01: the records share one id, so a reader among them keeps
+        // the row offset; a record that lands after them moves nothing above.
+        let mut record = reading_session("read and wait");
+        record.full_detail(Notice::neutral(
+            "network",
+            "first request\nfinish: tool_calls",
+        ));
+        record.open();
+        while record.key(Action::PageUp, 120, 40, DARK) == Reply::Moved {}
+        let top = screen(&record);
+        // One row into the second record: `finish: tool_calls`.
+        let at = top
+            .iter()
+            .position(|row| row == "  finish: tool_calls")
+            .expect("the second record's second row");
+        let view = record.view.as_ref().expect("open");
+        view.reading.set(Reading {
+            scroll_rows: at,
+            follow_tail: false,
+            ..Reading::default()
+        });
+        let before = screen(&record);
+        assert_eq!(before[0], "  finish: tool_calls");
+        // A third record lands after the second, the command settles and the
+        // answer lands: the reader is not sent back to the first record.
+        settle_under(&mut record);
+        let after = screen(&record);
+        assert_eq!(after[..2], before[..2], "{after:?}");
+        assert!(after[2].contains("Notice"), "{after:?}");
+    }
+
+    #[test]
+    fn a_width_change_keeps_the_entry_the_reader_was_in() {
+        // `prepare_projection` (`transcript_presentation.zig:115-122@481104fd`):
+        // at 80 columns the prompt above the view takes another row and the
+        // answer below it two more; the reader stays in the same line of the
+        // same read.
+        let mut record = reading_session(&"read and wait ".repeat(14));
+        record.answer(&"tail words ".repeat(30));
+        record.open();
+        record.key(Action::PageUp, 120, 40, DARK);
+        let wide = screen(&record);
+        let narrow = screen_at(&record, 80);
+        assert_eq!(narrow[0], wide[0]);
+        assert_eq!(screen(&record)[..36], wide[..36]);
+        // At the tail, a width change keeps the tail.
+        while record.key(Action::PageDown, 120, 40, DARK) == Reply::Moved {}
+        let narrow = screen_at(&record, 80);
+        assert!(narrow[35].trim_end().ends_with("tail words"), "{narrow:?}");
     }
 }

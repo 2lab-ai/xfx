@@ -532,17 +532,17 @@ kind = "defect"
 owner = "unowned (S1 item 2 owns the skill notices, not this record)"
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$'
-xfx_row = '^  tools: \d+ advertised|^  \+\d+ more\)$'
+fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  [a-z_]+(?:, [a-z_]+)*, \+\d+ more\)$'
+xfx_row = '^  tools: \d+ advertised|^  \+\d+ more\)$|^  [a-z_]+(?:, [a-z_]+)*, \+\d+ more\)$'
 xfx = ["src/tui/shell.rs:32298"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
-why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:231)."
+why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:231). The tool list's second row is matched at any width (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools` 40x80)."
 
 [[cause]]
 id = "full-transcript-shift"
 kind = "defect"
 owner = "unowned (follows session-record and tool-schema)"
-scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout", "p5-transcript-tools", "p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
 xfx = ["src/tui/shell.rs:32298", "src/tui/approval_view.rs:685"]
