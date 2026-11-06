@@ -43,7 +43,10 @@ pub struct Theme {
 pub const FX_DARK: Theme = Theme {
     name: Cow::Borrowed("fx-dark"),
     light: false,
-    inline_code_open: Cow::Borrowed("\x1b[38;5;245m"),
+    // The theme's brightest neutral, as fx v0.0.16 has it (`5e32bce2`,
+    // `theme.zig:102@481104fd`): 245 until then, the grey a tool call's
+    // target and the status line are in.
+    inline_code_open: Cow::Borrowed("\x1b[38;5;255m"),
     task_completed_open: Cow::Borrowed("\x1b[38;5;252m"),
     link_style: Cow::Borrowed("\x1b[38;5;75m"),
     syntax: SyntaxPalette {
@@ -62,7 +65,8 @@ pub const FX_DARK: Theme = Theme {
 pub const FX_LIGHT: Theme = Theme {
     name: Cow::Borrowed("fx-light"),
     light: true,
-    inline_code_open: Cow::Borrowed("\x1b[38;5;247m"),
+    // `theme.zig:145@481104fd` (247 until `5e32bce2`).
+    inline_code_open: Cow::Borrowed("\x1b[38;5;235m"),
     task_completed_open: Cow::Borrowed("\x1b[38;5;238m"),
     link_style: Cow::Borrowed("\x1b[38;5;25m"),
     syntax: SyntaxPalette {

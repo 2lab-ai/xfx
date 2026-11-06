@@ -5462,6 +5462,70 @@ mod tests {
     }
 
     #[test]
+    fn a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again() {
+        // fx v0.0.16 (`5e32bce2`): inline code is the brightest neutral, 255
+        // dark and 235 light, which upstream's retint table maps to each other
+        // (`store.zig:3784-3800`); and a code block is drawn again in the new
+        // palette (`transcript_blocks.zig:2023-2029`), so its comment goes
+        // from 245 to the light comment grey 243 -- not to the 247 a turn's
+        // summary in the same dark grey goes to -- and back.
+        //
+        // The foreground a run of text is written under, read off the bytes:
+        // the last colour set before it, unless a reset came after. A repaint
+        // that finds the colour already in force sets none.
+        fn fg_of(written: &str, needle: &str) -> Option<u8> {
+            let at = written.find(needle)?;
+            let mut fg = None;
+            for (index, _) in written[..at].match_indices("\u{1b}[") {
+                let rest = &written[index + 2..at];
+                let Some(end) = rest.find('m') else { continue };
+                let params = &rest[..end];
+                if params == "0" || params == "39" || params.is_empty() {
+                    fg = None;
+                } else if let Some(n) = params.strip_prefix("38;5;") {
+                    fg = n.parse().ok();
+                }
+            }
+            fg
+        }
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"hello\r");
+        shell.apply(UiEvent::Delta(
+            "Run `zig build` first.\n\n```sh\n# build it\nzig build\n```\n\nDone.\n".to_string(),
+        ));
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        // `zig build` in one run is the inline code: the block's `zig` is a
+        // word of its own, in the keyword grey.
+        assert_eq!(fg_of(&landed, "zig build"), Some(255), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# build it"), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_of(&written, "zig build"),
+            Some(235),
+            "the answer's inline code kept the dark grey: {written:?}"
+        );
+        assert_eq!(
+            fg_of(&written, "# build it"),
+            Some(243),
+            "the code block's comment was not given the light comment grey \
+             (247 is a turn's summary's): {written:?}"
+        );
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&back, "zig build"), Some(255), "{back:?}");
+        assert_eq!(fg_of(&back, "# build it"), Some(245), "{back:?}");
+    }
+
+    #[test]
     fn a_report_that_flipped_and_flipped_back_before_it_was_paid_costs_nothing() {
         // The debt carries no palette of its own -- it is "the document, in
         // whatever palette is in force when it is paid" -- so a terminal that

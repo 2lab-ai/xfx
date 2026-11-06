@@ -1,0 +1,64 @@
+# No regression: main's xfx (d314549e) against this branch's, on every p5-transcript-* scenario
+# but the md pair, 40x120. Per snap: SAME, or every differing cell grouped as
+# (main's attrs, this branch's attrs) with whether its text differs. No cell moved colour
+# with its text the same: every difference is a clock or counter -- Ctrl-O's entry
+# times and network milliseconds, and submit-0.15's live token count.
+SAME p5-transcript-anchor-40x120-end.ansi
+DIFF p5-transcript-anchor-40x120-full-pgup.ansi
+   12 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchor-40x120-full-pgup2-after.ansi
+   39 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchor-40x120-full-pgup2.ansi
+   39 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchor-40x120-full-running.ansi
+   19 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-anchor-40x120-running.ansi
+SAME p5-transcript-anchormid-40x120-end.ansi
+DIFF p5-transcript-anchormid-40x120-full-pgup-after.ansi
+   9 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchormid-40x120-full-pgup.ansi
+   9 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchormid-40x120-full-running.ansi
+   13 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-anchormid-40x120-running.ansi
+SAME p5-transcript-cancel-40x120-cmd-esc.ansi
+SAME p5-transcript-cancel-40x120-cmd-running.ansi
+SAME p5-transcript-cancel-40x120-end.full.ansi
+SAME p5-transcript-cancel-40x120-esc.ansi
+DIFF p5-transcript-cancel-40x120-full.ansi
+   45 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-cancel-40x120-mid.ansi
+SAME p5-transcript-cancel-40x120-next.ansi
+SAME p5-transcript-diffctl-40x120-closed.ansi
+SAME p5-transcript-diffctl-40x120-edited.ansi
+SAME p5-transcript-diffctl-40x120-edited.full.ansi
+DIFF p5-transcript-diffctl-40x120-full.ansi
+   39 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+   1 main (('fg', 250),) branch (('fg', 250),) TEXT-DIFFERS
+SAME p5-transcript-submit-40x120-filled.ansi
+SAME p5-transcript-submit-40x120-second.ansi
+DIFF p5-transcript-submit-40x120-submit-0.15.ansi
+   1 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+   1 main None branch (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-submit-40x120-tall.ansi
+SAME p5-transcript-submit-40x120-tall.full.ansi
+SAME p5-transcript-tallfirst-40x120-tall.ansi
+SAME p5-transcript-tallfirst-40x120-tall.full.ansi
+SAME p5-transcript-tools-40x120-end.ansi
+SAME p5-transcript-tools-40x120-end.full.ansi
+DIFF p5-transcript-tools-40x120-full-pgup-after.ansi
+   26 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-pgup.ansi
+   26 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-running.ansi
+   26 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-tail-up4.ansi
+   26 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-tail.ansi
+   26 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-tools-40x120-running.ansi
+DIFF p5-transcript-tz-40x120-full.ansi
+   34 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS
+   1 main (('fg', 250),) branch (('fg', 250),) TEXT-DIFFERS
+DIFF p5-transcript-tzsys-40x120-full.ansi
+   26 main (('fg', 245),) branch (('fg', 245),) TEXT-DIFFERS

@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+  2026-11-07 06:46:46.263 KST · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  system prompt: ready · 6249 bytes
+  tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+  more)
+  skills: loading
+  mcp: none
+
+  2026-11-07 06:46:52.721 KST · Notice
+* network: provider: gateway · model: fake/model-a · 1430ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 06:46:51.287 KST · Prompt
+┃ show me the list
+
+  2026-11-07 06:46:51.418 KST · Response
+  Run zig build test before you push, and read src/ui/render.zig first.
+
+  Steps:
+
+  1. Step 1 runs cmd-1 --flag on the tree
+  2. Step 2 runs cmd-2 --flag on the tree
+  3. Step 3 runs cmd-3 --flag on the tree
+  4. Step 4 runs cmd-4 --flag on the tree
+  5. Step 5 runs cmd-5 --flag on the tree
+  6. Step 6 runs cmd-6 --flag on the tree
+  7. Step 7 runs cmd-7 --flag on the tree
+  8. Step 8 runs cmd-8 --flag on the tree
+  9. Step 9 runs cmd-9 --flag on the tree
+  10. Step 10 runs cmd-10 --flag on the tree
+  11. Step 11 runs cmd-11 --flag on the tree
+  12. Step 12 runs cmd-12 --flag on the tree
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d314549 [debug] · Run /help for commands
+
+┃ show me the code
+
+  Run zig build test before you push.
+
+  ─ sh ───────────────────────
+  # build and test
+  zig build test --summary all
+  ────────────────────────────
+
+  ─ zig ─────────
+  // the answer
+  const n = 42;
+  const s = "hi";
+  ───────────────
+
+  Done with everything.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
