@@ -277,9 +277,14 @@ fn execute_select(input: &ToolInput, context: &ToolContext) -> ToolResult {
 
 /// The presentation a dynamic tool's row has (`dynamicMcpActionLabel`,
 /// `app_agent_runtime.zig:1431-1437`): `Running MCP <tool>`, then `Ran MCP
-/// <tool>`. A command's row, so the words after the verb go through the
-/// shell highlighter as upstream's do -- `MCP` bright, the name after it in
-/// the row's grey (`cap/fx-mcp-wire-40x120-turn`, row 12).
+/// <tool>`. It is what marks a call as an MCP call wherever a call is
+/// counted or drawn. Its activity is a command's, so a stop reaches and
+/// settles the call as it does a command; the row itself is not a command
+/// line, and fx v0.0.16 draws it in the row's grey throughout, no word of it
+/// shell-highlighted (an unregistered `mcp_` name is kind `.mcp`,
+/// `vercel-labs/fx@481104fd src/core/tooling/tool_dispatch.zig:574-578`;
+/// `highlightCommandPhrase` only for `.command`,
+/// `src/ui/transcript/tool_group_projection.zig:749`).
 pub const DYNAMIC: Presentation =
     Presentation::new(Activity::Command, "Running", "Ran", "MCP dynamic tool");
 
@@ -308,6 +313,16 @@ pub fn is_selected(context: &ToolContext, name: &str) -> bool {
 /// would select it (`resolveUnselectedMcpTool`, `tool_runtime.zig:1039-
 /// 1065`: unknown, denied or oversized is no tool): on a ready server, not
 /// refused outright by the table in force, and its schema within budget.
+///
+/// So the rules that keep a server's tools from the model are the ones about
+/// the tools themselves -- a deny on the alias, on a glob such as
+/// `mcp_fixture_*` or `mcp_*`, or `*` -- and no longer a deny on
+/// `capability_search` or `mcp_select_tool`, which refuses those two and
+/// leaves a call by name to the rules of the tool it names: an ask rule still
+/// asks, `auto` still holds it. fx is the same: the lookup is handed the
+/// table and the tool's own name and nothing about the meta-tools
+/// (`tool_runtime.zig:1042-1053`; `toolSchema`,
+/// `src/core/mcp_host/model.zig:296-318`).
 pub fn select_unselected(context: &ToolContext, name: &str) -> bool {
     if is_selected(context, name) {
         return true;
@@ -401,6 +416,9 @@ pub fn call(call: &ToolCall, context: &ToolContext) -> ToolResult {
             alias,
             &failure,
         )),
+        Err(McpError::Protocol { code, message, .. }) => {
+            ToolResult::failure(catalog::protocol_error(code, &message))
+        }
         Err(err) => ToolResult::failure(format!(
             "{{\"server\":{},\"tool\":{},\"error\":{{\"kind\":{},\"message\":{}}}}}",
             Value::from(server.config.name.as_str()),

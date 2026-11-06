@@ -1,0 +1,6 @@
+[
+ {"tool":{"id":"call_echo","name":"mcp_web_echo","input":{"text":"hi"}}},
+ {"chunks":["done."]},
+ {"tool":{"id":"call_echo2","name":"mcp_web_echo","input":{"text":"refused"}}},
+ {"chunks":["it failed."]}
+]

@@ -715,6 +715,38 @@ pub fn call_answer(server: &str, alias: &str, result: &Value) -> CallAnswer {
     }
 }
 
+/// The most bytes of a JSON-RPC error's message fx reads as one
+/// (`max_description_bytes`, `vercel-labs/fx@481104fd
+/// src/core/mcp/features/tools.zig:18`).
+const MAX_PROTOCOL_MESSAGE_BYTES: usize = 64 * 1024;
+
+/// What the model is told when the server answers a call with a JSON-RPC
+/// error, as fx v0.0.16 tells it: `MCP protocol error <code>: <message>`
+/// (`write_protocol_diagnostic`, `vercel-labs/fx@481104fd
+/// src/core/mcp/tool_result.zig:199-214`). Its `data` is not passed on: fx
+/// rebuilds the answer from the code and the message alone before reading it
+/// (`render`, `src/core/mcp_host/model.zig:841`).
+///
+/// The message is the server's text, and it reaches the model as the rest of
+/// a tool's output does -- as written, unless it is no text, one with a NUL,
+/// which is `binary or non-utf8 tool output omitted (<bytes> bytes)`
+/// (`sanitizeModelText`, `src/core/shared/text_utils.zig:535-538`). One over
+/// 64 KiB is no error fx reads: `MCP protocol failure: InvalidEnvelope`
+/// (`parseProtocolError`, `features/tools.zig:293-313`; `extract`,
+/// `tool_result.zig:29-53`).
+pub fn protocol_error(code: i64, message: &str) -> String {
+    if message.len() > MAX_PROTOCOL_MESSAGE_BYTES {
+        return "MCP protocol failure: InvalidEnvelope".to_string();
+    }
+    if message.contains('\0') {
+        return format!(
+            "MCP protocol error {code}: binary or non-utf8 tool output omitted ({} bytes)",
+            message.len()
+        );
+    }
+    format!("MCP protocol error {code}: {message}")
+}
+
 /// A call that could not run because its stopped server would not start
 /// again (`restart_failed_result`, `tool_result.zig:196-215`).
 pub fn restart_failed(server: &str, alias: &str, failure: &str) -> String {
@@ -879,6 +911,35 @@ mod tests {
         ] {
             assert_eq!(call_answer("s", "mcp_s_t", &result), malformed, "{result}");
         }
+    }
+
+    #[test]
+    fn a_protocol_error_is_its_code_and_its_message_as_fx_reads_them() {
+        assert_eq!(
+            protocol_error(-32603, "fixture refuses"),
+            "MCP protocol error -32603: fixture refuses"
+        );
+        // The server's words as written, markup and all: fx passes them as
+        // it passes a tool's output, only text with a NUL left out.
+        assert_eq!(
+            protocol_error(1, "<b>&\u{202e}"),
+            "MCP protocol error 1: <b>&\u{202e}"
+        );
+        assert_eq!(
+            protocol_error(-1, "a\0b"),
+            "MCP protocol error -1: binary or non-utf8 tool output omitted (3 bytes)"
+        );
+        assert_eq!(
+            protocol_error(-1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES)),
+            format!(
+                "MCP protocol error -1: {}",
+                "x".repeat(MAX_PROTOCOL_MESSAGE_BYTES)
+            )
+        );
+        assert_eq!(
+            protocol_error(-1, &"x".repeat(MAX_PROTOCOL_MESSAGE_BYTES + 1)),
+            "MCP protocol failure: InvalidEnvelope"
+        );
     }
 
     #[test]

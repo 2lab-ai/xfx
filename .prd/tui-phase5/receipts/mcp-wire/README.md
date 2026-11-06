@@ -27,6 +27,23 @@ in xfx) and `mcp_select_tool`'s closed schema.
 | `p5-mcp-known` (new) | -- | `known-bodies.txt`: identical, 3 of 3; no `tools=` in turn one, `tools="1"` in turn two (D3, the positive half) |
 | `p5-mcp-unavailable` (new) | -- | `unavailable-bodies.txt`: the `mcp_unavailable` answer has fx's shape and place (D5); two differences, both the runtime's words, not this unit's: `bad`'s reason (fx `its process exited with code 3; its last stderr lines: &quot;boom-stderr&quot;`, xfx `McpInitFailed`, C7) and its block state (fx `discovering`, xfx `failed`) -- MCP-S |
 
+## MCP-Wb (follow-up round)
+
+| scenario | at `867dea76` | this branch |
+|---|---|---|
+| `p5-mcp-rpcerror` (new; the HTTP fixture refuses turn two's call, -32603 `fixture refuses`) | `red-rpcerror-bodies.txt`: the tool result was xfx's `{"server","tool","error":{"kind":"McpProtocolError",...}}` | `rpcerror-bodies.txt`: identical, 4 of 4 -- `MCP protocol error -32603: fixture refuses`, as `error-text` |
+
+`turn-bodies.txt`, `direct-bodies.txt` and `known-bodies.txt` were retaken
+with this round's binary: still identical. The `failed` screen pair
+(`*-p5-mcp-rpcerror-40x120-failed.txt`) differs in rows 1, 5 and 14-15 only:
+the banner, and MCP-T's count and failed row (`Failed mcp_web_echo: <reason>`).
+
+The admission matrix now also holds each case to its expected outcome by the
+rules alone (a tool or not, questions put, frames sent), and a table that
+denies only `capability_search` and `mcp_select_tool` is judged as no rule.
+With the deny check taken out of `select_unselected` it fails by itself:
+`Ask {"mcp_fixture_echo":"deny"} None: left: (true, 0, 0) right: (false, 0, 0)`.
+
 ## Wire
 
 `wire-new-frames.txt` (`p5-mcp-wire-new`, the fixture's log of what each

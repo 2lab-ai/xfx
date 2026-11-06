@@ -955,16 +955,60 @@ fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
         PermissionMode::Auto,
         PermissionMode::Yolo,
     ];
+    // What each table is, for the expected outcome below.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        NoRule,
+        Allows,
+        Asks,
+        Denies,
+    }
     let rules = [
-        json!({}),
-        json!({"mcp_fixture_echo": "allow"}),
-        json!({"mcp_fixture_*": "allow"}),
-        json!({"mcp_fixture_echo": "ask"}),
-        json!({"mcp_fixture_echo": "deny"}),
-        json!({"mcp_*": "deny"}),
-        json!({"*": "deny"}),
-        json!({"*": "deny", "mcp_fixture_echo": "allow"}),
+        (json!({}), Kind::NoRule),
+        (json!({"mcp_fixture_echo": "allow"}), Kind::Allows),
+        (json!({"mcp_fixture_*": "allow"}), Kind::Allows),
+        (json!({"mcp_fixture_echo": "ask"}), Kind::Asks),
+        (json!({"mcp_fixture_echo": "deny"}), Kind::Denies),
+        (json!({"mcp_*": "deny"}), Kind::Denies),
+        (json!({"*": "deny"}), Kind::Denies),
+        // The rule after it, naming the tool, decides.
+        (
+            json!({"*": "deny", "mcp_fixture_echo": "allow"}),
+            Kind::Allows,
+        ),
+        // A deny on the two meta-tools is about them, not the server's tools:
+        // a call by name is judged as if no rule spoke (fx hands the lookup
+        // the table and the tool's own name, `tool_runtime.zig:1042-1053`).
+        (
+            json!({"capability_search": "deny", "mcp_select_tool": "deny"}),
+            Kind::NoRule,
+        ),
     ];
+    // The outcome every case must have, unselected, by the rules alone
+    // (`tool_admission.zig:161-165`, `:1116-1157`, `:1426-1442`): whether the
+    // name is a tool at all, the questions put, and the frames sent for the
+    // two calls. A deny the table holds leaves no tool; an allow sends both
+    // unasked; full access sends both whatever else (an ask rule included);
+    // `auto` holds a call no rule decides; a question answered once asks
+    // each time, "always" once, "deny" refuses each time, nobody to ask
+    // refuses.
+    let expected = |mode: PermissionMode, kind: Kind, answer: Option<ApprovalAnswer>| {
+        let asked = |answer: Option<ApprovalAnswer>| match answer {
+            None => (0, 0),
+            Some(ApprovalAnswer::Once) => (2, 2),
+            Some(ApprovalAnswer::Always) => (1, 2),
+            Some(ApprovalAnswer::Deny) => (2, 0),
+        };
+        match (kind, mode) {
+            (Kind::Denies, _) => (false, 0, 0),
+            (Kind::Allows, _) | (_, PermissionMode::Yolo) => (true, 0, 2),
+            (Kind::NoRule, PermissionMode::Auto) => (true, 0, 0),
+            (Kind::NoRule | Kind::Asks, _) => {
+                let (questions, sent) = asked(answer);
+                (true, questions, sent)
+            }
+        }
+    };
     let answers = [
         None,
         Some(ApprovalAnswer::Once),
@@ -975,7 +1019,7 @@ fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
     let mut sent_somewhere = false;
     let mut refused_somewhere = false;
     for mode in modes {
-        for table in &rules {
+        for (table, kind) in &rules {
             for answer in answers {
                 let came = |selected_first: bool| -> Came {
                     let asked = Arc::new(Mutex::new(0));
@@ -1020,6 +1064,11 @@ fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
                 let selected = came(true);
                 let unselected = came(false);
                 let case = format!("{mode:?} {table} {answer:?}");
+                assert_eq!(
+                    (unselected.a_tool, unselected.asked, unselected.sent),
+                    expected(mode, *kind, answer),
+                    "{case}: {unselected:?}"
+                );
                 assert!(selected.a_tool, "{case}");
                 assert_eq!(
                     unselected.sent, selected.sent,
@@ -1046,7 +1095,7 @@ fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
             }
         }
     }
-    assert_eq!(cases, 3 * 8 * 4);
+    assert_eq!(cases, 3 * 9 * 4);
     assert!(sent_somewhere && refused_somewhere);
 
     // The rules that matter, spelled out: `auto` holds an unselected call
@@ -1084,6 +1133,79 @@ fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
         &none,
         "mcp_other_echo"
     ));
+    runtime.shutdown();
+}
+
+/// A stdio server with one tool, `echo`, whose `tools/call` answer is the
+/// `result` or `error` member `answer`, written verbatim into the frame.
+fn answering_server(home: &Home, name: &str, answer: &str) -> ServerConfig {
+    let script = home.dir.path().join(format!("{name}.sh"));
+    let body = r#"while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/^{"jsonrpc":"2.0","id":\([0-9][0-9]*\),.*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"t","version":"1"}}}\n' "$id" ;;
+    *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}}\n' "$id" ;;
+    *'"method":"tools/call"'*) printf '{"jsonrpc":"2.0","id":%s,%s}\n' "$id" "$ANSWER" ;;
+    *) if [ -n "$id" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id"; fi ;;
+  esac
+done
+"#;
+    std::fs::write(&script, body).expect("script");
+    let mut server = ServerConfig::local(name, "/bin/sh", &[script.to_string_lossy().into_owned()]);
+    server.env = vec![("ANSWER".into(), answer.into())];
+    server
+}
+
+#[test]
+fn a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did() {
+    // At `call()`, what the model is told and that it is a failure, never a
+    // success: an `isError` result (`classifyCall`, `protocol/tools.zig:
+    // 255-273@481104fd`), an answer that is no tool result (`copyCall`,
+    // `runtime.zig:2363-2378`, `ended`, `model.zig:855-878`), and a JSON-RPC
+    // error (`write_protocol_diagnostic`, `tool_result.zig:199-214`) -- its
+    // data left out, as `render` leaves it out (`model.zig:841`).
+    let home = Home::new();
+    let cases = [
+        (
+            "iserror",
+            r#""result":{"content":[{"type":"text","text":"no such issue"}],"isError":true}"#,
+            r#"{"server":"iserror","tool":"mcp_iserror_echo","result":{"content":[{"type":"text","text":"no such issue"}],"isError":true}}"#,
+        ),
+        (
+            "malformed",
+            r#""result":{"content":"no such issue"}"#,
+            "MCP server 'malformed' ended the call: the server's answer was malformed. The tool may have run.",
+        ),
+        (
+            "refusing",
+            r#""error":{"code":-32603,"message":"fixture refuses <now> & \"always\"","data":{"why":"x"}}"#,
+            r#"MCP protocol error -32603: fixture refuses <now> & "always""#,
+        ),
+        (
+            "nul",
+            r#""error":{"code":-32000,"message":"a\u0000b"}"#,
+            "MCP protocol error -32000: binary or non-utf8 tool output omitted (3 bytes)",
+        ),
+    ];
+    for (name, answer, _) in &cases {
+        config::add_profile_server(&home.profile(), answering_server(&home, name, answer))
+            .expect("saved");
+    }
+    let runtime = home.runtime();
+    runtime.start();
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    for (name, _, told) in &cases {
+        assert_eq!(settled(&runtime, name).status(), Status::Ready, "{name}");
+        let alias = format!("mcp_{name}_echo");
+        assert!(
+            crate::tools::mcp::select_unselected(&full, &alias),
+            "{name}"
+        );
+        let result = call(&full, &alias, json!({}));
+        assert!(!result.ok, "{name}: {result:?}");
+        assert_eq!(result.outcome, crate::tools::Outcome::Finished, "{name}");
+        assert_eq!(result.output, *told, "{name}");
+    }
     runtime.shutdown();
 }
 
