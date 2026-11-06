@@ -1357,6 +1357,60 @@ def the_theme_subscription_mode_and_query_the_product_emits_are_accepted():
     require(fed("\x1b[?996;1n").unknown, "a parametrized ?996;1n passed the oracle unremarked")
 
 
+def a_wait_and_a_grid_cut_the_capture_at_the_same_frame():
+    """`scenarios.through_closed_frames`: the cut a grid is fed through and a
+    `Trial.wait_for` waits on.
+
+    It is the oracle's input rather than the oracle, and it is checked here
+    for the same reason the oracle is: `3b` failed at random for as long as
+    the wait and the grid cut the capture in two different places. Each
+    boundary is checked kept and cut, in bytes and in text alike, because the
+    two callers hold one each.
+    """
+    import scenarios  # noqa: E402 - the runner's module; imported here, not at load
+
+    cut = scenarios.through_closed_frames
+    begin, end = scenarios.FRAME_BEGIN_BYTES, scenarios.FRAME_END_BYTES
+    whole = b"pre" + begin + b"one" + end
+    cases = (
+        ("a complete frame is kept whole", whole + b"post", whole + b"post"),
+        ("a frame with no closer yet is cut at its opener", b"pre" + begin + b"one", b"pre"),
+        (
+            "a closer still arriving does not close the frame",
+            b"pre" + begin + b"one\x1b[?2026",
+            b"pre",
+        ),
+        (
+            "a complete frame before an unfinished one is kept, the unfinished one is not",
+            whole + begin + b"two",
+            whole,
+        ),
+        ("a capture with no frame at all is kept", b"probe\x1b[6n", b"probe\x1b[6n"),
+        (
+            # `END_FRAME_HIDDEN` (`src/tui/frame.rs:65`): a frame whose caret
+            # stays hidden ends on `?2026l` alone, and it is closed.
+            "a frame closed without showing its caret is kept whole",
+            b"pre" + begin + b"one" + scenarios.FRAME_CLOSE_BYTES,
+            b"pre" + begin + b"one" + scenarios.FRAME_CLOSE_BYTES,
+        ),
+    )
+    for what, given, expected in cases:
+        got = cut(given)
+        require(got == expected, "%s: %r gave %r" % (what, given, got))
+        # The text form, with the markers `Trial.wait_for` passes. Decoded
+        # latin-1 here so the two forms line up byte for byte; `Session.text()`
+        # decodes utf-8 with replacement, which the ASCII markers survive alike.
+        text = cut(given.decode("latin-1"), scenarios.pty.FRAME_BEGIN, scenarios.pty.FRAME_CLOSE)
+        require(
+            text == expected.decode("latin-1"),
+            "%s: the text cut disagrees with the byte cut: %r" % (what, text),
+        )
+    require(
+        b"two" not in cut(whole + begin + b"two"),
+        "a needle inside a frame still being written passed as shown",
+    )
+
+
 TESTS = (
     a_zwj_family_is_one_cluster_two_cells_wide,
     a_combining_mark_stays_with_the_cell_it_marks,
@@ -1385,6 +1439,7 @@ TESTS = (
     entering_the_alternate_plane_twice_is_a_finding,
     a_frame_is_recorded_only_when_it_is_asked_for,
     the_theme_subscription_mode_and_query_the_product_emits_are_accepted,
+    a_wait_and_a_grid_cut_the_capture_at_the_same_frame,
 )
 
 
@@ -1434,6 +1489,7 @@ No credential and no network: it binds `127.0.0.1:0`.
 
 import json
 import select
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socketserver import TCPServer
@@ -1783,6 +1839,21 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
         TCPServer.server_bind(self)
         self.server_name = "127.0.0.1"
         self.server_port = self.server_address[1]
+
+    def handle_error(self, request, client_address):
+        """A client that hung up is not a fixture failure, and not printed as one.
+
+        A session that leaves -- `/quit` mid-stream, or an exit with a
+        keep-alive connection still open -- resets its socket, and
+        `socketserver` printed a `ConnectionResetError` traceback into the
+        scenario's log for it. It reached the log of a passing scenario as
+        often as a failing one (11 to 16 passing logs a run), and printed above
+        a failure it read as that failure's cause. Every other error is still
+        printed.
+        """
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
 
 # Where the Gateway publishes its model catalog (`src/provider/model.rs`'s
@@ -3018,6 +3089,24 @@ def received(captured):
     return captured[: found.start()]
 
 
+def through_closed_frames(captured, begin=FRAME_BEGIN_BYTES, close=FRAME_CLOSE_BYTES):
+    """`captured` cut before a synchronized frame that has opened and not closed.
+
+    The one definition of "what the terminal shows" that `Trial.peek` reads a
+    grid from **and** `Trial.wait_for` waits on, so the two cannot disagree.
+    They did: the wait searched every byte read, the grid stopped at the last
+    complete frame, and a pty read ends wherever the kernel's buffer did -- so
+    a wait could return on a needle inside a frame still being written, and the
+    grid read straight after it showed the frame before (`3b-shutdown-drain`,
+    `chunk-0`, CI runs 41740485579 and 41799433671). Bytes or text alike: pass
+    the markers of the same type.
+    """
+    begins = captured.rfind(begin)
+    if begins >= 0 and captured.find(close, begins) < 0:
+        return captured[:begins]
+    return captured
+
+
 class Failure(Exception):
     """A scenario that could not be driven far enough to assert anything."""
 
@@ -3203,7 +3292,18 @@ class Trial:
         self.session.signal(signal.SIGWINCH)
 
     def wait_for(self, needle, timeout=pty.WAIT):
-        return self.session.wait_for(needle, timeout=timeout)
+        """`needle` on the terminal **as far as its last complete frame**.
+
+        What `peek` and `grid` read, cut the same way (`through_closed_frames`):
+        a needle seen only inside a frame still being written is not on the
+        screen yet, and a grid taken right after a wait that said it was would
+        show the frame before.
+        """
+        return self.session.wait_until(
+            "%r on the terminal, in a complete frame" % needle,
+            lambda text: needle in through_closed_frames(text, pty.FRAME_BEGIN, pty.FRAME_CLOSE),
+            timeout=timeout,
+        )
 
     def wait_until(self, what, ready, timeout=pty.WAIT):
         return self.session.wait_until(what, ready, timeout=timeout)
@@ -3255,10 +3355,7 @@ class Trial:
         per poll: the evidence directory is for the states a scenario
         *asserted on*.
         """
-        captured = received(bytes(self.session.captured))
-        begins = captured.rfind(FRAME_BEGIN_BYTES)
-        if begins >= 0 and captured.find(FRAME_CLOSE_BYTES, begins) < 0:
-            captured = captured[:begins]
+        captured = through_closed_frames(received(bytes(self.session.captured)))
         return Grid(self.rows, self.cols, record_frames=record_frames).feed(captured)
 
     def grid(self, label, record_frames=False):
@@ -4112,12 +4209,28 @@ def scenario_3b(run):
         any(run.nonce in body for body in fixture.bodies()),
         "the nonce this run minted is in the request xfx sent",
     )
+    # Asked of the **document** -- the screen and the scrollback above it --
+    # and not of the screen alone. How much of the backlog one frame carries
+    # is the pacer's elapsed time times its rate (`src/tui/pacer.rs`), and this
+    # fault sleeps every tick: the first frame with chunks in it has carried
+    # forty of them (the marker and `chunk-0` still on the screen) and eighty
+    # (twenty-four rows, so the same synchronized update scrolled both into the
+    # terminal's own history -- CI runs 41740485579, 41799433671). Either way
+    # they were painted, and a row the stream pushed up is still the user's,
+    # one wheel-turn away (`Grid.document_text`).
     grid = trial.grid("mid-stream")
     run.require(
-        grid.find(marker) is not None,
-        "the fixture's own marker %r is rendered on the screen" % marker,
+        marker in grid.document_text(),
+        "the fixture's own marker %r is rendered (on the screen or in the scrollback the "
+        "stream pushed it into)" % marker,
     )
-    run.require(grid.find("chunk-0") is not None, "and the stream behind it is running")
+    run.require("chunk-0" in grid.document_text(), "and the stream behind it is running")
+    document = grid.document_text()
+    run.require(
+        0 <= document.find(marker) < document.find("chunk-0"),
+        "and the marker leads the stream in the document (marker at %d, chunk-0 at %d)"
+        % (document.find(marker), document.find("chunk-0")),
+    )
     run.require(grid.text().strip() != "", "the screen is not blank")
 
     # **Restated for fx's Ctrl-D** (`.prd/tui-phase4/receipts/f4`, `cd-streaming`:
@@ -4558,7 +4671,7 @@ def scenario_3c(run):
 RECOVERY_CLEANUP_BYTES = b"\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h"
 
 
-def recovered_peek(trial, after, record_frames=False):
+def recovered_peek(trial, after, record_frames=False, until=None):
     """`Trial.peek`, sliced to start at `after` (a recovery cleanup's end).
 
     The oracle's allowlist knows neither a bare `CAN` nor `OSC 8` -- the bytes
@@ -4568,16 +4681,22 @@ def recovered_peek(trial, after, record_frames=False):
     the slice: everything from `after` on is either the rebuild this row
     asserts on or an ordinary later frame, and both are real, complete,
     synchronized ones.
+
+    `until` stops the slice at a byte offset in the capture, as `excised`
+    does for `3e`: the rebuild's own screen is the one **before** the frame
+    the next tick is forced to write, which erases and rewrites every band
+    row (`Band::force_redraw`) and would paint over a rebuild that got a row
+    wrong.
     """
-    captured = received(bytes(trial.session.captured)[after:])
-    begins = captured.rfind(FRAME_BEGIN_BYTES)
-    if begins >= 0 and captured.find(FRAME_CLOSE_BYTES, begins) < 0:
-        captured = captured[:begins]
+    captured = bytes(trial.session.captured)
+    if until is not None:
+        captured = captured[:until]
+    captured = through_closed_frames(received(captured[after:]))
     return Grid(trial.rows, trial.cols, record_frames=record_frames).feed(captured)
 
 
-def recovered_grid(trial, after, label):
-    grid = recovered_peek(trial, after)
+def recovered_grid(trial, after, label, until=None):
+    grid = recovered_peek(trial, after, until=until)
     trial.snapshots += 1
     path = os.path.join(trial.dir, "grid-%02d-post-cleanup-%s.txt" % (trial.snapshots, label))
     with open(path, "w", encoding="utf-8") as handle:
@@ -4660,6 +4779,20 @@ def scenario_3d(run):
         "torn-then-recovered", faulty=True, fault="partial-frame-once", gateway=fixture
     ).settled()
     run.require(trial.modes().is_raw(), "recovery: raw mode really was entered")
+
+    def recovered_and_repainted(_text):
+        captured = bytes(trial.session.captured)
+        at = captured.find(RECOVERY_CLEANUP_BYTES)
+        return at >= 0 and captured.count(FRAME_END_BYTES, at) >= 2
+
+    # The tear, the cleanup, the rebuild -- and the frame the tick behind a
+    # recovery is forced to write (`FrameFailures::pending_recovery`), as `3e`
+    # waits for on the other plane. Waited for rather than left to however
+    # much `settled()`'s last read happened to take, so what is captured below
+    # is the same wire on every run.
+    trial.wait_until(
+        "the cleanup, the rebuild and the frame the next tick owed", recovered_and_repainted
+    )
     captured = bytes(trial.session.captured)
 
     begins = captured.find(FRAME_BEGIN_BYTES)
@@ -4685,22 +4818,6 @@ def scenario_3d(run):
     # rests on is asserted, with the fault's own point (T8 round 2).
     require_a_band_tear(run, "recovery", control, launch_frame, prefix)
 
-    # Two `FRAME_BEGIN`s (the tear, then the rebuild) and one `FRAME_END`
-    # (only the rebuild reaches it) -- pairing the *first* begin with the
-    # only end on the wire, as `first_frame` does, would silently splice the
-    # tear, the cleanup vector and the rebuild into one "frame" no terminal
-    # ever showed. Every check below is bounded by `cleanup_at`/`cleanup_end`
-    # instead, on purpose.
-    run.require(
-        captured.count(FRAME_BEGIN_BYTES) == 2,
-        "recovery: exactly the frame this build tore and the one it rebuilt (%d)"
-        % captured.count(FRAME_BEGIN_BYTES),
-    )
-    run.require(
-        captured.count(FRAME_END_BYTES) == 1,
-        "recovery: exactly one frame on this wire ever completed (%d)"
-        % captured.count(FRAME_END_BYTES),
-    )
     cleanup_end = cleanup_at + len(RECOVERY_CLEANUP_BYTES)
     rebuild_region = captured[cleanup_end:]
     rebuild_begins = rebuild_region.find(FRAME_BEGIN_BYTES)
@@ -4712,13 +4829,60 @@ def scenario_3d(run):
         rebuild_ends > rebuild_begins >= 0,
         "recovery: the rebuild is a whole frame, opened and closed after the cleanup",
     )
+    # Two `FRAME_BEGIN`s (the tear, then the rebuild) and one `FRAME_END`
+    # (only the rebuild reaches it) -- pairing the *first* begin with the
+    # only end on the wire, as `first_frame` does, would silently splice the
+    # tear, the cleanup vector and the rebuild into one "frame" no terminal
+    # ever showed. Every check below is bounded by `cleanup_at`/`cleanup_end`
+    # instead, on purpose.
+    #
+    # **Counted through the rebuild's own close, not over `captured`.** The
+    # session owes one more frame behind the rebuild, every time: the torn
+    # attempt's reasons were handed back (`failed_band`), and the tick after a
+    # recovery forces a real write (`FrameFailures::pending_recovery`,
+    # `Band::force_redraw`) one `TICK` (8 ms) later. Counted over the whole
+    # capture, that frame was in or out by however much the harness's last
+    # read took -- on a loaded runner it took both, and the count read 3 and 2
+    # (CI run 41832130240) on a wire whose tear and rebuild were exactly right.
+    # It is waited for above and asserted below instead; a tear re-offered, or
+    # a frame completed, *before* the rebuild still counts here.
+    through_rebuild = (
+        captured[: cleanup_end + rebuild_ends + len(FRAME_END_BYTES)]
+        if rebuild_ends > rebuild_begins >= 0
+        else captured
+    )
+    run.require(
+        through_rebuild.count(FRAME_BEGIN_BYTES) == 2,
+        "recovery: exactly the frame this build tore and the one it rebuilt (%d)"
+        % through_rebuild.count(FRAME_BEGIN_BYTES),
+    )
+    run.require(
+        through_rebuild.count(FRAME_END_BYTES) == 1,
+        "recovery: exactly one frame on this wire ever completed before the rebuild closed (%d)"
+        % through_rebuild.count(FRAME_END_BYTES),
+    )
+    # The forced frame: the next whole frame after the rebuild, and nothing
+    # between them -- exactly one opener before its close, and no second
+    # cleanup vector, so a tear re-offered or recovered again in that gap
+    # cannot pass as the tick's own write.
+    forced = captured[len(through_rebuild) :]
+    forced_ends = forced.find(FRAME_END_BYTES)
+    forced_frame = forced[: forced_ends + len(FRAME_END_BYTES)] if forced_ends >= 0 else b""
+    run.require(
+        forced_ends >= 0
+        and forced_frame.startswith(FRAME_BEGIN_BYTES)
+        and forced_frame.count(FRAME_BEGIN_BYTES) == 1
+        and RECOVERY_CLEANUP_BYTES not in forced_frame,
+        "recovery: the tick behind the recovery wrote one whole frame of its own, "
+        "and nothing else, right behind the rebuild (%r)" % forced[:80],
+    )
 
     # -- the rebuilt screen: divider, composer, hint row, caret -----------
-    trial.wait_until(
-        "the composer to hold an empty draft after the rebuild",
-        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == "",
-    )
-    grid = recovered_grid(trial, cleanup_end, "rebuilt")
+    # Read **through the rebuild's own close** and no further: the forced
+    # frame behind it rewrites every band row, so a grid that included it
+    # would be judging that frame and passing a rebuild that dropped the hint
+    # or misplaced the caret. The forced frame is checked against it below.
+    grid = recovered_grid(trial, cleanup_end, "rebuilt", until=len(through_rebuild))
     run.require(composer_text(grid) == "", "recovery: the rebuilt composer is empty")
     # Restated for the fx band (`a50f8a0`): there is no always-drawn divider
     # any more, so "the rebuilt screen has a divider" is now the whole band
@@ -4746,6 +4910,19 @@ def scenario_3d(run):
     run.require(
         not grid.unknown,
         "recovery: the rebuilt screen emits only declared sequences: %r" % grid.unknown,
+    )
+    # And the frame the next tick was forced to write shows that same screen,
+    # caret and all -- the standing form of "it is an identical repaint".
+    repainted = recovered_grid(
+        trial,
+        cleanup_end,
+        "repainted-by-the-next-tick",
+        until=len(through_rebuild) + len(forced_frame),
+    )
+    run.require(
+        repainted.text() == grid.text() and (repainted.row, repainted.col) == (grid.row, grid.col),
+        "recovery: the forced repaint shows the screen the rebuild did (caret %r vs %r)"
+        % ((repainted.row, repainted.col), (grid.row, grid.col)),
     )
 
     # -- typed nonce visible, C-u empties it, the real prompt is submitted -
