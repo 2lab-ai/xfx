@@ -111,7 +111,7 @@ the loopback test passes (a guard that already held).
 Every report read is `GET /v1/report?start_date=…&end_date=…&group_by=model&api_key_id=self`
 with `headers=authorization`: the `api_key` scope sends no team
 (`.team = if (job.scope == .member) job.team else null`, `src/usage/usage.zig:758@481104fd`). `fake-key-not-real` is in none of the 30
-committed gateway logs, nor anywhere in this receipt; those logs hold 39
+committed gateway logs, nor in any snap or HOME listing under `cap/` (this sentence is its one mention); those logs hold 39
 `request GET /v1/report` lines.
 
 | scenario | what is on screen (snap labels) | report GETs per run |
