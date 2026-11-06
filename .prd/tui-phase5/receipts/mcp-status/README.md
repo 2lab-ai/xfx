@@ -144,3 +144,31 @@ failed / 7 ignored, with `fault-injection` 4587 / 0 / 7; identity, no-stubs,
 no-secrets ok; release and faulty release builds ok; `scripts/smoke.sh` 46
 checks, 0 failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios +
 the oracle, 1091 checks, 0 failures.
+
+## MCP-Sc (review round, `3c89856e`)
+
+| finding | fix | RED on `b31bd061` | pin |
+|---|---|---|---|
+| a failed try cleared `opening` before its handshake and took its process back before its stderr settle and close: a stop in that teardown found nothing, so a reload started the replacement beside the old child and `/quit` returned with it alive | review option (i): a try holds `opening` to its end, reads stderr and exit while the connection is still the server's (a stop closes it itself), and takes it back only to close it; `stop()` waits up to 20 s (a group's grace, a docker removal) -- one rule for every step of a try, rather than re-arming the flag on one path | `the reload returned with the old child alive`; `the session ended with the child alive` (startup timeout 200 ms, `trap '' TERM`, one try, the stop 350 ms after the pid) | `a_reload_during_a_failed_handshakes_teardown_returns_only_once_the_child_is_gone`, `the_end_of_a_session_during_a_failed_handshakes_teardown_waits_for_the_child` |
+| a second try could overwrite the one `opening`/`starting` slot | `Opening::begin` refuses while a try holds the server; a call's restart is checked and counted under one lock | -- | -- |
+| `shutdown()` did not wait for a reload under way | `closed` set first; a bounded wait on `reloading`; no reload starts a server after it | -- | -- |
+| `reconnect` read the raw state, not the one every surface shows | `Server::observed`: a ready server whose process died is failed and `/mcp reload` starts it again | -- | `an_explicit_reload_starts_again_a_ready_server_whose_process_died` |
+| the holding tests could race the startup reload | `start_and_wait` before acting | -- | -- |
+| the `opening` wait and `hand_over`'s check unpinned | a `Hold` hook compiled into fault-injection tests only | removing `hand_over`'s stopped check fails `…held_before_its_hand_over…`; releasing `opening` before the handshake fails `…a_failed_try_closing_its_own_process` | both |
+| the prompt read during the backoff rode on the resource read; the menu's `r` unrun | a prompt read of its own during the backoff; `Job::MenuReload` run | -- | `a_feature_request_during_a_startup_backoff_waits_for_the_next_try`, `an_explicit_reload_starts_a_failed_server_again_…` |
+
+The MCP-W worker's lead -- a stdio server `Connecting` past its startup
+timeout, once in ~20 runs of seven servers with one 65 KB env value -- did not
+reproduce here in 120 bounded runs: 60 with the answering fixture (each run
+checked within 4.5 s of a 2 s timeout) and 60 with servers that never answer
+(one try, each checked `Failed` within 3.5 s of a 1 s timeout). Nothing is
+committed for it.
+
+Re-taken at `3c89856e`: `p5-mcp-failed` ×4 and `p5-mcp-fail startup` 0 rows
+from fx; `dismiss` ×2 status row identical.
+
+Gates at `3c89856e`: fmt, both clippy runs ok; `cargo test` 4569 / 0 / 7
+ignored, with `fault-injection` 4592 / 0 / 7; identity, no-stubs, no-secrets
+ok; release and faulty release builds ok; `scripts/smoke.sh` 46 checks, 0
+failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios + the oracle,
+1091 checks, 0 failures.
