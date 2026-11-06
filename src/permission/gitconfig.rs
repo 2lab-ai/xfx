@@ -187,8 +187,7 @@ pub(crate) fn run_git(
     for (name, value) in environment {
         command.env(name, value);
     }
-    let mut child = command
-        .spawn()
+    let mut child = crate::process::spawn(&mut command)
         .map_err(|err| format!("git could not be started: {err}"))?;
     let mut stdout = child.stdout.take().ok_or("git's output was not captured")?;
     let reader = std::thread::spawn(move || {
@@ -785,15 +784,16 @@ tinued
         for (index, text) in cases.iter().enumerate() {
             let file = dir.path().join(format!("case{index}"));
             std::fs::write(&file, text).expect("a case");
-            let output = std::process::Command::new(&git)
-                .args(["config", "--file"])
-                .arg(&file)
-                .args(["--no-includes", "-z", "--get-regexp"])
-                .arg(r"^(include\.path|includeif\..*\.path)$")
-                .env_clear()
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .output()
-                .expect("git runs");
+            let output = crate::process::output(
+                std::process::Command::new(&git)
+                    .args(["config", "--file"])
+                    .arg(&file)
+                    .args(["--no-includes", "-z", "--get-regexp"])
+                    .arg(r"^(include\.path|includeif\..*\.path)$")
+                    .env_clear()
+                    .env("GIT_CONFIG_NOSYSTEM", "1"),
+            )
+            .expect("git runs");
             let Ok(ours) = include_paths(text) else {
                 continue;
             };

@@ -29,6 +29,12 @@
 //! once, in the profile: [`COVERAGE_FILE`], written by the first turn that
 //! records a request ([`start_tracking`]).
 
+pub mod cache;
+pub mod dashboard;
+pub mod policy;
+pub mod report;
+pub mod view;
+
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};

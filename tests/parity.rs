@@ -876,12 +876,13 @@ fn the_readme_says_plainly_that_what_the_model_reads_is_saved() {
 fn every_doctor_check_the_binary_emits_is_documented() {
     // Run the real binary: the check list is built at runtime from the
     // configuration, so the only honest inventory is the one it prints.
-    let output = Command::new(env!("CARGO_BIN_EXE_xfx"))
-        .args(["doctor", "--json"])
-        .env_remove("VERCEL_OIDC_TOKEN")
-        .env_remove("AI_GATEWAY_API_KEY")
-        .output()
-        .expect("spawn xfx doctor");
+    let output = xfx::process::output(
+        Command::new(env!("CARGO_BIN_EXE_xfx"))
+            .args(["doctor", "--json"])
+            .env_remove("VERCEL_OIDC_TOKEN")
+            .env_remove("AI_GATEWAY_API_KEY"),
+    )
+    .expect("spawn xfx doctor");
     let document: Value = serde_json::from_slice(&output.stdout).expect("doctor prints one JSON");
     let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
     let doctor_row = ledger
@@ -910,10 +911,10 @@ fn the_tracked_tree_carries_only_the_current_product_name() {
     // a gate nobody runs before pushing, and the script proves itself awake on
     // its own controls before it reports on this repository.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let output = Command::new(root.join("scripts").join("check-xfx-identity.sh"))
-        .current_dir(&root)
-        .output()
-        .expect("spawn scripts/check-xfx-identity.sh");
+    let output = xfx::process::output(
+        Command::new(root.join("scripts").join("check-xfx-identity.sh")).current_dir(&root),
+    )
+    .expect("spawn scripts/check-xfx-identity.sh");
     assert!(
         output.status.success(),
         "the identity check failed:\n{}{}",

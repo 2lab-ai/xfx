@@ -2,9 +2,8 @@
 //! (`assistant_presentation.zig:1230-1782`).
 
 use std::cell::Cell;
-use std::time::Duration;
 
-use super::{contains, rule_only, text};
+use super::{assert_renders_in_linear_time, contains, rule_only, text};
 use crate::markdown::{parse_table_payload, render_table_payload, MarkdownProcessor, Styles};
 
 #[test]
@@ -404,14 +403,13 @@ fn entity_lookup_is_bounded_and_a_long_ampersand_line_renders_in_bounded_time() 
     processor.push("&ampersand; &amp;\n", &mut out);
     assert_eq!(text(&out), "&ampersand; &\n");
 
-    out.clear();
-    let mut line = "&".repeat(64 * 1024);
-    line.push('\n');
-    let started = super::thread_cpu_time();
-    processor.push(&line, &mut out);
-    let elapsed = super::thread_cpu_time() - started;
-    assert!(elapsed < Duration::from_millis(500), "{elapsed:?}");
-    assert_eq!(text(&out), line);
+    let line = |n: usize| {
+        let mut line = "&".repeat(n);
+        line.push('\n');
+        line
+    };
+    let out = assert_renders_in_linear_time("\"&\"..\"\\n\"", 64 * 1024, line);
+    assert_eq!(text(&out), line(64 * 1024));
 }
 
 #[test]

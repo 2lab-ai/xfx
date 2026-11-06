@@ -38,8 +38,6 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
-use rustix::io::FdFlags;
-
 use super::term;
 
 static RESUMED: AtomicBool = AtomicBool::new(false);
@@ -107,16 +105,17 @@ impl Wakeup {
     /// Both ends non-blocking and close-on-exec.
     ///
     /// `pipe2` is not portable (macOS has no such call), so the flags are set
-    /// with `fcntl` afterwards. Non-blocking on the **write** end is the
-    /// load-bearing one: a full pipe must make the handler drop the byte, not
-    /// block the UI thread with the terminal raw. Close-on-exec keeps a spawned
-    /// command from inheriting either end.
+    /// with `fcntl` afterwards. Close-on-exec keeps a spawned command from
+    /// inheriting either end, and is set under the lock every start takes
+    /// ([`crate::process::pipe`]), so no start's `fork` lands before it.
+    /// Non-blocking on the **write** end is the load-bearing one: a full pipe
+    /// must make the handler drop the byte, not block the UI thread with the
+    /// terminal raw.
     pub(crate) fn new() -> io::Result<Self> {
-        let (read, write) = rustix::pipe::pipe()?;
+        let (read, write) = crate::process::pipe()?;
         for end in [read.as_fd(), write.as_fd()] {
             let flags = rustix::fs::fcntl_getfl(end)?;
             rustix::fs::fcntl_setfl(end, flags | rustix::fs::OFlags::NONBLOCK)?;
-            rustix::io::fcntl_setfd(end, FdFlags::CLOEXEC)?;
         }
         Ok(Self { read, write })
     }
@@ -784,9 +783,7 @@ mod tests {
     #[test]
     fn a_child_process_inherits_the_mask_its_thread_was_started_with() {
         let mut child = spawn_unsignalled("xfx-test", || {
-            std::process::Command::new("/bin/sleep")
-                .arg("30")
-                .spawn()
+            crate::process::spawn(std::process::Command::new("/bin/sleep").arg("30"))
                 .expect("a child")
         })
         .expect("a thread")
@@ -1057,7 +1054,7 @@ mod tests {
         // instead of hanging: without the mask the signal never arrives, the
         // wait sits until the byte does, and the assertion below reports a
         // readable descriptor rather than an interruption.
-        let (read, write) = rustix::pipe::pipe().expect("open a pipe");
+        let (read, write) = crate::process::pipe().expect("open a pipe");
         let writer = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(300));
             let _ = rustix::io::write(&write, b"x");
@@ -1273,7 +1270,7 @@ mod tests {
                 Ok(())
             });
         }
-        let output = runner.output().expect("a runner");
+        let output = crate::process::output(&mut runner).expect("a runner");
         let report = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),

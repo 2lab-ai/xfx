@@ -52,9 +52,7 @@ impl FakeClipboard {
             .expect("make it executable");
         // Run once now: macOS assesses an executable the first time it runs,
         // which can take seconds -- past the five the binary gives a file copy.
-        Command::new(&osascript)
-            .arg("warm-up")
-            .status()
+        xfx::process::status(Command::new(&osascript).arg("warm-up"))
             .expect("run the fake osascript once");
         std::fs::remove_file(dir.path().join("copied-file")).expect("forget the warm-up");
         std::fs::create_dir(dir.path().join("reports")).expect("a report directory");

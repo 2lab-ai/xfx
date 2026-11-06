@@ -114,10 +114,7 @@ impl Tree {
     /// run on.
     fn mkfifo(&self, relative: &str) -> PathBuf {
         let path = self.root.join(relative);
-        let status = Command::new("mkfifo")
-            .arg(&path)
-            .status()
-            .expect("run mkfifo");
+        let status = xfx::process::status(Command::new("mkfifo").arg(&path)).expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
         path
     }
@@ -3639,7 +3636,7 @@ impl Sandbox {
             command.env(key, value);
         }
         command.args(args);
-        Run::of(command.output().expect("spawn xfx"))
+        Run::of(xfx::process::output(&mut command).expect("spawn xfx"))
     }
 }
 

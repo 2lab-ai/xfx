@@ -123,15 +123,15 @@ impl Cleanup {
         let Some(id) = id else {
             return;
         };
-        let Ok(mut child) = crate::process::command(&self.docker)
+        let mut command = crate::process::command(&self.docker);
+        command
             .args(["rm", "-f", &id])
             .env_clear()
             .envs(&self.environment)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        else {
+            .stderr(std::process::Stdio::null());
+        let Ok(mut child) = crate::process::spawn(&mut command) else {
             return;
         };
         let started = Instant::now();

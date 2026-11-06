@@ -74,7 +74,7 @@ pub(crate) fn assert_no_proxy_is_used(test: &str, answer: String) {
     }
     copy.env(SERVER, server.origin());
     copy.args(["--exact", "--test-threads=1", test]);
-    let output = copy.output().expect("a copy of this test binary");
+    let output = crate::process::output(&mut copy).expect("a copy of this test binary");
     let reached = proxy.finish();
     let served = server.finish();
     let report = format!(
@@ -155,7 +155,7 @@ impl Listener {
 }
 
 /// One request's head and as much body as its `Content-Length` says.
-fn read_request(connection: &mut std::net::TcpStream) -> String {
+pub(crate) fn read_request(connection: &mut std::net::TcpStream) -> String {
     let mut request = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {

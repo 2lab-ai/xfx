@@ -8,7 +8,7 @@
 //! its own end (an inline test module to its closing brace), so code after a
 //! test module is still read. A file that is a `#[cfg(test)]` module, or a
 //! module declared inside one, is test code and skipped. In what is left, the
-//! spellings in [`BANNED`] appear only on the lines [`ALLOWED`] names. A call
+//! spellings in [`BANNED`] are called only on the lines [`ALLOWED`] names. A call
 //! under another name -- an import alias, a wrapper, a crate this does not
 //! know -- is not seen; the behavioural tests in `super` are the check on
 //! what the writers actually do.
@@ -58,7 +58,32 @@ const ALLOWED: &[(&str, &str)] = &[
         "src/tools/mutate.rs",
         "return match rustix::fs::mkdirat(parent, located.name.as_os_str(), new_directory_mode())",
     ),
+    // The usage cache makes `~/.xfx` and `usage-cache` its own way, the
+    // stronger one this module's doc names as the residual: `mkdirat` `0700`
+    // on the home's descriptor, then opened with `O_NOFOLLOW | O_DIRECTORY`
+    // (`open_dir_in`), `fchmod`ed only when it made it, and refused -- not
+    // repaired -- when one that is there is a link or not private
+    // (`open_or_create_profile`, `open_or_create_dir`).
+    (
+        "src/usage/cache.rs",
+        "let made = match rustix::fs::mkdirat(&home, PROFILE, DIR_MODE) {",
+    ),
+    (
+        "src/usage/cache.rs",
+        "let made = match rustix::fs::mkdirat(&profile, DIR_NAME, DIR_MODE) {",
+    ),
 ];
+
+/// Whether `line` calls `banned`: the spelling, not the tail of a longer
+/// name (`open_or_create_dir(` is not `create_dir(`).
+fn calls(line: &str, banned: &str) -> bool {
+    line.match_indices(banned).any(|(at, _)| {
+        line[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+    })
+}
 
 /// `text` as the product reads it, and the names of the modules it declares
 /// test-only (`#[cfg(test)] mod NAME;`), whose files are test code.
@@ -448,6 +473,19 @@ fn tail() {}
 }
 
 #[test]
+fn a_banned_spelling_is_a_call_and_not_the_tail_of_a_longer_name() {
+    assert!(calls("fs::create_dir(path)", "create_dir("));
+    assert!(calls("create_dir(path)", "create_dir("));
+    assert!(calls("x = rustix::fs::mkdirat(fd, n, m)", "mkdirat("));
+    assert!(!calls("fn open_or_create_dir(home: &Home)", "create_dir("));
+    assert!(!calls(
+        "let dir = open_or_create_dir(home)?;",
+        "create_dir("
+    ));
+    assert!(!calls("my_mkdir(path)", "mkdir("));
+}
+
+#[test]
 fn test_files_are_known_by_their_declarations() {
     let tree = product_tree();
     for test_file in [
@@ -474,7 +512,7 @@ fn no_product_code_makes_a_directory_but_on_the_lines_allowed() {
     let mut offenders = Vec::new();
     for (file, code) in product_tree() {
         for (number, line) in code.lines().enumerate() {
-            if !BANNED.iter().any(|banned| line.contains(banned)) {
+            if !BANNED.iter().any(|banned| calls(line, banned)) {
                 continue;
             }
             let key = (file.clone(), line.trim().to_string());

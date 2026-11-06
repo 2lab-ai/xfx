@@ -82,7 +82,7 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str]) -> Run {
-        Run::of(self.command().args(args).output().expect("spawn xfx"))
+        Run::of(xfx::process::output(self.command().args(args)).expect("spawn xfx"))
     }
 
     fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
@@ -91,7 +91,7 @@ impl Sandbox {
         for (key, value) in env {
             command.env(key, value);
         }
-        Run::of(command.output().expect("spawn xfx"))
+        Run::of(xfx::process::output(&mut command).expect("spawn xfx"))
     }
 
     fn profile_dir(&self) -> PathBuf {
@@ -2195,7 +2195,7 @@ fn setup_gateway_error_when_no_home_does_not_mention_daemon_or_llmux() {
     command.args(["setup", "gateway"]);
     // Remove HOME to trigger NoProfile error
     command.env_remove("HOME");
-    let run = Run::of(command.output().expect("spawn xfx"));
+    let run = Run::of(xfx::process::output(&mut command).expect("spawn xfx"));
     assert_eq!(run.code, Some(1), "setup gateway must fail without home");
     let error = run.stderr + &run.stdout;
     assert!(
