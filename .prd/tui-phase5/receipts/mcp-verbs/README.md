@@ -148,6 +148,31 @@ sets; `cargo test` 4651 / 0 and 4674 / 0 (fault-injection); identity, stubs,
 secrets ok; release and faulty release builds ok; `smoke.sh` 46 / 0;
 `smoke-tui.sh` 37 scenarios + the oracle, 1091 / 0.
 
+## MCP-Vd: the template's authority
+
+`.../p5/MCP-Vc/reviews/{gpt6,opus}.md`. RED on `e603e614`, each case run
+through `/mcp add --project web '<url>'` under `bounded.py` (a 120-300 s limit
+and a 2 GiB resident cap over the test's process group, watched every 100 ms,
+since macOS refuses `ulimit -v`; peak 19 MiB):
+
+| URL | `e603e614` | head |
+|---|---|---|
+| `https://${A:-x/}user:pw@host/mcp` | `* Added web to .mcp.json.`, `user:pw` in the file | refused, file unchanged |
+| `https://${A:-/}user:pw@host/mcp` | `* Added …`, `user:pw` in the file | refused, file unchanged |
+| `https://${A:-?}u:p@h/mcp` | `* Added …`, `u:p@` in the file | refused, file unchanged |
+| `https://${A}@h/mcp` | refused | refused |
+| `https://${A:-u:p@}h/mcp` | refused | refused |
+
+Fix: `template_url_holds` refuses a literal `@` anywhere after `://`, as it
+does `#`; the authority is not cut out of a template at all. Residual: an `@`
+in a templated project path is refused, which fx writes (`docs/parity.md`).
+
+Pins that passed on `e603e614` and each fail under the mutation named
+(restored after): `a_template_urls_scheme_is_held_to_http_or_https` (the
+scheme clause removed: `left: None`), `shows_next_login_line_says_a_name_only_as_far_as_its_equals_sign`
+(the `next login` row back to `safe`), `an_entry_rewritten_after_its_approval_was_saved_stays_pending`
+(`Choices::admission` by name alone: `left: Approved, right: Pending`).
+
 ## Gates
 
 On `3c09b481` (the head after it changes comments, docs and this

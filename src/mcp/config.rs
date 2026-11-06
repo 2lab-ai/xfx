@@ -1692,15 +1692,19 @@ pub fn unreadable(file: File, name: &str, entry: &Entry) -> Option<&'static str>
 
 /// What of [`validate_endpoint`]'s rule a URL with a `${...}` in it already
 /// keeps, whatever the expansion: its scheme is a literal `http` or `https`,
-/// and neither its authority nor the rest has a literal `@` or `#`. A plain
-/// `http` address's loopback host and port are the expansion's to say.
+/// and nothing after `://` has a literal `@` or `#`. **Anywhere**, not in the
+/// authority alone: where the authority ends is the expansion's to say -- a
+/// `/` or `?` inside a default (`${A:-/}user:pw@host`) is no end of it -- so
+/// a template with userinfo text anywhere is refused before it is written
+/// into the repository's file. An `@` in a templated path is refused with it,
+/// which fx would write. A plain `http` address's loopback host and port are
+/// the expansion's to say.
 fn template_url_holds(url: &str) -> bool {
     let Some((scheme, rest)) = url.split_once("://") else {
         return false;
     };
-    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
     (scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http"))
-        && !authority.contains('@')
+        && !rest.contains('@')
         && !rest.contains('#')
 }
 

@@ -672,6 +672,17 @@ fn a_header_the_reader_would_refuse_is_refused_before_anything_is_written() {
             "its \"url\" isn't valid",
         ),
         ("https://${XFX_MCPV_HOST/mcp", "a ${...} in it isn't valid"),
+        // MCP-Vd: a `/` or `?` inside a default ended the authority there, so
+        // the `user:pw@` after it was written into the repository's file.
+        (
+            "https://${A:-x/}user:pw@host/mcp",
+            "its \"url\" isn't valid",
+        ),
+        ("https://${A:-/}user:pw@host/mcp", "its \"url\" isn't valid"),
+        ("https://${A:-?}u:p@h/mcp", "its \"url\" isn't valid"),
+        // Refused before, and still.
+        ("https://${A}@h/mcp", "its \"url\" isn't valid"),
+        ("https://${A:-u:p@}h/mcp", "its \"url\" isn't valid"),
         ("https://${XFX MCPV}/mcp", "a ${...} in it isn't valid"),
     ] {
         let answer = said(&runtime, &format!("add --project web '{url}'"));
@@ -834,6 +845,168 @@ fn a_profile_name_with_an_equals_sign_is_said_back_only_that_far() {
     let all = answers.join("\n");
     assert!(all.contains("* TOKEN=\n"), "{all}");
     assert!(!all.contains("name-secret"), "{all}");
+    runtime.shutdown();
+}
+
+#[test]
+fn a_template_urls_scheme_is_held_to_http_or_https() {
+    // The `/mcp add` parser refuses any URL not spelled `https://` or
+    // `http://` before the writer's check sees it, so the check's own scheme
+    // clause is pinned here, where only it can answer.
+    let entry = |url: &str| Entry::Http {
+        url: url.into(),
+        headers: Vec::new(),
+    };
+    for url in ["ftp://${XFX_MCPV_HOST}/mcp", "file://${XFX_MCPV_HOST}/mcp"] {
+        assert_eq!(
+            config::unreadable(File::Project, "web", &entry(url)),
+            Some("its \"url\" isn't valid"),
+            "{url}"
+        );
+    }
+    assert_eq!(
+        config::unreadable(File::Project, "web", &entry("HTTPS://${XFX_MCPV_HOST}/mcp")),
+        None
+    );
+    // And through the verb, the file as it was.
+    let scratch = Scratch::new();
+    let runtime = scratch.runtime();
+    std::fs::write(scratch.project(), "{\"mcpServers\":{}}\n").unwrap();
+    let answer = said(&runtime, "add --project web 'ftp://${XFX_MCPV_HOST}/mcp'");
+    assert!(
+        answer[0].starts_with("! 'ftp://${XFX_MCPV_HOST}/mcp' isn't a URL."),
+        "{answer:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(scratch.project()).unwrap(),
+        "{\"mcpServers\":{}}\n"
+    );
+    runtime.shutdown();
+}
+
+/// A loopback HTTP endpoint that answers every request `401`: a server that
+/// needs a sign-in.
+fn needs_sign_in() -> u16 {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let mut length = 0usize;
+                    loop {
+                        let mut header = String::new();
+                        if reader.read_line(&mut header).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let header = header.trim_end();
+                        if header.is_empty() {
+                            break;
+                        }
+                        if let Some((name, value)) = header.split_once(':') {
+                            if name.eq_ignore_ascii_case("content-length") {
+                                length = value.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                    let mut body = vec![0u8; length];
+                    if reader.read_exact(&mut body).is_err() {
+                        return;
+                    }
+                    let _ =
+                        stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+                }
+            });
+        }
+    });
+    port
+}
+
+#[test]
+fn shows_next_login_line_says_a_name_only_as_far_as_its_equals_sign() {
+    let scratch = Scratch::new();
+    let port = needs_sign_in();
+    scratch.write_profile(&format!(
+        r#"{{"mcpServers":{{"TOKEN=name-secret":{{"type":"http","url":"http://127.0.0.1:{port}/mcp"}}}}}}"#
+    ));
+    let runtime = scratch.runtime();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !runtime.views().iter().any(|view| view.needs_auth) {
+        assert!(Instant::now() < deadline, "the server never needed a login");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let answer = said(&runtime, "show TOKEN=name-secret").join("\n");
+    let rows: Vec<&str> = answer.lines().collect();
+    assert!(rows.contains(&"  next       /mcp login TOKEN="), "{answer}");
+    assert!(rows.contains(&"  status     needs login"), "{answer}");
+    assert!(!answer.contains("name-secret"), "{answer}");
+    runtime.shutdown();
+}
+
+#[test]
+fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
+    // The producer's half of an approval's binding: what a reload admits is
+    // the entry whose digest was saved (`load_workspace` asks
+    // `Choices::admission` with the digest it reads). An approval of the
+    // unparsed `late` saved, then `.mcp.json` rewritten before the reload
+    // that follows it: the rewritten entry is pending, and not started.
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    std::fs::write(scratch.project(), late_entry("A")).unwrap();
+    let runtime = scratch.runtime();
+    let approved = runtime.loaded_digest("late").expect("read");
+    config::save_action(
+        &scratch.settings(),
+        &scratch.root.join("work"),
+        &TrustAction::ApproveShown {
+            name: "late".into(),
+            digest: approved.clone(),
+        },
+        &config::Loaded {
+            entries: Vec::new(),
+            pending: Vec::new(),
+        },
+    )
+    .expect("saved");
+    let rewritten = format!(
+        r#"{{"mcpServers":{{"late":{{"command":"/bin/sh","args":["{}","B"]}}}}}}"#,
+        fixture()
+    );
+    std::fs::write(scratch.project(), rewritten).unwrap();
+    runtime.reload(Origin::Transcript);
+    let now = runtime.loaded_digest("late").expect("read again");
+    assert_ne!(now, approved, "the rewrite has the approved digest");
+    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"));
+    assert_eq!(choices.admission("late", &now), Admission::Pending);
+    let view = runtime
+        .views()
+        .into_iter()
+        .find(|view| view.name == "late")
+        .expect("the rewrite parses: a server");
+    assert_eq!(view.admission, Some(Admission::Pending));
+    std::thread::sleep(Duration::from_millis(200));
+    let view = runtime
+        .views()
+        .into_iter()
+        .find(|view| view.name == "late")
+        .expect("still there");
+    assert_ne!(
+        view.connection,
+        Connection::Ready,
+        "the rewrite was started"
+    );
+    assert_ne!(
+        view.connection,
+        Connection::Connecting,
+        "the rewrite was started"
+    );
     runtime.shutdown();
 }
 
