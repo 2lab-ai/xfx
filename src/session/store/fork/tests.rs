@@ -30,6 +30,27 @@ use crate::session::event::{
 use crate::session::{Selector, EVENT_SCHEMA_VERSION};
 
 // ---------------------------------------------------------------------------
+// a hand in the stage
+// ---------------------------------------------------------------------------
+
+std::thread_local! {
+    /// What [`before_rules`] does on this test's thread, and the stage it was
+    /// handed. Per thread, so a test that sets it touches no other test's fork.
+    static BEFORE_RULES: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
+    static STAGE_SEEN: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Called by `fork` with its stage, just before it writes the fork's
+/// saved-session rules there: the moment another hand could put something
+/// at the store's path.
+pub(super) fn before_rules(stage: &Path) {
+    STAGE_SEEN.with(|seen| *seen.borrow_mut() = Some(stage.to_path_buf()));
+    if let Some(hand) = BEFORE_RULES.with(std::cell::Cell::get) {
+        hand(stage);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // a bench
 // ---------------------------------------------------------------------------
 
@@ -1670,4 +1691,74 @@ fn a_fork_whose_source_rules_cannot_be_read_or_are_a_link_is_refused_and_leaves_
         assert_eq!(bench.names(), before, "{what}");
         assert_eq!(bench.names().1, Vec::<String>::new(), "{what}");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fork_whose_rules_cannot_be_written_is_refused_and_its_stage_is_gone() {
+    // `session_rules::seed` refuses whatever is already at the store's path
+    // in the stage -- a file another hand put there, a folder, a link -- and
+    // the fork's `?` on it drops the stage, whose `Drop` removes it with
+    // everything in it: no session, no stage, the source as it was.
+    use crate::permission::session_rules::{self, Decision};
+    let bench = bench();
+    let deny = remembered(&[("git push", Decision::Deny)], None);
+    let source = with_rules(&bench, Some(&deny));
+    let theirs = session_rules::path_in(&bench.store.session_dir(&source));
+    let before_rules = fs::read(&theirs).expect("the source's rules");
+
+    type Hand = fn(&Path);
+    let hands: [(&str, Hand); 3] = [
+        ("a file", |stage| {
+            fs::write(session_rules::path_in(stage), b"{}").expect("a file there")
+        }),
+        ("a folder", |stage| {
+            fs::create_dir(session_rules::path_in(stage)).expect("a folder there")
+        }),
+        ("a link", |stage| {
+            std::os::unix::fs::symlink("/dev/null", session_rules::path_in(stage))
+                .expect("a link there")
+        }),
+    ];
+    for (what, hand) in hands {
+        STAGE_SEEN.with(|seen| *seen.borrow_mut() = None);
+        BEFORE_RULES.with(|cell| cell.set(Some(hand)));
+        let before = bench.names();
+        let result = bench.fork(&source, 2);
+        BEFORE_RULES.with(|cell| cell.set(None));
+        match result {
+            Err(SessionError::Io { path, .. }) => {
+                assert!(
+                    path.ends_with(session_rules::FILE_NAME),
+                    "{what}: {}",
+                    path.display()
+                );
+            }
+            Err(other) => panic!("{what}: refused as {other:?}"),
+            Ok(session) => panic!("{what}: forked {}", session.id()),
+        }
+        // The seam ran in a stage, and that stage is gone.
+        let stage = STAGE_SEEN
+            .with(|seen| seen.borrow_mut().take())
+            .unwrap_or_else(|| panic!("{what}: the rules were never written"));
+        assert!(
+            stage.starts_with(bench.store.profile_dir().join(FORK_STAGE_DIR)),
+            "{what}: {}",
+            stage.display()
+        );
+        assert!(
+            fs::symlink_metadata(&stage).is_err(),
+            "{what}: the stage was left behind"
+        );
+        assert_eq!(bench.names(), before, "{what}");
+        assert_eq!(bench.names().1, Vec::<String>::new(), "{what}");
+        assert_eq!(fs::read(&theirs).expect("read"), before_rules, "{what}");
+    }
+    // With no other hand, the same fork is made, and its rules are there.
+    let fork = bench.fork(&source, 2).expect("forked");
+    assert_eq!(
+        session_rules::load(&session_rules::path_in(&bench.store.session_dir(fork.id())))
+            .expect("the fork's rules"),
+        deny
+    );
 }

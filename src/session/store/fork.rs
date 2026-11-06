@@ -287,6 +287,10 @@ impl SessionStore {
         // In the stage, so the fork is never seen without them: owner-only,
         // published with `link(2)` and read back ([`session_rules::seed`]).
         if let Some(rules) = &rules {
+            // A test's hand in the stage just before the rules are written
+            // there; compiled out of every other build.
+            #[cfg(test)]
+            tests::before_rules(&stage.path);
             session_rules::seed(&stage.path, rules)
                 .map_err(|err| io_error(&session_rules::path_in(&stage.path), err))?;
         }
