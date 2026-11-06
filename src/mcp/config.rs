@@ -156,8 +156,10 @@ pub enum Admission {
 /// `env` values and header values are what its `${VAR}`s expanded to, and an
 /// approved workspace server's are too ([`load_workspace`]): values from the
 /// environment, a credential among them, for the server and never for a
-/// screen. What a person is shown of an entry is read from its file.
-#[derive(Debug, Clone, PartialEq)]
+/// screen. What a person is shown of an entry is read from its file, and
+/// `{:?}` names the server and only counts what it runs and sends (the
+/// `Debug` below).
+#[derive(Clone, PartialEq)]
 pub struct ServerConfig {
     pub name: String,
     pub source: Source,
@@ -184,6 +186,54 @@ pub struct ServerConfig {
     pub restart_limit: u8,
     /// Only a workspace server has one.
     pub admission: Option<Admission>,
+}
+
+/// The server's name, where it came from, how it is reached and when it
+/// runs; of every field an expansion can fill -- a profile server's command,
+/// arguments, `env` and header values ([`prepare_to_start`]), and an approved
+/// workspace server's every string, its URL, `header_env`, `bearer_token_env`
+/// and `oauth` included ([`load_workspace`]) -- only whether it is set or how
+/// many there are. A `{:?}` in a panic, an assertion or a trace never carries
+/// a value from the environment, nor one from the file.
+impl fmt::Debug for ServerConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let set = |is_set: bool| {
+            if is_set {
+                "<redacted>"
+            } else {
+                "<none>"
+            }
+        };
+        let count = |n: usize| format!("<{n} redacted>");
+        f.debug_struct("ServerConfig")
+            .field("name", &self.name)
+            .field("source", &self.source)
+            .field("transport", &self.transport)
+            .field(
+                "command",
+                &format_args!("{}", set(!self.command.is_empty())),
+            )
+            .field("args", &format_args!("{}", count(self.args.len())))
+            .field("env", &format_args!("{}", count(self.env.len())))
+            .field("url", &format_args!("{}", set(!self.url.is_empty())))
+            .field("headers", &format_args!("{}", count(self.headers.len())))
+            .field(
+                "header_env",
+                &format_args!("{}", count(self.header_env.len())),
+            )
+            .field(
+                "bearer_token_env",
+                &format_args!("{}", set(self.bearer_token_env.is_some())),
+            )
+            .field("oauth", &format_args!("{}", set(self.oauth.is_some())))
+            .field("enabled", &self.enabled)
+            .field("required", &self.required)
+            .field("startup_timeout_ms", &self.startup_timeout_ms)
+            .field("operation_timeout_ms", &self.operation_timeout_ms)
+            .field("restart_limit", &self.restart_limit)
+            .field("admission", &self.admission)
+            .finish()
+    }
 }
 
 impl ServerConfig {
@@ -4837,6 +4887,18 @@ mod tests {
         );
         assert!(servers.is_empty(), "{:?}", servers.len());
         assert_eq!(notes, [limit("one"), limit("next")]);
+        // The two checks are fx's two: the value's own cap refuses the second
+        // `${BIG}` before the shared budget is asked, so the 400-odd KiB the
+        // budget still has is left -- and `small`, one byte, starts. Were the
+        // budget the only check, the second `${BIG}` would have emptied it and
+        // `small` would go too.
+        let (servers, notes) = prepared(
+            r#"{"mcp":{"one":{"command":"x","args":["${BIG}${BIG}"]},"small":{"command":"x"}}}"#,
+            &[("BIG", &big)],
+        );
+        let names: Vec<&str> = servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["small"]);
+        assert_eq!(notes, [limit("one")]);
         // Two servers under the cap each, over it together: the second goes,
         // and then nothing is left for one with a byte to write -- but a
         // server with none still starts.
@@ -4856,6 +4918,64 @@ mod tests {
         let mut notes = Vec::new();
         prepare_to_start(&mut servers, &mut notes, &|_| None);
         assert_eq!((servers.len(), notes.len()), (1, 0));
+    }
+
+    #[test]
+    fn a_servers_debug_names_it_and_never_shows_a_value() {
+        // `{:?}` -- an assertion's, a panic's, a trace's -- of a server, of the
+        // profile and the workspace lists that hold them, before and after the
+        // expansion: neither `${TOKEN}` as written nor the (fake) value it
+        // expands to, from any field an expansion can fill.
+        const SECRET: &str = "fake-token-6d1f";
+        let text = r#"{"mcp":{
+            "local":{"command":"/opt/${TOKEN}/bin","args":["--t=${TOKEN}"],"env":{"API_TOKEN":"${TOKEN}"}},
+            "web":{"type":"http","url":"https://example.test/mcp","headers":{"X-Token":"Bearer ${TOKEN}"},
+                   "header_env":{"X-Other":"TOKEN"},"bearer_token_env":"TOKEN","oauth":{"client_id":"${TOKEN}"}}}}"#;
+        let written = parse_profile(text).unwrap();
+        let (expanded, notes) = prepared(text, &[("TOKEN", SECRET)]);
+        assert_eq!(notes, Vec::<String>::new());
+        assert_eq!(expanded[0].env[0].1, SECRET);
+        assert_eq!(expanded[1].headers[0].1, format!("Bearer {SECRET}"));
+        // An approved workspace server, whose every string was expanded, the
+        // URL among them.
+        let dir = tempfile::tempdir().expect("dir");
+        fs::write(
+            dir.path().join(WORKSPACE_FILE),
+            r#"{"mcpServers":{"proj":{"type":"http","url":"https://${TOKEN}.example.test/mcp","headers":{"X-T":"${TOKEN}"}}}}"#,
+        )
+        .unwrap();
+        let env = env_of(&[("TOKEN", SECRET)]);
+        let digest = load_workspace(dir.path(), &Choices::default(), &env).digests[0]
+            .1
+            .clone();
+        let approved = Choices {
+            approved: vec![("proj".into(), digest)],
+            ..Choices::default()
+        };
+        let workspace = load_workspace(dir.path(), &approved, &env);
+        assert_eq!(
+            workspace.servers[0].url,
+            format!("https://{SECRET}.example.test/mcp")
+        );
+        for shown in [
+            format!("{written:?}"),
+            format!("{expanded:?}"),
+            format!("{:#?}", expanded[1]),
+            format!("{workspace:?}"),
+        ] {
+            assert!(!shown.contains(SECRET), "{shown}");
+            assert!(!shown.contains("${TOKEN}"), "{shown}");
+            assert!(!shown.contains("TOKEN"), "{shown}");
+            assert!(!shown.contains("example.test"), "{shown}");
+        }
+        assert_eq!(
+            format!("{:?}", expanded[1]),
+            "ServerConfig { name: \"web\", source: Profile, transport: Http, \
+             command: <none>, args: <0 redacted>, env: <0 redacted>, url: <redacted>, \
+             headers: <1 redacted>, header_env: <1 redacted>, bearer_token_env: <redacted>, \
+             oauth: <redacted>, enabled: true, required: false, startup_timeout_ms: 30000, \
+             operation_timeout_ms: 60000, restart_limit: 1, admission: None }"
+        );
     }
 
     #[test]
