@@ -14594,6 +14594,104 @@ mod tests {
     }
 
     #[test]
+    fn the_approval_shows_what_the_child_is_given_every_variable_and_header_as_written() {
+        // xfx's rule since 2026-11-04 (`c4d252f5`; `docs/parity.md`, `/mcp`,
+        // "Deliberately different from upstream's"): an approval shows the
+        // command line or the address and each variable an entry sets and
+        // each header it sends, every value as written -- a pending entry is
+        // never expanded -- since `PATH`, `NODE_OPTIONS`, `LD_PRELOAD` change
+        // what runs as much as the command does. Spelled as the approval view
+        // spells a command: a bidirectional override and a line break are
+        // named, not drawn.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let mut case = McpCase::new(
+            serde_json::json!({
+                "proj": {"command": "/bin/sh", "args": [fixture], "env": {
+                    "PATH": "./x:${PATH}",
+                    "NODE_OPTIONS": "--require ./evil.js",
+                    "ODD": "a\u{202e}b\nc",
+                }},
+                "web": {"type": "http", "url": "http://127.0.0.1:9/mcp",
+                        "headers": {"X-Team": "blue \u{202e}x"}},
+            }),
+            None,
+        );
+        case.open();
+        case.reread();
+        // proj first of the two waiting; its screen, then its approval.
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let screen = case.screen();
+        assert!(
+            screen.contains("Approve proj for this project? It runs:"),
+            "{screen}"
+        );
+        for row in [
+            "env: PATH=./x:${PATH}",
+            "env: NODE_OPTIONS=--require ./evil.js",
+            "env: ODD=a\\u{202e}b\\x0ac",
+        ] {
+            assert!(
+                screen.contains(row),
+                "{row:?} is not on the screen:\n{screen}"
+            );
+        }
+        assert!(!screen.contains('\u{202e}'), "{screen}");
+        case.keys([
+            Input::Action(Action::Escape),
+            Input::Action(Action::Escape),
+            Input::Action(Action::Down),
+            Input::Action(Action::Submit),
+            Input::Action(Action::Submit),
+        ]);
+        let screen = case.screen();
+        assert!(
+            screen.contains("Approve web for this project? It connects to:"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("header: X-Team: blue \\u{202e}x"),
+            "{screen}"
+        );
+        assert!(!screen.contains('\u{202e}'), "{screen}");
+    }
+
+    #[test]
+    fn an_entry_too_tall_for_the_screen_is_not_drawn_whole_and_approve_refuses_it() {
+        // Forty variables, each a row of its own: more than a 40-row
+        // screen's panel can hold. Its approval draws what fits, and Enter
+        // approves nothing and says why; the entry stays waiting.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let env: serde_json::Map<String, serde_json::Value> = (0..40)
+            .map(|at| (format!("V{at:02}"), serde_json::json!("x")))
+            .collect();
+        let mut case = McpCase::new(
+            serde_json::json!({"tall": {"command": "/bin/sh", "args": [fixture], "env": env}}),
+            None,
+        );
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let screen = case.screen();
+        assert!(screen.contains("env: V00=x"), "{screen}");
+        assert!(!screen.contains("env: V39=x"), "{screen}");
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let written = case.written();
+        assert!(
+            written.contains(
+                "! mcp: xfx couldn't show all of what tall runs on this screen, so nothing was approved."
+            ),
+            "{written}"
+        );
+        assert_eq!(case.saved(), serde_json::Value::Null);
+        assert_eq!(
+            case.view("tall").admission,
+            Some(crate::mcp::config::Admission::Pending)
+        );
+    }
+
+    #[test]
     fn remove_and_reject_ask_in_place_and_anything_but_yes_changes_nothing_on_disk() {
         // S3. Remove and Reject ask on the choice's row, an approval on its
         // own screen; Esc, Ctrl-C, a printable key, Backspace and `no` each

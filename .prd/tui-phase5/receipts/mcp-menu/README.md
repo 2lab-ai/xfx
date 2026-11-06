@@ -62,7 +62,8 @@ merged in (`--no-edit`) before the gates; nothing conflicted.
   fx runs `remove NAME`, which refuses a name both files hold.
 - The approval's screen grows past fx's 13 rows to show all it trusts, and
   refuses (a warning) when a frame did not draw it whole or the entry changed
-  since; it names an entry's variables or headers, never their values.
+  since; it shows what the child is given, every variable and header with
+  its value as written (MCP-Mb, below).
 - A server's tool list follows fx's waiter (`runtime.zig:886-895`): a held
   server's reason at once, tools once ready, a `failed` start's reason.
   **[추정]** a stdio server `retrying` with a failure ends it with that
@@ -130,7 +131,7 @@ fx's, `Its tools couldn't load: its process exited with code 3; …` included;
 | 2. Approve binds what xfx read: Enter approves the entry the approval's screen drew, by its digest (`ApproveShown`); a rewrite the runtime read after the frame approves nothing and says so; one on disk not yet read is saved as the entry shown, and the reload leaves the rewrite waiting, unstarted; a frame that could not show it all, or was written over, approves nothing | `tui::shell::tests::approve_in_the_menu_binds_the_entry_its_screen_drew_and_not_one_read_since`, `…::approve_in_the_menu_saves_the_digest_xfx_read_so_an_entry_rewritten_since_never_runs`, `tui::mcp_menu::tests::approve_binds_only_the_entry_its_screen_drew_whole`; `tests/mcp.rs` `a_project_server_the_model_rewrites_after_approval_waits_to_be_approved_again` |
 | 2, the race | the menu still holds A and drew A, the runtime has read B: Enter's job approves A by its digest, so B stays waiting -- an approval by name would bind B | `tui::shell::tests::approve_in_the_menu_approves_the_entry_drawn_when_the_runtime_read_another_before_the_menu_did` |
 | 3. Destructive choices ask first: Remove and Reject ask on their row; Esc, Ctrl-C, a printable key (`x`, even `y`), Backspace and `no` each leave `~/.xfx/mcp.json` and `settings.json` byte-for-byte as they were and put nothing in the composer; the approval's Esc and a printable key approve nothing; then yes does it and says nothing | `tui::shell::tests::remove_and_reject_ask_in_place_and_anything_but_yes_changes_nothing_on_disk`, `tui::mcp_menu::tests::remove_asks_on_its_own_row_and_only_yes_runs_it`. Reset: fx v0.0.16 has none, and M1's `z` went with its menu |
-| 4. Display is cut: every name, address, command, error, stderr tail and tool reaches the row spelled (`safe_within`, `terminal_safe`; the approval's target character by character, never cut); a name only as far as its first `=` (`typed`); a variable's or header's value never -- the approval names them | `tui::mcp_menu::tests::every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_sign`, `…::an_approval_names_what_the_entry_sets_and_never_a_value` |
+| 4. Display is cut: every name, address, command, error, stderr tail and tool reaches the row spelled (`safe_within`, `terminal_safe`; an approval's rows as the approval view spells a command); a name only as far as its first `=` (`typed`). What an approval shows is MCP-Mb's, below | `tui::mcp_menu::tests::every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_sign` |
 
 **Each guard removed, on a throwaway clone** (`git clone --no-local` into the
 scratchpad, never this worktree; `mutants.py`-style string swaps, each

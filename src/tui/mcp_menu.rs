@@ -22,20 +22,29 @@
 //! choice here, and a server that needs a login says xfx's sentence for it
 //! where fx says its tools show once you log in.
 //!
+//! **What an approval shows is what the child is given** (xfx's rule since
+//! 2026-11-04, `docs/parity.md`'s `/mcp` row): the command line or the
+//! address, then `env: NAME=value` for each variable the entry sets and
+//! `header: Name: value` for each header it sends, every value as written --
+//! a pending entry is never expanded -- from the entry the runtime read
+//! ([`crate::mcp::runtime::ShownEntry`]), the rows and the digest an approval
+//! binds taken together. fx's shows the command line or the address alone;
+//! `PATH`, `NODE_OPTIONS`, `LD_PRELOAD` change what runs as much.
+//!
 //! **What reaches the screen.** Every name, address, command, error and tool
 //! is the configuration's or a server's, so every one is spelled
-//! ([`crate::mcp::command::safe_within`], [`crate::mcp::terminal_safe`]) and
-//! a name is said only as far as its first `=`, as the verbs say it
-//! ([`crate::mcp::command::typed`]). A variable's or a header's value is never
-//! shown: the approval's screen names the variables and headers an entry
-//! sets, and nothing they hold.
+//! ([`crate::mcp::command::safe_within`], [`crate::mcp::terminal_safe`]; an
+//! entry's rows as the approval view spells a command) and a name is said
+//! only as far as its first `=`, as the verbs say it
+//! ([`crate::mcp::command::typed`]).
 
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::mcp::command;
 use crate::mcp::config::{Admission, File, Source, Transport};
-use crate::mcp::runtime::{Connection, McpRuntime, ServerView};
+use crate::mcp::runtime::{Connection, McpRuntime, ServerView, ShownEntry};
 
 use super::picker::{cells, ellipsized, pad_to};
 use super::theme::Palette;
@@ -212,14 +221,13 @@ pub(crate) struct Row {
     pub(crate) version: Option<String>,
     /// Its last error (`showsError`, `menu.zig:163-167`).
     pub(crate) error: Option<String>,
-    /// What it runs or connects to: the command line, or the address.
+    /// What it runs or connects to: the command line, or the address, as
+    /// its screen's first fact says it.
     pub(crate) target: String,
-    /// The names of the variables it sets or the headers it sends -- never
-    /// what they hold.
-    pub(crate) sets: Vec<String>,
-    /// The digest of the entry as read, for a project server not approved
-    /// as it stands: what an approval of what was drawn is for.
-    pub(crate) digest: Option<String>,
+    /// For a project server not approved as it stands, its entry as read:
+    /// the rows its approval shows and the digest an approval of them is
+    /// for, from one read.
+    pub(crate) entry: Option<Arc<ShownEntry>>,
     /// What a tool list would find now.
     pub(crate) found: Found,
 }
@@ -255,6 +263,10 @@ impl Row {
         out
     }
 
+    fn digest(&self) -> Option<&str> {
+        self.entry.as_ref().map(|entry| entry.digest.as_str())
+    }
+
     fn file(&self) -> File {
         match self.source {
             Source::Profile => File::Profile,
@@ -288,42 +300,25 @@ pub(crate) fn rows_of(runtime: &McpRuntime) -> (Vec<Row>, usize) {
         .map(|view| {
             let server = runtime.server(&view.name);
             let enabled = server.as_ref().is_none_or(|server| server.config.enabled);
-            let (target, sets) = match &server {
+            let target = match &server {
                 Some(server) => {
                     let config = &server.config;
                     match config.transport {
-                        Transport::Stdio => (
-                            command::command_line(&config.command, &config.args),
-                            config.env.iter().map(|(name, _)| name.clone()).collect(),
-                        ),
-                        Transport::Http | Transport::Sse => (
-                            config.url.clone(),
-                            config
-                                .headers
-                                .iter()
-                                .chain(&config.header_env)
-                                .map(|(name, _)| name.clone())
-                                .chain(
-                                    config
-                                        .bearer_token_env
-                                        .as_ref()
-                                        .map(|_| "Authorization".to_string()),
-                                )
-                                .collect(),
-                        ),
+                        Transport::Stdio => command::command_line(&config.command, &config.args),
+                        Transport::Http | Transport::Sse => config.url.clone(),
                     }
                 }
-                None => (String::new(), Vec::new()),
+                None => String::new(),
             };
             let found = found(&view, enabled, server.as_deref());
-            row(&view, enabled, target, sets, found)
+            row(&view, enabled, target, found)
         })
         .collect();
     (rows, runtime.issues().len())
 }
 
 /// A row from a view and what its server's configuration says.
-fn row(view: &ServerView, enabled: bool, target: String, sets: Vec<String>, found: Found) -> Row {
+fn row(view: &ServerView, enabled: bool, target: String, found: Found) -> Row {
     let status = command::status_text(view, enabled);
     let needs_login = view.needs_auth;
     let bright = needs_login
@@ -343,8 +338,7 @@ fn row(view: &ServerView, enabled: bool, target: String, sets: Vec<String>, foun
         version: view.protocol_version.clone(),
         error: view.failure.clone(),
         target,
-        sets,
-        digest: view.entry.as_ref().map(|entry| entry.digest.clone()),
+        entry: view.entry.clone(),
         found,
     }
 }
@@ -455,6 +449,9 @@ struct Drawn {
     /// Every line of it was in that frame, and nothing has written over the
     /// screen since.
     whole: bool,
+    /// A row of the entry was too long to show and was shortened, saying so
+    /// ([`ENTRY_ROW_MAX_BYTES`]).
+    shortened: bool,
 }
 
 /// The menu's state (`State`, `menu.zig:195-240`), and the servers and tools
@@ -894,9 +891,15 @@ impl McpMenu {
                     return Effect::None;
                 };
                 self.screen = Screen::Server;
-                if row.digest.as_deref() != Some(drawn.digest.as_str()) {
+                if row.digest() != Some(drawn.digest.as_str()) {
                     return Effect::Refused(format!(
                         "{shown} changed in {} since xfx showed it; nothing was approved.",
+                        row.file().label()
+                    ));
+                }
+                if drawn.shortened {
+                    return Effect::Refused(format!(
+                        "A row of {shown}'s entry is too long to show here whole, so nothing was approved: {} has every byte, and /mcp approve {shown} approves the entry as xfx read it.",
                         row.file().label()
                     ));
                 }
@@ -955,7 +958,7 @@ impl McpMenu {
             Screen::Confirm(choice) if choice.asks_on_row() => self.server_rows(),
             Screen::Confirm(_) => match self.open_row() {
                 Some(row) => {
-                    let wanted = 1 + confirm_lines(row, usize::from(cols)).len();
+                    let wanted = 1 + confirm_lines(row, usize::from(cols)).0.len();
                     return u16::try_from(wanted)
                         .unwrap_or(u16::MAX)
                         .min(room.max(budget));
@@ -1290,12 +1293,13 @@ impl McpMenu {
             width,
             palette,
         )];
-        let lines = confirm_lines(row, width);
-        if let Some(digest) = &row.digest {
+        let (lines, shortened) = confirm_lines(row, width);
+        if let Some(digest) = row.digest() {
             *self.drawn.borrow_mut() = Some(Drawn {
                 name: row.name.clone(),
-                digest: digest.clone(),
-                whole: lines.len() < count && width >= APPROVAL_MIN_COLS,
+                digest: digest.to_string(),
+                whole: !shortened && lines.len() < count && width >= APPROVAL_MIN_COLS,
+                shortened,
             });
         }
         for line in lines {
@@ -1307,6 +1311,9 @@ impl McpMenu {
                     format!("{}{}", palette.dim(), spelled_row(&text, width, 2, palette))
                 }
                 ConfirmLine::Target(text) => spelled_row(&text, width, 4, palette),
+                ConfirmLine::Continued(text) => {
+                    spelled_row(&format!("\u{21b3} {text}"), width, 2, palette)
+                }
             });
         }
         out
@@ -1401,16 +1408,28 @@ fn question(row: &Row, choice: Choice) -> String {
 enum ConfirmLine {
     Question(String),
     Detail(String),
-    /// Spelled already.
+    /// The start of a row of what it trusts, four columns in; spelled already.
     Target(String),
+    /// The rest of a row the width wrapped, led by `↳ ` two columns in, so
+    /// it never reads as a row of the entry's own -- when the entry has more
+    /// rows than its command line or address for it to pass for.
+    Continued(String),
 }
 
-/// The approval's lines below the title: a blank, the question, and what it
-/// trusts, wrapped at spaces and never cut (`confirmLines`, presentation
-/// `:440-481`) -- spelled first, so a control spelled out is wrapped as the
-/// cells it takes. Then the names of what the entry sets, which change what
-/// runs as much: `PATH`, `LD_PRELOAD`.
-fn confirm_lines(row: &Row, width: usize) -> Vec<ConfirmLine> {
+/// The most bytes of one row of an entry its approval shows: past it the row
+/// is its first 512 and last 256 bytes with its length and where it is whole
+/// between them, never cut without saying so, and the entry is not shown
+/// whole.
+const ENTRY_ROW_MAX_BYTES: usize = 1024;
+
+/// The approval's lines below the title (`confirmLines`, presentation
+/// `:440-481`): a blank, the question, and what it trusts, wrapped at spaces
+/// -- the entry's rows ([`ShownEntry`]: the command line or the address,
+/// then each variable and header, every value as written and spelled as the
+/// approval view spells a command), the first without its `command:` or
+/// `url:` label, as fx's shows its target -- and whether a row had to be
+/// shortened ([`ENTRY_ROW_MAX_BYTES`]).
+fn confirm_lines(row: &Row, width: usize) -> (Vec<ConfirmLine>, bool) {
     let mut out = vec![
         ConfirmLine::Detail(String::new()),
         ConfirmLine::Question(format!(
@@ -1419,32 +1438,73 @@ fn confirm_lines(row: &Row, width: usize) -> Vec<ConfirmLine> {
             runs(row)
         )),
     ];
+    let rows: Vec<String> = match &row.entry {
+        Some(entry) => entry
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(at, text)| {
+                let unlabelled = (at == 0)
+                    .then(|| {
+                        text.strip_prefix("command: ")
+                            .or_else(|| text.strip_prefix("url: "))
+                    })
+                    .flatten();
+                unlabelled.unwrap_or(text).to_string()
+            })
+            .collect(),
+        None => vec![spelled(&row.target)],
+    };
+    let led = rows.len() > 1;
     let limit = width.saturating_sub(4).max(16);
-    let mut rest = spelled(&row.target);
-    while !rest.is_empty() {
-        let (line, after) = cut_at(&rest, limit);
-        out.push(ConfirmLine::Target(line.to_string()));
-        rest = after.trim_start_matches(' ').to_string();
-    }
-    if !row.sets.is_empty() {
-        let names: Vec<String> = row.sets.iter().map(|name| spelled(name)).collect();
-        let mut rest = format!(
-            "It {} {}.",
-            if row.transport == Transport::Stdio {
-                "sets"
-            } else {
-                "sends"
-            },
-            names.join(", ")
-        );
-        let limit = width.saturating_sub(2).max(16);
+    let mut shortened = false;
+    for text in rows {
+        let (text, short) = fitted(&text);
+        shortened |= short;
+        let mut rest = text;
+        let mut first = true;
         while !rest.is_empty() {
             let (line, after) = cut_at(&rest, limit);
-            out.push(ConfirmLine::Detail(line.to_string()));
+            out.push(if first || !led {
+                ConfirmLine::Target(line.to_string())
+            } else {
+                ConfirmLine::Continued(line.to_string())
+            });
+            first = false;
             rest = after.trim_start_matches(' ').to_string();
         }
     }
-    out
+    (out, shortened)
+}
+
+/// `row` whole, or -- past [`ENTRY_ROW_MAX_BYTES`] -- its head and tail with
+/// how long it is and where it is whole between them, and whether it was
+/// shortened. Cut on a character boundary; `row` is spelled already, so no
+/// escape it carries is split from the code point it names.
+fn fitted(row: &str) -> (String, bool) {
+    if row.len() <= ENTRY_ROW_MAX_BYTES {
+        return (row.to_string(), false);
+    }
+    let floor = |at: usize| {
+        (0..=at)
+            .rev()
+            .find(|&at| row.is_char_boundary(at))
+            .unwrap_or(0)
+    };
+    let ceil = |at: usize| {
+        (at..=row.len())
+            .find(|&at| row.is_char_boundary(at))
+            .unwrap_or(row.len())
+    };
+    let head = &row[..floor(ENTRY_ROW_MAX_BYTES / 2)];
+    let tail = &row[ceil(row.len() - ENTRY_ROW_MAX_BYTES / 4)..];
+    (
+        format!(
+            "{head} \u{2026} [{} bytes in all; .mcp.json has every byte] \u{2026} {tail}",
+            row.len()
+        ),
+        true,
+    )
 }
 
 /// The narrowest screen the approval's lines are all drawn whole on: below
