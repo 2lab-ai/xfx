@@ -98,7 +98,12 @@ const KEY_IN_REPORT: &str = "unexpected report: a model name holds the key";
 
 /// What one model, or a whole period, adds up to (`Totals`,
 /// `report.zig:33-102`).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+///
+/// Serialized as the usage cache writes it (`crate::usage::cache`): every
+/// field named as fx names it, each defaulting to 0 when absent, and an
+/// unknown field refused, as fx's `std.json` parse refuses one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Totals {
     pub request_count: u64,
     pub input_tokens: u64,
@@ -194,7 +199,8 @@ fn percent_of(part: f64, whole: u64) -> Option<f64> {
 }
 
 /// One model's row of a report (`ModelRow`, `report.zig:109-112`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelRow {
     /// **The server's text, untrusted.** Bounded to 1-256 bytes of valid
     /// UTF-8 and refused when it holds the key, nothing more: an escaped ESC,
@@ -204,6 +210,27 @@ pub struct ModelRow {
     /// controls, and never through `Debug` -- and a cache encodes it.
     pub model: String,
     pub totals: Totals,
+}
+
+/// How often a budget starts over (`RefreshPeriod`, `report.zig:124`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshPeriod {
+    Daily,
+    Weekly,
+    Monthly,
+    None,
+}
+
+/// A spend limit and what was spent of it (`Budget`, `report.zig:126-130`).
+/// Only an fx login's team has one, which xfx does not read yet; the usage
+/// cache keeps the field so its schema is fx's.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Budget {
+    pub limit: f64,
+    pub spent: f64,
+    pub period: RefreshPeriod,
 }
 
 /// The UTC day a moment falls on, as days since the Unix epoch (`utcDay`,
@@ -499,8 +526,10 @@ pub enum Unavailable {
     ProviderRejected,
 }
 
-/// Why a fetch failed (`Failure`, `usage.zig:94-105`, less `cache`, which is
-/// the cache's to add). Cached numbers stay on screen.
+/// Why a fetch failed (`Failure`, `usage.zig:94-105`, less `cache`: fx's
+/// dashboard runtime reports a store's `error.InvalidCache` as it
+/// (`usage.zig:705-708`), so it arrives with that runtime (U3), from
+/// `crate::usage::cache::StoreError::Invalid`). Cached numbers stay on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Failure {
     /// No answer: nothing reachable, too slow, or too large.
@@ -558,6 +587,17 @@ impl Question {
     /// Who the numbers belong to, for the heading.
     pub fn label(&self) -> &'static str {
         API_KEY_LABEL
+    }
+
+    /// Whose usage cache entry the answers belong to: fx's `api_key` scope,
+    /// this key as the subject, no team (`usage_host.zig:105-111`,
+    /// `usage.zig:422-427`).
+    ///
+    /// The second reader of the key after the transport, and only to hash it:
+    /// the cache module is handed the digest and never the key, so no code
+    /// that writes the cache can write the key.
+    pub fn identity(&self) -> super::cache::Identity {
+        super::cache::Identity::of(super::cache::API_KEY_SCOPE, self.credential.secret(), "")
     }
 
     /// The report URL for `range`.
