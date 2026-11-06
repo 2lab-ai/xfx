@@ -1,0 +1,18 @@
+# Phase 5 lifecycle: a /compact whose notes request is refused twice -- the
+# OSC 7501 result is error.
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-compactfail-turns.json
+work compact-ws
+wait 4
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire w00-answered
+type /compact
+key Enter
+wait 3
+wire w01-failed
+snap f01-failed

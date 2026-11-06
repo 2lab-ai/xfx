@@ -1,0 +1,26 @@
+# The core set: the scenarios .github/workflows/sweep.yml runs on every change,
+# whatever it touches, beside the ones it does touch (scripts/fxcap/ci_sweep.py).
+# One scenario per line; a name scenarios/ does not hold stops the run, so a
+# change that removes or renames one edits this list where review sees it.
+#
+# Chosen from the full sweep of main (93f516b5) against fx v0.0.16 and three
+# runs of this list after it: every pair is identical or normalized-identical
+# every time but the six named below. Left out for that reason:
+# interrupt-recovered, whose `rec-0.5` snap reads the recovery at a moment the
+# load moves (one run in three) and which no `nondeterminism` cause covers. The
+# PR job fails only on a pair the merge base passes, so a pair that does not
+# pass yet is reported, and guarded from the first base that passes it.
+
+startup              # launch: the first screen
+composer-wrap        # the composer: wrapping, a badge, a pasted block, a wide glyph, at 40x120 and 24x80
+streaming            # a turn: streamed lines, the activity row, the summary
+statusline-turn      # a turn under /statusline: the footer after it
+question             # a turn that asks: the model's question batch walked, answered, submitted
+allowlist-remember   # an approval band: `Permission needed`, Escape, a confirmed rule. The four
+                     # snaps after (`listed`, `revoke-*`, `refusals`) do not pass yet: from
+                     # row 11 xfx prints `* permissions: mode=auto` where fx 0.0.16 does not
+model-column         # a menu: /model's column, its filter, the effort column, Left and Escape
+settings-scrollback  # a menu: /settings, a row saved, the usage line
+h1-resize            # resize: smaller, then larger, with a wrapped draft. `start` passes; `small`
+                     # and `large` do not yet (xfx's repaint after SIGWINCH), so they are reported
+quit                 # /quit: the exit

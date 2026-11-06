@@ -1,0 +1,29 @@
+# Phase 5 transcript research: a submitted prompt on a full screen
+# (70611a91): an answer taller than the screen, then a short prompt snapped
+# 0.15 s after Enter and the terminal bytes kept (`wire`) to find the frame
+# that clears the composer; then a pasted 60-line prompt taller than the
+# 40-row screen, whose every line must reach native scrollback (433464dd).
+gateway p5-transcript-submit-turns.json
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type fill the screen
+wait 1
+key Enter
+wait 8
+snap filled
+type second prompt
+wait 0.5
+wire before-submit
+key Enter
+wait 0.15
+snap submit-0.15
+wait 3
+snap second
+wire after-submit
+paste TALL_PROMPT_HEAD\ntall prompt body 01\ntall prompt body 02\ntall prompt body 03\ntall prompt body 04\ntall prompt body 05\ntall prompt body 06\ntall prompt body 07\ntall prompt body 08\ntall prompt body 09\ntall prompt body 10\ntall prompt body 11\ntall prompt body 12\ntall prompt body 13\ntall prompt body 14\ntall prompt body 15\ntall prompt body 16\ntall prompt body 17\ntall prompt body 18\ntall prompt body 19\ntall prompt body 20\ntall prompt body 21\ntall prompt body 22\ntall prompt body 23\ntall prompt body 24\ntall prompt body 25\ntall prompt body 26\ntall prompt body 27\ntall prompt body 28\ntall prompt body 29\ntall prompt body 30\ntall prompt body 31\ntall prompt body 32\ntall prompt body 33\ntall prompt body 34\ntall prompt body 35\ntall prompt body 36\ntall prompt body 37\ntall prompt body 38\ntall prompt body 39\ntall prompt body 40\ntall prompt body 41\ntall prompt body 42\ntall prompt body 43\ntall prompt body 44\ntall prompt body 45\ntall prompt body 46\ntall prompt body 47\ntall prompt body 48\ntall prompt body 49\ntall prompt body 50\ntall prompt body 51\ntall prompt body 52\ntall prompt body 53\ntall prompt body 54\ntall prompt body 55\ntall prompt body 56\ntall prompt body 57\ntall prompt body 58\nTALL_PROMPT_TAIL
+wait 1
+key Enter
+wait 4
+snap tall
+snapfull tall
+gwlog

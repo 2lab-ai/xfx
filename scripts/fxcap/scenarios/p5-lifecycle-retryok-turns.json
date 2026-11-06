@@ -1,0 +1,15 @@
+[
+ {
+  "status": 503,
+  "body": "{\"error\":{\"message\":\"Synthetic unavailable\"}}"
+ },
+ {
+  "status": 503,
+  "body": "{\"error\":{\"message\":\"Synthetic unavailable\"}}"
+ },
+ {
+  "chunks": [
+   "RECOVERED-ANSWER."
+  ]
+ }
+]

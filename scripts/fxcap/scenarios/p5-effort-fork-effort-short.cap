@@ -1,0 +1,21 @@
+fx: env FX_AUTO_UPGRADE=0
+# The /effort menu in a short terminal, after a turn: what of the
+# conversation stays in view, and the scroll.
+models p5-effort-fork-models.json
+gateway p5-effort-fork-turns.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+type first prompt alpha
+key Enter
+wait 3
+type /effort
+key Enter
+wait 1
+snap menu
+key Down Down Down Down Down
+wait 0.4
+snap menu-down5
+key Down
+wait 0.4
+snap menu-down6

@@ -1,0 +1,58 @@
+# Phase 5 panels, part 2: the commands that answer about a conversation,
+# after two turns: /copy, /stats, /undo, /trace, /rename, /compact, a turn
+# after the compaction, /resume's picker, /new, and the exit line of /quit.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-panels-sweep-turns.json
+wait 2
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 3
+snap answered
+type /copy
+key Enter
+wait 1
+snap copy
+clip copy
+type /stats
+key Enter
+wait 1
+snap stats
+type /undo
+key Enter
+wait 1
+snap undo
+type /trace
+key Enter
+wait 2
+snap trace
+type /rename Renamed here
+key Enter
+wait 1
+snap rename
+type /compact
+key Enter
+wait 4
+snap compact
+type third question
+key Enter
+wait 3
+snap after-compact
+type /resume
+key Enter
+wait 1.5
+snap resume
+key Escape
+wait 0.5
+key C-u
+type /new
+key Enter
+wait 1
+snap new
+keep
+type /quit
+key Enter
+wait 2
+snap quit

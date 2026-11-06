@@ -1,0 +1,10 @@
+{"object":"list","data":[
+ {"id":"fake/model-a","type":"language","owned_by":"fake","released":1700000000,"tags":["tool-use"]},
+ {"id":"xai/grok-4.7-fast","type":"language","owned_by":"xai","released":1772000000,"tags":["tool-use"],"context_window":2000000,"max_tokens":30000,"pricing":{"input":"0.0000002","output":"0.0000005"}},
+ {"id":"xai/grok-5-fast","type":"language","owned_by":"xai","released":1779000000,"tags":["tool-use"],"context_window":1000000,"fast_options":[{"type":"toggle"}],"pricing":{"input":"0.0000003","output":"0.0000006"}},
+ {"id":"xai/grok-4.7","type":"language","owned_by":"xai","released":1770000000,"tags":["tool-use"],"pricing":{"input":"0.000003","output":"0.000015"}},
+ {"id":"anthropic/claude-sonnet-4.5","type":"language","owned_by":"anthropic","released":1760000000,"tags":["tool-use","reasoning"],"context_window":200000,"max_tokens":64000,"fast_options":[{"type":"toggle"}],"pricing":{"input":"0.000003","output":"0.000015"}},
+ {"id":"anthropic/claude-opus-5","type":"language","owned_by":"anthropic","released":1775000000,"tags":["tool-use","reasoning"],"context_window":1000000,"max_tokens":64000,"pricing":{"input":"0.000005","output":"0.000025"}},
+ {"id":"openai/gpt-6-astra","type":"language","owned_by":"openai","released":1780000000,"tags":["tool-use","reasoning"],"context_window":400000,"max_tokens":128000,"pricing":{"input":"0.000002","output":"0.00001","service_tiers":{"priority":{"input":"0.000004","output":"0.00002"},"ultrafast":{"input":"0.00006","output":"0.0003"}}}},
+ {"id":"zai/glm-5","type":"language","owned_by":"zai","released":1771000000,"tags":["tool-use"],"context_window":200000,"pricing":{"input":"0.000001","output":"0.000003"}}
+]}

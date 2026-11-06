@@ -1,0 +1,12 @@
+# Phase 5 panels: `/status` with no credential, so the panel shows the Auth
+# help row (and reads the profile settings for the credential they select).
+fx: env FX_AUTO_UPGRADE=0
+env AI_GATEWAY_API_KEY=
+wait 3
+snap launch
+type /status
+key Enter
+wait 1.5
+snap open
+key Escape
+wait 0.5

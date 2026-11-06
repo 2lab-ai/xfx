@@ -1,0 +1,29 @@
+fx: env FX_AUTO_UPGRADE=0
+# A fork before the only prompt holds no turn: does /resume list it?
+gateway p5-effort-fork-turns.json
+wait 3
+type only prompt omega
+key Enter
+wait 3
+type /fork
+key Enter
+wait 1
+snap menu-one
+key Enter
+wait 3
+snap forked
+key C-u
+wait 0.3
+type /new
+key Enter
+wait 1.5
+type /resume
+key Enter
+wait 2
+snap resume
+key Tab
+wait 1
+snap resume-all
+key Escape
+wait 0.5
+home end

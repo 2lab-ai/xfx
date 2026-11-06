@@ -1,0 +1,23 @@
+# Phase 5 lifecycle: `fx update` (the 0.0.16 alias of `fx upgrade`) and the
+# help row that names it. The release host is the fake gateway, which answers
+# /latest.txt and /dev.json with 404, so nothing is downloaded or installed.
+env FX_AUTO_UPGRADE=0
+env FX_E2E_UPGRADE_BASE_URL=http://127.0.0.1:@PORT@
+wait 3
+keep
+type /quit
+key Enter
+wait 2
+relaunch update
+wait 6
+snap u00-update
+relaunch update --channel dev
+wait 6
+snap u01-update-dev
+relaunch upgrade --json
+wait 6
+snap u02-upgrade-json
+relaunch help
+wait 3
+snapfull u03-help
+gwlog
