@@ -297,7 +297,7 @@ merge (opus SHOULDs 1-3):
    already did (`amended`, `:14596`), and a reset drops it (`:14124`).
    - RED, the same clone:
      `a_fork_that_lands_under_the_mcp_menu_keeps_its_prompt_out_of_the_filter`
-     (`:42544`) fails with `/mcp: the fork's prompt went into the search`
+     (`:42544`, renamed in INT2c) fails with `/mcp: the fork's prompt went into the search`
      (`left: "second prompt beta"`), and with the `/mcp` case taken out,
      `/help: the fork's prompt went into the search`. GREEN on the head: the
      composer stays empty under each, the prompt is there once Escape closes
@@ -309,8 +309,9 @@ merge (opus SHOULDs 1-3):
    of the ledger -- `source`, the `xfx` keys and the prose, `.prd/` and
    `scripts/` included -- was read against the line it named in the commit
    that wrote it into that entry (by the entry's id; a parity row by its
-   first cell, any other line by its text), and the 17 that no longer named
-   it were re-pointed, each to its one match: #57's three new parity rows
+   first cell, any other line by its text), and the 16 more that no longer
+   named it were re-pointed, each to its one match (18 changed lines with
+   the two notes; corrected in INT2c, which first said 17): #57's three new parity rows
    (`:207` -> `:209`, `:212` -> `:215`, `:234` -> `:237`), the two shell.rs
    lines this round moved (`:1569` -> `:1575`, `:36659` -> `:36757`), and
    older drift (`capture.sh` `:155-157`/`:193`/`:420` -> `:252-254`/`:416`/
@@ -379,3 +380,102 @@ scenario, every epic-1 scenario, and `p5-input-mcp` (MCP-M's extra):
 `p5-panels-sweep-a.cap`, `p5-panels-sweep-b.cap`,
 `p5-permissions-early-probe-ask-after.cap`, `p5-permissions-early.cap`,
 `p5-session-early-prefs.cap`.
+
+## INT2c: the held prompt and a session switch (opus MUST), C-p, the pins
+
+Both engines reviewed INT2b. gpt6 had no MUST; opus had one, a regression
+INT2b made, traced in its review (`EPIC2-INT2b/reviews/opus.md`).
+
+- **MUST: a held fork prompt followed a resume into another session.**
+  `/resume` recalled and sent while the fork was on its way opens the
+  picker, a search, so the fork's prompt was held. The user resumes another
+  session; `UiEvent::Resumed` closes the picker with `close_sessions(true)`,
+  which on an empty search skips `amended`, and `hydrate_as` did not clear
+  `fork_prompt_held`. So `settle_fork_prompt` wrote the forked
+  conversation's prompt into the resumed session's composer on the next
+  tick, or before the next key. Before INT2b the prompt went into the
+  picker's search and was dropped with it.
+  - Fix (`7e20b1a2`): `hydrate_as` clears `fork_prompt_held` with the rest
+    of the replaced conversation (`src/tui/shell.rs:3610`). Every way a
+    different session becomes current, and each now drops it:
+    - a `/resume` from the picker (`UiEvent::Resumed` -> `hydrate` ->
+      `hydrate_as`);
+    - a launch's `--resume` (`hydrate`; nothing can be held yet);
+    - a fork (`UiEvent::Forked` -> `forked_into` -> `hydrate_as`, which then
+      holds that fork's own prompt);
+    - `/clear`, `/new`, `/reset` (`reset_session`, `:14139`, as before).
+  - RED, the new test on `ce7ee7db`'s code:
+    `a_fork_prompt_held_under_the_session_picker_does_not_follow_a_resume_into_another_session`
+    (`:42754`): the listing, another session chosen, `Resumed`,
+    `settle_input` -> `left: "second prompt beta", right: ""`. GREEN on the
+    head: the composer is empty and nothing is sent.
+- **SHOULD 1: C-p's model menu lost the prompt** (not a regression). C-p
+  lends even an empty draft, and giving it back went through `amended`,
+  which dropped a prompt held under the menu, or one still on its way.
+  `give_back_model_draft` (`:6928`) now keeps both through its `amended`:
+  giving the draft back is no edit of the user's, and an edit in the menu's
+  search has already dropped them. A draft given back non-empty is the
+  user's text, which `settle_fork_prompt` leaves the prompt out of.
+  - RED: `a_ctrl_p_model_menu_opened_and_closed_with_no_edit_keeps_the_forks_prompt`
+    (`:42709`), both cases. Landed under the menu: `left: "", right:
+    "second prompt beta"`. Landed after it (run first): the same. GREEN on
+    the head.
+- **SHOULD 2: pins.**
+  - `a_fork_that_lands_under_a_search_keeps_its_prompt_out_of_it`
+    (`:42559`, INT2b's `/mcp` test, widened): all six surfaces of
+    `composer_searched` (`/mcp`, `/help`, `/settings`, `/model`, `/resume`,
+    `/skills`), over a fixture with skills.
+  - `a_key_read_with_the_close_of_a_search_lands_after_the_forks_prompt`
+    (`:42613`): Ctrl-C closing `/mcp`'s menu and `x` in one read give
+    `second prompt betax`, the settle before a key (`:10830`).
+  - `a_held_forks_prompt_never_replaces_text_and_a_reset_drops_it`
+    (`:42629`): a recalled `/version` lent to C-p comes back over the held
+    prompt (the empty-composer guard, `:6426`), and `reset_session` drops
+    one held (`:14139`).
+  - Mutants on a throwaway clone, each caught by its test: no clear in
+    `hydrate_as`; no keeping through C-p's give-back; no settle before a
+    key; no empty-composer guard; no reset clear; each of the six surfaces
+    out of `composer_searched`: 11 of 11 fail (`mutants_int2c.py`, run
+    with a `git clone --no-local` at `1c761e50` holding the head's
+    `src/tui/shell.rs` as its argument).
+- **SHOULD 3:** the INT2b count above, corrected to 16 (18 lines with the
+  notes).
+- **The ledger** (`652e9c0a`): the session record's two `xfx` citations
+  follow this round's tests, `shell.rs:36757` -> `:36772`. The read of
+  every citation on the head finds none stale.
+
+**Pairs** (the INT2c build, debug, 40x120): every scenario that touches
+`/resume`, `/fork` or `/mcp` -- all 16 `p5-effort-fork-*`, all 20
+`p5-mcp-*`, `p5-input-mcp`, `p5-panels-sweep-a` and `-sweep-b` (`/resume`)
+-- pair for pair as the INT2 CI sweep's head but one scenario's run:
+`p5-effort-fork-*` at the counts above, `p5-input-mcp` 9 / 0 / 9,
+`p5-panels-sweep-a` 5 / 0 / 33, `-sweep-b` 4 / 0 / 11, `p5-mcp-*` 85 / 1 /
+146 once `p5-mcp-menu-old` is taken again. In the sweep (load 9 at its
+peak) that scenario was 8 / 0 / 16: `closed` and `end.full` read `┃ xd` and
+`esc again to clear` after its two Escapes, where fx's second Escape had
+cleared the composer -- the second Escape outside the double-Escape window,
+the timing `end.full` already moves on (above). The menu is not up at
+either snap (its `d-key` snap is `┃ xd` on both sides). Taken again three
+times on the same build: 10 / 0 / 16 each, both pairs normalized-identical.
+
+**Gates** on `652e9c0a`'s code (the receipt commit after it changes this
+directory only), `TMPDIR=/private/tmp/claude-501/ep2`. Each full suite
+started after `pgrep -x cargo` and `pgrep -x 'xfx-[0-9a-f]+'` had both come
+back empty twice, 45 s apart:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy … --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 5,025 passed, 0 failed, 7 ignored |
+| `cargo test … --features fault-injection --no-fail-fast` | 5,062 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/check-tui-preflight-cost.sh` | ok (every case under budget) |
+| `scripts/check-usage-clock.sh` | ok |
+
+No test failed, so none was re-run.
