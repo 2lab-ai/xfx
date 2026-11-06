@@ -263,7 +263,27 @@ occurrence in `target/debug/xfx`); `target/release/xfx` and
   the switch test's doc no longer claims it.
 - **The hostile-name test** (gpt6 #1) and **the no-key test** (gpt6 #2):
   rewritten as described in the S table.
-- Mutants M7-M9 below.
+- Mutants M7-M9: the Mutants section above.
+
+US-U4b's gates, at `42955ffa` (the commit after it touches only this
+receipt), same settings:
+
+| gate | result |
+|---|---|
+| fmt; clippy, and with `fault-injection` | ok; ok, ok |
+| `cargo test --locked --no-fail-fast` | 14 result lines ok: 4850 passed, 0 failed |
+| `… --features fault-injection` | 14 ok: 4879 passed, 0 failed |
+| identity, no-stubs, no-secrets | ok (9365 files), ok, ok (9365 files) |
+| release build; faulty build | ok, ok |
+| `check-usage-clock.sh` | ok: debug honoured, release and release + fault-injection ignored |
+| `smoke.sh` | 47 checks, 0 failures |
+| `smoke-tui.sh` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+| `check-preview-contract.sh` | ok |
+| `test-capture.sh`, `test-sweep.sh` | 36 tests OK, 24 tests OK |
+
+The CI sweep was not run again: US-U4b's product change is the `quit_usage()`
+call in `shut_down` and the `leave_by` refactor around it, and neither draws
+a byte. The sweep above stands for every drawn row.
 
 ## Files
 
