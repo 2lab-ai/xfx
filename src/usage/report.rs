@@ -885,8 +885,8 @@ fn hex_pair(byte: u8) -> [u8; 2] {
 fn base64(bytes: &[u8]) -> Vec<u8> {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = Vec::with_capacity(bytes.len() / 3 * 4);
-    for group in bytes.chunks_exact(3) {
-        let n = u32::from(group[0]) << 16 | u32::from(group[1]) << 8 | u32::from(group[2]);
+    for [a, b, c] in bytes.as_chunks::<3>().0 {
+        let n = u32::from(*a) << 16 | u32::from(*b) << 8 | u32::from(*c);
         for shift in [18, 12, 6, 0] {
             out.push(ALPHABET[(n >> shift & 63) as usize]);
         }
