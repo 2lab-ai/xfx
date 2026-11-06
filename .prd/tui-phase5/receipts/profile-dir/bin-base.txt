@@ -1,0 +1,41 @@
+# base: f2b1844cfd1ae344  umask 0022
+## xfx setup gateway, ~/.xfx fresh
+setup exit=0
+xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+drwx------ <tmp>/base/fresh/HOME/.xfx
+entries in ~/.xfx: settings.json settings.lock 
+entries where a link points: 
+sessions exit=0
+[sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0
+## xfx setup gateway, ~/.xfx open
+setup exit=0
+xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+drwxr-xr-x <tmp>/base/open/HOME/.xfx
+entries in ~/.xfx: settings.json settings.lock 
+entries where a link points: 
+sessions exit=1
+xfx: <tmp>/base/open/HOME/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other
+## xfx setup gateway, ~/.xfx link
+setup exit=0
+xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+lrwxr-xr-x <tmp>/base/link/HOME/.xfx
+entries where a link points: settings.json settings.lock 
+sessions exit=1
+xfx: <tmp>/base/link/HOME/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives
+## XFX_TUI=1: /skills create demo, then /skills add <that skill>
+child status 0
+drwx------ <tmp>/base/tui/HOME/.xfx
+drwx------ <tmp>/base/tui/HOME/.xfx/.skill-install-locks
+drwx------ <tmp>/base/tui/HOME/.xfx/sessions
+drwxr-xr-x <tmp>/base/tui/HOME/.xfx/skills
+drwxr-xr-x <tmp>/base/tui/HOME/.xfx/skills/demo
+* skills: Created <tmp>/base/tui/HOME/.xfx/skills/demo/SKILL.md
+* skills: Installing from <tmp>/base/tui/HOME/.xfx/skills/demo...
+* skills: Installed: demo
+## XFX_TUI=1: ~/.xfx removed under the running session, then /skills create demo
+child status 0
+drwxr-xr-x <tmp>/base/tui-gone/HOME/.xfx
+drwxr-xr-x <tmp>/base/tui-gone/HOME/.xfx/skills
+drwxr-xr-x <tmp>/base/tui-gone/HOME/.xfx/skills/demo
+sessions after exit=1
+xfx: <tmp>/base/tui-gone/HOME/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other

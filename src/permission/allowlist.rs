@@ -1463,7 +1463,7 @@ mod tests {
     #[test]
     fn a_read_back_that_fails_keeps_the_table_in_force_and_says_so() {
         let profile = Profile::new();
-        std::fs::create_dir_all(profile.settings.parent().unwrap()).unwrap();
+        crate::profile_home::made(profile.settings.parent().unwrap());
         // The user table does not parse; the local write lands and the read
         // back cannot say what is in force.
         std::fs::write(
@@ -1548,7 +1548,7 @@ mod tests {
     #[test]
     fn a_change_keeps_the_rest_of_the_file_and_its_order() {
         let profile = Profile::new();
-        std::fs::create_dir_all(profile.settings.parent().unwrap()).unwrap();
+        crate::profile_home::made(profile.settings.parent().unwrap());
         std::fs::write(
             &profile.settings,
             "{\"model\":\"m\",\"permission\":{\"bash\":{\"rm*\":\"allow\",\"*\":\"deny\"}},\"zeta\":true}",

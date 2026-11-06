@@ -1,0 +1,34 @@
+## M1 drop .mode(0o700) from the one-level make
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3881 filtered out; finished in 0.01s', 'test result: FAILED. 9 passed; 4 failed; 0 ignored; 0 measured; 3869 filtered out; finished in 0.14s']
+  FAILED profile_home::tests::a_level_below_the_profile_home_that_is_there_is_used_as_it_is
+  FAILED profile_home::tests::a_missing_home_and_every_level_below_the_profile_home_are_made_private
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M2 bypass the helper at /skills create
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3881 filtered out; finished in 0.09s', 'test result: FAILED. 7 passed; 6 failed; 0 ignored; 0 measured; 3869 filtered out; finished in 0.15s']
+  FAILED profile_home::tests::every_profile_writer_makes_its_directories_through_this_module
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::no_product_code_but_this_module_makes_a_directory_tree
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M3 bypass the helper at the settings document writer
+exit=101 ['test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3881 filtered out; finished in 0.07s', 'test result: FAILED. 7 passed; 6 failed; 0 ignored; 0 measured; 3869 filtered out; finished in 0.13s']
+  FAILED profile_home::tests::every_profile_writer_makes_its_directories_through_this_module
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+  FAILED profile_home::tests::every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it
+  FAILED profile_home::tests::every_writer_makes_the_profile_home_private_under_any_umask
+  FAILED profile_home::tests::no_product_code_but_this_module_makes_a_directory_tree
+  FAILED profile_home::tests::under_an_open_umask_every_writer_makes_the_profile_home_private
+## M4 accept an existing home without the check
+exit=101 ['test result: FAILED. 10 passed; 3 failed; 0 ignored; 0 measured; 3869 filtered out; finished in 0.13s']
+  FAILED profile_home::tests::an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never_chmodded
+  FAILED profile_home::tests::a_file_where_the_profile_home_goes_is_refused_and_left_alone
+  FAILED profile_home::tests::a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it_points
+## M5 drop .mode(0o700) from the ancestors' make
+exit=101 ['test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3869 filtered out; finished in 0.16s']
+  FAILED profile_home::tests::a_missing_home_and_every_level_below_the_profile_home_are_made_private
+## clone clean after mutants: True

@@ -733,7 +733,7 @@ mod tests {
             .await
             .expect("prepare");
         let dir = fixture.settings().parent().expect("a parent").to_path_buf();
-        fs::create_dir_all(&dir).expect("profile dir");
+        crate::profile_home::made(&dir);
         let held = fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -788,7 +788,7 @@ mod tests {
         // merge-and-serialize this module used to perform inline -- produces from
         // the same inputs.
         let fixture = Fixture::new();
-        fs::create_dir_all(fixture.home.join(".xfx")).expect("profile dir");
+        crate::profile_home::made(&fixture.home.join(".xfx"));
         fs::write(
             fixture.settings(),
             b"{\n  \"permission_mode\": \"auto\",\n  \"models\": {\"llmux\": \"fable\"}\n}\n",

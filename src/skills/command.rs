@@ -184,8 +184,11 @@ fn create(managed: &Path, name: &str) -> Result<String, String> {
     }
     let dir = managed.join(name);
     let file = dir.join("SKILL.md");
-    let written =
-        std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, template(name)));
+    // The managed root's directories are the profile's: `~/.xfx` and each
+    // missing level below it made owner-only, an existing `~/.xfx` that is not
+    // private refused (`crate::profile_home::ensure`).
+    let written = super::install::ensure_managed(managed, &dir)
+        .and_then(|()| std::fs::write(&file, template(name)));
     match written {
         Ok(()) => Ok(format!("Created {}", file.display())),
         // Upstream's `create` has no sentence of its own for a write that
