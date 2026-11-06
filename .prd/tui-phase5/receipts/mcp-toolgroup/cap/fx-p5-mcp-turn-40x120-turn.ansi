@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1muse the fixture echo tool[0m
+
+[38;5;255m●[39m [38;5;245m3 tool calls · 2 MCP calls · 1 read[39m
+[38;5;245m├ Searched capabilities echo text through the fixture[39m
+[38;5;245m├ Ran MCP mcp_fixture_echo[39m
+[38;5;245m└ Ran MCP mcp_fixture_echo[39m
+
+  done.
+
+[38;5;245m  0s (↑6 ↓160)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
