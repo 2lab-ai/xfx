@@ -96,9 +96,12 @@ pub type Spawn = Box<dyn FnMut(report::Job) -> io::Result<JoinHandle<()>> + Send
 #[cfg(test)]
 type Pause = Arc<dyn Fn() + Send + Sync>;
 
-/// The wall clock.
+/// The wall clock `/usage` reads: [`super::clock::now_ms`], which a build with
+/// debug assertions lets the capture harness pin, so every "now" of the
+/// runtime and the screen -- the floor, the timer, the minute redraw, a
+/// fetch's stamp, today's UTC day, `updated Nm ago` -- is one clock.
 pub fn wall_clock() -> Clock {
-    Arc::new(crate::session::event::system_now_ms)
+    Arc::new(super::clock::now_ms)
 }
 
 /// How long [`Dashboard::quit`] waits for a cancelled worker to end before it
@@ -167,6 +170,24 @@ impl Snapshot {
     /// (`fetchedAtMs`, `usage.zig:199-204`).
     pub fn fetched_at_ms(&self) -> Option<i64> {
         self.views[0].fetched_at_ms
+    }
+
+    /// Test-only: a snapshot of `views` (in [`Period::ALL`]'s order), for a
+    /// screen's own cases.
+    #[cfg(test)]
+    pub(crate) fn of_views(
+        views: [View; 3],
+        status: Status,
+        label: &'static str,
+        now_ms: i64,
+    ) -> Self {
+        Self {
+            views,
+            status,
+            label,
+            now_ms,
+            generation: 0,
+        }
     }
 }
 
@@ -310,6 +331,31 @@ impl Dashboard {
         self.entry = None;
         self.failure = None;
         self.unavailable = Some(reason);
+        self.bump();
+    }
+
+    /// The sign-in xfx sends with is now `current` (`None`: none `/usage` can
+    /// read) -- a provider switch, a resume onto another provider -- told to a
+    /// dashboard that may be closed. Unless it is the sign-in held, the fetch
+    /// in flight is cancelled and the held sign-in let go of, so no further
+    /// request goes out with the old key; the next [`Self::open`] reads the
+    /// new one's cache. The floors stay, per key. xfx's own: fx sees a switch
+    /// only at `open` (`usage.zig:596-601`), and lets the old fetch finish.
+    pub fn sign_in_changed(&mut self, current: Option<&Question>) {
+        self.settle();
+        let same = match (self.session.as_ref(), current) {
+            (Some(held), Some(current)) => {
+                held.identity == current.identity() && held.question.origin() == current.origin()
+            }
+            _ => false,
+        };
+        if same || (self.session.is_none() && self.fetch.is_none()) {
+            return;
+        }
+        self.retire_fetch();
+        self.session = None;
+        self.entry = None;
+        self.failure = None;
         self.bump();
     }
 

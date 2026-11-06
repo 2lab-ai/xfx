@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+──────────────────────────────────────────────────
+usage: xai/grok-5, model 3 of 4   updated just now
+
+period        spent   share  requests  tokens
+today             -       -         -       -
+7d                -       -         -       -
+month       $0.3100    1.3%         9     43K
+
+tokens     in    out  reason  cache rd  cache wr
+today       -      -       -         -         -
+7d          -      -       -         -         -
+month     40K   3.0K    1.0K         0         0
+
+perf      cache hit  p90 ttft  p90 tok/s  errors
+today             -         -          -       -
+7d                -         -          -       -
+month          0.0%     600ms        140   11.1%
+──────────────────────────────────────────────────
+↑↓ next model     esc back     r refresh
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

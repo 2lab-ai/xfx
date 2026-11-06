@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ first question
+
+  First answer, billed later.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second answer, billed later.
+
+  0s (↑4 ↓40)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                                         usage reports aren't available for this team
+
+  (press r to retry)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

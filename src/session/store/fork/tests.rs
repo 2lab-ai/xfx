@@ -24,9 +24,7 @@ use super::{carry_image, FORK_STAGE_DIR};
 use crate::config::PermissionMode;
 use crate::gateway::protocol::{ContentPart, Message};
 use crate::provider::Wire;
-use crate::session::event::{
-    ForkOrigin, RecordedToolCall, RequestUsage, TitleSource, TurnConclusion,
-};
+use crate::session::event::{ForkOrigin, RecordedToolCall, TitleSource, TurnConclusion};
 use crate::session::{Selector, EVENT_SCHEMA_VERSION};
 
 // ---------------------------------------------------------------------------
@@ -197,29 +195,11 @@ fn answer(text: &str, calls: &[(&str, &str)]) -> SessionEvent {
     }
 }
 
-fn usage(generation: &str) -> SessionEvent {
+fn usage() -> SessionEvent {
     SessionEvent::UsageRecorded {
         input_tokens: Some(6),
         output_tokens: Some(40),
         turn_output_tokens: Some(40),
-        requests: vec![RequestUsage {
-            at_ms: 1_000,
-            duration_ms: 7,
-            model: "m".to_string(),
-            input_tokens: 6,
-            output_tokens: 40,
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
-            reasoning_tokens: None,
-            cost: Some(0.01),
-            generation_id: Some(generation.to_string()),
-            origin: None,
-        }],
-        unaccounted: false,
-        lines_added: 0,
-        lines_removed: 0,
-        settled: Vec::new(),
-        rejected: Vec::new(),
     }
 }
 
@@ -243,7 +223,7 @@ fn renamed(title: &str) -> SessionEvent {
 fn turn(recorder: &mut SessionRecorder, prompt: &str, reply: &str) {
     recorder.commit(user(prompt));
     recorder.commit(answer(reply, &[]));
-    recorder.commit(usage(&format!("gen_{prompt}")));
+    recorder.commit(usage());
     recorder.commit(concluded());
     assert_eq!(recorder.failure(), None);
 }
@@ -284,7 +264,7 @@ fn rich(bench: &Bench) -> (SessionRecorder, SessionId) {
     recorder.commit(user("[Image #1] first prompt alpha"));
     recorder.attach_images(&[shot(1)]);
     recorder.commit(answer("ALPHA answer.", &[]));
-    recorder.commit(usage("gen_1"));
+    recorder.commit(usage());
     recorder.commit(concluded());
 
     recorder.commit(user("second prompt beta"));
@@ -304,7 +284,7 @@ fn rich(bench: &Bench) -> (SessionRecorder, SessionId) {
         target: "/w/a.png".to_string(),
     });
     recorder.commit(answer("BETA answer.", &[]));
-    recorder.commit(usage("gen_2"));
+    recorder.commit(usage());
     recorder.commit(concluded());
 
     recorder.commit(SessionEvent::PreferencesChanged {
@@ -405,7 +385,6 @@ fn a_fork_replays_as_the_source_did_before_the_prompt_it_was_made_at() {
     assert_eq!(state.turns, whole.turns[..2]);
     assert_eq!(state.turns, at.turns);
     assert_eq!(state.grants, at.grants);
-    assert_eq!(state.usage, at.usage);
     assert_eq!(
         (state.total_input_tokens, state.total_output_tokens),
         (at.total_input_tokens, at.total_output_tokens)
@@ -1806,5 +1785,95 @@ fn a_fork_whose_rules_cannot_be_written_is_refused_and_its_stage_is_gone() {
         session_rules::load(&session_rules::path_in(&bench.store.session_dir(fork.id())))
             .expect("the fork's rules"),
         deny
+    );
+}
+
+/// A fork of the session the local usage ledger was kept in
+/// (`tests/fixtures/ledger-120f7b20`, written by `120f7b20`): its turns are
+/// written again under the fork's generation ([`super`]'s module note), and
+/// so is every old `usage_recorded` frame -- the runtime's `settled` and
+/// `rejected` ones too, which keep their place, since a frame number means
+/// the same in the fork. None of them carries the ledger's fields any more:
+/// a fork is the one path that writes an old frame anew.
+#[test]
+fn a_fork_of_a_session_the_ledger_build_wrote_carries_none_of_the_ledger() {
+    use sha2::{Digest, Sha256};
+    const ID: &str = "1793983613244-206c9ac7f3059b4a";
+    const DIR: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/ledger-120f7b20/sessions/1793983613244-206c9ac7f3059b4a"
+    );
+    let bench = bench();
+    let workspace = serde_json::to_string(&bench.workspace.display().to_string()).expect("JSON");
+    let workspace = &workspace[1..workspace.len() - 1];
+    let log = fs::read_to_string(Path::new(DIR).join(EVENTS_FILE))
+        .expect("the fixture")
+        .replace("@WS_A@", workspace)
+        .replace("@ORIGIN@", "http://127.0.0.1:4100");
+    let mut manifest: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(Path::new(DIR).join(MANIFEST_FILE))
+            .expect("the fixture's manifest")
+            .replace("@WS_A@", workspace),
+    )
+    .expect("JSON");
+    manifest["event_log_bytes"] = serde_json::Value::from(log.len());
+    manifest["event_log_sha256"] = serde_json::Value::from(
+        Sha256::digest(log.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
+    );
+    let source = SessionId::parse(ID).expect("an id");
+    let dir = bench.store.session_dir(&source);
+    fs::create_dir(&dir).expect("the session's folder");
+    #[cfg(unix)]
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).expect("private");
+    for (name, text) in [
+        (EVENTS_FILE, log),
+        (
+            MANIFEST_FILE,
+            serde_json::to_string(&manifest).expect("JSON"),
+        ),
+    ] {
+        fs::write(dir.join(name), text).expect("write");
+        #[cfg(unix)]
+        fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o600)).expect("private");
+    }
+
+    // Before turn 5: turns 1-4, the `settled` and `rejected` frames among
+    // them, and the cut-off turn's `unaccounted` one.
+    let fork = bench.fork(&source, 5).expect("forked before turn 5");
+    let id = fork.id().clone();
+    drop(fork);
+    let text = fs::read_to_string(bench.store.session_dir(&id).join(EVENTS_FILE)).expect("a log");
+    let mut usage = 0;
+    for line in text.lines() {
+        let frame: serde_json::Value = serde_json::from_str(line).expect("JSON");
+        if frame["event"]["kind"] != "usage_recorded" {
+            continue;
+        }
+        usage += 1;
+        let extra: Vec<&String> = frame["event"]
+            .as_object()
+            .expect("an event")
+            .keys()
+            .filter(|key| {
+                ![
+                    "kind",
+                    "input_tokens",
+                    "output_tokens",
+                    "turn_output_tokens",
+                ]
+                .contains(&key.as_str())
+            })
+            .collect();
+        assert!(extra.is_empty(), "{extra:?} in {line}");
+    }
+    assert_eq!(usage, 6, "{text}");
+    let state = bench.state(&id);
+    assert_eq!(state.turns.len(), 4);
+    assert_eq!(
+        (state.total_input_tokens, state.total_output_tokens),
+        (14_400, 880)
     );
 }

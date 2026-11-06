@@ -291,3 +291,6 @@ the receipt commit). The suites started at 05:24 KST, when no `cargo` and no
 | `cargo build --locked --release --features fault-injection --target-dir target/faulty` | ok |
 | `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+
+## After #62 (2026-11-07)
+#62 (US-U4) replaced the old `/usage` dashboard. Its tests now drive the screen on a simulated clock, and none of them waits on a wall clock for a read to start. Merging `main` @ `46c4efa6` therefore takes `main`'s side of the one conflict, which removes the old dashboard tests together with the `/usage` read-start wait in the table above. That left `PATIENCE` (20 s) with no user, so it is deleted. Every wait this unit changed now uses `START_PATIENCE` (60 s): `listed()`, `copy_settled`, and the worker's `worker.rs` wait.

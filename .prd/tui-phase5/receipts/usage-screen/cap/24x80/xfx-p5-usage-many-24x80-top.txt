@@ -1,0 +1,24 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                             updated just now
+
+period        spent  requests  tokens
+today       $0.4735        16    110K
+7d           $42.47        62    4.3M
+month        $78.47       202    8.0M
+
+  model (month)                            spent   share  requests  tokens
+❯ vendor-00/model-with-a-long-name-00     $12.00   15.3%        10    1.2M
+  vendor-01/model-with-a-long-name-01     $11.00   14.0%        11    1.1M
+  vendor-02/model-with-a-long-name-02     $10.00   12.7%        12    1.0M
+  vendor-03/model-with-a-long-name-03      $9.00   11.5%        13    905K
+  vendor-04/model-with-a-long-name-04      $8.00   10.2%        14    805K
+  vendor-05/model-with-a-long-name-05      $7.00    8.9%        15    705K
+  vendor-06/model-with-a-long-name-06      $6.00    7.6%        16    605K
+  vendor-07/model-with-a-long-name-07      $5.00    6.4%        17    505K
+  vendor-08/model-with-a-long-name-08      $4.00    5.1%        18    405K
+  vendor-09/model-with-a-long-name-09      $3.00    3.8%        19    305K
+  4 more                                   $3.47    4.4%        57    420K
+────────────────────────────────────────────────────────────────────────────────
+↑↓ model     enter detail     tab period     r refresh     esc close

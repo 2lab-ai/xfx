@@ -1,0 +1,228 @@
+40x120 p5-usage-budget-40x120-back SAME
+40x120 p5-usage-budget-40x120-closed SAME
+40x120 p5-usage-budget-40x120-detail-down SAME
+40x120 p5-usage-budget-40x120-detail-tab SAME
+40x120 p5-usage-budget-40x120-detail SAME
+40x120 p5-usage-budget-40x120-down SAME
+40x120 p5-usage-budget-40x120-left-7d SAME
+40x120 p5-usage-budget-40x120-open SAME
+40x120 p5-usage-budget-40x120-r-updating SAME
+40x120 p5-usage-budget-40x120-r SAME
+40x120 p5-usage-budget-40x120-right-month SAME
+40x120 p5-usage-budget-40x120-tab-7d SAME
+40x120 p5-usage-budget-40x120-tab-today SAME
+40x120 p5-usage-budget-40x120-updating SAME
+40x120 p5-usage-cached-40x120-back SAME
+40x120 p5-usage-cached-40x120-btab-today SAME
+40x120 p5-usage-cached-40x120-cj SAME
+40x120 p5-usage-cached-40x120-ck SAME
+40x120 p5-usage-cached-40x120-closed SAME
+40x120 p5-usage-cached-40x120-detail-down SAME
+40x120 p5-usage-cached-40x120-detail-tab SAME
+40x120 p5-usage-cached-40x120-detail SAME
+40x120 p5-usage-cached-40x120-down SAME
+40x120 p5-usage-cached-40x120-left-7d SAME
+40x120 p5-usage-cached-40x120-open SAME
+40x120 p5-usage-cached-40x120-r-401 SAME
+40x120 p5-usage-cached-40x120-r-429 SAME
+40x120 p5-usage-cached-40x120-r-500 SAME
+40x120 p5-usage-cached-40x120-r-bad SAME
+40x120 p5-usage-cached-40x120-r-updating SAME
+40x120 p5-usage-cached-40x120-r SAME
+40x120 p5-usage-cached-40x120-right-month SAME
+40x120 p5-usage-cached-40x120-tab-7d SAME
+40x120 p5-usage-cached-40x120-tab-today SAME
+40x120 p5-usage-cached-40x120-updating SAME
+40x120 p5-usage-many-40x120-bottom SAME
+40x120 p5-usage-many-40x120-closed SAME
+40x120 p5-usage-many-40x120-last SAME
+40x120 p5-usage-many-40x120-open SAME
+40x120 p5-usage-many-40x120-top SAME
+40x120 p5-usage-nokey-40x120-closed 1 rows differ
+    row 5: fx 'run /login · auto · model-a'
+    row 5: xfx 'run `xfx setup` · auto · model-a'
+40x120 p5-usage-nokey-40x120-open 1 rows differ
+    row 6: fx '  (use /login, or set AI_GATEWAY_API_KEY)'
+    row 6: xfx '  (set AI_GATEWAY_API_KEY)'
+40x120 p5-usage-nokey-40x120-r 1 rows differ
+    row 6: fx '  (use /login, or set AI_GATEWAY_API_KEY)'
+    row 6: xfx '  (set AI_GATEWAY_API_KEY)'
+40x120 p5-usage-nokey-40x120-start 1 rows differ
+    row 5: fx 'run /login · auto · model-a'
+    row 5: xfx 'run `xfx setup` · auto · model-a'
+40x120 p5-usage-turns-40x120-arg SAME
+40x120 p5-usage-turns-40x120-btab SAME
+40x120 p5-usage-turns-40x120-cost-typed SAME
+40x120 p5-usage-turns-40x120-cost SAME
+40x120 p5-usage-turns-40x120-credits 1 rows differ
+    row 27: fx '* stats: ansi_bytes=15717, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    row 27: xfx '* stats: ansi_bytes=8700, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+40x120 p5-usage-turns-40x120-down SAME
+40x120 p5-usage-turns-40x120-enter SAME
+40x120 p5-usage-turns-40x120-esc SAME
+40x120 p5-usage-turns-40x120-fetching SAME
+40x120 p5-usage-turns-40x120-launch SAME
+40x120 p5-usage-turns-40x120-left SAME
+40x120 p5-usage-turns-40x120-open SAME
+40x120 p5-usage-turns-40x120-r-7d SAME
+40x120 p5-usage-turns-40x120-r-today SAME
+40x120 p5-usage-turns-40x120-r SAME
+40x120 p5-usage-turns-40x120-right SAME
+40x120 p5-usage-turns-40x120-stats 1 rows differ
+    row 27: fx '* stats: ansi_bytes=15717, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    row 27: xfx '* stats: ansi_bytes=8700, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+40x120 p5-usage-turns-40x120-tab SAME
+40x120 p5-usage-turns-40x120-turns SAME
+40x120 p5-usage-turns-40x120-typed SAME
+40x50 p5-usage-budget-40x50-back SAME
+40x50 p5-usage-budget-40x50-closed SAME
+40x50 p5-usage-budget-40x50-detail-down SAME
+40x50 p5-usage-budget-40x50-detail-tab SAME
+40x50 p5-usage-budget-40x50-detail SAME
+40x50 p5-usage-budget-40x50-down SAME
+40x50 p5-usage-budget-40x50-left-7d SAME
+40x50 p5-usage-budget-40x50-open SAME
+40x50 p5-usage-budget-40x50-r-updating SAME
+40x50 p5-usage-budget-40x50-r SAME
+40x50 p5-usage-budget-40x50-right-month SAME
+40x50 p5-usage-budget-40x50-tab-7d SAME
+40x50 p5-usage-budget-40x50-tab-today SAME
+40x50 p5-usage-budget-40x50-updating SAME
+40x50 p5-usage-cached-40x50-back SAME
+40x50 p5-usage-cached-40x50-btab-today SAME
+40x50 p5-usage-cached-40x50-cj SAME
+40x50 p5-usage-cached-40x50-ck SAME
+40x50 p5-usage-cached-40x50-closed SAME
+40x50 p5-usage-cached-40x50-detail-down SAME
+40x50 p5-usage-cached-40x50-detail-tab SAME
+40x50 p5-usage-cached-40x50-detail SAME
+40x50 p5-usage-cached-40x50-down SAME
+40x50 p5-usage-cached-40x50-left-7d SAME
+40x50 p5-usage-cached-40x50-open SAME
+40x50 p5-usage-cached-40x50-r-401 SAME
+40x50 p5-usage-cached-40x50-r-429 SAME
+40x50 p5-usage-cached-40x50-r-500 SAME
+40x50 p5-usage-cached-40x50-r-bad SAME
+40x50 p5-usage-cached-40x50-r-updating SAME
+40x50 p5-usage-cached-40x50-r SAME
+40x50 p5-usage-cached-40x50-right-month SAME
+40x50 p5-usage-cached-40x50-tab-7d SAME
+40x50 p5-usage-cached-40x50-tab-today SAME
+40x50 p5-usage-cached-40x50-updating SAME
+40x50 p5-usage-many-40x50-bottom SAME
+40x50 p5-usage-many-40x50-closed SAME
+40x50 p5-usage-many-40x50-last SAME
+40x50 p5-usage-many-40x50-open SAME
+40x50 p5-usage-many-40x50-top SAME
+40x50 p5-usage-nokey-40x50-closed 1 rows differ
+    row 5: fx 'run /login · auto · model-a'
+    row 5: xfx 'run `xfx setup` · auto · model-a'
+40x50 p5-usage-nokey-40x50-open 1 rows differ
+    row 6: fx '  (use /login, or set AI_GATEWAY_API_KEY)'
+    row 6: xfx '  (set AI_GATEWAY_API_KEY)'
+40x50 p5-usage-nokey-40x50-r 1 rows differ
+    row 6: fx '  (use /login, or set AI_GATEWAY_API_KEY)'
+    row 6: xfx '  (set AI_GATEWAY_API_KEY)'
+40x50 p5-usage-nokey-40x50-start 1 rows differ
+    row 5: fx 'run /login · auto · model-a'
+    row 5: xfx 'run `xfx setup` · auto · model-a'
+40x50 p5-usage-turns-40x50-arg SAME
+40x50 p5-usage-turns-40x50-btab SAME
+40x50 p5-usage-turns-40x50-cost-typed SAME
+40x50 p5-usage-turns-40x50-cost SAME
+40x50 p5-usage-turns-40x50-credits 1 rows differ
+    row 25: fx '* stats: ansi_bytes=12212, redraws=0,'
+    row 25: xfx '* stats: ansi_bytes=6568, redraws=0,'
+40x50 p5-usage-turns-40x50-down SAME
+40x50 p5-usage-turns-40x50-enter SAME
+40x50 p5-usage-turns-40x50-esc SAME
+40x50 p5-usage-turns-40x50-fetching SAME
+40x50 p5-usage-turns-40x50-launch SAME
+40x50 p5-usage-turns-40x50-left SAME
+40x50 p5-usage-turns-40x50-open SAME
+40x50 p5-usage-turns-40x50-r-7d SAME
+40x50 p5-usage-turns-40x50-r-today SAME
+40x50 p5-usage-turns-40x50-r SAME
+40x50 p5-usage-turns-40x50-right SAME
+40x50 p5-usage-turns-40x50-stats 1 rows differ
+    row 27: fx '* stats: ansi_bytes=12212, redraws=0,'
+    row 27: xfx '* stats: ansi_bytes=6568, redraws=0,'
+40x50 p5-usage-turns-40x50-tab SAME
+40x50 p5-usage-turns-40x50-turns SAME
+40x50 p5-usage-turns-40x50-typed SAME
+24x80 p5-usage-budget-24x80-back SAME
+24x80 p5-usage-budget-24x80-closed SAME
+24x80 p5-usage-budget-24x80-detail-down SAME
+24x80 p5-usage-budget-24x80-detail-tab SAME
+24x80 p5-usage-budget-24x80-detail SAME
+24x80 p5-usage-budget-24x80-down SAME
+24x80 p5-usage-budget-24x80-left-7d SAME
+24x80 p5-usage-budget-24x80-open SAME
+24x80 p5-usage-budget-24x80-r-updating SAME
+24x80 p5-usage-budget-24x80-r SAME
+24x80 p5-usage-budget-24x80-right-month SAME
+24x80 p5-usage-budget-24x80-tab-7d SAME
+24x80 p5-usage-budget-24x80-tab-today SAME
+24x80 p5-usage-budget-24x80-updating SAME
+24x80 p5-usage-cached-24x80-back SAME
+24x80 p5-usage-cached-24x80-btab-today SAME
+24x80 p5-usage-cached-24x80-cj SAME
+24x80 p5-usage-cached-24x80-ck SAME
+24x80 p5-usage-cached-24x80-closed SAME
+24x80 p5-usage-cached-24x80-detail-down SAME
+24x80 p5-usage-cached-24x80-detail-tab SAME
+24x80 p5-usage-cached-24x80-detail SAME
+24x80 p5-usage-cached-24x80-down SAME
+24x80 p5-usage-cached-24x80-left-7d SAME
+24x80 p5-usage-cached-24x80-open SAME
+24x80 p5-usage-cached-24x80-r-401 SAME
+24x80 p5-usage-cached-24x80-r-429 SAME
+24x80 p5-usage-cached-24x80-r-500 SAME
+24x80 p5-usage-cached-24x80-r-bad SAME
+24x80 p5-usage-cached-24x80-r-updating SAME
+24x80 p5-usage-cached-24x80-r SAME
+24x80 p5-usage-cached-24x80-right-month SAME
+24x80 p5-usage-cached-24x80-tab-7d SAME
+24x80 p5-usage-cached-24x80-tab-today SAME
+24x80 p5-usage-cached-24x80-updating SAME
+24x80 p5-usage-many-24x80-bottom SAME
+24x80 p5-usage-many-24x80-closed SAME
+24x80 p5-usage-many-24x80-last SAME
+24x80 p5-usage-many-24x80-open SAME
+24x80 p5-usage-many-24x80-top SAME
+24x80 p5-usage-nokey-24x80-closed 1 rows differ
+    row 5: fx 'run /login · auto · model-a'
+    row 5: xfx 'run `xfx setup` · auto · model-a'
+24x80 p5-usage-nokey-24x80-open 1 rows differ
+    row 6: fx '  (use /login, or set AI_GATEWAY_API_KEY)'
+    row 6: xfx '  (set AI_GATEWAY_API_KEY)'
+24x80 p5-usage-nokey-24x80-r 1 rows differ
+    row 6: fx '  (use /login, or set AI_GATEWAY_API_KEY)'
+    row 6: xfx '  (set AI_GATEWAY_API_KEY)'
+24x80 p5-usage-nokey-24x80-start 1 rows differ
+    row 5: fx 'run /login · auto · model-a'
+    row 5: xfx 'run `xfx setup` · auto · model-a'
+24x80 p5-usage-turns-24x80-arg SAME
+24x80 p5-usage-turns-24x80-btab SAME
+24x80 p5-usage-turns-24x80-cost-typed SAME
+24x80 p5-usage-turns-24x80-cost SAME
+24x80 p5-usage-turns-24x80-credits 1 rows differ
+    row 10: fx '* stats: ansi_bytes=15012, redraws=0, debounced_resizes=0, footer_updates=0,'
+    row 10: xfx '* stats: ansi_bytes=7796, redraws=0, debounced_resizes=0, footer_updates=0,'
+24x80 p5-usage-turns-24x80-down SAME
+24x80 p5-usage-turns-24x80-enter SAME
+24x80 p5-usage-turns-24x80-esc SAME
+24x80 p5-usage-turns-24x80-fetching SAME
+24x80 p5-usage-turns-24x80-launch SAME
+24x80 p5-usage-turns-24x80-left SAME
+24x80 p5-usage-turns-24x80-open SAME
+24x80 p5-usage-turns-24x80-r-7d SAME
+24x80 p5-usage-turns-24x80-r-today SAME
+24x80 p5-usage-turns-24x80-r SAME
+24x80 p5-usage-turns-24x80-right SAME
+24x80 p5-usage-turns-24x80-stats 1 rows differ
+    row 13: fx '* stats: ansi_bytes=15012, redraws=0, debounced_resizes=0, footer_updates=0,'
+    row 13: xfx '* stats: ansi_bytes=7796, redraws=0, debounced_resizes=0, footer_updates=0,'
+24x80 p5-usage-turns-24x80-tab SAME
+24x80 p5-usage-turns-24x80-turns SAME
+24x80 p5-usage-turns-24x80-typed SAME

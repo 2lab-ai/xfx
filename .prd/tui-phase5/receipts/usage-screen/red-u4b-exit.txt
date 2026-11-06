@@ -1,0 +1,6 @@
+running 1 test
+test tui::event_loop::tests::a_session_that_ended_in_error_asks_usage_nothing_while_it_drains ... FAILED
+thread 'tui::event_loop::tests::a_session_that_ended_in_error_asks_usage_nothing_while_it_drains' (251318862) panicked at src/tui/event_loop.rs:3000:9:
+  left: 2
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3959 filtered out; finished in 0.17s

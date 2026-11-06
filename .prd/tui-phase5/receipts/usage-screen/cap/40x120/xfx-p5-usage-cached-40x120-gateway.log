@@ -1,0 +1,15 @@
+[fakegw] listening 64412
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=2149ms -> 200 at=2152ms headers=authorization
+[fakegw] usage /v1/report -> 200 rows=2 held 3000ms
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=4730ms -> 200 at=7732ms headers=authorization
+[fakegw] usage /v1/report -> 429
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=17059ms -> 429 at=17059ms headers=authorization
+[fakegw] usage /v1/report -> 401
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=18584ms -> 401 at=18585ms headers=authorization
+[fakegw] usage /v1/report -> 500
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=20202ms -> 500 at=20206ms headers=authorization
+[fakegw] usage /v1/report -> 200
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=21766ms -> 200 at=21767ms headers=authorization
+[fakegw] usage /v1/report -> 200 rows=2 held 3000ms
+[fakegw] request GET /v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=23311ms -> 200 at=26321ms headers=authorization
