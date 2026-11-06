@@ -235,6 +235,24 @@ mod tests {
         assert!(!due(Trigger::Timer, true, started, t0 + TIMER_MS - 1));
         assert!(due(Trigger::Timer, true, started, t0 + TIMER_MS));
         assert!(!due(Trigger::Timer, false, started, t0 + TIMER_MS));
+        // xfx's own: the timer goes through the whole floor -- a fetch in
+        // flight and a recent failure hold it too.
+        let in_flight = State {
+            in_flight: true,
+            ..started
+        };
+        assert!(!due(Trigger::Timer, true, in_flight, t0 + TIMER_MS));
+        let failed = State {
+            failed_at_ms: Some(t0 + TIMER_MS),
+            ..started
+        };
+        assert!(!due(
+            Trigger::Timer,
+            true,
+            failed,
+            t0 + TIMER_MS + FLOOR_MS - 1
+        ));
+        assert!(due(Trigger::Timer, true, failed, t0 + TIMER_MS + FLOOR_MS));
     }
 
     #[test]
