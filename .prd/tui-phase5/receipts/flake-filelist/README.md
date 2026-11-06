@@ -208,7 +208,48 @@ same.
   for the dispatcher. The fix is the same one line: 20 s. #60's lock does
   not change it: the lock file is not opened under `SPAWNING`.
 
+## FLAKE-FILELISTb: a minute for a wait on a start, after #60
+
+#60 (PROC-SPAWN) merged; `efcf9dcb` merges `origin/main` @ `0e9e7ce8` into
+this branch. The look-ahead above says #60's lock can stack starts to about
+16 s against 20 s. **Dispatcher decision (reversible): a test wait on work
+that starts a child gets 60 s**, the MCP and clipboard waits' minute; a wait
+is an upper bound and costs nothing unless it fails.
+
+`crate::process::START_PATIENCE` (`src/process.rs:102-109`, test builds on
+unix only) is that one constant. It lives beside the lock every start takes
+because its users are in two modules. Each wait that uses it names it when
+it fails. Lines are at the head:
+
+| wait | was | waits on |
+|---|---|---|
+| `listed()`, `src/tui/shell.rs:31540` | `PATIENCE` (5 s at the base) | the index's worker, which starts `git` |
+| `copy_settled`, `shell.rs:22493` | 60 s literal | a fresh fake tool's start |
+| `copies_settled`, `shell.rs:32186` | 60 s literal | the same |
+| `read_settled`, `shell.rs:36688` | 60 s literal | the same |
+| the FIFO paste case, `shell.rs:36922` | 60 s literal | a shell built on its own thread, then `mkfifo` started |
+| `a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker`, `src/tui/worker.rs:8511` | 5 s | a sibling's start: its forked child holds the session lock's descriptor until it execs (`:8506-8510`), so this is a start's time, and gets the start constant rather than 20 s |
+
+`PATIENCE` (`shell.rs:14801-14805`) stays 20 s, now for the `/usage`
+read-start wait alone (`:37500`): that waits on a thread, not a child.
+
+The MCP waits (`shell.rs:15288`-`:16024`) keep their 60 s literals. Their
+value is the constant's, but they are not all waits on a start: several,
+`until_prompted` (`:15336-15360`) among them, wait for the trust prompt,
+which comes before any server is started.
+
+**RED and GREEN on the merged tree,** with `delay.patch` (it still applies
+there):
+
+- RED: `origin/main`'s `src/tui/shell.rs` (`listed()` at 5 s) on the merged
+  tree, the two cases: both panic at `src/tui/shell.rs:31537:9`, `the file
+  list never arrived`, in 5.02 s.
+- GREEN: the head, the two cases and the worker case: 3 passed, in 8.04 s.
+
 ## Gates
+
+The first round's gates, then FLAKE-FILELISTb's.
+
 
 Run once on the fix, `5898145e`, with this receipt committed above it
 before this table was added (that commit was then amended),
@@ -225,6 +266,27 @@ other worker's xfx lib suite was running on this machine.
 | `scripts/check-xfx-identity.sh` | ok, 8570 tracked files |
 | `scripts/check-no-stubs.sh` | ok |
 | `scripts/check-no-secrets.sh` | ok, 8570 tracked files |
+| `cargo build --locked --release` | ok |
+| `cargo build --locked --release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+
+FLAKE-FILELISTb, on the merged head:
+
+Run once on `62224285` (the code head; this table was then amended into
+the receipt commit). The suites started at 05:24 KST, when no `cargo` and no
+`xfx-*` test binary was running here.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 14 binaries, 4762 passed, 0 failed (lib 3867) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 14 binaries, 4791 passed, 0 failed (lib 3882) |
+| `scripts/check-xfx-identity.sh` | ok |
+| `scripts/check-no-stubs.sh` | ok |
+| `scripts/check-no-secrets.sh` | ok |
 | `cargo build --locked --release` | ok |
 | `cargo build --locked --release --features fault-injection --target-dir target/faulty` | ok |
 | `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
