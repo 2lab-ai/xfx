@@ -515,6 +515,14 @@ pub fn store_now(
     }
 }
 
+/// Test-only: runs `hook` each time a store on the calling thread finds the
+/// lock taken, before it waits to try again -- so a test can act once a
+/// store is known to be waiting.
+#[cfg(all(test, unix))]
+pub(crate) fn on_lock_busy(hook: impl FnMut() + 'static) {
+    fs::seam::on_lock_busy(hook);
+}
+
 /// The base a store merges the fetch into: what the file holds and what the
 /// caller holds, the file winning a tie (`cache.zig:285`).
 fn base_of(stored: Option<Entry>, held: Option<&Entry>, now_ms: i64) -> Entry {
@@ -816,6 +824,8 @@ mod fs {
             match rustix::fs::flock(&fd, FlockOperation::NonBlockingLockExclusive) {
                 Ok(()) => return Ok(fd),
                 Err(Errno::WOULDBLOCK) if started.elapsed() < deadline => {
+                    #[cfg(test)]
+                    seam::lock_busy();
                     std::thread::sleep(LOCK_RETRY);
                 }
                 Err(Errno::WOULDBLOCK) => {
@@ -940,6 +950,21 @@ mod fs {
         thread_local! {
             static AFTER_STAT: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
             static READ: Cell<Option<usize>> = const { Cell::new(None) };
+            static LOCK_BUSY: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
+        }
+
+        /// Runs `hook` each time a store on this thread finds the lock taken,
+        /// before it waits to try again.
+        pub(in super::super) fn on_lock_busy(hook: impl FnMut() + 'static) {
+            LOCK_BUSY.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        }
+
+        pub(super) fn lock_busy() {
+            LOCK_BUSY.with(|slot| {
+                if let Some(hook) = slot.borrow_mut().as_mut() {
+                    hook();
+                }
+            });
         }
 
         /// Runs `hook` in this thread's next load, after the size check.

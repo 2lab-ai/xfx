@@ -38,14 +38,16 @@
 //!   sign-in, so reopening within the floor shows fresh numbers from the
 //!   cache.
 //! - **A sign-in switch, an unavailable sign-in and quitting cancel the fetch
-//!   in flight**: no further request goes out with the old key, and the
-//!   switched dashboard never shows its answer. fx's switch lets the old
-//!   sign-in's fetch finish and caches it for its own identity (`:596-601`).
-//!   The dashboard holds at most one fetch; letting go of it and the worker's
-//!   store race for one compare-and-swap. A worker that loses drops its
-//!   answer. One that won just before -- its answer was already in -- stores
-//!   it under its own identity, which is that answer's own sign-in, never the
-//!   new one's.
+//!   in flight**: no further request goes out with the old key, and a
+//!   dashboard switched to another key, or to no sign-in, never shows its
+//!   answer. fx's switch lets the old sign-in's fetch finish and caches it for
+//!   its own identity (`:596-601`). The dashboard holds at most one fetch;
+//!   letting go of it and the worker's store race for one compare-and-swap. A
+//!   worker that loses drops its answer. One that won just before -- its
+//!   answer was already in -- stores it under its own identity, the old key's,
+//!   which another key's dashboard never reads. The same key on another
+//!   origin shares that identity (next item), so it can show that answer from
+//!   the cache, as it shows anything else the key's entry holds.
 //! - **A switch is a different key, or the same key on another Gateway
 //!   origin**: either cancels the held fetch. The cache entry and the floor
 //!   are the key's, as fx's identity has no origin (`identityOf`,
@@ -55,9 +57,11 @@
 //!   cache.** Each fetch carries the epoch it started in, and closing moves
 //!   it. A fetch that a close left running stamps its sign-in's floor --
 //!   with the time it failed, not the time it was taken in -- and clears an
-//!   older failure when it stored, as fx's identity compare in `finishJob`
-//!   does (`:587-611`); its numbers and its own failure reach the screen only
-//!   through the cache, as any other process's would. fx's generation counter
+//!   older failure when it kept its answer, stored or (when the cache cannot
+//!   be written) held in memory: fx's `unsaved` is a `.stored` outcome too,
+//!   and its `finishJob` clears the held sign-in's failure on any `.stored`
+//!   (`:587-595,713-723`). Its numbers and its own failure reach the screen
+//!   only through the cache, as any other process's would. fx's generation counter
 //!   is a redraw counter, kept as one ([`Dashboard::generation`]).
 //! - **The floor is kept per key, across switches.** fx forgets it when the
 //!   sign-in changes (`:465-470`), so switching away and back fetches again
@@ -510,8 +514,10 @@ impl Dashboard {
 
     /// Takes in the held fetch's end, if it has ended (`finishJob`,
     /// `usage.zig:582-615`). Always: the floor, with the failure's own time,
-    /// and a stored answer clears the held sign-in's failure. Only when it
-    /// ended in the epoch it started in: its numbers, and its own failure.
+    /// and a kept answer -- stored, or in memory when the cache could not be
+    /// written, as fx's `unsaved` is `.stored` -- clears the held sign-in's
+    /// failure. Only when it ended in the epoch it started in: its numbers, and
+    /// its own failure.
     fn settle(&mut self) {
         let Some(fetch) = self.fetch.as_ref() else {
             return;
@@ -542,7 +548,8 @@ impl Dashboard {
                 self.stamp(identity, now, |state| state.failed_at_ms = None);
                 if held {
                     // A later answer of this sign-in's than any failure shown,
-                    // whichever epoch it ended in (`usage.zig:587-595`).
+                    // whichever epoch it ended in, and stored or not
+                    // (`usage.zig:587-595`).
                     self.failure = None;
                 }
                 if current {

@@ -352,6 +352,8 @@ struct Workers {
     started: Arc<AtomicUsize>,
     alive: Arc<AtomicUsize>,
     refuse: Arc<AtomicBool>,
+    /// How many times a worker's store found the cache lock taken.
+    lock_waits: Arc<AtomicUsize>,
 }
 
 impl Workers {
@@ -364,9 +366,14 @@ impl Workers {
             workers.started.fetch_add(1, Ordering::SeqCst);
             workers.alive.fetch_add(1, Ordering::SeqCst);
             let alive = Arc::clone(&workers.alive);
+            let lock_waits = Arc::clone(&workers.lock_waits);
             std::thread::Builder::new()
                 .name(WORKER.to_string())
                 .spawn(move || {
+                    #[cfg(unix)]
+                    cache::on_lock_busy(move || {
+                        lock_waits.fetch_add(1, Ordering::SeqCst);
+                    });
                     job();
                     alive.fetch_sub(1, Ordering::SeqCst);
                 })
@@ -376,6 +383,15 @@ impl Workers {
     /// How many fetches were started.
     fn fetches(&self) -> usize {
         self.started.load(Ordering::SeqCst)
+    }
+
+    /// Waits until a worker's store is waiting on the cache lock.
+    fn wait_for_lock_wait(&self) {
+        let started = Instant::now();
+        while self.lock_waits.load(Ordering::SeqCst) == 0 {
+            assert!(started.elapsed() < PATIENCE, "no store waited on the lock");
+            std::thread::sleep(Duration::from_millis(2));
+        }
     }
 
     fn all_ended_within(&self, limit: Duration) -> bool {
@@ -1557,10 +1573,10 @@ fn a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today() {
     let lock = hold_cache_lock(&rig, KEY_A);
     let mut dashboard = rig.dashboard();
     dashboard.open(rig.question(KEY_A));
-    rig.gateway.wait_for(3);
-    // Long enough for the answered worker to reach the lock; the outcome does
-    // not depend on it once the time is read under the lock.
-    std::thread::sleep(Duration::from_millis(300));
+    // The answered worker is in its store, waiting on the lock: a time read
+    // before the lock (M19) has been read by now, at `NOW`.
+    rig.workers.wait_for_lock_wait();
+    assert_eq!(rig.gateway.count(), 3);
     rig.clock.set(NOW + 60 * 1000);
     std::fs::write(
         rig.cache_file(KEY_A),
@@ -1697,4 +1713,44 @@ fn an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only() {
     assert!(quitting
         .cached(KEY_A)
         .is_some_and(|file| file.contains("vendor-a/m-opus")));
+}
+
+// -- US-U3d ---------------------------------------------------------------------
+
+#[test]
+fn an_unavailable_sign_in_cancels_the_fetch_in_flight_and_shows_nothing_of_it() {
+    // S1/S5 (opus, US-U3c SHOULD 1): `open_unavailable`'s retire is the only
+    // guard here -- the epoch moves only on close. A's request is held when
+    // the provider becomes one `/usage` cannot read: it is dropped, nothing
+    // is kept, and the unavailable dashboard shows none of A's numbers, then
+    // or after the pass that follows.
+    let rig = rig();
+    let mut dashboard = rig.dashboard();
+    rig.gateway.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(1);
+    dashboard.open_unavailable(Unavailable::UnsupportedProvider);
+    assert!(rig.gateway.hung_up(0), "A's request was not dropped");
+    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
+    let unseen = |dashboard: &mut Dashboard| {
+        let shown = dashboard.snapshot();
+        assert_eq!(
+            shown.status,
+            Status::Unavailable(Unavailable::UnsupportedProvider)
+        );
+        assert_eq!(shown.label, "");
+        for period in Period::ALL {
+            assert!(shown.of(period).models.is_empty(), "{period:?}");
+            assert!(!shown.of(period).today_current, "{period:?}");
+        }
+    };
+    unseen(&mut dashboard);
+    rig.gateway.hold(false);
+    dashboard.tick();
+    std::thread::sleep(Duration::from_millis(100));
+    dashboard.tick();
+    unseen(&mut dashboard);
+    assert!(rig.cached(KEY_A).is_none(), "A's answer was kept");
+    assert_eq!(rig.workers.fetches(), 1);
+    assert_eq!(rig.gateway.count(), 1);
 }
