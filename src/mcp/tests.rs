@@ -2347,3 +2347,350 @@ fn a_stop_waits_for_a_failed_try_closing_its_own_process() {
         "the try's process outlived the stop"
     );
 }
+
+// ---------------------------------------------------------------------------
+// MCP-Sd: a stop ends a handshake that has no child to wait for
+// ---------------------------------------------------------------------------
+
+/// A loopback HTTP endpoint that takes every request and never answers it;
+/// how many it took.
+fn silent_http() -> (u16, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    let taken = Arc::new(Mutex::new(0usize));
+    let counted = Arc::clone(&taken);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            *counted.lock().unwrap() += 1;
+            // Held open, unanswered, until the case's process ends.
+            std::thread::spawn(move || {
+                let mut stream = stream;
+                let mut sink = [0u8; 4096];
+                while matches!(stream.read(&mut sink), Ok(read) if read > 0) {}
+            });
+        }
+    });
+    (port, taken)
+}
+
+fn waiting_on(taken: &Mutex<usize>) {
+    let deadline = Instant::now() + WAIT;
+    while *taken.lock().unwrap() == 0 {
+        assert!(Instant::now() < deadline, "the endpoint was never asked");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn silent_http_runtime(home: &Home, port: u16) -> Arc<McpRuntime> {
+    let mut server = ServerConfig::http("remote", &format!("http://127.0.0.1:{port}/mcp"));
+    server.startup_timeout_ms = 6_000;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    runtime
+}
+
+#[test]
+fn a_reload_ends_an_http_handshake_against_a_silent_endpoint_at_once() {
+    let (port, taken) = silent_http();
+    let home = Home::new();
+    let runtime = silent_http_runtime(&home, port);
+    waiting_on(&taken);
+    assert!(config::remove_profile_server(&home.profile(), "remote").expect("removed"));
+    let asked = Instant::now();
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn the_end_of_a_session_ends_an_http_handshake_against_a_silent_endpoint_at_once() {
+    let (port, taken) = silent_http();
+    let home = Home::new();
+    let runtime = silent_http_runtime(&home, port);
+    waiting_on(&taken);
+    let asked = Instant::now();
+    runtime.shutdown();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+}
+
+/// A stdio server that never answers, whose standard output a grandchild in
+/// a session of its own also holds: ending the server's group leaves the
+/// pipe open, so no end of its output says the server is gone. Its pid and
+/// the grandchild's are written to `pid` and `stray`; the grandchild sleeps
+/// 30 s, and the case kills it by its pid.
+fn stray_holding_server(pid: &Path, stray: &Path) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        "held",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "/usr/bin/perl -e 'use POSIX; setsid(); open my $f, \">\", $ARGV[0] or die; print $f $$; close $f; exec \"sleep\", \"30\"' \"$2\" & echo $$ > \"$1\"; exec sleep 30".into(),
+            "sh".into(),
+            pid.to_string_lossy().into_owned(),
+            stray.to_string_lossy().into_owned(),
+        ],
+    );
+    server.startup_timeout_ms = 6_000;
+    server
+}
+
+/// Kills the grandchild by its pid, so a case leaves nothing behind.
+struct Stray(PathBuf);
+
+impl Drop for Stray {
+    fn drop(&mut self) {
+        if let Some(pid) = std::fs::read_to_string(&self.0)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+            .and_then(rustix::process::Pid::from_raw)
+        {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        }
+    }
+}
+
+#[test]
+fn a_stop_ends_a_stdio_handshake_whose_output_a_stray_grandchild_holds() {
+    for end in ["reload", "shutdown"] {
+        let home = Home::new();
+        let (pid_file, stray_file) = (home.dir.path().join("pid"), home.dir.path().join("stray"));
+        let _stray = Stray(stray_file.clone());
+        config::add_profile_server(
+            &home.profile(),
+            stray_holding_server(&pid_file, &stray_file),
+        )
+        .expect("saved");
+        let runtime = home.runtime();
+        runtime.start_and_wait(WAIT);
+        let pid = pid_written(&pid_file);
+        pid_written(&stray_file);
+        let asked = Instant::now();
+        if end == "reload" {
+            assert!(config::remove_profile_server(&home.profile(), "held").expect("removed"));
+            runtime.reload(super::runtime::Origin::Transcript);
+        } else {
+            runtime.shutdown();
+        }
+        assert!(
+            asked.elapsed() < Duration::from_secs(2),
+            "{end}: {:?}",
+            asked.elapsed()
+        );
+        assert!(
+            !running(pid) && !group_left(pid),
+            "{end}: the server outlived the stop"
+        );
+        runtime.shutdown();
+    }
+}
+
+#[test]
+fn the_end_of_a_session_stops_what_a_slow_reload_was_still_retiring() {
+    // Three servers mid-handshake that ignore SIGTERM, so each stop waits out
+    // the group's grace: a reload that drops all three takes about 1.5 s. The
+    // end of the session waits for it only 50 ms here, and must still stop
+    // the ones that reload had not reached -- each marked stopped before any
+    // was closed, and on the list `shutdown` takes.
+    let home = Home::new();
+    let pids: Vec<PathBuf> = (0..3)
+        .map(|i| home.dir.path().join(format!("p{i}")))
+        .collect();
+    for (index, pid) in pids.iter().enumerate() {
+        let mut server = stubborn_server(&format!("s{index}"), pid);
+        server.startup_timeout_ms = 20_000;
+        config::add_profile_server(&home.profile(), server).expect("saved");
+    }
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    let pids: Vec<i32> = pids.iter().map(|pid| pid_written(pid)).collect();
+    for index in 0..3 {
+        assert!(
+            config::remove_profile_server(&home.profile(), &format!("s{index}")).expect("removed")
+        );
+    }
+    let reloading = {
+        let runtime = Arc::clone(&runtime);
+        std::thread::spawn(move || runtime.reload(super::runtime::Origin::Transcript))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    runtime.set_reload_wait(Duration::from_millis(50));
+    runtime.shutdown();
+    for pid in &pids {
+        assert!(
+            !running(*pid) && !group_left(*pid),
+            "{pid} outlived the session"
+        );
+    }
+    reloading.join().expect("the reload ended");
+}
+
+#[test]
+fn a_reload_after_the_end_of_a_session_starts_nothing() {
+    let home = Home::new();
+    let marker = home.dir.path().join("started");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    runtime.shutdown();
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "late",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                ": > \"$1\"; exec /bin/sh \"$2\"".into(),
+                "sh".into(),
+                marker.to_string_lossy().into_owned(),
+                fixture().to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    runtime.run(Job::Command("reload".into()));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(runtime.views().is_empty());
+    assert!(!marker.exists(), "a server started after the session ended");
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_reload_queued_behind_one_the_end_of_a_session_outwaited_starts_nothing() {
+    // A reload is still stopping a server (its try held in its own close)
+    // when a second is asked for, which would start `late`; the session
+    // ends, its wait for the reload runs out, and once the hold is released
+    // neither pass starts anything (`closed`).
+    let home = Home::new();
+    let (pid_file, marker) = (home.dir.path().join("pid"), home.dir.path().join("started"));
+    let mut slow = holding_server("slow", &pid_file);
+    slow.startup_timeout_ms = 200;
+    config::add_profile_server(&home.profile(), slow).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    let (hook, arrived, release) = holding_at(super::runtime::Hold::BeforeOwnClose);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    arrived
+        .recv_timeout(WAIT)
+        .expect("the try is in its own close");
+    assert!(config::remove_profile_server(&home.profile(), "slow").expect("removed"));
+    let first = {
+        let runtime = Arc::clone(&runtime);
+        std::thread::spawn(move || runtime.reload(super::runtime::Origin::Transcript))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "late",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                ": > \"$1\"; exec /bin/sh \"$2\"".into(),
+                "sh".into(),
+                marker.to_string_lossy().into_owned(),
+                fixture().to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    runtime.set_reload_wait(Duration::from_millis(100));
+    let ended = shutting_down(&runtime);
+    std::thread::sleep(Duration::from_millis(300));
+    release.send(()).expect("released");
+    ended.recv_timeout(WAIT).expect("the session ended");
+    first.join().expect("the reload ended");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!marker.exists(), "a server started after the session ended");
+    assert!(!running(pid) && !group_left(pid));
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn two_calls_that_find_a_server_gone_spend_one_restart_and_start_one_process() {
+    // The first call's restart is held before its process is handed over;
+    // the second, finding that try under way, waits for it and takes what
+    // it opened, rather than spending a restart of its own and getting the
+    // dead connection back.
+    let home = Home::new();
+    let (starts, pid_file) = (home.dir.path().join("starts"), home.dir.path().join("pid"));
+    let mut server = ServerConfig::local(
+        "fixture",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "echo started >> \"$1\"; echo $$ > \"$2\"; exec /bin/sh \"$3\"".into(),
+            "sh".into(),
+            starts.to_string_lossy().into_owned(),
+            pid_file.to_string_lossy().into_owned(),
+            fixture().to_string_lossy().into_owned(),
+        ],
+    );
+    server.restart_limit = 2;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    let started = || std::fs::read_to_string(&starts).unwrap().lines().count();
+    let kill = || {
+        rustix::process::kill_process(
+            rustix::process::Pid::from_raw(pid_in(&pid_file)).expect("pid"),
+            rustix::process::Signal::KILL,
+        )
+        .expect("killed");
+        let deadline = Instant::now() + WAIT;
+        while settled(&runtime, "fixture").status() != Status::Failed {
+            assert!(Instant::now() < deadline, "its death was never seen");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    kill();
+    let (hook, arrived, release) = holding_at(super::runtime::Hold::BeforeHandOver);
+    runtime.set_hold(hook);
+    let call = |runtime: &Arc<McpRuntime>| {
+        let runtime = Arc::clone(runtime);
+        std::thread::spawn(move || {
+            runtime
+                .call_tool("mcp_fixture_echo", json!({"text": "hi"}), None)
+                .map(|(_, _, result)| result)
+        })
+    };
+    let a = call(&runtime);
+    arrived
+        .recv_timeout(WAIT)
+        .expect("the first restart is under way");
+    let b = call(&runtime);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(started(), 2, "the second call started a process of its own");
+    release.send(()).expect("released");
+    for (name, call) in [("first", a), ("second", b)] {
+        let result = call.join().expect("joined");
+        assert!(result.is_ok(), "{name}: {result:?}");
+    }
+    assert_eq!(started(), 2);
+    // One restart spent: one is left, and then none.
+    runtime.set_hold(|_| {});
+    kill();
+    assert!(runtime
+        .call_tool("mcp_fixture_echo", json!({"text": "hi"}), None)
+        .is_ok());
+    assert_eq!(started(), 3);
+    kill();
+    assert!(runtime
+        .call_tool("mcp_fixture_echo", json!({"text": "hi"}), None)
+        .is_err());
+    assert_eq!(started(), 3);
+    runtime.shutdown();
+}

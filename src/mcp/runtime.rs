@@ -113,11 +113,19 @@ impl Retry {
     }
 }
 
-/// The longest a stop waits for a try to end. A stop closes the connection
-/// a try has handed over, which ends its handshake at once; what is left is
-/// the try's own close of a process it still holds -- the group's grace
+/// The longest a stop waits for a try to end, after its own closes. A stop
+/// cancels the try's handshake ([`Server::cancel`]: every wait in it looks
+/// at that every 20 ms, `CANCEL_POLL`) and closes the connection it handed
+/// over; what is left
+/// is the try's own close of a process it still holds -- the group's grace
 /// (0.5 s) and, for a `docker run`, its container's removal (15 s,
 /// [`super::docker`]) -- the same close a stop of a ready server waits for.
+///
+/// So one stop takes at most its own closes (each a grace and a removal)
+/// and then this; a reload stops the servers it drops one after another,
+/// and the end of a session waits this long for a reload under way and then
+/// stops every server one after another. A server with no `docker run` and
+/// no try in its own close stops within its grace.
 const STOP_WAIT: Duration = Duration::from_secs(20);
 
 /// A try under way ([`Live::opening`]), from before it starts a process
@@ -130,7 +138,13 @@ impl<'a> Opening<'a> {
     /// under way (a call's restart beside another): one try at a time owns
     /// the server's process.
     fn begin(server: &'a Server) -> Option<Self> {
-        let mut live = server.live();
+        Self::claim(server, &mut server.live())
+    }
+
+    /// [`Self::begin`] under a lock the caller already holds, so what it
+    /// decided under that lock -- a restart's credit -- and the try are one
+    /// step.
+    fn claim(server: &'a Server, live: &mut Live) -> Option<Self> {
         if server.stopped.load(Ordering::Acquire) || live.opening || live.starting.is_some() {
             return None;
         }
@@ -451,9 +465,11 @@ struct Live {
     /// handshake -- so a stop reaches it too ([`Server::stop`]).
     starting: Option<Arc<dyn Transport>>,
     /// A try is under way: from just before it starts a process until that
-    /// process is either published, closed, or handed to `starting`. A stop
-    /// waits it out ([`Server::stop`]).
+    /// process is published or closed. A stop waits it out
+    /// ([`Server::stop`]).
     opening: bool,
+    /// Stops closing what they took from here, now.
+    closing: usize,
     protocol_version: Option<String>,
     instructions: Option<String>,
     capabilities: Capabilities,
@@ -486,6 +502,11 @@ pub struct Server {
     claimed: AtomicBool,
     /// Told when a try is over ([`Live::opening`]).
     opened: Condvar,
+    /// Cancelled by a stop: a try's handshake waits on it, so a stop ends a
+    /// handshake whose connection a close cannot end by itself -- an HTTP
+    /// request still in flight, a stdio server whose output a process
+    /// outside its group still holds open.
+    cancel: CancelToken,
     /// What a person is shown of it before approving it, built once when the
     /// reload that read it built the server ([`shown_entry`]): every view
     /// shares it rather than spelling the entry again per frame.
@@ -515,6 +536,7 @@ impl Server {
                 transport: None,
                 starting: None,
                 opening: false,
+                closing: 0,
                 protocol_version: None,
                 instructions: None,
                 capabilities: Capabilities::default(),
@@ -525,6 +547,7 @@ impl Server {
             stopped: AtomicBool::new(false),
             claimed: AtomicBool::new(false),
             opened: Condvar::new(),
+            cancel: CancelToken::new(),
             entry,
         })
     }
@@ -606,8 +629,8 @@ impl Server {
 
     /// Stops it, and returns only once nothing it started still runs: its
     /// connection and one a try is still opening are closed -- each close
-    /// ends a process's group and collects it -- and a try that was about to
-    /// hand its process over is waited out, up to [`STOP_WAIT`]. So a
+    /// ends a process's group and collects it -- a try's handshake is
+    /// cancelled, and the try is waited out, up to [`STOP_WAIT`]. So a
     /// replacement of the same name never runs beside it, and a session that
     /// ends leaves none behind (fx holds what would start a server while the
     /// one a reload dropped under its name is stopping, and its end waits
@@ -620,17 +643,31 @@ impl Server {
     /// either finds it set and closes its own, or has handed it over before
     /// the lock below is taken, and is closed here.
     fn stop(&self) {
-        self.stopped.store(true, Ordering::Release);
-        let (transport, starting) = {
+        self.mark_stopped();
+        let taken: Vec<Arc<dyn Transport>> = {
             let mut live = self.live();
-            (live.transport.take(), live.starting.take())
+            let taken: Vec<_> = [live.transport.take(), live.starting.take()]
+                .into_iter()
+                .flatten()
+                .collect();
+            if !taken.is_empty() {
+                live.closing += 1;
+            }
+            taken
         };
-        for transport in [transport, starting].into_iter().flatten() {
-            transport.close();
+        // Closed outside the lock, and counted while they are: a second stop
+        // -- a reload's and the session's end at once -- that finds nothing
+        // left to take waits for this close rather than returning before it.
+        if !taken.is_empty() {
+            for transport in taken {
+                transport.close();
+            }
+            self.live().closing -= 1;
+            self.opened.notify_all();
         }
         let deadline = Instant::now() + STOP_WAIT;
         let mut live = self.live();
-        while live.opening {
+        while live.opening || live.closing > 0 {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 break;
@@ -641,6 +678,13 @@ impl Server {
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
+    }
+
+    /// Marks it stopped, and ends the wait of a handshake under way: nothing
+    /// it does from here on starts, publishes or is retried.
+    fn mark_stopped(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.cancel.cancel();
     }
 
     /// Hands `transport`, just started, to the server for the rest of its
@@ -691,6 +735,10 @@ struct State {
     /// The next reload starts a failed server again even when its
     /// configuration is the same ([`McpRuntime::reconnect`]).
     reconnect: bool,
+    /// Servers a reload took out of force and is still stopping: each is
+    /// marked stopped before any is closed, and [`McpRuntime::shutdown`]
+    /// stops what is left of them should it stop waiting for that reload.
+    retiring: Vec<Arc<Server>>,
 }
 
 /// How a workspace server's `${VAR}` is looked up.
@@ -740,6 +788,9 @@ pub struct McpRuntime {
     retry: Mutex<Retry>,
     /// Set by [`Self::shutdown`]: no reload starts a server after it.
     closed: AtomicBool,
+    /// How long [`Self::shutdown`] waits for a reload under way.
+    #[cfg(test)]
+    reload_wait: Mutex<Duration>,
     #[cfg(all(test, feature = "fault-injection"))]
     hold: Mutex<Option<HoldHook>>,
     /// What the environment says, for a workspace server's `${VAR}` and an
@@ -772,6 +823,7 @@ impl McpRuntime {
                 choices: Choices::default(),
                 digests: Vec::new(),
                 reconnect: false,
+                retiring: Vec::new(),
             }),
             names: Mutex::new(ToolNames::new(crate::tools::ADVERTISED_TOOLS)),
             events: Mutex::new(VecDeque::new()),
@@ -780,6 +832,8 @@ impl McpRuntime {
             started: Mutex::new(None),
             retry: Mutex::new(Retry::FX),
             closed: AtomicBool::new(false),
+            #[cfg(test)]
+            reload_wait: Mutex::new(STOP_WAIT),
             #[cfg(all(test, feature = "fault-injection"))]
             hold: Mutex::new(None),
             environment: Box::new(|name| std::env::var(name).ok()),
@@ -805,6 +859,28 @@ impl McpRuntime {
 
     fn retry(&self) -> Retry {
         *self.retry.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A test's own wait for a reload under way at the end.
+    #[cfg(test)]
+    pub(crate) fn set_reload_wait(&self, wait: Duration) {
+        *self
+            .reload_wait
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = wait;
+    }
+
+    #[cfg(test)]
+    fn reload_wait(&self) -> Duration {
+        *self
+            .reload_wait
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    #[cfg(not(test))]
+    fn reload_wait(&self) -> Duration {
+        STOP_WAIT
     }
 
     /// Holds every try at the [`Hold`] points through `hook`.
@@ -1200,9 +1276,17 @@ impl McpRuntime {
             state.issues = issues;
             state.choices = choices;
             state.digests = digests;
-            old.into_iter()
+            let retired: Vec<Arc<Server>> = old
+                .into_iter()
                 .filter(|server| !next.iter().any(|kept| Arc::ptr_eq(kept, server)))
-                .collect()
+                .collect();
+            // Every one marked before any is closed, and each still within
+            // `shutdown`'s reach until its stop is done.
+            for server in &retired {
+                server.mark_stopped();
+            }
+            state.retiring.extend(retired.iter().cloned());
+            retired
         };
         // A changed server's old process goes before its new one starts
         // (`Runtime.reload`, `runtime.zig:628-642`; `Engine.stopping`,
@@ -1210,6 +1294,9 @@ impl McpRuntime {
         // started runs, a try in its handshake included ([`Server::stop`]).
         for server in retired {
             server.stop();
+            self.state()
+                .retiring
+                .retain(|retiring| !Arc::ptr_eq(retiring, &server));
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
         self.present_prompt();
@@ -1277,9 +1364,14 @@ impl McpRuntime {
     /// it is published under the same lock a stop takes, so a stopped server
     /// never gets one. A stopped server's try ends `Ok`, with nothing to say.
     fn open(&self, server: &Arc<Server>) -> Result<(), Box<Failed>> {
-        let Some(_opening) = Opening::begin(server) else {
-            return Ok(());
-        };
+        match Opening::begin(server) {
+            Some(opening) => self.open_as(server, opening),
+            None => Ok(()),
+        }
+    }
+
+    /// [`Self::open`], the try already marked as `_opening`.
+    fn open_as(&self, server: &Arc<Server>, _opening: Opening<'_>) -> Result<(), Box<Failed>> {
         let config = &server.config;
         let deadline = Instant::now() + config.startup_timeout();
         let left = || deadline.saturating_duration_since(Instant::now());
@@ -1311,8 +1403,10 @@ impl McpRuntime {
             Err((step, error)) => {
                 // What a stdio server said on its way out, and how it ended,
                 // read while the connection is still the server's: a stop now
-                // closes it itself, and these end at once. An HTTP server has
-                // neither.
+                // closes it itself, the exit is then read at once, and the
+                // stderr wait ends as soon as its pipe does -- within its
+                // 0.5 s settle when a process outside the group holds it. An
+                // HTTP server has neither.
                 let (stderr, exit) =
                     if config.transport == Kind::Stdio && !server.stopped.load(Ordering::Acquire) {
                         (transport.diagnostic(), transport.exit())
@@ -1368,7 +1462,7 @@ impl McpRuntime {
                 "clientInfo": {"name": "xfx", "version": env!("CARGO_PKG_VERSION")},
             }),
             left(),
-            None,
+            Some(&server.cancel),
         );
         let initialized = initialized.map_err(at(Step::Initialize))?;
         let version = initialized
@@ -1407,6 +1501,7 @@ impl McpRuntime {
             .notify(
                 "notifications/initialized",
                 (server.config.transport != Kind::Stdio).then(|| json!({})),
+                Some(&server.cancel),
             )
             .map_err(at(Step::Initialized))?;
         let mut tools = Vec::new();
@@ -1418,7 +1513,7 @@ impl McpRuntime {
                     None => json!({}),
                 };
                 let page = transport
-                    .request("tools/list", params, left(), None)
+                    .request("tools/list", params, left(), Some(&server.cancel))
                     .map_err(at(Step::Tools))?;
                 for tool in page
                     .get("tools")
@@ -1739,45 +1834,60 @@ impl McpRuntime {
     /// A ready server's connection, started again when it has gone and a
     /// restart is left.
     fn transport(&self, server: &Arc<Server>) -> Result<Arc<dyn Transport>, McpError> {
-        // Looked at and, for a restart, counted under one lock: two calls
-        // that find it gone spend one restart, and one try runs
-        // ([`Opening::begin`]).
-        let (transport, restart) = {
-            let mut live = server.live();
-            let transport = live.transport.clone();
-            let restart = transport
-                .as_ref()
-                .is_some_and(|transport| !transport.alive())
-                && server.config.transport == Kind::Stdio
-                && live.restarts < server.config.restart_limit;
-            if restart {
-                live.restarts += 1;
+        // A restart's credit is spent and its try marked under one lock, so
+        // two calls that find it gone spend one restart and start one
+        // process; the other waits for that try and takes what it opened.
+        let deadline = Instant::now() + server.config.startup_timeout() + STOP_WAIT;
+        let mut live = server.live();
+        let opening = loop {
+            match live.transport.clone() {
+                Some(transport) if transport.alive() => return Ok(transport),
+                None => return Err(McpError::Named("McpServerUnavailable")),
+                Some(_) => {}
             }
-            (transport, restart)
-        };
-        match transport {
-            Some(transport) if transport.alive() => Ok(transport),
-            Some(_) if restart => match self.open(server) {
-                Ok(()) => server
-                    .live()
-                    .transport
-                    .clone()
-                    .ok_or(McpError::Named("McpConnectionClosed")),
-                Err(failed) => {
-                    let mut live = server.live();
-                    live.connection = Connection::Failed;
-                    live.failure = Some(failed.words);
-                    Err(McpError::Restart(failed.error.to_string()))
+            if live.opening {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(McpError::Named("McpRequestTimedOut"));
                 }
-            },
-            Some(_) => Err(McpError::Restart(
-                server
-                    .live()
-                    .failure
-                    .clone()
-                    .unwrap_or_else(|| "McpConnectionClosed".to_string()),
-            )),
-            None => Err(McpError::Named("McpServerUnavailable")),
+                live = server
+                    .opened
+                    .wait_timeout(live, left)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
+                continue;
+            }
+            let credit = server.config.transport == Kind::Stdio
+                && live.restarts < server.config.restart_limit;
+            let opening = credit.then(|| Opening::claim(server, &mut live)).flatten();
+            match opening {
+                Some(opening) => {
+                    live.restarts += 1;
+                    break opening;
+                }
+                None => {
+                    return Err(McpError::Restart(
+                        live.failure
+                            .clone()
+                            .unwrap_or_else(|| "McpConnectionClosed".to_string()),
+                    ))
+                }
+            }
+        };
+        drop(live);
+        match self.open_as(server, opening) {
+            Ok(()) => server
+                .live()
+                .transport
+                .clone()
+                .filter(|transport| transport.alive())
+                .ok_or(McpError::Named("McpConnectionClosed")),
+            Err(failed) => {
+                let mut live = server.live();
+                live.connection = Connection::Failed;
+                live.failure = Some(failed.words);
+                Err(McpError::Restart(failed.error.to_string()))
+            }
         }
     }
 
@@ -2053,14 +2163,21 @@ impl McpRuntime {
         // A reload under way puts its set in force, and stops what it
         // dropped, before the servers in force are stopped; it starts none
         // once `closed` is set.
-        let deadline = Instant::now() + STOP_WAIT;
+        let deadline = Instant::now() + self.reload_wait();
         while Instant::now() < deadline && {
             let state = self.state();
             state.reloading
         } {
             std::thread::sleep(Duration::from_millis(5));
         }
-        let servers = std::mem::take(&mut self.state().servers);
+        // What is in force, and what a reload that outlasted the wait was
+        // still stopping: both are stopped here.
+        let servers = {
+            let mut state = self.state();
+            let mut servers = std::mem::take(&mut state.servers);
+            servers.extend(std::mem::take(&mut state.retiring));
+            servers
+        };
         for server in servers {
             server.stop();
         }
@@ -2446,6 +2563,25 @@ fn shell_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_try_at_a_time_holds_a_server_and_none_once_it_is_stopped() {
+        // `Opening::claim`'s refusal: a second try while one is under way, or
+        // any try after a stop.
+        let server = Server::new(ServerConfig::local("s", "/bin/true", &[]), &HashMap::new());
+        let first = Opening::begin(&server).expect("the first try");
+        assert!(
+            Opening::begin(&server).is_none(),
+            "a second try beside the first"
+        );
+        drop(first);
+        assert!(!server.live().opening);
+        let again = Opening::begin(&server).expect("a try once the first ended");
+        drop(again);
+        server.mark_stopped();
+        assert!(Opening::begin(&server).is_none(), "a try after a stop");
+        assert!(server.cancel.is_cancelled());
+    }
 
     #[test]
     fn a_failure_quotes_the_last_three_stderr_lines_joined_and_cut_from_the_front() {
