@@ -1,38 +1,38 @@
-  2026-11-06 03:16:40.723 UTC · Notice
+  2026-11-06 03:36:53.669 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 45ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-06 03:36:53.856 UTC · Notice
 * network: provider: gateway · model: fake/model-a · 35ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-06 03:16:40.888 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 55ms
-  finish: tool_calls
-  tokens: 1200 in · 40 out
-
-  2026-11-06 03:16:43.644 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 2ms
+  2026-11-06 03:36:56.374 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 0ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-06 03:16:40.460 UTC · Prompt
+  2026-11-06 03:36:53.300 UTC · Prompt
 ┃ use the web echo tool
 
-  2026-11-06 03:16:40.786 UTC · Tool
+  2026-11-06 03:36:53.751 UTC · Tool
 ● 2 tool calls · 1 read · 1 MCP call
 ├ Searched capabilities echo text through the web server
 │  {"skills":[],"mcp_tools":[{"name":"mcp_web_echo","server":"web","description":"Echo the text back (fxcap HTTP fixture
 │  )","purpose":"Echo the text back (fxcap HTTP fixture)","usage":["mcp","web","echo"]}],"counts":{"skills":0,"mcp_tools
 │  ":1},"total_matches":{"skills":0,"mcp_tools":1}}
 
-  2026-11-06 03:16:40.978 UTC · Tool
+  2026-11-06 03:36:53.910 UTC · Tool
 └ Ran MCP mcp_web_echo
 │  text: hi
 │  {"server":"web","tool":"mcp_web_echo","result":{"content":[{"type":"text","text":"MCPHTTP_ECHO: hi"}],"isError":false
 │  }}
 
-  2026-11-06 03:16:43.898 UTC · Response
+  2026-11-06 03:36:56.417 UTC · Response
   done.
 
-  2026-11-06 03:16:43.898 UTC · Usage
+  2026-11-06 03:36:56.417 UTC · Usage
   3s (↑5 ↓120)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
