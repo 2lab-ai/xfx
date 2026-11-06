@@ -172,6 +172,66 @@ short path under the harness temp folder.
 | `scripts/fxcap/test-sweep.sh` | 24 tests OK |
 | `scripts/fxcap/ci-sweep.sh` vs fx v0.0.16 | 0 regressions (above) |
 
+## H3b: the shipped bytes, a clock file that cannot block
+
+Review round on `685d534e`, code at `220f8acd`.
+
+1. **`scripts/smoke.sh` section 0** reads the whole binary in python and
+   fails it if `XFX_E2E_USAGE_CLOCK_FILE` is anywhere in its bytes (`strip`
+   removes symbols, not string literals). It first looks for
+   `XFX_GATEWAY_URL`, a name every build carries: a scan that cannot find it
+   reports `the byte scan proved nothing` and fails. CI, preview and release
+   all run smoke.sh on the binary they ship, so the check is on the published
+   bytes, not only on the profile. `red-h3b.txt`:
+   - the head's own builds carry the name in **neither** profile today:
+     nothing calls `now_ms()` yet, so the linker drops it. smoke.sh passes on
+     both (47 checks, 0 failures each);
+   - S1, `main()` calling `now_ms()` as US-U3 will: on the debug build smoke.sh
+     **fails**, `found XFX_E2E_USAGE_CLOCK_FILE` (1 failure of 47). On the
+     release build it passes;
+   - S2, S1 with the five gate attributes removed: the release build carries
+     the name, and smoke.sh **fails**;
+   - on `/usr/bin/true` the check fails closed (`the scan did not find
+     XFX_GATEWAY_URL`).
+2. **`pinned()` opens `O_NONBLOCK`** (`OpenOptionsExt::custom_flags`, libc),
+   then requires `metadata().is_file()` on the opened descriptor, and falls
+   back to the system clock otherwise. New test
+   `a_fifo_a_pipe_or_a_device_is_the_system_clock_and_never_blocks`:
+   - a FIFO with no writer, read on a thread with a 10 s deadline (on timeout
+     the test opens the write end to free the thread, then fails);
+   - a pipe holding a time, opened through `/dev/fd/<n>`;
+   - `/dev/null`.
+
+   S3, without `O_NONBLOCK`: the test fails at the deadline, `reading the clock
+   from a FIFO with no writer blocked for 10 s`, after 10.01 s. S4, without the
+   regular-file check: it fails, `a pipe holding a time`.
+3. **Docs** (`clock.rs` header). Every "now" in US-U3 and US-U4 comes from
+   `now_ms()`, and their arithmetic must take any `i64`, because the pinned
+   clock and `system_now_ms` can return `i64::MIN`, `i64::MAX` and negative
+   values: saturating or checked differences, `div_euclid` for the UTC day, no
+   `as u64` of a difference. `the_pinned_clock_returns_any_i64_as_it_is`
+   holds `i64::MIN`, -1, 0 and `i64::MAX`.
+4. **`check-usage-clock.sh`** runs the test with `--test-threads=1` and
+   matches the whole line `test <name> ... usage clock: <marker>`. On one
+   thread, which is what a one-CPU host gets by default, libtest prints the
+   marker on the test's own line, so the old `grep -x` of the bare marker
+   would have failed there. Now every host prints the same layout, and the
+   match still fails closed.
+
+Gates at `220f8acd`:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; both `cargo clippy … -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 14 result lines: 4558 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 14: 4579 passed, 0 failed |
+| identity, no-stubs, no-secrets, `check-preview-contract.sh` | ok |
+| `scripts/check-usage-clock.sh` | ok (debug honoured; release, release + fault-injection ignored) |
+| release and faulty builds | ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh … --faulty …` | 37 scenarios + the oracle, 1107 checks, 0 failures |
+| `scripts/fxcap/ci-sweep.sh` vs fx v0.0.16 | 15 scenarios, 117 pairs: 50 pass, 14 new, **0 regressions**, exit 0 (`sweep-report-h3b.md`) |
+
 ## Files
 
 - `cap/<size>/{fx,xfx}-p5-usage-<scenario>-<size>-<label>.{txt,ansi}`: the
@@ -180,6 +240,6 @@ short path under the harness temp folder.
   not kept. Snaps and listings were copied only if they held no local path
   (none did); the logs went through `scripts/fxcap/redact.py`.
 - `runs.txt`: the 30 runs, each `exit=0`.
-- `sweep-report.md`: the CI sweep's report (redacted by ci_sweep.py).
+- `sweep-report.md`, `sweep-report-h3b.md`: the CI sweep's reports at `5a2f4c2d` and `220f8acd` (redacted by ci_sweep.py).
 - `pairs.txt`: each pair's differing row count.
-- `red-harness.txt`, `red-clock-mutant.txt`: the REDs above.
+- `red-harness.txt`, `red-clock-mutant.txt`, `red-h3b.txt`: the REDs above.
