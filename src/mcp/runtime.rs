@@ -2303,8 +2303,9 @@ fn prompt_value(text: &str) -> String {
 /// else single-quoted; else -- when it holds a control character -- ANSI-C
 /// quoted with the character spelled out, so the shown word means what the
 /// shell would be given. A control character inside an expansion's default
-/// has no exact double-quoted spelling, and such a word is ANSI-C quoted
-/// whole: the byte exact, the expansion read as text.
+/// has no exact double-quoted spelling: it stays in the quotes for the row's
+/// own spelling (`\x1b`), so every expansion in the word still reads as one
+/// (opus-Md R1: quoting the whole word ANSI-C made them literal text).
 fn shell_word(word: &str) -> String {
     let bare = |byte: u8| byte.is_ascii_alphanumeric() || b"/._-+=:,@%".contains(&byte);
     if !word.is_empty() && word.bytes().all(bare) {
@@ -2339,7 +2340,7 @@ fn ansi_c(character: char, out: &mut String) {
 
 /// `word` double-quoted, its expansions as they are and the rest escaped,
 /// when it holds an expansion `config::expand_text` would make; `None`
-/// otherwise, and when a default holds a control character.
+/// otherwise.
 fn expanded_word(word: &str) -> Option<String> {
     let mut out = Pieces::default();
     let mut rest = word;
@@ -2357,16 +2358,13 @@ fn expanded_word(word: &str) -> Option<String> {
         if !config::is_env_name(name) {
             break;
         }
-        if default.is_some_and(|default| default.chars().any(char::is_control)) {
-            return None;
-        }
         any = true;
         out.text(&rest[..start]);
         out.raw("${");
         out.raw(name);
         if let Some(default) = default {
             out.raw(":-");
-            out.text(default);
+            out.quoted(default);
         }
         out.raw("}");
         rest = &after[end + 1..];
@@ -2401,6 +2399,19 @@ impl Pieces {
                 self.out.push('\'');
                 continue;
             }
+            if matches!(character, '$' | '"' | '\\' | '`') {
+                self.raw("\\");
+            }
+            let mut buf = [0u8; 4];
+            self.raw(character.encode_utf8(&mut buf));
+        }
+    }
+
+    /// Text inside the quotes, `$`, `"`, `\` and `` ` `` escaped and a
+    /// control character left for the row's spelling: inside an expansion's
+    /// braces a piece cannot close the quotes.
+    fn quoted(&mut self, text: &str) {
+        for character in text.chars() {
             if matches!(character, '$' | '"' | '\\' | '`') {
                 self.raw("\\");
             }
@@ -2631,17 +2642,22 @@ mod tests {
     fn a_control_character_beside_an_expansion_is_a_piece_of_its_own() {
         // opus-X: inside the double quotes the escape a control character is
         // spelled as read as a backslash. Beside an expansion it is an ANSI-C
-        // piece between quoted ones; inside a default, which has no exact
-        // double-quoted spelling, the word is ANSI-C quoted whole, as it was
-        // before the expansions were double-quoted.
+        // piece between quoted ones. Inside a default, which has no exact
+        // double-quoted spelling, it stays in the quotes and the row spells
+        // it, so the word's expansions still read as expansions (opus-Md R1:
+        // `${T}` beside such a default was shown as literal text).
         let config = ServerConfig::local(
             "p",
             "/bin/node",
-            &["a\u{1b}${X}\nb".into(), "${Y:-d\u{1b}e}".into()],
+            &[
+                "a\u{1b}${X}\nb".into(),
+                "${Y:-d\u{1b}e}".into(),
+                "${T}${Z:-\u{1b}}".into(),
+            ],
         );
         assert_eq!(
             what_it_runs(&config),
-            r#"command: /bin/node "a"$'\u001B'"${X}"$'\n'"b" $'${Y:-d\u001Be}'"#
+            r#"command: /bin/node "a"$'\u001B'"${X}"$'\n'"b" "${Y:-d\x1be}" "${T}${Z:-\x1b}""#
         );
     }
 

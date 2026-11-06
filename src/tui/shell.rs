@@ -223,67 +223,40 @@ const RESUME_LABEL: &str = "Continue session with:";
 /// repeat after it is this close.
 const MCP_ENTER_HELD: Duration = Duration::from_millis(500);
 
-/// An Enter this soon after the one before it is a repeat of a key held
-/// down, or of a burst read at once: swallowed, it keeps [`MCP_ENTER_HELD`]'s
-/// window open. A person tapping again takes longer, and a tap swallowed
-/// does not -- the next one past the window answers (opus-Y).
-const MCP_ENTER_REPEAT: Duration = Duration::from_millis(150);
-
 /// What the menu says of an Enter it swallowed, once each time (opus-Y: a
 /// key that seems to do nothing is a key pressed again).
 const MCP_ENTER_TOO_SOON: &str =
-    "That Enter came too soon after the last one to answer the question: press Enter again to answer it.";
+    "That Enter came too soon after the last one to answer the question: wait a moment, then press Enter.";
 
 /// Every Enter while `/mcp`'s menu is up, whatever takes it -- the menu, the
 /// model's question panel, a permission question, the composer -- and the
-/// last one that counted ([`MCP_ENTER_HELD`]).
+/// last one ([`MCP_ENTER_HELD`]). A swallowed Enter counts too: timing
+/// cannot tell a slow key repeat from a second tap, and on a question that
+/// removes, rejects or approves the safe reading wins (opus-Md R2).
 #[derive(Debug, Clone, Copy, Default)]
 struct McpEnters {
-    /// The last Enter that counted: one taken, or a repeat swallowed.
-    taken: Option<Instant>,
-    /// The last Enter of all.
-    seen: Option<Instant>,
-    /// The swallow since the last Enter that counted has been said.
+    /// The last Enter.
+    last: Option<Instant>,
+    /// The swallow since an Enter that was not held has been said.
     said: bool,
 }
 
-/// One Enter, as [`McpEnters::enter`] saw it.
-#[derive(Debug, Clone, Copy)]
-struct McpEnter {
-    /// Within [`MCP_ENTER_HELD`] of the last one that counted.
-    held: bool,
-    /// Within [`MCP_ENTER_REPEAT`] of the one before it.
-    repeat: bool,
-    /// What `taken` was before this one.
-    before: Option<Instant>,
-}
-
 impl McpEnters {
-    /// An Enter at `now`: it counts, unless the menu swallows it
-    /// ([`Self::swallowed`]).
-    fn enter(&mut self, now: Instant) -> McpEnter {
-        let within = |at: Option<Instant>, gap: Duration| {
-            at.is_some_and(|at| now.saturating_duration_since(at) < gap)
-        };
-        let enter = McpEnter {
-            held: within(self.taken, MCP_ENTER_HELD),
-            repeat: within(self.seen, MCP_ENTER_REPEAT),
-            before: self.taken,
-        };
-        self.seen = Some(now);
-        self.taken = Some(now);
-        if !enter.held {
+    /// An Enter at `now`: whether it comes within [`MCP_ENTER_HELD`] of the
+    /// one before it.
+    fn enter(&mut self, now: Instant) -> bool {
+        let held = self
+            .last
+            .is_some_and(|last| now.saturating_duration_since(last) < MCP_ENTER_HELD);
+        self.last = Some(now);
+        if !held {
             self.said = false;
         }
-        enter
+        held
     }
 
-    /// The menu swallowed `enter`: a repeat keeps the window open, a tap
-    /// does not. Whether to say so.
-    fn swallowed(&mut self, enter: McpEnter) -> bool {
-        if !enter.repeat {
-            self.taken = enter.before;
-        }
+    /// The menu swallowed one: whether to say so.
+    fn swallowed(&mut self) -> bool {
         !std::mem::replace(&mut self.said, true)
     }
 }
@@ -6568,7 +6541,7 @@ impl Shell {
     /// menu's or any other surface's while the menu is up (opus-Y) --
     /// answers no question, and says so: that is a key held down, a burst
     /// read at once, or a second tap, not an answer to what was shown.
-    fn offer_to_mcp(&mut self, event: &Input, enter: Option<McpEnter>) -> bool {
+    fn offer_to_mcp(&mut self, event: &Input, held: bool) -> bool {
         use super::mcp_menu::{Key, Screen};
         let Some(menu) = self.mcp_menu.as_ref() else {
             return false;
@@ -6619,8 +6592,8 @@ impl Shell {
             },
             _ => return false,
         };
-        if let Some(enter) = enter.filter(|enter| key == Key::Enter && enter.held && confirming) {
-            if self.mcp_enter.swallowed(enter) {
+        if key == Key::Enter && held && confirming {
+            if self.mcp_enter.swallowed() {
                 self.write_notice(&notice::Notice::warning(
                     crate::mcp::command::TOPIC,
                     MCP_ENTER_TOO_SOON,
@@ -9907,8 +9880,9 @@ impl Shell {
             // it, is one the menu's held rule counts (opus-Y): an Enter the
             // model's panel took, then a second tap once the question is
             // painted again, is a double tap, not an answer.
-            let enter = (matches!(event, Input::Action(Action::Submit)) && self.mcp_menu.is_some())
-                .then(|| self.mcp_enter.enter(now));
+            let held = matches!(event, Input::Action(Action::Submit))
+                && self.mcp_menu.is_some()
+                && self.mcp_enter.enter(now);
             // The full transcript, while it is up, has the keys it binds;
             // everything else goes where it would have gone with the screen
             // closed -- the composer, the band's menus -- as upstream routes
@@ -9969,7 +9943,7 @@ impl Shell {
             }
             // `/mcp`'s menu takes the keys it binds; the rest go to the
             // composer, which holds its filter, as fx v0.0.16's does.
-            if self.offer_to_mcp(&event, enter) {
+            if self.offer_to_mcp(&event, held) {
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -15107,9 +15081,10 @@ mod tests {
         assert_eq!(case.files(), before, "a double tap answered Remove");
         assert!(case.written().contains(MCP_ENTER_TOO_SOON));
         let _ = case.screen();
+        // A moment after the swallowed one, which counts too (opus-Md R2).
         one_read(
             &mut case,
-            Duration::from_millis(400),
+            Duration::from_millis(600),
             vec![Input::Action(Action::Submit)],
         );
         assert!(case.drained().is_empty());
@@ -15121,15 +15096,14 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_the_menu_swallowed_keeps_no_window_open_and_is_said_once() {
-        // opus-Y: every swallowed Enter restarted the window, so someone
-        // tapping because nothing happened was never answered, and nothing
-        // was said. A tap swallowed now leaves the window where the last
-        // Enter that counted put it; a key held down still keeps it open
-        // (`a_held_enter_after_a_choice_runs_reaches_no_other_question`).
+    fn a_swallowed_enter_keeps_the_window_open_and_is_said_once() {
+        // opus-Y asked that a swallowed tap not hold the window open; opus-Md
+        // R2: timing cannot tell it from a slow key repeat, which then
+        // answered. Every Enter holds it open, and the swallow is said --
+        // once -- so a person knows to wait.
         let (mut case, before) = asked_to_remove_keep();
         let _ = case.written();
-        for gap in [200, 180] {
+        for gap in [200, 180, 220] {
             one_read(
                 &mut case,
                 Duration::from_millis(gap),
@@ -15138,16 +15112,20 @@ mod tests {
             let _ = case.screen();
         }
         assert!(case.drained().is_empty());
-        assert_eq!(case.files(), before, "a tap within the window answered");
+        assert_eq!(case.files(), before, "an Enter within the window answered");
         assert_eq!(case.written().matches(MCP_ENTER_TOO_SOON).count(), 1);
-        // 600 ms after the Enter that asked.
+        // A moment after the last Enter: answered.
         one_read(
             &mut case,
-            Duration::from_millis(220),
+            Duration::from_millis(600),
             vec![Input::Action(Action::Submit)],
         );
         assert!(case.drained().is_empty());
-        assert_ne!(case.files(), before, "a tap past the window was swallowed");
+        assert_ne!(
+            case.files(),
+            before,
+            "an Enter past the window was swallowed"
+        );
     }
 
     #[test]
@@ -15157,26 +15135,34 @@ mod tests {
         let fixture =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
         let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
-        let mut case = McpCase::new(
-            serde_json::json!({}),
-            Some(serde_json::json!({"a": entry.clone(), "b": entry})),
-        );
-        case.open();
-        case.reread();
-        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
-        assert!(case.screen().contains("Remove a from ~/.xfx/mcp.json?"));
-        case.keys([Input::Action(Action::Submit)]);
-        assert!(case.drained().is_empty());
-        let profile = std::fs::read_to_string(&case.profile).expect("profile");
-        assert!(!profile.contains("\"a\""), "{profile}");
-        // Held: an autorepeat 40 ms apart, a frame between each.
-        case.held(Input::Action(Action::Submit), 40, Duration::from_millis(40));
-        assert!(case.drained().is_empty());
-        let profile = std::fs::read_to_string(&case.profile).expect("profile");
-        assert!(
-            profile.contains("\"b\""),
-            "a held Enter removed b: {profile}"
-        );
+        // Held: an autorepeat 40 ms apart, and a slow one 200 ms apart
+        // (opus-Md R2: one past 150 ms was read as taps, and answered), a
+        // frame between each.
+        for every in [40, 200] {
+            let mut case = McpCase::new(
+                serde_json::json!({}),
+                Some(serde_json::json!({"a": entry.clone(), "b": entry.clone()})),
+            );
+            case.open();
+            case.reread();
+            case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+            assert!(case.screen().contains("Remove a from ~/.xfx/mcp.json?"));
+            case.keys([Input::Action(Action::Submit)]);
+            assert!(case.drained().is_empty());
+            let profile = std::fs::read_to_string(&case.profile).expect("profile");
+            assert!(!profile.contains("\"a\""), "{profile}");
+            case.held(
+                Input::Action(Action::Submit),
+                40,
+                Duration::from_millis(every),
+            );
+            assert!(case.drained().is_empty());
+            let profile = std::fs::read_to_string(&case.profile).expect("profile");
+            assert!(
+                profile.contains("\"b\""),
+                "an Enter held, repeating every {every} ms, removed b: {profile}"
+            );
+        }
     }
 
     #[test]
@@ -37796,7 +37782,17 @@ mod tests {
     }
 
     fn skilled_at(rows: u16, cols: u16) -> Skilled {
-        let root = tempfile::tempdir().expect("a root");
+        skilled_under(rows, cols, ".tmp")
+    }
+
+    /// [`skilled_at`], its temporary root's name `prefix` and six random
+    /// letters and digits, as `tempfile` names one. A skill's path -- which a
+    /// `$` search reads -- holds that name.
+    fn skilled_under(rows: u16, cols: u16, prefix: &str) -> Skilled {
+        let root = tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir()
+            .expect("a root");
         let base = root.path().canonicalize().expect("canonical");
         let work = base.join("work");
         let home = base.join("home");
@@ -37933,26 +37929,48 @@ mod tests {
 
     #[test]
     fn a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu() {
-        let mut shell = skilled();
-        shell.route_bytes(b"$zz");
-        assert!(shell.skills_menu.is_some());
-        assert!(
-            !skills_band(&shell)
-                .iter()
-                .any(|row| row.starts_with("Skills ")),
-            "a word no skill matches showed the menu"
-        );
-        shell.route_bytes(b"\x7f\x7fdem ");
-        assert!(
-            shell.skills_menu.is_none(),
-            "a space did not end the search"
-        );
-        assert_eq!(shell.editor.text(), "$dem ");
-        assert!(shell.editor.entities().is_empty(), "words became a token");
-        // Inside an `@` path a `$` is a character of the path.
-        shell.clear_composer();
-        shell.route_bytes(b"@src/$");
-        assert!(shell.skills_menu.is_none());
+        // A word nothing matches is one no skill's name, description, source
+        // or path holds. `zz` was not one: a skill's path is under its
+        // temporary root, `.tmp` and six random letters and digits, and about
+        // one root in 200 held `zz` in some case -- the menu then showed that
+        // skill, as it should (MCP-Me). No such name holds a `:`; the second
+        // root's name holds `zZ`, as the ones that broke `zz` did.
+        const WORD: &str = "z:";
+        for prefix in [".tmp", ".tmpzZ"] {
+            let mut shell = skilled_under(40, 120, prefix);
+            for skill in shell.skills.skills() {
+                for text in [
+                    skill.name.clone(),
+                    skill.description.clone(),
+                    skill.source.short_label().to_string(),
+                    skill.path.to_string_lossy().into_owned(),
+                ] {
+                    assert!(
+                        !text.to_ascii_lowercase().contains(WORD),
+                        "{text:?} holds {WORD:?}: the case needs a word nothing matches"
+                    );
+                }
+            }
+            shell.route_bytes(format!("${WORD}").as_bytes());
+            assert!(shell.skills_menu.is_some());
+            assert!(
+                !skills_band(&shell)
+                    .iter()
+                    .any(|row| row.starts_with("Skills ")),
+                "a word no skill matches showed the menu ({prefix})"
+            );
+            shell.route_bytes(b"\x7f\x7fdem ");
+            assert!(
+                shell.skills_menu.is_none(),
+                "a space did not end the search"
+            );
+            assert_eq!(shell.editor.text(), "$dem ");
+            assert!(shell.editor.entities().is_empty(), "words became a token");
+            // Inside an `@` path a `$` is a character of the path.
+            shell.clear_composer();
+            shell.route_bytes(b"@src/$");
+            assert!(shell.skills_menu.is_none());
+        }
     }
 
     #[test]

@@ -1454,17 +1454,20 @@ fn question(row: &Row, choice: Choice) -> String {
 
 /// The question in `room` cells, and whether it is there whole. Remove's
 /// keeps ` from FILE?` whole and shortens the name instead (opus-X): cut
-/// from its end, a long name hid which file the answer acts on. Where not
-/// even the name's first cell fits beside it, the question is cut as any
-/// row is and not whole. Reject's names no file and is cut from its end.
+/// from its end, a long name hid which file the answer acts on. Where the
+/// name neither fits nor keeps its first character beside the `…` -- one
+/// cell is only the `…` (opus-Md) -- the question is cut as any row is and
+/// not whole. Reject's names no file and is cut from its end.
 fn asked(row: &Row, choice: Choice, room: usize) -> (String, bool) {
     let spelled = |text: &str| command::safe_within(text, 4096);
     if choice == Choice::Remove {
         let head = "Remove ";
         let tail = format!(" from {}?", row.file().label());
         let fixed = cells(head) + cells(&tail);
-        if room > fixed {
-            let name = ellipsized(&spelled(&command::typed(&row.name)), room - fixed);
+        let name = spelled(&command::typed(&row.name));
+        let left = room.saturating_sub(fixed);
+        if left >= 2 || (left >= 1 && cells(&name) <= left) {
+            let name = ellipsized(&name, left);
             return (format!("{head}{name}{tail}"), true);
         }
         return (ellipsized(&spelled(&question(row, choice)), room), false);

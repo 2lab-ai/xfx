@@ -1223,3 +1223,48 @@ fn a_wrapped_piece_wider_on_the_screen_than_it_was_measured_is_not_drawn_whole()
         Effect::Refused(why) if why.contains("couldn't show all")
     ));
 }
+
+#[test]
+fn a_name_cut_to_its_ellipsis_alone_is_not_a_question_drawn_whole() {
+    // opus-Md: with one cell left beside ` from FILE?` a long name is a bare
+    // `…`, which names no server. A name of one character fits that cell.
+    let ask = |name: &str, cols: u16| {
+        let mut menu = McpMenu::open(vec![ready(name)], 0, Instant::now());
+        menu.press(Key::Enter);
+        menu.press(Key::Enter);
+        assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+        let rows = drawn(&menu, cols);
+        let asked = rows
+            .iter()
+            .find(|row| row.contains("Remove "))
+            .unwrap_or_else(|| panic!("{rows:?}"))
+            .clone();
+        (menu.press(Key::Enter), asked)
+    };
+    // 42 columns: 30 for the question, 29 of them `Remove ` and the file.
+    let long = "n".repeat(80);
+    let (answer, asked) = ask(&long, 42);
+    assert!(!asked.contains("Remove \u{2026} from"), "{asked:?}");
+    assert!(
+        matches!(answer, Effect::Refused(ref why) if why.contains("couldn't show which file")),
+        "{answer:?}"
+    );
+    let (answer, asked) = ask(&long, 43);
+    assert!(
+        asked.contains("Remove n\u{2026} from ~/.xfx/mcp.json?"),
+        "{asked:?}"
+    );
+    assert!(
+        matches!(answer, Effect::Run(Run::Remove { .. })),
+        "{answer:?}"
+    );
+    let (answer, asked) = ask("q", 42);
+    assert!(
+        asked.contains("Remove q from ~/.xfx/mcp.json?"),
+        "{asked:?}"
+    );
+    assert!(
+        matches!(answer, Effect::Run(Run::Remove { .. })),
+        "{answer:?}"
+    );
+}
