@@ -692,7 +692,7 @@ fn edit_profile(
     edit: impl FnOnce(&mut Vec<ServerConfig>) -> bool,
 ) -> Result<bool, ConfigError> {
     let dir = path.parent().ok_or(ConfigError("McpConfigPathInvalid"))?;
-    create_private_dir(dir).map_err(|_| ConfigError("McpConfigPathInvalid"))?;
+    crate::profile_home::ensure(dir, dir).map_err(|err| profile_error(&err))?;
     let _lock = ProfileLock::acquire(&dir.join(PROFILE_LOCK))?;
     let mut profile = load_profile(path)?;
     if !edit(&mut profile.servers) {
@@ -704,21 +704,20 @@ fn edit_profile(
     Ok(true)
 }
 
-fn create_private_dir(dir: &Path) -> io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-    }
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(dir)
+/// What a profile home that could not be used is named, in upstream's error
+/// names: a link or something that is not a directory is
+/// `DurablePathUnsafe`, another account's or an open one
+/// `PrivateStatePermissionsUnsupported` (`openOrCreateVerifiedPrivateChild`,
+/// `src/core/shared/io.zig:733-739@481104fd`). Upstream `chmod`s an open one
+/// it owns and goes on; xfx refuses it ([`crate::profile_home`]).
+fn profile_error(err: &io::Error) -> ConfigError {
+    use crate::profile_home::{Problem, Refused};
+    match Refused::of(err).map(|refused| refused.problem) {
+        Some(Problem::Link | Problem::NotDirectory) => ConfigError("DurablePathUnsafe"),
+        Some(Problem::Owner { .. } | Problem::Open { .. }) => {
+            ConfigError("PrivateStatePermissionsUnsupported")
+        }
+        None => ConfigError("McpConfigPathInvalid"),
     }
 }
 
@@ -1665,7 +1664,7 @@ mod tests {
 
     #[test]
     fn the_choices_land_in_settings_as_upstreams_keys_and_leave_when_reset() {
-        let dir = tempfile::tempdir().expect("dir");
+        let dir = crate::profile_home::temp_home();
         let settings = dir.path().join("settings.json");
         let root = Path::new("/w/x");
         // The document upstream leaves (`cap/fx-mcp-fixture-40x120-{after-add,end}.files`),

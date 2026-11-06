@@ -1,0 +1,34 @@
+test red_profile_home::red_a_linked_profile_home_is_refused_by_every_writer ... RED the session store: answer=Err("<bench-HOME>/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives") entries_written_where_it_points=0
+RED a settings preference: answer=Ok(()) entries_written_where_it_points=2
+RED a profile document: answer=Ok(()) entries_written_where_it_points=1
+RED the MCP profile: answer=Ok(()) entries_written_where_it_points=2
+RED the prompt history: answer=Ok(()) entries_written_where_it_points=2
+RED /skills create: answer=Ok(()) entries_written_where_it_points=1
+RED /skills add: answer=Ok(()) entries_written_where_it_points=2
+thread 'red_profile_home::red_a_linked_profile_home_is_refused_by_every_writer' (251796854) panicked at src/red_profile_home.rs:221:5:
+writers that wrote through a linked home: ["a settings preference", "a profile document", "the MCP profile", "the prompt history", "/skills create", "/skills add"]
+test red_profile_home::red_a_store_opened_with_no_home_makes_it_private ... RED store: 755 absent
+RED store: 755 absent/<HOME>
+RED store: 700 absent/<HOME>/.xfx
+thread 'red_profile_home::red_a_store_opened_with_no_home_makes_it_private' (251796865) panicked at src/red_profile_home.rs:233:5:
+assertion `left == right` failed
+  left: (493, 493)
+test red_profile_home::red_an_open_profile_home_is_refused_by_every_writer_and_never_chmodded ... RED the session store: answer=Err("<bench-HOME>/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other") mode_after=755 entries_written=0
+RED a settings preference: answer=Ok(()) mode_after=755 entries_written=2
+RED a profile document: answer=Ok(()) mode_after=755 entries_written=1
+RED the MCP profile: answer=Ok(()) mode_after=755 entries_written=2
+RED the prompt history: answer=Ok(()) mode_after=755 entries_written=2
+RED /skills create: answer=Ok(()) mode_after=755 entries_written=1
+RED /skills add: answer=Ok(()) mode_after=755 entries_written=2
+thread 'red_profile_home::red_an_open_profile_home_is_refused_by_every_writer_and_never_chmodded' (251796866) panicked at src/red_profile_home.rs:200:5:
+writers that wrote into an open home: ["a settings preference", "a profile document", "the MCP profile", "the prompt history", "/skills create", "/skills add"]
+test red_profile_home::red_every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it ... RED the session store: answer=Ok(()) dirs=["700 .xfx", "700 .xfx/sessions"] store_after=Ok(())
+RED a settings preference: answer=Ok(()) dirs=["700 .xfx"] store_after=Ok(())
+RED a profile document: answer=Ok(()) dirs=["700 .xfx"] store_after=Ok(())
+RED the MCP profile: answer=Ok(()) dirs=["700 .xfx"] store_after=Ok(())
+RED the prompt history: answer=Ok(()) dirs=["700 .xfx"] store_after=Ok(())
+RED /skills create: answer=Ok(()) dirs=["755 .xfx", "755 .xfx/skills", "755 .xfx/skills/demo"] store_after=Err("<bench-HOME>/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other")
+RED /skills add: answer=Ok(()) dirs=["755 .xfx", "700 .xfx/.skill-install-locks", "755 .xfx/skills", "755 .xfx/skills/carried", "755 .xfx/skills/carried/refs"] store_after=Err("<bench-HOME>/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other")
+thread 'red_profile_home::red_every_writer_makes_a_missing_profile_home_private_and_the_store_opens_it' (251796877) panicked at src/red_profile_home.rs:181:5:
+writers that left a home that is not private or not openable: ["/skills create", "/skills add"]
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 3869 filtered out; finished in 0.13s

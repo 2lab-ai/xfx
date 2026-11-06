@@ -291,7 +291,7 @@ impl fmt::Display for SessionError {
                 path.display()
             ),
             Self::InsecureParent { path, detail } => {
-                write!(f, "{} cannot hold session state: {detail}", path.display())
+                f.write_str(&crate::profile_home::refusal(path, detail))
             }
             Self::InvalidForkPoint { id, detail } => {
                 write!(f, "session `{id}` cannot be forked there: {detail}")
@@ -1632,7 +1632,10 @@ impl SessionStore {
     /// than one file, so it is refused instead of repaired.
     pub fn open(profile_dir: &Path) -> Result<Self, SessionError> {
         let store = Self::read_only(profile_dir);
-        ensure_private_dir(&store.profile_dir)?;
+        // `~/.xfx` is made, and an existing one held to the rule below, the one
+        // way every writer in the profile makes it.
+        crate::profile_home::ensure(&store.profile_dir, &store.profile_dir)
+            .map_err(|err| profile_error(&store.profile_dir, err))?;
         ensure_private_dir(&store.sessions_dir)?;
         Ok(Self {
             writable: true,
@@ -3188,16 +3191,16 @@ pub fn workspace_key(path: &Path) -> String {
 /// points; if another account owns it or can write it, that account chooses what
 /// xfx resumes. Neither is repaired -- silently `chmod`ing a directory xfx does
 /// not own would be a worse answer than stopping.
+///
+/// `path` is a directory **in** `~/.xfx`, and its parent must already be there:
+/// nothing here makes one. A `~/.xfx` that went away since the store was opened
+/// is an error rather than a home made again with the umask's mode -- only
+/// [`crate::profile_home::ensure`] makes the profile home.
 fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
     match fs::symlink_metadata(path) {
         Ok(_) => return verify_store_dir(path),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(io_error(path, err)),
-    }
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            fs::create_dir_all(parent).map_err(|err| io_error(parent, err))?;
-        }
     }
     match create_private_dir(path) {
         Ok(()) => {
@@ -3213,57 +3216,30 @@ fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
 
 /// Requires an existing store directory to be a plain directory, owned by this
 /// user, with nothing granted to group or other.
-#[cfg(unix)]
+///
+/// The rule is [`crate::profile_home::problem`]'s, the one every writer in the
+/// profile holds `~/.xfx` to; a directory that is not there passes, being the
+/// caller's to make.
 fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
-    use std::os::unix::fs::MetadataExt;
-    use std::os::unix::fs::PermissionsExt;
-
-    let insecure = |detail: String| {
-        Err(SessionError::InsecureParent {
+    match crate::profile_home::problem(path) {
+        Ok(None) => Ok(()),
+        Ok(Some(problem)) => Err(SessionError::InsecureParent {
             path: path.to_path_buf(),
-            detail,
-        })
-    };
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(io_error(path, err)),
-    };
-    if metadata.file_type().is_symlink() {
-        return insecure(
-            "it is a symbolic link, and xfx will not follow one to decide where session state lives"
-                .to_string(),
-        );
+            detail: problem.detail(path),
+        }),
+        Err(err) => Err(io_error(path, err)),
     }
-    if !metadata.is_dir() {
-        return insecure("it is not a directory".to_string());
-    }
-    let owner = metadata.uid();
-    let current = rustix::process::geteuid().as_raw();
-    if owner != current {
-        return insecure(format!(
-            "it is owned by uid {owner}, not by uid {current} running xfx"
-        ));
-    }
-    let mode = metadata.permissions().mode() & 0o777;
-    if mode & 0o077 != 0 {
-        return insecure(format!(
-            "it is mode {mode:o}; session state must not be reachable by group or other"
-        ));
-    }
-    Ok(())
 }
 
-#[cfg(not(unix))]
-fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_dir() => Ok(()),
-        Ok(_) => Err(SessionError::InsecureParent {
-            path: path.to_path_buf(),
-            detail: "it is not a directory".to_string(),
-        }),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(io_error(path, err)),
+/// What [`crate::profile_home::ensure`] answered, as a store error: a refused
+/// home is the insecure parent it always was.
+fn profile_error(path: &Path, err: io::Error) -> SessionError {
+    match crate::profile_home::Refused::of(&err) {
+        Some(refused) => SessionError::InsecureParent {
+            path: refused.path.clone(),
+            detail: refused.problem.detail(&refused.path),
+        },
+        None => io_error(path, err),
     }
 }
 
