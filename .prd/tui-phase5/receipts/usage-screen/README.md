@@ -31,8 +31,9 @@ class **S**: the wiring decides when the Gateway key is sent.
 - `src/tui/shell.rs`: `/usage` opens US-U3's `usage::dashboard::Dashboard`
   with the question the runtime last published, and draws its `Snapshot`;
   `settle_usage` ticks it **only while the screen is up** and redraws on
-  `redraw_due`; `close_usage` is the one way the screen goes (eight call
-  sites) and closes the runtime with it; `usage_sign_in_changed` runs on
+  `redraw_due`; `close_usage` is the one way the screen goes (nine call
+  sites: Escape, `/usage` itself before it opens again, and the seven other
+  surfaces that take the slot) and closes the runtime with it; `usage_sign_in_changed` runs on
   `UiEvent::ProviderSelected` and on a resume onto another provider;
   `leave_by` quits the runtime. The ledger reader (`Reader`, `show_usage`,
   `read_usage`, the old `settle_usage`, `usage_read`) is gone; the ledger's
@@ -85,7 +86,7 @@ class **S**: the wiring decides when the Gateway key is sent.
 
 | property | tests (fake key, loopback port or fake gateway, injected or pinned clock) |
 |---|---|
-| **S1** no request at launch, none while `/usage` is closed (the 15-minute timer included), none after quit; quit and a sign-in switch cancel the fetch in flight | shell, injected clock and a spawner that holds each fetch: `tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit` (an hour of passes closed: 0 fetches; after `/quit` both held fetches, run, connect to a counting loopback port 0 times; `open`/`refresh` after it start nothing), `tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight` (`UiEvent::ProviderSelected` with `/usage` closed: the held fetch, run, connects 0 times; with it up the screen reopens on the new key); runtime: `usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same` (loopback gateway: the held request is hung up, 1 request total, no cache file for the old key, the same key keeps its fetch); debug pty with `XFX_E2E_USAGE_CLOCK_FILE` and `FakeGateway`: `tests/tui.rs` `usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert` (0 report GETs at launch; 3 on open, `authorization: Bearer <fake key>`; the clock moved an hour with the screen closed: still 3) and `quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly` (held report; Esc, Ctrl-D: exit under 5 s, 1 GET, no cache file) |
+| **S1** no request at launch, none while `/usage` is closed (the 15-minute timer included), none after quit; quit and a sign-in switch cancel the fetch in flight | shell, injected clock and a spawner that holds each fetch: `tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit` (an hour of passes closed: 0 fetches; reopened past the floor on a counting loopback port, one fetch, which `r` and the timer do not double; after `/quit` that fetch, run, connects to the port 0 times -- the first, aimed at a closed port and retired by the reopen, is run too; `open`/`refresh` after it start nothing), `tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight` (`UiEvent::ProviderSelected` with `/usage` closed: the held fetch, run, connects 0 times; with it up the screen reopens on the new key); runtime: `usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same` (loopback gateway: the held request is hung up, 1 request total, no cache file for the old key, the same key keeps its fetch); debug pty with `XFX_E2E_USAGE_CLOCK_FILE` and `FakeGateway`: `tests/tui.rs` `usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert` (0 report GETs at launch; 3 on open, `authorization: Bearer <fake key>`; the clock moved an hour with the screen closed: still 3) and `quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly` (held report; Esc, Ctrl-D: exit under 5 s, 1 GET, no cache file) |
 | **S2** a hostile model name (ESC, CSI, OSC, C1, bidi, zero-width, line break) is inert on the table and the detail screen | `tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen` (7 names x 9 widths x both screens: no raw ESC, BEL, C1, U+202E, U+200B, CR or LF in any row; every escape in a row is the palette's own CSI; the spelled name on the row), `the_name_column_is_measured_on_the_names_as_drawn`; pty: the report's `evil/<ESC>]0;pwned<BEL><ESC>[2Jname` is on screen as `evil/\x1b]0;pwned\x07\x1b[2Jname` and neither sequence is in the terminal's byte stream |
 | **S3** no screen shows the key; only `API key (AI_GATEWAY_API_KEY)` is named | `tui::shell::tests::no_usage_screen_shows_the_key` (a real `Question` with the fake key: the failure heading, the table and the detail screen at 120, 50 and 40 columns, every band row and the `Debug` of the screen), `tui::usage_menu::tests::no_screen_names_the_key` (every status, both screens, 9 widths); pty: `!settled_text().contains(TEST_KEY)`; the 30 committed gateway logs name only `headers=authorization`, and no capture holds the fake key |
 
@@ -106,8 +107,8 @@ On the base the `/usage` screen is Phase 4's ledger dashboard: H3's pairs
 against fx's `usage: API key (AI_GATEWAY_API_KEY) … updated just now` and its
 tables, and no `/v1/report` GET in xfx's 15 gateway logs. `red-base.txt` is
 the base binary (`510d4ee1`, debug) on `p5-usage-cached` 40x120, taken here.
-All 21 `p5-usage-cached` 40x120 pairs differ (11 to 14 rows each), and the
-base asks no `/v1/report`.
+All 21 `p5-usage-cached` 40x120 pairs differ (3 to 16 rows each; `closed`
+the 3), and the base asks no `/v1/report`.
 
 ## GREEN: the pairs
 
@@ -206,7 +207,43 @@ passing at the head, and not at the base either: `h1-resize` `small` and
 and `p5-usage-turns`' `stats` and `credits` (`stats-bytes`, four base runs
 each).
 
-TODO-GATES
+## `docs/parity.md` and the ledger
+
+- `docs/parity.md`: the `/usage` row (rewritten: v0.0.16's screen, U6's
+  /cost, what is asked when, xfx's three differences); the alias paragraph
+  (four aliases, thirty-six names, the line count kept so the ledger's line
+  citations stand); `AI Gateway usage reports`, `… dashboard runtime` (with
+  `sign_in_changed`) and `… usage cache` (each now with a caller); `generation
+  usage and billing` and `/usage tracking start` (no longer read by `/usage`;
+  U5 retires them).
+- `scripts/fxcap/parity-ledger.toml`: divergence `usage-no-sign-in`
+  (user-decision, #88, expires 2026-12-04). `stats-bytes` is the existing
+  cause.
+
+## Gates
+
+At `aa49111f` (the code is the head's: the commits after it touch only this
+receipt), short `TMPDIR`, `FX_AUTO_UPGRADE=0`.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings`, and `--features fault-injection` | ok, ok |
+| `cargo test --locked --no-fail-fast` | 14 result lines ok: 4848 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 14 ok: 4877 passed, 0 failed |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok (9364 files), ok, ok (9364 files) |
+| `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok, ok |
+| `scripts/check-usage-clock.sh` | ok: debug honoured, release and release + fault-injection ignored |
+| `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures; section 0: `XFX_E2E_USAGE_CLOCK_FILE` not in the release bytes |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/fxcap/test-capture.sh`, `test-sweep.sh` (the ledger with `usage-no-sign-in`) | 36 tests OK, 24 tests OK |
+| `scripts/fxcap/ci-sweep.sh --base 510d4ee1` | 117 pairs, 109 pass, 0 new, 0 regressions, exit 0 |
+
+`now_ms()` is reached now, so the debug build carries the variable's name (1
+occurrence in `target/debug/xfx`); `target/release/xfx` and
+`target/faulty/release/xfx` carry it 0 times, which is what smoke.sh's section
+0 holds the shipped bytes to.
 
 ## Files
 
