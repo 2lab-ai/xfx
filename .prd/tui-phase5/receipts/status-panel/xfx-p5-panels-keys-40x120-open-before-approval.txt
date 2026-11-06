@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cbea384 [debug] · Run /help for commands
+
+* permissions: mode=ask
+  configured rules: (none)
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules: none
+
+* permission-mode: saved to user settings (scope=user); fresh sessions here use higher-precedence
+  permission_mode=process_override
+
+┃ run it
+
+  Generating (1s) (↑2 ↓4)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793779441674-fd98cee645743dfd · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       auto
+  Sandbox           none
+  Workspace         <tmp>/fxcap.wrPg73/work
+  Turns             0
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · cbea384ecdf6
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+

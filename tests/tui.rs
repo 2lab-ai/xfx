@@ -4362,8 +4362,8 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
-    // `/provider`'s column, `/stats`'s first counter, `/status`'s turn
-    // count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
+    // `/provider`'s column, `/stats`'s first counter, `/status`'s panel
+    // and its turn count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
     // (which say nothing), and a name the registry does not carry. Each needle
     // sits inside one run of colour: a notice's label and body are separate
     // runs on the wire.
@@ -4405,7 +4405,17 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.type_bytes(b"/stats\r");
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
-    session.wait_for("history_turns=0");
+    // The panel, in the band in place of the composer: the session the first
+    // prompt will open, not on disk yet, and no turn. Escape closes it -- every
+    // other key it swallows -- and the hint row painted back says it settled.
+    on_screen(
+        &session,
+        (24, 80),
+        &["not saved yet", "  Turns             0", "esc close"],
+        &[],
+    );
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (24, 80), &["glm-5.2"], &["esc close"]);
     // The runtime's answer: nothing has been changed yet.
     session.type_bytes(b"/undo\r");
     session.wait_for("Nothing to undo.");
@@ -5082,13 +5092,28 @@ fn status_counts_the_turn_the_live_conversation_just_held() {
     session.wait_for(READY);
 
     session.type_bytes(b"/status\r");
-    session.wait_for("history_turns=0");
+    on_screen(
+        &session,
+        (40, 120),
+        &["not saved yet", "  Turns             0"],
+        &[],
+    );
+    // The panel swallows every key but its own: Escape first.
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["esc close"]);
     session.type_bytes(b"one turn, please\r");
     session.wait_for("MARKER-ONE-TURN");
     // The turn summary: written when the band hears the turn ended.
     session.wait_for("\u{2191}");
     session.type_bytes(b"/status\r");
-    session.wait_for("history_turns=1");
+    on_screen(
+        &session,
+        (40, 120),
+        &[" \u{b7} saved", "  Turns             1"],
+        &[],
+    );
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["esc close"]);
     session.type_bytes(b"/stats\r");
     let text = session.wait_for("stream_chunks=0");
     assert!(text.contains("footer_updates=0"), "{text:?}");
@@ -12867,4 +12892,107 @@ fn slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network
     on_screen(&session, (40, 120), &[], &["Skills 1", "$foo"]);
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question() {
+    // fx's session is open from launch, so `/permissions remember` typed
+    // before the first prompt is confirmed and in force at once
+    // (`handlePermissionRuleManagement`, `src/core/app/app_commands.zig:
+    // 598-750`; `submitRuleManagementChoice`, `input_approval_runtime.zig:
+    // 277-297@481104fd`), and its first turn writes it with everything else
+    // it held (`src/core/session_manager/session.zig:415-429`, `:503-539`).
+    // Here: confirmed with nothing on disk, written into the session the
+    // prompt opens, and the deny that decides the prompt's own call -- no
+    // question asked, nothing written. (fx applies a read's rule so, and not
+    // a write's: `docs/parity.md`'s `/permissions` row; the capture pair
+    // `p5-permissions-early` holds the read.) Red before: the remember was
+    // refused (`require an active saved session`), so the confirmation never
+    // came.
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "w1",
+                "write_file",
+                serde_json::json!({"path": "b.txt", "content": "y"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(support::fake_gateway::content_only(&["MARKER-HELD-DENY"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(
+        b"\x1b[200~/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\x1b[201~",
+    );
+    on_screen(&session, (40, 120), &["\"content\":\"y\"}"], &[]);
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Remember deny for this saved session?"],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["saved-session permission rule updated"],
+        &["Remember deny for this saved session?"],
+    );
+    assert!(
+        sandbox.session_ids().is_empty(),
+        "a rule before the first prompt wrote a session"
+    );
+    session.type_bytes(b"write it\r");
+    session.wait_for("MARKER-HELD-DENY");
+    let id = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let ids = sandbox.session_ids();
+            if let [id] = ids.as_slice() {
+                let log = std::fs::read(sandbox.sessions_dir().join(id).join("events.jsonl"))
+                    .unwrap_or_default();
+                if String::from_utf8_lossy(&log).contains("\"turn_concluded\"") {
+                    break id.clone();
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the turn never concluded: {ids:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert!(
+        !sandbox.workspace.join("b.txt").exists(),
+        "the remembered deny let the write by"
+    );
+    let rules: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(sandbox.sessions_dir().join(&id).join("permissions.json"))
+            .expect("the session's rules"),
+    )
+    .expect("JSON");
+    assert_eq!(rules["rules"].as_array().map(Vec::len), Some(1), "{rules}");
+    assert_eq!(rules["rules"][0]["id"], 1, "{rules}");
+    assert_eq!(rules["rules"][0]["decision"], "deny", "{rules}");
+    assert_eq!(
+        rules["rules"][0]["display_identity"],
+        "write_file b.txt preimage=absent after=a1fce4363854ff88",
+        "{rules}"
+    );
+    // The call was answered by the rule, which the model is told.
+    let answered = gateway.requests()[1].json().to_string();
+    assert!(
+        answered.contains("a saved-session permission rule denies"),
+        "{answered}"
+    );
 }

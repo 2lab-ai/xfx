@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-e0d97bd [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* status: model=fake/model-a[39m
+  [38;5;250mprovider=gateway[39m
+  [38;5;250mbuild_channel=debug[39m
+  [38;5;250mbuild_revision=e0d97bd5c59c[39m
+  [38;5;250mauth=AI_GATEWAY_API_KEY[39m
+  [38;5;250mauth_refreshable=false[39m
+  [38;5;250mpermission_mode=ask[39m
+  [38;5;250msandbox=none[39m
+  [38;5;250mworkspace=<tmp>/fxcap.aHHpOJ/work[39m
+  [38;5;250mhistory_turns=0[39m
+  [38;5;250msession_permission_grants=0[39m
+  [38;5;250magent_step_limit=25[39m
+
+[38;5;250m* permission-mode: saved to user settings (scope=user); fresh sessions here use higher-precedence[39m
+  [38;5;250mpermission_mode=process_override[39m
+
+[38;5;255m┃[39m
+
+[38;5;245mpress ctrl+c again to exit[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

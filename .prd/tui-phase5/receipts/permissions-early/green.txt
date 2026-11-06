@@ -1,0 +1,45 @@
+# GREEN: python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receipts/permissions-early
+# xfx sides of p5-panels-permissions and p5-permissions-early re-taken at dd9897d8 (banner v0.1.0-dd9897d,
+# PERM-EARLY-b: the seed's publish and the changing-session refusal are on their path); the rest are
+# 699acf13's (banner v0.1.0-699acf1). fx = v0.0.16 (sha256 8e6cda2e...); this branch's ledger
+
+p5-panels-permissions-40x120-after-grant             normalized-identical               -
+p5-panels-permissions-40x120-after-revoke            unresolved-defect                  tool-schema
+p5-panels-permissions-40x120-approval                unresolved-defect                  tool-schema,approval-grant-scope
+p5-panels-permissions-40x120-ask                     normalized-identical               -
+p5-panels-permissions-40x120-auto                    normalized-identical               -
+p5-panels-permissions-40x120-bare-after              normalized-identical               -
+p5-panels-permissions-40x120-bare                    normalized-identical               -
+p5-panels-permissions-40x120-bogus                   normalized-identical               -
+p5-panels-permissions-40x120-down1                   normalized-identical               -
+p5-panels-permissions-40x120-esc                     normalized-identical               -
+p5-panels-permissions-40x120-full                    normalized-identical               -
+p5-panels-permissions-40x120-grants                  unresolved-defect                  tool-schema
+p5-panels-permissions-40x120-remember-done           normalized-identical               -
+p5-panels-permissions-40x120-remember-prompt         normalized-identical               -
+p5-panels-permissions-40x120-reset                   normalized-identical               -
+p5-panels-permissions-40x120-revoke-done             identical                          -
+p5-panels-permissions-40x120-revoke-prompt           identical                          -
+p5-panels-permissions-40x120-rules                   normalized-identical               -
+p5-panels-permissions-40x120-saved                   normalized-identical               -
+p5-panels-permissions-40x120-status-grants           approved-divergence-cascade (aligned) status-panel-sandbox,status-panel-step-limit,status-panel-updates
+p5-panels-permissions-saved-40x120-after-grant       normalized-identical               -
+p5-panels-permissions-saved-40x120-after-revoke      unresolved-defect                  tool-schema
+p5-panels-permissions-saved-40x120-approval          unresolved-defect                  tool-schema,approval-grant-scope
+p5-panels-permissions-saved-40x120-remember-done     normalized-identical               -
+p5-panels-permissions-saved-40x120-remember-prompt   normalized-identical               -
+p5-panels-permissions-saved-40x120-revoke-prompt     normalized-identical               -
+p5-panels-permissions-saved-40x120-saved-esc         normalized-identical               -
+p5-panels-permissions-saved-40x120-saved             unresolved-defect                  tool-schema
+p5-permissions-early-40x120-after-revoke             normalized-identical               -
+p5-permissions-early-40x120-denied                   normalized-identical               -
+p5-permissions-early-40x120-held                     normalized-identical               -
+p5-permissions-early-40x120-new-forgets              normalized-identical               -
+p5-permissions-early-40x120-remember-allow           normalized-identical               -
+p5-permissions-early-40x120-remember-deny            normalized-identical               -
+p5-permissions-early-40x120-remembered               normalized-identical               -
+p5-permissions-early-40x120-revoke-again             normalized-identical               -
+p5-permissions-early-40x120-revoke-prompt            normalized-identical               -
+p5-permissions-early-40x120-revoked                  normalized-identical               -
+p5-permissions-early-40x120-saved                    normalized-identical               -
+p5-permissions-early-probe-ask-after-40x120-after-call approved-divergence                saved-write-rule-applied

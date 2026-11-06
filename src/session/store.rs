@@ -681,7 +681,9 @@ pub struct DurableState {
     pub renamed: Option<String>,
     /// The effort and speed switches the session last recorded, or `None` for
     /// a session that never recorded them -- a resume then keeps what the
-    /// profile says.
+    /// profile says. The TUI records them at a session's first save
+    /// (`crate::tui::worker`'s `open_next`), so `None` is a log an older
+    /// build wrote, `ask` or the line shell, which send no effort.
     pub turn_settings: Option<crate::provider::effort::TurnSettings>,
     /// What the session's `usage_recorded` frames say about its spend, for
     /// `/usage` ([`crate::usage`]).
@@ -1756,6 +1758,23 @@ impl SessionStore {
 
     /// Opens a new session, whose first event is its own creation.
     pub fn create(&self, id: SessionId, spec: NewSession) -> Result<WritableSession, SessionError> {
+        self.create_with(id, spec, |_| Ok(()))
+    }
+
+    /// [`Self::create`], with `seed` run on the session's new, empty, owner-only
+    /// directory **before its log exists**: a file the session keeps beside
+    /// its log -- the saved-session rules a person confirmed before the first
+    /// prompt -- is in place before anyone can see the session, as upstream's
+    /// first turn writes what it held in the one staged publish that makes
+    /// the session visible (`writeFirstTurn`, `stage`,
+    /// `src/core/session_manager/session.zig:503-539@481104fd`). A seed that
+    /// fails fails the create, and nothing is published.
+    pub fn create_with(
+        &self,
+        id: SessionId,
+        spec: NewSession,
+        seed: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<WritableSession, SessionError> {
         self.require_writable()?;
         let dir = self.session_dir(&id);
         match fs::create_dir(&dir) {
@@ -1768,6 +1787,7 @@ impl SessionStore {
             Err(err) => return Err(io_error(&dir, err)),
         }
         set_private_dir_mode(&dir)?;
+        seed(&dir).map_err(|err| io_error(&dir, err))?;
 
         let log_path = dir.join(EVENTS_FILE);
         let file = create_private_file(&log_path)?;
@@ -4903,6 +4923,61 @@ mod tests {
             .collect();
         assert_eq!(outs, [Some(80), Some(40), Some(0)]);
         assert_eq!(state.total_output_tokens, 120);
+    }
+
+    #[test]
+    fn a_seed_is_in_the_session_before_its_log_and_one_that_fails_leaves_none_to_see() {
+        // What the TUI held before a session's first save goes into its
+        // directory before its log exists (`create_with`), as upstream's
+        // first turn writes its held lines in the one publish that makes the
+        // session visible (`writeFirstTurn`, `src/core/session_manager/
+        // session.zig:503-539@481104fd`): a seed that fails opens nothing,
+        // and nothing is listed.
+        let root = tempfile::TempDir::new().expect("a profile root");
+        let store = SessionStore::open(&root.path().join("profile")).expect("a store");
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        let spec = || NewSession {
+            origin_workspace_root: workspace.clone(),
+            workspace_root: workspace.clone(),
+            model: "m".to_string(),
+            permission_mode: PermissionMode::Auto,
+            provider: None,
+        };
+        let refused = SessionId::generate();
+        let failed = store.create_with(refused.clone(), spec(), |dir| {
+            assert!(
+                std::fs::read_dir(dir)
+                    .expect("the directory")
+                    .next()
+                    .is_none(),
+                "the seed ran after the log was made"
+            );
+            Err(io::Error::other("no room"))
+        });
+        assert!(failed.is_err());
+        assert!(!store.session_dir(&refused).join(EVENTS_FILE).exists());
+        assert!(!store.session_dir(&refused).join(MANIFEST_FILE).exists());
+        let listed = store
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .expect("a listing");
+        assert!(listed.sessions.is_empty(), "{:?}", listed.sessions);
+
+        let id = SessionId::generate();
+        let session = store
+            .create_with(id.clone(), spec(), |dir| {
+                std::fs::write(dir.join("seeded"), b"before the log")
+            })
+            .expect("a session");
+        assert_eq!(
+            std::fs::read(store.session_dir(&id).join("seeded")).expect("the seed"),
+            b"before the log"
+        );
+        drop(session);
+        let listed = store
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .expect("a listing");
+        assert_eq!(listed.sessions.len(), 1);
     }
 
     #[test]

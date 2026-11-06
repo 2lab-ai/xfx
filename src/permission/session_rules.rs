@@ -525,11 +525,61 @@ pub fn path_in(session_dir: &Path) -> PathBuf {
     session_dir.join(FILE_NAME)
 }
 
+/// Writes `state` as the store of the session whose new directory is
+/// `session_dir`, before anything else is in it: the rules confirmed while
+/// the session was held in memory, as upstream's first turn writes the
+/// permission state it held (`hold`, `writeFirstTurn`,
+/// `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`).
+/// Through the same staged, owner-only file as [`update`], published with
+/// no-replace ([`write_new`]); no lock, since nothing else can know the
+/// directory yet.
+///
+/// **Fails closed under the rules [`load`] reads by.** The directory is new,
+/// so anything already at the store's path -- a FIFO, a directory, a link, a
+/// file -- is another hand's, and the seed refuses it rather than write
+/// beside it or replace it: refused when it looks, and refused by the
+/// publish itself when it arrives after the look. What was written is then read back through
+/// [`load`] -- a regular file, opened without waiting on a writer -- and must
+/// be the state held: rules that would not decide as they were confirmed
+/// open no session.
+pub fn seed(session_dir: &Path, state: &State) -> io::Result<()> {
+    seed_with(session_dir, state, |_| {})
+}
+
+/// [`seed`], with `before_publish` run once the staged file is written and
+/// synced and before it is published: the moment another hand could put
+/// something at the store's path, which a test stands in for.
+fn seed_with(
+    session_dir: &Path,
+    state: &State,
+    before_publish: impl FnOnce(&Path),
+) -> io::Result<()> {
+    let path = path_in(session_dir);
+    match fs::symlink_metadata(&path) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+        Ok(metadata) if metadata.is_file() => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "a store is already there",
+            ))
+        }
+        Ok(_) => return Err(not_regular()),
+    }
+    write_new(session_dir, &path, &state.encode(), before_publish)?;
+    match load(&path) {
+        Ok(written) if written == *state => Ok(()),
+        Ok(_) => Err(io::Error::other("the store read back is not the one held")),
+        Err(reason) => Err(io::Error::other(reason)),
+    }
+}
+
 /// The store at `path`: empty when there is no file, an error naming why when
-/// the file cannot be read or does not hold a valid store -- which a decision
-/// treats as a refusal, as upstream's failed snapshot fails the call.
+/// the file cannot be read, is not a regular file, or does not hold a valid
+/// store -- which a decision treats as a refusal, as upstream's failed
+/// snapshot fails the call.
 pub fn load(path: &Path) -> Result<State, String> {
-    let file = match fs::File::open(path) {
+    let file = match open_regular(path) {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(State::default()),
         Err(err) => {
@@ -543,6 +593,74 @@ pub fn load(path: &Path) -> Result<State, String> {
         .read_to_end(&mut bytes)
         .map_err(|err| format!("the saved-session permission rules cannot be read: {err}"))?;
     State::decode(&bytes)
+}
+
+/// `path` opened for reading only if it is a regular file.
+///
+/// `O_NONBLOCK`, so a FIFO put at the store's path opens at once rather than
+/// holding the thread until a writer comes -- the TUI reads the store on the
+/// thread that holds the terminal -- and `O_NOCTTY`, so a terminal there
+/// never becomes this process's. Then judged by its own `fstat`, so what is
+/// refused is what was opened, and made blocking again (`src/image.rs`'s
+/// `open_regular` opens a vision source the same way).
+#[cfg(unix)]
+fn open_regular(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_regular());
+    }
+    let flags = rustix::fs::fcntl_getfl(&file)?;
+    rustix::fs::fcntl_setfl(&file, flags & !rustix::fs::OFlags::NONBLOCK)?;
+    Ok(file)
+}
+
+/// Without `O_NONBLOCK`, the path's own metadata is what keeps a special
+/// file from being opened.
+#[cfg(not(unix))]
+fn open_regular(path: &Path) -> io::Result<fs::File> {
+    if !fs::metadata(path)?.is_file() {
+        return Err(not_regular());
+    }
+    fs::File::open(path)
+}
+
+fn not_regular() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
+}
+
+/// What the store's file at `path` is now, from its metadata alone: absent,
+/// or which object it is with which size and modification time
+/// ([`super::FileIdentity`]), or that the metadata could not be read.
+///
+/// A reader that keeps a view of the store -- the TUI's bare `/permissions`
+/// panel -- compares stamps to know the file moved under it, replaced,
+/// written, removed or broken, at the cost of one `stat` rather than a read
+/// and a decode each time it looks. [`update`] replaces the file by a rename,
+/// so each change it makes is another object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stamp {
+    Missing,
+    File(super::FileIdentity),
+    /// Not absent, and not a regular file whose metadata reads -- a `stat`
+    /// that failed, a FIFO, a directory: a [`load`] says why. It says nothing
+    /// about whether the file held still, so two of them are not "unchanged".
+    Unknown,
+}
+
+/// The [`Stamp`] of the file at `path` now.
+pub fn stamp(path: &Path) -> Stamp {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {
+            Stamp::File(super::FileIdentity::from_metadata(&metadata))
+        }
+        Ok(_) => Stamp::Unknown,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Stamp::Missing,
+        Err(_) => Stamp::Unknown,
+    }
 }
 
 /// Applies `event` to the store at `path` as one transaction: under the
@@ -605,6 +723,38 @@ fn lock(dir: &Path) -> io::Result<fs::File> {
 }
 
 fn write(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let stage = stage(dir, bytes)?;
+    let result = fs::rename(&stage, path).and_then(|()| fs::File::open(dir)?.sync_all());
+    if result.is_err() {
+        let _ = fs::remove_file(&stage);
+    }
+    result
+}
+
+/// [`write`] for a store that must not exist yet: published with `link(2)`,
+/// which fails `EEXIST` on whatever is at `path` -- a file, a link, a FIFO,
+/// a directory -- and never follows or replaces it, so another hand's object
+/// put there after the caller looked is left as it was. Then the stage goes.
+/// `before_publish` runs between the two, once the stage is written and
+/// synced.
+fn write_new(
+    dir: &Path,
+    path: &Path,
+    bytes: &[u8],
+    before_publish: impl FnOnce(&Path),
+) -> io::Result<()> {
+    let stage = stage(dir, bytes)?;
+    before_publish(path);
+    let published = fs::hard_link(&stage, path);
+    let removed = fs::remove_file(&stage);
+    published?;
+    removed?;
+    fs::File::open(dir)?.sync_all()
+}
+
+/// `bytes` in a new, owner-only file beside the store, synced: removed again
+/// if anything fails.
+fn stage(dir: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
     let stage = dir.join(format!(
         ".{FILE_NAME}.{}.{}.staged",
         std::process::id(),
@@ -623,14 +773,15 @@ fn write(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let result = (|| {
         let mut file = options.open(&stage)?;
         file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&stage, path)?;
-        fs::File::open(dir)?.sync_all()
+        file.sync_all()
     })();
-    if result.is_err() {
-        let _ = fs::remove_file(&stage);
+    match result {
+        Ok(()) => Ok(stage),
+        Err(err) => {
+            let _ = fs::remove_file(&stage);
+            Err(err)
+        }
     }
-    result
 }
 
 /// The 16 hex digits upstream's displays carry for a digest
@@ -787,6 +938,152 @@ mod tests {
                 rules: Vec::new()
             })
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_seed_refuses_whatever_is_already_at_the_store_and_reads_back_what_it_wrote() {
+        use std::os::unix::fs::FileTypeExt;
+        // A session's directory is new when its held rules are seeded into
+        // it, so anything at the store's path is another hand's: a FIFO (left
+        // as it was, and never waited on), a directory, a file. A clean seed
+        // reads back, through `load`'s regular-file open, as the state held.
+        let held = applied(State::default().apply(&set("a", Decision::Deny, None)));
+        let dir = tempfile::tempdir().expect("a session directory");
+        let fifo = path_in(dir.path());
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (target, state) = (dir.path().to_path_buf(), held.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(seed(&target, &state).map_err(|err| err.to_string()));
+        });
+        let seeded = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(seeded) => seeded,
+            Err(_) => {
+                drop(fs::OpenOptions::new().write(true).open(&fifo));
+                panic!("a seed waited on a FIFO at the store's path");
+            }
+        };
+        assert!(
+            seeded
+                .expect_err("seeded over a FIFO")
+                .contains("not a regular file"),
+            "the refusal names it"
+        );
+        assert!(
+            fs::symlink_metadata(&fifo)
+                .expect("still there")
+                .file_type()
+                .is_fifo(),
+            "the seed replaced what was there"
+        );
+
+        let folder = tempfile::tempdir().expect("a session directory");
+        fs::create_dir(path_in(folder.path())).expect("a directory at the store's path");
+        assert!(seed(folder.path(), &held).is_err());
+
+        let taken = tempfile::tempdir().expect("a session directory");
+        fs::write(path_in(taken.path()), State::default().encode()).expect("a store");
+        assert!(seed(taken.path(), &held).is_err(), "seeded over a store");
+        assert_eq!(
+            load(&path_in(taken.path())).expect("kept"),
+            State::default()
+        );
+
+        let clean = tempfile::tempdir().expect("a session directory");
+        seed(clean.path(), &held).expect("seeded");
+        assert_eq!(load(&path_in(clean.path())).expect("read back"), held);
+    }
+
+    #[test]
+    fn a_seed_never_replaces_a_store_another_hand_put_there_after_its_check() {
+        // Review PERM-EARLY-b, item 3. The seed's look at the store's path and
+        // its publish are two steps: a file another writer puts there in
+        // between -- here, once the staged file is written -- must be left as
+        // it was, and the seed refuse, rather than a rename replace it.
+        // Red before: the rename put the held rules over the other file.
+        let held = applied(State::default().apply(&set("a", Decision::Deny, None)));
+        let planted = State::default().encode();
+        for kind in ["file", "link"] {
+            let dir = tempfile::tempdir().expect("a session directory");
+            let elsewhere = tempfile::tempdir().expect("elsewhere");
+            let outside = elsewhere.path().join("outside.json");
+            let path = path_in(dir.path());
+            let seeded = seed_with(dir.path(), &held, |at| match kind {
+                "file" => fs::write(at, &planted).expect("planted"),
+                _ => {
+                    #[cfg(unix)]
+                    std::os::unix::fs::symlink(&outside, at).expect("planted");
+                    #[cfg(not(unix))]
+                    fs::write(at, &planted).expect("planted");
+                }
+            });
+            let refused = seeded.expect_err("seeded over another hand's store");
+            assert_eq!(
+                refused.kind(),
+                io::ErrorKind::AlreadyExists,
+                "{kind}: {refused}"
+            );
+            if kind == "file" {
+                assert_eq!(fs::read(&path).expect("kept"), planted, "{kind}");
+            } else {
+                assert!(
+                    fs::symlink_metadata(&path)
+                        .expect("kept")
+                        .file_type()
+                        .is_symlink(),
+                    "{kind}"
+                );
+                assert!(!outside.exists(), "{kind}: written through the link");
+            }
+            let left: Vec<_> = fs::read_dir(dir.path())
+                .expect("the directory")
+                .flatten()
+                .map(|entry| entry.file_name())
+                .filter(|name| name != FILE_NAME)
+                .collect();
+            assert!(left.is_empty(), "{kind}: a stage was left: {left:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_that_is_no_regular_file_is_refused_without_waiting_for_a_writer() {
+        // A FIFO at the store's path: every decision and the TUI's panel read
+        // the store, the panel on the thread that holds the terminal, so the
+        // open must not wait for a writer. A directory is no store either.
+        // The read runs on its own thread, bounded, so a regression fails
+        // rather than hangs.
+        let dir = tempfile::tempdir().expect("a session directory");
+        let fifo = path_in(dir.path());
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+        assert_eq!(stamp(&fifo), Stamp::Unknown);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let target = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(load(&target));
+        });
+        let loaded = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(loaded) => loaded,
+            Err(_) => {
+                drop(fs::OpenOptions::new().write(true).open(&fifo));
+                panic!("reading a FIFO store waited for a writer");
+            }
+        };
+        let refused = loaded.expect_err("a FIFO read as a store");
+        assert!(refused.contains("not a regular file"), "{refused}");
+        let folder = dir.path().join("folder");
+        fs::create_dir(&folder).expect("a directory");
+        assert_eq!(stamp(&folder), Stamp::Unknown);
+        assert!(load(&folder).is_err());
     }
 
     #[test]

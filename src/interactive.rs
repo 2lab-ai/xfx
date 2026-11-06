@@ -248,7 +248,9 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         command: Slash::Status,
         name: "/status",
         aliases: &[],
-        summary: "show runtime configuration",
+        // Upstream's summary since the panel shows the session
+        // (`commands.zig:455@481104fd`).
+        summary: "show runtime configuration and the session ID",
         category: "General",
         has_args: false,
     },
@@ -1252,10 +1254,58 @@ pub(crate) fn open_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
-    let scope = conversation_scope(config)?;
+    open_conversation_as(
+        store,
+        SessionId::generate(),
+        config,
+        model,
+        permissions,
+        None,
+        questioner,
+        cancel,
+    )
+    .map_err(|failure| failure.message)
+}
+
+/// Why [`open_conversation_as`] opened nothing: the sentence to say, and
+/// whether it was the store that refused the session -- not the scope it
+/// would have run in -- which the TUI's `/status` says as a shell that cannot
+/// save sessions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenFailure {
+    pub(crate) message: String,
+    pub(crate) store_refused: bool,
+}
+
+/// [`open_conversation`], into the session `id` names: the TUI allocates
+/// its id at launch, in memory, so `/status` can show it before the first
+/// prompt writes anything (`docs/parity.md`, `/status`).
+///
+/// `held_rules` are the saved-session rules the TUI held for this session
+/// before it existed: written into its directory before its log is, so the
+/// session is never seen without them, and a session they cannot be written
+/// into is not opened ([`SessionStore::create_with`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn open_conversation_as(
+    store: &SessionStore,
+    id: SessionId,
+    config: &RuntimeConfig,
+    model: &str,
+    permissions: PermissionSession,
+    held_rules: Option<&crate::permission::session_rules::State>,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Result<Conversation, OpenFailure> {
+    let scope = conversation_scope(config).map_err(|message| OpenFailure {
+        message,
+        store_refused: false,
+    })?;
+    // Why the rules could not be written, in the words a failed confirmation
+    // uses (`session_rules::update`), rather than the directory's.
+    let mut unwritten = None;
     let session = store
-        .create(
-            SessionId::generate(),
+        .create_with(
+            id,
             NewSession {
                 origin_workspace_root: config.workspace_root.clone(),
                 workspace_root: config.workspace_root.clone(),
@@ -1265,8 +1315,21 @@ pub(crate) fn open_conversation(
                 permission_mode: permissions.mode(),
                 provider: Some(config.provider),
             },
+            |dir| match held_rules {
+                Some(state) => crate::permission::session_rules::seed(dir, state)
+                    .inspect_err(|err| unwritten = Some(err.to_string())),
+                None => Ok(()),
+            },
         )
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| OpenFailure {
+            message: match unwritten.take() {
+                Some(reason) => {
+                    format!("the saved-session permission rules cannot be written: {reason}")
+                }
+                None => err.to_string(),
+            },
+            store_refused: true,
+        })?;
     Ok(bind_conversation(
         store,
         session,
@@ -3100,7 +3163,12 @@ mod tests {
                 status.category,
                 status.has_args
             ),
-            ("/status", "show runtime configuration", "General", false)
+            (
+                "/status",
+                "show runtime configuration and the session ID",
+                "General",
+                false
+            )
         );
         // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
         // `/model` (`commands.zig:472-478`).

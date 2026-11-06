@@ -1,0 +1,4 @@
+[
+ {"tool":{"name":"terminal","input":{"action":"exec","command":"echo hi"}}},
+ {"delayMs":100,"chunks":["Ran ","it."]}
+]

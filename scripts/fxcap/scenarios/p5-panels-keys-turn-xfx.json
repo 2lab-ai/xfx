@@ -1,0 +1,4 @@
+[
+ {"hangMs": 2500, "chunks": ["Let me run it."], "tool":{"name":"terminal","input":{"action":"exec","command":"echo keys"}}},
+ {"delayMs":100,"chunks":["Ran ","keys."]}
+]

@@ -511,6 +511,14 @@ impl TitleDesk {
         before
     }
 
+    /// Whether a switch the band handed the runtime -- a resume or a provider
+    /// switch -- is still to be made: submitted, and not yet got past
+    /// ([`Self::worked_through`]), whether made or dropped unstarted.
+    pub(crate) fn switch_pending(&self) -> bool {
+        let desk = self.lock();
+        desk.switch_at.is_some_and(|switch| switch > desk.worked)
+    }
+
     /// The switch [`Self::switching`] announced was not submitted after all.
     pub(crate) fn switch_refused(&self, before: Option<usize>) {
         self.lock().switch_at = before;

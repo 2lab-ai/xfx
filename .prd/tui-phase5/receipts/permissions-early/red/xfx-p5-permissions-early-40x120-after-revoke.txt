@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9c6f4a1 [debug] · Run /help for commands
+
+✗ permissions: saved-session permission rules require an active saved session
+
+✗ permissions: saved-session permission rules require an active saved session
+
+✗ permissions: saved-session permission rules require an active saved session
+
+✗ permissions: saved-session permission rules require an active saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Permissions
+
+  Mode                auto
+  Configured rules    none
+  Session grants      none
+  Saved rules         none
+  Change mode         /permissions ask, auto, full-access, or reset
+  Remember            /permissions remember allow|deny <tool-name> <arguments-json>
+  Revoke              /permissions revoke <rule-id>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

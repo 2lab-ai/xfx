@@ -1,0 +1,40 @@
+# SESS-EARLY: a setting chosen before a session's first prompt reaches its
+# log. fx v0.0.16 holds every setting made before the first turn in memory
+# and writes them with it (session_manager/session.zig:415-429, :503-539
+# @481104fd). The profile is put back between the two launches, so only the
+# session's log can say what the first one chose: the resumed footer, and the
+# request after the resume, show whether it did.
+fx: env FX_AUTO_UPGRADE=0
+models p5-session-early-prefs-models.json
+gateway p5-session-early-prefs-turns.json
+seed p5-session-early-prefs-seed.json
+nomodel
+wait 3
+snap launch
+paste /model anthropic/claude-opus-5 high fast
+wait 0.4
+key Enter
+wait 1
+snap chosen
+type first prompt please
+key Enter
+wait 3
+snap answered
+home first-save
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+reseed p5-session-early-prefs-seed.json
+home reseeded
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+snap resumed
+type after the resume
+key Enter
+wait 3
+snap continued
+home end
+gwlog

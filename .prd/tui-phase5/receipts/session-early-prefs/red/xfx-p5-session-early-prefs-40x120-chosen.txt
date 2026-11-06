@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d3bc63d [debug] · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: high, speed: fast)
+
+┃
+
+auto · opus 5 · high · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

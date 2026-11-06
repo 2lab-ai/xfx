@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: high, speed: fast)
+
+┃
+
+auto · opus 5 · high · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

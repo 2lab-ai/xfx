@@ -782,6 +782,7 @@ mod history;
 mod hydration;
 mod hyperlink;
 mod image_paths;
+mod info_panel;
 mod inline_completion;
 mod input;
 mod layout;

@@ -1,0 +1,34 @@
+=== ~/.fx/backups/settings.json.backup.1793781668680-0000000000000001-6aadf18835b0bdcff9617fbaa6899187 (70 bytes)
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway"}
+
+=== ~/.fx/history.jsonl (140 bytes)
+{"schema_version":1,"timestamp_ms":1793781669702,"workspace_root":"<scratch>/work","text":"first prompt please"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/Tt5uzLvuRg-C/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/Tt5uzLvuRg-C/log.jsonl (3445 bytes)
+{"v":1,"seq":1,"ts":1793781669704,"kind":"session_created","id":"Tt5uzLvuRg-C","workspace":"<scratch>/work","role":"root","host":"app","crc":"f8d3d272"}
+{"v":1,"seq":2,"ts":1793781665246,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"anthropic/claude-opus-5","effort":"auto","fast_mode":false},"crc":"6ddfb5e7"}
+{"v":1,"seq":3,"ts":1793781665246,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"7921c9c9"}
+{"v":1,"seq":4,"ts":1793781665246,"kind":"set","key":"language","value":"und","crc":"e9faed0f"}
+{"v":1,"seq":5,"ts":1793781668681,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"anthropic/claude-opus-5","effort":"high","fast_mode":true},"crc":"c633738b"}
+{"v":1,"seq":6,"ts":1793781669704,"kind":"turn_started","turn":1,"crc":"f2fd5087"}
+{"v":1,"seq":7,"ts":1793781669704,"kind":"item","turn":1,"type":"user","data":{"text":"first prompt please","images":[],"work_id":null},"crc":"8d88d30a"}
+{"v":1,"seq":8,"ts":1793781669704,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-04\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"025b35d2"}
+{"v":1,"seq":9,"ts":1793781669819,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"3771799a"}
+{"v":1,"seq":10,"ts":1793781669822,"kind":"item","turn":1,"type":"assistant","data":{"text":"FIRST answer.","provider_replay":null,"standalone_response":false},"crc":"1b02725a"}
+{"v":1,"seq":11,"ts":1793781669822,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793781669703,"completed_at_ms":1793781669819,"thinking_duration_ms":1,"turn_duration_ms":116,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"9618cadd"}
+{"v":1,"seq":12,"ts":1793781669822,"kind":"turn_committed","turn":1,"crc":"9e7b69fa"}
+{"v":1,"seq":13,"ts":1793781669822,"kind":"set","key":"language","value":"und-Latn","crc":"cbca0335"}
+{"v":1,"seq":14,"ts":1793781669822,"kind":"set","key":"title","value":"first prompt please","crc":"a06d4926"}
+
+=== ~/.fx/sessions/v2/index.jsonl (505 bytes)
+{"op":"put","id":"Tt5uzLvuRg-C","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793781669704,"updated":1793781669704,"turns":0,"opened":[1793781669704,0,0,0,0],"crc":"aa0e5a27"}
+{"op":"put","id":"Tt5uzLvuRg-C","role":"root","host":"app","workspace":"<scratch>/work","title":"first prompt please","language":"und-Latn","created":1793781669704,"updated":1793781669822,"turns":1,"opened":[0,0,0,0,0],"crc":"593466a6"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/settings.json (155 bytes)
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","effort":"high","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/settings.lock (0 bytes)

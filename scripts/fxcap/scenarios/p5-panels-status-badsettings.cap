@@ -1,0 +1,20 @@
+# Phase 5 panels: `/status` with no credential on the Gateway, whose profile
+# settings were valid at launch and are malformed by the time it opens, so the
+# panel says `Settings  couldn't be read: <cause>` where Auth would stand
+# (openStatusSnapshot, session_commands.zig:283-296@481104fd). Uses H1's
+# `rehomefile`; both binaries refuse a malformed profile at launch.
+fx: env FX_AUTO_UPGRADE=0
+env AI_GATEWAY_API_KEY=
+fx: seed h1-settings-ok.json
+xfx: seed h1-settings-ok.json
+wait 3
+snap launch
+fx: rehomefile .fx/settings.json h1-settings-bad.json
+xfx: rehomefile .xfx/settings.json h1-settings-bad.json
+type /status
+key Enter
+wait 1.5
+snap open
+key Escape
+wait 0.5
+snap closed
