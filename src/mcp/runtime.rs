@@ -1130,6 +1130,9 @@ impl McpRuntime {
             }
         }
         issues.extend(workspace.issues);
+        // The profile's `${VAR}`, then names a terminal can't show
+        // (`loadHost`, `src/builtins/mcp.zig:133-134@481104fd`).
+        config::prepare_to_start(&mut servers, &mut issues, &*self.environment);
         Ok((servers, issues, choices, workspace.digests))
     }
 
