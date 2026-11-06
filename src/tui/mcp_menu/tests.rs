@@ -1012,32 +1012,51 @@ fn up_and_down_on_a_question_leave_its_answer() {
         let row = &menu.rows(120, 10, PALETTE)[6];
         row.contains("\u{1b}[1;38;5;255mno")
     };
+    // Read after every key: a pair that each flipped it would cancel out.
     assert!(!answer(&menu));
-    menu.press(Key::Up);
-    menu.press(Key::Down);
-    assert!(!answer(&menu));
+    for key in [Key::Up, Key::Down] {
+        menu.press(key);
+        assert!(!answer(&menu), "{key:?} chose no");
+    }
     menu.press(Key::Right);
     assert!(answer(&menu));
-    menu.press(Key::Down);
-    menu.press(Key::Up);
-    assert!(answer(&menu));
+    for key in [Key::Down, Key::Up] {
+        menu.press(key);
+        assert!(answer(&menu), "{key:?} chose yes");
+    }
     assert_eq!(menu.press(Key::Enter), Effect::None);
     assert_eq!(menu.screen(), Screen::Server);
 }
 
 #[test]
 fn an_approval_below_twenty_columns_approves_nothing() {
-    let mut menu = three();
-    menu.press(Key::Down);
-    menu.press(Key::Down);
-    menu.press(Key::Enter);
-    menu.press(Key::Enter);
-    let count = menu.height(19, MAX_ROWS, 30);
-    menu.rows(19, count, PALETTE);
+    // An entry short enough that every row of it fits nineteen columns: only
+    // the width rule refuses it there (its question is cut), and at twenty
+    // the same entry is approved.
+    let short = || Row {
+        target: "/bin/sh".into(),
+        entry: entry(&["command: /bin/sh"], "digest-s"),
+        ..pending("proj")
+    };
+    let approval = |cols: u16| {
+        let mut menu = McpMenu::open(vec![short()], 0, Instant::now());
+        menu.press(Key::Enter);
+        menu.press(Key::Enter);
+        assert_eq!(menu.screen(), Screen::Confirm(Choice::Approve));
+        let count = menu.height(cols, MAX_ROWS, 30);
+        let rows = menu.rows(cols, count, PALETTE);
+        assert!(
+            rows.iter()
+                .any(|row| plain(row).trim_end() == "    /bin/sh"),
+            "{rows:?}"
+        );
+        menu.press(Key::Enter)
+    };
     assert!(matches!(
-        menu.press(Key::Enter),
+        approval(19),
         Effect::Refused(why) if why.contains("couldn't show all")
     ));
+    assert!(matches!(approval(20), Effect::Run(Run::Approve { .. })));
 }
 
 #[test]
