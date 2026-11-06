@@ -1447,4 +1447,63 @@ mod tests {
         );
         assert!(!group.rows(DARK)[1].contains('\u{202e}'));
     }
+
+    /// Whether every escape in a drawn row is one of the palette's own
+    /// (a 256-colour foreground, its reset, or the full reset) and no other
+    /// control or bidirectional code point is in it: what a row must be
+    /// before any strip, for a name a server chose.
+    fn inert(row: &str) -> bool {
+        let palette_only = row.match_indices('\u{1b}').all(|(at, _)| {
+            let rest = &row[at + 1..];
+            rest.starts_with("[38;5;") || rest.starts_with("[39m") || rest.starts_with("[0m")
+        });
+        palette_only
+            && !row
+                .chars()
+                .any(|c| (c.is_control() && c != '\u{1b}') || c == '\u{202e}')
+    }
+
+    #[test]
+    fn a_hostile_tool_name_is_written_out_on_every_row_it_reaches() {
+        // A server's tool name with an escape and a bidirectional override in
+        // it, through every row an MCP call can have, the cancelled line and
+        // the full transcript's rows (`expanded`): spelled out by
+        // `crate::mcp::terminal_safe`, never sent to the terminal.
+        const NAME: &str = "mcp_evil\u{1b}[31m\u{202e}x";
+        const SPELLED: &str = "mcp_evil\\x1b[31m\\u{202e}x";
+        let check = |group: &ToolGroup, row: usize, want: String| {
+            let drawn = group.rows(DARK);
+            assert!(inert(&drawn[row]), "{:?}", drawn[row]);
+            assert_eq!(strip(&drawn[row]), want);
+            for line in group.expanded(DARK) {
+                assert!(inert(&line), "{line:?}");
+            }
+        };
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        check(&group, 1, format!("\u{2514} Running MCP {SPELLED}"));
+        ok(&mut group, "1");
+        check(&group, 1, format!("\u{2514} Ran MCP {SPELLED}"));
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        assert!(group.finish("1", false, "no", Outcome::Denied, None));
+        check(&group, 1, format!("\u{2514} Denied {SPELLED}"));
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        assert!(group.finish("1", false, "boom", Outcome::Finished, None));
+        check(&group, 1, format!("\u{2514} Failed {SPELLED}: boom"));
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        assert_eq!(group.cancel_running(), ["1".to_string()]);
+        check(&group, 1, format!("\u{2514} Cancelled {SPELLED}"));
+        check(
+            &group,
+            3,
+            format!("\u{25a0} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
+        );
+    }
 }
