@@ -581,7 +581,8 @@ pub fn safe(raw: &str) -> String {
 /// A word someone typed, said back as far as its first `=` and no further --
 /// what follows one is a value, and a value can be a secret (`--env=TOKEN=…`,
 /// `--header=Authorization=…`, a name typed where a pair was meant) -- and
-/// spelled by [`safe`]. A server's name has no `=`, so one is said whole.
+/// spelled by [`safe`]. A name `/mcp add` takes has no `=`, so one is said
+/// whole; a profile written by hand can hold one with it, and is cut too.
 fn typed(word: &str) -> String {
     safe(word.find('=').map_or(word, |eq| &word[..=eq]))
 }
@@ -822,7 +823,7 @@ fn list(runtime: &McpRuntime, said: &mut Said) {
     ]];
     for (view, enabled) in &servers {
         rows.push([
-            safe(&view.name),
+            typed(&view.name),
             file_of(view.source).label().to_string(),
             view.transport.tag().to_string(),
             status_text(view, *enabled),
@@ -889,7 +890,7 @@ fn show(runtime: &McpRuntime, name: &str, said: &mut Said) {
     };
     let config = &server.config;
     let out = &mut said.out;
-    out.push_str(&format!("{}\n", safe(name)));
+    out.push_str(&format!("{}\n", typed(name)));
     out.push_str(&format!(
         "  status     {}\n",
         status_text(&view, config.enabled)
@@ -915,10 +916,10 @@ fn show(runtime: &McpRuntime, name: &str, said: &mut Said) {
         out.push_str(&format!("  error      {}\n", safe(failure)));
     }
     if view.needs_auth {
-        out.push_str(&format!("  next       {PROG} login {}\n", safe(name)));
+        out.push_str(&format!("  next       {PROG} login {}\n", typed(name)));
     }
     if config.enabled && view.admission == Some(Admission::Pending) {
-        out.push_str(&format!("  next       {PROG} approve {}\n", safe(name)));
+        out.push_str(&format!("  next       {PROG} approve {}\n", typed(name)));
     }
     let tools = server.tools();
     if !tools.is_empty() {
@@ -1065,7 +1066,9 @@ fn remove(runtime: &McpRuntime, name: &str, only: Option<File>, said: &mut Said)
             );
         }
         // Gone between the look and the edit, which takes the lock: nothing
-        // was written, so nothing was removed.
+        // was written, so nothing was removed. Untested: the two read the
+        // same file through the same parser, so only another writer between
+        // them reaches this, and nothing here can hold one there.
         Ok(config::Updated::Missing) => not_found(said),
         Ok(config::Updated::Added | config::Updated::Removed { .. }) => {
             said.changed = true;
@@ -1144,8 +1147,20 @@ fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
         .collect();
     if project.is_empty() {
         if let Trust::Approve(name) | Trust::Reject(name) = &choice {
-            if let Some((action, body)) = unparsed(runtime, &choice, name) {
-                return runtime.run(super::runtime::Job::Trust { action, body });
+            match unparsed(runtime, &choice, name) {
+                Unparsed::Choice(action, body) => {
+                    return runtime.run(super::runtime::Job::Trust { action, body })
+                }
+                Unparsed::Changed => {
+                    return runtime.notice(
+                        true,
+                        format!(
+                            "{name} changed in {} since xfx read it; nothing was approved.",
+                            File::Project.label()
+                        ),
+                    )
+                }
+                Unparsed::None => {}
             }
         }
         let sentence = match &choice {
@@ -1162,7 +1177,7 @@ fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
         .iter()
         .map(|server| {
             let config = &server.config;
-            let shown = safe(&config.name);
+            let shown = typed(&config.name);
             if matches!(choice, Trust::Reject(_)) {
                 return format!("Rejected {shown}. xfx won't start it in this project.");
             }
@@ -1184,29 +1199,49 @@ fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
     });
 }
 
+/// What a typed choice about a `.mcp.json` entry with no server comes to.
+enum Unparsed {
+    /// Not an entry the runtime read, or a profile server's name, whose wins:
+    /// fx's `No project server named …`.
+    None,
+    /// The entry the runtime read is not the one in the file now: nothing is
+    /// approved, since what would run is not what xfx read.
+    Changed,
+    /// The choice, and the sentence that announces it.
+    Choice(TrustAction, String),
+}
+
 /// A choice about a `.mcp.json` entry the runtime holds no server for,
 /// because it parses only once it is expanded (`"type": "${T:-stdio}"`,
-/// `"url": "${URL}"`) -- which only an approved entry is -- and the sentence
-/// that announces it; `None` when the file has no such entry, or the name is
-/// a profile server's, whose wins.
+/// `"url": "${URL}"`) -- which only an approved entry is.
 ///
-/// An approval is for the entry as it stands in the file now, as the
-/// sentence shows it, and bound to that entry's digest
-/// ([`TrustAction::ApproveShown`]): if the file changes before the choice is
-/// saved, the entry it changed into still asks. fx has no such path -- its
+/// **Only an entry the runtime read**, and an approval only while the file
+/// still holds that entry: its digest now must be the one the last read took
+/// ([`McpRuntime::loaded_digest`]), as the parsed path binds the loaded
+/// digest. An entry rewritten since -- by the model's own edit, a pull -- or
+/// one the runtime never read is not approved and not started. The sentence
+/// shows what the approved entry runs or reaches. fx has no such path -- its
 /// `approve` finds only servers that parse (`verbs.zig:631-646`) -- and xfx
-/// keeps it from c1db9191's `trust approve <name>`.
-fn unparsed(runtime: &McpRuntime, choice: &Trust, name: &str) -> Option<(TrustAction, String)> {
+/// keeps it from c1db9191's `trust approve <name>`. A rejection needs no
+/// binding: it starts nothing.
+fn unparsed(runtime: &McpRuntime, choice: &Trust, name: &str) -> Unparsed {
     if runtime.server(name).is_some() {
-        return None;
+        return Unparsed::None;
     }
-    let entry = config::project_entry(&runtime.paths().workspace, name)?;
+    let Some(loaded) = runtime.loaded_digest(name) else {
+        return Unparsed::None;
+    };
     if matches!(choice, Trust::Reject(_)) {
-        return Some((
+        return Unparsed::Choice(
             TrustAction::Reject(name.to_string()),
             format!("Rejected {name}. xfx won't start it in this project."),
-        ));
+        );
     }
+    let Some(entry) = config::project_entry(&runtime.paths().workspace, name)
+        .filter(|entry| config::entry_digest(entry) == loaded)
+    else {
+        return Unparsed::Changed;
+    };
     let strings = |value: Option<&serde_json::Value>| -> Option<Vec<String>> {
         value?
             .as_array()?
@@ -1236,15 +1271,15 @@ fn unparsed(runtime: &McpRuntime, choice: &Trust, name: &str) -> Option<(TrustAc
             safe(&command),
             safe(url)
         ),
-        (None, None) => return None,
+        (None, None) => return Unparsed::None,
     };
-    Some((
+    Unparsed::Choice(
         TrustAction::ApproveShown {
             name: name.to_string(),
-            digest: config::entry_digest(&entry),
+            digest: loaded,
         },
         format!("Approved {name}, {what}"),
-    ))
+    )
 }
 
 #[cfg(test)]

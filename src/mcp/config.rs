@@ -1649,18 +1649,36 @@ fn entry_value(entry: &Entry) -> Json {
 /// it: the reader's own rules ([`parse_entry`]) over the JSON the writer would
 /// write ([`entry_value`]), so `/mcp add` never says `Added` for an entry the
 /// next load skips -- nor writes a padded `Authorization` header into a
-/// repository's file that the reader then refuses. A `${...}` in a URL is the
-/// reader's to expand once the entry is approved; until then it is checked as
-/// any `https` address.
+/// repository's file that the reader then refuses. An entry that can't even be
+/// written out is refused too.
+///
+/// A `${...}` in a **project** URL is the reader's to expand once the entry is
+/// approved ([`load_workspace`]), so what an expansion can't change is checked
+/// now -- the template's syntax, a literal `http` or `https` scheme, no `@` in
+/// the authority, no `#` -- and the rest once it is expanded. A profile's
+/// entries are never expanded, so its URL is checked as written.
 pub fn unreadable(file: File, name: &str, entry: &Entry) -> Option<&'static str> {
-    let text = render(&Json::Object(vec![(name.to_string(), entry_value(entry))])).ok()?;
-    let Value::Object(mut wrapped) = read_json(&text)? else {
-        return None;
+    let cannot = || Some(entry_problem(None));
+    let Ok(text) = render(&Json::Object(vec![(name.to_string(), entry_value(entry))])) else {
+        return cannot();
     };
-    let mut value = wrapped.remove(name)?;
-    if let Some(Value::String(url)) = value.get_mut("url") {
-        if url.contains("${") {
-            *url = "https://expanded.invalid/".to_string();
+    let Some(Value::Object(mut wrapped)) = read_json(&text) else {
+        return cannot();
+    };
+    let Some(mut value) = wrapped.remove(name) else {
+        return cannot();
+    };
+    if file == File::Project {
+        if let Some(Value::String(url)) = value.get_mut("url") {
+            if url.contains("${") {
+                if expand_text(url, "url", &|_| Some(String::new())).is_err() {
+                    return Some(entry_problem(Some(ConfigError(VARIABLE_PROBLEM))));
+                }
+                if !template_url_holds(url) {
+                    return Some(entry_problem(Some(ConfigError("McpConfigInvalidUrl"))));
+                }
+                *url = "https://expanded.invalid/".to_string();
+            }
         }
     }
     let (source, admission) = match file {
@@ -1670,6 +1688,20 @@ pub fn unreadable(file: File, name: &str, entry: &Entry) -> Option<&'static str>
     parse_entry(name, &value, source, admission)
         .err()
         .map(|err| entry_problem(Some(err)))
+}
+
+/// What of [`validate_endpoint`]'s rule a URL with a `${...}` in it already
+/// keeps, whatever the expansion: its scheme is a literal `http` or `https`,
+/// and neither its authority nor the rest has a literal `@` or `#`. A plain
+/// `http` address's loopback host and port are the expansion's to say.
+fn template_url_holds(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    (scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http"))
+        && !authority.contains('@')
+        && !rest.contains('#')
 }
 
 /// The workspace's `.mcp.json` entry `name` as the reader reads it -- a

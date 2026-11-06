@@ -98,6 +98,10 @@ pub(crate) struct McpArgs {
     selected: usize,
     /// The first row in view, as the last move left it.
     window_start: usize,
+    /// The marked line went away in a fresh read: closed until the text
+    /// changes, so Enter submits what was typed rather than a line nobody
+    /// marked.
+    lost: bool,
 }
 
 impl McpArgs {
@@ -114,6 +118,7 @@ impl McpArgs {
             read_at: now,
             selected: 0,
             window_start: 0,
+            lost: false,
         };
         args.rematch();
         Some(args)
@@ -146,7 +151,7 @@ impl McpArgs {
 
     /// Whether it has a row to show: with none it is not up.
     pub(crate) fn visible(&self) -> bool {
-        !self.matching.is_empty()
+        !self.lost && !self.matching.is_empty()
     }
 
     /// Whether the list is due to be read again.
@@ -157,7 +162,8 @@ impl McpArgs {
     /// Takes a fresh read of the completions, and says whether what it shows
     /// changed. **The mark stays on its line**, not on its index: a server
     /// that went away above it must not put a destructive line under the mark
-    /// Enter then runs. A line that went away leaves the mark at its index.
+    /// Enter then runs. When the marked line itself went away the list
+    /// closes, for as long as the text is the same.
     pub(crate) fn refresh(&mut self, entries: Vec<(String, String)>, now: Instant) -> bool {
         self.read_at = now;
         if entries == self.entries {
@@ -166,18 +172,23 @@ impl McpArgs {
         let marked = self.chosen().map(str::to_string);
         self.entries = entries;
         self.rematch();
-        if let Some(position) = marked.and_then(|line| {
-            self.matching
+        if let Some(line) = marked {
+            match self
+                .matching
                 .iter()
                 .position(|&index| self.entries[index].0 == line)
-        }) {
-            self.selected = position;
-            self.window_start = edge_start(
-                self.window_start,
-                self.matching.len(),
-                self.selected,
-                MOST_ROWS,
-            );
+            {
+                Some(position) => {
+                    self.selected = position;
+                    self.window_start = edge_start(
+                        self.window_start,
+                        self.matching.len(),
+                        self.selected,
+                        MOST_ROWS,
+                    );
+                }
+                None => self.lost = true,
+            }
         }
         true
     }
@@ -254,6 +265,9 @@ impl McpArgs {
 
     /// The marked line, whole: what Tab writes and Enter submits.
     pub(crate) fn chosen(&self) -> Option<&str> {
+        if self.lost {
+            return None;
+        }
         let index = *self.matching.get(self.selected)?;
         Some(self.entries[index].0.as_str())
     }
@@ -470,13 +484,20 @@ mod tests {
             .collect();
         assert!(args.refresh(entries, now));
         assert_eq!(args.chosen(), Some("/mcp remove remote"));
-        // A line that went away leaves the mark where the index was.
+        // MCP-Vc: the marked line itself went away -- the mark fell to its
+        // index, on a remove nobody marked. Now the list closes for this
+        // text, and Enter submits what was typed.
         let entries: Vec<(String, String)> = verbs()
             .into_iter()
             .filter(|(full, _)| !full.contains("remote") && !full.ends_with(" fixture"))
             .collect();
         assert!(args.refresh(entries, now));
-        assert_eq!(args.chosen(), Some("/mcp remove proj"));
+        assert_eq!(args.chosen(), None);
+        assert!(!args.visible());
+        // And stays closed while the text is the same, whatever comes back.
+        assert!(args.refresh(verbs(), now));
+        assert_eq!(args.chosen(), None);
+        assert!(!args.visible());
     }
 
     #[test]

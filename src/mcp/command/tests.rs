@@ -657,8 +657,49 @@ fn a_header_the_reader_would_refuse_is_refused_before_anything_is_written() {
         );
     }
     assert!(!scratch.profile().exists());
-    // A `${...}` is the reader's to expand, as it does once an entry is
-    // approved: left as written.
+    // A `${...}` in a project URL is the reader's to expand once the entry is
+    // approved, so only what no expansion can change is checked now: the
+    // scheme, no credentials, no fragment, the template's own syntax.
+    // MCP-Vc: any `${` used to wave the whole URL through.
+    std::fs::write(scratch.project(), "{\"mcpServers\":{}}\n").unwrap();
+    for (url, why) in [
+        (
+            "https://user:pw@${XFX_MCPV_HOST}/mcp",
+            "its \"url\" isn't valid",
+        ),
+        (
+            "https://${XFX_MCPV_HOST}/mcp#top",
+            "its \"url\" isn't valid",
+        ),
+        ("https://${XFX_MCPV_HOST/mcp", "a ${...} in it isn't valid"),
+        ("https://${XFX MCPV}/mcp", "a ${...} in it isn't valid"),
+    ] {
+        let answer = said(&runtime, &format!("add --project web '{url}'"));
+        assert_eq!(
+            answer,
+            [format!("! Couldn't add web to .mcp.json: {why}.")],
+            "{url}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(scratch.project()).unwrap(),
+            "{\"mcpServers\":{}}\n",
+            "{url}: .mcp.json changed"
+        );
+    }
+    // The profile's entries are read as written -- nothing expands them --
+    // so its URL is held to the reader's rule as it stands.
+    for url in [
+        "http://example.test/${XFX_MCPV_PATH}",
+        "https://user:pw@${XFX_MCPV_HOST}/mcp",
+    ] {
+        let answer = said(&runtime, &format!("add web '{url}'"));
+        assert_eq!(
+            answer,
+            ["! Couldn't add web to ~/.xfx/mcp.json: its \"url\" isn't valid."],
+            "{url}"
+        );
+        assert!(!scratch.profile().exists(), "{url}: profile written");
+    }
     assert_eq!(
         said(&runtime, "add --project web 'https://${XFX_MCPV_HOST}/mcp'"),
         ["* Added web to .mcp.json."]
@@ -696,6 +737,103 @@ fn approve_reaches_an_entry_that_parses_only_once_expanded() {
         said(&runtime, "approve nope"),
         ["! No project server named nope in .mcp.json."]
     );
+    runtime.shutdown();
+}
+
+/// A `.mcp.json` with one entry `late` that parses only once expanded,
+/// running the fixture with `mark` among its arguments.
+fn late_entry(mark: &str) -> String {
+    format!(
+        r#"{{"mcpServers":{{"late":{{"type":"${{XFX_MCPV_UNSET_TYPE:-stdio}}","command":"/bin/sh","args":["{}","{mark}"]}}}}}}"#,
+        fixture()
+    )
+}
+
+/// Whether the settings approve anything for the scratch workspace.
+fn approved_any(scratch: &Scratch) -> bool {
+    std::fs::read_to_string(scratch.settings())
+        .is_ok_and(|text| text.contains("enabledMcpjsonServer"))
+}
+
+#[test]
+fn approve_of_an_unparsed_entry_binds_what_xfx_read_not_the_file_now() {
+    // MCP-Vc: the approval read `.mcp.json` afresh and approved that, so an
+    // entry rewritten since the last read -- by the model, or a pull -- was
+    // approved and started with nothing of it shown before.
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    std::fs::write(scratch.project(), late_entry("A")).unwrap();
+    let runtime = scratch.runtime();
+    std::fs::write(scratch.project(), late_entry("B")).unwrap();
+    assert_eq!(
+        said(&runtime, "approve late"),
+        ["! late changed in .mcp.json since xfx read it; nothing was approved."]
+    );
+    assert!(!approved_any(&scratch), "an approval was saved");
+    // Nothing was reloaded or started: the entry is still not a server.
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(runtime.server("late").is_none());
+    runtime.shutdown();
+}
+
+#[test]
+fn approve_of_an_entry_xfx_never_read_finds_no_server() {
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    let runtime = scratch.runtime();
+    // Written after the last read, and an entry that parses.
+    std::fs::write(
+        scratch.project(),
+        format!(
+            r#"{{"mcpServers":{{"late":{{"command":"/bin/sh","args":["{}"]}}}}}}"#,
+            fixture()
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        said(&runtime, "approve late"),
+        ["! No project server named late in .mcp.json."]
+    );
+    assert!(!approved_any(&scratch), "an approval was saved");
+    assert!(runtime.server("late").is_none());
+    runtime.shutdown();
+}
+
+#[test]
+fn reject_reaches_an_entry_that_parses_only_once_expanded() {
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    std::fs::write(scratch.project(), late_entry("A")).unwrap();
+    let runtime = scratch.runtime();
+    assert!(runtime.server("late").is_none());
+    assert_eq!(
+        said(&runtime, "reject late"),
+        ["* Rejected late. xfx won't start it in this project."]
+    );
+    let settings = std::fs::read_to_string(scratch.settings()).unwrap();
+    assert!(
+        settings.contains("\"disabledMcpjsonServers\""),
+        "{settings}"
+    );
+    assert!(settings.contains("\"late\""), "{settings}");
+    runtime.shutdown();
+}
+
+#[test]
+fn a_profile_name_with_an_equals_sign_is_said_back_only_that_far() {
+    // The profile's reader keeps any name, `=` and all; one typed back is a
+    // name that may carry what a pair would have.
+    let scratch = Scratch::new();
+    scratch.write_profile(&format!(
+        r#"{{"mcpServers":{{"TOKEN=name-secret":{{"command":"/bin/sh","args":["{}"]}}}}}}"#,
+        fixture()
+    ));
+    let runtime = scratch.runtime();
+    let mut answers = said(&runtime, "show TOKEN=name-secret");
+    answers.extend(said(&runtime, "list"));
+    let all = answers.join("\n");
+    assert!(all.contains("* TOKEN=\n"), "{all}");
+    assert!(!all.contains("name-secret"), "{all}");
     runtime.shutdown();
 }
 

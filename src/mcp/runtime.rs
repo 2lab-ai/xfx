@@ -898,6 +898,17 @@ impl McpRuntime {
         self.state().issues.clone()
     }
 
+    /// The [`config::entry_digest`] of `.mcp.json`'s entry `name` as the last
+    /// read found it, parsed or not -- what an approval of that name binds to
+    /// (`config::apply_action`) -- or `None` when that read had no such entry.
+    pub fn loaded_digest(&self, name: &str) -> Option<String> {
+        self.state()
+            .digests
+            .iter()
+            .find(|(entry, _)| entry == name)
+            .map(|(_, digest)| digest.clone())
+    }
+
     /// The server called `name`.
     pub fn server(&self, name: &str) -> Option<Arc<Server>> {
         self.state()

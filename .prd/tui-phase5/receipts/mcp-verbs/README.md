@@ -124,6 +124,23 @@ Gates on `fde07d6a`: fmt ok; clippy ok, both feature sets; `cargo test`
 and faulty release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios
 + the oracle, 1091 / 0.
 
+## MCP-Vc: the second review round
+
+`.../p5/MCP-Vb/reviews/gpt6.md` and opus's findings. RED on `69c61b53`, each
+new test, bounded (`timeout 900`):
+
+| finding | fix | RED | GREEN |
+|---|---|---|---|
+| `approve` of an unparsed entry read `.mcp.json` afresh and approved that, so an entry rewritten since the last read, or one never read, was approved and started | the runtime's own read decides (`McpRuntime::loaded_digest`): approved only while the file's entry still has that digest, which is what is saved; else `X changed in .mcp.json since xfx read it; nothing was approved.`, and fx's `No project server named …` for an entry never read | `* Approved late, which runs: … B`; `* Approved late, …` for an entry written after the read | `approve_of_an_unparsed_entry_binds_what_xfx_read_not_the_file_now`, `approve_of_an_entry_xfx_never_read_finds_no_server`; `reject_reaches_an_entry_that_parses_only_once_expanded` pins the reject path (it passed already) |
+| any `${` waved a URL past `validate_endpoint`, for both files | the swap only for `.mcp.json`, after the template's syntax, a literal `http`/`https` scheme, no `@` in the authority and no `#` are checked (`template_url_holds`, `expand_text`); the profile's URL checked as written | `* Added web to .mcp.json.` for `https://user:pw@${…}/mcp` | `a_header_the_reader_would_refuse_is_refused_before_anything_is_written` (four project URLs, `.mcp.json` bytes unchanged; two profile URLs, no profile) |
+| SHOULD: the marked line itself gone, the mark fell to its index | the list closes until the text changes; Enter submits what was typed | `/mcp remove proj` marked | `a_read_that_drops_an_earlier_row_keeps_the_mark_on_its_line` |
+| SHOULD: `unreadable` said readable when the entry could not be rendered or read back | refused, `xfx can't read it` | (no input reaches it short of 1 MiB of entry) | code |
+| SHOULD: `show` and `list` said a hand-written profile name with `=` whole | `typed` for every server name said back | `* TOKEN=name-secret` | `a_profile_name_with_an_equals_sign_is_said_back_only_that_far` |
+| SHOULD: pin `Updated::Missing` | no cheap seam: both reads go through the same file and parser, and only another writer between them reaches it; the comment says so | | |
+
+`runtime.rs` gains one accessor (`loaded_digest`); `config.rs` changes only
+inside `unreadable` and a new `template_url_holds` beside it.
+
 ## Gates
 
 On `3c09b481` (the head after it changes comments, docs and this
