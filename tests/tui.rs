@@ -5522,9 +5522,20 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
     assert_eq!(first.wait_exit().code(), Some(0));
     let ids = sandbox.session_ids();
     assert_eq!(ids.len(), 1, "{ids:?}");
-    // A lookup the process sent on its way out is read by now.
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    let before = gateway.request_count();
+    // Counted once the count has held still for half a second, so a lookup
+    // the first process sent on its way out is not taken for one the resume
+    // sent.
+    let mut before = gateway.request_count();
+    let mut still = Instant::now();
+    let deadline = still + std::time::Duration::from_secs(10);
+    while still.elapsed() < std::time::Duration::from_millis(500) {
+        assert!(Instant::now() < deadline, "the first session kept asking");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let now = gateway.request_count();
+        if now != before {
+            (before, still) = (now, Instant::now());
+        }
+    }
 
     sandbox.write_profile(UNREADABLE_PROVIDER);
     let pty = Pty::open();
