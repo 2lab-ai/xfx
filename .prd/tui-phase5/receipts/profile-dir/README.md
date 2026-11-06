@@ -80,8 +80,10 @@ Found and left alone, each with its reason:
    - `lock()`: `an_open_private_level_is_refused_before_a_lock_is_taken_in_it`
      and `a_private_level_that_is_a_link_is_refused_and_its_target_left_alone`;
    - refuse-before-lock: `/allowlist`, `edit_document` and `rewrite_document`
-     joined the writer table, so the open, linked and missing-home cases
-     assert no `settings.lock` is made in a refused home.
+     joined the writer table, so the open and linked cases assert nothing,
+     `settings.lock` included, is made in a refused home; since round c the
+     missing-home case runs the whole writer table too, and asserts no home is
+     made.
 7. **Bounded child waits**: `crate::process::output_within` (test-only)
    kills and reaps a child past its limit
    (`a_child_past_its_limit_is_killed_and_reaped` checks `ESRCH`, so no
@@ -92,6 +94,30 @@ Test fixtures that let their temporary home be dropped, or never made it,
 and relied on xfx making it again now keep or make it
 (`tui/event_loop.rs`'s `shell_of`, three `skills/install.rs` cases, one
 `tui/shell.rs` case).
+
+## Round c: the gate-only follow-up
+
+1. **A relative path is quoted.** `shell_word` printed a path with a leading
+   `~`, `=` or `-` as it was, so with a relative `HOME` the printed
+   `chmod 700 ~x/.xfx` named another directory. Any path that does not start
+   with `/` is now single-quoted and said from `./`, so `~` and `=` are not
+   expanded and `-` is not read as an option: `'./~x/.xfx'`, `'./=x/.xfx'`,
+   `'./-x/.xfx'`.
+2. **The missing-home case runs every writer**
+   (`a_missing_home_is_refused_by_every_writer_and_nothing_is_made`): each
+   one is refused, in its surface's words, and no home is made. `/mcp` says
+   `McpConfigPathInvalid` and `/skills add` says upstream's one install
+   failure sentence, as every other failure there.
+3. **`output_within` bounds its reads too.** Once the child has exited, its
+   output is waited for only for what is left of the limit
+   (`a_child_whose_output_outlives_it_is_given_up_on_at_the_limit`: a
+   grandchild holds the pipes; the test ends it by the pid its parent
+   wrote).
+
+RED on round b's tree (`red-c.txt`, the new tests on a throwaway clone at
+`e8753b8f`): the quoting case fails with ``chmod 700 ~x/.xfx`` unquoted; the
+reader case waits the grandchild's full 30 s and returns `Ok`. The missing-home
+loop passes there: the behaviour was right, the README sentence was not.
 
 ## RED
 
@@ -137,7 +163,7 @@ and relied on xfx making it again now keep or make it
   - with no `HOME`, with `the home directory … is not there, and xfx does not
     make one`; `HOME` is still not there.
 - The unit pins are `src/profile_home/tests.rs` (15 tests) and
-  `tests/scan.rs` (4), with the fork pin and the two `output_within` tests.
+  `tests/scan.rs` (4), with the fork pin and the three `output_within` tests.
 
 ## Mutants
 
@@ -198,3 +224,15 @@ Run on this commit's tree before this table was appended, with `TMPDIR=<tmp>`.
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
 
 No test failed, so none was re-run.
+
+Round c, on its own tree (`target/release/xfx` `27536f74…`), with `TMPDIR=<tmp>`:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; both clippies | ok |
+| `cargo test --locked --no-fail-fast` | 4,779 passed, 1 failed, 7 ignored: `mcp::transport::tests::a_request_to_a_server_that_never_reads_stops_at_its_cancellation` (`!transport.alive()`, the run at load average 20.9 and twice its usual length) passed alone 3 of 3 |
+| `cargo test … --features fault-injection --no-fail-fast` | 4,809 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| release and faulty builds | ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |

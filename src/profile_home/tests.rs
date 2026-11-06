@@ -28,11 +28,17 @@ struct Bench {
 
 impl Bench {
     fn new() -> Self {
+        let bench = Self::homeless();
+        fs::create_dir(&bench.home).expect("a home");
+        bench
+    }
+
+    /// A bench whose home directory is not there.
+    fn homeless() -> Self {
         let root = tempfile::tempdir().expect("a root");
         let canonical = fs::canonicalize(root.path()).expect("canonical");
         let home = canonical.join("home");
         let work = canonical.join("work");
-        fs::create_dir(&home).expect("a home");
         fs::create_dir(&work).expect("a workspace");
         // A skill to install, with a directory inside it so the copy makes one.
         let source = canonical.join("source").join("carried");
@@ -364,39 +370,41 @@ fn another_accounts_directory_is_refused_before_its_mode_is_looked_at() {
 }
 
 #[test]
-fn a_missing_home_is_refused_and_nothing_is_made() {
+fn a_missing_home_is_refused_by_every_writer_and_nothing_is_made() {
     // Upstream refuses a home that is not there (`settings_store.zig:343-347`);
-    // the base made it, `0755` through the store.
-    let bench = Bench::new();
-    let home = bench.root.join("absent").join("home");
-    let profile = home.join(crate::config::PROFILE_DIR_NAME);
-    for (writer, result) in [
-        ("ensure", ensure(&profile, &profile.join("skills"))),
-        (
-            "ensure_content",
-            ensure_content(&profile, &profile.join("skills")),
-        ),
-        (
-            "the session store",
-            SessionStore::open(&profile)
-                .map(drop)
-                .map_err(|err| io::Error::other(err.to_string())),
-        ),
-    ] {
-        let err = result.expect_err(writer);
-        assert!(
-            err.to_string().contains(&format!(
-                "the home directory {} is not there, and xfx does not make one",
-                home.display()
-            )),
-            "{writer}: {err}"
-        );
+    // the base made it, `0755` through the store and `/skills`.
+    let said = |home: &Path| {
+        format!(
+            "the home directory {} is not there, and xfx does not make one",
+            home.display()
+        )
+    };
+    for (writer, write) in writers() {
+        let bench = Bench::homeless();
+        let answer = write(&bench).expect_err(writer);
+        match writer {
+            // Upstream's error name, as every other MCP profile failure.
+            "the MCP profile" => assert_eq!(answer, "McpConfigPathInvalid"),
+            // Every install failure that is not a refused home is said in
+            // upstream's one sentence.
+            "/skills add" => assert_eq!(answer, crate::skills::install::FAILED),
+            _ => assert!(answer.contains(&said(&bench.home)), "{writer}: {answer}"),
+        }
+        // Nothing made: no home, so no `~/.xfx` and no `settings.lock` in it.
+        assert!(!bench.home.exists(), "{writer} made a home");
     }
-    assert_eq!(
-        ensure(&profile, &profile).expect_err("no home").kind(),
-        io::ErrorKind::NotFound
-    );
-    assert!(!bench.root.join("absent").exists(), "a home was made");
+    // The helper's own answer is `NotFound`, for `ensure` and `ensure_content`.
+    let bench = Bench::homeless();
+    let profile = bench.profile();
+    for result in [
+        ensure(&profile, &profile),
+        ensure_content(&profile, &profile.join("skills")),
+    ] {
+        let err = result.expect_err("no home");
+        assert_eq!(err.kind(), io::ErrorKind::NotFound, "{err}");
+        assert_eq!(err.to_string(), said(&bench.home));
+    }
+    assert!(!bench.home.exists(), "a home was made");
 }
 
 #[test]
@@ -545,6 +553,12 @@ fn an_open_home_names_the_chmod_that_makes_it_private_as_one_shell_word() {
         ("/h/u/.xfx", "/h/u/.xfx"),
         ("/h/a b/.xfx", "'/h/a b/.xfx'"),
         ("/h/it's/.xfx", "'/h/it'\\''s/.xfx'"),
+        // A relative `HOME`: quoted and said from `./`, so a leading `~` or
+        // `=` names this directory and a leading `-` is not an option.
+        ("~x/.xfx", "'./~x/.xfx'"),
+        ("=x/.xfx", "'./=x/.xfx'"),
+        ("-x/.xfx", "'./-x/.xfx'"),
+        ("x/.xfx", "'./x/.xfx'"),
     ] {
         assert_eq!(
             Problem::Open { mode: 0o750 }.detail(Path::new(path)),

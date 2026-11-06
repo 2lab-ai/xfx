@@ -142,10 +142,12 @@ pub fn collect_own_children() -> std::io::Result<()> {
 }
 
 /// A test's child, run to its end within `limit`: its output, or `TimedOut`
-/// once it has run that long, killed and reaped -- a hung child fails the case
-/// that started it rather than the whole run waiting on it. The child's stdin
-/// is null and its stdout and stderr are read whole, each on a thread of its
-/// own, so a child that fills one pipe cannot stall waiting on the other.
+/// once it has run that long -- killed and reaped -- or once it has exited but
+/// its output has not closed within what is left of `limit` (a grandchild
+/// holding a pipe). A hung child fails the case that started it rather than
+/// the whole run waiting on it. The child's stdin is null and its stdout and
+/// stderr are read whole, each on a thread of its own, so a child that fills
+/// one pipe cannot stall waiting on the other.
 #[cfg(test)]
 pub(crate) fn output_within(
     command: &mut Command,
@@ -153,19 +155,22 @@ pub(crate) fn output_within(
 ) -> std::io::Result<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
+    use std::sync::mpsc;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command.spawn()?;
     let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        let (sent, read) = mpsc::channel();
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_end(&mut bytes);
             }
-            bytes
-        })
+            let _ = sent.send(bytes);
+        });
+        read
     };
     let stdout = drain(
         child
@@ -179,6 +184,12 @@ pub(crate) fn output_within(
             .take()
             .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
     );
+    let timed_out = |what: &str| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("{what} after {limit:?}"),
+        )
+    };
     let started = std::time::Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -186,21 +197,24 @@ pub(crate) fn output_within(
         }
         if started.elapsed() >= limit {
             // This test's own child, by its handle: killed, then waited for,
-            // so no zombie is left behind. The readers are not joined -- a
-            // grandchild could still hold the pipes.
+            // so no zombie is left behind. The readers are left to end with
+            // the pipes.
             let _ = child.kill();
             let _ = child.wait();
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("the child was still running after {limit:?}, and was killed"),
-            ));
+            return Err(timed_out("the child was still running, and was killed,"));
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     };
+    let collect = |read: mpsc::Receiver<Vec<u8>>| {
+        read.recv_timeout(limit.saturating_sub(started.elapsed()))
+            .map_err(|_| timed_out("the child exited but its output was still open"))
+    };
+    let stdout = collect(stdout)?;
+    let stderr = collect(stderr)?;
     Ok(std::process::Output {
         status,
-        stdout: stdout.join().unwrap_or_default(),
-        stderr: stderr.join().unwrap_or_default(),
+        stdout,
+        stderr,
     })
 }
 
@@ -230,6 +244,30 @@ mod tests {
             rustix::process::test_kill_process(pid),
             Err(rustix::io::Errno::SRCH)
         );
+    }
+
+    #[test]
+    fn a_child_whose_output_outlives_it_is_given_up_on_at_the_limit() {
+        // The child exits at once; a grandchild it leaves behind holds the
+        // pipes open past the limit. The wait ends at the limit regardless.
+        let pid_file = tempfile::NamedTempFile::new().expect("a pid file");
+        let mut child = command("/bin/sh");
+        child.args(["-c", "sleep 30 & echo $! > \"$1\"; exit 0", "sh"]);
+        child.arg(pid_file.path());
+        let started = std::time::Instant::now();
+        let err = output_within(&mut child, std::time::Duration::from_millis(500))
+            .expect_err("output still open");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut, "{err}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        // The grandchild is this test's to end: its pid, written by its own
+        // parent, signalled once.
+        let pid: i32 = std::fs::read_to_string(pid_file.path())
+            .expect("the pid")
+            .trim()
+            .parse()
+            .expect("a number");
+        let pid = rustix::process::Pid::from_raw(pid).expect("a pid");
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
     }
 
     #[test]

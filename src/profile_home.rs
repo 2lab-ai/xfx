@@ -97,20 +97,27 @@ impl Problem {
     }
 }
 
-/// `path` as one shell word: as it is when every byte is one a shell leaves
-/// alone, single-quoted otherwise, so the `chmod` a refusal names can be
-/// pasted as it is.
+/// `path` as one shell word naming the same directory, so the `chmod` a
+/// refusal names can be pasted as it is: an absolute path whose every byte is
+/// one a shell leaves alone is as it is; any other is single-quoted, and a
+/// relative one -- a relative `HOME` gives one -- is said from `./`, so a
+/// leading `~` or `=` is not expanded and a leading `-` is not an option.
 fn shell_word(path: &Path) -> String {
     let text = path.to_string_lossy();
-    let plain = !text.is_empty()
+    let absolute = text.starts_with('/');
+    let plain = absolute
         && text
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"/._-+@%:,=~".contains(&byte));
     if plain {
+        return text.into_owned();
+    }
+    let text = if absolute {
         text.into_owned()
     } else {
-        format!("'{}'", text.replace('\'', "'\\''"))
-    }
+        format!("./{text}")
+    };
+    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 /// The sentence a refused directory is said in: the session store's, so a
