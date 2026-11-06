@@ -135,11 +135,40 @@ returned. The exit becomes visible a few milliseconds later.
 
 ## Runs
 
-RUNS_PLACEHOLDER
+All runs were on this machine (M5 Max) with the fault-injection lib test
+binary (the CI step that failed), a debug build, and a short `TMPDIR`. The
+load came from other workers' gates.
+
+- **Alone, ×50**: the test with `--exact --test-threads=1`, 50 runs one at a
+  time. 50/50 passed. The one-minute load average was 4.0 to 4.7.
+- **The full fault-injection lib suite, ×3**: one suite at a time, each
+  started only once no `cargo` and no `xfx-*` test binary was running. 3/3
+  passed, 3985 passed and 0 failed each time, and the test passed in every
+  suite. The one-minute load average was 4.0 to 6.5.
+- The CI failure itself was not reproduced here: the old test was run only
+  under `M-delay` (RED A), and passed. The fix does not rest on reproducing
+  it. RED E shows the single look losing the race whenever no earlier wait
+  hides it, and RED B shows the new poll winning the same race.
 
 ## Gates
 
-GATES_PLACEHOLDER
+All on the code of `5cbf64f4`, which is this branch's code; the commit
+after it only finishes this file. Each step ran with a short `TMPDIR`, one at
+a time, and each test suite started only on an idle machine.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4865 passed, 0 failed, 7 ignored (14 targets) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4894 passed, 0 failed, 7 ignored (14 targets) |
+| `scripts/check-xfx-identity.sh` · `check-no-stubs.sh` · `check-no-secrets.sh` | ok · ok · ok (re-run on the final tree) |
+| `cargo build --locked --release`, and with `--features fault-injection --target-dir target/faulty` | ok, ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures, no traceback in any scenario log |
+
+`docs/parity.md`: no row touched. The unit changes a test, not behaviour.
 
 ## Re-run
 
