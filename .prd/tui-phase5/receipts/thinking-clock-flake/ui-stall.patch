@@ -1,0 +1,19 @@
+diff --git a/src/tui/shell.rs b/src/tui/shell.rs
+index bbb23e29..8c2b2c19 100644
+--- a/src/tui/shell.rs
++++ b/src/tui/shell.rs
+@@ -3572,6 +3572,14 @@ impl Shell {
+             // same clock every other row of the band is settled against
+             // ([`Self::tick_activity`]).
+             UiEvent::TurnStarted => {
++                // SCRATCH fault model (never committed): the UI thread off the
++                // CPU right after it has taken `TurnStarted`.
++                if let Some(ms) = std::env::var("XFX_SCRATCH_UI_STALL_MS")
++                    .ok()
++                    .and_then(|v| v.parse::<u64>().ok())
++                {
++                    std::thread::sleep(std::time::Duration::from_millis(ms));
++                }
+                 self.retry = None;
+                 // A turn the user already stopped can still say it started --
+                 // the runtime took it before it read the cancellation -- and
