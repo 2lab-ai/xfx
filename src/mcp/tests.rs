@@ -1822,3 +1822,309 @@ fn a_server_waiting_out_its_backoff_is_stopped_at_once_by_a_reload_or_the_end() 
     drop(server);
     runtime.shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// MCP-Sb: a child mid-handshake, `Retrying` waited on, the pins
+// ---------------------------------------------------------------------------
+
+/// A stdio server that writes its process id to `pid` and then never answers
+/// `initialize`: it reads nothing and is gone by itself after 20 s, so a case
+/// that fails leaves nothing running for long.
+fn holding_server(name: &str, pid: &Path) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        name,
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "echo $$ > \"$1\"; exec sleep 20".into(),
+            "sh".into(),
+            pid.to_string_lossy().into_owned(),
+        ],
+    );
+    server.startup_timeout_ms = 20_000;
+    server
+}
+
+/// Waits until `path` holds a process id, and returns it.
+fn pid_written(path: &Path) -> i32 {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(pid) = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| text.trim().parse().ok())
+        {
+            return pid;
+        }
+        assert!(Instant::now() < deadline, "the server never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Whether anything is left of `pid`'s process group (each server leads its
+/// own, `process_group(0)`).
+fn group_left(pid: i32) -> bool {
+    rustix::process::test_kill_process_group(rustix::process::Pid::from_raw(pid).expect("pid"))
+        .is_ok()
+}
+
+#[test]
+fn a_server_held_mid_handshake_is_gone_before_its_replacement_starts() {
+    // fx never runs a server twice: what would start one waits while the
+    // process a reload dropped under that name is still stopping
+    // (`Engine.stopping`, `vercel-labs/fx@481104fd src/mcp/engine.zig:194-199`;
+    // `src/core/mcp_host/runtime.zig:832-840`). The replacement says what it
+    // saw of the old one when it started.
+    let home = Home::new();
+    let (old_pid, verdict) = (home.dir.path().join("old"), home.dir.path().join("verdict"));
+    config::add_profile_server(&home.profile(), holding_server("slow", &old_pid)).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    let pid = pid_written(&old_pid);
+    assert_eq!(runtime.views()[0].connection, Connection::Connecting);
+    let mut replacement = ServerConfig::local(
+        "slow",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "if kill -0 \"$(cat \"$1\")\" 2>/dev/null; then echo alive; else echo gone; fi > \"$2\"; exec /bin/sh \"$3\"".into(),
+            "sh".into(),
+            old_pid.to_string_lossy().into_owned(),
+            verdict.to_string_lossy().into_owned(),
+            fixture().to_string_lossy().into_owned(),
+        ],
+    );
+    replacement.restart_limit = 0;
+    config::add_profile_server(&home.profile(), replacement).expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        !running(pid),
+        "the old server outlived the reload that dropped it"
+    );
+    assert!(!group_left(pid), "its process group outlived the reload");
+    assert_eq!(settled(&runtime, "slow").status(), Status::Ready);
+    assert_eq!(std::fs::read_to_string(&verdict).unwrap().trim(), "gone");
+    runtime.shutdown();
+}
+
+#[test]
+fn a_server_held_mid_handshake_is_gone_when_a_reload_removes_it_or_the_session_ends() {
+    let home = Home::new();
+    let (removed, ended) = (
+        home.dir.path().join("removed"),
+        home.dir.path().join("ended"),
+    );
+    config::add_profile_server(&home.profile(), holding_server("removed", &removed))
+        .expect("saved");
+    config::add_profile_server(&home.profile(), holding_server("ended", &ended)).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    let (removed_pid, ended_pid) = (pid_written(&removed), pid_written(&ended));
+    assert!(config::remove_profile_server(&home.profile(), "removed").expect("removed"));
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        !running(removed_pid) && !group_left(removed_pid),
+        "removed, still running"
+    );
+    assert!(running(ended_pid));
+    runtime.shutdown();
+    assert!(
+        !running(ended_pid) && !group_left(ended_pid),
+        "the session ended, it did not"
+    );
+}
+
+#[test]
+fn a_feature_request_during_a_startup_backoff_waits_for_the_next_try() {
+    // `Retrying` is still coming up: a resource or prompt read waits through
+    // it as through `Connecting`, rather than answering from the capabilities
+    // of a try that never got as far as `initialize`.
+    let home = Home::new();
+    let marker = home.dir.path().join("tried");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "flaky",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "if [ -e \"$1\" ]; then exec /bin/sh \"$2\"; else : > \"$1\"; exit 3; fi".into(),
+                "sh".into(),
+                marker.to_string_lossy().into_owned(),
+                fixture().to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(Retry {
+        attempts: 8,
+        first: Duration::from_millis(800),
+        cap: Duration::from_millis(800),
+    });
+    runtime.start();
+    let deadline = Instant::now() + WAIT;
+    while runtime.views()[0].connection != Connection::Retrying {
+        assert!(Instant::now() < deadline, "flaky never retried");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let resources = runtime
+        .list_resources("flaky", false, None)
+        .expect("resources");
+    assert_eq!(resources.len(), 1, "{resources:?}");
+    assert_eq!(
+        runtime.list_prompts("flaky", None).expect("prompts").len(),
+        1
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not() {
+    // `/mcp reload` is c1db9191's and says it reconnects; fx v0.0.16 has no
+    // such verb, and its reloads keep a server by its configuration alone
+    // (`src/core/mcp_host/verbs.zig:70`, `src/mcp/engine.zig:167-186@481104fd`).
+    let home = Home::new();
+    let attempts = home.dir.path().join("attempts");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "broken",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "echo started >> \"$1\"; exit 3".into(),
+                "sh".into(),
+                attempts.to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    let tries = || std::fs::read_to_string(&attempts).unwrap().lines().count();
+    assert_eq!(tries(), 8);
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    assert_eq!(tries(), 8, "a config reload is not a retry");
+    runtime.run(Job::Command("reload".into()));
+    assert_eq!(notices(&runtime), [super::command::RELOAD_STARTED]);
+    let deadline = Instant::now() + WAIT;
+    while tries() < 16 {
+        assert!(Instant::now() < deadline, "the reload started nothing");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    runtime.shutdown();
+}
+
+#[test]
+fn a_server_that_answers_401_is_asked_once_and_needs_a_login() {
+    // A sign-in is not something another try brings: one request, then
+    // `NeedsAuth` (`worth_retrying`).
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    let asked = Arc::new(Mutex::new(0usize));
+    {
+        let asked = Arc::clone(&asked);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let asked = Arc::clone(&asked);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let mut length = 0usize;
+                        loop {
+                            let mut header = String::new();
+                            if reader.read_line(&mut header).unwrap_or(0) == 0 {
+                                return;
+                            }
+                            let header = header.trim_end();
+                            if header.is_empty() {
+                                break;
+                            }
+                            if let Some((name, value)) = header.split_once(':') {
+                                if name.eq_ignore_ascii_case("content-length") {
+                                    length = value.trim().parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                        let mut body = vec![0u8; length];
+                        if reader.read_exact(&mut body).is_err() {
+                            return;
+                        }
+                        *asked.lock().unwrap() += 1;
+                        let _ = stream
+                            .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+                    }
+                });
+            }
+        });
+    }
+    let home = Home::new();
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::http("remote", &format!("http://127.0.0.1:{port}/mcp")),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    let view = settled(&runtime, "remote");
+    assert_eq!(view.status(), Status::NeedsAuth, "{view:?}");
+    assert_eq!(view.failure.as_deref(), Some("it needs a login"));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(*asked.lock().unwrap(), 1, "it was tried again");
+    runtime.shutdown();
+}
+
+#[test]
+fn a_servers_hostile_stderr_reaches_capability_search_spelled_and_bounded() {
+    // fx tells the model the same failure (`MCP server '…' is unavailable:
+    // …`, `src/core/mcp_host/model.zig:711@481104fd`, fed by `lastError`,
+    // `runtime.zig:2020-2022`): a configured child's stderr tail, here as the
+    // spelled text it is on the screen.
+    let home = Home::new();
+    let mut server = ServerConfig::local(
+        "bad",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "printf 'boom\\033[2J\\033]52;c;aGk=\\007\\342\\200\\256gnp\\n' >&2; head -c 150 /dev/zero | tr '\\0' z >&2; exit 3".into(),
+        ],
+    );
+    server.restart_limit = 0;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "bad").status(), Status::Failed);
+    let search = super::catalog::search(&runtime, "anything", Some("bad"));
+    let output: Value = serde_json::from_str(&search.output).expect("json");
+    let error = output["mcp_error"].as_str().expect("an error");
+    for obeyed in ['\u{1b}', '\u{7}', '\u{202e}'] {
+        assert!(!error.contains(obeyed), "{error:?}");
+    }
+    // As the model is sent it: JSON, its quotes as entities (`encode_scalar`).
+    let (head, tail) = error
+        .split_once("its last stderr lines: &quot;")
+        .expect("a tail");
+    assert_eq!(
+        head,
+        "MCP server 'bad' is unavailable: its process exited with code 3; "
+    );
+    let tail = tail.strip_suffix("&quot;").expect("closed");
+    assert!(
+        tail.starts_with("boom\\x1b[2J\\x1b]52;c;aGk=\\x07"),
+        "{tail:?}"
+    );
+    assert!(
+        tail.ends_with(&format!(" / {}", "z".repeat(150))),
+        "{tail:?}"
+    );
+    assert!(tail.len() <= 240, "{}", tail.len());
+    runtime.shutdown();
+}

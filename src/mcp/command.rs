@@ -64,7 +64,7 @@ pub fn handle(runtime: &Arc<McpRuntime>, rest: &str) {
     }
     if trimmed == "reload" {
         runtime.notice(false, RELOAD_STARTED);
-        return runtime.reload(Origin::Transcript);
+        return runtime.reconnect(Origin::Transcript);
     }
     if let Some(rest) = trimmed.strip_prefix("trust ") {
         return trust(runtime, rest);

@@ -57,7 +57,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
@@ -110,6 +110,33 @@ impl Retry {
     pub(crate) fn backoff(&self, failed: u8) -> Duration {
         let doublings = u32::from(failed.saturating_sub(1).min(5));
         (self.first * 2u32.pow(doublings)).min(self.cap)
+    }
+}
+
+/// The longest a stop waits for a try that was handing its process over:
+/// that try closes the process itself, a group signal and a grace period.
+const STOP_WAIT: Duration = Duration::from_millis(3_500);
+
+/// A try under way ([`Live::opening`]): marked when it begins and cleared,
+/// with whoever waits on it told, however it ends.
+struct Opening<'a>(&'a Server);
+
+impl<'a> Opening<'a> {
+    /// Marks a try on `server`, unless it was stopped.
+    fn begin(server: &'a Server) -> Option<Self> {
+        let mut live = server.live();
+        if server.stopped.load(Ordering::Acquire) {
+            return None;
+        }
+        live.opening = true;
+        Some(Self(server))
+    }
+}
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.live().opening = false;
+        self.0.opened.notify_all();
     }
 }
 
@@ -400,6 +427,13 @@ struct Live {
     needs_auth: bool,
     failure: Option<String>,
     transport: Option<Arc<dyn Transport>>,
+    /// The connection a try is still opening -- started, not yet through its
+    /// handshake -- so a stop reaches it too ([`Server::stop`]).
+    starting: Option<Arc<dyn Transport>>,
+    /// A try is under way: from just before it starts a process until that
+    /// process is either published, closed, or handed to `starting`. A stop
+    /// waits it out ([`Server::stop`]).
+    opening: bool,
     protocol_version: Option<String>,
     instructions: Option<String>,
     capabilities: Capabilities,
@@ -430,6 +464,8 @@ pub struct Server {
     /// Set by the one reload that starts its connection, so a server carried
     /// over while it is still coming up is connected once and only once.
     claimed: AtomicBool,
+    /// Told when a try is over ([`Live::opening`]).
+    opened: Condvar,
     /// What a person is shown of it before approving it, built once when the
     /// reload that read it built the server ([`shown_entry`]): every view
     /// shares it rather than spelling the entry again per frame.
@@ -457,6 +493,8 @@ impl Server {
                 needs_auth: false,
                 failure: None,
                 transport: None,
+                starting: None,
+                opening: false,
                 protocol_version: None,
                 instructions: None,
                 capabilities: Capabilities::default(),
@@ -466,6 +504,7 @@ impl Server {
             }),
             stopped: AtomicBool::new(false),
             claimed: AtomicBool::new(false),
+            opened: Condvar::new(),
             entry,
         })
     }
@@ -541,12 +580,62 @@ impl Server {
         }
     }
 
+    /// Stops it, and returns only once nothing it started still runs: its
+    /// connection and one a try is still opening are closed -- each close
+    /// ends a process's group and collects it -- and a try that was about to
+    /// hand its process over is waited out, up to [`STOP_WAIT`]. So a
+    /// replacement of the same name never runs beside it, and a session that
+    /// ends leaves none behind (fx holds what would start a server while the
+    /// one a reload dropped under its name is stopping, and its end waits
+    /// 3.5 s for every server: `Engine.stopping`, `Engine.deinit`,
+    /// `vercel-labs/fx@481104fd src/mcp/engine.zig:145-161`, `:194-199`;
+    /// `src/core/mcp_host/runtime.zig:832-840`).
+    ///
+    /// `stopped` is set before the lock is taken, and a try reads it under
+    /// that lock before it hands its process over or publishes: so a try
+    /// either finds it set and closes its own, or has handed it over before
+    /// the lock below is taken, and is closed here.
     fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
-        let transport = self.live().transport.take();
-        if let Some(transport) = transport {
+        let (transport, starting) = {
+            let mut live = self.live();
+            (live.transport.take(), live.starting.take())
+        };
+        for transport in [transport, starting].into_iter().flatten() {
             transport.close();
         }
+        let deadline = Instant::now() + STOP_WAIT;
+        let mut live = self.live();
+        while live.opening {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            live = self
+                .opened
+                .wait_timeout(live, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    /// Hands `transport`, just started, to the server for the rest of its
+    /// try; false, and closed, when the server was stopped first.
+    fn hand_over(&self, transport: &Arc<dyn Transport>) -> bool {
+        let mut live = self.live();
+        if self.stopped.load(Ordering::Acquire) {
+            drop(live);
+            transport.close();
+            return false;
+        }
+        live.starting = Some(Arc::clone(transport));
+        true
+    }
+
+    /// Takes back the connection a try opened, when the try ends without
+    /// publishing it.
+    fn take_back(&self) -> Option<Arc<dyn Transport>> {
+        self.live().starting.take()
     }
 }
 
@@ -575,6 +664,9 @@ struct State {
     /// Each `.mcp.json` entry the last read found, with its digest: what an
     /// approval by name is for ([`config::apply_action`]).
     digests: Vec<(String, String)>,
+    /// The next reload starts a failed server again even when its
+    /// configuration is the same ([`McpRuntime::reconnect`]).
+    reconnect: bool,
 }
 
 /// How a workspace server's `${VAR}` is looked up.
@@ -651,6 +743,7 @@ impl McpRuntime {
                 prompting: None,
                 choices: Choices::default(),
                 digests: Vec::new(),
+                reconnect: false,
             }),
             names: Mutex::new(ToolNames::new(crate::tools::ADVERTISED_TOOLS)),
             events: Mutex::new(VecDeque::new()),
@@ -802,7 +895,7 @@ impl McpRuntime {
                 let result = self.catalog(section, server.as_deref());
                 self.say(Event::Catalog { request, result });
             }
-            Job::MenuReload => self.reload(Origin::Menu),
+            Job::MenuReload => self.reconnect(Origin::Menu),
         }
     }
 
@@ -958,6 +1051,20 @@ impl McpRuntime {
         Ok((servers, workspace.issues, choices, workspace.digests))
     }
 
+    /// A reload the person asked for by name -- `/mcp reload`, the menu's
+    /// `r` -- which also starts again a failed server whose configuration is
+    /// the same. Both are fx c1db9191's, whose `/mcp reload` reconnects
+    /// (`MCP reconnection started. …`, `app_commands.zig:1395-1404@c1db9191`);
+    /// fx v0.0.16 has no such verb (`/mcp reload is gone: fx reloads after
+    /// add, remove, approve, and reject.`, `src/core/mcp_host/verbs.zig:70
+    /// @481104fd`), and its reloads keep a server by its configuration
+    /// alone, whatever its state ([`Self::reload`]). Until `/mcp` is fx
+    /// v0.0.16's, the verb keeps doing what it says.
+    pub fn reconnect(self: &Arc<Self>, origin: Origin) {
+        self.state().reconnect = true;
+        self.reload(origin);
+    }
+
     /// Reads both files again and connects what changed, telling `origin`
     /// how it went. A reload asked for while one runs runs after it.
     pub fn reload(self: &Arc<Self>, origin: Origin) {
@@ -1016,13 +1123,16 @@ impl McpRuntime {
         // config is the same (`Engine.reload`, `src/mcp/engine.zig:167-186`)
         // -- and the rest start fresh.
         let current = self.servers();
+        let reconnect = std::mem::take(&mut self.state().reconnect);
         let index = by_name(&digests);
         let mut next: Vec<Arc<Server>> = Vec::with_capacity(configs.len());
         let mut connecting: Vec<Arc<Server>> = Vec::new();
         for config in configs {
-            let kept = current
-                .iter()
-                .find(|server| server.config == config && !server.stopped.load(Ordering::Acquire));
+            let kept = current.iter().find(|server| {
+                server.config == config
+                    && !server.stopped.load(Ordering::Acquire)
+                    && !(reconnect && server.live().connection == Connection::Failed)
+            });
             let server = match kept {
                 Some(server) => Arc::clone(server),
                 None => Server::new(config, &index),
@@ -1043,7 +1153,9 @@ impl McpRuntime {
                 .collect()
         };
         // A changed server's old process goes before its new one starts
-        // (`Runtime.reload`, `runtime.zig:628-642`).
+        // (`Runtime.reload`, `runtime.zig:628-642`; `Engine.stopping`,
+        // `src/mcp/engine.zig:194-199`): each stop returns once nothing it
+        // started runs, a try in its handshake included ([`Server::stop`]).
         for server in retired {
             server.stop();
         }
@@ -1082,6 +1194,7 @@ impl McpRuntime {
             server.live().connection = Connection::Connecting;
             let failed = match self.open(server) {
                 Ok(()) => return,
+                Err(_) if server.stopped.load(Ordering::Acquire) => return,
                 Err(failed) => failed,
             };
             let auth = failed.error == McpError::Named("McpAuthenticationRequired");
@@ -1102,7 +1215,15 @@ impl McpRuntime {
 
     /// One attempt: start, initialize, list the tools, publish. A failure
     /// comes with fx's words for it ([`failure_words`]).
+    ///
+    /// The connection is the server's from the moment it is started
+    /// ([`Server::hand_over`]), so a stop during the handshake closes it; and
+    /// it is published under the same lock a stop takes, so a stopped server
+    /// never gets one. A stopped server's try ends `Ok`, with nothing to say.
     fn open(&self, server: &Arc<Server>) -> Result<(), Box<Failed>> {
+        let Some(_opening) = Opening::begin(server) else {
+            return Ok(());
+        };
         let config = &server.config;
         let deadline = Instant::now() + config.startup_timeout();
         let left = || deadline.saturating_duration_since(Instant::now());
@@ -1121,10 +1242,19 @@ impl McpRuntime {
             ),
             Kind::Sse => return Err(started(McpError::Named("McpTransportUnsupported"))),
         };
+        if !server.hand_over(&transport) {
+            return Ok(());
+        }
+        drop(_opening);
         let result = self.handshake(server, &transport, &left);
         let (version, capabilities, instructions, tools) = match result {
             Ok(found) => found,
             Err((step, error)) => {
+                // A stop closed it, and is the reason: nothing to tell.
+                if server.take_back().is_none() || server.stopped.load(Ordering::Acquire) {
+                    transport.close();
+                    return Ok(());
+                }
                 // What a stdio server said on its way out, and how it ended,
                 // both read before it is stopped: a stop would end it itself.
                 // An HTTP server has neither.
@@ -1137,11 +1267,12 @@ impl McpRuntime {
                 return Err(Box::new(Failed::new(step, error, exit, stderr.as_deref())));
             }
         };
-        if server.stopped.load(Ordering::Acquire) {
+        let mut live = server.live();
+        if server.stopped.load(Ordering::Acquire) || live.starting.take().is_none() {
+            drop(live);
             transport.close();
             return Ok(());
         }
-        let mut live = server.live();
         live.connection = Connection::Ready;
         live.needs_auth = false;
         live.failure = None;
@@ -1599,7 +1730,11 @@ impl McpRuntime {
             return Err(McpError::Named("McpWorkspaceApprovalRequired"));
         }
         let deadline = Instant::now() + server.config.operation_timeout();
-        while server.live().connection == Connection::Connecting {
+        // Still coming up: a try under way, or the wait before the next one.
+        while matches!(
+            server.live().connection,
+            Connection::Connecting | Connection::Retrying
+        ) {
             if cancel.is_some_and(CancelToken::is_cancelled) {
                 return Err(McpError::Named("Cancelled"));
             }
@@ -2244,6 +2379,14 @@ mod tests {
         let tail = stderr_tail(&long).expect("a tail");
         assert!(tail.len() <= STDERR_TAIL_MAX_BYTES, "{}", tail.len());
         assert!(tail.ends_with('\u{e9}') && !tail.contains('a'), "{tail}");
+        // One line with no break: its head, not its tail, is what is kept of
+        // it -- the per-line cut is from the start, the whole one from the
+        // end, and only these sentinels tell them apart.
+        let unterminated = format!("HEAD{}TAIL", "x".repeat(1_000));
+        assert_eq!(
+            stderr_tail(&unterminated).as_deref(),
+            Some(format!("HEAD{}", "x".repeat(236)).as_str())
+        );
         let lines = format!(
             "{}\n{}\n{}\n",
             "x".repeat(100),

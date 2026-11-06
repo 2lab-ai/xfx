@@ -2349,4 +2349,60 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         );
         transport.close();
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_servers_exit_is_read_without_collecting_it_and_close_collects_it_and_its_group() {
+        // `Transport::exit` reads how the process ended with `NOWAIT`: as
+        // often as asked, the same answer, and the leader still uncollected,
+        // so its id is still its group's until `close` collects it.
+        let transport = StdioTransport::spawn(
+            "/bin/sh",
+            &["-c".into(), "exec 0<&-; exit 3".into()],
+            &[],
+            None,
+        )
+        .expect("spawned");
+        let leader = rustix::process::Pid::from_raw(
+            transport
+                .child
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("a child")
+                .id() as i32,
+        )
+        .expect("pid");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let first = loop {
+            if let Some(exit) = transport.exit() {
+                break exit;
+            }
+            assert!(Instant::now() < deadline, "the server never exited");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(first, Exit::Code(3));
+        for _ in 0..3 {
+            assert_eq!(transport.exit(), Some(Exit::Code(3)));
+        }
+        let uncollected = || {
+            matches!(
+                rustix::process::waitid(
+                    rustix::process::WaitId::Pid(leader),
+                    rustix::process::WaitIdOptions::EXITED
+                        | rustix::process::WaitIdOptions::NOWAIT
+                        | rustix::process::WaitIdOptions::NOHANG,
+                ),
+                Ok(Some(_))
+            )
+        };
+        assert!(uncollected(), "reading the exit collected the leader");
+        transport.close();
+        assert!(!uncollected(), "close left the leader uncollected");
+        assert!(
+            rustix::process::test_kill_process_group(leader).is_err(),
+            "its group outlived the close"
+        );
+        assert_eq!(transport.exit(), None, "closed: nothing left to read");
+    }
 }
