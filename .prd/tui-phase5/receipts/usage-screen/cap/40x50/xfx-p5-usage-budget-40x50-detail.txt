@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+──────────────────────────────────────────────────
+usage: openai/gpt-5…model 2 of 4  updated just now
+
+period        spent   share  requests  tokens
+today             -       -         -       -
+7d            $4.10   17.5%        64    1.2M
+month         $4.10   17.3%        64    1.2M
+
+tokens     in    out  reason  cache rd  cache wr
+today       -      -       -         -         -
+7d       880K    40K     31K      300K         0
+month    880K    40K     31K      300K         0
+
+perf      cache hit  p90 ttft  p90 tok/s  errors
+today             -         -          -       -
+7d            40.0%      1.3s         95    0.0%
+month         40.0%      1.3s         95    0.0%
+──────────────────────────────────────────────────
+↑↓ next model     esc back     r refresh
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

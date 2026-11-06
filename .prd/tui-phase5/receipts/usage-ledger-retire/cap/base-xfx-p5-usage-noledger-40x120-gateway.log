@@ -1,0 +1,65 @@
+[fakegw] listening 53976
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=867ms -> 200 at=867ms headers=authorization
+[fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
+[fakegw] request POST /v4/ai/language-model at=3344ms -> 200 at=3352ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text, bill deferred
+[fakegw] request POST /v4/ai/language-model at=3399ms -> 200 at=3399ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ5 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ5 at=3451ms -> 404 at=3454ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ5 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ5 at=4455ms -> 404 at=4455ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ5 bearer=yes -> record
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ5 at=5459ms -> 200 at=5459ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text, bill deferred
+[fakegw] request POST /v4/ai/language-model at=6400ms -> 200 at=6400ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=6438ms -> 404 at=6438ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=7444ms -> 404 at=7444ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=8450ms -> 404 at=8450ms headers=authorization
+[fakegw] request GET /v1/report?start_date=2026-11-06&end_date=2026-11-06&group_by=model&api_key_id=self at=9413ms -> 404 at=9413ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=9457ms -> 404 at=9457ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=10460ms -> 404 at=10460ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=11467ms -> 404 at=11467ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=14008ms -> 404 at=14008ms headers=authorization
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=14008ms -> 200 at=14009ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=15009ms -> 404 at=15009ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=16011ms -> 404 at=16012ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=17014ms -> 404 at=17014ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=18019ms -> 404 at=18019ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text, bill deferred
+[fakegw] request POST /v4/ai/language-model at=18041ms -> 200 at=18041ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 at=18079ms -> 404 at=18079ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=19025ms -> 404 at=19025ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 at=19086ms -> 404 at=19086ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=20026ms -> 404 at=20026ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 at=20091ms -> 404 at=20091ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=21033ms -> 404 at=21033ms headers=authorization
+[fakegw] request GET /v1/report?start_date=2026-11-06&end_date=2026-11-06&group_by=model&api_key_id=self at=21036ms -> 404 at=21036ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 at=21097ms -> 404 at=21097ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=22040ms -> 404 at=22042ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 at=22103ms -> 404 at=22105ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ6 at=23048ms -> 404 at=23048ms headers=authorization
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 bearer=yes -> not yet
+[fakegw] request GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ7 at=23111ms -> 404 at=23112ms headers=authorization

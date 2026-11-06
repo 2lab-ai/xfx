@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                               AI Gateway refused this sign-in, last updated just now
+
+period        spent  requests  tokens
+today       $0.4735        16    110K
+7d           $23.41       240    5.8M
+month        $23.72       249    5.9M
+
+  model (today)                spent   share  requests  tokens
+❯ anthropic/claude-opus-5    $0.4610   97.4%        13     93K
+  fake/model-a               $0.0125    2.6%         3     17K
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ model     enter detail     tab period     r refresh     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

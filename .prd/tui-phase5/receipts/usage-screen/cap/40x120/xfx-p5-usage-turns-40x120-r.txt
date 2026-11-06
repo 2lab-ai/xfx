@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: session: on
+
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                                                                     updated just now
+
+period        spent  requests  tokens
+today       $0.4335         2     68K
+7d          $0.4835         6    106K
+month       $0.5825        13    170K
+
+  model (month)                spent   share  requests  tokens
+❯ anthropic/claude-opus-5    $0.4210   72.3%         1     55K
+  fake/model-a               $0.1225   21.0%        10     99K
+  openai/gpt-6-astra         $0.0390    6.7%         2     16K
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ model     enter detail     tab period     r refresh     esc close
+
+
+
+
