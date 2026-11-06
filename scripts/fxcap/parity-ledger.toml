@@ -546,22 +546,33 @@ kind = "defect"
 owner = "unowned (S1 item 2 owns the skill notices, not this record)"
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  [a-z_]+(?:, [a-z_]+)*, \+\d+ more\)$'
-xfx_row = '^  tools: \d+ advertised|^  \+\d+ more\)$|^  [a-z_]+(?:, [a-z_]+)*, \+\d+ more\)$'
+fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx = ["src/tui/shell.rs:32298"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
-why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:231). The tool list's second row is matched at any width (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools` 40x80)."
+why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:231). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
 [[cause]]
 id = "transcript-page-offset"
 kind = "defect"
-owner = "unowned (follows tool-schema)"
-scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize"]
+owner = "unowned (follows tool-schema and session-record)"
+scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685"]
-fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
-why = "A Ctrl-O page counted from the tail starts two rows later on fx than on xfx, because fx's command entry below it has two argument rows xfx's `terminal` has not (`tool-schema`): the two rows at the top of xfx's page and at the bottom of fx's (and the footer's blank row under it) have no partner on the other side's screen. Only those row numbers; every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:32298"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+
+[[cause]]
+id = "subagent-tool"
+kind = "defect"
+owner = "unowned (the subagent tool, deferred: docs/parity.md `subagent`)"
+scenarios = ["p5-transcript-tools"]
+snaps = ["end*", "full-pgup-after", "full-tail*"]
+whole_snap = true
+xfx = ["docs/parity.md:172"]
+fx = ["src/core/tooling/tools.zig:1370@c1db9191"]
+why = "The scenario's second step calls fx's `subagent` tool twice; xfx has none, so its turns leave the step out. Every snap after that step has fx's two subagent rows, their results and the header's `2 subagents` count, and stands rows apart; what else differs there is read once xfx has the tool. The snaps before the step are not covered (`full-running`, `full-pgup`, `running`)."
 
 [[cause]]
 id = "full-transcript-shift"

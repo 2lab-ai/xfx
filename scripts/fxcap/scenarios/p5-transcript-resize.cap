@@ -3,8 +3,10 @@
 # while it runs and the record is still. At 120 columns: the tail, a page up,
 # three rows up and back. Narrowed to 80 with Ctrl-O up (every entry is laid
 # out again and the wrapped heading takes more rows): the pinned view, then
-# the tail at 80 and a page above it. Widened back to 120: the pinned view,
-# the tail and a page above it; then the command settles under that view.
+# the tail at 80, a page above it, three rows up and back. Widened back to
+# 120: the pinned view, the tail, a page above it, three rows up and back;
+# then the command settles under that view. Each arrow window is what gives
+# every row of the page under it a partner on fx's screen.
 # A width change is a rebuild on fx's screen: the page laid out at the old
 # width is the one the position is pinned on (`presentationForRebuiltPage`,
 # src/ui/transcript/runtime.zig:11584-11590@481104fd). fx's `shell`/`run` is
@@ -42,6 +44,11 @@ snap full-tail-80
 key PPage
 wait 0.8
 snap full-tail-80-pgup
+key Up
+wait 0.5
+snap full-tail-80-up
+key Down
+wait 0.5
 resize 40x120
 wait 1.2
 snap full-pgup-120
@@ -51,7 +58,12 @@ snap full-tail-120
 key PPage
 wait 0.8
 snap full-tail-120-pgup
-wait 12
+key Up
+wait 0.5
+snap full-tail-120-up
+key Down
+wait 0.5
+wait 11
 snap full-pgup-after
 key C-o
 wait 1
