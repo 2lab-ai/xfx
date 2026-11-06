@@ -323,6 +323,13 @@ pub(crate) enum DocumentRow {
     /// A row of a code block in an answer: its frame and its highlighted
     /// lines ([`COMMENT`], [`COMMAND`], [`NOTICE`]).
     Code,
+    /// A row of a table in an answer, which a theme report leaves as it was
+    /// drawn: upstream keeps a table out of the switch's rewrite
+    /// (`store.zig:3758@481104fd`) and draws it again from cells styled when
+    /// the table was added (`block_render.zig:458`; `renderTableForTranscript`
+    /// takes no theme, `transcript_blocks.zig:980-984`), so a table's inline
+    /// code and links keep the shade they were drawn in.
+    Table,
 }
 
 impl Palette {
@@ -536,6 +543,8 @@ impl Palette {
     /// tool group's row) and its comments ([`COMMENT`]) -- so on those rows a
     /// dark `245` is a comment and goes to `243`, which is the colour upstream
     /// draws the block in again after a switch, and a light `243` comes back.
+    ///
+    /// A table's rows answer nothing ([`DocumentRow::Table`]).
     pub(crate) fn document_retint_in(
         &self,
         row: DocumentRow,
@@ -547,6 +556,7 @@ impl Palette {
             DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
             DocumentRow::Answer => &[ANSWER],
             DocumentRow::Code => &[COMMENT, COMMAND, NOTICE],
+            DocumentRow::Table => return None,
         };
         let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
@@ -1385,8 +1395,9 @@ mod tests {
         // Inline code is the brightest neutral since fx v0.0.16 (`5e32bce2`):
         // 255 dark and 235 light, the body grey's numbers, which upstream's
         // retint table already maps to each other (`store.zig:3784-3800`).
-        // On a plain row -- prose, a list item, a table cell -- the body role
-        // carries it across a switch both ways.
+        // On a plain row -- prose, a list item, a heading -- the body role
+        // carries it across a switch both ways. A table cell's is not on a
+        // plain row (`a_tables_row_keeps_the_colours_it_was_drawn_in`).
         use crate::markdown::theme::{FX_DARK, FX_LIGHT};
         let light = Palette {
             mode: Mode::Light,
@@ -1406,6 +1417,28 @@ mod tests {
             dark.document_retint(Color::Indexed(235)),
             Some(FX_DARK.inline_code_open.as_ref())
         );
+    }
+
+    #[test]
+    fn a_tables_row_keeps_the_colours_it_was_drawn_in() {
+        // fx v0.0.16 does not recolour a table on a theme switch: its cells
+        // were styled when the table was added (`store.zig:3758`,
+        // `block_render.zig:458`). So nothing on a table's row is a cell to
+        // repaint -- not its inline code in either mode's grey, not a link,
+        // not a grey another row kind would move.
+        for mode in [Mode::Dark, Mode::Light] {
+            let palette = Palette {
+                mode,
+                depth: Depth::Ansi256,
+            };
+            for index in [255, 235, 245, 247, 250, 241, 252, 238, 75, 25] {
+                assert_eq!(
+                    palette.document_retint_in(DocumentRow::Table, Color::Indexed(index)),
+                    None,
+                    "{mode:?} {index}"
+                );
+            }
+        }
     }
 
     #[test]

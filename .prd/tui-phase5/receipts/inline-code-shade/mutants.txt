@@ -1,0 +1,64 @@
+# The round's tests at the code head, then under three mutants of src/tui/shell.rs.
+# cargo test --locked --lib -- <the six event_loop tests>
+## head
+test tui::event_loop::tests::a_fence_the_turn_left_open_is_a_code_block_and_ends_as_one ... ok
+test tui::event_loop::tests::a_resumed_answers_code_block_is_recorded_and_recoloured_as_a_live_ones ... ok
+test tui::event_loop::tests::a_code_blocks_kind_ends_with_the_block_so_the_summary_after_it_is_a_summary ... ok
+test tui::event_loop::tests::a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again ... ok
+test tui::event_loop::tests::an_indented_code_block_is_a_code_block_and_ends_as_one ... ok
+test tui::event_loop::tests::a_tables_cells_keep_the_colours_they_were_drawn_in_across_a_report ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 0.02s
+
+## A: the kind reset after a block deleted
+# sed '12110,12112d' src/tui/shell.rs (the queue_kind(DocumentRow::Plain) after write_structure's rows): every later row keeps the block's kind
+test tui::event_loop::tests::a_code_blocks_kind_ends_with_the_block_so_the_summary_after_it_is_a_summary ... FAILED
+test tui::event_loop::tests::a_fence_the_turn_left_open_is_a_code_block_and_ends_as_one ... FAILED
+test tui::event_loop::tests::a_resumed_answers_code_block_is_recorded_and_recoloured_as_a_live_ones ... FAILED
+test tui::event_loop::tests::a_tables_cells_keep_the_colours_they_were_drawn_in_across_a_report ... FAILED
+test tui::event_loop::tests::a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again ... ok
+test tui::event_loop::tests::an_indented_code_block_is_a_code_block_and_ends_as_one ... FAILED
+  left: Some(243)
+ right: Some(247)
+  left: Some(243)
+ right: Some(247)
+  left: Some(243)
+ right: Some(247)
+  left: None
+ right: Some(247)
+  left: Some(243)
+ right: Some(247)
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 0.02s
+# restored: 2 DocumentRow::Code, 2 reset(s) in shell.rs
+
+## B: a code block's rows recorded as plain
+# sed 's/write_structure(&rows, DocumentRow::Code)/write_structure(\&rows, DocumentRow::Plain)/'
+test tui::event_loop::tests::a_fence_the_turn_left_open_is_a_code_block_and_ends_as_one ... FAILED
+test tui::event_loop::tests::a_code_blocks_kind_ends_with_the_block_so_the_summary_after_it_is_a_summary ... FAILED
+test tui::event_loop::tests::a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again ... FAILED
+test tui::event_loop::tests::a_resumed_answers_code_block_is_recorded_and_recoloured_as_a_live_ones ... FAILED
+test tui::event_loop::tests::an_indented_code_block_is_a_code_block_and_ends_as_one ... FAILED
+test tui::event_loop::tests::a_tables_cells_keep_the_colours_they_were_drawn_in_across_a_report ... ok
+  left: Some(247)
+ right: Some(243)
+  left: Some(247)
+ right: Some(243)
+  left: Some(247)
+ right: Some(243)
+  left: Some(247)
+ right: Some(243)
+  left: Some(247)
+ right: Some(243)
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 0.03s
+# restored: 2 DocumentRow::Code, 2 reset(s) in shell.rs
+
+## C: a table's rows recorded as plain (T-U3's head)
+# sed 's/write_structure(&rows, DocumentRow::Table)/write_structure(\&rows, DocumentRow::Plain)/'
+test tui::event_loop::tests::a_fence_the_turn_left_open_is_a_code_block_and_ends_as_one ... ok
+test tui::event_loop::tests::a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again ... ok
+test tui::event_loop::tests::a_code_blocks_kind_ends_with_the_block_so_the_summary_after_it_is_a_summary ... ok
+test tui::event_loop::tests::a_resumed_answers_code_block_is_recorded_and_recoloured_as_a_live_ones ... ok
+test tui::event_loop::tests::a_tables_cells_keep_the_colours_they_were_drawn_in_across_a_report ... FAILED
+test tui::event_loop::tests::an_indented_code_block_is_a_code_block_and_ends_as_one ... ok
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 0.02s
+# restored: 2 DocumentRow::Code, 2 reset(s) in shell.rs
+

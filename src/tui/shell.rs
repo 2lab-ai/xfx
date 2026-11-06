@@ -12035,7 +12035,7 @@ impl Shell {
             }
             markdown::Event::Table(table) => {
                 let rows = blocks::table_row_bytes(&table, cols);
-                self.write_structure(&rows, DocumentRow::Plain);
+                self.write_structure(&rows, DocumentRow::Table);
             }
             markdown::Event::ThematicRule => {
                 let rule = blocks::render_thematic_rule(cols);
@@ -12095,7 +12095,8 @@ impl Shell {
     /// The rows are recorded as `kind` ([`Transcript::queue_kind`]) and the
     /// blank row under them as plain, in [`Self::write_block`]'s order: a code
     /// panel's rows are the highlighter's greys, which a theme report repaints
-    /// by their own rule ([`DocumentRow::Code`]).
+    /// by their own rule ([`DocumentRow::Code`]), and a table's are left as
+    /// they were drawn ([`DocumentRow::Table`]).
     fn write_structure(&mut self, rows: &str, kind: DocumentRow) {
         self.close_prose();
         self.finish_document_line();

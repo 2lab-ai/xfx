@@ -5461,6 +5461,45 @@ mod tests {
         );
     }
 
+    /// The 256-colour foreground the first run of `needle` is written under,
+    /// read off the bytes: the last colour set before it, unless a reset came
+    /// after. `None` when `needle` is not in `written` at all, or is written
+    /// under no colour.
+    fn fg_of(written: &str, needle: &str) -> Option<u8> {
+        let at = written.find(needle)?;
+        let mut fg = None;
+        for (index, _) in written[..at].match_indices("\u{1b}[") {
+            let rest = &written[index + 2..at];
+            let Some(end) = rest.find(|c: char| c.is_ascii_alphabetic()) else {
+                continue;
+            };
+            if rest.as_bytes()[end] != b'm' {
+                continue;
+            }
+            let params = &rest[..end];
+            if params == "0" || params == "39" || params.is_empty() {
+                fg = None;
+            } else if let Some(n) = params.strip_prefix("38;5;") {
+                fg = n.parse().ok();
+            }
+        }
+        fg
+    }
+
+    /// A shell with a prompt submitted and its turn under way, on a screen
+    /// that has painted its band.
+    fn a_turn_under_way(
+        shell: &mut Fixture,
+        band: &mut Band,
+        out: &mut FlakyScreen,
+        failures: &mut FrameFailures,
+        now: Instant,
+    ) {
+        tick(shell, band, out, failures, now);
+        shell.route_bytes(b"hello\r");
+        shell.apply(UiEvent::TurnStarted);
+    }
+
     #[test]
     fn a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again() {
         // fx v0.0.16 (`5e32bce2`): inline code is the brightest neutral, 255
@@ -5469,25 +5508,6 @@ mod tests {
         // palette (`transcript_blocks.zig:2023-2029`), so its comment goes
         // from 245 to the light comment grey 243 -- not to the 247 a turn's
         // summary in the same dark grey goes to -- and back.
-        //
-        // The foreground a run of text is written under, read off the bytes:
-        // the last colour set before it, unless a reset came after. A repaint
-        // that finds the colour already in force sets none.
-        fn fg_of(written: &str, needle: &str) -> Option<u8> {
-            let at = written.find(needle)?;
-            let mut fg = None;
-            for (index, _) in written[..at].match_indices("\u{1b}[") {
-                let rest = &written[index + 2..at];
-                let Some(end) = rest.find('m') else { continue };
-                let params = &rest[..end];
-                if params == "0" || params == "39" || params.is_empty() {
-                    fg = None;
-                } else if let Some(n) = params.strip_prefix("38;5;") {
-                    fg = n.parse().ok();
-                }
-            }
-            fg
-        }
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -5523,6 +5543,205 @@ mod tests {
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(fg_of(&back, "zig build"), Some(255), "{back:?}");
         assert_eq!(fg_of(&back, "# build it"), Some(245), "{back:?}");
+    }
+
+    #[test]
+    fn a_code_blocks_kind_ends_with_the_block_so_the_summary_after_it_is_a_summary() {
+        // The rows after a code block are not the block's: the summary under
+        // an answer that ends in one is a dark 245 like a comment, and goes to
+        // the summary's 247 on a light screen, not to the comment's 243.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.apply(UiEvent::Delta(
+            "Run it.\n\n```sh\n# build it\nzig build\n```\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "# build it"), Some(245), "{landed:?}");
+        assert_eq!(fg_of(&landed, "0s ("), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&written, "# build it"), Some(243), "{written:?}");
+        assert_eq!(
+            fg_of(&written, "0s ("),
+            Some(247),
+            "the summary under a code block was taken for the block's: {written:?}"
+        );
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&back, "# build it"), Some(245), "{back:?}");
+        assert_eq!(fg_of(&back, "0s ("), Some(245), "{back:?}");
+    }
+
+    #[test]
+    fn a_fence_the_turn_left_open_is_a_code_block_and_ends_as_one() {
+        // A turn that ends inside a fence: the presenter gives the block up
+        // when the answer closes (`close_answer`, `markdown.finish`), on the
+        // turn's end -- the same `present` arm, so the same kind, and the
+        // summary written after it is plain.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.apply(UiEvent::Delta("```sh\n# build it\nzig build\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "# build it"), Some(245), "{landed:?}");
+        assert_eq!(fg_of(&landed, "0s ("), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&written, "# build it"), Some(243), "{written:?}");
+        assert_eq!(fg_of(&written, "0s ("), Some(247), "{written:?}");
+    }
+
+    #[test]
+    fn an_indented_code_block_is_a_code_block_and_ends_as_one() {
+        // Four columns of indent after a blank line is a code block with no
+        // fence and no info word; this one's language is inferred (ts), so it
+        // has a comment to recolour. The prose after it is plain.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.apply(UiEvent::Delta(
+            concat!(
+                "Steps:\n\n    // resume it\n",
+                "    const hook = await resumeHook(token, { cleanup: true } as CleanupSignal);\n",
+                "\nDone with `it`.\n",
+            )
+            .to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "// resume it"), Some(245), "{landed:?}");
+        assert_eq!(fg_of(&landed, "const"), Some(252), "{landed:?}");
+        assert_eq!(fg_of(&landed, "it\u{1b}[39m."), Some(255), "{landed:?}");
+        assert_eq!(fg_of(&landed, "0s ("), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&written, "// resume it"), Some(243), "{written:?}");
+        assert_eq!(fg_of(&written, "const"), Some(238), "{written:?}");
+        assert_eq!(fg_of(&written, "0s ("), Some(247), "{written:?}");
+    }
+
+    #[test]
+    fn a_resumed_answers_code_block_is_recorded_and_recoloured_as_a_live_ones() {
+        // A resumed session's answer goes through the same presenter
+        // (`Shell::hydrate` -> `write_answer` -> `present`), so its code block
+        // is recorded as one and the summary the replay writes after it is
+        // plain.
+        use super::super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.hydrate(
+            Hydration {
+                title: Some("saved".to_string()),
+                turns: vec![HydratedTurn {
+                    sent: "saved".to_string(),
+                    steps: vec![HydratedStep::Text(
+                        "Run `zig build` first.\n\n```sh\n# build it\nzig build\n```\n".to_string(),
+                    )],
+                    ending: Ending::Concluded {
+                        seconds: 0,
+                        output: Some(40),
+                    },
+                    started_at_ms: 0,
+                    concluded_at_ms: None,
+                    details: Vec::new(),
+                    images: Vec::new(),
+                }],
+                model: None,
+                settings: None,
+                keeps_fast_binding: true,
+                provider: None,
+                unauthenticated: None,
+                model_replaced: false,
+                next_image: 1,
+            },
+            false,
+        );
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "zig build"), Some(255), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# build it"), Some(245), "{landed:?}");
+        assert_eq!(fg_of(&landed, "0s ("), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&written, "zig build"), Some(235), "{written:?}");
+        assert_eq!(fg_of(&written, "# build it"), Some(243), "{written:?}");
+        assert_eq!(fg_of(&written, "0s ("), Some(247), "{written:?}");
+    }
+
+    #[test]
+    fn a_tables_cells_keep_the_colours_they_were_drawn_in_across_a_report() {
+        // fx v0.0.16 leaves a table out of a theme switch's rewrite
+        // (`store.zig:3758`) and draws it again from cells styled when it was
+        // added (`renderTableForTranscript` takes no theme,
+        // `transcript_blocks.zig:980-984`; the cells are rendered at parse
+        // time, `block_render.zig:458`). So a table's inline code keeps the
+        // shade it was drawn in, while the prose beside it follows the switch
+        // (`p5-inline-code-table`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.apply(UiEvent::Delta(
+            "Run `zig build` first.\n\n| Step | Command |\n|---|---|\n| test | `zig test` |\n\nDone.\n"
+                .to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "zig build"), Some(255), "{landed:?}");
+        assert_eq!(fg_of(&landed, "zig test"), Some(255), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&written, "zig build"), Some(235), "{written:?}");
+        assert!(
+            !written.contains("zig test"),
+            "the table's inline code was recoloured, which upstream's is not: {written:?}"
+        );
+        assert_eq!(fg_of(&written, "0s ("), Some(247), "{written:?}");
+
+        // And a table drawn light keeps its light shade on a dark screen.
+        shell.route_bytes(b"again\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta(
+            "| Step | Command |\n|---|---|\n| lint | `zig fmt` |\n\nDone.\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "zig fmt"), Some(235), "{landed:?}");
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            !back.contains("zig fmt") && !back.contains("zig test"),
+            "a table's cells were recoloured on the way back: {back:?}"
+        );
     }
 
     #[test]
