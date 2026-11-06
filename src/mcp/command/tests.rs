@@ -956,7 +956,9 @@ fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
     // the entry whose digest was saved (`load_workspace` asks
     // `Choices::admission` with the digest it reads). An approval of the
     // unparsed `late` saved, then `.mcp.json` rewritten before the reload
-    // that follows it: the rewritten entry is pending, and not started.
+    // that follows it: the rewritten entry is pending, and not started. A
+    // reload of the file as approved, first, is the control: the same save
+    // admits that entry and starts it.
     let scratch = Scratch::new();
     scratch.write_profile("{}");
     std::fs::write(scratch.project(), late_entry("A")).unwrap();
@@ -975,6 +977,22 @@ fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
         },
     )
     .expect("saved");
+    // The control: no rewrite, and the saved approval admits the entry.
+    runtime.reload(Origin::Transcript);
+    assert_eq!(
+        runtime.loaded_digest("late").as_deref(),
+        Some(approved.as_str())
+    );
+    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"));
+    assert_eq!(choices.admission("late", &approved), Admission::Approved);
+    let view = runtime
+        .views()
+        .into_iter()
+        .find(|view| view.name == "late")
+        .expect("approved and expanded: a server");
+    assert_eq!(view.admission, Some(Admission::Approved));
+    ready(&runtime, "late");
+    // The case: the same save, the entry rewritten before the next reload.
     let rewritten = format!(
         r#"{{"mcpServers":{{"late":{{"command":"/bin/sh","args":["{}","B"]}}}}}}"#,
         fixture()

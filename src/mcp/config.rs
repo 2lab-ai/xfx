@@ -1654,9 +1654,11 @@ fn entry_value(entry: &Entry) -> Json {
 ///
 /// A `${...}` in a **project** URL is the reader's to expand once the entry is
 /// approved ([`load_workspace`]), so what an expansion can't change is checked
-/// now -- the template's syntax, a literal `http` or `https` scheme, no `@` in
-/// the authority, no `#` -- and the rest once it is expanded. A profile's
-/// entries are never expanded, so its URL is checked as written.
+/// now -- the template's syntax, a literal `http` or `https` scheme, and no
+/// literal `@` or `#` anywhere after `://` ([`template_url_holds`]: where the
+/// authority ends is the expansion's to say) -- and the rest once it is
+/// expanded. A profile's entries are never expanded, so its URL is checked as
+/// written.
 pub fn unreadable(file: File, name: &str, entry: &Entry) -> Option<&'static str> {
     let cannot = || Some(entry_problem(None));
     let Ok(text) = render(&Json::Object(vec![(name.to_string(), entry_value(entry))])) else {
