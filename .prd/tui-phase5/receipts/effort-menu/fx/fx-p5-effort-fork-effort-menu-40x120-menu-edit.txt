@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* Reasoning effort set to medium for openai/gpt-6-astra
+
+┃ x
+
+auto · gpt-6-astra · medium
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

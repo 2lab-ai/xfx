@@ -1,0 +1,14 @@
+=== ~/.xfx/history.jsonl (128 bytes)
+{"schema_version":1,"timestamp_ms":1793784619014,"workspace_root":"<scratch>/work","text":"/effort"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (105 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "effort": "medium"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

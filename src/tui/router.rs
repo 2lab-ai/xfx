@@ -56,6 +56,11 @@ pub(crate) trait CommandHandlers {
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
+    /// `/effort`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which opens the menu of the current model's
+    /// levels. What a level may be is `crate::provider::effort::Effort::parse`'s
+    /// to say, and whether the model offers it is its catalog row's.
+    fn effort(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
     /// `/fast`. It takes nothing: `/fast on` never reaches it ([`classify`]).
@@ -219,6 +224,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Rename => handlers.rename(argument),
         Slash::Fork => handlers.fork(),
         Slash::Model => handlers.model(argument),
+        Slash::Effort => handlers.effort(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
         Slash::Allowlist => handlers.allowlist(argument),
@@ -302,6 +308,9 @@ mod tests {
         }
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
+        }
+        fn effort(&mut self, argument: &str) {
+            self.calls.push(format!("effort {argument}"));
         }
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
@@ -397,6 +406,7 @@ mod tests {
             ("/rename", "rename "),
             ("/fork", "fork"),
             ("/model", "model "),
+            ("/effort", "effort "),
             ("/copy", "copy"),
             ("/fast", "fast"),
             ("/ultrafast", "ultrafast "),

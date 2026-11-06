@@ -1,0 +1,26 @@
+=== ~/.xfx/history.jsonl (669 bytes)
+{"schema_version":1,"timestamp_ms":1793778499186,"workspace_root":"<scratch>/work","text":"/effort"}
+{"schema_version":1,"timestamp_ms":1793778507379,"workspace_root":"<scratch>/work","text":"/effort bogus"}
+{"schema_version":1,"timestamp_ms":1793778508823,"workspace_root":"<scratch>/work","text":"/effort max"}
+{"schema_version":1,"timestamp_ms":1793778510268,"workspace_root":"<scratch>/work","text":"/effort two words"}
+{"schema_version":1,"timestamp_ms":1793778514199,"workspace_root":"<scratch>/work","text":"slow turn please"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1793778514200-fee6120e007b9b8e/events.jsonl (870 bytes)
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":1,"event_id":"a4898238382c91b40910b7433fdd8f9a","timestamp_ms":1793778514201,"event":{"kind":"session_started","id":"1793778514200-fee6120e007b9b8e","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"openai/gpt-6-astra","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":2,"event_id":"6e64a29c804d46721c5d3deb6ff9ce72","timestamp_ms":1793778514219,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":3,"event_id":"ceb95c293e8fde8c49acfbb807bad2bb","timestamp_ms":1793778514233,"event":{"kind":"user_message","text":"slow turn please"}}
+
+=== ~/.xfx/sessions/1793778514200-fee6120e007b9b8e/session.json (627 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793778514200-fee6120e007b9b8e","log_generation":"2f770ff207bf5d364637b476025d527d","created_at_ms":1793778514201,"updated_at_ms":1793778514233,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"openai/gpt-6-astra","permission_mode":"auto","title":"slow turn please","history_turns":1,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":3,"event_log_bytes":870,"event_log_sha256":"eef324f69bd4cdf818a1d13254ad19f90971efd365ee1c979242e76d15c1b2d0"}
+
+=== ~/.xfx/settings.json (103 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "effort": "high"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

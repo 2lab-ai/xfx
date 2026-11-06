@@ -253,6 +253,14 @@ pub(crate) enum UiEvent {
         /// says nothing more about a change that was accepted.
         announced: bool,
     },
+    /// The reasoning effort alone, as the runtime applied it
+    /// ([`ModelChange::effort_only`]): `/settings`' row or `/effort`. The band
+    /// chose it and said so already; this moves the band's own record back to
+    /// it after a model change applied before it -- one held behind the same
+    /// turn -- moved the band to that change's level.
+    EffortApplied {
+        effort: crate::provider::effort::Effort,
+    },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
     /// One event per load. The load happens on the runtime thread because it
@@ -590,6 +598,17 @@ impl UiEvent {
                     ModelAnswer::Refused { reason } => ModelAnswer::Refused {
                         reason: inert_owned(reason),
                     },
+                },
+            },
+            // The level's name is one upstream would parse when it is read,
+            // and the channel's rule is held all the same, as for
+            // `ModelAnswered`'s.
+            Self::EffortApplied { effort } => Self::EffortApplied {
+                effort: match effort {
+                    crate::provider::effort::Effort::Named(name) => {
+                        crate::provider::effort::Effort::Named(inert_owned(name))
+                    }
+                    auto => auto,
                 },
             },
             // **Every string of every row.** A catalog is a document a daemon
@@ -2545,6 +2564,42 @@ mod tests {
             UiEvent::Forked {
                 replay: replay("t ]2;x  (fork)"),
                 source: "id [2J".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn an_effort_the_runtime_applied_is_made_inert_and_the_default_passes() {
+        // `EffortApplied` carries one string, the level -- no model id -- and
+        // a level is a name `Effort::parse` read before it got here; the
+        // channel holds it to the policy anyway, so a forged one comes out
+        // spelled: every control a space, the rest as it was.
+        use crate::provider::effort::Effort;
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Named("hi\x1b]0;x\x07gh\x1b[2J".into()),
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Named("hi ]0;x gh [2J".into()),
+            }
+        );
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Named("high".into()),
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Named("high".into()),
+            }
+        );
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Auto
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Auto
             }
         );
     }

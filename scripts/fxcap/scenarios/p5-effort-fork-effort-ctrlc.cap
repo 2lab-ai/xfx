@@ -1,0 +1,16 @@
+fx: env FX_AUTO_UPGRADE=0
+# A first Ctrl-C over the /effort menu: the menu stays, and its key help gives
+# way to `press ctrl+c again to exit` (`composeEffortMenuHintRow`'s
+# `ctrl_c_pending`, `input_presentation.zig:671-679@481104fd`).
+models p5-effort-fork-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+type /effort
+key Enter
+wait 1
+key C-c
+wait 0.3
+snap ctrlc
+wait 2.5
+snap ctrlc-later

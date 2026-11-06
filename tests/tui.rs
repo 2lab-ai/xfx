@@ -10041,6 +10041,75 @@ fn the_speed_column_and_the_switches_ride_as_upstreams_provider_options() {
 }
 
 #[test]
+fn a_save_that_fails_is_said_once_for_fast_and_for_effort() {
+    // A settings file broken after launch (a hand edit's typo): `/fast` and
+    // `/effort high` are in force for the session, and each says once that
+    // the file could not take it -- the band's report. The runtime writes the
+    // file again behind them (`super::worker`'s `change_speed` and the
+    // effort-only change), and that write fails the same way; it is said only
+    // when a model change wrote the file in between, which is not the case
+    // here. Red at 82a468fc: two `✗` lines each.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-AFTER-THE-SAVES"]),
+    )])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "openai/gpt-6-astra", "type": "language", "owned_by": "openai",
+         "released": 1_780_000_000, "tags": ["tool-use", "reasoning"],
+         "reasoning_options": [{"type": "effort", "values": ["low", "high"]}],
+         "pricing": {"input": "0.000002", "output": "0.00001",
+                     "service_tiers": {"priority": {"input": "0.000004", "output": "0.00002"}}}}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"/model openai/gpt-6-astra\r");
+    session.wait_for("Switched to openai/gpt-6-astra");
+    // The band says `Switched to` before the runtime saves the model, so the
+    // file is broken only once that save has landed: a save straddling the
+    // break would be a model change writing over it, which is another case.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while sandbox
+        .settings()
+        .is_none_or(|settings| settings["models"]["gateway"] != "openai/gpt-6-astra")
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the runtime never saved the model: {:?}",
+            sandbox.settings()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    std::fs::write(sandbox.settings_path(), "{").expect("break the profile");
+    session.type_bytes(b"/fast\r");
+    on_screen(&session, (40, 120), &["* fast: on"], &[]);
+    session.type_bytes(b"/effort high\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["* Reasoning effort set to high for openai/gpt-6-astra"],
+        &[],
+    );
+    // The runtime takes both changes before the next turn, so the turn's
+    // answer is painted after anything they said.
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-AFTER-THE-SAVES");
+    let text = session.wait_until("the turn painted", |text| {
+        Screen::painted(text, 40, 120)
+            .is_some_and(|screen| screen.find("MARKER-AFTER-THE-SAVES").is_some())
+    });
+    let screen = Screen::painted(&text, 40, 120).expect("a frame");
+    let rows: Vec<String> = (1..=40).map(|row| screen.row_text(row)).collect();
+    let count = |lead: &str| rows.iter().filter(|row| row.starts_with(lead)).count();
+    assert_eq!(count("\u{2717} fast:"), 1, "{rows:#?}");
+    assert_eq!(count("\u{2717} effort:"), 1, "{rows:#?}");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn a_level_chosen_on_llmux_rides_as_output_config_effort() {
     // llmux reads an effort from Anthropic's `output_config.effort` on every
     // route it serves (`2lab-ai/llmux@4b3d4a4 src/provider/codex.rs:387-420`,

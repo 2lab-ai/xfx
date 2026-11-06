@@ -1,0 +1,53 @@
+=== ~/.fx/backups/settings.json.backup.1793747762039-0000000000000001-3c4b7426186de24f1283ad3804e45602 (65 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway"}
+
+=== ~/.fx/backups/settings.json.backup.1793747765279-0000000000000002-75ea1d209e65d587450cc40a507d5918 (83 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"medium"}
+
+=== ~/.fx/backups/settings.json.backup.1793747771125-0000000000000003-dae83bba60afc7d00c99755828de65b1 (81 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high"}
+
+=== ~/.fx/backups/settings.json.backup.1793747772610-0000000000000004-a25af7a7de756d8e12a5c0973a44d3b1 (81 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"auto"}
+
+=== ~/.fx/backups/settings.json.backup.1793747775617-0000000000000005-fcebea8f863d64aa98cc6b562d87492c (80 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"low"}
+
+=== ~/.fx/history.jsonl (806 bytes)
+{"schema_version":1,"timestamp_ms":1793747758466,"workspace_root":"<scratch>/work","text":"/effort"}
+{"schema_version":1,"timestamp_ms":1793747766758,"workspace_root":"<scratch>/work","text":"/effort bogus"}
+{"schema_version":1,"timestamp_ms":1793747768218,"workspace_root":"<scratch>/work","text":"/effort max"}
+{"schema_version":1,"timestamp_ms":1793747769674,"workspace_root":"<scratch>/work","text":"/effort two words"}
+{"schema_version":1,"timestamp_ms":1793747773680,"workspace_root":"<scratch>/work","text":"slow turn please"}
+{"schema_version":1,"timestamp_ms":1793747784733,"workspace_root":"<scratch>/work","text":"after the change"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/index.jsonl (502 bytes)
+{"op":"put","id":"kSdpe-Ba5rtv","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793747773681,"updated":1793747773681,"turns":0,"opened":[1793747773681,0,0,0,0],"crc":"83562fa5"}
+{"op":"put","id":"kSdpe-Ba5rtv","role":"root","host":"app","workspace":"<scratch>/work","title":"slow turn please","language":"und-Latn","created":1793747773681,"updated":1793747781422,"turns":1,"opened":[0,0,0,0,0],"crc":"f3d451f7"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/sessions/v2/kSdpe-Ba5rtv/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/kSdpe-Ba5rtv/log.jsonl (5209 bytes)
+{"v":1,"seq":1,"ts":1793747773681,"kind":"session_created","id":"kSdpe-Ba5rtv","workspace":"<scratch>/work","role":"root","host":"app","crc":"81036f1f"}
+{"v":1,"seq":2,"ts":1793747753239,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"openai/gpt-6-astra","effort":"auto","fast_mode":false},"crc":"ddae4661"}
+{"v":1,"seq":3,"ts":1793747753239,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"eb4f3d04"}
+{"v":1,"seq":4,"ts":1793747753239,"kind":"set","key":"language","value":"und","crc":"831a2d94"}
+{"v":1,"seq":5,"ts":1793747762039,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"openai/gpt-6-astra","effort":"medium","fast_mode":false},"crc":"ef6a7175"}
+{"v":1,"seq":6,"ts":1793747765280,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"openai/gpt-6-astra","effort":"high","fast_mode":false},"crc":"a614adcd"}
+{"v":1,"seq":7,"ts":1793747771126,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"openai/gpt-6-astra","effort":"auto","fast_mode":false},"crc":"5a6e9d24"}
+{"v":1,"seq":8,"ts":1793747772611,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"openai/gpt-6-astra","effort":"low","fast_mode":false},"crc":"fb02ebcc"}
+{"v":1,"seq":9,"ts":1793747773681,"kind":"turn_started","turn":1,"crc":"77851401"}
+{"v":1,"seq":10,"ts":1793747773681,"kind":"item","turn":1,"type":"user","data":{"text":"slow turn please","images":[],"work_id":null},"crc":"534309f2"}
+{"v":1,"seq":11,"ts":1793747773681,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-03\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"9549f0d2"}
+{"v":1,"seq":12,"ts":1793747775618,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"openai/gpt-6-astra","effort":"high","fast_mode":false},"crc":"350560ef"}
+{"v":1,"seq":13,"ts":1793747781415,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"a9141ad6"}
+{"v":1,"seq":14,"ts":1793747781422,"kind":"item","turn":1,"type":"assistant","data":{"text":"SLOW one two three four five six seven eight nine ten.","provider_replay":null,"standalone_response":false},"crc":"77c604f6"}
+{"v":1,"seq":15,"ts":1793747781422,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793747773680,"completed_at_ms":1793747781415,"thinking_duration_ms":1,"turn_duration_ms":7735,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"beaa8ffd"}
+{"v":1,"seq":16,"ts":1793747781422,"kind":"turn_committed","turn":1,"crc":"4fce8745"}
+{"v":1,"seq":17,"ts":1793747781422,"kind
+=== ~/.fx/settings.json (81 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high"}
+
+=== ~/.fx/settings.lock (0 bytes)

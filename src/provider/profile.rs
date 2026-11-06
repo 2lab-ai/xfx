@@ -817,16 +817,27 @@ pub mod fault {
 
     thread_local! {
         static ARMED: Cell<Option<Boundary>> = const { Cell::new(None) };
+        /// How many more times `ARMED`'s boundary is passed before it fails.
+        static PASSES: Cell<u32> = const { Cell::new(0) };
     }
 
     /// Asks the next write on **this thread** to fail at `boundary`, once.
     pub fn arm(boundary: Boundary) {
+        arm_after(boundary, 0);
+    }
+
+    /// Asks the write on **this thread** that reaches `boundary` after
+    /// `passes` others have passed it to fail there, once: the second of two
+    /// writes one call makes, with the first left to land.
+    pub fn arm_after(boundary: Boundary, passes: u32) {
         ARMED.with(|armed| armed.set(Some(boundary)));
+        PASSES.with(|left| left.set(passes));
     }
 
     /// Disarms whatever was armed, so a test cannot leak a fault into the next.
     pub fn disarm() {
         ARMED.with(|armed| armed.set(None));
+        PASSES.with(|left| left.set(0));
     }
 
     /// Fails if this thread asked to fail here. One-shot: the arming is
@@ -834,12 +845,19 @@ pub mod fault {
     /// made the commit fail.
     pub(super) fn trip(boundary: Boundary) -> io::Result<()> {
         let hit = ARMED.with(|armed| {
-            if armed.get() == Some(boundary) {
-                armed.set(None);
-                true
-            } else {
-                false
+            if armed.get() != Some(boundary) {
+                return false;
             }
+            let passed = PASSES.with(|left| {
+                let more = left.get();
+                left.set(more.saturating_sub(1));
+                more > 0
+            });
+            if passed {
+                return false;
+            }
+            armed.set(None);
+            true
         });
         if hit {
             return Err(io::Error::other(boundary.detail()));

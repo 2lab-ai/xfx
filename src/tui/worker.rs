@@ -1598,6 +1598,36 @@ struct Runtime {
     /// the one it left ([`write_renamed_after_reset`]). Each with whether the
     /// shell has said it already ([`TurnControl::Rename`]'s `announced`).
     renamed_after_reset: Vec<(String, bool)>,
+    /// Which of the band's preferences this thread has written, with a write
+    /// that landed, since the piece of work now running began: a model
+    /// change's level and the switches beside its model
+    /// ([`Runtime::save_change`]), and its own corrections of an effort or a
+    /// speed (the effort-only change, [`change_speed`]). The band writes
+    /// `/effort`'s level and `/fast`'s switches itself, the moment they are
+    /// given, and says how that went; the runtime writes them again when it
+    /// applies them. A change the band gave while work ran is held until the
+    /// work and the batch before it are done ([`apply_deferred`]), so any of
+    /// these writes that landed in that time landed **after** the band's: the
+    /// runtime's write is then the one that puts the file right, and its
+    /// failure is the runtime's to say. A change applied the moment it is
+    /// given never says its failure ([`Self::applying_held`] is false): that
+    /// is nearly always the band's own write failing again, already said.
+    /// Cleared when a piece of work begins and when a held batch ends; read,
+    /// never taken, so every correction in a batch answers for the writes
+    /// before it.
+    ///
+    /// **A boolean cannot order writes, so two cases are not covered**
+    /// (EF1-RESID, `.prd/tui-phase5/receipts/effort-menu/README.md`): a model
+    /// change applied at once whose save lands after the band's write of a
+    /// `/fast` or `/effort` given right behind it, with only the correction
+    /// failing, says nothing; and a held change that waits on the catalog
+    /// inside a batch lets changes given during that wait read a flag set
+    /// before their band writes, so a fault that starts in between is said
+    /// twice. Both need a fault that starts or ends between two writes.
+    overwrote: Overwrote,
+    /// Whether the changes being applied are a held batch ([`apply_deferred`]):
+    /// only then is a failed correction the runtime's to say.
+    applying_held: bool,
     /// Where the prompts the person sends into a running turn wait for it
     /// ([`crate::agent::steering`]): opened for each turn, handed to its
     /// machine, closed when it ends. The band holds the same one
@@ -1741,6 +1771,8 @@ impl Runtime {
             saved_rules,
             live: LiveAuthority::new(config_mode),
             renamed_after_reset: Vec::new(),
+            overwrote: Overwrote::default(),
+            applying_held: false,
             steering: Steering::new(),
             rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
@@ -3078,7 +3110,7 @@ impl Runtime {
     /// the write failed and the change holds for this process only. A session
     /// with no home has no profile to write and says nothing about one.
     fn save_change(
-        &self,
+        &mut self,
         provider: ProviderId,
         model: &str,
         effort: Option<&crate::provider::effort::Effort>,
@@ -3112,14 +3144,29 @@ impl Runtime {
         // `"fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true`).
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => super::speed_save::shadowed(&self.config.sources, effort.is_some())
-                .map(|said| super::notice::Notice::neutral(topic, said)),
+            Ok(()) => {
+                self.overwrote.speed = true;
+                self.overwrote.effort |= effort.is_some();
+                super::speed_save::shadowed(&self.config.sources, effort.is_some())
+                    .map(|said| super::notice::Notice::neutral(topic, said))
+            }
             Err(err) => Some(super::notice::Notice::error(
                 topic,
                 format!("active for this process but not saved to user settings ({err})"),
             )),
         }
     }
+}
+
+/// Which of the band's preferences a held model change has written over in
+/// the batch being applied ([`Runtime::overwrote`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Overwrote {
+    /// `effort`, by a model change that chose a level with its model.
+    effort: bool,
+    /// `fast_mode` and `ultrafast_mode`, by any model change: they are saved
+    /// beside every model.
+    speed: bool,
 }
 
 /// What a provider switch produced, once the reload has said so.
@@ -3325,6 +3372,9 @@ async fn turn_loop(
                 continue;
             }
             Taken::Model(change) => {
+                // A piece of work of its own: what was written before it began
+                // was written before anything it holds was given.
+                state.overwrote = Overwrote::default();
                 let ended =
                     change_model(&mut state, change, events, &cancel, &control, &mut queue).await;
                 // A change waiting on the catalog can be overtaken by anything
@@ -3345,7 +3395,7 @@ async fn turn_loop(
                 continue;
             }
             Taken::Speed(change) => {
-                change_speed(&mut state, change);
+                change_speed(&mut state, change, events).await;
                 continue;
             }
             Taken::Undo(through) => {
@@ -3392,6 +3442,9 @@ async fn turn_loop(
             Taken::Work(None) => return settled(state, changes),
             Taken::Work(Some(item)) => queue.took(item),
         };
+        // What this thread wrote before this work began was written before
+        // anything the work holds was given ([`Runtime::overwrote`]).
+        state.overwrote = Overwrote::default();
         let ended = match item {
             TurnWork::Submit(prompt) => {
                 run_turn(
@@ -4845,15 +4898,55 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
-    // `/settings`' effort row: the effort is the session's from here on, and
-    // that is all -- the band chose it, wrote it and said so
+    // `/settings`' effort row and `/effort`: the effort is the session's from
+    // here on -- the band chose it, wrote it and said so
     // ([`ModelChange::effort_only`]). Recorded in the session, where a resume
     // reads it back. Whatever the provider: the effort is global.
+    //
+    // **Written again, and the band told.** A model change held behind the
+    // same turn and applied before this one saved its own level with its model
+    // ([`Runtime::save_change`]) after the band's write, and its answer moved
+    // the band to that level; so the file is written again here and the band
+    // is handed the level back, and both end where the commands did -- as a
+    // speed is written again after a model change (`change_speed`). A write
+    // that lands is not said again: the band said its own. **One that fails
+    // is said only for a held change after a write of `effort` that landed
+    // after the band's** -- a model change's, or an earlier correction's in
+    // the same batch ([`Runtime::overwrote`]): then the band's success cannot
+    // speak for this
+    // write, the level is still in force -- the band is handed it, the next
+    // request carries it -- and the file is said not to hold it, in the words
+    // every preference save uses (`reportUserSettingsFailure`,
+    // `session_commands.zig:110-133@481104fd`). Otherwise the write that
+    // failed is the band's failing again, and the band has said that.
     if change.effort_only {
         if let Some(effort) = change.effort {
-            state.settings.effort = effort;
+            state.settings.effort = effort.clone();
             state.record_settings();
             state.publish();
+            let corrective = state.applying_held && state.overwrote.effort;
+            let failed = state.config.user_settings_path.as_ref().and_then(|path| {
+                crate::provider::profile::write_preference(
+                    path,
+                    &[crate::config::EFFORT_KEY],
+                    serde_json::Value::String(effort.label().to_string()),
+                )
+                .err()
+            });
+            if state.config.user_settings_path.is_some() && failed.is_none() {
+                state.overwrote.effort = true;
+            }
+            bridge::send_terminal(events, UiEvent::EffortApplied { effort }).await;
+            if let Some(err) = failed.filter(|_| corrective) {
+                bridge::send_terminal(
+                    events,
+                    UiEvent::Notice(super::notice::Notice::error(
+                        super::settings::EFFORT_TOPIC,
+                        format!("active for this process but not saved to user settings ({err})"),
+                    )),
+                )
+                .await;
+            }
         }
         return Ended::Turn;
     }
@@ -5097,9 +5190,16 @@ async fn apply_deferred(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
+    // A held batch: what this thread wrote since the work began, and what the
+    // batch writes, landed after the band's writes for the changes in it
+    // ([`Runtime::overwrote`]) -- a model change applied the moment it was
+    // given, waiting on its catalog while these were held, included.
+    state.applying_held = true;
     loop {
         let deferred = control.take_deferred();
         if deferred.is_empty() {
+            state.applying_held = false;
+            state.overwrote = Overwrote::default();
             return ended;
         }
         for item in deferred {
@@ -5136,7 +5236,7 @@ async fn apply_deferred(
                 // The same for a speed: it needs no socket, and the band has
                 // said it already.
                 Deferred::Speed(change) => {
-                    change_speed(state, change);
+                    change_speed(state, change, events).await;
                     continue;
                 }
                 // Asked while a provider switch ran: asked now, of the
@@ -5173,13 +5273,22 @@ async fn apply_deferred(
 /// second report: this thread writes the model changes, and one put aside
 /// behind a turn is saved when the turn ends, with the switches as they then
 /// stand -- so a `/fast` typed after it has to be written after it too, or
-/// the profile would end on the switches the model change turned off. Its
-/// outcome is the band's write's, said once.
+/// the profile would end on the switches the model change turned off. A
+/// write that lands says nothing more: what the band said of its own write
+/// -- a layer above the profile, say -- is still true of this one, so of
+/// what the write reports only a failure is ever said. **A write that fails
+/// is said only for a held change after a write of the switches that landed
+/// after the band's** -- a model change's, or an earlier correction's in the
+/// same batch ([`Runtime::overwrote`]) -- as upstream says a failed save
+/// (`reportUserSettingsFailure`, `session_commands.zig:110-133@481104fd`):
+/// then the band's success cannot speak for this write, and the file can be
+/// left holding the switches that change turned off. Otherwise it is the
+/// band's own write failing again, and the band has said that.
 ///
 /// A change the band decided under another provider is dropped: a
 /// `/provider` switch took the switches off with the model it replaced, and
 /// the band's own record of them went off with the same switch.
-fn change_speed(state: &mut Runtime, change: SpeedChange) {
+async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<UiEvent>) {
     if change.provider != state.config.provider {
         return;
     }
@@ -5187,7 +5296,21 @@ fn change_speed(state: &mut Runtime, change: SpeedChange) {
     state.settings.ultrafast = change.ultrafast;
     state.record_settings();
     state.publish();
-    let _ = state.save_speed(change.topic);
+    let corrective = state.applying_held && state.overwrote.speed;
+    // No profile, nothing written: `save_speed` says nothing either way.
+    if state.config.user_settings_path.is_none() {
+        return;
+    }
+    let report = state.save_speed(change.topic);
+    let failed = report
+        .as_ref()
+        .is_some_and(|notice| notice.tone == super::notice::Tone::Error);
+    if !failed {
+        state.overwrote.speed = true;
+    }
+    if let Some(notice) = report.filter(|_| corrective && failed) {
+        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
+    }
 }
 
 /// `/undo`, and what became of it (`commandUndoLast`,
@@ -8832,7 +8955,7 @@ mod tests {
         };
         ran_change(&mut state, change("anthropic/claude-opus-5", "max", false));
         ran_change(&mut state, change("", "low", true));
-        change_speed(
+        ran_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -10295,6 +10418,61 @@ mod tests {
         )
     }
 
+    /// Puts `changes` aside as a running piece of work would have -- the band
+    /// sent them while it ran -- and applies them as the loop does when it
+    /// ends ([`apply_deferred`]), handing back what that told the UI.
+    fn ran_held(state: &mut Runtime, changes: Vec<TurnControl>) -> Vec<UiEvent> {
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        for change in changes {
+            match change {
+                TurnControl::Model(change) => control.defer(change),
+                TurnControl::Speed(change) => control.defer_speed(change),
+                other => panic!("not a change the band holds: {other:?}"),
+            }
+        }
+        let ended = on_a_runtime(apply_deferred(
+            state,
+            Ended::Turn,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Turn);
+        assert_eq!(
+            state.overwrote,
+            Overwrote::default(),
+            "left set past its batch"
+        );
+        let mut said = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            said.push(event);
+        }
+        said
+    }
+
+    /// Runs one speed change the way the loop runs it, and hands back what it
+    /// told the UI.
+    fn ran_speed(state: &mut Runtime, change: SpeedChange) -> Vec<UiEvent> {
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(change_speed(state, change, &events_tx));
+        let mut said = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            said.push(event);
+        }
+        said
+    }
+
     /// Runs one model change the way the loop runs it, and hands back what it
     /// told the UI.
     fn ran_change(state: &mut Runtime, change: ModelChange) -> Vec<UiEvent> {
@@ -10829,11 +11007,14 @@ mod tests {
     }
 
     #[test]
-    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
-        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
-        // band wrote `effort` and said so; the runtime only takes it up. The
-        // model stays, and the profile is not touched -- in particular no
-        // `models` entry is written for a model some other layer chose.
+    fn an_effort_alone_moves_the_sessions_effort_and_writes_effort_and_nothing_else() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`) or
+        // `/effort`: the band wrote `effort` and said so; the runtime takes it
+        // up, writes `effort` again -- the same value, in case a model change
+        // held with it wrote its own level since -- and hands the band the
+        // level back. The model stays, and nothing else in the profile is
+        // touched: in particular no `models` entry is written for a model some
+        // other layer chose.
         let (home, _workspace, mut state) = recording();
         std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
         std::fs::write(
@@ -10857,7 +11038,12 @@ mod tests {
                 effort_only: true,
             },
         );
-        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(
+            said,
+            [UiEvent::EffortApplied {
+                effort: high.clone()
+            }]
+        );
         assert_eq!(state.settings.effort, high);
         assert_eq!(
             recorded(&state).map(|settings| settings.effort),
@@ -10865,7 +11051,10 @@ mod tests {
             "a resume would not read it back"
         );
         assert_eq!(state.model(), model, "the model moved");
-        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"theme": "dark", "effort": "high"})
+        );
     }
 
     #[test]
@@ -11194,7 +11383,7 @@ mod tests {
     #[test]
     fn a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not() {
         let (home, _workspace, mut state) = recording();
-        change_speed(
+        let _ = ran_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -11208,7 +11397,7 @@ mod tests {
         assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
         // Decided under the provider a switch replaced: dropped, because the
         // switches went off with the model the switch replaced.
-        change_speed(
+        let _ = ran_speed(
             &mut state,
             SpeedChange {
                 fast: false,
@@ -11243,7 +11432,7 @@ mod tests {
         );
         ran_model(&mut state, "acme/two", false);
         assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(false));
-        change_speed(
+        let _ = ran_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -11257,6 +11446,570 @@ mod tests {
             serde_json::json!({"models": {"gateway": "acme/two"}, "provider": "gateway",
                                "fast_mode": true, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
+        );
+    }
+
+    #[test]
+    fn an_effort_the_band_saved_after_a_model_change_held_behind_a_turn_is_still_the_files() {
+        // A `/model <id> low` put aside behind a turn, then `/effort high`
+        // (`/effort`'s menu or its argument, or `/settings`' row): the band
+        // writes `effort: high` at once (`Shell::apply_effort`). When the turn
+        // ends the held batch is applied in the order it was given
+        // ([`apply_deferred`]): the pick first, saved with its own level, `low`
+        // ([`Runtime::save_change`]), its answer moving the band to `low`; then
+        // the effort alone, which has to leave the file, the next request and
+        // the band on `high` -- where the commands did. The speed's version of
+        // this is `a_speed_the_band_saved_before_a_model_change_...`.
+        let (home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        // The band's own write of `/effort high`, made while the turn ran.
+        crate::provider::profile::write_preference(
+            &path,
+            &[crate::config::EFFORT_KEY],
+            serde_json::Value::String("high".to_string()),
+        )
+        .expect("the band's write");
+        let said = ran_held(
+            &mut state,
+            vec![
+                TurnControl::Model(ModelChange {
+                    name: model.clone(),
+                    effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+                    speed: None,
+                    picker: true,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: false,
+                }),
+                TurnControl::Model(ModelChange {
+                    name: model.clone(),
+                    effort: Some(crate::provider::effort::Effort::Named("high".to_string())),
+                    speed: None,
+                    picker: false,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: true,
+                }),
+            ],
+        );
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("high"));
+        assert_eq!(
+            state.request_options().expect("no Ultra").reasoning,
+            Some("high".to_string()),
+            "the next request"
+        );
+        assert!(
+            matches!(said.first(), Some(UiEvent::ModelAnswered { .. })),
+            "{said:?}"
+        );
+        assert_eq!(
+            said.last(),
+            Some(&UiEvent::EffortApplied {
+                effort: high.clone()
+            }),
+            "the band is handed the level back after the pick's answer: {said:?}"
+        );
+    }
+
+    #[test]
+    fn an_effort_given_before_a_held_pick_ends_on_the_picks_level() {
+        // The reverse: `/effort high` given first, then a `/model <id> low`,
+        // both held behind the same turn and applied as one batch in the order
+        // they were given ([`apply_deferred`]). The pick is last and wins: the
+        // file, the next request and the band all end on `low` -- the band's
+        // last word is the pick's answer, with the effort's handed back before
+        // it.
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let low = crate::provider::effort::Effort::Named("low".to_string());
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_held(
+            &mut state,
+            vec![
+                TurnControl::Model(ModelChange {
+                    name: model.clone(),
+                    effort: Some(crate::provider::effort::Effort::Named("high".to_string())),
+                    speed: None,
+                    picker: false,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: true,
+                }),
+                TurnControl::Model(ModelChange {
+                    name: model.clone(),
+                    effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+                    speed: None,
+                    picker: true,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: false,
+                }),
+            ],
+        );
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("low"));
+        assert_eq!(
+            state.request_options().expect("no Ultra").reasoning,
+            Some("low".to_string()),
+            "the next request"
+        );
+        assert_eq!(
+            said.first(),
+            Some(&UiEvent::EffortApplied { effort: high }),
+            "{said:?}"
+        );
+        assert!(
+            matches!(
+                said.last(),
+                Some(UiEvent::ModelAnswered { settings, .. }) if settings.effort == low
+            ),
+            "the band ends on the pick's level: {said:?}"
+        );
+        assert_eq!(
+            said.iter()
+                .filter(|event| matches!(event, UiEvent::EffortApplied { .. }))
+                .count(),
+            1,
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn an_effort_written_again_after_a_held_pick_says_when_the_write_failed() {
+        // The held batch of the test above, with the effort's write failing
+        // and the pick's landing: the pick saved its own level, `low`, so the
+        // file does not hold the `high` in force. The band is still handed
+        // the level (the next request carries it), and then told -- once,
+        // by the runtime, whose write this was -- that the file was not
+        // written, in the words every preference save says it in
+        // (`reportUserSettingsFailure`, `session_commands.zig:110-133`).
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "high"],
+            )]));
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        fault::arm_after(fault::Boundary::Rename, 1);
+        let said = ran_held(
+            &mut state,
+            vec![
+                TurnControl::Model(ModelChange {
+                    name: model.clone(),
+                    effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+                    speed: None,
+                    picker: true,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: false,
+                }),
+                TurnControl::Model(ModelChange {
+                    name: model.clone(),
+                    effort: Some(crate::provider::effort::Effort::Named("high".to_string())),
+                    speed: None,
+                    picker: false,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: true,
+                }),
+            ],
+        );
+        fault::disarm();
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("low"));
+        assert_eq!(
+            state.request_options().expect("no Ultra").reasoning,
+            Some("high".to_string())
+        );
+        let failure = UiEvent::Notice(super::super::notice::Notice::error(
+            super::super::settings::EFFORT_TOPIC,
+            "active for this process but not saved to user settings \
+             (injected failure before the rename)",
+        ));
+        assert_eq!(
+            said[said.len() - 2..],
+            [UiEvent::EffortApplied { effort: high }, failure.clone()],
+            "{said:?}"
+        );
+        assert_eq!(
+            said.iter().filter(|event| **event == failure).count(),
+            1,
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_later_effort_written_again_in_a_held_batch_says_when_its_write_failed() {
+        // A held batch of a pick with `low`, then `/effort medium`, then
+        // `/effort high`: the pick's save lands and so does `medium`'s, each
+        // over what the band wrote for `high`; `high`'s own write then fails.
+        // Each write that lands is one the next must answer for, so that
+        // failure is said -- once, for `high` -- with the file left on
+        // `medium` and `high` in force.
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let effort = |level: &str| {
+            TurnControl::Model(ModelChange {
+                name: model.clone(),
+                effort: Some(crate::provider::effort::Effort::Named(level.to_string())),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            })
+        };
+        let pick = TurnControl::Model(ModelChange {
+            name: model.clone(),
+            effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        fault::arm_after(fault::Boundary::Rename, 2);
+        let said = ran_held(&mut state, vec![pick, effort("medium"), effort("high")]);
+        fault::disarm();
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("medium"));
+        assert_eq!(
+            state.request_options().expect("no Ultra").reasoning,
+            Some("high".to_string())
+        );
+        let failures: Vec<&UiEvent> = said
+            .iter()
+            .filter(|event| matches!(event, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error))
+            .collect();
+        assert_eq!(
+            failures,
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                super::super::settings::EFFORT_TOPIC,
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+        assert_eq!(
+            said.last(),
+            Some(failures[0]),
+            "said after `high` was handed back: {said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn an_effort_correction_that_landed_answers_for_the_next_in_a_held_batch() {
+        // No model change in the batch: `/effort medium` then `/effort high`,
+        // and `/fast` then `/ultrafast on`, each held; the first correction
+        // lands over the band's write of the second, and the second fails.
+        // Only the first correction's own write can have set the flag, so
+        // this pins that a correction that lands sets it.
+        use crate::provider::profile::fault;
+        let error = |notice: &UiEvent| matches!(notice, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error);
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "medium", "high"],
+            )]));
+        let effort = |level: &str| {
+            TurnControl::Model(ModelChange {
+                name: model.clone(),
+                effort: Some(crate::provider::effort::Effort::Named(level.to_string())),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            })
+        };
+        fault::arm_after(fault::Boundary::Rename, 1);
+        let said = ran_held(&mut state, vec![effort("medium"), effort("high")]);
+        fault::disarm();
+        assert_eq!(settings(home.path())["effort"], serde_json::json!("medium"));
+        assert_eq!(
+            said.iter().filter(|event| error(event)).collect::<Vec<_>>(),
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                super::super::settings::EFFORT_TOPIC,
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_speed_correction_that_landed_answers_for_the_next_in_a_held_batch() {
+        // The speed half: `/fast` then `/ultrafast on`, held, no model change.
+        use crate::provider::profile::fault;
+        let error = |notice: &UiEvent| matches!(notice, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error);
+        let (home, _workspace, mut state) = recording();
+        let speed = |fast: bool, ultrafast: bool, topic: &'static str| {
+            TurnControl::Speed(SpeedChange {
+                fast,
+                ultrafast,
+                topic,
+                provider: ProviderId::Gateway,
+            })
+        };
+        fault::arm_after(fault::Boundary::Rename, 1);
+        let said = ran_held(
+            &mut state,
+            vec![speed(true, false, "fast"), speed(false, true, "ultrafast")],
+        );
+        fault::disarm();
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
+        assert_eq!(
+            said.iter().filter(|event| error(event)).collect::<Vec<_>>(),
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                "ultrafast",
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_correction_applied_the_moment_it_is_given_says_nothing_with_the_flag_set() {
+        // Two speeds applied at once, outside any held batch: the first lands
+        // and sets the flag, the second fails. The second is still the band's
+        // write again, which the band said, so nothing is said here -- the
+        // `applying_held` gate, with the flag set.
+        use crate::provider::profile::fault;
+        let (_home, _workspace, mut state) = recording();
+        let first = ran_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        assert!(first.is_empty(), "{first:?}");
+        assert!(state.overwrote.speed, "a landed correction sets the flag");
+        fault::arm(fault::Boundary::Rename);
+        let said = ran_speed(
+            &mut state,
+            SpeedChange {
+                fast: false,
+                ultrafast: true,
+                topic: "ultrafast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        fault::disarm();
+        assert!(state.settings.ultrafast);
+        assert!(said.is_empty(), "{said:?}");
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_later_speed_written_again_in_a_held_batch_says_when_its_write_failed() {
+        // The same for the switches: a held model change, `/fast`, then
+        // `/ultrafast on`; the first two writes land and the third fails, and
+        // that failure -- the third's, under `ultrafast` -- is said once.
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let held_model = TurnControl::Model(ModelChange {
+            name: "acme/two".to_string(),
+            effort: None,
+            speed: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        let fast = TurnControl::Speed(SpeedChange {
+            fast: true,
+            ultrafast: false,
+            topic: "fast",
+            provider: ProviderId::Gateway,
+        });
+        let ultra = TurnControl::Speed(SpeedChange {
+            fast: false,
+            ultrafast: true,
+            topic: "ultrafast",
+            provider: ProviderId::Gateway,
+        });
+        fault::arm_after(fault::Boundary::Rename, 2);
+        let said = ran_held(&mut state, vec![held_model, fast, ultra]);
+        fault::disarm();
+        assert!(state.settings.ultrafast && !state.settings.fast);
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
+        assert_eq!(
+            settings(home.path())["ultrafast_mode"],
+            serde_json::json!(false)
+        );
+        let failures: Vec<&UiEvent> = said
+            .iter()
+            .filter(|event| matches!(event, UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Error))
+            .collect();
+        assert_eq!(
+            failures,
+            [&UiEvent::Notice(super::super::notice::Notice::error(
+                "ultrafast",
+                "active for this process but not saved to user settings \
+                 (injected failure before the rename)",
+            ))],
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_speed_written_again_after_a_held_model_change_says_when_the_write_failed() {
+        // A model change held behind a turn saves its switches off; the
+        // `/fast` given after it is written again when the batch reaches it,
+        // and that write fails. The band's own save said nothing about this
+        // one, so it is said here, once -- the failure only.
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let fast = TurnControl::Speed(SpeedChange {
+            fast: true,
+            ultrafast: false,
+            topic: "fast",
+            provider: ProviderId::Gateway,
+        });
+        let held_model = TurnControl::Model(ModelChange {
+            name: "acme/two".to_string(),
+            effort: None,
+            speed: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        fault::arm_after(fault::Boundary::Rename, 1);
+        let said = ran_held(&mut state, vec![held_model, fast]);
+        fault::disarm();
+        assert!(state.settings.fast);
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(false));
+        let failure = UiEvent::Notice(super::super::notice::Notice::error(
+            "fast",
+            "active for this process but not saved to user settings \
+             (injected failure before the rename)",
+        ));
+        assert_eq!(said.last(), Some(&failure), "{said:?}");
+        assert_eq!(
+            said.iter().filter(|event| **event == failure).count(),
+            1,
+            "{said:?}"
+        );
+        // And the same `/fast` with nothing held before it says nothing, its
+        // write landing or not: the band said how its own write went.
+        fault::arm(fault::Boundary::Rename);
+        let said = ran_speed(
+            &mut state,
+            SpeedChange {
+                fast: false,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        fault::disarm();
+        assert!(said.is_empty(), "{said:?}");
+    }
+
+    #[test]
+    fn an_effort_given_while_a_turn_runs_reaches_only_the_next_request() {
+        // fx's running turn keeps its level and the next one is sent the new
+        // one (`new/...effort-menu-40x120-bodies` `001` `low`, `002` `high`).
+        // Here: the effort alone read while work runs is put aside -- the
+        // settings the running turn's request was built from do not move --
+        // and the request built after it is applied carries the new level.
+        let (_home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "high"],
+            )]));
+        state.settings.effort = crate::provider::effort::Effort::Named("low".to_string());
+        let reasoning = |state: &Runtime| state.request_options().expect("no Ultra").reasoning;
+        assert_eq!(
+            reasoning(&state),
+            Some("low".to_string()),
+            "the running turn's"
+        );
+        let asked = ModelChange {
+            name: model.clone(),
+            effort: Some(crate::provider::effort::Effort::Named("high".to_string())),
+            speed: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: true,
+        };
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        control_tx
+            .send(TurnControl::Model(asked.clone()))
+            .expect("alive");
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            &Arc::new(CatalogAsks::AfterWork),
+            |through| stops.push(through),
+        ));
+        assert!(stops.is_empty(), "the effort stopped the turn");
+        assert_eq!(ended, Ended::Turn);
+        assert_eq!(
+            control.take_deferred(),
+            vec![Deferred::Model(asked.clone())]
+        );
+        assert_eq!(reasoning(&state), Some("low".to_string()), "moved mid-turn");
+        let _ = ran_change(&mut state, asked);
+        assert_eq!(
+            reasoning(&state),
+            Some("high".to_string()),
+            "the next turn's"
         );
     }
 
@@ -12176,6 +12929,108 @@ mod tests {
     }
 
     #[test]
+    fn a_speed_written_again_after_a_model_change_says_nothing_of_a_save_that_landed() {
+        // `change_speed` says only a failure of its write. Under a model a
+        // process override pins, a write that lands reports the shadowing
+        // layer -- the band's write said that already, above its `* fast:
+        // on` -- so a corrective write after a held model change (which is
+        // when a failure would be said) still says nothing when it lands: the
+        // `Tone::Error` filter.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_MODEL".to_string(), "pinned/model".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        assert!(
+            state
+                .save_speed("fast")
+                .is_some_and(|notice| notice.tone == super::super::notice::Tone::Neutral),
+            "the fixture's save reports the shadowing layer"
+        );
+        let said = ran_held(
+            &mut state,
+            vec![
+                TurnControl::Model(ModelChange {
+                    name: "acme/two".to_string(),
+                    effort: None,
+                    speed: None,
+                    picker: false,
+                    announced: true,
+                    next_turn: true,
+                    provider: ProviderId::Gateway,
+                    effort_only: false,
+                }),
+                TurnControl::Speed(SpeedChange {
+                    fast: true,
+                    ultrafast: false,
+                    topic: "fast",
+                    provider: ProviderId::Gateway,
+                }),
+            ],
+        );
+        assert!(state.settings.fast);
+        assert!(
+            !said.iter().any(|event| matches!(
+                event,
+                UiEvent::Notice(notice) if notice.topic == "fast"
+            )),
+            "{said:?}"
+        );
+    }
+
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_write_the_band_already_reported_is_not_reported_again() {
+        // No model change in between: the runtime's write of a speed or an
+        // effort the band handed it is the band's own write again, and a
+        // failure of it is the band's to have said -- once.
+        use crate::provider::profile::fault;
+        let (home, _workspace, mut state) = recording();
+        let model = state.model().to_string();
+        fault::arm(fault::Boundary::Rename);
+        let said = ran_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        fault::disarm();
+        assert!(said.is_empty(), "{said:?}");
+        assert!(state.settings.fast);
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        fault::arm(fault::Boundary::Rename);
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: model,
+                effort: Some(high.clone()),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: false,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            },
+        );
+        fault::disarm();
+        assert_eq!(
+            said,
+            [UiEvent::EffortApplied {
+                effort: high.clone()
+            }]
+        );
+        assert_eq!(state.settings.effort, high);
+        let _ = home;
+    }
+
+    #[test]
     fn a_speed_change_saves_what_upstream_saves_beside_it_under_a_model_override() {
         // `applyFastMode` (`session_commands.zig:781-790`): the provider, the
         // model in force -- here the one `XFX_MODEL` pinned, as upstream writes
@@ -12191,7 +13046,7 @@ mod tests {
         let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
-        change_speed(
+        let _ = ran_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -12237,7 +13092,7 @@ mod tests {
         let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
         let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
         let store = open_store(&config).expect("a store");
-        let state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         let shadow = "saved to user settings (scope=user); fresh sessions here use \
                       higher-precedence ";
 
