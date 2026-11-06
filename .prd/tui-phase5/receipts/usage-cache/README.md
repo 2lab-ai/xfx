@@ -77,7 +77,7 @@ Codex and Grok merges (`cache.zig:125-152`) are U9's.
 |---|---|---|
 | 1 | The key never reaches disk | `the_key_never_reaches_the_disk`: two stores (today, finished, budget; a second with `held`), then every name and every byte under the temp home scanned for every 12-byte run of the fake key, raw and in hex either case, and the whole key in base64 (standard, URL-safe) at all three alignments; a control first proves the scan finds the key embedded raw, in base64 at four offsets, in upper hex, and a 12-byte part in hex. `a_question_names_its_cache_entry_by_fxs_api_key_identity`: the identity is fx's hash, and its `Debug` holds no key |
 | 2 | Server text is encoded, read back unchanged, never a path | `model_names_are_written_escaped_read_back_unchanged_and_never_name_a_path`: 11 names (`"` and `\`, ESC sequences, CR/LF/tab, NUL, bidi, zero-width, `../../../escaped`, `/an/absolute/path`, non-ASCII, DEL/C1/U+2028) stored, returned and re-read equal; no raw byte below 0x20 in the file; the cache directory holds exactly `<id>.json` and `<id>.lock`, and the home exactly four entries |
-| 3 | Modes and links | `modes_are_owner_only_even_under_a_permissive_umask` (a copy of the test binary with `umask(0)`: `~/.xfx` and `usage-cache` 0700, `.json` and `.lock` 0600; and a 0755 directory with 0644 files made 0700/0600 by a store), `a_link_where_the_cache_directory_belongs_is_refused_not_followed` (a symlinked `usage-cache` to a directory holding a valid entry for the identity: `read` is `None`, `store` is `Refused`, the target gains nothing; a directory hard link cannot be made, `link(2)` refuses it), `a_link_where_a_cache_file_belongs_is_refused_not_followed` (a symlink and a hard link at `.json` to a valid decoy: not read, not replaced, decoy unchanged; a symlinked `.lock` to a file and to nowhere: refused, target unchanged or not created; a symlinked `.tmp`: removed, not written through), `something_that_is_not_a_regular_file_is_refused` (a directory or FIFO at `.json` and `.lock`, a directory at `.tmp`: `Refused`, each call bounded at 10 s) |
+| 3 | Modes and links | `modes_are_owner_only_even_under_a_permissive_umask` (a copy of the test binary with `umask(0)`: `~/.xfx` and `usage-cache` 0700, `.json` and `.lock` 0600; and 0644 files made 0600 by a store), `a_directory_that_is_not_private_is_refused_not_repaired` and `only_a_private_directory_this_user_owns_is_kept` (US-U2b), `a_linked_profile_is_refused_and_nothing_is_made_where_it_points` (US-U2b), `a_link_where_the_cache_directory_belongs_is_refused_not_followed` (a symlinked `usage-cache` to a directory holding a valid entry for the identity: `read` is `None`, `store` is `Refused`, the target gains nothing; a directory hard link cannot be made, `link(2)` refuses it), `a_link_where_a_cache_file_belongs_is_refused_not_followed` (a symlink and a hard link at `.json` to a valid decoy: not read, not replaced, decoy unchanged; a symlinked `.lock` to a file and to nowhere: refused, target unchanged or not created; a symlinked `.tmp`: removed, not written through), `something_that_is_not_a_regular_file_is_refused` (a directory or FIFO at `.json` and `.lock`, a directory at `.tmp`: `Refused`, each call bounded at 10 s) |
 | 4 | Two processes, and a crash | `two_processes_storing_at_once_never_tear_or_regress_the_file` (two copies of the test binary, 200 stores each with interleaved `at_ms`, while this process reads without a lock: every store `Ok`, every read whole -- its row's count equals its `at_ms` -- and `at_ms` never goes back, the final file holds the maximum; bounded at 120 s, then killed by pid), `a_crash_between_the_stage_and_the_rename_leaves_the_old_file_whole` (a copy killed by `SIGKILL` after the stage is written and synced: `.json` byte-identical, the stage left holds the new entry, `read` gives the old; the next store succeeds and removes the stage), `two_processes_making_the_same_lock_at_once_both_store` (two copies create 40 locks at the same instants: every store `Ok`), `a_lock_held_past_the_deadline_is_a_failure_not_a_wait` |
 | 5 | Hostile or oversized files, bounded as fx bounds them | `hostile_or_oversized_files_are_refused_whole`: 26 files -- over 4 MiB (exactly 4 MiB accepted), another identity, schemas 1 and 3, no identity, garbage, cut short, a key twice, unknown fields, negative, past-f64, negative, fractional and textual numbers, 257 models, empty and 257-byte names, a sum and a week-plus-today past f64, a negative budget, an unknown period, non-null `codex`/`grok`, deep nesting, one bad row among good ones -- each `read` as `None`, a view of it empty with zero totals, and a store over it holding exactly the new fetch |
 
@@ -105,7 +105,7 @@ the first commit, `22100308`; M15 and M10 put them back):
   `O_NOFOLLOW` and 921/854 without; one process alone, 0. The lock's create
   now retries `ENOENT` (at most 50 times, 10 ms apart).
 
-**Mutants** (all 16 killed, each on its first run against the test named):
+**Mutants** (all 17 killed, each on its first run against the test named):
 
 | Mutant | Property | Failing test and assertion |
 |---|---|---|
@@ -153,9 +153,9 @@ this module's to remove short of adding a path made from a model.
   memory (`unsaved`, `usage.zig:713-723@481104fd`). A garbage, oversized or
   unreadable *regular* file is replaced, as fx replaces it.
 - **Modes are set on the descriptor** (`fchmod`) after each create, and an
-  existing `usage-cache`, `.lock` or stage wider than 0700/0600 is narrowed.
-  A pre-existing `~/.xfx` is left as it is: it is the profile, not this
-  module's. A missing one is made 0700, as fx makes `~/.fx`.
+  existing `.lock` wider than 0600 is narrowed. A missing `~/.xfx` or
+  `usage-cache` is made 0700, as fx makes `~/.fx`; one that is there must
+  already be private (US-U2b, below), and is refused, not narrowed.
 - **The stage name is fx's fixed `<identity>.tmp`**, safe because it is only
   touched under the lock; whatever is there is unlinked first and the stage
   is created `O_EXCL | O_NOFOLLOW`.
@@ -192,6 +192,31 @@ this module's to remove short of adding a path made from a model.
   check.
 - The race probe that measured the `ENOENT` used a shell `&` to start its two
   processes, against the brief's rule; it wrote only under the scratchpad.
+
+## US-U2b (review round on `854fbbc7`)
+
+Reviews: gpt6 not-ready (one MUST), opus APPROVE-WITH-FIXES (one MUST, four
+SHOULD). Code: `2a29e812`, `1fd5076f`. RED on the base for every item that
+changes behaviour, and a mutant for every new guard: `red-u2b.txt`
+(redacted). The six RED tests ran in a module added only to a clone at
+`854fbbc7`, under `gtimeout -k 10 600`, with a short `TMPDIR`.
+
+| Item | Change | RED on `854fbbc7` | Test, and the mutant it kills |
+|---|---|---|---|
+| MUST 1 (gpt6): a key echo is cached | `report::KeySpellings`: a report whose model name holds any 12-byte run of the key as is, in hex either case, or in base64 (standard, URL-safe) at any alignment is refused (`bad_response`) before it can be cached. The cache tests scan their files with the same predicate | fetch, then store, with hex, base64 at 3 alignments and a 12-byte run: `the cache file holds the key's echo: ["hex", "base64", "base64 one byte in", "base64 two bytes in", "a 12-byte run"]` | `a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored` (10 echoes, through a loopback Gateway, `Fetch`, then `store`; nothing written). M17 (the literal check back): `hex: … holds the key` in the stored file. M19 (no hex): `hex: a report naming the key was accepted`. M18 (base64 alignments 1 and 2 dropped) **survived** on `2a29e812`: the sliding windows already catch a whole-key echo at every alignment, and only a shifted *fragment* needs them; the echo list lacked one. Added in `1fd5076f`; M18 is then killed: `a 12-byte run in base64, one byte in: a report naming the key was accepted` |
+| MUST 2 (opus): a linked `~/.xfx` is followed | `~/.xfx` opened with `O_NOFOLLOW`; `ELOOP`/`ENOTDIR` are `Refused`. The false "every other profile store follows it" is gone from the code and the parity row | `stored Ok(()); made through the link: ["usage-cache"]` | `a_linked_profile_is_refused_and_nothing_is_made_where_it_points` (also: a cache behind the link is not read). M20 (no `O_NOFOLLOW`): the store returned `Ok` |
+| SHOULD 1 (opus): owner and mode | `~/.xfx` and `usage-cache` must be directories this user owns with no group/other bits, as `verify_store_dir` (`session/store.rs:3355-3391`) requires, on `read` and on `store`; refused, not repaired. `read` does not keep a group-readable cache: xfx never reads fx's `~/.fx`, so there is no fx-written file to stay compatible with | `a 0755 ~/.xfx: read true, stored true` | `a_directory_that_is_not_private_is_refused_not_repaired` (`.xfx` 0755/0750/0701, `usage-cache` 0755/0770: the entry is not read, the store is `Refused`, the mode and the file are left alone); the owner half, which needs root to set up, is pinned by `only_a_private_directory_this_user_owns_is_kept` on `private_dir_problem`. M21 (the check skipped): `.xfx 755 was read` |
+| SHOULD 2 (opus): rows built before the cap | `bounded_rows`: a row list is refused at its 257th row while it is deserialized | `deserialization built Some(466011) rows before the 256 cap` (a 4 MiB file of 9-byte array rows) | `rows_past_the_cap_are_refused_before_they_are_read` (a 257th "row" that is not a row is never parsed; the 4 MiB file is refused). M22 (cap at `usize::MAX`): `invalid type: integer 1, expected struct ModelRow` |
+| SHOULD 3 (opus): writer-role deadline | the two-process writer role calls `store_within(.., 60 s)`; `a_store_waits_five_seconds_for_the_lock_and_no_longer` pins the production wait (>= 5 s, < 8 s, `WouldBlock`) | -- (a robustness change: the role only flaked under load) | -- |
+| SHOULD 4 (opus): hard-linked `.lock` | a case in `a_link_where_a_cache_file_belongs_is_refused_not_followed`: refused, the other name's 0644 and bytes unchanged | -- (the order was already right on the base) | M26 (`private` before `sole_regular`): `the other name's mode was changed, left: 384` (0600) |
+| gpt6: the streaming cap alone | the capped read is `fs::read_capped` | -- (already capped on the base) | `a_file_that_grows_after_its_size_was_read_is_read_no_further_than_the_cap`: opened while small, grown by 4 MiB + 64 KiB, read: exactly 4 MiB + 1 bytes. M23 (no `.take`): `left: 4260338` |
+| gpt6: docs | module docs and the parity row: a high-entropy key (an unsalted SHA-256 with a public prefix is guessable for a short key); a trusted directory and cooperating writers (`flock` is advisory; a same-uid process could swap the stage before its rename); the 5 s is the lock wait, not a store deadline | -- | -- |
+| opus: `format_day` and ranges | `format_day` clamps to `report::MAX_DAY` (`i64::MAX / 86_400_000`); `Entry::valid` refuses a day outside `0..=MAX_DAY` and a stamp below 0 | `format_day(i64::MAX)`: `attempt to add with overflow` at `report.rs:247`; `kept: Some(Entry { today: Some(Today { day: 9223372036854775807, at_ms: -1 …` | `days_and_stamps_no_clock_wrote_are_refused` (six cases; the last day accepted). M24 (no day range): `a day past the last`; M25 (no clamp): the overflow panic at `report.rs:253` |
+| receipt count | "16 mutants" was 17: M1-M15 with M2a/M2b and M4a/M4b | -- | -- |
+
+**Exported API, changed:** `report::MAX_DAY` (new, `pub`). `report::KeySpellings`
+and `report::KEY_RUN` are `pub(crate)`. `cache` is unchanged except that `read`
+and `store` now refuse a non-private or linked profile or cache directory.
 
 ## Gates
 
