@@ -41326,6 +41326,53 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_confirmation_opening_drops_a_fork_on_its_way() {
+        // `/permissions remember`'s own close, reached through the router
+        // without the line-sent one in front of it: the opener table's bare
+        // `/permissions` is the info panel's.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        fork_asked(&mut shell);
+        router::route(
+            &router::classify(
+                "/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}",
+            ),
+            &mut *shell,
+        );
+        assert!(
+            shell.rule_confirm.is_some(),
+            "no confirmation: {:?}",
+            shell.document()
+        );
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(
+            shell.fork_menu.is_none(),
+            "the fork menu opened under the confirmation"
+        );
+        assert_eq!(slot_occupants(&shell), 1);
+    }
+
+    #[test]
+    fn an_escape_that_drops_a_waiting_fork_disarms_the_exit_as_a_menus_escape_does() {
+        // The Escape a waiting `/fork` takes is a key a menu takes
+        // (upstream's open menu has it), so it disarms an armed exit as one
+        // does, and a Ctrl-C after it does not leave.
+        let mut shell = shell(40, 120);
+        fork_asked(&mut shell);
+        shell.route_bytes(&[0x03]);
+        assert!(shell.fork_asked, "the Ctrl-C dropped the ask");
+        assert!(
+            shell.gestures.exit_armed(Instant::now()),
+            "the Ctrl-C armed no exit"
+        );
+        escape(&mut shell);
+        assert!(!shell.fork_asked, "the Escape left the ask");
+        assert!(
+            !shell.gestures.exit_armed(Instant::now()),
+            "the Escape left the exit armed"
+        );
+    }
+
+    #[test]
     fn the_skills_menu_opening_drops_a_fork_on_its_way() {
         // `/skills` opens its menu once the refresh it asked for has read the
         // skill roots ([`Shell::open_skills`], also where a pasted `$word`
@@ -41691,6 +41738,11 @@ mod tests {
                     continue;
                 }
                 inline[usize::from(forked)] += 1;
+                if !forked {
+                    // The welcome line ends blank, so no gap of the band's:
+                    // the half of this case that is about gap 0.
+                    assert_eq!(case.geometry.gap, 0, "{rows}x80: a gap under a blank tail");
+                }
                 tightest[usize::from(forked)].get_or_insert(rows);
                 let painted = uncoloured_rows(&case.band_rows())
                     .iter()

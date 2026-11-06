@@ -38,3 +38,18 @@ thread 'tui::shell::tests::an_undo_a_redo_or_a_select_all_closes_the_fork_and_ef
 undo left the fork menu up
 test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 0.02s
 
+
+The final step's two pins, each revert alone on the same clone:
+
+applied rule
+test tui::shell::tests::a_rule_confirmation_opening_drops_a_fork_on_its_way ... FAILED
+thread 'tui::shell::tests::a_rule_confirmation_opening_drops_a_fork_on_its_way' (241690661) panicked at src/tui/shell.rs:41347:9:
+the fork menu opened under the confirmation
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 3853 filtered out; finished in 0.31s
+
+applied disarm
+test tui::shell::tests::an_escape_that_drops_a_waiting_fork_disarms_the_exit_as_a_menus_escape_does ... FAILED
+thread 'tui::shell::tests::an_escape_that_drops_a_waiting_fork_disarms_the_exit_as_a_menus_escape_does' (241731623) panicked at src/tui/shell.rs:41368:9:
+the Escape left the exit armed
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 3853 filtered out; finished in 0.05s
+

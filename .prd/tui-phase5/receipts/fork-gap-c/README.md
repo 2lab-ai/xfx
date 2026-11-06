@@ -101,3 +101,20 @@ time, the same test set each run.
 | the Escape arm | `an_escape_while_a_fork…` |
 | `help` back to `fork_menu = None` | the table at `/help` |
 | the Undo/Redo dismissal | `an_undo_a_redo_or_a_select_all…` ("undo left the fork menu up") |
+| the rule confirmation's close (`permissions`) back to `fork_menu = None` | `a_rule_confirmation_opening_drops_a_fork_on_its_way` ("the fork menu opened under the confirmation") |
+| `\|\| self.fork_asked` out of the Escape disarm | `an_escape_that_drops_a_waiting_fork_disarms_the_exit_as_a_menus_escape_does` ("the Escape left the exit armed") |
+
+The last two rows, and gap 0 asserted for every height without a fork in
+`the_receipt_names_the_painted_row_…` (it rested on `transcript.rs:699`,
+the welcome line ending blank), are the review FK-GAPc pins from opus,
+added test-only in the final step.
+
+## Residual (named, not fixed)
+
+`/fork` is not refused during a manual `/compact`: its refusal reads
+`provider_work_busy` (`activity.working()` or a prompt waiting), and a
+compaction is `compacting()`. So in that window the first Escape drops the
+ask before it would arm the compaction's interrupt. fx refuses `/fork` only
+on `app.stream.active` (`app_session_runtime.zig:2078@481104fd`), and
+whether a manual compaction sets `stream.active` has not been read. Left
+for a unit that reads it.
