@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2630f11 [debug] · Run /help for commands
+
+* Reasoning effort set to medium for openai/gpt-6-astra
+
+* Reasoning effort set to high for openai/gpt-6-astra
+
+* effort: bogus is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh
+
+* effort: max is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh
+
+┃
+
+auto · gpt-6-astra · high
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

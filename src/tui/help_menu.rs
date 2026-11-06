@@ -768,15 +768,22 @@ mod tests {
         let found = |query: &str| names(&HelpMenu::open(query));
         // The category label, the summary and the name are all searched.
         assert_eq!(found("general"), in_category("General"));
+        // `/status` by its summary's "session ID" (`commands.zig:455@481104fd`).
         assert_eq!(
             found("SESSION"),
-            ["/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
+            [
+                "/status", "/new", "/reset", "/resume", "/rename", "/fork", "/undo", "/copy",
+                "/compact"
+            ]
         );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
         assert_eq!(
             found("ses"),
-            ["/clear", "/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
+            [
+                "/clear", "/status", "/new", "/reset", "/resume", "/rename", "/fork", "/undo",
+                "/copy", "/compact"
+            ]
         );
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.

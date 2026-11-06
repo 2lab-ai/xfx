@@ -1,0 +1,59 @@
+# the session this build wrote (11ea2120), copied from the capture's HOME
+files: events.jsonl permissions.json session.json 
+kinds: ['session_started', 'preferences_changed', 'project_context_recorded', 'user_message', 'assistant_message', 'tool_result', 'assistant_message', 'usage_recorded', 'turn_concluded']
+permissions.json: {'schema_version': 2, 'next_generation': 4, 'rules': [{'id': 2, 'kind': 'structured_tool', 'display_identity': 'read_file a.txt', 'decision': 'deny', 'generation': 2}]}
+permissions.json was made before the log: True (birth times)
+
+# preview, built from `git archive 14ad0420` with XFX_BUILD_CHANNEL=preview and XFX_BUILD_REVISION=14ad04202fe5, as .github/workflows/preview.yml:225-226 stamps it
+# xfx status | grep build_
+[status] build_channel=preview
+[status] build_revision=14ad04202fe5
+# sha256 of the binary
+db57a912771e3678790212504781e45ac953dfbec52b313d1d28942264463d9d
+
+# preview: xfx session --id <id>
+[session] id=1793786870949-17cfc234b1a39f46
+[session] created_at_ms=1793786884849
+[session] updated_at_ms=1793786885175
+[session] workspace=<tmp>/fxcap.PC543g/work
+[session] origin_workspace=<tmp>/fxcap.PC543g/work
+[session] model=fake/model-a
+[session] permission_mode=auto
+[session] history_turns=1
+[session] permission_grants=0
+[session] total_input_tokens=1200
+[session] total_output_tokens=40
+[session] truncated=false
+[turn] index=0 role=user text=read it
+[turn] index=0 role=assistant tools=read_file text=
+[turn] index=0 role=tool call_id=call_2_0 tool=read_file ok=false output=read_file was not permitted: a saved-session permission rule denies `read_file a.txt`
+[turn] index=0 role=assistant tools= text=Read done.
+[turn] index=0 outcome=final finish_reason=stop steps=2
+exit=0
+log, manifest and permissions.json unchanged by the read
+
+# preview: xfx sessions
+[sessions] scope=workspace count=1 has_more=false truncated=false skipped_invalid=0
+[session] id=1793786870949-17cfc234b1a39f46 updated_at_ms=1793786885175 turns=1 workspace=<tmp>/fxcap.PC543g/work title=read it
+exit=0
+
+# preview: xfx ask --resume-id <id> 'one more question'
+PREVIEW continued.
+exit=0
+the new build's bytes are the head of the log: True
+appended by the preview: ['project_context_recorded', 'user_message', 'assistant_message', 'usage_recorded', 'turn_concluded']
+permissions.json unchanged (the preview predates saved-session rules: it neither reads nor writes the file)
+
+# merge parent (9c6f4a1d): xfx session --id <id>
+[session] permission_mode=auto
+[session] history_turns=2
+exit=0
+
+# merge parent: xfx ask --resume-id <id> 'read it again' -- the model calls read_file a.txt
+BASE read.
+exit=0
+
+# this build: xfx session --id <id>
+[session] permission_mode=auto
+[session] history_turns=3
+exit=0

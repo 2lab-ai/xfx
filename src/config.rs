@@ -2197,6 +2197,38 @@ fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>
     }
 }
 
+/// Why the profile settings file at `path` does not read **now**, if it is
+/// there and does not: read the way a launch reads it ([`read_layer`]), and
+/// nothing kept of what it holds.
+///
+/// The TUI's `/status` panel asks it once, at open, and says the cause's
+/// label in a `Settings` row (`openStatusSnapshot`'s `loadMergedSettings`,
+/// `vercel-labs/fx@481104fd src/core/session/session_commands.zig:283-296`).
+/// A missing file is no error: a profile nobody wrote reads as the defaults.
+pub fn unreadable_profile_settings(path: &Path) -> Option<DiagnosticCause> {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(path, ConfigLayer::User, &mut diagnostics);
+    if read.object.is_some() {
+        return None;
+    }
+    diagnostics.first().map(|diagnostic| diagnostic.cause)
+}
+
+/// The word the `/status` panel's `Settings` row gives for `cause`:
+/// upstream's error name where upstream has one for the same condition --
+/// `InvalidSettingsFormat` for a file that is not a JSON object,
+/// `StreamTooLong` for one past the size ceiling (`loadMergedSettings`,
+/// `vercel-labs/fx@481104fd src/core/config/config_runtime.zig:1364-1365`,
+/// `:1427`) -- and xfx's own label otherwise: a file that could not be read
+/// is an operating-system error upstream names and this reader does not keep.
+pub fn settings_error_name(cause: DiagnosticCause) -> &'static str {
+    match cause {
+        DiagnosticCause::MalformedSettings => "InvalidSettingsFormat",
+        DiagnosticCause::SettingsTooLarge => "StreamTooLong",
+        other => other.label(),
+    }
+}
+
 /// Resolves the bearer credential from the environment.
 ///
 /// Only these two variables are consulted, in this order, and only when nonblank
@@ -2508,6 +2540,50 @@ mod tests {
         let rendered = format!("{credential:?}");
         assert!(!rendered.contains("super-secret"), "{rendered}");
         assert!(rendered.contains("VercelOidcToken"), "{rendered}");
+    }
+
+    #[test]
+    fn profile_settings_that_do_not_read_now_say_why_and_a_missing_file_is_none() {
+        let dir = tempfile::tempdir().expect("a profile");
+        let path = dir.path().join(USER_SETTINGS_FILE);
+        assert_eq!(unreadable_profile_settings(&path), None, "no file");
+        fs::write(&path, "{\"model\":\"acme/model-9\"}").expect("write");
+        assert_eq!(unreadable_profile_settings(&path), None, "a good file");
+        fs::write(&path, "{\"model\":").expect("write");
+        assert_eq!(
+            unreadable_profile_settings(&path),
+            Some(DiagnosticCause::MalformedSettings)
+        );
+        fs::write(&path, "[1]").expect("write");
+        assert_eq!(
+            unreadable_profile_settings(&path),
+            Some(DiagnosticCause::MalformedSettings),
+            "not an object"
+        );
+        fs::remove_file(&path).expect("remove");
+        fs::create_dir(&path).expect("a directory in its place");
+        assert_eq!(
+            unreadable_profile_settings(&path),
+            Some(DiagnosticCause::MalformedSettings)
+        );
+    }
+
+    #[test]
+    fn the_status_panel_says_upstreams_error_name_where_it_has_one() {
+        // `cap: p5-panels-status-badsettings-40x120-open`, fx v0.0.16:
+        // `Settings  couldn't be read: InvalidSettingsFormat`.
+        assert_eq!(
+            settings_error_name(DiagnosticCause::MalformedSettings),
+            "InvalidSettingsFormat"
+        );
+        assert_eq!(
+            settings_error_name(DiagnosticCause::SettingsTooLarge),
+            "StreamTooLong"
+        );
+        assert_eq!(
+            settings_error_name(DiagnosticCause::UnreadableSettings),
+            "unreadable_settings"
+        );
     }
 
     #[test]

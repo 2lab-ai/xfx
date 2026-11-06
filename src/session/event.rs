@@ -299,6 +299,18 @@ impl TurnConclusion {
     }
 }
 
+/// Where a fork came from ([`SessionEvent::SessionStarted`]'s `forked_from`):
+/// upstream's `ForkOrigin { id, seq }` (`vercel-labs/fx@481104fd
+/// src/core/session_manager/schema.zig:113`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForkOrigin {
+    /// The session the fork was made from.
+    pub id: String,
+    /// The last frame of that session's log the fork holds: the one that
+    /// ended the turn before the prompt it was made at.
+    pub seq: u64,
+}
+
 /// Who gave a session the title a [`SessionEvent::SessionRenamed`] records.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -342,6 +354,17 @@ pub enum SessionEvent {
     /// Its label (`gateway`, `llmux`), kept as written so a label a later
     /// binary writes does not make the log unreadable. Absent from logs
     /// written before it was recorded, and an older binary ignores it.
+    ///
+    /// `forked_from` is written on a fork's first frame alone
+    /// ([`SessionStore::fork`](super::store::SessionStore::fork)): the session
+    /// it was made from, and the last frame of that session's log it holds --
+    /// upstream's `session_created.forked_from` (`vercel-labs/fx@481104fd
+    /// src/core/session_manager/schema.zig:113`, `:136`), which D58 calls the
+    /// format the feature needed and did not add. A field and not a variant
+    /// for the reason `provider` is one: an older binary reads past it and
+    /// resumes a fork as a plain session, where a new variant would make it
+    /// refuse the whole log; and every frame that is not a fork's encodes to
+    /// exactly the bytes it always did.
     SessionStarted {
         id: String,
         origin_workspace_root: String,
@@ -350,6 +373,8 @@ pub enum SessionEvent {
         permission_mode: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        forked_from: Option<ForkOrigin>,
     },
     /// The session was deliberately moved to a different workspace
     /// (`session_event.zig:67-76`).
@@ -880,6 +905,99 @@ mod tests {
     }
 
     #[test]
+    fn a_fork_origin_is_written_on_a_fork_alone_and_an_older_build_reads_past_it() {
+        let started = |forked_from: Option<ForkOrigin>| {
+            envelope(
+                1,
+                SessionEvent::SessionStarted {
+                    id: "s".to_string(),
+                    origin_workspace_root: "/w".to_string(),
+                    workspace_root: "/w".to_string(),
+                    model: "m".to_string(),
+                    permission_mode: "auto".to_string(),
+                    provider: Some("gateway".to_string()),
+                    forked_from,
+                },
+            )
+            .encode()
+            .expect("encodes")
+        };
+        // A session that is not a fork is the frame it always was, byte for
+        // byte; a fork's names its origin last, as upstream's
+        // `session_created` does (`schema.zig:183-186@481104fd`).
+        let plain = started(None);
+        assert!(!plain.contains("forked_from"), "{plain}");
+        let origin = ForkOrigin {
+            id: "src".to_string(),
+            seq: 9,
+        };
+        let fork = started(Some(origin.clone()));
+        assert!(
+            fork.ends_with(
+                ",\"provider\":\"gateway\",\"forked_from\":{\"id\":\"src\",\"seq\":9}}}\n"
+            ),
+            "{fork}"
+        );
+        let SessionEvent::SessionStarted { forked_from, .. } =
+            EventEnvelope::decode(fork.trim_end())
+                .expect("decodes")
+                .event
+        else {
+            panic!("not a start");
+        };
+        assert_eq!(forked_from, Some(origin));
+
+        // What the build before it reads -- `SessionStarted` as Phase 4
+        // (`e0d97bd5`) declares it, under the same closed envelope: the same
+        // frame, the origin passed over, so an older xfx opens a fork as a
+        // plain session.
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case")]
+        enum Older {
+            SessionStarted {
+                id: String,
+                origin_workspace_root: String,
+                workspace_root: String,
+                model: String,
+                permission_mode: String,
+                #[serde(default)]
+                provider: Option<String>,
+            },
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct OlderEnvelope {
+            schema_version: u32,
+            log_generation: String,
+            seq: u64,
+            event_id: String,
+            timestamp_ms: i64,
+            event: Older,
+        }
+        let older: OlderEnvelope = serde_json::from_str(fork.trim_end()).expect("read past it");
+        let Older::SessionStarted {
+            id,
+            origin_workspace_root,
+            workspace_root,
+            model,
+            permission_mode,
+            provider,
+        } = older.event;
+        assert_eq!(
+            [
+                id,
+                origin_workspace_root,
+                workspace_root,
+                model,
+                permission_mode
+            ],
+            ["s", "/w", "/w", "m", "auto"]
+        );
+        assert_eq!(provider.as_deref(), Some("gateway"));
+    }
+
+    #[test]
     fn the_provider_is_additive_on_both_frames_and_an_unknown_event_field_is_ignored() {
         // Written only when known: a frame with none is byte-for-byte the
         // frame an older binary wrote.
@@ -893,6 +1011,7 @@ mod tests {
                     model: "m".to_string(),
                     permission_mode: "auto".to_string(),
                     provider: provider.map(str::to_string),
+                    forked_from: None,
                 },
             )
             .encode()
@@ -1134,6 +1253,7 @@ mod tests {
                 model: "m".to_string(),
                 permission_mode: "auto".to_string(),
                 provider: Some("gateway".to_string()),
+                forked_from: None,
             },
             SessionEvent::WorkspaceRebound {
                 previous_workspace_root: "/w".to_string(),

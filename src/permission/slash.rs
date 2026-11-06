@@ -45,6 +45,14 @@ pub const NO_SESSION: &str = "saved-session permission rules require an active s
 pub const PROMPT_ACTIVE: &str =
     "finish the active permission prompt before managing saved-session rules";
 
+/// `remember` or `revoke` while the TUI's session is changing under it -- a
+/// `/new` whose runtime has not dropped the last session yet, a resume not
+/// made yet -- a warning in [`PROMPT_ACTIVE`]'s grammar. Upstream has no such
+/// moment: its reset and its resume are made before the next key is read
+/// (`prepareLiveSessionTransition`, `app_session_runtime.zig:1753-1764@481104fd`).
+pub const SESSION_CHANGING: &str =
+    "wait for the session to finish changing before managing saved-session rules";
+
 /// A `remember` whose action cannot be prepared without running it
 /// (`:880-889`), an error.
 pub const NOT_PREPARED: &str =
@@ -165,6 +173,28 @@ pub fn manage(
     prompt_active: bool,
     prepare: impl FnOnce(&str, &serde_json::Value) -> Result<crate::tools::RuleAction, String>,
 ) -> Option<Managed> {
+    manage_with(
+        request,
+        rules_path,
+        super::session_rules::load,
+        prompt_active.then_some(PROMPT_ACTIVE),
+        prepare,
+    )
+}
+
+/// [`manage`], over a store whose rules `load` reads for `rules_path` -- the
+/// file, or the TUI's rules held before its session's first save
+/// (`crate::tui`'s `SavedRules`). `rules_path` is where the store is kept or
+/// will be, and what the confirmation names. `busy` is the warning a store
+/// that may not be changed now is answered with, in [`PROMPT_ACTIVE`]'s
+/// place: that one, or [`SESSION_CHANGING`].
+pub fn manage_with(
+    request: &Request,
+    rules_path: Option<&Path>,
+    load: impl FnOnce(&Path) -> Result<State, String>,
+    busy: Option<&'static str>,
+    prepare: impl FnOnce(&str, &serde_json::Value) -> Result<crate::tools::RuleAction, String>,
+) -> Option<Managed> {
     if !matches!(
         request,
         Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage
@@ -174,10 +204,10 @@ pub fn manage(
     let Some(path) = rules_path else {
         return Some(Managed::say(Tone::Error, TOPIC, NO_SESSION));
     };
-    if prompt_active {
-        return Some(Managed::say(Tone::Warning, TOPIC, PROMPT_ACTIVE));
+    if let Some(busy) = busy {
+        return Some(Managed::say(Tone::Warning, TOPIC, busy));
     }
-    let state = match super::session_rules::load(path) {
+    let state = match load(path) {
         Ok(state) => state,
         Err(reason) => return Some(Managed::say(Tone::Error, TOPIC, reason)),
     };
@@ -231,8 +261,17 @@ pub fn manage(
 /// A store that cannot be read or written is an error naming why, and the
 /// file is left as it was.
 pub fn confirm(confirmation: &Confirmation) -> (Tone, String) {
+    answer(super::session_rules::update(
+        &confirmation.path,
+        &confirmation.event,
+    ))
+}
+
+/// What a confirmed change came to, said: [`confirm`]'s words for the file,
+/// and the TUI's for the rules it holds before the first prompt.
+pub fn answer(applied: Result<super::session_rules::Applied, String>) -> (Tone, String) {
     use super::session_rules::Applied;
-    match super::session_rules::update(&confirmation.path, &confirmation.event) {
+    match applied {
         Ok(Applied::Applied(_)) => (Tone::Neutral, UPDATED.to_string()),
         Ok(Applied::Stale) => (Tone::Warning, CHANGED.to_string()),
         Ok(Applied::Full) => (Tone::Warning, CAPACITY.to_string()),
@@ -402,7 +441,20 @@ pub fn selected(mode: PermissionMode) -> String {
 
 /// One row of the `session grants:` list: ` - <tool> -> <target>`
 /// (`renderInteractiveBody`, with `displayGrantTarget`,
-/// `output_contracts.zig:1699-1709`).
+/// `output_contracts.zig:1699-1709`), the target as [`grant_target`] says it.
+///
+/// Not made safe here: a command a model wrote is not text a terminal may be
+/// handed, and each front end has its own rule for that.
+pub fn grant_line(tool: &str, target: &str, workspace_root: &Path) -> String {
+    format!(
+        " - {tool} -> {}",
+        grant_target(tool, target, workspace_root)
+    )
+}
+
+/// A grant's target as a listing says it (`displayGrantTarget`,
+/// `output_contracts.zig:1699-1709`; the TUI's `/permissions` panel says it
+/// too, `PermissionsSnapshot.panelRows`, `:1044-1048@481104fd`).
 ///
 /// A file's target is the canonical absolute path a grant is keyed by
 /// ([`super::ProposedAction::target`]), said relative to the workspace when it
@@ -410,20 +462,15 @@ pub fn selected(mode: PermissionMode) -> String {
 /// becoming a chain of `..`. A command's target is the command and its
 /// directory, as the grant holds it.
 ///
-/// Not made safe here: a command a model wrote is not text a terminal may be
-/// handed, and each front end has its own rule for that.
-pub fn grant_line(tool: &str, target: &str, workspace_root: &Path) -> String {
-    let shown = if tool == "terminal" {
-        target.to_string()
-    } else {
-        match Path::new(target).strip_prefix(workspace_root) {
-            Ok(relative) if !relative.as_os_str().is_empty() => {
-                relative.to_string_lossy().into_owned()
-            }
-            _ => target.to_string(),
-        }
-    };
-    format!(" - {tool} -> {shown}")
+/// Not made safe here, for [`grant_line`]'s reason.
+pub fn grant_target(tool: &str, target: &str, workspace_root: &Path) -> String {
+    if tool == "terminal" {
+        return target.to_string();
+    }
+    match Path::new(target).strip_prefix(workspace_root) {
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_string_lossy().into_owned(),
+        _ => target.to_string(),
+    }
 }
 
 /// The mode Shift-Tab goes to from `mode`: ask, auto, full access, and round

@@ -1,0 +1,35 @@
+=== ~/.fx/history.jsonl (589 bytes)
+{"schema_version":1,"timestamp_ms":1793786899516,"workspace_root":"<scratch>/work","text":"/permissions ask"}
+{"schema_version":1,"timestamp_ms":1793786900552,"workspace_root":"<scratch>/work","text":"first"}
+{"schema_version":1,"timestamp_ms":1793786903587,"workspace_root":"<scratch>/work","text":"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
+{"schema_version":1,"timestamp_ms":1793786906138,"workspace_root":"<scratch>/work","text":"write it"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/iTpvvjXYrXPA/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/iTpvvjXYrXPA/log.jsonl (4582 bytes)
+{"v":1,"seq":1,"ts":1793786900556,"kind":"session_created","id":"iTpvvjXYrXPA","workspace":"<scratch>/work","role":"root","host":"app","crc":"81765b3d"}
+{"v":1,"seq":2,"ts":1793786897487,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"fdfbe3d8"}
+{"v":1,"seq":3,"ts":1793786897487,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"f557c388"}
+{"v":1,"seq":4,"ts":1793786897487,"kind":"set","key":"language","value":"und","crc":"9d6f1bd7"}
+{"v":1,"seq":5,"ts":1793786900556,"kind":"turn_started","turn":1,"crc":"50abf243"}
+{"v":1,"seq":6,"ts":1793786900556,"kind":"item","turn":1,"type":"user","data":{"text":"first","images":[],"work_id":null},"crc":"99ea53c0"}
+{"v":1,"seq":7,"ts":1793786900556,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-04\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is ask. Sensitive tool calls may require user approval unless configured rules or session grants already decide them. Tool admission remains authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"02e43d6c"}
+{"v":1,"seq":8,"ts":1793786900879,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"b3bde91b"}
+{"v":1,"seq":9,"ts":1793786900885,"kind":"item","turn":1,"type":"assistant","data":{"text":"First answer.","provider_replay":null,"standalone_response":false},"crc":"687521d4"}
+{"v":1,"seq":10,"ts":1793786900885,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793786900553,"completed_at_ms":1793786900880,"thinking_duration_ms":2,"turn_duration_ms":327,"token_progress":{"input_tokens":2,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"a49b4c21"}
+{"v":1,"seq":11,"ts":1793786900885,"kind":"turn_committed","turn":1,"crc":"9e8fd3c0"}
+{"v":1,"seq":12,"ts":1793786900885,"kind":"set","key":"language","value":"und-Latn","crc":"c03e2c6a"}
+{"v":1,"seq":13,"ts":1793786900885,"kind":"set","key":"title","value":"first","crc":"8ecdc6ce"}
+{"v":1,"seq":14,"ts":1793786905108,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":2,"rules":[{"id":1,"kind":"file_mutation","canonical":{"encoding":"base64","data":"AAAAAAAAABtmeC1wZXJtaXNzaW9uLXN0YXRlLWZpbGUtdjEAAAAAAAAACndyaXRlX2ZpbGUAAAAAAAAAIPQ1WVFLaCYFsqecTKazK7ZoJqP7desgq1o4/SbJTZBRAAAAAAAAAC8vcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5ENThXT0Ivd29yay9iLnR4dAAAAAAAAAAFd3JpdGUAAAAAAAAAD3ByZWltYWdlLWFic2VudAAAAAAAAAAgofzkNjhU/4iM/0uOeHXWAMJoI5BBKoz3mzfQsRFIsPoAAAAAAAAALy9wcml2YXRlL3RtcC9jbGF1ZGUtNTAxL2Z4Y2FwLkQ1OFdPQi93b3JrL2IudHh0AAAAAAAAAAZ0YXJnZXQAAAAAAAAADHRhcmdldF9lbnRyeQAAAAAAAAAPaWRlbnRpdHktYWJzZW50AAAAAAAAACkvcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5ENThXT0Ivd29yawAAAAAAAAAGcGFyZW50AAAAAAAAAA9leGlzdGluZ19wYXJlbnQAAAAAAAAACAAAAAABAAARAAAAAAAAAAgAAAAAIa2qaQAAAAAAAAAJZGlyZWN0b3J5"},"display_identity":"write_file b.txt preimage=absent after=a1fce4363854ff88","decision":"deny","generation":1}]},"crc":"b99e2193"}
+{"v":1,"seq":15,"ts":1793786906139,"kind":"turn_started","turn":2,"crc":"5b7d7a0b"}
+{"v":1,"seq":16,"ts":1793786906139,"kind":"item","turn":2,"type":"user","data":{"text":"write it","i
+=== ~/.fx/sessions/v2/index.jsonl (491 bytes)
+{"op":"put","id":"iTpvvjXYrXPA","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793786900556,"updated":1793786900556,"turns":0,"opened":[1793786900556,0,0,0,0],"crc":"5986a057"}
+{"op":"put","id":"iTpvvjXYrXPA","role":"root","host":"app","workspace":"<scratch>/work","title":"first","language":"und-Latn","created":1793786900556,"updated":1793786900885,"turns":1,"opened":[0,0,0,0,0],"crc":"f2b191e8"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/settings.json (26 bytes)
+{"permission_mode":"ask"}
+
+=== ~/.fx/settings.lock (0 bytes)

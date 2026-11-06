@@ -49,9 +49,18 @@ pub(crate) trait CommandHandlers {
     /// there was none, which is the one refusal that names the command's own
     /// grammar (`usage: /rename <title>`).
     fn rename(&mut self, argument: &str);
+    /// `/fork`: the menu of the session's prompts a fork can start before. It
+    /// takes nothing: `/fork 2` never reaches it ([`classify`]), as
+    /// upstream's is no command (`command_router.zig:253-256@481104fd`).
+    fn fork(&mut self);
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
+    /// `/effort`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which opens the menu of the current model's
+    /// levels. What a level may be is `crate::provider::effort::Effort::parse`'s
+    /// to say, and whether the model offers it is its catalog row's.
+    fn effort(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
     /// `/fast`. It takes nothing: `/fast on` never reaches it ([`classify`]).
@@ -213,7 +222,9 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Reset => handlers.reset(),
         Slash::Resume => handlers.resume(),
         Slash::Rename => handlers.rename(argument),
+        Slash::Fork => handlers.fork(),
         Slash::Model => handlers.model(argument),
+        Slash::Effort => handlers.effort(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
         Slash::Allowlist => handlers.allowlist(argument),
@@ -292,8 +303,14 @@ mod tests {
         fn rename(&mut self, argument: &str) {
             self.calls.push(format!("rename {argument}"));
         }
+        fn fork(&mut self) {
+            self.calls.push("fork".to_string());
+        }
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
+        }
+        fn effort(&mut self, argument: &str) {
+            self.calls.push(format!("effort {argument}"));
         }
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
@@ -387,7 +404,9 @@ mod tests {
             ("/reset", "reset"),
             ("/resume", "resume"),
             ("/rename", "rename "),
+            ("/fork", "fork"),
             ("/model", "model "),
+            ("/effort", "effort "),
             ("/copy", "copy"),
             ("/fast", "fast"),
             ("/ultrafast", "ultrafast "),

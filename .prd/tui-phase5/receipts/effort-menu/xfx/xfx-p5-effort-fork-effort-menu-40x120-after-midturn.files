@@ -1,0 +1,30 @@
+=== ~/.xfx/history.jsonl (1203 bytes)
+{"schema_version":1,"timestamp_ms":1793751267598,"workspace_root":"<scratch>/work","text":"/effort"}
+{"schema_version":1,"timestamp_ms":1793751274339,"workspace_root":"<scratch>/work","text":"/effort high"}
+{"schema_version":1,"timestamp_ms":1793751275784,"workspace_root":"<scratch>/work","text":"/effort bogus"}
+{"schema_version":1,"timestamp_ms":1793751277232,"workspace_root":"<scratch>/work","text":"/effort max"}
+{"schema_version":1,"timestamp_ms":1793751278672,"workspace_root":"<scratch>/work","text":"/effort two words"}
+{"schema_version":1,"timestamp_ms":1793751280124,"workspace_root":"<scratch>/work","text":"/effort default"}
+{"schema_version":1,"timestamp_ms":1793751281577,"workspace_root":"<scratch>/work","text":"/effort low"}
+{"schema_version":1,"timestamp_ms":1793751282605,"workspace_root":"<scratch>/work","text":"slow turn please"}
+{"schema_version":1,"timestamp_ms":1793751284550,"workspace_root":"<scratch>/work","text":"/effort high"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1793751282605-622bd439d67f978a/events.jsonl (870 bytes)
+{"schema_version":1,"log_generation":"67f7f0969eff7e5b8f35ef5054e429af","seq":1,"event_id":"aa556b164094536f2bf7ca2dde257bb5","timestamp_ms":1793751282608,"event":{"kind":"session_started","id":"1793751282605-622bd439d67f978a","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"openai/gpt-6-astra","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"67f7f0969eff7e5b8f35ef5054e429af","seq":2,"event_id":"6d58cca3be02808a9e6f1efb619db9bd","timestamp_ms":1793751282629,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"67f7f0969eff7e5b8f35ef5054e429af","seq":3,"event_id":"b5792409bb316d4258de651aeae8c5be","timestamp_ms":1793751282643,"event":{"kind":"user_message","text":"slow turn please"}}
+
+=== ~/.xfx/sessions/1793751282605-622bd439d67f978a/session.json (627 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793751282605-622bd439d67f978a","log_generation":"67f7f0969eff7e5b8f35ef5054e429af","created_at_ms":1793751282608,"updated_at_ms":1793751282643,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"openai/gpt-6-astra","permission_mode":"auto","title":"slow turn please","history_turns":1,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":3,"event_log_bytes":870,"event_log_sha256":"6b49db6a1bf161a1f29f460abf040e79037551f18764669275eacf84c30e72c3"}
+
+=== ~/.xfx/settings.json (103 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "effort": "high"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

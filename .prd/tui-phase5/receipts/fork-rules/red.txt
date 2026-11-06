@@ -1,0 +1,31 @@
+# base cf25feaf: cargo test --locked --test tui -- a_remembered_deny_still_refuses
+
+running 2 tests
+test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... FAILED
+test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... FAILED
+
+failures:
+
+---- a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask stdout ----
+
+thread 'a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask' (235009466) panicked at tests/tui.rs:13237:9:
+assertion `left == right` failed: fork: {"type":"tool-result","toolCallId":"in-fork","toolName":"read_file","output":{"type":"text","value":"<path>secret.txt</path>\n<content>\n1\thunter2\n</content>"}}
+  left: String("text")
+ right: "execution-denied"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto stdout ----
+
+thread 'a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto' (235009467) panicked at tests/tui.rs:13208:9:
+assertion `left == right` failed: fork: {"type":"tool-result","toolCallId":"in-fork","toolName":"write_file","output":{"type":"text","value":"wrote b.txt (1 bytes)"}}
+  left: String("text")
+ right: "execution-denied"
+
+
+failures:
+    a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask
+    a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 165 filtered out; finished in 1.88s
+
+error: test failed, to rerun pass `--test tui`

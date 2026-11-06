@@ -1,0 +1,17 @@
+# p5 mcp: what fx sends the stdio fixture (initialize, tools/list,
+# tools/call), logged by the fixture, for one search-and-call turn: the log
+# path is the process environment's, which c1db919 passes to its servers.
+# The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+fx: homefile .fx/mcp.json p5-mcp-turn-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-turn-profile.json
+gateway p5-mcp-turns.json
+env MCPSTDIO_WIRE_LOG=@HOME@/p5-mcp-wire.ndjson
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 6
+type use the fixture echo tool
+key Enter
+wait 15
+snap turn
+home wire

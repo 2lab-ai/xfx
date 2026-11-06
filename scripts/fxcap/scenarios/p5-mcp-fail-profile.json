@@ -1,0 +1,1 @@
+{"mcpServers":{"fixture":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-stdio.ts"]},"bad":{"command":"/bin/sh","args":["-c","echo boom-stderr >&2; exit 3"]}}}

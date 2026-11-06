@@ -1,0 +1,21 @@
+fx: env FX_AUTO_UPGRADE=0
+# /effort while the catalog is still on its way (each read answers 4 s after
+# it is asked): the loading notice (`handleEffort`,
+# `session_commands.zig:1004-1006@481104fd`), then the menu once the
+# launch's read has landed. `modelsdelay` stamps the gateway log's catalog
+# lines with when they were asked and answered.
+models p5-effort-fork-models.json
+modelsdelay 4000
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 1
+type /effort
+key Enter
+wait 0.5
+snap early
+wait 5
+type /effort
+key Enter
+wait 1
+snap later
+gwlog

@@ -80,15 +80,17 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{self, ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
+use super::bridge::{ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
 use super::clipboard_image::ClipboardReads;
 use super::compaction::{self, Compaction};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
+use super::effort_menu::{self, EffortAction, EffortMenu};
 use super::entity::{Entities, EntityKind, Span};
 use super::file_index::Files;
 use super::file_picker::{self, FilePicker};
+use super::fork_menu::{self, ForkAction, ForkMenu, ForkPoints};
 use super::frame::Caret;
 use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -98,6 +100,7 @@ use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
 use super::image_paths;
+use super::info_panel::{self, MenuAction as InfoAction};
 use super::inline_completion;
 use super::input::{Action, Decoder, Delivery, Input};
 use super::layout::{self, Geometry};
@@ -224,6 +227,23 @@ const UNTITLED_SESSION: &str = session_picker::UNTITLED;
 /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2595`): a
 /// neutral notice under `session`.
 const RESUME_BUSY: &str = "resume is unavailable until the response finishes";
+
+/// What `/fork` says while a turn is in hand, rather than opening its menu
+/// (`openForkMenu`, `vercel-labs/fx@481104fd
+/// src/core/app/app_session_runtime.zig:2077-2081`): neutral, under `session`.
+const FORK_BUSY: &str = "/fork is available once the current turn finishes";
+
+/// What `/fork` says when nothing has been asked that a fork could start
+/// before (`:2083-2089`): neutral, under `session`.
+const NOTHING_TO_FORK: &str = "nothing to fork yet";
+
+/// What `/fork` says when the conversation's log is not what the screen
+/// shows (`:2073-2076`): a warning, under `session`.
+const FORK_UNSAVED: &str = "/fork needs a saved session";
+
+/// What a fork that could not be made says (`submitForkMenuSelection`,
+/// `app_input_runtime.zig:1670-1678@481104fd`): an error, under `session`.
+const FORK_FAILED: &str = "Unable to fork the session.";
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -1109,6 +1129,37 @@ pub(crate) struct Shell {
     /// `/model` reached from the catalog closes the catalog on the way -- and
     /// no completion menu opens while it is ([`Self::reconcile_picker`]).
     model_menu: Option<ModelMenu>,
+    /// `/fork`'s menu, while it is up ([`super::fork_menu`]).
+    ///
+    /// The slot's occupant upstream ranks after the session picker and before
+    /// `/model`'s menu (`show_fork_menu`, `surface_frame.zig:406@481104fd`),
+    /// opened with the composer emptied once the runtime has said what can be
+    /// forked ([`UiEvent::ForkPoints`]). Not a view of the composer: any edit
+    /// to it closes the menu ([`Self::amended`]).
+    fork_menu: Option<ForkMenu>,
+    /// Whether a `/fork` is waiting for the runtime's answer, so that answer
+    /// opens the menu. An edit to the composer in the meantime closes the
+    /// menu before it opens, as an edit closes the open one, and a reset
+    /// drops the question with the conversation it was about.
+    fork_asked: bool,
+    /// The prompt a fork the runtime has been handed was made before, to go
+    /// back into the composer once the fork is the conversation
+    /// (`submitForkMenuSelection`'s `replace`, `app_input_runtime.zig:1686`).
+    fork_prompt: Option<String>,
+    /// Whether the document ends on a fork's plain `original session …` line
+    /// ([`Shell::forked`]), which upstream ends with its line break alone: the
+    /// block written after it opens with the blank row a block is separated
+    /// by -- a notice always does ([`queue_notice`]), and a card does when
+    /// this says so ([`Shell::write_card`]); the composer under it does not
+    /// (`fx-p5-effort-fork-fork-empty-…-forked`, `-fork-continue-…-continued`).
+    raw_gap: bool,
+    /// `/effort`'s menu, while it is up ([`super::effort_menu`]).
+    ///
+    /// The slot's occupant upstream ranks after `/model`'s menu
+    /// (`show_effort_menu`, `surface_frame.zig:408@481104fd`), opened by a
+    /// bare `/effort` with the composer emptied. Not a view of the composer:
+    /// any edit to it closes the menu ([`Self::amended`]).
+    effort_menu: Option<EffortMenu>,
     /// What `/model`'s menu says about a Gateway catalog under its rows
     /// ([`crate::provider::model::gateway_catalog_note`]), asked once of the
     /// credential this session launched with: a provider switch re-reads the
@@ -1136,6 +1187,18 @@ pub(crate) struct Shell {
     /// focus like the `/statusline` picker, the composer row hidden while it
     /// is.
     workspace_menu: Option<workspace_menu::Menu>,
+    /// A read-only panel -- what `/status` and a bare `/permissions` open
+    /// upstream -- while it is up ([`super::info_panel`]): a focus like the
+    /// `/workspace` picker, the composer row hidden while it is, with the
+    /// composer still taking a paste behind it. A question, a model's question
+    /// batch and a rule change outrank it in [`Self::slot`] and in
+    /// [`Self::consume`] alike, so one arriving while it is up takes the keys
+    /// and the rows, and the panel is in front again once it is answered.
+    info_panel: Option<info_panel::Panel>,
+    /// Why the profile settings did not read when `/status` last opened the
+    /// panel, by the cause's label, if they did not: what its rebuilds say
+    /// without reading the file again ([`Self::status`]).
+    status_settings: Option<&'static str>,
     /// The skills menu, while it is open ([`super::skills_menu`]): opened by
     /// `/skills` or by a `$` the user typed or pasted, a view of the composer
     /// like the catalog -- in the slot only while it has something to show
@@ -1967,6 +2030,17 @@ const RESET: &str = "\u{1b}[0m";
 
 /// What the band's elastic slot is holding.
 ///
+/// What opened a saved session the screen replays ([`Shell::hydrate_as`]):
+/// what its first lines say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Reopened {
+    /// `/resume`, or a launch's `--resume`: `* session resumed: <title>`.
+    Resumed,
+    /// `/fork`: `* session forked: <title>` and the line that resumes the
+    /// session it was forked from, `source`.
+    Forked { source: String },
+}
+
 /// A borrow rather than a state: which of the two it is follows from the fields
 /// ([`Shell::slot`]), so there is no third answer for a flag to drift into.
 #[derive(Debug, Clone, Copy)]
@@ -1982,6 +2056,8 @@ enum Slot<'a> {
     Rule(&'a RuleConfirm),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// A read-only panel: the focus and the composer's rows, as the picker's.
+    Info(&'a info_panel::Panel),
     /// The `/settings` menu. Rows, and the composer as its search; it binds
     /// more keys than the catalog does, and owns nothing else.
     Settings(&'a SettingsMenu),
@@ -2004,6 +2080,12 @@ enum Slot<'a> {
     /// `/model`'s menu, the catalog's kind: rows, and the composer as its
     /// search.
     Models(&'a ModelMenu),
+    /// `/fork`'s menu: rows only. The composer is not its search, and an edit
+    /// to it closes the menu.
+    Fork(&'a ForkMenu),
+    /// `/effort`'s menu: rows only. The composer is not its search, and an
+    /// edit to it closes the menu.
+    Effort(&'a EffortMenu),
     /// `/model`'s inline column, under the argument of a `/model ` line. Like
     /// the completion menu it owns nothing but rows: the typing goes on into
     /// the composer, whose text is what it is a view of.
@@ -2223,6 +2305,11 @@ impl Shell {
             sessions: None,
             wipe: false,
             model_menu: None,
+            fork_menu: None,
+            fork_asked: false,
+            fork_prompt: None,
+            raw_gap: false,
+            effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
@@ -2231,6 +2318,8 @@ impl Shell {
                 &config.additional_directories,
             ),
             workspace_menu: None,
+            info_panel: None,
+            status_settings: None,
             skills_menu: None,
             skills: HeldSkills::new(
                 &config.workspace_root,
@@ -2468,9 +2557,19 @@ impl Shell {
                 Some(Slot::Sessions(sessions)) => {
                     sessions.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same (`composeForkMenuRow` is handed `menuRowCount`'s
+                // answer, `paint_plan.zig:776-787@481104fd`).
+                Some(Slot::Fork(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // The same: one layout answers its height and its rows
                 // (`composeModelMenuRow` is handed `menuRowCount`'s answer).
                 Some(Slot::Models(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
+                // The same (`composeEffortMenuRow` is handed `menuRowCount`'s
+                // answer, `paint_plan.zig:800-811@481104fd`).
+                Some(Slot::Effort(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
                 // In the rows the geometry gave it, with the values in force.
@@ -2480,6 +2579,11 @@ impl Shell {
                     self.statusline,
                     self.palette,
                 ),
+                // In the rows the geometry gave it, scrolled
+                // (`composeRow` is handed `footerRows`' answer).
+                Some(Slot::Info(panel)) => {
+                    panel.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for (`composeUsageRow` is handed them).
                 Some(Slot::Usage(dashboard)) => {
@@ -2607,11 +2711,40 @@ impl Shell {
                 self.palette.dim(),
                 model_menu::key_help(self.geometry.cols).to_string(),
             ),
+            // `/fork`'s, in the same grey -- or, while a Ctrl-C would leave,
+            // that in the statusline grey instead (`composeForkMenuHintRow`,
+            // `input_presentation.zig:704-735@481104fd`).
+            Some(Slot::Fork(_)) if self.exit_armed => {
+                self.painted(self.palette.statusline(), EXIT_ARMED.to_string())
+            }
+            Some(Slot::Fork(_)) => self.painted(
+                self.palette.dim(),
+                fork_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // `/effort`'s, in the same grey -- or, while a Ctrl-C would leave,
+            // that in the statusline grey instead (`composeEffortMenuHintRow`,
+            // `input_presentation.zig:671-702@481104fd`).
+            Some(Slot::Effort(_)) if self.exit_armed => {
+                self.painted(self.palette.statusline(), EXIT_ARMED.to_string())
+            }
+            Some(Slot::Effort(_)) => self.painted(
+                self.palette.dim(),
+                effort_menu::key_help(self.geometry.cols).to_string(),
+            ),
             // And the `/statusline` picker's, in the same grey
             // (`composeCompactCommandMenuHintRow`, `input_presentation.zig:766-790`).
             Some(Slot::Statusline(_)) => self.painted(
                 self.palette.dim(),
                 statusline::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the panel's: `↑↓ scroll` only while its lines overflow the
+            // rows it was given (`composeCompactCommandMenuHintRow`, the
+            // `.info_panel` variants).
+            Some(Slot::Info(panel)) => self.painted(
+                self.palette.dim(),
+                panel
+                    .key_help(self.geometry.panel, self.geometry.cols)
+                    .to_string(),
             ),
             // And the dashboard's (`composeCompactCommandMenuHintRow`, the
             // `.usage` variants).
@@ -2811,12 +2944,11 @@ impl Shell {
     /// the model ([`Self::fast_bound`]).
     fn hinted_model(&self) -> (String, Option<Effort>, Option<&'static str>) {
         let catalog = known(self.catalog_known, &self.catalog);
-        if let Some(preview) = self
+        let query = self
             .column
-            .active(self.editor.text())
-            .filter(|_| self.help_menu.is_none() && self.model_menu.is_none())
-            .and_then(|query| self.column.preview(&query, catalog))
-        {
+            .active(self.editor.text(), &self.model)
+            .filter(|_| self.help_menu.is_none() && self.model_menu.is_none());
+        if let Some(preview) = query.and_then(|query| self.column.preview(&query, catalog)) {
             let entry = catalog.entry(&preview.model);
             let offers =
                 |speed: Speed| entry.is_some_and(|entry| Speed::options(entry).contains(&speed));
@@ -2843,8 +2975,20 @@ impl Shell {
             CatalogKnown::Unread(..) => false,
             CatalogKnown::Unasked | CatalogKnown::Asked => true,
         };
-        let effort =
-            (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone());
+        // An `/effort ` column's marked level, while it marks one, in place of
+        // the one in force -- the default shown as no level, as the default in
+        // force is (`effort_command_preview`, `app_render_runtime.zig:546-584`,
+        // `:664-665@481104fd`; `fx-p5-effort-fork-effort-column-40x120-col-down`
+        // and `-space-first`). The model and its speed are the ones in force.
+        let previewed = query
+            .filter(model_column::Query::effort_command)
+            .and_then(|query| self.column.marked_level(&query, catalog));
+        let effort = match previewed {
+            Some(level) => (!level.is_default()).then_some(level),
+            None => {
+                (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone())
+            }
+        };
         let speed = if self.settings.ultrafast {
             Some(self.ultra)
         } else if intrinsic_fast(&self.model) || (self.settings.fast && self.fast_bound) {
@@ -2926,6 +3070,14 @@ impl Shell {
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
+        // After the three that hold a turn or a rule change, so it never covers
+        // one -- and in upstream's order among the compact menus, which share
+        // the slot only one at a time (`activeCompactCommandMenu`,
+        // `app_input_runtime.zig:1840-1846`). [`Self::consume`] offers it the
+        // keys in the same place.
+        if let Some(panel) = self.info_panel.as_ref() {
+            return Some(Slot::Info(panel));
+        }
         if let Some(dashboard) = self.usage_menu.as_ref() {
             return Some(Slot::Usage(dashboard));
         }
@@ -2948,8 +3100,21 @@ impl Shell {
         if let Some(sessions) = self.sessions.as_ref() {
             return Some(Slot::Sessions(sessions));
         }
+        // After the session picker and before `/model`'s menu, as upstream
+        // ranks it (`show_fork_menu`, `surface_frame.zig:406@481104fd`) --
+        // though, as with the menus above it, the ranking decides nothing:
+        // opening it closes them.
+        if let Some(menu) = self.fork_menu.as_ref() {
+            return Some(Slot::Fork(menu));
+        }
         if let Some(menu) = self.model_menu.as_ref() {
             return Some(Slot::Models(menu));
+        }
+        // After `/model`'s menu, as upstream ranks it (`show_effort_menu`,
+        // `surface_frame.zig:408@481104fd`) -- though, as with the menus above
+        // it, the ranking decides nothing: opening it closes them.
+        if let Some(menu) = self.effort_menu.as_ref() {
+            return Some(Slot::Effort(menu));
         }
         // After `/model`'s menu and before the inline pickers, as upstream
         // ranks it (`show_skills_query`, `surface_frame.zig:631-634`) -- and
@@ -2962,8 +3127,18 @@ impl Shell {
             return Some(Slot::Provider(column));
         }
         // The `/model` column before the `@` word, as upstream asks
-        // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`).
-        if self.column.active(self.editor.text()).is_some() {
+        // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`) -- and the
+        // `/effort ` column, for a model in force that has levels: one without
+        // has none, and its line shows nothing here at all
+        // (`app_render_runtime.zig:750@481104fd`).
+        if self
+            .column
+            .active(self.editor.text(), &self.model)
+            .is_some_and(|query| {
+                self.column
+                    .shows(&query, known(self.catalog_known, &self.catalog))
+            })
+        {
             return Some(Slot::Column);
         }
         if let Some(files) = self.file_picker.as_ref() {
@@ -3037,6 +3212,14 @@ impl Shell {
             if let Some(menu) = self.statusline_menu.as_ref() {
                 let row = menu.marked_row(self.geometry.panel);
                 return (self.geometry.panel_first().saturating_add(row), 0);
+            }
+            // The panel has the focus with nothing marked: the start of its
+            // first row. Upstream hides the caret under every compact menu
+            // (`cursor_target.visible = input_visible`, `paint_plan.zig:463`);
+            // this band keeps it on the surface that has the keys, as it does
+            // for the pickers beside it.
+            if self.info_panel.is_some() {
+                return (self.geometry.panel_first(), 0);
             }
             // The dashboard has the focus the same way: the start of the
             // marked model's row, which Enter and the arrows act on, or of the
@@ -3227,6 +3410,41 @@ impl Shell {
         }
     }
 
+    /// Says that this session is a fork of another, as upstream's fork does
+    /// (`installResumedV2Session`'s `.fork`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_session_runtime.zig:3948-3958`): a neutral notice
+    /// under `session forked` whose body is the fork's title, then **a plain
+    /// line**, no glyph and no colour, so the command in it copies whole:
+    /// `original session xfx --resume <id>`, this product's own resume
+    /// spelling. The title is the window's from here on, as [`Self::resumed`]
+    /// makes a resumed one's.
+    ///
+    /// `source` is the id the runtime forked from, its own conversation's;
+    /// it is read again as a session id before it is written, and a string
+    /// that is not one writes no line.
+    fn forked(&mut self, title: Option<String>, source: &str) {
+        let title = title
+            .map(|title| super::bridge::inert(&title).trim().to_string())
+            .filter(|title| !title.is_empty());
+        let body = title
+            .clone()
+            .unwrap_or_else(|| UNTITLED_SESSION.to_string());
+        self.announce(notice::Notice::neutral("session forked", body));
+        if let Ok(source) = crate::session::SessionId::parse(source) {
+            let line = format!("original session xfx --resume {source}");
+            // An entry of the session's record, as upstream's raw line is one
+            // of its transcript's (`appendRaw`, a `raw_bytes` entry,
+            // `resume_projection.zig:106-128@481104fd`).
+            self.full.block(std::slice::from_ref(&line));
+            self.write_raw_rows(&line);
+            self.raw_gap = true;
+        }
+        if title.is_some() {
+            self.session_title = title;
+            self.retitle();
+        }
+    }
+
     /// Replays a saved session onto the screen, as upstream's resume does
     /// (`hydrateResumedSession`, `app_session_runtime.zig:2368-2470`): the
     /// resume notice, then every turn as the live one was shown -- the card,
@@ -3246,6 +3464,12 @@ impl Shell {
     /// Written straight into the transcript rather than through the pacer: a
     /// conversation that already happened is not streamed again.
     pub(crate) fn hydrate(&mut self, replay: Hydration, wipe: bool) {
+        self.hydrate_as(replay, wipe, Reopened::Resumed);
+    }
+
+    /// [`Self::hydrate`], headed by what opened the session: a resume's
+    /// notice, or a fork's two lines ([`Self::forked`]).
+    fn hydrate_as(&mut self, replay: Hydration, wipe: bool, opened: Reopened) {
         // What a held save's announcement says first: upstream's was written
         // when the command ran, so it is above the replay -- and, under a
         // wipe, erased with the rest, as upstream's terminal reset erases it.
@@ -3263,6 +3487,7 @@ impl Shell {
         self.group = ToolGroup::default();
         self.trailer.clear();
         self.abandoned.clear();
+        self.raw_gap = false;
         self.prompts.clear();
         self.tally = Tally::default();
         self.context_used = None;
@@ -3323,7 +3548,10 @@ impl Shell {
         // summary carries the one before's conclusion.
         let mut stamp = self.full.now();
         self.full.stamp_with(Some(stamp));
-        self.resumed(replay.title);
+        match opened {
+            Reopened::Resumed => self.resumed(replay.title),
+            Reopened::Forked { source } => self.forked(replay.title, &source),
+        }
         for turn in replay.turns {
             stamp = self.replay_turn(turn, stamp);
         }
@@ -3559,6 +3787,64 @@ impl Shell {
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
+        // What an `/effort ` column is showing the levels of, read only while
+        // the composer is such a line: every other event costs a prefix check.
+        let column_for = model_column::effort_line(self.editor.text())
+            .then(|| (self.provider, self.model.clone()));
+        self.apply_event(event);
+        self.settle_effort_menu();
+        self.settle_effort_column(column_for);
+    }
+
+    /// The `/effort ` column, put away -- its mark let go and the line left as
+    /// typed -- once the model or the provider it was showing the levels of
+    /// is no longer the one in force, as [`Self::settle_effort_menu`] takes
+    /// the menu down: a mark set over one model's rows would otherwise sit on
+    /// another's (`xhigh`, astra's fifth row, is opus's `max`), and Enter
+    /// would apply it. Enter then runs the line as the command, for the model
+    /// now in force; a new `/effort ` line opens the column again. Upstream
+    /// has no rule here either: its column follows the model in force on
+    /// every frame (`app_render_runtime.zig:542-584@481104fd`), and its
+    /// changes are commands typed in that composer.
+    fn settle_effort_column(&mut self, shown_for: Option<(ProviderId, String)>) {
+        let Some((provider, model)) = shown_for else {
+            return;
+        };
+        if (provider, model.as_str()) == (self.provider, self.model.as_str())
+            || !model_column::effort_line(self.editor.text())
+        {
+            return;
+        }
+        self.column.reset();
+        self.column.dismiss();
+        self.refit();
+        self.render.request(Reason::Modal);
+        self.render.request(Reason::Footer);
+    }
+
+    /// `/effort`'s menu, taken down once the model or the provider it was
+    /// opened for is no longer the one in force -- a model change, a provider
+    /// switch or a resume that landed while it was up -- so Enter cannot apply
+    /// the old model's level to the new one and name it for the new one.
+    /// Upstream's menu has no rule for this: its model changes are commands,
+    /// and typing one closes the menu (`dismissActiveMenusForComposerEdit`,
+    /// `app_input_runtime.zig:1984-1990@481104fd`; the menu is closed nowhere
+    /// else but Escape, Enter and another command's menu,
+    /// `app_commands.zig:1181`). Here a change can land after its command, so
+    /// the menu closes then.
+    fn settle_effort_menu(&mut self) {
+        if self
+            .effort_menu
+            .as_ref()
+            .is_some_and(|menu| !menu.is_for(self.provider, &self.model))
+        {
+            self.effort_menu = None;
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    fn apply_event(&mut self, event: UiEvent) {
         // The old conversation's events, after a reset handed its screen to
         // scrollback and before the runtime has said it is gone.
         if self.draining.is_some() && self.drained(&event) {
@@ -3834,6 +4120,13 @@ impl Shell {
                 // whichever way the answer went.
                 self.render.request(Reason::Footer);
             }
+            // The effort the runtime applied on its own, after any model
+            // change held with it: the hint row shows it. Nothing is said --
+            // the band said it when it was asked for ([`Self::apply_effort`]).
+            UiEvent::EffortApplied { effort } => {
+                self.settings.effort = effort;
+                self.render.request(Reason::Footer);
+            }
             // The catalog's rows, for `/model`'s menu and column if either is
             // waiting for them, for resolving a typed query on this side, and
             // for the context meter's denominator either way.
@@ -4059,6 +4352,15 @@ impl Shell {
                     self.refit();
                     self.render.request(Reason::Modal);
                 }
+            }
+            // What `/fork` can start before, if the `/fork` still waits.
+            UiEvent::ForkPoints(points) => self.fork_points(points),
+            // The runtime is in the fork.
+            UiEvent::Forked { replay, source } => self.forked_into(replay, source),
+            // The fork was not made; the conversation is the one it was.
+            UiEvent::ForkFailed => {
+                self.fork_prompt = None;
+                self.write_notice(&notice::Notice::error("session", FORK_FAILED));
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -4792,8 +5094,10 @@ impl Shell {
         self.file_picker = None;
         self.help_menu = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.sessions = None;
         self.provider_picker = None;
+        self.fork_menu = None;
         self.skills_menu = Some(menu);
         self.refit();
         self.render.request(Reason::Modal);
@@ -5369,12 +5673,37 @@ impl Shell {
     }
 
     /// `/settings`' effort row: the band's effort and the runtime's move to
-    /// `effort`, and the profile's `effort` is written here and announced
-    /// (`applyEffort(app, effort, announce=false, persist=true)`,
-    /// `session_commands.zig:863-880`). The runtime is told as a model change
-    /// that keeps the model ([`ModelChange::effort_only`]), so one made while
-    /// a turn runs waits for it as `/model`'s does.
+    /// `effort`, and the profile's `effort` is written here and the write is
+    /// what is said (`selectEffortFromSettings` -> `applyEffort(app, effort,
+    /// announce=false, persist=true)`, `session_commands.zig:980-982@481104fd`).
     fn set_effort(&mut self, effort: Effort) {
+        self.apply_effort(effort, false);
+    }
+
+    /// `/effort`'s level, from its menu or its argument: the same move and
+    /// write as [`Self::set_effort`], said the other way round -- the level
+    /// and the model are named, and the write only when it did not simply
+    /// succeed (`selectEffort` -> `applyEffort(app, effort, announce=true,
+    /// persist=true)`, `session_commands.zig:985-987@481104fd`).
+    fn select_effort(&mut self, effort: Effort) {
+        self.apply_effort(effort, true);
+    }
+
+    /// Upstream's `applyEffort` (`session_commands.zig:952-967@481104fd`): the
+    /// effort is the band's at once -- the hint row shows it -- and the
+    /// runtime's as a model change that keeps the model
+    /// ([`ModelChange::effort_only`]), so one made while a turn runs waits
+    /// for it as `/model`'s does: the running turn keeps the level it started
+    /// with and the next one is sent the new one. Then the profile's `effort`
+    /// is written; with `announce`, its benign `saved to user settings` is
+    /// left unsaid (`persistPreferenceTargets(..., !announce)` ->
+    /// `reportUserSettingsCommit`, `:29-80`) and the level is named instead
+    /// (`announceEffortSelection`, `:971-978`): `Reasoning effort set to
+    /// <level> for <model>`, or `Next turn will use reasoning effort <level>
+    /// for <model>` while a turn is still to finish, as `/model`'s own
+    /// announcement reads it.
+    fn apply_effort(&mut self, effort: Effort, announce: bool) {
+        let next_turn = self.turn_pending();
         self.settings.effort = effort.clone();
         self.work.control(TurnControl::Model(ModelChange {
             name: self.model.clone(),
@@ -5382,16 +5711,33 @@ impl Shell {
             speed: None,
             picker: false,
             announced: true,
-            next_turn: self.turn_pending(),
+            next_turn,
             provider: self.provider,
             effort_only: true,
         }));
-        self.save_preference(
+        self.save_preference_saying(
             settings::EFFORT_TOPIC,
             &[crate::config::EFFORT_KEY],
             serde_json::Value::String(effort.label().to_string()),
             true,
+            !announce,
         );
+        if announce {
+            let lead = if next_turn {
+                "Next turn will use reasoning effort "
+            } else {
+                "Reasoning effort set to "
+            };
+            self.announce(notice::Notice::neutral(
+                "",
+                format!(
+                    "{lead}{} for {}",
+                    effort.display(),
+                    effort_menu::one_line(&self.model)
+                ),
+            ));
+        }
+        self.render.request(Reason::Footer);
     }
 
     /// Upstream's `handleHistory(app, "on"|"off")` (`session_commands.zig:443-509`):
@@ -5474,6 +5820,22 @@ impl Shell {
         value: serde_json::Value,
         changed: bool,
     ) -> bool {
+        self.save_preference_saying(topic, key, value, changed, true)
+    }
+
+    /// [`Self::save_preference`], with the success said only when `commit`
+    /// asks for it: a caller that names the state it changed leaves the
+    /// benign line out, and a failure is said either way
+    /// (`reportUserSettingsCommit`'s `announce_commit`,
+    /// `session_commands.zig:29-80@481104fd`).
+    fn save_preference_saying(
+        &mut self,
+        topic: &str,
+        key: &[&str],
+        value: serde_json::Value,
+        changed: bool,
+        commit: bool,
+    ) -> bool {
         let written = match self.settings_path.as_deref() {
             Some(path) => crate::provider::profile::write_preference(path, key, value)
                 .map_err(|err| err.to_string()),
@@ -5481,10 +5843,12 @@ impl Shell {
         };
         match written {
             Ok(()) => {
-                self.announce(notice::Notice::neutral(
-                    topic,
-                    interactive::STATUSLINE_SAVED,
-                ));
+                if commit {
+                    self.announce(notice::Notice::neutral(
+                        topic,
+                        interactive::STATUSLINE_SAVED,
+                    ));
+                }
                 true
             }
             Err(reason) => {
@@ -5653,6 +6017,53 @@ impl Shell {
         true
     }
 
+    /// Offers one keystroke to `/effort`'s menu, and says whether it was
+    /// taken.
+    ///
+    /// The keys [`EffortAction::of`] names, and nothing else: Up and Down
+    /// wrap, a page moves by the composer's row cap and wraps the same way,
+    /// Enter applies the marked level -- the menu closed first
+    /// (`submitEffortMenuSelection`, `app_input_runtime.zig:2876-2884@481104fd`)
+    /// -- and Escape closes it. Anything else goes on to the composer, where
+    /// an edit closes it too ([`Self::amended`]).
+    fn offer_to_effort(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = EffortAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.effort_menu.as_mut() else {
+            return false;
+        };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            EffortAction::Up => -1,
+            EffortAction::Down => 1,
+            EffortAction::Page(true) => page,
+            EffortAction::Page(false) => -page,
+            EffortAction::Close => {
+                self.effort_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+                return true;
+            }
+            EffortAction::Use => {
+                let effort = menu.selected().clone();
+                self.effort_menu = None;
+                self.refit();
+                self.select_effort(effort);
+                self.render.request(Reason::Modal);
+                return true;
+            }
+        };
+        let visible = menu.visible_items(self.geometry.panel);
+        if menu.step_by(delta, visible) {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
     /// Puts a chosen path in the draft in place of the `@` word
     /// ([`super::file_picker::completion`]).
     ///
@@ -5724,6 +6135,138 @@ impl Shell {
         }
     }
 
+    /// Offers one keystroke to `/fork`'s menu, and says whether it was taken.
+    ///
+    /// The keys [`ForkAction::of`] names, and nothing else: Up and Down stop
+    /// at the oldest and the newest, a page moves by the composer's row cap
+    /// and stops the same way, Enter forks before the selected prompt -- the
+    /// menu closed first (`forkBeforeSelectedPrompt`'s `menu.* = .{}`,
+    /// `app_session_runtime.zig:2104`) -- and Escape closes it. Anything else
+    /// goes on to the composer, where an edit closes it too
+    /// ([`Self::amended`]).
+    fn offer_to_fork(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = ForkAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.fork_menu.as_mut() else {
+            return false;
+        };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            ForkAction::Up => -1,
+            ForkAction::Down => 1,
+            ForkAction::Page(true) => page,
+            ForkAction::Page(false) => -page,
+            ForkAction::Close => {
+                self.fork_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+                return true;
+            }
+            ForkAction::Fork => {
+                let point = menu.selected().clone();
+                self.fork_menu = None;
+                self.refit();
+                self.fork_at(point);
+                self.render.request(Reason::Modal);
+                return true;
+            }
+        };
+        let budget = ForkMenu::budget(
+            self.geometry.rows,
+            self.geometry.input_rows().saturating_sub(1),
+        );
+        if menu.step_by(delta, self.geometry.cols, budget) {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
+    /// Hands the runtime the fork before `point` (`forkBeforeSelectedPrompt`,
+    /// `app_session_runtime.zig:2098-2127@481104fd`), and keeps the prompt for
+    /// the composer, which takes it once the fork is the conversation
+    /// ([`UiEvent::Forked`]).
+    ///
+    /// A switch, as a resume is ([`super::worker::WorkHandle::submit_switch`]):
+    /// a prompt typed before the runtime has made it waits for it before it
+    /// asks about its title. Refused while a turn is in hand, with the
+    /// command's own words: the conversation a fork replaces is the one that
+    /// turn writes into.
+    fn fork_at(&mut self, point: fork_menu::ForkPoint) {
+        if self.provider_work_busy() {
+            self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
+            return;
+        }
+        match self.work.submit_switch(TurnWork::Fork {
+            before_turn: point.turn,
+        }) {
+            Ok(()) => self.fork_prompt = Some(point.prompt),
+            Err(rejected) => self.refused(rejected),
+        }
+    }
+
+    /// What the runtime said a `/fork` can start before
+    /// ([`UiEvent::ForkPoints`]), when the `/fork` is still waiting for it:
+    /// the menu, the newest prompt selected, with what shares its slot
+    /// closed -- or upstream's sentence for why there is none
+    /// (`openForkMenu`, `app_session_runtime.zig:2072-2096@481104fd`).
+    fn fork_points(&mut self, points: ForkPoints) {
+        if !std::mem::take(&mut self.fork_asked) {
+            return;
+        }
+        let points = match points {
+            ForkPoints::Unsaved => {
+                self.write_notice(&notice::Notice::warning("session", FORK_UNSAVED));
+                return;
+            }
+            ForkPoints::Points(points) => points,
+        };
+        let Some(menu) = ForkMenu::open(points) else {
+            self.write_notice(&notice::Notice::neutral("session", NOTHING_TO_FORK));
+            return;
+        };
+        self.picker = None;
+        self.file_picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.skills_menu = None;
+        self.settings_menu = None;
+        self.provider_picker = None;
+        self.statusline_menu = None;
+        self.usage_menu = None;
+        self.workspace_menu = None;
+        self.fork_menu = Some(menu);
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The runtime is in the fork: the screen and its scrollback reset, the
+    /// fork's two lines and its turns replayed as a resume's are
+    /// ([`Self::forked`]), and the prompt it was made before back in the
+    /// composer, unsent (`submitForkMenuSelection`,
+    /// `app_input_runtime.zig:1681-1689@481104fd`) -- unless the composer was
+    /// written in since the Enter, whose text is the user's, or the prompt
+    /// is past what the composer holds, which upstream leaves out too.
+    fn forked_into(&mut self, replay: Hydration, source: String) {
+        self.fork_menu = None;
+        self.hydrate_as(replay, true, Reopened::Forked { source });
+        if let Some(prompt) = self.fork_prompt.take() {
+            if self.editor.is_empty() {
+                self.edit_history.boundary();
+                if self
+                    .editor
+                    .set_text(&super::bridge::inert(&prompt), Entities::new())
+                {
+                    self.edited(None);
+                }
+            }
+        }
+    }
+
     /// Takes the picker down, and its search with it when `clear_query`.
     ///
     /// Escape clears it, as upstream's `cancelSessionMenu` does
@@ -5783,7 +6326,7 @@ impl Shell {
     /// many as the band gave it ([`model_column::height`]).
     fn column_rows(&self) -> Vec<String> {
         let text = self.editor.text();
-        let Some(query) = self.column.active(text) else {
+        let Some(query) = self.column.active(text, &self.model) else {
             return Vec::new();
         };
         let anchor = self.column_anchor(query.token_start);
@@ -5828,6 +6371,14 @@ impl Shell {
     /// is: it moves on from a model spelled exactly, and does nothing else.
     /// Home, End and the word moves throw a later column away and move the
     /// caret.
+    ///
+    /// **An `/effort ` line is the column's too**, with or without levels to
+    /// show (`hasModelQuery`, `input_completion_runtime.zig:629-631@481104fd`):
+    /// Up and Down walk the levels, a space goes nowhere, Left is the caret's,
+    /// Tab writes `/effort <level>`, and Enter applies the level -- or, with
+    /// none to apply, goes on to the composer's submit, where `/effort` says
+    /// why. And Tab on a bare `/effort` opens it on the level in use
+    /// ([`Self::open_effort_column`]), ahead of the completion menu.
     fn offer_to_column(&mut self, event: &Input) -> bool {
         // **The keys first, and nothing copied for any other.** Every byte of
         // a paste is offered here on its way to the paste buffer, and a draft
@@ -5858,13 +6409,28 @@ impl Shell {
         {
             return false;
         }
-        if self.column.active(self.editor.text()).is_none() {
+        // Tab on a bare `/effort`, after the menus' Tabs and before the
+        // completion menu's (`handleComposerByte`'s `'\t'`,
+        // `app_input_runtime.zig:1304-1316@481104fd`).
+        if matches!(event, Input::Action(Action::Tab))
+            && self.editor.caret_at_end()
+            && model_column::bare_effort(self.editor.text())
+        {
+            self.open_effort_column();
+            return true;
+        }
+        if self
+            .column
+            .active(self.editor.text(), &self.model)
+            .is_none()
+        {
             return false;
         }
         // A `/model` line, so short in every real case; owned, because what
         // the column does next writes the composer it was read from.
         let text = self.editor.text().to_string();
-        let Some(query) = self.column.active(&text) else {
+        let current = self.model.clone();
+        let Some(query) = self.column.active(&text, &current) else {
             return false;
         };
         match event {
@@ -5872,6 +6438,8 @@ impl Shell {
                 self.advance_column(&query);
                 true
             }
+            // No column before an `/effort ` line's to step back into.
+            Input::Action(Action::Left) if query.effort_command() => false,
             Input::Action(Action::Up | Action::Down) => {
                 let down = matches!(event, Input::Action(Action::Down));
                 if self
@@ -5930,9 +6498,11 @@ impl Shell {
     /// as a prompt, exactly as upstream's is
     /// (`fx-model2-40x120-explicit-bad-effort`). From the effort column, a
     /// level spelled exactly opens the speed column for a model that offers
-    /// either speed ([`Column::advance_effort`]). Otherwise it does nothing.
+    /// either speed ([`Column::advance_effort`]). Otherwise it does nothing --
+    /// and on an `/effort ` line it never does anything, there being no
+    /// column after its own (`:1221@481104fd`).
     fn advance_column(&mut self, query: &model_column::Query<'_>) {
-        if !self.editor.caret_at_end() {
+        if !self.editor.caret_at_end() || query.effort_command() {
             return;
         }
         let catalog = known(self.catalog_known, &self.catalog);
@@ -5944,7 +6514,7 @@ impl Shell {
                 self.chose_model(&entry);
             }
             model_column::Stage::Effort => {
-                let Some(effort) = self.column.exact_effort(query.query, catalog) else {
+                let Some(effort) = self.column.exact_effort(query, catalog) else {
                     return;
                 };
                 let Some(entry) = self.column.pending().and_then(|id| catalog.entry(id)) else {
@@ -5961,8 +6531,23 @@ impl Shell {
 
     /// Enter at the column (`submitModelPicker`,
     /// `input_completion_runtime.zig:1161-1210`), and whether it was taken.
+    ///
+    /// On an `/effort ` line, the level the text spells or the mark is on is
+    /// applied to the model in force as `/effort <level>` applies it, the
+    /// composer emptied first -- and with none to apply (nothing matches, no
+    /// levels) the Return is not taken, so the line runs as the command and
+    /// it says why (`submitEffortPicker`, `:1301-1310@481104fd`).
     fn submit_column(&mut self, query: &model_column::Query<'_>) -> bool {
         let catalog = known(self.catalog_known, &self.catalog);
+        if query.effort_command() {
+            let Some(effort) = self.column.chosen_effort(query, catalog) else {
+                return false;
+            };
+            self.column.reset();
+            self.clear_composer();
+            self.select_effort(effort);
+            return true;
+        }
         match query.stage {
             model_column::Stage::Model => {
                 // Still loading: a query goes on to the composer's own submit
@@ -6064,6 +6649,18 @@ impl Shell {
         self.amended(None);
     }
 
+    /// Tab on a bare `/effort` (`openCurrentEffortPicker`,
+    /// `input_completion_runtime.zig:1312-1328@481104fd`): the composer reads
+    /// `/effort `, and the column under it -- for a model in force with levels
+    /// -- has the mark on the level in use (`fx-p5-effort-fork-effort-column-
+    /// 40x120-tab-current`), where a space would have left it on the first
+    /// row (`-space-first`). Whatever `/model` had pending is let go.
+    fn open_effort_column(&mut self) {
+        let row = self.catalog_row(&self.model).cloned();
+        let text = self.column.open_levels(row.as_ref(), &self.settings.effort);
+        self.write_column_text(&text);
+    }
+
     /// Settles the inline column against what the composer now holds, and
     /// asks for the catalog it lists from when it is open and nothing has.
     ///
@@ -6092,10 +6689,15 @@ impl Shell {
             self.column
                 .edited(&before, self.editor.text(), edit, at_end);
         }
+        // Not for an `/effort ` line: its column lists what the catalog
+        // already says, as the command does, and asks for nothing.
         if self.help_menu.is_none()
             && self.model_menu.is_none()
             && self.settings_menu.is_none()
-            && self.column.active(self.editor.text()).is_some()
+            && self
+                .column
+                .active(self.editor.text(), &self.model)
+                .is_some_and(|query| !query.effort_command())
         {
             self.want_catalog();
         }
@@ -6159,7 +6761,10 @@ impl Shell {
     fn settle_model_draft(&mut self) {
         if self.model_draft.is_none()
             || self.model_menu.is_some()
-            || self.column.active(self.editor.text()).is_some()
+            || self
+                .column
+                .active(self.editor.text(), &self.model)
+                .is_some()
         {
             return;
         }
@@ -6188,11 +6793,14 @@ impl Shell {
             self.close_models();
             return;
         }
+        // Nor over `/fork`'s menu, which owns the keyboard as the picker does
+        // (`modelPickerShortcutBlocked`, `app_input_runtime.zig:1965-1967@481104fd`).
         if self.help_menu.is_some()
             || self.settings_menu.is_some()
             || self.statusline_menu.is_some()
             || self.workspace_menu.is_some()
             || self.sessions.is_some()
+            || self.fork_menu.is_some()
             || self.full.is_open()
         {
             return;
@@ -6250,7 +6858,19 @@ impl Shell {
             Reply::Confirm => {
                 let confirmation = confirm.confirmation().clone();
                 self.close_rule_confirm();
-                let (tone, body) = crate::permission::slash::confirm(&confirmation);
+                // A session that started changing while the confirmation was
+                // up is not the store it was shown for: made nowhere.
+                if self.session_changing() {
+                    self.announce(allowlist_notice(
+                        crate::permission::allowlist::Tone::Warning,
+                        crate::permission::slash::TOPIC,
+                        crate::permission::slash::SESSION_CHANGING.to_string(),
+                    ));
+                    return;
+                }
+                // Held, or in the open session's file, wherever the store the
+                // confirmation was shown is now ([`permissions::SavedRules::confirm`]).
+                let (tone, body) = self.work.saved_rules().confirm(&confirmation);
                 self.announce(allowlist_notice(
                     tone,
                     crate::permission::slash::TOPIC,
@@ -6286,6 +6906,29 @@ impl Shell {
                 .with_live_rules(self.work.rules().clone()),
         );
         crate::tools::prepare_rule_action(tool, arguments, &context)
+    }
+
+    /// Whether the session a `remember` or `revoke` would change is changing
+    /// under it: a reset sent whose runtime fence ([`UiEvent::Fresh`]) has
+    /// not arrived, so the store this shell holds is still the session being
+    /// left's ([`Self::draining`]); or a resume handed over and not yet made,
+    /// whose session replaces what is held ([`WorkHandle::switch_pending`]).
+    /// Upstream makes both before it reads the next key.
+    fn session_changing(&self) -> bool {
+        self.draining.is_some() || self.work.switch_pending()
+    }
+
+    /// Why a `remember` or `revoke` may not change the store now, in
+    /// upstream's order: a question up first, then a session changing.
+    fn rules_busy(&self) -> Option<&'static str> {
+        use crate::permission::slash::{PROMPT_ACTIVE, SESSION_CHANGING};
+        if self.asking() {
+            Some(PROMPT_ACTIVE)
+        } else if self.session_changing() {
+            Some(SESSION_CHANGING)
+        } else {
+            None
+        }
     }
 
     /// Takes the rule confirmation down and gives the composer its rows back.
@@ -6327,6 +6970,229 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
         }
+    }
+
+    /// One input while the read-only panel is up, and whether the panel took
+    /// it.
+    ///
+    /// The arrows and Ctrl-J/Ctrl-K scroll, clamped at both ends; Escape and
+    /// Enter close it, and an Escape while a turn runs closes it **before** the
+    /// interrupt could be armed (`cancelCompactCommandMenu` ahead of the
+    /// interrupt, `app_input_runtime.zig:2718-2722`). Every other key -- a
+    /// letter, Tab, Shift-Tab, Page Up or Down, a Ctrl-C, a Ctrl-D -- is
+    /// swallowed, as upstream's compact menus swallow them
+    /// (`app_input_runtime.zig:979-982`, `:1187-1215`): Shift-Tab changes no
+    /// mode and a Ctrl-C arms no exit under it.
+    ///
+    /// **A paste is not a key, and it is not taken**: its frame and its bytes
+    /// go on to the composer behind the panel, which is where upstream's paste
+    /// lands (`paste_start` closes only the sign-in, fork and effort menus,
+    /// `:932-943`, `:1984-1990`; `cap/panels/new/fx-p5-panels-keys-40x120-paste`
+    /// and `-after-ctrl-c-esc`). The composer stays hidden until the panel
+    /// closes, and the panel outranks any completion menu the pasted text
+    /// opens ([`Self::slot`]).
+    fn offer_to_info_panel(&mut self, event: &Input) -> bool {
+        let action = match event {
+            Input::Action(Action::PasteStart | Action::PasteEnd) | Input::PasteByte(_) => {
+                return false;
+            }
+            Input::Action(action) => *action,
+            Input::Text(_) | Input::Report(_) => return true,
+        };
+        let Some(request) = InfoAction::of(action) else {
+            return true;
+        };
+        let (visible, cols) = (self.geometry.panel, self.geometry.cols);
+        let Some(panel) = self.info_panel.as_mut() else {
+            return true;
+        };
+        match request {
+            InfoAction::Up | InfoAction::Down => {
+                if panel.scroll_by(request == InfoAction::Down, visible, cols) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            InfoAction::Close => {
+                self.info_panel = None;
+                // The composer's row comes back with the panel's going.
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+        true
+    }
+
+    /// Opens `panel` in the band in place of the composer, with every other
+    /// menu that shares the slot closed and one panel at a time
+    /// (`openInfoPanel`, `app_commands.zig:527-536`, which closes the skills
+    /// and model menus, the catalog, the settings menu and the inline command
+    /// menus). Nothing is written to the document.
+    ///
+    /// A question, a model's question batch and a rule change are not closed:
+    /// they hold a turn or a decision, and they outrank the panel wherever the
+    /// two meet ([`Self::slot`], [`Self::consume`]).
+    ///
+    /// `/status` fills it ([`Self::status`]), and so does a bare
+    /// `/permissions` ([`Self::permissions`]).
+    fn open_info_panel(&mut self, panel: info_panel::Panel) {
+        self.picker = None;
+        self.file_picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.provider_picker = None;
+        self.skills_menu = None;
+        self.settings_menu = None;
+        self.statusline_menu = None;
+        self.usage_menu = None;
+        self.workspace_menu = None;
+        self.mcp_menu = None;
+        self.info_panel = Some(panel);
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The runtime's last published snapshot with what this shell holds in
+    /// force now in place of what that publication said.
+    ///
+    /// **The authority is the one in force now**: a mode or a reset takes
+    /// effect the moment it is chosen (`WorkHandle::change_permissions`), so
+    /// the mode is this shell's -- the hint row's -- and a grant count made
+    /// before a reset since is no count of anything in force. Upstream's
+    /// `/status` reads the live engine (`session_commands.zig:322`, `:327@481104fd`).
+    /// So is the Ultra request: `/ultrafast` is this shell's to change.
+    fn status_in_force(&self) -> crate::output::StatusSnapshot {
+        let mut snapshot = self.work.status();
+        snapshot.permission_mode = self.mode.label().to_string();
+        snapshot.ultrafast_requested = self.settings.ultrafast;
+        if self.work.grants_reset_since_published() {
+            snapshot.session_permission_grants = 0;
+        }
+        snapshot
+    }
+
+    /// The authority in force now, read once, and the facts a bare
+    /// `/permissions` panel built from it depends on: the mode this shell
+    /// holds -- the hint row's, put in force by [`Self::choose_mode`] before it
+    /// is recorded -- the conversation's grants as the runtime last published
+    /// them, none once a reset has been taken since ([`WorkHandle::grants`]),
+    /// the configured table every decision reads ([`WorkHandle::rules`]), the
+    /// live authority's reset count (`permissionsFacts`,
+    /// `session_commands.zig:378-384@481104fd`, with the count xfx's grants
+    /// need), and how the session's saved-rule store stands
+    /// ([`permissions::SavedRules::stamp`]).
+    fn permissions_in_force(
+        &self,
+    ) -> (
+        info_panel::Facts,
+        Vec<permissions::Granted>,
+        std::sync::Arc<crate::permission::RuleSet>,
+    ) {
+        // The reset count and the store's stamp before what they guard: a
+        // reset or a write landing between the reads leaves facts older than
+        // the rows, never newer, so the next tick rebuilds.
+        let resets = self.work.resets();
+        let stamp = self.work.saved_rules().stamp();
+        let grants = self.work.grants();
+        let rules = self.work.rules().current();
+        let facts = info_panel::Facts::Permissions {
+            mode: self.mode,
+            grants: grants.len(),
+            rules: rules.rules().len(),
+            resets,
+            store: stamp,
+        };
+        (facts, grants, rules)
+    }
+
+    /// A bare `/permissions` panel's rows and the facts they were built from
+    /// (`openPermissionsSnapshot`, `session_commands.zig:356-370@481104fd`):
+    /// the authority in force ([`Self::permissions_in_force`]) and the
+    /// session's saved rules as they stand now -- held for the session the
+    /// first save opens, as upstream's are in its state from the moment they
+    /// are confirmed (`savedPermissionRules`, `:386-398`), or read from the
+    /// open session's file -- or why that file could not be read.
+    fn permissions_panel(&self) -> Result<(Vec<info_panel::Row>, info_panel::Facts), String> {
+        let (facts, grants, rules) = self.permissions_in_force();
+        let saved = self.work.saved_rules().view().state?.rules;
+        Ok((
+            info_panel::permissions_rows(self.mode, &rules, &grants, &saved),
+            facts,
+        ))
+    }
+
+    /// Rebuilds an open panel when what it shows has moved since it was built,
+    /// keeping its scroll (`collectInfoPanelFacts`, `app_commands.zig:541-552`,
+    /// from every main-loop tick, `main.zig:2884-2886@481104fd`): for `/status`,
+    /// a turn ended, the session was saved, a grant was given; for a bare
+    /// `/permissions`, the mode, the grants, the configured table or a reset.
+    /// It compares the facts the rows were built from, so an unmoved panel
+    /// costs a few reads and no frame.
+    fn settle_info_panel(&mut self) {
+        let Some(shown) = self.info_panel.as_ref().map(|panel| panel.facts().clone()) else {
+            return;
+        };
+        match shown {
+            info_panel::Facts::Status { .. } => {}
+            info_panel::Facts::Permissions { .. } => {
+                self.settle_permissions_panel(&shown);
+                return;
+            }
+        }
+        let snapshot = self.status_in_force();
+        let facts = info_panel::Facts::of_status(&snapshot);
+        if facts == shown {
+            return;
+        }
+        if let Some(panel) = self.info_panel.as_mut() {
+            panel.replace(
+                info_panel::status_rows(&snapshot, self.status_settings),
+                facts,
+            );
+        }
+        // Another row count is another height.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// [`Self::settle_info_panel`] for a bare `/permissions` panel showing what
+    /// `shown` says. The saved rules are read again with the rest, as upstream
+    /// reads them (`refreshedPermissionsSnapshot`, `session_commands.zig:373-376@481104fd`),
+    /// and also when their file alone moved -- written, replaced or broken by
+    /// another hand: a store that no longer reads closes the panel and says
+    /// why rather than leave rules up that cannot be read to be in force.
+    fn settle_permissions_panel(&mut self, shown: &info_panel::Facts) {
+        // A stamp that could not be taken is no proof the store held still,
+        // so a panel built under one reads it again on each tick.
+        let unknown = matches!(
+            shown,
+            info_panel::Facts::Permissions { store, .. } if store.is_unknown()
+        );
+        if !unknown && self.permissions_in_force().0 == *shown {
+            return;
+        }
+        match self.permissions_panel() {
+            Ok((rows, facts)) => {
+                let Some(panel) = self.info_panel.as_mut() else {
+                    return;
+                };
+                let before = panel.clone();
+                panel.replace(rows, facts);
+                // Read again and found the same: no frame owed for it.
+                if *panel == before {
+                    return;
+                }
+            }
+            Err(reason) => {
+                self.info_panel = None;
+                self.announce(notice::Notice::error(
+                    crate::permission::slash::TOPIC,
+                    reason,
+                ));
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// One keystroke, while `/usage`'s dashboard has the focus
@@ -8642,6 +9508,8 @@ impl Shell {
         self.settle_mcp();
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
+        // And a turn moving what an open `/status` panel shows.
+        self.settle_info_panel();
         // And how a `/fast` or `/ultrafast` save went.
         self.settle_speed_saves();
         // **Nothing in hand is nothing that can still answer a cancel.** The
@@ -9664,11 +10532,14 @@ impl Shell {
                 | Input::Report(_) => false,
                 Input::Action(Action::Escape) => {
                     self.ask.is_some()
+                        || self.info_panel.is_some()
                         || self.mcp_menu.is_some()
                         || self.mcp_prompt.is_some()
                         || self.asking()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
+                        || self.fork_menu.is_some()
+                        || self.effort_menu.is_some()
                         || self.picker.is_some()
                         || self.full.is_open()
                         || self.ghost_dismissible()
@@ -9726,6 +10597,11 @@ impl Shell {
                 self.offer_to_statusline(event);
                 continue;
             }
+            // The read-only panel the same way -- except that a paste is no
+            // key of its, and goes on to the composer hidden behind it.
+            if self.info_panel.is_some() && self.offer_to_info_panel(&event) {
+                continue;
+            }
             // `/usage`'s dashboard, the same way.
             if self.usage_menu.is_some() {
                 self.offer_to_usage(event);
@@ -9752,6 +10628,8 @@ impl Shell {
                 && self.sessions.is_none()
                 && self.help_menu.is_none()
                 && self.model_menu.is_none()
+                && self.fork_menu.is_none()
+                && self.effort_menu.is_none()
                 && self.offer_to_trust_prompt(&event)
             {
                 continue;
@@ -9767,10 +10645,16 @@ impl Shell {
             if self.offer_to_sessions(&event) {
                 continue;
             }
+            if self.offer_to_fork(&event) {
+                continue;
+            }
             if self.offer_to_catalog(&event) {
                 continue;
             }
             if self.offer_to_models(&event) {
+                continue;
+            }
+            if self.offer_to_effort(&event) {
                 continue;
             }
             if self.offer_to_skills(&event) {
@@ -10306,11 +11190,15 @@ impl Shell {
                     self.amended(delta);
                 }
             }
-            // Shift-Tab reaches here only with no question, catalog or menu
-            // up -- each is offered every keystroke first, and the catalog
-            // binds it -- which is upstream's own order: the menus that cycle
-            // a category take it, and otherwise it is the permission mode
-            // (`app_input_runtime.zig:1175-1185`).
+            // Shift-Tab reaches here past every surface that binds it -- a
+            // question, and the catalog, `/settings`, `/resume` and `/model`'s
+            // menus, each offered every keystroke first -- which is upstream's
+            // own order: the menus that cycle a category or a scope take it,
+            // and otherwise it is the permission mode
+            // (`.toggle_permission_mode`, `app_input_runtime.zig:1048-1057@481104fd`).
+            // `/effort`'s menu does not bind it, there or here: the mode
+            // cycles with the menu up, and the menu stays
+            // (`p5-effort-fork-effort-backtab`).
             Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
@@ -11033,6 +11921,9 @@ impl Shell {
     /// The card [`Mark::Card`] asks for.
     fn write_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns) {
         self.finish_document_line();
+        if std::mem::take(&mut self.raw_gap) && !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
         if self.transcript.queue_gutter(Gutter::Rail) {
             self.owed();
         }
@@ -11340,6 +12231,8 @@ impl CommandHandlers for Shell {
         self.picker = None;
         self.file_picker = None;
         self.sessions = None;
+        self.fork_menu = None;
+        self.effort_menu = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
         // a band with no catalog in it.
@@ -11386,14 +12279,38 @@ impl CommandHandlers for Shell {
         self.picker = None;
         self.help_menu = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
+        self.fork_menu = None;
         self.sessions = Some(SessionPicker::open(
             self.editor.text(),
             session_picker::page_for(self.geometry.rows),
         ));
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// `/fork` (`commandForkSession` -> `openForkMenu`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_commands.zig:455-466`,
+    /// `app_session_runtime.zig:2072-2096`).
+    ///
+    /// **Refused while a response is in hand**, with upstream's notice, at
+    /// once: `/resume`'s rule ([`Self::resume`]), since what a fork replaces is
+    /// the conversation that turn writes into. Otherwise the runtime is asked
+    /// what can be forked, as the picker asks it for the sessions: the
+    /// conversation is the runtime's, and its answer opens the menu
+    /// ([`Self::fork_points`]) -- unless the composer was edited first, which
+    /// closes it before it opens.
+    fn fork(&mut self) {
+        if self.provider_work_busy() {
+            self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
+            return;
+        }
+        match self.work.submit(TurnWork::ForkPoints) {
+            Ok(()) => self.fork_asked = true,
+            Err(rejected) => self.refused(rejected),
+        }
     }
 
     /// `/rename <title>` (`handleRenameCommand`, `app_commands.zig:3815-3858`).
@@ -11450,6 +12367,10 @@ impl CommandHandlers for Shell {
         self.use_model(argument);
     }
 
+    fn effort(&mut self, argument: &str) {
+        self.effort_command(argument);
+    }
+
     /// Upstream's `* stats: ansi_bytes=…, redraws=…, debounced_resizes=…,
     /// footer_updates=0, stream_chunks=0` (`app_commands.zig:1009-1022`): the
     /// counters as they stand **before** this notice is written, as upstream's
@@ -11468,14 +12389,17 @@ impl CommandHandlers for Shell {
         self.help_menu = None;
         self.sessions = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.provider_picker = None;
         self.statusline_menu = None;
         self.workspace_menu = None;
+        self.info_panel = None;
         let scope = crate::usage::Scope::Days30;
         let cached = self
             .usage_read
             .as_ref()
             .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms));
+        self.fork_menu = None;
         self.usage_menu = Some(Dashboard::open(scope, cached));
         self.read_usage(scope);
         // [`Self::run_command`] re-solved the band before routing here, for a
@@ -11501,39 +12425,34 @@ impl CommandHandlers for Shell {
         }
     }
 
-    /// Upstream's `* status: model=…` with one `key=value` row per fact under
-    /// it (`showStatus`, `session_commands.zig:278-310`), from the snapshot
-    /// the runtime last published ([`super::worker::StatusBoard`]) -- so the
-    /// model is the one the selector holds, the configuration is the one a
-    /// provider switch reloaded, and the turn and grant counts are the live
-    /// conversation's rather than the store's last session. Read, never asked
-    /// for: the runtime may be a minute into a turn.
+    /// Upstream's `/status` (`commandShowStatus`, `app_commands.zig:522-525`
+    /// and `openStatusSnapshot`, `session_commands.zig:283-296@481104fd`):
+    /// the read-only panel in the band, the session first, and nothing in the
+    /// document. Its rows are the snapshot the runtime last published
+    /// ([`super::worker::StatusBoard`]) -- the model the selector holds, the
+    /// configuration a provider switch reloaded, the live conversation's turns
+    /// and grants -- with the facts this shell holds in force now
+    /// ([`Self::status_in_force`]). Read, never asked for: the runtime may be a
+    /// minute into a turn. While it is up it is rebuilt as a turn moves its
+    /// facts ([`Self::settle_info_panel`]).
     ///
-    /// xfx's own facts stay (`provider`, `provider_url`, `sandbox`); upstream's
-    /// `update_channel` and `ultrafast_requested` are about an updater and an
-    /// Ultra mode xfx does not have, so they are not printed as if it did.
-    ///
-    /// Made inert here rather than at the channel, because this text never
-    /// crosses it: the workspace path and a settings value quoted by
-    /// `provider_rejected` are not xfx's to trust on a terminal.
-    ///
-    /// **The authority is the one in force now**, not the one the runtime
-    /// last published: a mode or a reset takes effect the moment it is chosen
-    /// (`WorkHandle::change_permissions`), so `permission_mode` is this
-    /// shell's -- the hint row's -- and a grant count made before a reset since
-    /// is no count of anything in force. Upstream's `/status` reads the live
-    /// engine (`session_commands.zig:302-305`).
+    /// The profile settings are read here, once, and only on the Gateway with
+    /// no credential, as upstream reads them (`:286-293`): a file that does
+    /// not read now is a `Settings` row in place of the credential's. A
+    /// rebuild reads no file.
     fn status(&mut self) {
-        let mut snapshot = self.work.status();
-        snapshot.permission_mode = self.mode.label().to_string();
-        if self.work.grants_reset_since_published() {
-            snapshot.session_permission_grants = 0;
-        }
-        let body = snapshot.notice_body();
-        self.announce(notice::Notice::neutral(
-            "status",
-            bridge::inert(&body).into_owned(),
-        ));
+        let snapshot = self.status_in_force();
+        let unread = snapshot.provider == crate::provider::ProviderId::Gateway.label()
+            && snapshot.auth == crate::output::MISSING_AUTH_LABEL;
+        self.status_settings = if unread {
+            self.settings_path
+                .as_deref()
+                .and_then(crate::config::unreadable_profile_settings)
+                .map(crate::config::settings_error_name)
+        } else {
+            None
+        };
+        self.open_info_panel(info_panel::Panel::status(&snapshot, self.status_settings));
     }
 
     /// Upstream's `* version: 0.0.13` (`app_commands.zig:2153-2160`): the
@@ -11559,23 +12478,34 @@ impl CommandHandlers for Shell {
         self.use_provider(argument);
     }
 
-    /// Upstream's `/permissions` (`handlePermissions`,
-    /// `session_commands.zig:367-394`, then `writeSessionPermissionRules`,
-    /// `app_commands.zig:776-811`, when bare).
+    /// Upstream's `/permissions` (`commandHandlePermissions`,
+    /// `app_commands.zig:586-596@481104fd`, then `handlePermissionRuleManagement`
+    /// and `handlePermissions`, `session_commands.zig:367-394`).
     ///
-    /// Bare, it says what is in force -- the mode this shell holds, and the
-    /// grants as the runtime last published them -- and that xfx keeps no
-    /// saved-session rules. A mode or `reset` is handed to the runtime
-    /// ([`Self::choose_mode`]) and answered here at once, as upstream answers
-    /// it; anything else is the usage line.
+    /// Bare -- nothing but blanks after the name -- it opens the read-only
+    /// panel in the band and writes nothing to the document: the authority in
+    /// force, and the saved session's rules as their file says them now
+    /// ([`Self::permissions_panel`]). While it is up it is rebuilt as that
+    /// authority moves ([`Self::settle_info_panel`]). A store that cannot be
+    /// read opens no panel and says why, as the listing said it. A mode or
+    /// `reset` is handed to the runtime ([`Self::choose_mode`]) and answered
+    /// here at once, as upstream answers it; `remember` and `revoke` open
+    /// their confirmation; anything else is the usage line.
     fn permissions(&mut self, argument: &str) {
         use crate::permission::slash::{self, Managed, Request};
         let request = Request::parse(argument);
-        let rules_path = self.work.saved_rules_path();
-        let managed = slash::manage(
+        // The store as it stands, read once: held for the session the first
+        // save opens -- where upstream's session, open from launch, keeps a
+        // rule typed before the first prompt (`handlePermissionRuleManagement`,
+        // `app_commands.zig:598-750@481104fd`) -- or the open session's file.
+        // There is always one: this shell's next session has its id from
+        // launch.
+        let store = self.work.saved_rules().view();
+        let managed = slash::manage_with(
             &request,
-            rules_path.as_deref(),
-            self.asking(),
+            Some(&store.at),
+            |_| store.state.clone(),
+            self.rules_busy(),
             |tool, arguments| self.prepare_rule_action(tool, arguments),
         );
         if let Some(managed) = managed {
@@ -11591,6 +12521,9 @@ impl CommandHandlers for Shell {
                     self.statusline_menu = None;
                     self.settings_menu = None;
                     self.usage_menu = None;
+                    self.info_panel = None;
+                    self.fork_menu = None;
+                    self.effort_menu = None;
                     self.rule_confirm = Some(RuleConfirm::new(confirmation));
                     self.refit();
                     self.render.request(Reason::Modal);
@@ -11602,15 +12535,10 @@ impl CommandHandlers for Shell {
             Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage => {
                 unreachable!("`manage` answers every rule-management form")
             }
-            Request::Show => {
-                let grants = self.work.grants();
-                let rules = self.work.rules().current();
-                self.announce(permissions::status(self.mode, &rules, &grants));
-                self.announce(match slash::saved_rules_at(rules_path.as_deref()) {
-                    Ok(body) => permissions::saved_rules(&body),
-                    Err(reason) => notice::Notice::error(slash::TOPIC, reason),
-                });
-            }
+            Request::Show => match self.permissions_panel() {
+                Ok((rows, facts)) => self.open_info_panel(info_panel::Panel::open(rows, facts)),
+                Err(reason) => self.announce(notice::Notice::error(slash::TOPIC, reason)),
+            },
             Request::Select(mode) => {
                 if self.choose_mode(Change::Mode(mode), mode) {
                     self.announce(permissions::selected(mode));
@@ -11662,6 +12590,9 @@ impl CommandHandlers for Shell {
             self.file_picker = None;
             self.help_menu = None;
             self.workspace_menu = None;
+            self.info_panel = None;
+            self.fork_menu = None;
+            self.effort_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -11736,10 +12667,13 @@ impl CommandHandlers for Shell {
                 self.help_menu = None;
                 self.sessions = None;
                 self.model_menu = None;
+                self.effort_menu = None;
                 self.provider_picker = None;
                 self.statusline_menu = None;
                 self.usage_menu = None;
                 self.settings_menu = None;
+                self.info_panel = None;
+                self.fork_menu = None;
                 self.workspace_menu = Some(workspace_menu::Menu::open());
                 self.refit();
                 self.render.request(Reason::Modal);
@@ -11776,11 +12710,14 @@ impl CommandHandlers for Shell {
             self.help_menu = None;
             self.sessions = None;
             self.model_menu = None;
+            self.effort_menu = None;
             self.provider_picker = None;
             self.statusline_menu = None;
             self.usage_menu = None;
             self.settings_menu = None;
             self.workspace_menu = None;
+            self.info_panel = None;
+            self.fork_menu = None;
             self.mcp_menu = Some(super::mcp_menu::McpMenu::open());
             self.refit();
             self.render.request(Reason::Modal);
@@ -11858,11 +12795,14 @@ impl CommandHandlers for Shell {
         self.help_menu = None;
         self.sessions = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.statusline_menu = None;
         self.usage_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
         self.workspace_menu = None;
+        self.info_panel = None;
+        self.fork_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
         // The effort and speed rows are the catalog's answer for the model in
         // force, which upstream's menu reads from a cache filled at launch
@@ -12225,6 +13165,74 @@ impl Shell {
         self.request_model(argument);
     }
 
+    /// `/effort` (`commandHandleEffort` -> `handleEffort`,
+    /// `app_commands.zig:570-586@481104fd`, `session_commands.zig:1000-1037`).
+    ///
+    /// **The current model's levels first, whatever the argument**: a model
+    /// whose catalog row lists none -- or a catalog this side does not hold --
+    /// is said so and nothing else happens: `levels for <m> are still
+    /// loading; try /effort again in a moment` while a read is on its way,
+    /// `<m> has no levels to choose from` otherwise. Nothing is asked of the
+    /// runtime here, as upstream's command starts no load.
+    ///
+    /// Then, bare, the menu, with what shares its slot closed; with a word,
+    /// that level when it is one ([`Effort::parse`]) the menu would list
+    /// ([`EffortMenu::offers`], spelled as the row spells it), and otherwise
+    /// the levels it does list -- naming the word only when it is a
+    /// well-formed level, so nothing typed that is not a level is repeated
+    /// back.
+    fn effort_command(&mut self, argument: &str) {
+        let model = effort_menu::one_line(&self.model);
+        let menu = self.catalog_row(&self.model).and_then(|entry| {
+            EffortMenu::open(self.provider, &self.model, entry, &self.settings.effort)
+        });
+        let Some(menu) = menu else {
+            let body = if matches!(
+                self.catalog_known,
+                CatalogKnown::Unasked | CatalogKnown::Asked
+            ) {
+                format!("levels for {model} are still loading; try /effort again in a moment")
+            } else {
+                format!("{model} has no levels to choose from")
+            };
+            self.write_notice(&notice::Notice::neutral(settings::EFFORT_TOPIC, body));
+            return;
+        };
+        if argument.is_empty() {
+            self.picker = None;
+            self.file_picker = None;
+            self.help_menu = None;
+            self.sessions = None;
+            self.model_menu = None;
+            self.skills_menu = None;
+            self.settings_menu = None;
+            self.provider_picker = None;
+            self.statusline_menu = None;
+            self.usage_menu = None;
+            self.workspace_menu = None;
+            self.effort_menu = Some(menu);
+            // [`Self::run_command`] re-solved the band before routing here,
+            // for a band with no menu in it.
+            self.refit();
+            self.render.request(Reason::Modal);
+            return;
+        }
+        let parsed = Effort::parse(argument);
+        if let Some(effort) = parsed.as_ref().filter(|effort| menu.offers(effort)) {
+            self.select_effort(effort.clone());
+            return;
+        }
+        let levels = menu.levels().join(", ");
+        let body = match parsed {
+            Some(effort) => format!(
+                "{} is not available for {model}; levels: {levels}",
+                effort.label()
+            ),
+            None => format!("levels for {model}: {levels}"),
+        };
+        self.write_notice(&notice::Notice::neutral(settings::EFFORT_TOPIC, body));
+    }
+
     /// Opens `/model`'s menu over the rows in hand, or asks for them.
     fn open_models(&mut self) {
         let query = self.editor.text().to_string();
@@ -12237,6 +13245,7 @@ impl Shell {
         // asked for.
         self.picker = None;
         self.file_picker = None;
+        self.effort_menu = None;
         let note = (self.provider == ProviderId::Gateway)
             .then_some(self.gateway_note)
             .flatten();
@@ -12271,6 +13280,7 @@ impl Shell {
                 ModelMenu::loading(query)
             }
         };
+        self.fork_menu = None;
         self.model_menu = Some(menu);
         self.refit();
         self.render.request(Reason::Modal);
@@ -12322,7 +13332,7 @@ impl Shell {
         if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
             return;
         }
-        let Some(query) = self.column.active(self.editor.text()) else {
+        let Some(query) = self.column.active(self.editor.text(), &self.model) else {
             return;
         };
         if query.stage != model_column::Stage::Model {
@@ -12746,12 +13756,26 @@ impl Shell {
         // cancelled now, as upstream clears its session at the keystroke, and
         // one a prompt typed after this asks is the next one's.
         self.work.new_title_lineage();
+        // And the saved-session rules held for a session no prompt had opened
+        // yet go with it, at the keystroke too, as upstream's reset clears the
+        // state it held. An open session's rules are its file's, and the
+        // store still names that file until the runtime drops the session and
+        // publishes the next one's: a `remember` or `revoke` typed before
+        // the fence is refused ([`Self::session_changing`]), not made in the
+        // session being left.
+        self.work.saved_rules().forget_held();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
         // Nor will a steer sent into that turn.
         self.prompts.clear();
         self.work.drop_steers();
         self.steers.clear();
+        // A `/fork` about the conversation being dropped: its menu, the
+        // answer it waits for, the prompt it would put back.
+        self.fork_menu = None;
+        self.fork_asked = false;
+        self.fork_prompt = None;
+        self.raw_gap = false;
         self.forget_session_title();
         self.tally = Tally::default();
         self.activity.end();
@@ -12893,16 +13917,25 @@ impl Shell {
             // An undo the runtime did on the way past a reset: the file did
             // change, or was refused, and saying nothing would make it a change
             // nobody was told of.
+            // What a `/fork` asked of the conversation the reset dropped: a
+            // menu of that one's prompts, on a screen that is not about it.
+            UiEvent::ForkPoints(_) => {
+                self.fork_asked = false;
+                true
+            }
             UiEvent::Fresh { .. }
             | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
+            | UiEvent::Forked { .. }
+            | UiEvent::ForkFailed
             | UiEvent::RenameUnsaved(_)
             | UiEvent::Renamed(_)
             | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
+            | UiEvent::EffortApplied { .. }
             | UiEvent::CatalogLoaded { .. }
             | UiEvent::CatalogUnread { .. }
             | UiEvent::Fatal(_) => false,
@@ -13177,8 +14210,28 @@ impl Shell {
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
+        // `/effort`'s menu reads nothing from the composer, so an edit to it
+        // closes the menu, and the edit stands
+        // (`dismissActiveMenusForComposerEdit`,
+        // `app_input_runtime.zig:1984-1990@481104fd`). The band is re-solved
+        // below, for the rows the menu gave back.
+        if self.effort_menu.take().is_some() {
+            self.render.request(Reason::Modal);
+        }
         // An edit went through: the next refusal is a new run, and is said.
         self.over_limit = false;
+        // `/fork`'s menu reads no search, so an edit closes it -- and one on
+        // its way from the runtime, before it opens -- and the edit stands
+        // (`dismissActiveMenusForComposerEdit`,
+        // `app_input_runtime.zig:1984-1990@481104fd`). A prompt waiting to go
+        // back into the composer after a fork stays out of it: what was typed
+        // is the user's.
+        self.fork_asked = false;
+        self.fork_prompt = None;
+        if self.fork_menu.take().is_some() {
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
         self.history.leave();
         self.recalled_slash = false;
         self.edited(delta);
@@ -13290,11 +14343,14 @@ impl Shell {
             }
             Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
+            Some(Slot::Info(panel)) => panel.height(rows, cols),
             Some(Slot::Catalog(_))
             | Some(Slot::Mcp(_))
             | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
+            | Some(Slot::Fork(_))
             | Some(Slot::Models(_))
+            | Some(Slot::Effort(_))
             | Some(Slot::Skills(_))
             | Some(Slot::Provider(_))
             | Some(Slot::Files(_))
@@ -13312,7 +14368,9 @@ impl Shell {
                 menu.height(&snapshot, rows, input_rows.saturating_sub(1))
             }
             Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Fork(menu)) => menu.height(cols, rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Effort(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Skills(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
                 ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
@@ -13358,12 +14416,16 @@ impl Shell {
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
         //
-        // `/usage`'s dashboard and the `/workspace` picker are the same kind
-        // of occupant, and give up rows the same way
-        // (`composeConstrainedUsageRow`, `composeWorkspaceRow`).
+        // `/usage`'s dashboard, the `/workspace` picker and the read-only
+        // panel are the same kind of occupant, and give up rows the same way
+        // (`composeConstrainedUsageRow`, `composeWorkspaceRow`; the panel
+        // scrolls in what it is given).
         if matches!(
             slot,
-            Some(Slot::Statusline(_)) | Some(Slot::Usage(_)) | Some(Slot::Workspace(_))
+            Some(Slot::Statusline(_))
+                | Some(Slot::Info(_))
+                | Some(Slot::Usage(_))
+                | Some(Slot::Workspace(_))
         ) {
             return (1..=fixed)
                 .rev()
@@ -13601,6 +14663,7 @@ fn allowlist_notice(
 
 #[cfg(test)]
 mod tests {
+    use super::super::bridge;
     use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
 
@@ -21056,6 +22119,22 @@ mod tests {
                     "/resume wrote to the document: {document:?}"
                 );
                 assert_eq!(shell.picks_up(), TurnWork::Sessions);
+            } else if *name == "/fork" {
+                // What can be forked is the runtime's to say: asked of it,
+                // nothing written until it answers -- and with nothing asked
+                // yet, its answer is upstream's notice
+                // (`fx-p5-effort-fork-fork-edge-40x120-at-launch`).
+                assert!(
+                    document.is_empty(),
+                    "/fork wrote to the document: {document:?}"
+                );
+                assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+                shell.apply(UiEvent::ForkPoints(ForkPoints::Points(Vec::new())));
+                assert_eq!(
+                    shell.document(),
+                    said(notice::Notice::neutral("session", NOTHING_TO_FORK))
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/usage" {
                 // The dashboard, in the band, in place of the composer
                 // (`fx-usage-40x120-empty`).
@@ -21113,6 +22192,20 @@ mod tests {
                     "/mcp wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if ["/status", "/permissions"].contains(name) {
+                // Upstream's read-only panel in the band
+                // (`cap/panels/new/fx-p5-panels-status-40x120-open`,
+                // `-permissions-40x120-bare`), which writes nothing; Escape
+                // closes it for the next name.
+                assert!(shell.info_panel.is_some(), "{name} opened no panel");
+                assert!(
+                    document.is_empty(),
+                    "{name} wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+                shell.route_bytes(&[0x1b]);
+                shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+                assert!(shell.info_panel.is_none(), "Escape left {name} up");
             } else if *name == "/workspace" {
                 // A bare `/workspace` is upstream's compact picker
                 // (`cap/fx-workspace-40x120-bare`), in the band too.
@@ -22024,54 +23117,501 @@ mod tests {
         std::iter::from_fn(|| changes.try_recv().ok()).collect()
     }
 
+    /// One labelled line of an open bare `/permissions` panel at 120 columns:
+    /// the value column is two columns, the longest label (`Configured
+    /// rules`) and four (`cap/panels/new/fx-p5-panels-permissions-40x120-bare`).
+    fn permissions_line(label: &str, value: &str) -> String {
+        format!("  {label}{}{value}", " ".repeat(20 - label.len()))
+    }
+
+    /// One listed item of it, its bullet in the value column.
+    fn permissions_item(text: &str) -> String {
+        format!("{}\u{2022} {text}", " ".repeat(22))
+    }
+
+    /// The panel's three closing rows, as upstream writes them.
+    fn permissions_how_to() -> [String; 3] {
+        [
+            permissions_line(
+                "Change mode",
+                "/permissions ask, auto, full-access, or reset",
+            ),
+            permissions_line(
+                "Remember",
+                "/permissions remember allow|deny <tool-name> <arguments-json>",
+            ),
+            permissions_line("Revoke", "/permissions revoke <rule-id>"),
+        ]
+    }
+
     #[test]
-    fn a_bare_permissions_is_upstreams_two_notices_and_changes_nothing() {
-        // `cap/fx-permissions-40x120-bare.txt`.
+    fn a_bare_permissions_opens_upstreams_panel_and_changes_nothing() {
+        // `cap/panels/new/fx-p5-panels-permissions-40x120-bare`, rows 3-14: a
+        // rule, `Permissions`, a blank, the mode and each list's count, the
+        // three ways to change them, a rule, `esc close` -- the composer and
+        // the mode hint gone, nothing in the document.
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/permissions\r");
-        assert_eq!(
-            shell.document(),
-            vec![
-                "* permissions: mode=auto".to_string(),
-                "  configured rules: (none)".to_string(),
-                "  session grants: (none)".to_string(),
-                "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
-                "         /permissions remember <allow|deny> <tool-name> <arguments-json>"
-                    .to_string(),
-                "         /permissions revoke <rule-id>".to_string(),
-                String::new(),
-                "* permissions: saved-session permission rules: none".to_string(),
-                String::new(),
-            ]
-        );
+        assert!(shell.document().is_empty(), "it wrote to the document");
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        let rows = shell.band_rows();
+        let mut expected = vec![
+            uncoloured(&divider(120)),
+            "Permissions".to_string(),
+            String::new(),
+            permissions_line("Mode", "auto"),
+            permissions_line("Configured rules", "none"),
+            permissions_line("Session grants", "none"),
+            permissions_line("Saved rules", "none"),
+        ];
+        expected.extend(permissions_how_to());
+        expected.extend([uncoloured(&divider(120)), "esc close".to_string()]);
+        assert_eq!(uncoloured_rows(&from_the_rule(&rows)), expected);
+        assert_eq!(rows.last(), Some(&dim_hint("esc close")));
         assert!(changes_sent(&mut changes).is_empty());
         assert!(
             shell.sent.try_recv().is_err(),
             "it was handed to the runtime"
         );
         assert_eq!(shell.work.outstanding(), 0, "it took a place in the queue");
+        // Shift-Tab is the panel's to swallow: the mode does not move
+        // (`cap/panels/new/fx-p5-panels-keys-40x120-perm-btab`).
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(shell.mode, PermissionMode::Auto);
+        assert!(changes_sent(&mut changes).is_empty());
+        // Escape closes it and leaves nothing behind (`-esc`); so does Enter.
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(shell.document().is_empty());
+        // Blanks after the name are still bare (`std.mem.trim(u8, rest, " \t")`,
+        // `app_commands.zig:590@481104fd`).
+        shell.route_bytes(b"/permissions \t \r");
+        assert_eq!(
+            shell.info_panel.as_ref().map(info_panel::Panel::title),
+            Some("Permissions")
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.info_panel.is_none(), "Enter left the panel up");
+        assert!(shell.document().is_empty());
+        // Every other form keeps its path: a notice, and no panel.
+        shell.route_bytes(b"/permissions bogus\r");
+        assert!(shell.info_panel.is_none());
+        assert_eq!(
+            shell.document().first().map(String::as_str),
+            Some("\u{2717} usage: /permissions [ask|auto|full-access|reset]")
+        );
     }
 
     #[test]
     fn a_bare_permissions_lists_the_grants_the_runtime_published() {
         let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
         shell.work.publish_grants(vec![
-            " - write_file -> notes.md".to_string(),
-            " - terminal -> ls in /w".to_string(),
+            permissions::Granted {
+                tool: "write_file".to_string(),
+                target: "notes.md".to_string(),
+            },
+            permissions::Granted {
+                tool: "terminal".to_string(),
+                target: "ls in /w".to_string(),
+            },
         ]);
         shell.route_bytes(b"/permissions\r");
-        let document = shell.document();
+        let shown = uncoloured_rows(&from_the_rule(&shell.band_rows()));
         assert_eq!(
-            document[..6],
+            shown[3..9],
             [
-                "* permissions: mode=ask".to_string(),
-                "  configured rules: (none)".to_string(),
-                "  session grants:".to_string(),
-                "   - write_file -> notes.md".to_string(),
-                "   - terminal -> ls in /w".to_string(),
-                "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                permissions_line("Mode", "ask"),
+                permissions_line("Configured rules", "none"),
+                permissions_line("Session grants", "2"),
+                permissions_item("write_file \u{2192} notes.md"),
+                permissions_item("terminal \u{2192} ls in /w"),
+                permissions_line("Saved rules", "none"),
             ],
+            "{shown:?}"
+        );
+    }
+
+    #[test]
+    fn an_open_permissions_panel_says_the_authority_as_it_moves_and_keeps_its_scroll() {
+        // `collectInfoPanelFacts` on every tick (`main.zig:2884-2886@481104fd`),
+        // on upstream's facts -- the mode, the grants, the configured rules --
+        // and xfx's reset count: a reset taken from the live authority is
+        // shown at once, before the runtime publishes again.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.work.publish_grants(vec![permissions::Granted {
+            tool: "write_file".to_string(),
+            target: "a.txt".to_string(),
+        }]);
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("1"));
+        shell.route_bytes(b"\x1b[B");
+
+        // Nothing moved: no rebuild.
+        let now = Instant::now();
+        shell.settle_band(now);
+        let unmoved = shell.info_panel.clone();
+        shell.settle_band(now);
+        assert_eq!(shell.info_panel, unmoved);
+
+        // A grant published as a turn ends.
+        shell.work.publish_grants(vec![
+            permissions::Granted {
+                tool: "write_file".to_string(),
+                target: "a.txt".to_string(),
+            },
+            permissions::Granted {
+                tool: "terminal".to_string(),
+                target: "ls in /w".to_string(),
+            },
+        ]);
+        shell.settle_band(now);
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("2"));
+        assert_ne!(
+            shell.info_panel, unmoved,
+            "the rebuild lost the scroll or the rows"
+        );
+
+        // A configured rule put in force from the profile's table.
+        shell
+            .work
+            .rules()
+            .replace(crate::permission::RuleSet::new(vec![
+                crate::permission::ConfiguredRule::new(
+                    "bash",
+                    "git *",
+                    crate::permission::RuleAction::Allow,
+                ),
+            ]));
+        shell.settle_band(now);
+        assert_eq!(
+            panel_value(&shell, "Configured rules").as_deref(),
+            Some("1")
+        );
+
+        // A reset taken from the live authority, the runtime not told yet:
+        // no grant is in force, so none is listed, and the mode is ask.
+        shell.choose_mode(Change::Reset, PermissionMode::Ask);
+        shell.settle_band(now);
+        assert_eq!(panel_value(&shell, "Mode").as_deref(), Some("ask"));
+        assert_eq!(
+            panel_value(&shell, "Session grants").as_deref(),
+            Some("none")
+        );
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn an_unreadable_saved_rule_store_opens_no_panel_and_says_why() {
+        // Upstream's open fails with the read (`savedPermissionRules`'s `try`,
+        // `session_commands.zig:388-400@481104fd`); xfx says why, as the
+        // listing did, and shows no authority it could not read.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        std::fs::write(&rules, b"not json").expect("a broken store");
+        shell.route_bytes(b"/permissions\r");
+        assert!(shell.info_panel.is_none());
+        let document = shell.document();
+        assert!(
+            document
+                .first()
+                .is_some_and(|row| row.starts_with("\u{2717} permissions: ")),
             "{document:?}"
+        );
+    }
+
+    /// Keeps a rule for `display` in the saved-session store at `rules`, as a
+    /// confirmed `remember` does, through the store's own transaction.
+    fn keep_rule(rules: &std::path::Path, canonical: &[u8], display: &str) {
+        use crate::permission::session_rules::{self, Decision, Event, KeyKind, RuleKey};
+        let applied = session_rules::update(
+            rules,
+            &Event::Set {
+                key: RuleKey::new(KeyKind::FileMutation, canonical.to_vec()).expect("a key"),
+                display: display.to_string(),
+                decision: Decision::Deny,
+                expected: None,
+            },
+        )
+        .expect("the store");
+        assert!(
+            matches!(applied, session_rules::Applied::Applied(_)),
+            "{applied:?}"
+        );
+    }
+
+    #[test]
+    fn a_saved_rule_store_that_breaks_while_the_panel_is_up_closes_it() {
+        // Review P-permissions-b item 1: the file alone is broken -- no mode,
+        // grant, rule or reset moves -- and the open panel still sees it on
+        // the next tick, closes, and says why.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        keep_rule(&rules, b"a", "write_file a.txt preimage=absent after=00");
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
+        std::fs::write(&rules, b"not json").expect("a broken store");
+        shell.settle_band(Instant::now());
+        assert!(shell.info_panel.is_none(), "rules it cannot read stayed up");
+        assert!(
+            shell
+                .document()
+                .first()
+                .is_some_and(|row| row.starts_with("\u{2717} permissions: ")),
+            "{:?}",
+            shell.document()
+        );
+    }
+
+    #[test]
+    fn an_open_permissions_panel_follows_a_saved_rule_store_another_hand_changed() {
+        // Review P-permissions-b item 1: another valid rule set, written with
+        // nothing else moved, is the set the panel shows on the next tick.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("none"));
+        keep_rule(&rules, b"b", "write_file b.txt preimage=absent after=11");
+        shell.settle_band(Instant::now());
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
+        keep_rule(&rules, b"c", "write_file c.txt preimage=absent after=22");
+        shell.settle_band(Instant::now());
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("2"));
+        let shown = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shown.contains(&permissions_item(
+                "2 deny write_file c.txt preimage=absent after=22"
+            )),
+            "{shown:?}"
+        );
+        // Nothing moved since: no rebuild.
+        let unmoved = shell.info_panel.clone();
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.info_panel, unmoved);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn an_open_permissions_panel_whose_store_cannot_be_stamped_reads_it_again() {
+        // Review P-permissions-c item 1: a stamp that cannot be taken says
+        // nothing about the file, so two of them are no proof it held still.
+        // The rows are shown as built under one (a `stat` that failed while
+        // the read did not); with the store unreadable since, the next tick
+        // reads it again, and closes.
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        let file = shell.workspace.join("not-a-directory");
+        std::fs::write(&file, b"x").expect("a file");
+        // `<file>/permissions.json`: `stat` and `open` both say ENOTDIR,
+        // which is neither absent nor readable, for any user.
+        shell
+            .work
+            .publish_saved_rules(crate::permission::session_rules::path_in(&file));
+        let (facts, ..) = shell.permissions_in_force();
+        assert!(
+            matches!(
+                facts,
+                info_panel::Facts::Permissions { ref store, .. } if store.is_unknown()
+            ),
+            "{facts:?}"
+        );
+        let rows = info_panel::permissions_rows(
+            shell.mode,
+            &crate::permission::RuleSet::default(),
+            &[],
+            &[],
+        );
+        shell.open_info_panel(info_panel::Panel::open(rows, facts));
+        shell.settle_band(Instant::now());
+        assert!(
+            shell.info_panel.is_none(),
+            "rules shown under a stamp that said nothing stayed up"
+        );
+        assert!(
+            shell
+                .document()
+                .first()
+                .is_some_and(|row| row.starts_with("\u{2717} permissions: ")),
+            "{:?}",
+            shell.document()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting() {
+        // Review P-permissions-c item 2: a FIFO put at the store's path. Its
+        // stamp moves, so the tick reads the store again on the thread that
+        // holds the terminal; an open that waited for a writer would hold it
+        // for as long as none came. A watchdog stands in for that writer after
+        // ten seconds, so a regression fails here rather than hangs.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        keep_rule(&rules, b"a", "write_file a.txt preimage=absent after=00");
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
+        std::fs::remove_file(&rules).expect("the store gone");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&rules)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let rescued = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watchdog = {
+            let fifo = rules.clone();
+            let rescued = std::sync::Arc::clone(&rescued);
+            std::thread::spawn(move || {
+                if finished.recv_timeout(Duration::from_secs(10)).is_err() {
+                    rescued.store(true, std::sync::atomic::Ordering::SeqCst);
+                    drop(std::fs::OpenOptions::new().write(true).open(&fifo));
+                }
+            })
+        };
+        shell.settle_band(Instant::now());
+        let _ = done.send(());
+        watchdog.join().expect("the watchdog");
+        assert!(
+            !rescued.load(std::sync::atomic::Ordering::SeqCst),
+            "the tick waited for a writer on the FIFO"
+        );
+        assert!(shell.info_panel.is_none(), "a FIFO's rules stayed up");
+        assert!(
+            shell
+                .document()
+                .first()
+                .is_some_and(|row| row.starts_with("\u{2717} permissions: ")),
+            "{:?}",
+            shell.document()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_store_replaced_by_another_of_the_same_size_and_time_is_read_again() {
+        // Review P-permissions-c item 3: another valid store renamed over the
+        // first, of the same length, the same mode and the same modification
+        // time -- only the inode tells the two apart, and the panel follows.
+        use crate::permission::session_rules::{Decision, KeyKind, Rule, RuleKey, State};
+        use std::os::unix::fs::PermissionsExt;
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        let store = |name: &str| State {
+            next_generation: 2,
+            rules: vec![Rule {
+                id: 1,
+                key: RuleKey::new(KeyKind::FileMutation, name.as_bytes().to_vec()).expect("a key"),
+                display: format!("write_file {name}.txt preimage=absent after=00"),
+                decision: Decision::Deny,
+                generation: 1,
+            }],
+        };
+        std::fs::write(&rules, store("a").encode()).expect("the first store");
+        std::fs::set_permissions(&rules, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only");
+        shell.route_bytes(b"/permissions\r");
+        assert!(
+            uncoloured_rows(&shell.band_rows()).contains(&permissions_item(
+                "1 deny write_file a.txt preimage=absent after=00"
+            ))
+        );
+
+        let before = std::fs::metadata(&rules).expect("the first store");
+        let staged = rules.with_extension("staged");
+        let bytes = store("b").encode();
+        assert_eq!(bytes.len() as u64, before.len(), "not the same size");
+        std::fs::write(&staged, &bytes).expect("the second store");
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only");
+        std::fs::File::options()
+            .write(true)
+            .open(&staged)
+            .and_then(|file| file.set_modified(before.modified().expect("an mtime")))
+            .expect("the same mtime");
+        std::fs::rename(&staged, &rules).expect("renamed over");
+        let after = std::fs::metadata(&rules).expect("the second store");
+        assert_eq!(
+            (
+                after.len(),
+                after.modified().ok(),
+                after.permissions().mode()
+            ),
+            (
+                before.len(),
+                before.modified().ok(),
+                before.permissions().mode()
+            )
+        );
+
+        shell.settle_band(Instant::now());
+        let shown = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shown.contains(&permissions_item(
+                "1 deny write_file b.txt preimage=absent after=00"
+            )),
+            "the panel kept the store the rename replaced: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn a_reset_alone_rebuilds_an_open_permissions_panel() {
+        // Review P-permissions-b item 2: the mode and the grant count are the
+        // same before and after, so only the reset count tells the panel the
+        // grants it lists are not the ones in force.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        let grant = |target: &str| permissions::Granted {
+            tool: "write_file".to_string(),
+            target: target.to_string(),
+        };
+        shell.work.publish_grants(vec![grant("a.txt")]);
+        shell.route_bytes(b"/permissions\r");
+        assert!(uncoloured_rows(&shell.band_rows())
+            .contains(&permissions_item("write_file \u{2192} a.txt")));
+        shell.choose_mode(Change::Reset, PermissionMode::Ask);
+        // The runtime, between pieces of work, publishes one grant made since
+        // the reset: ask again, one grant again.
+        shell.work.publish_grants(vec![grant("b.txt")]);
+        shell.settle_band(Instant::now());
+        let shown = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shown.contains(&permissions_item("write_file \u{2192} b.txt")),
+            "the panel kept the grant a reset took away: {shown:?}"
+        );
+        assert!(!shown.contains(&permissions_item("write_file \u{2192} a.txt")));
+    }
+
+    #[test]
+    fn a_bare_permissions_panel_names_what_a_model_or_a_file_put_in_it() {
+        // A grant's command is a model's text, a configured pattern a file's:
+        // neither may carry an escape, a line break or a reordering character
+        // onto the screen.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.work.publish_grants(vec![permissions::Granted {
+            tool: "terminal".to_string(),
+            target: "printf '\u{1b}[2J'\necho \u{202e}fdsa in /w".to_string(),
+        }]);
+        shell
+            .work
+            .rules()
+            .replace(crate::permission::RuleSet::new(vec![
+                crate::permission::ConfiguredRule::new(
+                    "bash",
+                    "git\u{200b} *",
+                    crate::permission::RuleAction::Deny,
+                ),
+            ]));
+        shell.route_bytes(b"/permissions\r");
+        let rows = shell.band_rows();
+        assert!(
+            !rows.iter().any(|row| uncoloured(row).contains('\u{1b}')
+                || row.contains('\u{202e}')
+                || row.contains('\u{200b}')),
+            "{rows:?}"
+        );
+        let shown = uncoloured_rows(&from_the_rule(&rows));
+        assert!(
+            shown.contains(&permissions_item("deny bash \u{2192} git\\u{200B} *")),
+            "{shown:?}"
+        );
+        assert!(
+            shown.contains(&permissions_item(
+                "terminal \u{2192} printf '\\u{001B}[2J'\\necho \\u{202E}fdsa in /w"
+            )),
+            "{shown:?}"
         );
     }
 
@@ -22120,16 +23660,16 @@ mod tests {
             "nothing went to the runtime"
         );
         shell.route_bytes(b"/permissions\r");
-        let document = shell.document();
+        let shown = uncoloured_rows(&from_the_rule(&shell.band_rows()));
         assert_eq!(
-            document[..4],
+            shown[3..7],
             [
-                "* permissions: mode=auto".to_string(),
-                "  configured rules:".to_string(),
-                "   - allow bash -> git *".to_string(),
-                "  session grants: (none)".to_string(),
+                permissions_line("Mode", "auto"),
+                permissions_line("Configured rules", "1"),
+                permissions_item("allow bash \u{2192} git *"),
+                permissions_line("Session grants", "none"),
             ],
-            "{document:?}"
+            "{shown:?}"
         );
     }
 
@@ -22291,29 +23831,360 @@ mod tests {
         let session = home.path().join("session");
         std::fs::create_dir_all(&session).expect("a session directory");
         let rules = crate::permission::session_rules::path_in(&session);
-        shell.work.publish_saved_rules(Some(rules.clone()));
+        shell.work.publish_saved_rules(rules.clone());
         (home, workspace, rules, shell)
     }
 
+    /// Every file under `root`, however deep.
+    fn files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut found = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).expect("a directory").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
+    /// The confirmation band's rows, uncoloured.
+    fn confirmation_rows(shell: &Fixture) -> Vec<String> {
+        shell.band_rows().iter().map(|row| sgr_free(row)).collect()
+    }
+
     #[test]
-    fn remember_needs_a_saved_session_and_says_so_in_upstreams_words() {
+    fn a_rule_remembered_before_the_first_prompt_is_held_and_written_nowhere_yet() {
+        // fx's session is open from launch: a `remember` typed before the
+        // first prompt opens its confirmation (`handlePermissionRuleManagement`,
+        // `src/core/app/app_commands.zig:598-750@481104fd`), and Enter puts the
+        // rule in the session's state at once (`input_approval_runtime.zig:
+        // 277-297`) and in the lines it holds until its first turn
+        // (`src/core/session_manager/session.zig:415-429`). Red before: xfx
+        // refused it, `require an active saved session`.
+        let (home, workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&"  Remember deny for this saved session?".to_string()),
+            "{band:?}"
+        );
+        assert!(
+            band.contains(
+                &"  $ write_file b.txt preimage=absent after=a1fce4363854ff88".to_string()
+            ),
+            "{band:?}"
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
+        );
+        // Held: nothing reaches the disk before the session's first save.
+        for root in [home.path(), workspace.path()] {
+            let written: Vec<_> = files_under(root)
+                .into_iter()
+                .filter(|path| {
+                    path.file_name()
+                        .is_some_and(|name| name == "permissions.json" || name == "b.txt")
+                })
+                .collect();
+            assert!(written.is_empty(), "{written:?}");
+        }
+        // And listed as the session's, through the panel's rows, as fx lists
+        // it (`cap/…/fx-p5-panels-permissions-40x120-saved`).
+        shell.route_bytes(b"/permissions\r");
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&format!("  Saved rules{}1", " ".repeat(9))),
+            "{band:?}"
+        );
+        assert!(
+            band.contains(&format!(
+                "{}\u{2022} 1 deny write_file b.txt preimage=absent after=a1fce4363854ff88",
+                " ".repeat(22)
+            )),
+            "{band:?}"
+        );
+    }
+
+    #[test]
+    fn a_rule_revoked_before_the_first_prompt_is_gone_and_its_id_is_never_reused() {
+        // fx's revoke takes the rule out of the state it holds, spending a
+        // generation (`applyRevoke`, `session_permission_state.zig`), so the
+        // rule does not come back and its id is not handed out again. Red
+        // before: neither form was taken before the first prompt.
         let (_home, _workspace, mut shell) = allowlist_shell();
         shell.route_bytes(
-            b"/permissions remember allow write_file {\"path\":\"a\",\"content\":\"x\"}\r",
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.route_bytes(b"\r");
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/permissions revoke 1\r");
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&"  Revoke this saved-session permission rule?".to_string()),
+            "{band:?}"
+        );
+        assert!(
+            band.contains(
+                &"  $ write_file a.txt preimage=absent after=2d711642b726b044".to_string()
+            ),
+            "{band:?}"
+        );
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
         );
         shell.route_bytes(b"/permissions revoke 1\r");
         assert_eq!(
             shell.document(),
             vec![
-                "✗ permissions: saved-session permission rules require an active saved session"
-                    .to_string(),
+                "! permissions: saved-session permission rule not found".to_string(),
                 String::new(),
-                "✗ permissions: saved-session permission rules require an active saved session"
-                    .to_string(),
+            ],
+            "the revoked rule came back"
+        );
+        // Remembered again, it is a new rule with a new id.
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/permissions\r");
+        let band = confirmation_rows(&shell);
+        assert!(
+            band.contains(&format!("  Saved rules{}2", " ".repeat(9))),
+            "{band:?}"
+        );
+        for item in [
+            "2 deny write_file b.txt preimage=absent after=a1fce4363854ff88",
+            "4 allow write_file a.txt preimage=absent after=2d711642b726b044",
+        ] {
+            assert!(
+                band.contains(&format!("{}\u{2022} {item}", " ".repeat(22))),
+                "{item}: {band:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_session_before_the_first_prompt_forgets_the_rules_held_for_the_last() {
+        // fx's `/new` resets the session's state before it starts the next one
+        // (`SessionRuntime.reset` -> `clearPermissionState`,
+        // `src/core/session/session.zig:1430-1437`, from
+        // `applyIdleLiveSessionTransition`, `app_session_runtime.zig:1816@481104fd`):
+        // what was held for the session left is not the next one's.
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/new\r");
+        let _ = shell.document();
+        // Until the runtime's fence, the session is still changing
+        // (`a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused`).
+        shell.apply(UiEvent::Fresh { through: 0 });
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "! permissions: saved-session permission rule not found".to_string(),
                 String::new(),
             ]
         );
+    }
+
+    /// The refusal a `remember` or `revoke` gets while the session is
+    /// changing under it, as the document says it.
+    const CHANGING: &str = "! permissions: wait for the session to finish changing before managing saved-session rules";
+
+    #[test]
+    fn a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused() {
+        // Review PERM-EARLY-b, item 1. `/new` from an open session: until the
+        // runtime's fence for the reset arrives (`UiEvent::Fresh`), the store
+        // this shell holds is still the session being left's, and nothing is
+        // held to forget. A rule confirmed then would go into the left
+        // session's file under "updated", and the new session would never
+        // have it. Refused, saying why, until the fence; then the next
+        // session's. Red before: the confirmation opened and wrote the old file.
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(b"/new\r");
+        let _ = shell.document();
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        assert!(
+            !rules.exists(),
+            "a rule confirmed while the reset drained went into the left session"
+        );
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert!(shell.rule_confirm.is_none(), "a confirmation opened");
+        assert_eq!(
+            shell.document(),
+            vec![
+                CHANGING.to_string(),
+                String::new(),
+                CHANGING.to_string(),
+                String::new(),
+            ]
+        );
+        // The fence, and the next session's store as the runtime publishes it.
+        let next = rules.with_file_name("next").join("permissions.json");
+        shell.work.saved_rules().publish_pending(next.clone());
+        shell.apply(UiEvent::Fresh { through: 0 });
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
+        );
+        assert!(!rules.exists());
+        assert_eq!(
+            shell
+                .work
+                .saved_rules()
+                .view()
+                .state
+                .expect("held")
+                .rules
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_rule_typed_while_a_resume_is_on_its_way_is_refused() {
+        // Review PERM-EARLY-b, item 2. The picker's Enter hands the runtime a
+        // resume, and Escape can take the picker down before it is made. A
+        // rule confirmed then would be held, said "updated", and dropped when
+        // the resumed session's store is published. Refused, saying why,
+        // until the runtime has got past the switch. Red before: the
+        // confirmation opened and said "updated".
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell
+            .work
+            .submit_switch(TurnWork::Resume("1793786870949-17cfc234b1a39f46".into()))
+            .expect("queued");
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.rule_confirm.is_none(), "a confirmation opened");
+        assert_eq!(shell.document(), vec![CHANGING.to_string(), String::new()]);
+        assert_eq!(
+            shell.work.saved_rules().view().state.expect("held"),
+            crate::permission::session_rules::State::default(),
+            "a rule was held for a session the resume replaces"
+        );
+        // The runtime has made it.
+        let _ = shell.work.title_desk().worked_through(1);
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        // A switch handed over while that confirmation is up: its Enter is
+        // made nowhere, and says why.
+        shell
+            .work
+            .submit_switch(TurnWork::Resume("1793786870949-17cfc234b1a39f46".into()))
+            .expect("queued");
+        shell.route_bytes(b"\r");
         assert!(shell.rule_confirm.is_none());
+        assert_eq!(shell.document(), vec![CHANGING.to_string(), String::new()]);
+        assert_eq!(
+            shell.work.saved_rules().view().state.expect("held"),
+            crate::permission::session_rules::State::default()
+        );
+    }
+
+    #[test]
+    fn a_confirmation_held_across_the_first_save_lands_in_the_file_it_was_for() {
+        // The runtime writes what is held into the session it opens and lets
+        // go of it under the store's one lock (`Runtime::open_next`): a
+        // `remember` shown while held and confirmed once the session is open
+        // is made in the session's file, against the generations the held
+        // rules carried there; one shown for a store that is no longer this
+        // shell's -- a resume took another session -- is made nowhere.
+        use crate::permission::session_rules;
+        let (home, _workspace, mut shell) = allowlist_shell();
+        let session = home.path().join("next");
+        let rules = session_rules::path_in(&session);
+        shell.work.saved_rules().publish_pending(rules.clone());
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        shell.route_bytes(b"\r");
+        shell.route_bytes(
+            b"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some());
+        // The first save, as the runtime makes it.
+        {
+            let mut slot = shell.work.saved_rules().lock();
+            let held = slot.first_save(&rules).expect("a rule is held");
+            std::fs::create_dir(&session).expect("the session's directory");
+            session_rules::seed(&session, &held).expect("written");
+            slot.opened(rules.clone());
+        }
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document().iter().rev().nth(1).map(String::as_str),
+            Some("* permissions: saved-session permission rule updated")
+        );
+        let state = session_rules::load(&rules).expect("the store");
+        let shown: Vec<(u64, &str)> = state
+            .rules
+            .iter()
+            .map(|rule| (rule.id, rule.decision.label()))
+            .collect();
+        assert_eq!(shown, vec![(1, "allow"), (2, "deny")]);
+
+        // Another session's store now: a confirmation shown for this one is
+        // refused, and neither file moves.
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert!(shell.rule_confirm.is_some());
+        let other = home.path().join("other");
+        std::fs::create_dir(&other).expect("another session");
+        shell
+            .work
+            .publish_saved_rules(session_rules::path_in(&other));
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.document().iter().rev().nth(1).map(String::as_str),
+            Some("! permissions: saved-session permission rule changed before confirmation")
+        );
+        assert_eq!(session_rules::load(&rules).expect("the store"), state);
+        assert!(!session_rules::path_in(&other).exists());
     }
 
     #[test]
@@ -22363,16 +24234,19 @@ mod tests {
             state.rules[0].display,
             "write_file a.txt preimage=absent after=2d711642b726b044"
         );
-        // Listed under the bare command, and revoked through the same band.
+        // Listed in the bare command's panel
+        // (`cap/panels/new/fx-p5-panels-permissions-40x120-saved`), and
+        // revoked through the same band.
         shell.route_bytes(b"/permissions\r");
-        let document = shell.document();
+        assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
         assert!(
-            document.contains(&"* permissions: saved-session permission rules (1):".to_string()),
-            "{document:?}"
+            uncoloured_rows(&shell.band_rows()).contains(&permissions_item(
+                "1 allow write_file a.txt preimage=absent after=2d711642b726b044"
+            )),
+            "{:?}",
+            uncoloured_rows(&shell.band_rows())
         );
-        assert!(document.contains(
-            &"  1 allow write_file a.txt preimage=absent after=2d711642b726b044".to_string()
-        ));
+        escape(&mut shell);
         shell.route_bytes(b"/permissions revoke 1\r");
         let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
         assert!(band.contains(&"  Revoke this saved-session permission rule?".to_string()));
@@ -22748,6 +24622,16 @@ mod tests {
         );
     }
 
+    /// The value an open `/status` panel shows for `label`, colours off.
+    fn panel_value(shell: &Fixture, label: &str) -> Option<String> {
+        // Two blanks after the label: `Session` is not `Session grants`.
+        let prefix = format!("  {label}  ");
+        uncoloured_rows(&shell.band_rows())
+            .into_iter()
+            .find(|row| row.starts_with(&prefix))
+            .map(|row| row[prefix.len()..].trim_start().to_string())
+    }
+
     #[test]
     fn status_and_the_hint_row_agree_on_the_authority_while_a_turn_runs() {
         // The runtime publishes `/status` between pieces of work, so mid-turn
@@ -22758,8 +24642,14 @@ mod tests {
         let _turn = shell.picks_up();
         shell.work.publish_status(a_status(1, 2));
         shell.work.publish_grants(vec![
-            " - write_file -> a.txt".to_string(),
-            " - terminal -> ls in /w".to_string(),
+            permissions::Granted {
+                tool: "write_file".to_string(),
+                target: "a.txt".to_string(),
+            },
+            permissions::Granted {
+                tool: "terminal".to_string(),
+                target: "ls in /w".to_string(),
+            },
         ]);
         let _ = shell.document();
 
@@ -22767,34 +24657,22 @@ mod tests {
         assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
         assert_eq!(shell.work.live().mode(), PermissionMode::Ask);
         shell.route_bytes(b"/status\r");
-        let said = shell.document();
-        assert!(
-            said.contains(&"  permission_mode=ask".to_string()),
-            "{said:?}"
-        );
-        assert!(
-            said.contains(&"  session_permission_grants=2".to_string()),
-            "{said:?}"
-        );
+        assert_eq!(panel_value(&shell, "Permissions").as_deref(), Some("ask"));
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("2"));
+        escape(&mut shell);
 
         // A reset: no grants in force, at once, on both answers.
         shell.route_bytes(b"/permissions reset\r");
         let _ = shell.document();
         shell.route_bytes(b"/status\r");
-        let said = shell.document();
-        assert!(
-            said.contains(&"  permission_mode=ask".to_string()),
-            "{said:?}"
-        );
-        assert!(
-            said.contains(&"  session_permission_grants=0".to_string()),
-            "{said:?}"
-        );
+        assert_eq!(panel_value(&shell, "Permissions").as_deref(), Some("ask"));
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("0"));
+        escape(&mut shell);
         shell.route_bytes(b"/permissions\r");
-        let listed = shell.document();
-        assert!(
-            listed.contains(&"  session grants: (none)".to_string()),
-            "{listed:?}"
+        assert_eq!(panel_value(&shell, "Mode").as_deref(), Some("ask"));
+        assert_eq!(
+            panel_value(&shell, "Session grants").as_deref(),
+            Some("none")
         );
     }
 
@@ -22936,34 +24814,63 @@ mod tests {
         assert_eq!(narrow.warning_shown(), Some(permissions::WARNING_COMPACT));
     }
 
+    /// `a_status` as the runtime publishes it for a shell whose session
+    /// `id` is `saved` or not yet.
+    fn a_status_in(
+        id: &str,
+        saved: bool,
+        turns: u64,
+        grants: u64,
+    ) -> crate::output::StatusSnapshot {
+        let mut snapshot = a_status(turns, grants);
+        snapshot.session = Some(crate::output::ShellSession::Open {
+            id: id.to_string(),
+            saved,
+        });
+        snapshot
+    }
+
     #[test]
-    fn status_is_one_neutral_notice_of_what_the_runtime_last_published() {
-        // `fx-basic-40x120-status.txt`: `* status: model=…` and one `k=v` row
-        // per fact under it, two columns in, no `[status]` prefix. xfx keeps
-        // its own `provider` and `sandbox` rows and has no `update_channel` or
-        // `ultrafast_requested` to print.
+    fn status_opens_upstreams_panel_of_what_the_runtime_last_published() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-open`, rows 3-17: a rule,
+        // `Status`, a blank, one line per fact in upstream's order with the
+        // session first, a rule, `esc close` -- the composer and the mode hint
+        // gone, nothing in the document. xfx's Sandbox row stands after
+        // Permissions and it has no Updates row (`docs/parity.md`, `/status`).
         let mut shell = shell(40, 120);
-        shell.work.publish_status(a_status(2, 1));
+        shell
+            .work
+            .publish_status(a_status_in("1730000000000-0123456789abcdef", false, 2, 1));
         shell.route_bytes(b"/status\r");
 
+        assert!(shell.document().is_empty(), "/status wrote to the document");
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        let rows = shell.band_rows();
         assert_eq!(
-            shell.document(),
-            vec![
-                "* status: model=acme/model-9".to_string(),
-                "  provider=gateway".to_string(),
-                "  build_channel=debug".to_string(),
-                "  build_revision=0123456789ab".to_string(),
-                "  auth=AI_GATEWAY_API_KEY".to_string(),
-                "  auth_refreshable=false".to_string(),
-                "  permission_mode=auto".to_string(),
-                format!("  sandbox={}", crate::output::SANDBOX_LABEL),
-                "  workspace=/w/work".to_string(),
-                "  history_turns=2".to_string(),
-                "  session_permission_grants=1".to_string(),
-                "  agent_step_limit=0".to_string(),
+            uncoloured_rows(&from_the_rule(&rows)),
+            [
+                uncoloured(&divider(120)),
+                "Status".to_string(),
                 String::new(),
+                status_line(
+                    "Session",
+                    "1730000000000-0123456789abcdef \u{b7} not saved yet"
+                ),
+                status_line("Model", "acme/model-9"),
+                status_line("Auth", "AI_GATEWAY_API_KEY"),
+                status_line("Permissions", "auto"),
+                status_line("Sandbox", crate::output::SANDBOX_LABEL),
+                status_line("Workspace", "/w/work"),
+                status_line("Turns", "2"),
+                status_line("Session grants", "1"),
+                status_line("Step limit", "unlimited"),
+                status_line("Ultrafast", "not requested"),
+                status_line("Build", "debug \u{b7} 0123456789ab"),
+                uncoloured(&divider(120)),
+                "esc close".to_string(),
             ]
         );
+        assert_eq!(rows.last(), Some(&dim_hint("esc close")));
         // Read, never asked for: nothing went to the runtime, so a `/status`
         // typed mid-turn neither waits behind the turn nor shows as queued.
         assert!(
@@ -22975,6 +24882,98 @@ mod tests {
             0,
             "/status took a place in the queue"
         );
+        // Escape closes it and leaves nothing behind
+        // (`cap/panels/new/fx-p5-panels-status-40x120-esc-closed`); so does
+        // Enter (`-enter-closed`).
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(shell.document().is_empty());
+        shell.route_bytes(b"/status\r");
+        shell.route_bytes(b"\r");
+        assert!(shell.info_panel.is_none(), "Enter left the panel up");
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err(), "Enter sent something");
+    }
+
+    #[test]
+    fn status_says_the_ultra_request_this_shell_holds() {
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(0, 0));
+        shell.settings.ultrafast = true;
+        shell.route_bytes(b"/status\r");
+        assert_eq!(
+            panel_value(&shell, "Ultrafast").as_deref(),
+            Some("requested")
+        );
+    }
+
+    #[test]
+    fn an_open_status_panel_follows_the_turn_and_keeps_its_scroll() {
+        // `cap/panels/new/fx-p5-panels-status-first-40x120-{open-first,
+        // after-first}`: opened as the first turn runs, the session saved and
+        // then the turn counted, with no keystroke (`collectInfoPanelFacts`
+        // on every tick). A rebuild keeps the scroll (`State.replace`).
+        let mut shell = shell(14, 120);
+        shell.work.publish_status(a_status_in("s1", false, 0, 0));
+        shell.route_bytes(b"/status\r");
+        let window = |shell: &Fixture| uncoloured_rows(&shell.band_rows()[3..5]);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Session", "s1 \u{b7} not saved yet"),
+                status_line("Model", "acme/model-9"),
+            ]
+        );
+        shell.route_bytes(b"\x1b[B");
+
+        // Nothing moved: no rebuild, no frame owed for it.
+        let now = Instant::now();
+        shell.settle_band(now);
+        let unmoved = shell.info_panel.clone();
+        shell.settle_band(now);
+        assert_eq!(shell.info_panel, unmoved);
+
+        shell.work.publish_status(a_status_in("s1", true, 0, 0));
+        shell.settle_band(now);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Model", "acme/model-9"),
+                status_line("Auth", "AI_GATEWAY_API_KEY"),
+            ],
+            "the rebuild lost the scroll"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(window(&shell)[0], status_line("Session", "s1 \u{b7} saved"));
+
+        shell.work.publish_status(a_status_in("s1", true, 1, 2));
+        shell.settle_band(now);
+        for _ in 0..6 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Turns", "1"),
+                status_line("Session grants", "2")
+            ]
+        );
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn an_open_status_panel_follows_a_new_session_id_with_nothing_else_moved() {
+        // Review P-status-b item 1: a `/new` while the panel is up, or an
+        // open whose id moved, changes the Session row and no count.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status_in("s1", false, 0, 0));
+        shell.route_bytes(b"/status\r");
+        shell.work.publish_status(a_status_in("s2", false, 0, 0));
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            panel_value(&shell, "Session").as_deref(),
+            Some("s2 \u{b7} not saved yet")
+        );
     }
 
     #[test]
@@ -22985,45 +24984,132 @@ mod tests {
         let mut shell = shell(40, 120);
         shell.work.publish_status(a_status(0, 0));
         shell.route_bytes(b"/status\r");
-        let before = shell.document();
-        assert!(
-            before.contains(&"  history_turns=0".to_string()),
-            "{before:?}"
-        );
+        assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("0"));
+        escape(&mut shell);
 
         shell.work.publish_status(a_status(3, 2));
         shell.route_bytes(b"/status\r");
-        let after = shell.document();
-        assert!(
-            after.contains(&"  history_turns=3".to_string()),
-            "{after:?}"
-        );
-        assert!(
-            after.contains(&"  session_permission_grants=2".to_string()),
-            "{after:?}"
-        );
+        assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("3"));
+        assert_eq!(panel_value(&shell, "Session grants").as_deref(), Some("2"));
     }
 
     #[test]
-    fn status_makes_a_quoted_path_inert_before_it_reaches_the_terminal() {
+    fn status_makes_a_quoted_path_terminal_safe_before_it_reaches_the_terminal() {
         // The workspace is a directory name and a rejected provider quotes a
         // settings value; neither is xfx's text, and this one never crosses
         // the channel that would have cleaned it.
         let mut shell = shell(40, 120);
         let mut snapshot = a_status(0, 0);
         snapshot.workspace = "/w/\u{1b}]2;owned\u{7}x".to_string();
+        snapshot.session = Some(crate::output::ShellSession::Open {
+            id: "s\u{1b}[2J".to_string(),
+            saved: true,
+        });
         shell.work.publish_status(snapshot);
         shell.route_bytes(b"/status\r");
-        let document = shell.document();
+        let rows = shell.band_rows();
         assert!(
-            !document
+            !rows
                 .iter()
-                .any(|row| row.contains('\u{1b}') || row.contains('\u{7}')),
-            "{document:?}"
+                .any(|row| uncoloured(row).contains('\u{1b}') || row.contains('\u{7}')),
+            "{rows:?}"
         );
-        assert!(
-            document.contains(&"  workspace=/w/ ]2;owned x".to_string()),
-            "{document:?}"
+        assert_eq!(
+            panel_value(&shell, "Workspace").as_deref(),
+            Some("/w/\\u{001B}]2;owned\\u{0007}x")
+        );
+        assert_eq!(
+            panel_value(&shell, "Session").as_deref(),
+            Some("s\\u{001B}[2J \u{b7} saved")
+        );
+    }
+
+    #[test]
+    fn status_says_settings_it_cannot_read_on_the_gateway_with_no_credential_once() {
+        // `openStatusSnapshot` (`session_commands.zig:283-296@481104fd`): the
+        // profile settings are read at open, only on the Gateway with no
+        // credential, and a file that does not read is a `Settings` row in
+        // place of `Auth`; a rebuild reads no file.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let settings = config.user_settings_path.clone().expect("a profile");
+        std::fs::create_dir_all(settings.parent().expect("a profile dir")).expect("mkdir");
+        std::fs::write(&settings, "{\"model\":").expect("a torn file");
+        let (work, sent, control) = WorkHandle::detached();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        let mut missing = a_status(0, 0);
+        missing.auth = crate::output::MISSING_AUTH_LABEL.to_string();
+        missing.auth_help = Some(crate::output::MISSING_AUTH_HELP.to_string());
+        shell.work.publish_status(missing.clone());
+        shell.route_bytes(b"/status\r");
+        assert_eq!(
+            panel_value(&shell, "Settings").as_deref(),
+            Some("couldn't be read: InvalidSettingsFormat")
+        );
+        assert_eq!(panel_value(&shell, "Auth"), None);
+
+        // Mended while it is up: the rebuild says what the open read.
+        std::fs::write(&settings, "{}").expect("a good file");
+        missing.history_turns = 1;
+        shell.work.publish_status(missing.clone());
+        shell.settle_band(Instant::now());
+        assert_eq!(panel_value(&shell, "Turns").as_deref(), Some("1"));
+        assert_eq!(
+            panel_value(&shell, "Settings").as_deref(),
+            Some("couldn't be read: InvalidSettingsFormat")
+        );
+        // Opened again, it reads again.
+        escape(&mut shell);
+        shell.route_bytes(b"/status\r");
+        assert_eq!(panel_value(&shell, "Settings"), None);
+        assert_eq!(
+            panel_value(&shell, "Auth").as_deref(),
+            Some(crate::output::MISSING_AUTH_LABEL)
+        );
+        escape(&mut shell);
+
+        // With a credential, the file is not read at all.
+        std::fs::write(&settings, "{\"model\":").expect("torn again");
+        shell.work.publish_status(a_status(0, 0));
+        shell.route_bytes(b"/status\r");
+        assert_eq!(panel_value(&shell, "Settings"), None);
+        assert_eq!(
+            panel_value(&shell, "Auth").as_deref(),
+            Some("AI_GATEWAY_API_KEY")
+        );
+    }
+
+    #[test]
+    fn status_names_a_session_this_shell_cannot_save() {
+        let mut shell = shell(40, 120);
+        let mut snapshot = a_status(0, 0);
+        snapshot.session = Some(crate::output::ShellSession::Unavailable);
+        shell.work.publish_status(snapshot);
+        shell.route_bytes(b"/status\r");
+        assert_eq!(
+            panel_value(&shell, "Session").as_deref(),
+            Some("none \u{b7} this shell can't save sessions")
+        );
+        assert_eq!(
+            shell.info_panel.as_ref().map(info_panel::Panel::facts),
+            Some(&info_panel::Facts::Status {
+                turns: 0,
+                saved: None,
+                grants: 0,
+                id: None,
+            })
         );
     }
 
@@ -26092,7 +28178,10 @@ mod tests {
         // And `/model` with no space is a command name, with no column.
         let mut bare = harness_shell();
         bare.route_bytes(b"/model");
-        assert!(bare.column.active(bare.editor.text()).is_none());
+        assert!(bare
+            .column
+            .active(bare.editor.text(), &bare.model)
+            .is_none());
     }
 
     #[test]
@@ -28952,7 +31041,7 @@ mod tests {
         assert!(
             with_argument
                 .column
-                .active(with_argument.editor.text())
+                .active(with_argument.editor.text(), &with_argument.model)
                 .is_some(),
             "the completed /model opened no column"
         );
@@ -30321,8 +32410,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 8,
-            "/clear, /new, /reset, /resume, /rename, /undo, /copy and /compact"
+            2 + 10,
+            "/clear, /status, /new, /reset, /resume, /rename, /fork, /undo, /copy and /compact"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -35629,7 +37718,10 @@ mod tests {
         );
         shell.route_bytes(&[0x15]);
         shell.route_bytes(b"/model ");
-        assert!(shell.column.active(shell.editor.text()).is_some());
+        assert!(shell
+            .column
+            .active(shell.editor.text(), &shell.model)
+            .is_some());
         assert!(
             !matches!(shell.slot(), Some(Slot::Column)),
             "the model column took the slot"
@@ -35823,6 +37915,740 @@ mod tests {
         assert_eq!(
             profile_at(root.path()),
             "{\n  \"session_titles\": true\n}\n"
+        );
+    }
+
+    /// A 40x120 shell at a home of its own, holding the harness's catalog,
+    /// on `openai/gpt-6-astra` (`p5-effort-fork-seed-astra.json`).
+    fn effort_shell(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.model = "openai/gpt-6-astra".to_string();
+        let _ = shell.document();
+        shell
+    }
+
+    /// `/effort`'s rows as the band paints them, as text.
+    fn effort_text(shell: &Shell) -> Vec<String> {
+        menu(shell).iter().map(|row| visible_text(row)).collect()
+    }
+
+    fn effort_said(body: &str) -> Vec<String> {
+        said(notice::Notice::neutral(settings::EFFORT_TOPIC, body))
+    }
+
+    #[test]
+    fn a_bare_effort_opens_the_menu_whose_keys_wrap_and_whose_enter_names_the_level() {
+        // `fx-p5-effort-fork-effort-menu-40x120-menu`, `-menu-down`,
+        // `-menu-wrap`, `-menu-esc`, `-menu-enter`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        assert!(matches!(shell.slot(), Some(Slot::Effort(_))));
+        assert_eq!(
+            effort_text(&shell),
+            [
+                "Effort 5  openai/gpt-6-astra",
+                "",
+                "  default  current",
+                "  low",
+                "  medium",
+                "  high",
+                "  xhigh",
+            ]
+        );
+        assert_eq!(
+            visible_text(&shell.band_rows()[shell.band_rows().len() - 1]),
+            "\u{2191}\u{2193} navigate     enter use     esc close"
+        );
+        // Nothing is written for opening it.
+        assert!(shell.document().is_empty());
+        down(&mut shell, 1);
+        assert_eq!(
+            shell.effort_menu.as_ref().map(EffortMenu::selected),
+            Some(&Effort::Named("low".to_string()))
+        );
+        shell.route_bytes(b"\x1b[A\x1b[A");
+        assert_eq!(
+            shell.effort_menu.as_ref().map(EffortMenu::selected),
+            Some(&Effort::Named("xhigh".to_string()))
+        );
+        escape(&mut shell);
+        assert!(shell.effort_menu.is_none());
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None, "Escape applied a level");
+
+        shell.route_bytes(b"/effort\r");
+        down(&mut shell, 2);
+        shell.route_bytes(b"\r");
+        assert!(shell.effort_menu.is_none());
+        // The level and the model, and no `saved to user settings`.
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to medium for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(shell.settings.effort, Effort::Named("medium".to_string()));
+        assert!(shell.hint().ends_with("medium"), "{}", shell.hint());
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"medium\"\n}\n");
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("medium".to_string())),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: false,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            }
+        );
+        // It opens on the level in use.
+        shell.route_bytes(b"/effort\r");
+        assert_eq!(effort_text(&shell)[4], "  medium   current");
+    }
+
+    #[test]
+    fn the_effort_menu_stays_under_a_first_ctrl_c_and_says_the_next_one_leaves() {
+        // `fx-p5-effort-fork-effort-ctrlc-40x120-ctrlc`: the menu stays up,
+        // and its key help gives way to the warning in the statusline grey
+        // until the window closes (`composeEffortMenuHintRow`,
+        // `input_presentation.zig:671-679@481104fd`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.settle_band(now);
+        assert!(
+            shell.effort_menu.is_some(),
+            "a first Ctrl-C closed the menu"
+        );
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{EXIT_ARMED}{}",
+                PALETTE.statusline(),
+                PALETTE.reset()
+            ))
+        );
+        shell.settle_band(now + EXIT_WINDOW);
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{}{}",
+                PALETTE.dim(),
+                effort_menu::key_help(120),
+                PALETTE.reset()
+            ))
+        );
+        assert!(!shell.leaving());
+    }
+
+    #[test]
+    fn an_edit_closes_the_effort_menu_and_the_edit_stands() {
+        // `fx-p5-effort-fork-effort-menu-40x120-menu-edit`: `x` typed over
+        // the menu is in the composer, and the menu is gone.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        shell.route_bytes(b"x");
+        assert!(shell.effort_menu.is_none());
+        assert_eq!(shell.editor.text(), "x");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        // A paste is an edit too.
+        shell.route_bytes(b"\x15/effort\r");
+        pasted(&mut shell, "y");
+        assert!(shell.effort_menu.is_none());
+        assert_eq!(shell.editor.text(), "y");
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn effort_with_a_word_applies_it_or_says_which_levels_there_are() {
+        // `fx-p5-effort-fork-effort-menu-40x120-level-*`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort high\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to high for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"high\"\n}\n");
+        assert!(change(&mut shell).effort_only);
+        for (line, body) in [
+            (
+                "/effort bogus",
+                "bogus is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh",
+            ),
+            (
+                "/effort max",
+                "max is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh",
+            ),
+            // Not a level at all: nothing typed is repeated back.
+            (
+                "/effort two words",
+                "levels for openai/gpt-6-astra: default, low, medium, high, xhigh",
+            ),
+            (
+                "/effort \u{1b}[2J",
+                "levels for openai/gpt-6-astra: default, low, medium, high, xhigh",
+            ),
+        ] {
+            pasted(&mut shell, line);
+            shell.route_bytes(b"\r");
+            assert_eq!(shell.document(), effort_said(body), "{line:?}");
+            assert_eq!(shell.controlled(), None, "{line:?} changed something");
+            assert_eq!(shell.settings.effort, Effort::Named("high".to_string()));
+        }
+        // `fx-p5-effort-fork-effort-column-40x120-level-upper`: the `/effort `
+        // column's Enter takes `HIGH` as `high` -- its filter ignores case --
+        // and `med` as `medium` (`-level-prefix`).
+        for (line, level) in [("/effort HIGH", "high"), ("/effort med", "medium")] {
+            pasted(&mut shell, line);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral(
+                    "",
+                    format!("Reasoning effort set to {level} for openai/gpt-6-astra")
+                )),
+                "{line:?}"
+            );
+            assert_eq!(shell.settings.effort, Effort::Named(level.to_string()));
+            assert!(change(&mut shell).effort_only);
+        }
+        // The default's three spellings, any case.
+        shell.route_bytes(b"/effort Default\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to default for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(shell.settings.effort, Effort::Auto);
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"auto\"\n}\n");
+        assert!(!shell.hint().contains("high"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn effort_without_levels_says_why_and_opens_nothing() {
+        // `fx-p5-effort-fork-effort-nolevels-40x120-bare`, `-level`; the
+        // catalog that failed, `effort-down`; the one still on its way,
+        // `effort-loading-early`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.model = "fake/model-a".to_string();
+        for line in [&b"/effort\r"[..], b"/effort high\r"] {
+            shell.route_bytes(line);
+            assert_eq!(
+                shell.document(),
+                effort_said("fake/model-a has no levels to choose from")
+            );
+            assert!(shell.effort_menu.is_none());
+        }
+        // A model the catalog does not list has none either.
+        shell.model = "acme/unlisted".to_string();
+        shell.route_bytes(b"/effort\r");
+        assert_eq!(
+            shell.document(),
+            effort_said("acme/unlisted has no levels to choose from")
+        );
+
+        let mut loading = shell_at_home(root.path(), 40, 120);
+        loading.model = "openai/gpt-6-astra".to_string();
+        let _ = loading.document();
+        loading.route_bytes(b"/effort\r");
+        assert_eq!(
+            loading.document(),
+            effort_said(
+                "levels for openai/gpt-6-astra are still loading; try /effort again in a moment"
+            )
+        );
+        // It asks the runtime for nothing: the launch's read answers.
+        assert_eq!(loading.controlled(), None);
+        // Nor does its column: an `/effort ` line lists what the catalog
+        // already says, where a `/model ` line would ask for it.
+        loading.route_bytes(b"/effort ");
+        assert_eq!(
+            loading.controlled(),
+            None,
+            "the /effort column asked for the catalog"
+        );
+        loading.route_bytes(&[0x15]);
+        loading.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: None,
+            attempted: Instant::now(),
+        });
+        let _ = loading.document();
+        loading.route_bytes(b"/effort\r");
+        assert_eq!(
+            loading.document(),
+            effort_said("openai/gpt-6-astra has no levels to choose from")
+        );
+        assert!(profile_at(root.path()).is_empty());
+    }
+
+    #[test]
+    fn an_effort_given_while_a_turn_runs_is_for_the_next_turn() {
+        // `fx-p5-effort-fork-effort-menu-40x120-midturn`: said at once, in
+        // the next turn's words, and handed to the runtime as a change that
+        // waits for the running turn -- which keeps its own level.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        let _started = turn_running(&mut shell, b"slow turn please\r");
+        let _turn = shell.picks_up();
+        pasted(&mut shell, "/effort high");
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Next turn will use reasoning effort high for openai/gpt-6-astra"
+            ))
+        );
+        let asked = change(&mut shell);
+        assert!(asked.next_turn && asked.effort_only, "{asked:?}");
+        assert!(shell.hint().ends_with("high"), "{}", shell.hint());
+        // The menu's Enter, the same: it opens on `high`, the level in use.
+        shell.route_bytes(b"/effort\r");
+        down(&mut shell, 1);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Next turn will use reasoning effort xhigh for openai/gpt-6-astra"
+            ))
+        );
+    }
+
+    #[test]
+    fn page_keys_move_the_effort_menu_by_the_composers_row_cap_and_wrap() {
+        // As `/model`'s menu pages (`ModelAction::Page`): a page is the
+        // composer's row cap, and the menu wraps it as it wraps a step
+        // (`move` takes any delta with `@mod`, `effort_menu.zig:53-57@481104fd`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        let page = usize::from(layout::input_row_limit(shell.geometry.rows));
+        let levels = [
+            Effort::Auto,
+            Effort::Named("low".to_string()),
+            Effort::Named("medium".to_string()),
+            Effort::Named("high".to_string()),
+            Effort::Named("xhigh".to_string()),
+        ];
+        let marked = |shell: &Fixture| {
+            shell
+                .effort_menu
+                .as_ref()
+                .map(|menu| menu.selected().clone())
+        };
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(marked(&shell), Some(levels[page % 5].clone()));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(marked(&shell), Some(Effort::Auto));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(marked(&shell), Some(levels[(5 - page % 5) % 5].clone()));
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn the_effort_menu_closes_when_the_model_or_the_provider_it_was_opened_for_goes() {
+        // Upstream has no rule for an open menu under a model change that
+        // lands later, because its changes are commands and typing one closes
+        // the menu. Here a change can land after its command -- a model
+        // change held behind a turn, a provider switch, a resume -- and the
+        // menu closes then, so Enter cannot apply one model's level to another.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        // A catalog read landing is not one.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert!(shell.effort_menu.is_some());
+        shell.apply(UiEvent::ModelAnswered {
+            model: "anthropic/claude-opus-5".to_string(),
+            settings: TurnSettings::default(),
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: false,
+            announced: false,
+        });
+        assert!(shell.effort_menu.is_none(), "the menu outlived its model");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        let _ = shell.document();
+        while shell.controlled().is_some() {}
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "Enter applied the old model's level"
+        );
+        assert!(shell.document().is_empty());
+
+        shell.model = "openai/gpt-6-astra".to_string();
+        shell.route_bytes(b"/effort\r");
+        assert!(shell.effort_menu.is_some());
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "openai/gpt-6-astra".to_string(),
+            missing_credential: false,
+        });
+        assert!(
+            shell.effort_menu.is_none(),
+            "the menu outlived its provider"
+        );
+    }
+
+    #[test]
+    fn the_hint_row_ends_on_the_effort_given_after_a_held_model_change() {
+        // The band's half of the worker's
+        // `an_effort_the_band_saved_after_a_model_change_held_behind_a_turn_is_still_the_files`:
+        // a pick held behind the turn, then `/effort high`; the pick's answer
+        // moves the hint row to its level, and the runtime's word on the
+        // effort applied after it moves it back.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        let _started = turn_running(&mut shell, b"slow turn please\r");
+        let _turn = shell.picks_up();
+        let low = Effort::Named("low".to_string());
+        let high = Effort::Named("high".to_string());
+        shell.shell.request_change(ModelChange {
+            name: "openai/gpt-6-astra".to_string(),
+            effort: Some(low.clone()),
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: true,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        pasted(&mut shell, "/effort high");
+        shell.route_bytes(b"\r");
+        assert!(shell.hint().ends_with("high"), "{}", shell.hint());
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.apply(UiEvent::ModelAnswered {
+            model: "openai/gpt-6-astra".to_string(),
+            settings: TurnSettings {
+                effort: low,
+                ..TurnSettings::default()
+            },
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: true,
+            announced: true,
+        });
+        assert!(shell.hint().ends_with("low"), "{}", shell.hint());
+        shell.apply(UiEvent::EffortApplied { effort: high });
+        assert!(shell.hint().ends_with("high"), "{}", shell.hint());
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"high\"\n}\n");
+    }
+
+    #[test]
+    fn a_failed_effort_write_is_said_and_the_level_is_still_named() {
+        // `reportUserSettingsCommit` drops only the benign line: a write that
+        // failed is said, then the announcement.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.settings_path = None;
+        shell.route_bytes(b"/effort low\r");
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row.starts_with("\u{2717} effort:")),
+            "{document:?}"
+        );
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "* Reasoning effort set to low for openai/gpt-6-astra"),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_effort_menu_and_its_notices_never_show_what_a_terminal_would_obey() {
+        // An llmux row's levels and a model id are not held to the Gateway's
+        // rule on their way in; the menu offers only parsable names and shows
+        // the id on one line with nothing a terminal obeys in it.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        let forged = "odd\u{1b}]0;x\u{7}\nmodel";
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![CatalogEntry {
+                id: forged.to_string(),
+                aliases: Vec::new(),
+                name: None,
+                efforts: vec!["low".to_string(), "x\u{1b}[2J".to_string()],
+                max_context: None,
+                facts: Default::default(),
+            }],
+        });
+        shell.model = forged.to_string();
+        let _ = shell.document();
+        shell.route_bytes(b"/effort\r");
+        let rows = menu(&shell);
+        assert!(!rows.concat().contains("\u{1b}]"), "{rows:?}");
+        assert!(!rows.concat().contains("\u{1b}[2J"), "{rows:?}");
+        assert_eq!(effort_text(&shell)[0], "Effort 2  odd ]0;x  model");
+        escape(&mut shell);
+        shell.route_bytes(b"/effort nope\r");
+        let document = shell.document();
+        assert_eq!(
+            document,
+            effort_said("nope is not available for odd ]0;x  model; levels: default, low")
+        );
+        // And the announcement of a level applied, from the menu and from the
+        // command alike.
+        shell.route_bytes(b"/effort\r");
+        down(&mut shell, 1);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"/effort default\r");
+        let document = shell.document();
+        assert!(!document.concat().contains('\u{1b}'), "{document:?}");
+        assert!(!document.concat().contains('\u{7}'), "{document:?}");
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "* Reasoning effort set to low for odd ]0;x  model"),
+            "{document:?}"
+        );
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "* Reasoning effort set to default for odd ]0;x  model"),
+            "{document:?}"
+        );
+        // The `/effort ` column lists the same parsable names and nothing else.
+        shell.route_bytes(b"/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        let rows = menu(&shell);
+        assert!(!rows.concat().contains("\u{1b}[2J"), "{rows:?}");
+        assert_eq!(
+            rows.iter()
+                .map(|row| visible_text(row).trim().to_string())
+                .filter(|row| !row.is_empty())
+                .collect::<Vec<_>>(),
+            ["default", "low"]
+        );
+    }
+
+    /// The `/effort ` column's rows, as text, from column ten.
+    fn levels_at_ten(levels: &[&str]) -> Vec<String> {
+        let mut rows: Vec<String> = levels
+            .iter()
+            .map(|level| format!("{}{level}", " ".repeat(10)))
+            .collect();
+        rows.resize(6, String::new());
+        rows
+    }
+
+    #[test]
+    fn the_effort_column_lists_the_levels_under_the_argument_and_the_footer_previews_the_mark() {
+        // `fx-p5-effort-fork-effort-column-40x120-col-space`, `-col-down`,
+        // `-col-nomatch`: no key help, the hint row the session's own with
+        // the marked level in place of the one in force.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort low\r");
+        let _ = shell.document();
+        let _ = change(&mut shell);
+        assert!(
+            shell.hint().ends_with("gpt-6-astra \u{b7} low"),
+            "{}",
+            shell.hint()
+        );
+        // A space opens it on its first row, whatever is in use
+        // (`-space-first`), and the footer shows the default as no level.
+        shell.route_bytes(b"/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        assert_eq!(
+            column(&shell),
+            levels_at_ten(&["default", "low", "medium", "high", "xhigh"])
+        );
+        assert!(shell.hint().ends_with("gpt-6-astra"), "{}", shell.hint());
+        down(&mut shell, 1);
+        assert!(
+            shell.hint().ends_with("gpt-6-astra \u{b7} low"),
+            "{}",
+            shell.hint()
+        );
+        shell.route_bytes(b"zz");
+        assert_eq!(column(&shell)[0], "          no matching effort");
+        // Nothing marked: the level in force.
+        assert!(
+            shell.hint().ends_with("gpt-6-astra \u{b7} low"),
+            "{}",
+            shell.hint()
+        );
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn tab_on_a_bare_effort_marks_the_level_in_use_tab_fills_it_and_enter_applies_it() {
+        // `fx-p5-effort-fork-effort-column-40x120-tab-current`, `-col-fill`,
+        // `-col-enter`, `-typed-space`, `-typed-down`, `-typed-enter`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort medium\r");
+        let _ = shell.document();
+        let _ = change(&mut shell);
+        shell.route_bytes(b"/effort\t");
+        assert_eq!(shell.editor.text(), "/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        assert!(shell.hint().ends_with("\u{b7} medium"), "{}", shell.hint());
+        down(&mut shell, 1);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/effort high");
+        assert_eq!(column(&shell), levels_at_ten(&["high", "xhigh"]));
+        assert!(shell.hint().ends_with("\u{b7} high"), "{}", shell.hint());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to high for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"high\"\n}\n");
+        assert!(change(&mut shell).effort_only);
+        // A space typed in the column goes nowhere; Left is the caret's.
+        shell.route_bytes(b"/effort hi ");
+        assert_eq!(shell.editor.text(), "/effort hi");
+        let caret = shell.cursor().1;
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.text(), "/effort hi");
+        assert_eq!(shell.cursor().1, caret - 1);
+        shell.route_bytes(b"\x1b[C");
+        // Enter takes the marked row of a filter that keeps two.
+        down(&mut shell, 1);
+        assert!(shell.hint().ends_with("\u{b7} xhigh"), "{}", shell.hint());
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to xhigh for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(shell.settings.effort, Effort::Named("xhigh".to_string()));
+    }
+
+    #[test]
+    fn escape_puts_the_effort_column_away_and_enter_then_runs_the_bare_command() {
+        // `fx-p5-effort-fork-effort-column-40x120-col-esc`, `-esc-enter`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\t");
+        escape(&mut shell);
+        assert_eq!(shell.editor.text(), "/effort ");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        shell.route_bytes(b"\r");
+        assert!(matches!(shell.slot(), Some(Slot::Effort(_))));
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn an_effort_line_shows_no_column_for_a_model_without_levels_and_enter_says_why() {
+        // `fx-p5-effort-fork-effort-nolevels-40x120-col-space`, `-col-enter`,
+        // `-col-tab`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.model = "fake/model-a".to_string();
+        shell.route_bytes(b"/effort ");
+        assert!(!matches!(shell.slot(), Some(Slot::Column)));
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            effort_said("fake/model-a has no levels to choose from")
+        );
+        shell.route_bytes(b"/effort\t");
+        assert_eq!(shell.editor.text(), "/effort ");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn the_effort_column_goes_when_the_model_or_the_provider_it_was_shown_for_goes() {
+        // EF1b's S3 for the menu, for the column: a mark set over one
+        // model's levels is not carried to another's. `xhigh` marked on
+        // astra is row five, which on opus is `max`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort xhigh\r");
+        let _ = shell.document();
+        let _ = change(&mut shell);
+        shell.route_bytes(b"/effort\t");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        // A catalog read landing is not a change of model.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        shell.apply(UiEvent::ModelAnswered {
+            model: "anthropic/claude-opus-5".to_string(),
+            settings: TurnSettings::default(),
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: false,
+            announced: false,
+        });
+        let _ = shell.document();
+        assert_eq!(shell.editor.text(), "/effort ", "the line is the user's");
+        assert!(
+            !matches!(shell.slot(), Some(Slot::Column)),
+            "the column outlived its model"
+        );
+        // Enter runs the line as the command: opus's menu, nothing applied.
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.controlled(), None, "Enter applied a level");
+        assert!(shell
+            .effort_menu
+            .as_ref()
+            .is_some_and(|menu| menu.is_for(ProviderId::Gateway, "anthropic/claude-opus-5")));
+        escape(&mut shell);
+        // A new line opens it again, over the model in force.
+        shell.route_bytes(b"/effort ");
+        assert!(matches!(shell.slot(), Some(Slot::Column)));
+        assert_eq!(
+            column(&shell),
+            levels_at_ten(&["default", "low", "medium", "high", "max"])
+        );
+        // And a provider switch the same, the model kept: still put away once
+        // the new provider's catalog lists the same levels, so it is the
+        // switch that took it down and not a catalog with nothing in it yet.
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "anthropic/claude-opus-5".to_string(),
+            missing_credential: false,
+        });
+        assert!(!matches!(shell.slot(), Some(Slot::Column)));
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: harness_rows(),
+        });
+        assert!(
+            !matches!(shell.slot(), Some(Slot::Column)),
+            "the column outlived its provider"
         );
     }
 
@@ -37574,5 +40400,799 @@ mod tests {
             late.picker.is_some(),
             "the popup did not open for the skill that landed"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the read-only panel
+    // -----------------------------------------------------------------------
+
+    /// The rows fx's `/status` panel shows in
+    /// `cap/panels/new/fx-p5-panels-status-short-*` and `-keys-*`, in fx's
+    /// words: a filler for the occupant, not xfx's own facts -- `/status` is
+    /// the unit that maps those.
+    fn fx_status_panel() -> info_panel::Panel {
+        use info_panel::{Facts, Panel, Row};
+        Panel::open(
+            vec![
+                Row::new("Session", "qGmBFM89lH8M \u{b7} not saved yet"),
+                Row::new("Model", "fake/model-a"),
+                Row::new("Auth", "AI_GATEWAY_API_KEY"),
+                Row::new("Permissions", "ask"),
+                Row::new("Workspace", "/scratch/workdir/claude/fxcap.0b3z9I/work"),
+                Row::new("Turns", "0"),
+                Row::new("Session grants", "0"),
+                Row::new("Step limit", "unlimited"),
+                Row::new("Ultrafast", "not requested"),
+                Row::new("Updates", "stable"),
+                Row::new("Build", "stable \u{b7} 481104fdbc24"),
+            ],
+            Facts::Status {
+                turns: 0,
+                saved: Some(false),
+                grants: 0,
+                id: Some("qGmBFM89lH8M".to_string()),
+            },
+        )
+    }
+
+    /// One of the panel's lines as fx paints it at the value column 20.
+    fn status_line(label: &str, value: &str) -> String {
+        format!("  {label}{}{value}", " ".repeat(18 - label.len()))
+    }
+
+    /// The band's rows from the panel's top rule down: what the panel owns,
+    /// without the turn's row above it, whose clock and token count move on
+    /// their own.
+    fn from_the_rule(rows: &[String]) -> Vec<String> {
+        let rule = rows
+            .iter()
+            .position(|row| uncoloured(row).starts_with('\u{2500}'))
+            .expect("a rule");
+        rows[rule..].to_vec()
+    }
+
+    /// The hint row's text in the dim grey, as the band paints it.
+    fn dim_hint(text: &str) -> String {
+        format!("{}{text}{}", PALETTE.dim(), PALETTE.reset())
+    }
+
+    #[test]
+    fn the_panel_takes_the_composers_rows_and_scrolls_as_the_short_status_capture() {
+        // `cap/panels/new/fx-p5-panels-status-short-14x120-{open,down1,
+        // down-end,up1,ctrl-k,esc}`, rows 3-9: a rule, `Status`, a blank, two
+        // lines, a rule, `↑↓ scroll     esc close` -- the composer and the mode
+        // hint gone -- and after Escape the composer and hint back with
+        // nothing written.
+        let mut shell = shell(14, 120);
+        shell.open_info_panel(fx_status_panel());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.panel, 4, "14 - 10 rows");
+        let window = |shell: &Fixture| uncoloured_rows(&shell.band_rows()[3..5]);
+        let rows = shell.band_rows();
+        assert_eq!(rows.len(), 7);
+        assert_eq!(rows.len(), usize::from(shell.geometry.band_rows()));
+        assert_eq!(rows[0], divider(120));
+        assert_eq!(uncoloured_rows(&rows[1..3]), ["Status", ""]);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Session", "qGmBFM89lH8M \u{b7} not saved yet"),
+                status_line("Model", "fake/model-a"),
+            ]
+        );
+        assert_eq!(rows[5], divider(120));
+        assert_eq!(rows[6], dim_hint("\u{2191}\u{2193} scroll     esc close"));
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first(), 0));
+
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Model", "fake/model-a"),
+                status_line("Auth", "AI_GATEWAY_API_KEY"),
+            ]
+        );
+        for _ in 0..14 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Updates", "stable"),
+                status_line("Build", "stable \u{b7} 481104fdbc24"),
+            ],
+            "the end clamps, with no wrap"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Ultrafast", "not requested"),
+                status_line("Updates", "stable"),
+            ]
+        );
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(
+            window(&shell),
+            [
+                status_line("Step limit", "unlimited"),
+                status_line("Ultrafast", "not requested"),
+            ]
+        );
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            window(&shell)[0],
+            status_line("Ultrafast", "not requested"),
+            "Ctrl-J scrolls down"
+        );
+
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert_eq!(shell.band_rows()[0], composer_row(""));
+        assert!(
+            shell.document().is_empty(),
+            "the panel wrote to the document"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the panel reached the runtime"
+        );
+    }
+
+    #[test]
+    fn the_panel_fits_whole_at_24_by_50_and_its_hint_offers_no_arrows() {
+        // `cap/panels/new/fx-p5-panels-status-short-24x50-{open,down1,
+        // down-end}`: fourteen rows, the workspace broken after its last
+        // fitting `/`, `esc close`, and the arrows move nothing.
+        let mut shell = shell(24, 50);
+        shell.open_info_panel(fx_status_panel());
+        assert_eq!(shell.geometry.panel, 14);
+        let rows = shell.band_rows();
+        let plain = uncoloured_rows(&rows);
+        assert_eq!(rows[0], divider(50));
+        assert_eq!(plain[1], "Status");
+        assert_eq!(
+            plain[7],
+            format!("  Workspace{}/scratch/workdir/claude/", " ".repeat(9))
+        );
+        assert_eq!(plain[8], format!("{}fxcap.0b3z9I/work", " ".repeat(20)));
+        assert_eq!(
+            plain[14],
+            status_line("Build", "stable \u{b7} 481104fdbc24")
+        );
+        assert_eq!(rows[15], divider(50));
+        assert_eq!(rows[16], dim_hint("esc close"));
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B");
+        assert_eq!(shell.band_rows(), rows, "a panel that fits scrolled");
+    }
+
+    #[test]
+    fn the_panel_swallows_every_key_it_does_not_bind_and_a_paste_reaches_the_composer() {
+        // `cap/panels/new/fx-p5-panels-keys-40x120-{btab,tab-pgdn,paste,
+        // ctrl-c,after-ctrl-c-esc}`: Shift-Tab changes no mode, Tab and Page
+        // Down change nothing, a paste leaves the panel as it was and lands in
+        // the hidden composer, a Ctrl-C neither arms the exit nor clears that
+        // draft, and Escape shows it.
+        let mut shell = shell(40, 120);
+        let mode = shell.mode;
+        shell.open_info_panel(fx_status_panel());
+        let open = shell.band_rows();
+        assert_eq!(open.len(), 1 + 13 + 1 + 1);
+        assert_eq!(open[15], dim_hint("esc close"));
+
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(shell.mode, mode, "Shift-Tab moved the mode under the panel");
+        shell.route_bytes(b"\t\x1b[6~\x1b[5~x/");
+        assert_eq!(shell.band_rows(), open, "a key it does not bind moved it");
+        assert!(shell.editor.is_empty(), "a typed key reached the composer");
+
+        pasted(&mut shell, "pasted words");
+        assert_eq!(shell.band_rows(), open, "the paste moved the panel");
+        assert!(shell.info_panel.is_some());
+        assert_eq!(shell.editor.text(), "pasted words");
+
+        shell.route_bytes(&[0x03]);
+        assert!(
+            !shell.gestures.exit_armed(Instant::now()),
+            "a Ctrl-C under the panel armed the exit"
+        );
+        assert_eq!(shell.band_rows(), open);
+        assert_eq!(
+            shell.editor.text(),
+            "pasted words",
+            "a Ctrl-C cleared the draft"
+        );
+
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.band_rows()[0], composer_row("pasted words"));
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_closes_the_panel_and_submits_nothing() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-enter-closed`: Enter is
+        // Escape's twin on a panel that only shows.
+        let mut shell = shell(40, 120);
+        shell.open_info_panel(fx_status_panel());
+        shell.route_bytes(b"\r");
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err(), "Enter submitted something");
+    }
+
+    #[test]
+    fn escape_while_a_turn_runs_closes_the_panel_and_arms_no_interrupt() {
+        // `cap/panels/new/fx-p5-panels-status-40x120-closed-final`: the panel
+        // takes the Escape ahead of the interrupt gesture
+        // (`app_input_runtime.zig:2718-2722`); the next one is the gesture's.
+        let mut shell = shell(40, 120);
+        let started = turn_running(&mut shell, b"run it\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        let rows = uncoloured_rows(&shell.band_rows());
+        assert!(
+            shell.geometry.activity.is_some(),
+            "the turn's row left the band: {rows:?}"
+        );
+        assert!(rows.iter().any(|row| row == "Status"));
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(!shell.gestures.interrupt_armed(Instant::now()));
+        assert_eq!(shell.controlled(), None, "the Escape reached the turn");
+        escape(&mut shell);
+        assert!(
+            shell.gestures.interrupt_armed(Instant::now()),
+            "this case proves nothing: an Escape at the composer arms nothing either"
+        );
+    }
+
+    #[test]
+    fn an_approval_arriving_under_the_panel_takes_the_keys_and_the_screen_and_gives_them_back() {
+        // `cap/panels/new/fx-p5-panels-keys-40x120-{open-before-approval,
+        // approval-arrives,approval-esc}`: the question replaces the panel;
+        // its keys are the question's -- a Down moves its choice, not the
+        // panel's lines; Escape cancels it rather than closing the panel --
+        // and once it is answered the panel is back where it was scrolled.
+        // Twenty rows, so the panel overflows (ten of its thirteen) and a
+        // scroll it kept is a scroll that shows.
+        let mut shell = shell(20, 120);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        shell.route_bytes(b"\x1b[B");
+        let before = from_the_rule(&shell.band_rows());
+        assert!(
+            !uncoloured_rows(&before)
+                .contains(&status_line("Session", "qGmBFM89lH8M \u{b7} not saved yet")),
+            "this case proves nothing: the panel is not scrolled"
+        );
+
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        let asking = uncoloured_rows(&shell.band_rows());
+        assert!(
+            asking.iter().any(|row| row.contains("Permission needed")),
+            "the question is not in front: {asking:?}"
+        );
+        assert!(
+            !asking.iter().any(|row| row == "Status"),
+            "the panel covers the question: {asking:?}"
+        );
+        assert!(shell.info_panel.is_some(), "the question closed the panel");
+        let marked = shell.marked();
+        shell.route_bytes(b"\x1b[B");
+        assert_ne!(
+            shell.marked(),
+            marked,
+            "the Down did not reach the question"
+        );
+        escape(&mut shell);
+        assert!(
+            shell.controlled().is_some(),
+            "the Escape did not reach the question"
+        );
+        assert!(!shell.asking(), "the question is still up");
+        assert!(shell.info_panel.is_some(), "the Escape closed the panel");
+        shell.settle_band(started);
+        assert_eq!(
+            from_the_rule(&shell.band_rows()),
+            before,
+            "the panel did not come back as it was"
+        );
+    }
+
+    #[test]
+    fn an_approval_on_the_review_plane_takes_the_keys_and_the_band_keeps_the_panel_for_its_return()
+    {
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        let before = from_the_rule(&shell.band_rows());
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        delivered(&mut shell);
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "the key went to the panel rather than to the question"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(shell.info_panel.is_some());
+        shell.settle_band(started);
+        assert_eq!(from_the_rule(&shell.band_rows()), before);
+    }
+
+    #[test]
+    fn a_model_question_under_the_panel_takes_the_keys_and_the_screen_and_gives_them_back() {
+        let mut shell = shell(40, 120);
+        let started = turn_running(&mut shell, b"ask me\r");
+        shell.open_info_panel(fx_status_panel());
+        shell.settle_band(started);
+        let before = from_the_rule(&shell.band_rows());
+        shell.apply(UiEvent::Question(a_batch()));
+        shell.settle_band(started);
+        let asking = uncoloured_rows(&shell.band_rows());
+        assert!(
+            asking.iter().any(|row| row.contains("Which depth?")),
+            "{asking:?}"
+        );
+        assert!(!asking.iter().any(|row| row == "Status"), "{asking:?}");
+        shell.route_bytes(b"1");
+        shell.route_bytes(b"1");
+        shell.settle_band(started);
+        assert!(
+            shell.ask.is_none(),
+            "the batch was not answered by its keys"
+        );
+        assert_eq!(from_the_rule(&shell.band_rows()), before);
+    }
+
+    #[test]
+    fn a_rule_change_waiting_to_be_confirmed_outranks_the_panel() {
+        // Not reachable from the keyboard -- the panel swallows the line that
+        // would open one -- so this is the ranking itself: the slot and the
+        // focus agree that the confirmation is in front.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        assert!(shell.rule_confirm.is_some());
+        shell.open_info_panel(fx_status_panel());
+        let band = uncoloured_rows(&shell.band_rows());
+        assert!(
+            band.iter().any(|row| row.contains("Permission needed")),
+            "{band:?}"
+        );
+        assert!(!band.iter().any(|row| row == "Status"), "{band:?}");
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none(), "the Escape went to the panel");
+        assert!(shell.info_panel.is_some());
+        assert!(uncoloured_rows(&shell.band_rows())
+            .iter()
+            .any(|row| row == "Status"));
+    }
+
+    #[test]
+    fn opening_the_panel_closes_the_menus_that_share_its_slot_and_theirs_close_it() {
+        // `openInfoPanel` and `closeInlineCommandMenusIfPresent`
+        // (`app_commands.zig:527-536`, `:1174-1182`): one occupant at a time.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.workspace_menu.is_some());
+        shell.open_info_panel(fx_status_panel());
+        assert!(shell.workspace_menu.is_none());
+        assert!(shell.info_panel.is_some());
+        shell.route_bytes(b"/help");
+        assert!(shell.editor.is_empty(), "the panel let the line be typed");
+
+        type Opener = fn(&mut Fixture);
+        let openers: [(&str, Opener); 5] = [
+            ("/usage", |shell| shell.usage()),
+            ("/statusline", |shell| shell.statusline("")),
+            ("/workspace", |shell| shell.workspace("")),
+            ("/mcp", |shell| shell.mcp("")),
+            ("/settings", |shell| shell.settings("")),
+        ];
+        for (name, open) in openers {
+            shell.open_info_panel(fx_status_panel());
+            open(&mut shell);
+            assert!(shell.info_panel.is_none(), "{name} left the panel up");
+        }
+    }
+
+    #[test]
+    fn the_panels_values_reach_the_terminal_spelled_rather_than_obeyed() {
+        // **S.** A value that would clear the screen is shown as the code
+        // point it is (`safeText`, `output_contracts.zig:575-578`), whoever
+        // built the row.
+        use info_panel::{Facts, Panel, Row};
+        let mut shell = shell(40, 120);
+        shell.open_info_panel(Panel::open(
+            vec![Row::new("Workspace", "/w/\u{1b}[2J\u{1b}]0;owned\u{7}")],
+            Facts::Status {
+                turns: 0,
+                saved: None,
+                grants: 0,
+                id: None,
+            },
+        ));
+        let rows = shell.band_rows();
+        let line = rows
+            .iter()
+            .find(|row| row.contains("Workspace"))
+            .expect("the row is painted");
+        assert!(!line.contains("\u{1b}[2J"), "{line:?}");
+        assert!(!line.contains("\u{1b}]0;"), "{line:?}");
+        assert!(!line.contains('\u{7}'), "{line:?}");
+        assert!(
+            line.contains("/w/\\u{001B}[2J\\u{001B}]0;owned\\u{0007}"),
+            "{line:?}"
+        );
+    }
+
+    // --- `/fork` (P5-FK2) ---------------------------------------------------
+
+    fn fork_point(turn: usize, prompt: &str) -> fork_menu::ForkPoint {
+        fork_menu::ForkPoint {
+            turn,
+            prompt: prompt.to_string(),
+        }
+    }
+
+    /// The `fx-p5-effort-fork-fork` session's three prompts.
+    const LONG_PROMPT: &str = "third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth and a fifth line at a hundred and twenty columns, sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four";
+
+    fn three_points() -> Vec<fork_menu::ForkPoint> {
+        vec![
+            fork_point(1, "first prompt alpha"),
+            fork_point(2, "second prompt beta"),
+            fork_point(3, LONG_PROMPT),
+        ]
+    }
+
+    /// `/fork` typed and answered with `points`, the runtime's slot given back.
+    fn forked_menu(shell: &mut Fixture, points: Vec<fork_menu::ForkPoint>) {
+        shell.route_bytes(b"/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(points)));
+    }
+
+    #[test]
+    fn a_fork_menu_lists_the_prompts_three_rows_each_with_the_newest_selected() {
+        // `fx-p5-effort-fork-fork-40x120-menu`: no title, two cells in, the
+        // long prompt cut at its third row with `…`, every row of the selected
+        // one bold, the rest dim, and the fork's own key help.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        assert!(matches!(shell.slot(), Some(Slot::Fork(_))));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "  first prompt alpha",
+                "  second prompt beta",
+                "  third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to",
+                "  cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven",
+                "  eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth an\u{2026}",
+            ]
+        );
+        let painted = menu(&shell);
+        assert!(
+            painted[0].starts_with(&format!("  {}", PALETTE.dim())),
+            "{:?}",
+            painted[0]
+        );
+        assert!(
+            painted[4].starts_with(&format!("  {}", PALETTE.subtitle())),
+            "{:?}",
+            painted[4]
+        );
+        assert_eq!(
+            visible_text(&shell.band_rows()[shell.band_rows().len() - 1]),
+            "\u{2191}\u{2193} navigate     enter fork     esc close"
+        );
+        // Nothing is written for opening it.
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn the_fork_menus_keys_stop_at_either_end_and_escape_closes_it_writing_nothing() {
+        // `-up1`, `-up2`, `-up3-clamp`, `-down`, `-esc`: Up three times stops
+        // on the oldest rather than wrapping, as the page keys and `C-k` do.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        let selected = |shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn);
+        assert_eq!(selected(&shell), Some(3));
+        for expected in [2, 1, 1] {
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(selected(&shell), Some(expected));
+        }
+        down(&mut shell, 1);
+        assert_eq!(selected(&shell), Some(2));
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(selected(&shell), Some(3), "a page down past the newest");
+        shell.route_bytes(b"\x0b");
+        assert_eq!(selected(&shell), Some(2), "C-k");
+        escape(&mut shell);
+        assert!(shell.fork_menu.is_none());
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err(), "Escape forked");
+    }
+
+    #[test]
+    fn an_edit_closes_the_fork_menu_and_the_one_on_its_way_and_the_edit_stands() {
+        // `fx-p5-effort-fork-fork-edge-40x120-edit-closes`: `x` closes it and
+        // is in the composer (`dismissActiveMenusForComposerEdit`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"x");
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(shell.editor.text(), "x");
+        // Typed while the runtime was still answering: the answer opens
+        // nothing.
+        shell.route_bytes(b"\x15/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.route_bytes(b"y");
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(shell.editor.text(), "y");
+    }
+
+    #[test]
+    fn fork_says_why_it_cannot_and_takes_no_argument() {
+        // `fx-p5-effort-fork-fork-edge-40x120-at-launch`, `-with-arg`,
+        // `-midturn` and `-fork-of-empty`; `/fork needs a saved session` is
+        // upstream's warning (`openForkMenu`, `app_session_runtime.zig:2073`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, Vec::new());
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", NOTHING_TO_FORK))
+        );
+        shell.route_bytes(b"/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Unsaved));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::warning("session", FORK_UNSAVED))
+        );
+        // An answer nobody is waiting for opens nothing and says nothing.
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none());
+        assert!(shell.document().is_empty());
+
+        shell.route_bytes(b"/fork 2\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/fork 2 reached the runtime"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+
+        // A prompt in hand: refused at once, nothing asked.
+        shell.route_bytes(b"slow turn please\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/fork\r");
+        assert!(shell.sent.try_recv().is_err(), "a fork was asked mid-turn");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", FORK_BUSY))
+        );
+    }
+
+    #[test]
+    fn enter_forks_before_the_selected_prompt_and_the_fork_replays_with_its_two_lines() {
+        // `fx-p5-effort-fork-fork-40x120-forked` and `.title`: the screen and
+        // scrollback reset, `* session forked: <title>`, the plain line that
+        // resumes the source, the kept turn, the prompt back in the composer
+        // unsent, and the window called the fork.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\x1b[A\r");
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
+        shell.work.give_back();
+        assert!(
+            shell.editor.is_empty(),
+            "the composer filled before the fork"
+        );
+        let source = "1793751392050-7d3ce346fd20313d";
+        shell.apply(UiEvent::Forked {
+            replay: replay(
+                Some("first prompt alpha (fork)"),
+                vec![saved(
+                    "first prompt alpha",
+                    vec![HydratedStep::Text("ALPHA answer.".to_string())],
+                    0,
+                    Some(40),
+                )],
+            ),
+            source: source.to_string(),
+        });
+        assert!(shell.owes_wipe());
+        let document = shell.document();
+        assert_eq!(
+            document[..5],
+            [
+                "* session forked: first prompt alpha (fork)".to_string(),
+                String::new(),
+                format!("original session xfx --resume {source}"),
+                String::new(),
+                format!("{RAIL} {BOLD}first prompt alpha"),
+            ],
+            "{document:?}"
+        );
+        assert_eq!(shell.editor.text(), "second prompt beta");
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(
+            shell.take_title().as_deref(),
+            Some("first prompt alpha (fork)")
+        );
+    }
+
+    #[test]
+    fn a_fork_before_the_first_prompt_leaves_its_line_over_the_composer_and_a_card_under_a_gap() {
+        // `fx-p5-effort-fork-fork-empty-40x120-forked`: nothing under the
+        // plain line but the composer; `-fork-continue-…-continued`: a blank
+        // row between it and the card the next prompt writes.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, vec![fork_point(1, "only prompt omega")]);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 1 });
+        shell.work.give_back();
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("only prompt omega (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        let document = shell.document();
+        assert_eq!(document.len(), 3, "{document:?}");
+        assert_eq!(
+            document[2],
+            "original session xfx --resume 1793751463125-512691a6e5611d2f"
+        );
+        assert_eq!(shell.editor.text(), "only prompt omega");
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        let document = shell.document();
+        assert_eq!(
+            document[..2],
+            [String::new(), format!("{RAIL} {BOLD}only prompt omega")],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn a_fork_that_failed_says_so_and_a_typed_composer_is_not_refilled() {
+        // `Unable to fork the session.` (`app_input_runtime.zig:1670-1678@481104fd`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 3 });
+        shell.work.give_back();
+        shell.apply(UiEvent::ForkFailed);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("session", FORK_FAILED))
+        );
+        assert!(shell.editor.is_empty());
+        // What was typed while the fork was being made is the user's.
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.route_bytes(b"mine");
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("t (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        assert_eq!(shell.editor.text(), "mine");
+    }
+
+    #[test]
+    fn a_fork_writes_nothing_a_terminal_would_obey() {
+        // A prompt, a title and an id are read back off a log: the channel
+        // spells them inert, and the shell holds without it. An id that is not
+        // one writes no line at all.
+        let hostile = "evil\u{1b}]2;owned\u{7}\u{1b}[2J\u{9b}31m";
+        // Applied as written, past the channel's own spelling
+        // (`bridge`'s `a_forks_prompts_title_and_source_id_are_made_inert`):
+        // the shell's rows hold on their own.
+        let event = UiEvent::ForkPoints(ForkPoints::Points(vec![fork_point(
+            1,
+            &format!("p {hostile}"),
+        )]));
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/fork\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(event);
+        for row in menu(&shell) {
+            assert!(
+                !visible_text(&row).contains(['\u{1b}', '\u{7}', '\u{9b}']),
+                "{row:?}"
+            );
+        }
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let forked = UiEvent::Forked {
+            replay: replay(Some(&format!("t {hostile} (fork)")), Vec::new()),
+            source: format!("1793751463125-512691a6e5611d2f{hostile}"),
+        };
+        shell.apply(forked);
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .all(|row| !row.contains(['\u{1b}', '\u{7}', '\u{9b}'])),
+            "{document:?}"
+        );
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.starts_with("original session")),
+            "{document:?}"
+        );
+        assert!(!shell.editor.text().contains(['\u{1b}', '\u{7}', '\u{9b}']));
+        assert!(shell
+            .take_title()
+            .is_some_and(|title| !title.contains(['\u{1b}', '\u{7}', '\u{9b}'])));
+    }
+
+    #[test]
+    fn the_fork_menu_stays_under_a_first_ctrl_c_and_says_the_next_one_leaves() {
+        // `composeForkMenuHintRow`'s `ctrl_c_pending`
+        // (`input_presentation.zig:704-712@481104fd`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.settle_band(now);
+        assert!(shell.fork_menu.is_some(), "a first Ctrl-C closed the menu");
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{EXIT_ARMED}{}",
+                PALETTE.statusline(),
+                PALETTE.reset()
+            ))
+        );
+        assert!(!shell.leaving());
+    }
+
+    #[test]
+    fn a_reset_drops_a_fork_menu_and_the_answer_it_waits_for() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.route_bytes(b"/new\r");
+        let _ = shell.controlled();
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none());
     }
 }

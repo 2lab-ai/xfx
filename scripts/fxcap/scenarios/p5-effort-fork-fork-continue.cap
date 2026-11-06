@@ -1,0 +1,20 @@
+fx: env FX_AUTO_UPGRADE=0
+# A fork before the only prompt, then that prompt sent again in it: the card
+# under the fork's two lines, and a first request that carries no turn of the
+# source's. (P5-FK2's own scenario.)
+gateway p5-effort-fork-turns.json
+wait 3
+type only prompt omega
+key Enter
+wait 3
+type /fork
+key Enter
+wait 1
+key Enter
+wait 3
+snap forked
+key Enter
+wait 3
+snap continued
+title continued
+gwlog

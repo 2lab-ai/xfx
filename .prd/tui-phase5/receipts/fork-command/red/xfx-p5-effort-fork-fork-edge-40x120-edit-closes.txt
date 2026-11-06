@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2fbc088 [debug] · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+┃ /fork 2
+
+  SLOW one two
+
+┃ slow turn please
+
+  AFTER answer.
+
+  1s (↑3 ↓43)
+
+✗ command: Unknown command. Try /help.
+
+┃ quick second
+
+  THIRD answer.
+
+  0s (↑4 ↓40)
+
+✗ command: Unknown command. Try /help.
+
+┃ x
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+

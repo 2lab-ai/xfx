@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* permissions: mode set to auto
+
+! permissions: mode set to full access
+
+┃
+
+full access · model-a                                                 Full access enabled: fx permission checks disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

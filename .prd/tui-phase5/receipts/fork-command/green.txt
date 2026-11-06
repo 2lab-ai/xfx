@@ -1,0 +1,83 @@
+DIFF fork-40x120-continued.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-40x120-down.ansi
+SAME fork-40x120-esc.ansi
+DIFF fork-40x120-forked.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-40x120-forked.full.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-40x120-menu.ansi
+DIFF fork-40x120-quit.ansi
+row 15: fx [(23, 'f', (('fg', 245),)), (24, 'x', (('fg', 245),)), (25, ' ', ()), (26, '-', (('fg', 245),))]
+row 15: xfx [(23, 'x', (('fg', 245),)), (24, 'f', (('fg', 245),)), (25, 'x', (('fg', 245),)), (26, ' ', ())]
+row 40: fx [(38, '0', ()), (39, '6', ()), (40, ':', ()), (41, '3', ())]
+row 40: xfx [(38, '4', ()), (39, '2', ()), (40, ':', ()), (41, '3', ())]
+2 rows differ in their cells (row 1 not compared)
+SAME fork-40x120-resume-both-down.ansi
+SAME fork-40x120-resume-both.ansi
+DIFF fork-40x120-resume.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-40x120-resumed-fork.ansi
+DIFF fork-40x120-slash-fo.ansi
+row 27: fx [(9, '2', (('fg', 245),))]
+row 27: xfx [(9, '1', (('fg', 245),))]
+row 29: fx [(10, ' ', ()), (11, ' ', ()), (12, 'f', (('bold', True), ('fg', 245))), (13, 'o', (('bold', True), ('fg', 245)))]
+row 29: xfx [(10, 'f', (('bold', True), ('fg', 245))), (11, 'o', (('bold', True), ('fg', 245))), (12, 'r', (('bold', True), ('fg', 245))), (13, 'k', (('bold', True), ('fg', 245)))]
+row 30: fx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+row 30: xfx []
+3 rows differ in their cells (row 1 not compared)
+SAME fork-40x120-up1.ansi
+SAME fork-40x120-up2.ansi
+SAME fork-40x120-up3-clamp.ansi
+DIFF fork-continue-40x120-continued.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-continue-40x120-forked.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-edge-40x120-at-launch.ansi
+SAME fork-edge-40x120-edit-closes.ansi
+DIFF fork-edge-40x120-fork-of-empty.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-forked-first.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-forked-first.full.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-edge-40x120-menu.ansi
+SAME fork-edge-40x120-midturn.ansi
+DIFF fork-edge-40x120-quit.ansi
+row 2: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 2: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+row 7: fx [(23, 'f', (('fg', 245),)), (24, 'x', (('fg', 245),)), (25, ' ', ()), (26, '-', (('fg', 245),))]
+row 7: xfx [(23, 'x', (('fg', 245),)), (24, 'f', (('fg', 245),)), (25, 'x', (('fg', 245),)), (26, ' ', ())]
+row 40: fx [(38, '0', ()), (39, '7', ()), (40, ':', ()), (41, '0', ())]
+row 40: xfx [(38, '4', ()), (39, '3', ()), (40, ':', ()), (41, '0', ())]
+3 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-resume.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-edge-40x120-with-arg.ansi
+DIFF fork-empty-40x120-forked.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-empty-40x120-menu-one.ansi
+SAME fork-empty-40x120-resume-all.ansi
+SAME fork-empty-40x120-resume.ansi

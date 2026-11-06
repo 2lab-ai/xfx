@@ -258,6 +258,7 @@ fn switched_session() -> DurableState {
             model: "zai/glm-5.2".to_string(),
             permission_mode: "auto".to_string(),
             provider: Some("gateway".to_string()),
+            forked_from: None,
         },
         SessionEvent::UserMessage {
             text: "read it".to_string(),
@@ -478,6 +479,7 @@ fn a_compacted_conversation_carries_its_checkpoint_to_either_wire_as_a_user_mess
             model: "m".to_string(),
             permission_mode: "auto".to_string(),
             provider: Some("gateway".to_string()),
+            forked_from: None,
         },
         SessionEvent::UserMessage {
             text: "one".to_string(),

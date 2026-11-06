@@ -1,0 +1,14 @@
+  build_channel=debug
+  build_revision=e0d97bd5c59c
+  auth=AI_GATEWAY_API_KEY
+  auth_refreshable=false
+  permission_mode=auto
+  sandbox=none
+  workspace=<tmp>/fxcap.L09HCN/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=25
+
+┃
+
+auto · model-a

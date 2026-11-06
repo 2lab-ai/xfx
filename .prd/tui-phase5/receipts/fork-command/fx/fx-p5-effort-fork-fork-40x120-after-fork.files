@@ -1,0 +1,52 @@
+=== ~/.fx/history.jsonl (1011 bytes)
+{"schema_version":1,"timestamp_ms":1793750761321,"workspace_root":"<scratch>/work","text":"first prompt alpha"}
+{"schema_version":1,"timestamp_ms":1793750764333,"workspace_root":"<scratch>/work","text":"second prompt beta"}
+{"schema_version":1,"timestamp_ms":1793750767350,"workspace_root":"<scratch>/work","text":"third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth and a fifth line at a hundred and twenty columns, sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four"}
+{"schema_version":1,"timestamp_ms":1793750771302,"workspace_root":"<scratch>/work","text":"/fork"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/7dOXqJC7FNjB/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/7dOXqJC7FNjB/log.jsonl (5882 bytes)
+{"v":1,"seq":1,"ts":1793750761322,"kind":"session_created","id":"7dOXqJC7FNjB","workspace":"<scratch>/work","role":"root","host":"app","crc":"8211a8e1"}
+{"v":1,"seq":2,"ts":1793750758305,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"f1a3cdf1"}
+{"v":1,"seq":3,"ts":1793750758305,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"54629516"}
+{"v":1,"seq":4,"ts":1793750758305,"kind":"set","key":"language","value":"und","crc":"07be4c40"}
+{"v":1,"seq":5,"ts":1793750761322,"kind":"turn_started","turn":1,"crc":"68379db0"}
+{"v":1,"seq":6,"ts":1793750761322,"kind":"item","turn":1,"type":"user","data":{"text":"first prompt alpha","images":[],"work_id":null},"crc":"b1fac8e7"}
+{"v":1,"seq":7,"ts":1793750761322,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-04\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"fa238cb1"}
+{"v":1,"seq":8,"ts":1793750761441,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"1b847038"}
+{"v":1,"seq":9,"ts":1793750761447,"kind":"item","turn":1,"type":"assistant","data":{"text":"ALPHA answer.","provider_replay":null,"standalone_response":false},"crc":"3dfa48d4"}
+{"v":1,"seq":10,"ts":1793750761447,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793750761321,"completed_at_ms":1793750761441,"thinking_duration_ms":0,"turn_duration_ms":120,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"050b7a44"}
+{"v":1,"seq":11,"ts":1793750761447,"kind":"turn_committed","turn":1,"crc":"47732d0f"}
+{"v":1,"seq":12,"ts":1793750761447,"kind":"set","key":"language","value":"und-Latn","crc":"789e99ad"}
+{"v":1,"seq":13,"ts":1793750761447,"kind":"set","key":"title","value":"first prompt alpha","crc":"753885d8"}
+{"v":1,"seq":14,"ts":1793750764333,"kind":"turn_started","turn":2,"crc":"20f37981"}
+{"v":1,"seq":15,"ts":1793750764333,"kind":"item","turn":2,"type":"user","data":{"text":"second prompt beta","images":[],"work_id":null},"crc":"d01b7f60"}
+{"v":1,"seq":16,"ts":1793750764452,"kind":"set","key":"usage","value":{"input_tokens":2400,"output_tokens":80,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"dad48f4f"}
+{"v":1,"seq":17,"ts":1793750764457,"kind":"item","turn":2,"type":"assistant","data":{"text":"BETA answer.","provider_replay":null,"standalone_response":false},"crc":"fcb26c6d"}
+{"v":1,"seq":18,"ts":1793750764457,"kind":"item","turn":2,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at
+=== ~/.fx/sessions/v2/IONosbZ9GXTx/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/IONosbZ9GXTx/log.jsonl (3209 bytes)
+{"v":1,"seq":1,"ts":1793750775450,"kind":"session_created","id":"IONosbZ9GXTx","workspace":"<scratch>/work","role":"root","host":"app","forked_from":{"id":"7dOXqJC7FNjB","seq":11},"crc":"1af23dfa"}
+{"v":1,"seq":2,"ts":1793750758305,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"f1a3cdf1"}
+{"v":1,"seq":3,"ts":1793750758305,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"54629516"}
+{"v":1,"seq":4,"ts":1793750758305,"kind":"set","key":"language","value":"und","crc":"07be4c40"}
+{"v":1,"seq":5,"ts":1793750761322,"kind":"turn_started","turn":1,"crc":"68379db0"}
+{"v":1,"seq":6,"ts":1793750761322,"kind":"item","turn":1,"type":"user","data":{"text":"first prompt alpha","images":[],"work_id":null},"crc":"b1fac8e7"}
+{"v":1,"seq":7,"ts":1793750761322,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-04\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"fa238cb1"}
+{"v":1,"seq":8,"ts":1793750761441,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"1b847038"}
+{"v":1,"seq":9,"ts":1793750761447,"kind":"item","turn":1,"type":"assistant","data":{"text":"ALPHA answer.","provider_replay":null,"standalone_response":false},"crc":"3dfa48d4"}
+{"v":1,"seq":10,"ts":1793750761447,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793750761321,"completed_at_ms":1793750761441,"thinking_duration_ms":0,"turn_duration_ms":120,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"050b7a44"}
+{"v":1,"seq":11,"ts":1793750761447,"kind":"turn_committed","turn":1,"crc":"47732d0f"}
+{"v":1,"seq":12,"ts":1793750775450,"kind":"set","key":"title","value":"first prompt alpha (fork)","crc":"004ed9b1"}
+
+=== ~/.fx/sessions/v2/index.jsonl (1273 bytes)
+{"op":"put","id":"7dOXqJC7FNjB","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793750761322,"updated":1793750761322,"turns":0,"opened":[1793750761322,0,0,0,0],"crc":"e7b45faf"}
+{"op":"put","id":"7dOXqJC7FNjB","role":"root","host":"app","workspace":"<scratch>/work","title":"first prompt alpha","language":"und-Latn","created":1793750761322,"updated":1793750761447,"turns":1,"opened":[0,0,0,0,0],"crc":"f2ef1b20"}
+{"op":"put","id":"IONosbZ9GXTx","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793750775450,"updated":1793750775450,"turns":1,"opened":[1793750775450,0,0,0,0],"crc":"2d19f94f"}
+{"op":"put","id":"IONosbZ9GXTx","role":"root","host":"app","workspace":"<scratch>/work","title":"first prompt alpha (fork)","language":"und","created":1793750775450,"updated":1793750775450,"turns":1,"opened":[0,0,0,0,0],"crc":"10b9637b"}
+{"op":"put","id":"7dOXqJC7FNjB","role":"root","host":"app","workspace":"<scratch>/work","title":"first prompt alpha","language":"und-Latn","created":1793750761322,"updated":1793750775450,"turns":3,"opened":[0,0,0,0,0],"crc":"145b3c26"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)

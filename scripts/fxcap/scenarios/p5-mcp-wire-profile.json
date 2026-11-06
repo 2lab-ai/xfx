@@ -1,0 +1,1 @@
+{"mcpServers":{"fixture":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-stdio.ts"],"env":{"MCPSTDIO_WIRE_LOG":"@HOME@/p5-mcp-wire.ndjson"}}}}

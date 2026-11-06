@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d02f5ec [debug] · Run /help for commands
+
+* Reasoning effort set to high for openai/gpt-6-astra
+
+* Reasoning effort set to default for openai/gpt-6-astra
+
+* Reasoning effort set to low for openai/gpt-6-astra
+
+┃ /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+          default
+          low
+          medium
+          high
+          xhigh
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · gpt-6-astra · low
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

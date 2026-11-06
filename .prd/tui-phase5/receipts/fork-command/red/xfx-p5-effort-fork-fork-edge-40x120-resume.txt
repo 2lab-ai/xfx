@@ -1,0 +1,40 @@
+✗ command: Unknown command. Try /help.
+
+┃ /fork 2
+
+  SLOW one two
+
+┃ slow turn please
+
+  AFTER answer.
+
+  1s (↑3 ↓43)
+
+✗ command: Unknown command. Try /help.
+
+┃ quick second
+
+  THIRD answer.
+
+  0s (↑4 ↓40)
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Sessions 0  [Current workspace]  All workspaces
+
+  No sessions found.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
