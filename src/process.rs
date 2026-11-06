@@ -55,7 +55,7 @@
 use std::ffi::OsStr;
 use std::io;
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// Held by every start of a child of xfx's ([`spawn`]), and by every pipe
 /// xfx makes itself ([`pipe`]).
@@ -79,6 +79,26 @@ use std::sync::{Mutex, PoisonError};
 /// time makes no pipe of one start reach another's child.
 static SPAWNING: Mutex<()> = Mutex::new(());
 
+/// [`SPAWNING`], taken: what every start and every pipe waits for.
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    // A case that holds the lock learns here that the thread it is waiting
+    // on has got as far as the lock, rather than guessing with a sleep.
+    #[cfg(all(test, unix))]
+    tests::arrived();
+    SPAWNING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Holds every start and every pipe until it is dropped: for a case
+/// elsewhere that must see what its work does while another start is in
+/// flight.
+#[cfg(all(test, unix))]
+pub(crate) fn hold_every_start() -> MutexGuard<'static, ()> {
+    SPAWNING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) use tests::has_arrived;
+
 /// `command` started, under the lock every start of xfx's takes
 /// ([`SPAWNING`]). The start alone is held -- a child that runs for an hour
 /// holds nothing -- and a start never waits for more than another start.
@@ -87,7 +107,7 @@ static SPAWNING: Mutex<()> = Mutex::new(());
     reason = "the one start every other start goes through, under the lock"
 )]
 pub fn spawn(command: &mut Command) -> io::Result<Child> {
-    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one_at_a_time = one_at_a_time();
     command.spawn()
 }
 
@@ -106,7 +126,7 @@ pub fn spawn_unless(
     command: &mut Command,
     given_up: impl FnOnce() -> bool,
 ) -> io::Result<Option<Child>> {
-    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one_at_a_time = one_at_a_time();
     if given_up() {
         return Ok(None);
     }
@@ -144,7 +164,7 @@ pub fn output(command: &mut Command) -> io::Result<Output> {
 /// here, no start is in the middle of its `fork`.
 #[cfg(unix)]
 pub fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
-    let _no_start = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _no_start = one_at_a_time();
     #[allow(
         clippy::disallowed_methods,
         reason = "the one pipe every other pipe goes through, under the lock"
@@ -333,20 +353,40 @@ mod tests {
         }
     }
 
+    /// The threads that have got as far as the start lock, in order: every
+    /// start and every pipe in this test binary reports here
+    /// ([`one_at_a_time`]).
+    static ARRIVALS: Mutex<Vec<std::thread::ThreadId>> = Mutex::new(Vec::new());
+
+    pub(super) fn arrived() {
+        ARRIVALS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(std::thread::current().id());
+    }
+
+    /// Whether `thread` has got as far as the start lock: one that has, and
+    /// finds it held, is waiting on it.
+    pub(crate) fn has_arrived(thread: std::thread::ThreadId) -> bool {
+        ARRIVALS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&thread)
+    }
+
     #[test]
     fn a_start_given_up_while_another_start_holds_the_lock_starts_nothing() {
         // The clipboard's stop: given up while the start waits for another
         // start, the child is refused, not started and then killed. The look
-        // is taken under the lock, however late the work got there.
+        // is taken under the lock, however late the work got there: the case
+        // gives up only once the starter is at the lock.
         use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::{mpsc, Arc};
+        use std::sync::Arc;
         let held = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
         let given_up = Arc::new(AtomicBool::new(false));
-        let (going, gone) = mpsc::channel();
         let starter = std::thread::spawn({
             let given_up = Arc::clone(&given_up);
             move || {
-                let _ = going.send(());
                 let mut tool = command("/usr/bin/true");
                 tool.stdin(Stdio::null())
                     .stdout(Stdio::null())
@@ -356,9 +396,14 @@ mod tests {
                     .map(|mut child| child.wait().expect("a status"))
             }
         });
-        gone.recv().expect("the starter is going");
-        // Time for a look taken before the lock to have been taken.
-        std::thread::sleep(Duration::from_millis(100));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !has_arrived(starter.thread().id()) {
+            assert!(
+                Instant::now() < deadline,
+                "the starter never reached the start lock"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
         given_up.store(true, Ordering::Release);
         drop(held);
         assert_eq!(
@@ -380,19 +425,32 @@ mod tests {
     #[test]
     fn a_pipe_is_made_close_on_exec_and_never_beside_a_start() {
         // `Wakeup`'s pipe, and every pipe xfx makes: made while a start
-        // holds the lock, it waits for the start to be done.
+        // holds the lock, it waits for the start to be done. Nothing may
+        // come before the maker is at the lock, and nothing while it waits.
         use std::sync::mpsc;
         let held = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
-        let (made, arrived) = mpsc::channel();
+        let (made, pipes) = mpsc::channel();
         let maker = std::thread::spawn(move || {
             let _ = made.send(pipe().expect("a pipe"));
         });
-        assert!(
-            arrived.recv_timeout(Duration::from_millis(200)).is_err(),
-            "a pipe was made while a start held the lock"
-        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let at_the_lock = has_arrived(maker.thread().id());
+            assert!(
+                pipes.try_recv().is_err(),
+                "a pipe was made while a start held the lock"
+            );
+            if at_the_lock {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the maker never reached the start lock"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
         drop(held);
-        let (read, write) = arrived
+        let (read, write) = pipes
             .recv_timeout(Duration::from_secs(10))
             .expect("the pipe, once the start was done");
         maker.join().expect("the maker");
@@ -675,8 +733,14 @@ mod tests {
     /// through [`pipe`]: that half is clippy's, on the resolved call
     /// (`clippy.toml`'s `disallowed-methods`), which sees a command started
     /// in a later statement as well as in the one that made it. Kept here:
-    /// the entries are still in `clippy.toml`, and no code but this file's
-    /// lifts them.
+    /// each entry is still a line of its own in `clippy.toml`, not commented
+    /// out, and no code but this file's lifts them -- by name, by the old
+    /// name, or by a group or `warnings` allow that holds them.
+    ///
+    /// A guard against the ordinary ways to slip past the rule by accident,
+    /// not a proof that none is left: a macro, an attribute under `cfg_attr`,
+    /// a raw `syscall`, or a dependency's own start are beyond what reading
+    /// lines can see.
     #[test]
     fn no_child_process_is_made_any_other_way() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -685,15 +749,30 @@ mod tests {
             "std::process::Command::spawn",
             "std::process::Command::status",
             "std::process::Command::output",
+            "tokio::process::Command::spawn",
+            "tokio::process::Command::status",
+            "tokio::process::Command::output",
             "libc::fork",
+            "libc::vfork",
+            "libc::forkpty",
             "libc::posix_spawn",
             "libc::posix_spawnp",
+            "libc::popen",
+            "libc::system",
             "libc::pipe",
+            "libc::socketpair",
             "rustix::pipe::pipe",
+            "rustix::pipe::pipe_with",
             "std::io::pipe",
+            "std::os::unix::net::UnixStream::pair",
+            "std::os::unix::net::UnixDatagram::pair",
+            "mio::unix::pipe::new",
         ] {
+            let entry = format!("{{ path = \"{path}\", ");
             assert!(
-                rules.contains(&format!("{{ path = \"{path}\", ")),
+                rules
+                    .lines()
+                    .any(|line| line.trim_start().starts_with(&entry)),
                 "clippy.toml no longer disallows {path}"
             );
         }
@@ -732,7 +811,16 @@ mod tests {
                     {
                         found.push(format!("{}:{}", path.display(), number + 1));
                     }
-                    if line.contains("disallowed_methods") {
+                    if [
+                        "disallowed_method",
+                        "clippy::all",
+                        "clippy::style",
+                        "allow(warnings",
+                        "expect(warnings",
+                    ]
+                    .iter()
+                    .any(|lift| line.contains(lift))
+                    {
                         found.push(format!(
                             "{}:{} (lifts the start rule)",
                             path.display(),

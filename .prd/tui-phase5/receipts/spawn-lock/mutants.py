@@ -48,27 +48,27 @@ elif name == 'clippy-toml-drops-status':
     open('clippy.toml', 'w').write('\n'.join(lines))
 elif name == 'no-lock':
     rep('src/process.rs', '''pub fn spawn(command: &mut Command) -> io::Result<Child> {
-    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one_at_a_time = one_at_a_time();
     command.spawn()''', '''pub fn spawn(command: &mut Command) -> io::Result<Child> {
     command.spawn()''')
 elif name == 'spawn-fails':
     rep('src/process.rs', '''pub fn spawn(command: &mut Command) -> io::Result<Child> {
-    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one_at_a_time = one_at_a_time();
     command.spawn()''', '''pub fn spawn(command: &mut Command) -> io::Result<Child> {
-    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one_at_a_time = one_at_a_time();
     let _ = command;
     Err(io::Error::other("mutant: no start"))''')
 elif name == 'given-up-before-lock':
-    rep('src/process.rs', '''    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    rep('src/process.rs', '''    let _one_at_a_time = one_at_a_time();
     if given_up() {
         return Ok(None);
     }''', '''    let given_up = given_up();
-    let _one_at_a_time = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _one_at_a_time = one_at_a_time();
     if given_up {
         return Ok(None);
     }''')
 elif name == 'pipe-no-lock':
-    rep('src/process.rs', '    let _no_start = SPAWNING.lock().unwrap_or_else(PoisonError::into_inner);\n', '')
+    rep('src/process.rs', '    let _no_start = one_at_a_time();\n', '')
 elif name == 'pipe-no-cloexec':
     rep('src/process.rs', '''    for end in [&read, &write] {
         rustix::io::fcntl_setfd(end, rustix::io::FdFlags::CLOEXEC)?;
@@ -76,6 +76,28 @@ elif name == 'pipe-no-cloexec':
 ''', '')
 elif name == 'clipboard-look-before-lock':
     rep('src/clipboard.rs', 'crate::process::spawn_unless(&mut command, || stop.stopped())', 'crate::process::spawn_unless(&mut command, || false)')
+elif name in ('lift-old-name', 'lift-clippy-all', 'lift-clippy-style', 'lift-warnings'):
+    # PROC-SPAWNc: each other way an attribute could lift the start rule.
+    attribute = {
+        'lift-old-name': '#[allow(renamed_and_removed_lints, clippy::disallowed_method)]',
+        'lift-clippy-all': '#[allow(clippy::all)]',
+        'lift-clippy-style': '#[allow(clippy::style)]',
+        'lift-warnings': '#[allow(warnings)]',
+    }[name]
+    s = open('src/mcp/transport.rs').read()
+    a = '        let mut child =\n            crate::process::spawn(&mut builder)'
+    assert s.count(a) == 1, s.count(a)
+    open('src/mcp/transport.rs', 'w').write(s.replace(a, '        ' + attribute + '\n' + a))
+elif name == 'clippy-toml-comments-status':
+    # PROC-SPAWNc: an entry commented out, its text still in the file.
+    lines = open('clippy.toml').read().split('\n')
+    lines = ['# ' + l.lstrip() if '"std::process::Command::status"' in l else l for l in lines]
+    open('clippy.toml', 'w').write('\n'.join(lines))
+elif name == 'clipboard-no-early-look':
+    rep('src/clipboard.rs', '''        if stop.stopped() {
+            return false;
+        }
+        let Ok(Some(mut child))''', '''        let Ok(Some(mut child))''')
 else:
     raise SystemExit('no such mutant: ' + name)
 print('applied', name)

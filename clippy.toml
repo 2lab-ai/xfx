@@ -3,7 +3,12 @@
 # only by `process::pipe`, under the same lock. Checked on the resolved call,
 # so a command started in a later statement, a `Command::spawn(&mut c)` and a
 # `map(Command::output)` are each caught; `process::tests::no_child_process_is_made_any_other_way`
-# keeps these entries here.
+# keeps these entries here, one to a line.
+#
+# `allow-invalid` marks a path that does not resolve in every build: tokio is
+# built without `process`, mio is not a dependency of xfx's own, `vfork` is
+# not in libc on every target, and `pipe_with` is rustix's only where the
+# system has `pipe2`. Each bites as soon as it resolves.
 disallowed-methods = [
   { path = "std::process::Command::spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "std::process::Command::status", reason = "a child is started by crate::process::spawn (or process::status), under the one lock every start takes" },
@@ -12,9 +17,18 @@ disallowed-methods = [
   { path = "tokio::process::Command::status", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "tokio::process::Command::output", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "libc::fork", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "libc::vfork", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
+  { path = "libc::forkpty", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "libc::posix_spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "libc::posix_spawnp", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "libc::popen", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "libc::system", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "libc::pipe", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec" },
   { path = "rustix::pipe::pipe", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec" },
+  { path = "rustix::pipe::pipe_with", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec", allow-invalid = true },
   { path = "std::io::pipe", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec" },
+  { path = "mio::unix::pipe::new", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec", allow-invalid = true },
+  { path = "libc::socketpair", reason = "macOS marks a socket pair close-on-exec only after making it, so a start's fork can hand it to a child: make it in crate::process, under the start lock" },
+  { path = "std::os::unix::net::UnixStream::pair", reason = "macOS marks a socket pair close-on-exec only after making it, so a start's fork can hand it to a child: make it in crate::process, under the start lock" },
+  { path = "std::os::unix::net::UnixDatagram::pair", reason = "macOS marks a socket pair close-on-exec only after making it, so a start's fork can hand it to a child: make it in crate::process, under the start lock" },
 ]
