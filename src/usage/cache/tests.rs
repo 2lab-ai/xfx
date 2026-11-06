@@ -676,8 +676,8 @@ fn the_key_never_reaches_the_disk() {
 }
 
 /// The key as a Gateway could echo it inside a model name: in hex either case,
-/// in base64 at each byte alignment and URL-safe, and a 12-byte run of it as is
-/// and in hex.
+/// in base64 at each byte alignment and URL-safe, and a 12-byte run of it as
+/// is, in hex, and in base64 shifted by one and two bytes.
 fn key_echoes() -> Vec<(&'static str, String)> {
     let hex: String = KEY.bytes().map(|b| format!("{b:02x}")).collect();
     let fragment = &KEY[20..32];
@@ -696,6 +696,15 @@ fn key_echoes() -> Vec<(&'static str, String)> {
         ),
         ("a 12-byte run", format!("vendor/{fragment}-model")),
         ("a 12-byte run in hex", format!("m-{fragment_hex}")),
+        // Only part of a run is whole base64 groups once it is shifted.
+        (
+            "a 12-byte run in base64, one byte in",
+            base64(format!("x{fragment}").as_bytes()),
+        ),
+        (
+            "a 12-byte run in base64, two bytes in",
+            base64(format!("xy{fragment}").as_bytes()),
+        ),
     ]
 }
 
