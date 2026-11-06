@@ -118,3 +118,56 @@ ask before it would arm the compaction's interrupt. fx refuses `/fork` only
 on `app.stream.active` (`app_session_runtime.zig:2078@481104fd`), and
 whether a manual compaction sets `stream.active` has not been read. Left
 for a unit that reads it.
+
+## Final step: on `main` after FK-RULES (#55)
+
+**The merge.** `8aead681`, "Merge remote-tracking branch 'origin/main'
+into fix/p5-fork-status-gap": `git merge --no-edit origin/main` at
+`a592c3a2` (PR #55) onto `f498cb02`. One conflict, in `docs/parity.md`, on
+the `/fork` row. Each side had changed a different span of that one line,
+against the merge base `cf25feaf`:
+
+- this branch: the sentence on edits closing the menu (now: recall,
+  Escape, line sent, undo/redo/select-all, any surface opening) and the
+  sentence on the plain line (now: the band's blank row above a panel);
+- FK-RULES: the sentence on the fork's permissions (now: the
+  saved-session rules, each remembered deny and no allow, and its
+  **Divergence**).
+
+The resolution is both sides' edits applied to the base line. It was
+checked word by word: the result differs from this branch's line only by
+FK-RULES' span, and from FK-RULES' line only by this branch's two spans.
+`git show --remerge-diff 8aead681 -- docs/parity.md` shows just that line.
+The merge brought no change to `src/tui/shell.rs`, so no slot opener was
+added by it.
+
+**Pairs.** `sweep.yml`'s job, run locally: `ci-sweep.sh --base a592c3a2
+--fx <fx v0.0.16> --pin v0.0.16 --xfx <8aead681 debug> --base-xfx
+<a592c3a2 debug> --jobs 2`, `FX_AUTO_UPGRADE=0`. 42 scenarios, **313 snap
+pairs: 205 pass at the head, 0 new, 0 regressions**; 1,396 s. The only
+retried scenario was `p5-permissions-early-probe-ask-after`, which is
+approved either way. Every `p5-effort-fork-*` pair is at its count above:
+fork 15/1/16, fork-edge 10/1/11, fork-empty 4/0/4, fork-continue 2/0/2,
+effort-menu 18/0/18, effort-column 17/0/17, effort-{backtab, ctrlc, down,
+loading} 2/0/2 each, effort-nolevels 5/0/5, effort-short 3/0/3, slash-rank
+3/0/4, oldread-src 0/0/3, oldread-v1 2/0/4, oldread-v2 2/0/7. The
+`p5-panels-*` and `p5-permissions-*` pairs keep the FK-GAP receipt's
+counts.
+
+**Gates** at `8aead681`, `TMPDIR=/private/tmp/claude-501/fsg`:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy … --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4,753 passed, 0 failed, 7 ignored |
+| `cargo test … --features fault-injection` | 4,782 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/check-tui-preflight-cost.sh` | ok (every case under budget) |
+
+No pty test failed, so none was re-run.
