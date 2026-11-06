@@ -191,3 +191,24 @@ ignored, with `fault-injection` 4600 / 0 / 7; identity, no-stubs, no-secrets
 ok; release and faulty release builds ok; `scripts/smoke.sh` 46 checks, 0
 failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios + the oracle,
 1091 checks, 0 failures.
+
+## MCP-Se (review round, `0403845a`)
+
+| finding | fix | RED / mutation | pin |
+|---|---|---|---|
+| regression: a restart's publish dropped the old dead connection's last reference under `live`, so its close (a grace, a docker removal) held `views()`, tool dispatch and a stop | the old connection is taken out and dropped after the lock | RED on `3425946d`: `a read of the servers waited 503.42ms` | `a_restart_closes_the_dead_connection_it_replaces_outside_the_servers_lock` (a SIGTERM-ignoring process whose output ended; every `views()` < 250 ms) |
+| regression: a call waiting on another call's restart ignored its own turn's cancel (up to the startup timeout + 20 s) | `transport()` takes the call's cancel and looks at it every `CANCEL_POLL`; the waiter returns `Cancelled`, the restart goes on | mutation: no cancel check fails it | `a_call_waiting_on_another_calls_restart_ends_when_its_own_turn_is_cancelled` (< 500 ms; the first call still served) |
+| `Live::closing` covered only by the three-server test | -- | mutation: a stop not waiting on `closing` fails it | `a_second_stop_of_a_server_waits_for_the_first_ones_close` (one server) |
+| marking before any close unpinned | -- | mutation: no early marking fails it | `a_reload_marks_every_server_it_drops_before_it_closes_any` |
+| the cancel on `notifications/initialized` and `tools/list` unpinned | -- | mutation: `None` there fails it (10 s, 20 s) | `a_stop_ends_an_http_handshake_held_at_its_initialized_notification_or_its_tool_list` |
+| sleeps and `join()` in the concurrency tests | arrival points (`Hold::StopClosing`, `StopWaiting`, `WaitingForTry`; fault-injection tests only) and completion channels with a bounded `recv_timeout` | -- | the retirement, queued-reload and two-calls cases rewritten on them |
+
+Re-taken at `0403845a`: `p5-mcp-failed` ×4 and `p5-mcp-fail startup` 0 rows
+from fx; `dismiss` ×2 status row identical.
+
+Gates at `0403845a`, the code of the final head (the commit after it adds
+only this section): fmt, both clippy runs ok; `cargo test` 4576 / 0 / 7
+ignored, with `fault-injection` 4605 / 0 / 7; identity, no-stubs, no-secrets
+ok; release and faulty release builds ok; `scripts/smoke.sh` 46 checks, 0
+failures; `scripts/smoke-tui.sh` (full, `--faulty`) 37 scenarios + the oracle,
+1091 checks, 0 failures.
