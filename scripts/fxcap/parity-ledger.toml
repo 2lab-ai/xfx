@@ -227,6 +227,20 @@ resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
 source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:43", "docs/parity.md:113"]
 
+[[divergence]]
+id = "mcp-approval-wrap-led"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-mcp-menu-new"]
+snaps = ["approve-confirm"]
+fx_row = '^    \S'
+xfx_row = '^  ↳ '
+reason = "fx's approval goes on with a wrapped command line or address four columns in, where each row of the entry's own starts, so a .mcp.json entry of one row can draw a wrapped piece that reads as an `env:` or `header:` row the child is never given (opus-B, MCP-M review: an address `https://a.example/mcp?q=`, spaces, `header: X-Team: blue`). xfx leads every wrapped piece with `↳ ` two columns in; the rows' text is fx's. Each side's regex speaks for its own row: fx's piece four columns in, xfx's led."
+owner = "MCP-M"
+resolution = "fx's approval marks a wrapped piece apart from a row of the entry, or a security review decides the approval may wrap as fx's does"
+expires = "date:2027-05-06"
+source = ["docs/parity.md:97", "src/tui/mcp_menu.rs:1436"]
+
 # --- causes -----------------------------------------------------------------
 #
 # Why each row that stays unresolved is unresolved, and whose fix it is. These
