@@ -96,6 +96,22 @@ after it changes comments and docs only): `scoreboard-head.md`.
 `show` prints an HTTP server's URL as fx does (`verbs.zig:528`), so a URL
 that carries a token is printed by both.
 
+## Gates
+
+On `3c09b481` (the head after it changes comments, docs and this
+directory only):
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings`; `--features fault-injection` | ok; ok |
+| `cargo test --locked --no-fail-fast` | 4640 passed, 0 failed (lib 3757) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4663 passed, 0 failed (lib 3766) |
+| `scripts/check-xfx-identity.sh`; `check-no-stubs.sh`; `check-no-secrets.sh` | ok; ok; ok (after this directory was added too) |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
+| `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1091 checks, 0 failures |
+
 ## Reproduce
 
 ```
