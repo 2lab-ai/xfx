@@ -106,7 +106,8 @@ On the base the `/usage` screen is Phase 4's ledger dashboard: H3's pairs
 against fx's `usage: API key (AI_GATEWAY_API_KEY) … updated just now` and its
 tables, and no `/v1/report` GET in xfx's 15 gateway logs. `red-base.txt` is
 the base binary (`510d4ee1`, debug) on `p5-usage-cached` 40x120, taken here.
-TODO-RED
+All 21 `p5-usage-cached` 40x120 pairs differ (11 to 14 rows each), and the
+base asks no `/v1/report`.
 
 ## GREEN: the pairs
 
@@ -174,4 +175,49 @@ banner's glyph is a box on both). I read each one; the gaps:
 | `cost-typed` | `/cost` in the composer, no popup |
 | `cost` | `✗ command: Unknown command. Try /help.` |
 
-TODO-REST
+## Mutants (`mutants.txt`)
+
+Each on a throwaway `git clone --no-local` of this branch, with its own target
+directory under a short `TMPDIR`, the file restored after each; the tests named
+run with `--exact`. All six are killed.
+
+| mutant | killed by |
+|---|---|
+| M1 `settle_usage` ticks with no screen up, **and** `close_usage` leaves the runtime open | `usage_asks_nothing_at_launch_while_closed_or_after_quit` (the 15-minute timer fetched while closed) |
+| M2 `leave_by` does not quit the runtime | `usage_asks_nothing_at_launch_while_closed_or_after_quit` (the held fetch, run after `/quit`, connected) |
+| M3 `ProviderSelected` does not tell the runtime | `a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight` |
+| M4 `sign_in_changed` keeps the held fetch | that test and `a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same` |
+| M5 a model name drawn raw on the table | `a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen` |
+| M6 the detail heading's name drawn raw | the same |
+
+M1 is the two guards together on purpose: either one alone holds (the shell
+ticks the runtime only while the screen is up, and the runtime starts its
+timer only while open), so each alone is not observable.
+
+## Before and after: the CI sweep (`sweep-report.md`)
+
+`scripts/fxcap/ci-sweep.sh --base 510d4ee1 --fx <fx v0.0.16> --pin v0.0.16
+--xfx <head, debug> --base-xfx <510d4ee1, debug> --jobs 2`, as `sweep.yml`
+runs it, at `aa49111f` (this branch with the draft receipt, so the five
+scenarios are selected as the receipt's): 15 scenarios (the 10 core and the
+five), 117 pairs, 109 pass at the head, 0 new, **0 regressions**, exit 0. Not
+passing at the head, and not at the base either: `h1-resize` `small` and
+`large` (core, known), `p5-usage-nokey`'s four (approved, `usage-no-sign-in`)
+and `p5-usage-turns`' `stats` and `credits` (`stats-bytes`, four base runs
+each).
+
+TODO-GATES
+
+## Files
+
+- `cap/<size>/{fx,xfx}-p5-usage-<scenario>-<size>-<label>.{txt,ansi}`: the
+  sweeps' snaps; `…-gateway.log`: fakegw's log; `…-end.files`: HOME after the
+  run. Redacted through `scripts/fxcap/redact.py` (`Redactor.write`, which
+  refuses a text with a local path left in it).
+- `pairs.txt`: `cells.py`'s reading of every pair, the differing rows quoted;
+  `gateway.txt`: the `/v1/report` GETs of each pair, compared.
+- `scoreboard-<size>.md`: the three sweeps' scoreboards; `sweep-report.md`: the
+  CI sweep's report.
+- `sheets/*.png`: the parity sheets; `render.py`: what draws a capture.
+- `red-base.txt`: the base on `p5-usage-cached` 40x120; `mutants.txt`: the six
+  mutants.
