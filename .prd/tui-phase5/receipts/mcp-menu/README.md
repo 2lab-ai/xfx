@@ -53,6 +53,26 @@ merged in (`--no-edit`) before the gates; nothing conflicted.
   what reaches the screen), `MCP project servers and trust` (`/mcp list` says
   why), `MCP client runtime` (no reload restarts a failed server).
 
+## Decisions
+
+- `Log in` / `Log out` are not offered (sign-in gated); a server that needs a
+  login says `Interactive MCP authentication is unavailable here.` on its
+  screen.
+- Remove runs `remove --profile|--project NAME`, the file its question named;
+  fx runs `remove NAME`, which refuses a name both files hold.
+- The approval's screen grows past fx's 13 rows to show all it trusts, and
+  refuses (a warning) when a frame did not draw it whole or the entry changed
+  since; it names an entry's variables or headers, never their values.
+- A server's tool list follows fx's waiter (`runtime.zig:886-895`): a held
+  server's reason at once, tools once ready, a `failed` start's reason.
+  **[추정]** a stdio server `retrying` with a failure ends it with that
+  reason, an HTTP one `retrying` keeps it loading -- read off two fx captures
+  (`p5-mcp-fail` `server-1`, `p5-mcp-menu-new` `server-remote`), not off fx's
+  engine; both pairs are identical.
+- **[추정]** Page Up / Page Down move the menu one row, as fx's
+  `routeComposerVertical` hands a page to `routeNonSlashPickerMove`; not
+  captured.
+
 ## RED: the base
 
 `sweep.sh --only p5-mcp-menu-new --only p5-mcp-empty --only p5-mcp-verbs`
@@ -73,8 +93,9 @@ process group; peak 36 MiB). Scoreboards: `scoreboard-base-120.md`,
 
 Same sweeps, head binary (`ce55177a`, debug, sha256 `13dcdd48b970…`; the
 head after it adds this directory only). Scoreboards: `scoreboard-head-120.md`,
-`scoreboard-head-60.md`. Pairs compared as the sweep compares them (the
-ledger's normalizations: the banner, `fx` read as `xfx`; `.prd/tui-phase4/receipts/m1/cells.py`'s rule).
+`scoreboard-head-60.md`. Pairs compared as the sweep compares them: cell by
+cell by `scripts/fxcap/cells.py` (which `.prd/tui-phase4/receipts/m1/cells.py`
+runs), after the ledger's normalizations (the banner; `fx` read as `xfx`).
 
 | scenario | pairs normalized-identical | the rest |
 |---|---|---|
