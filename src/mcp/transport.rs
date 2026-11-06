@@ -85,8 +85,21 @@ pub trait Transport: Send + Sync {
     fn alive(&self) -> bool;
     /// What the server said on its own way out, when it has gone.
     fn diagnostic(&self) -> Option<String>;
+    /// How a server that is a process ended, once it has: asked beside
+    /// [`Self::diagnostic`], before [`Self::close`] ends it itself.
+    fn exit(&self) -> Option<Exit> {
+        None
+    }
     /// Ends the connection and everything it started.
     fn close(&self);
+}
+
+/// How a server's process ended: its exit code, or the signal that ended it
+/// (`Exit`, `vercel-labs/fx@481104fd src/mcp/io/process.zig:165`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    Code(i32),
+    Signal(i32),
 }
 
 /// One JSON-RPC request, in upstream's key order: `jsonrpc`, `id`, `method`,
@@ -760,6 +773,28 @@ impl Transport for StdioTransport {
         (!tail.is_empty()).then(|| tail.to_string())
     }
 
+    fn exit(&self) -> Option<Exit> {
+        // A server whose standard error has ended is on its way out: its exit
+        // is waited for as briefly as its last words are. One still writing
+        // there is looked at once.
+        let deadline = Instant::now() + STDERR_SETTLE;
+        loop {
+            let found = self
+                .child
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_mut()
+                .and_then(exit_of);
+            if found.is_some()
+                || !self.stderr_closed.load(Ordering::Acquire)
+                || Instant::now() >= deadline
+            {
+                return found;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     fn close(&self) {
         // End of input first: a well-behaved server leaves on it. A write
         // under way is not waited for (`Input::close`), so a server that
@@ -789,6 +824,34 @@ impl Drop for StdioTransport {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// How `child` ended, if it has, leaving it uncollected: its id stays its
+/// group's until [`stop_child`] collects it (`NOWAIT`, as [`Stopping::exited`]
+/// reads it).
+#[cfg(unix)]
+fn exit_of(child: &mut Child) -> Option<Exit> {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+    let leader = rustix::process::Pid::from_raw(child.id() as i32)?;
+    let status = waitid(
+        WaitId::Pid(leader),
+        WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+    )
+    .ok()??;
+    status
+        .exit_status()
+        .map(Exit::Code)
+        .or_else(|| status.terminating_signal().map(Exit::Signal))
+}
+
+/// No group is signalled here, so collecting early costs nothing.
+#[cfg(not(unix))]
+fn exit_of(child: &mut Child) -> Option<Exit> {
+    child
+        .try_wait()
+        .ok()?
+        .and_then(|status| status.code())
+        .map(Exit::Code)
 }
 
 /// Stops `child` and its process group: `SIGTERM`, a short grace, `SIGKILL`,

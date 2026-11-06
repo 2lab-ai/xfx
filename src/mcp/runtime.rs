@@ -16,18 +16,34 @@
 //! default -- `2025-11-25`, any of the four legacy versions accepted back
 //! (`protocol_negotiation.zig:7-19`, `:66-117`) -- `notifications/initialized`
 //! is sent, and `tools/list` is read page by page, all inside the server's
-//! `startup_timeout_ms`. A stdio server that fails to start is started again,
-//! up to its `restart_limit` (`[mcp] restarting stdio server after startup
-//! failure ... attempt=1`, `cap/mcp-diag-trace.log`).
+//! `startup_timeout_ms`.
+//!
+//! A server that fails to come up is `Retrying` and is tried again by itself
+//! once its backoff is over, at most eight tries in a row, the backoffs
+//! doubling from 1 s up to 30 s; the eighth failure makes it `Failed`
+//! (fx v0.0.16's engine gate: `max_attempts = 8`, `reconnectDelay`,
+//! `vercel-labs/fx@481104fd src/mcp/core/engine.zig:24-28`, `:193-216`;
+//! `src/mcp/core/request.zig:76-79`). That is about 91 seconds of backoff:
+//! fx's `p5-mcp-failed` capture is still silent at 84 s and says
+//! `bad failed · /mcp` at 100 s (`.prd/tui-phase5/receipts/mcp-status/`). A
+//! server whose failure no try can change -- it needs a sign-in, a variable
+//! that is not set, a transport xfx does not connect -- fails at once
+//! ([`worth_retrying`]). Why it is down is said in fx's words, with how a
+//! stdio server's process ended and its last stderr lines
+//! ([`failure_words`]).
 //!
 //! # Reloading
 //!
-//! A reload reads both files again and connects what changed while the
-//! servers already up stay up: a server whose configuration is the same and
-//! which is ready (or still connecting) is carried over as it is. Only once
-//! every new connection has settled is the new set put in force and the old
-//! ones stopped, and the person is told how it went
-//! (`formatMcpPublishedReload`, `app_commands.zig:91-129`).
+//! A reload reads both files again and takes the change in place
+//! (`Runtime.reload`, `vercel-labs/fx@481104fd
+//! src/core/mcp_host/runtime.zig:628-642`; `src/mcp/engine.zig:167-186`): a
+//! server whose configuration is the same keeps running as it is -- ready,
+//! still coming up, retrying or failed -- and only one added or changed starts
+//! fresh, once the old one of its name is stopped. The new set is in force at
+//! once, and the reload says nothing: what the servers do next is the status
+//! line's and `/mcp`'s to show. Only a configuration that cannot be read again
+//! is told, in one warning (`collectMcpHostFacts`,
+//! `src/core/app/app_commands.zig:340-345@481104fd`).
 //!
 //! # Commands are answered in order
 //!
@@ -49,7 +65,7 @@ use serde_json::{json, Map, Value};
 use super::config::{
     self, Admission, Choices, ServerConfig, Source, Transport as Kind, TrustAction,
 };
-use super::transport::{HttpTransport, StdioTransport, Transport};
+use super::transport::{Exit, HttpTransport, StdioTransport, Transport};
 use super::{names::ToolNames, McpError};
 use crate::gateway::CancelToken;
 
@@ -67,12 +83,57 @@ const HTTP_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 /// How many pages of a list are read before the list is called complete.
 const MAX_PAGES: usize = 64;
 
-/// `ConnectionState` (`health.zig:8-14`).
+/// How a server that fails to come up is tried again: up to `attempts` tries
+/// in a row, the wait after the `n`th failure `first` doubled `n - 1` times
+/// (at most five) and never more than `cap`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Retry {
+    pub(crate) attempts: u8,
+    pub(crate) first: Duration,
+    pub(crate) cap: Duration,
+}
+
+impl Retry {
+    /// fx v0.0.16's: eight tries (`Config.max_attempts`,
+    /// `vercel-labs/fx@481104fd src/mcp/core/engine.zig:24-28`), and
+    /// `reconnectDelay` -- 1 s doubling up to 30 s
+    /// (`src/mcp/core/request.zig:76-79`) -- after each failed one but the
+    /// last (`engine.zig:193-211`): 1, 2, 4, 8, 16, 30 and 30 seconds.
+    pub(crate) const FX: Self = Self {
+        attempts: 8,
+        first: Duration::from_secs(1),
+        cap: Duration::from_secs(30),
+    };
+
+    /// The wait after the `failed`th failure in a row (`reconnectDelay(
+    /// attempts - 1)`).
+    pub(crate) fn backoff(&self, failed: u8) -> Duration {
+        let doublings = u32::from(failed.saturating_sub(1).min(5));
+        (self.first * 2u32.pow(doublings)).min(self.cap)
+    }
+}
+
+/// How long a server's wait between tries sleeps at a time, looking at
+/// whether it was stopped in between: a reload or `/quit` never waits out a
+/// 30-second backoff.
+const BACKOFF_SLICE: Duration = Duration::from_millis(25);
+
+/// The most bytes of a stdio server's last stderr lines a failure quotes,
+/// and how many lines (`tail_max`, `tail_lines`,
+/// `vercel-labs/fx@481104fd src/mcp/io/process.zig:188-190`).
+const STDERR_TAIL_MAX_BYTES: usize = 240;
+const STDERR_TAIL_LINES: usize = 3;
+
+/// `ConnectionState` (`health.zig:8-14`), with fx v0.0.16's `retrying`:
+/// down by a failure and waiting out its backoff before it is tried again
+/// (`.backoff => .retrying`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/runtime.zig:1866-1870`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Connection {
     Disconnected,
     Disabled,
     Connecting,
+    Retrying,
     Ready,
     Failed,
 }
@@ -83,6 +144,7 @@ pub enum Connection {
 pub enum Status {
     Disabled,
     Connecting,
+    Retrying,
     Ready,
     NeedsAuth,
     Failed,
@@ -188,6 +250,7 @@ impl ServerView {
         match self.connection {
             Connection::Disabled => Status::Disabled,
             Connection::Connecting => Status::Connecting,
+            Connection::Retrying => Status::Retrying,
             Connection::Ready => Status::Ready,
             Connection::Failed => Status::Failed,
             Connection::Disconnected => Status::Unavailable,
@@ -208,6 +271,7 @@ impl ServerView {
             Status::Unavailable => "Disconnected",
             Status::Disabled => "Disabled",
             Status::Connecting => "Connecting",
+            Status::Retrying => "Retrying",
             Status::Ready => "Ready",
             Status::Failed => "Failed",
         }
@@ -432,7 +496,12 @@ impl Server {
             tool_count: (connection == Connection::Ready).then_some(live.tools.len()),
             tools_held: live.tools.len(),
             listed: live.listed,
-            failure: live.failure.clone(),
+            // Why it is down, while it is: a server coming up again, or back,
+            // has no failure to explain (`publish`, `vercel-labs/fx@481104fd
+            // src/core/mcp_host/runtime.zig:1873-1877`).
+            failure: matches!(connection, Connection::Retrying | Connection::Failed)
+                .then(|| live.failure.clone())
+                .flatten(),
             entry: self.entry.clone(),
         }
     }
@@ -454,6 +523,22 @@ impl Server {
 
     pub fn instructions(&self) -> Option<String> {
         self.live().instructions.clone()
+    }
+
+    /// Waits `wait` between tries, a slice at a time; false once the
+    /// server is stopped, so it is never tried again after that.
+    fn pause(&self, wait: Duration) -> bool {
+        let until = Instant::now() + wait;
+        loop {
+            if self.stopped.load(Ordering::Acquire) {
+                return false;
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return true;
+            }
+            std::thread::sleep(left.min(BACKOFF_SLICE));
+        }
     }
 
     fn stop(&self) {
@@ -528,6 +613,15 @@ pub struct McpRuntime {
     jobs: Mutex<Option<mpsc::Sender<Job>>>,
     /// Bumped by every reload that put a new set in force.
     generation: AtomicU64,
+    /// When the servers were last started: the session's first load, and
+    /// every reload after it, changed or not (`startHostServers`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_mcp_runtime.zig:199-210`,
+    /// called by `reloadHost`, `:121-134`). The status line waits for them
+    /// to finish starting from then ([`crate::tui::statusline::McpStatus`]).
+    started: Mutex<Option<Instant>>,
+    /// How many tries a server gets in a row, and how long it waits between
+    /// them ([`Retry`]).
+    retry: Mutex<Retry>,
     /// What the environment says, for a workspace server's `${VAR}` and an
     /// HTTP server's `header_env` and `bearer_token_env`. A workspace server
     /// never gets xfx's own credentials from it: `config::load_workspace`
@@ -562,8 +656,31 @@ impl McpRuntime {
             events: Mutex::new(VecDeque::new()),
             jobs: Mutex::new(None),
             generation: AtomicU64::new(0),
+            started: Mutex::new(None),
+            retry: Mutex::new(Retry::FX),
             environment: Box::new(|name| std::env::var(name).ok()),
         })
+    }
+
+    /// When the servers were last started, or `None` before the first load:
+    /// what the status line's 10-second wait counts from.
+    pub fn started_at(&self) -> Option<Instant> {
+        *self.started.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn mark_started(&self) {
+        *self.started.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+    }
+
+    /// A test's own schedule of tries, so a server that never comes up is
+    /// `Failed` in milliseconds rather than fx's minute and a half.
+    #[cfg(test)]
+    pub(crate) fn set_retry(&self, retry: Retry) {
+        *self.retry.lock().unwrap_or_else(PoisonError::into_inner) = retry;
+    }
+
+    fn retry(&self) -> Retry {
+        *self.retry.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// A runtime that reads no file: a test's, or a session with no profile.
@@ -744,6 +861,7 @@ impl McpRuntime {
         if self.paths.profile.is_none() && self.paths.settings.is_none() {
             return;
         }
+        self.mark_started();
         if let Ok((configs, issues, choices, digests)) = self.read_configuration() {
             let mut state = self.state();
             let index = by_name(&digests);
@@ -793,6 +911,14 @@ impl McpRuntime {
             );
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// Whether a reload is running or asked for: a case's way to know the one
+    /// it asked for has put its set in force, now that a reload says nothing.
+    #[cfg(test)]
+    pub(crate) fn reloading(&self) -> bool {
+        let state = self.state();
+        state.reloading || state.again.is_some()
     }
 
     /// What both files say now: the servers, the workspace file's issues, the
@@ -866,32 +992,37 @@ impl McpRuntime {
     fn reload_once(self: &Arc<Self>, origin: Origin) {
         let (configs, issues, choices, digests) = match self.read_configuration() {
             Ok(read) => read,
-            Err(err) => {
-                let body = match origin {
-                    Origin::Menu => format!("MCP reload failed: {err}"),
-                    _ => "MCP configuration could not be reloaded. Your existing MCP servers are still active. Check the configuration and run /mcp list for details before trying again.".to_string(),
-                };
-                match origin {
-                    Origin::Menu => self.say(Event::MenuFeedback(body)),
-                    _ => self.notice(true, body),
-                }
+            Err(_) => {
+                // The one thing a reload says (`collectMcpHostFacts`,
+                // `vercel-labs/fx@481104fd src/core/app/app_commands.zig:
+                // 340-345`). A profile the session could not read at its
+                // start keeps the sentence it had: which file problems stop
+                // a load, and what is said of them, is the config's
+                // (`src/mcp/config.rs`).
+                self.notice(
+                    true,
+                    if origin == Origin::Startup {
+                        "MCP configuration could not be reloaded. Your existing MCP servers are still active. Check the configuration and run /mcp list for details before trying again."
+                    } else {
+                        "The MCP config changed, but xfx couldn't load it again. Your current servers are still active."
+                    },
+                );
                 return;
             }
         };
-        // The servers carried over: same configuration, and up or coming up.
+        self.mark_started();
+        // In place: a server whose configuration is the same keeps running as
+        // it is, whatever its state -- fx's engine keeps every slot whose
+        // config is the same (`Engine.reload`, `src/mcp/engine.zig:167-186`)
+        // -- and the rest start fresh.
         let current = self.servers();
         let index = by_name(&digests);
         let mut next: Vec<Arc<Server>> = Vec::with_capacity(configs.len());
         let mut connecting: Vec<Arc<Server>> = Vec::new();
         for config in configs {
-            let kept = current.iter().find(|server| {
-                server.config == config
-                    && matches!(
-                        server.live().connection,
-                        Connection::Ready | Connection::Connecting
-                    )
-                    && !server.stopped.load(Ordering::Acquire)
-            });
+            let kept = current
+                .iter()
+                .find(|server| server.config == config && !server.stopped.load(Ordering::Acquire));
             let server = match kept {
                 Some(server) => Arc::clone(server),
                 None => Server::new(config, &index),
@@ -900,31 +1031,6 @@ impl McpRuntime {
                 connecting.push(Arc::clone(&server));
             }
             next.push(server);
-        }
-        // The first load publishes at once, so the menu and the model see
-        // `Connecting` rather than nothing while servers come up.
-        if origin == Origin::Startup {
-            let mut state = self.state();
-            state.servers = next.clone();
-            state.issues = issues.clone();
-            state.choices = choices.clone();
-            state.digests = digests.clone();
-            drop(state);
-            self.present_prompt();
-            self.say(Event::Changed);
-        }
-        let threads: Vec<_> = connecting
-            .iter()
-            .map(|server| {
-                let server = Arc::clone(server);
-                let runtime = Arc::clone(self);
-                std::thread::Builder::new()
-                    .name("xfx-mcp-connect".into())
-                    .spawn(move || runtime.connect(&server))
-            })
-            .collect();
-        for thread in threads.into_iter().flatten() {
-            let _ = thread.join();
         }
         let retired: Vec<Arc<Server>> = {
             let mut state = self.state();
@@ -936,159 +1042,99 @@ impl McpRuntime {
                 .filter(|server| !next.iter().any(|kept| Arc::ptr_eq(kept, server)))
                 .collect()
         };
+        // A changed server's old process goes before its new one starts
+        // (`Runtime.reload`, `runtime.zig:628-642`).
         for server in retired {
             server.stop();
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
-        self.report(origin, &next);
-    }
-
-    /// Says how a reload went (`formatMcpPublishedReload`,
-    /// `app_commands.zig:91-129`; the menu's `applyMenuReloadCompletion`,
-    /// `app_mcp_runtime.zig:1530-1560`; the startup notice,
-    /// `health.zig:438-480`).
-    fn report(&self, origin: Origin, servers: &[Arc<Server>]) {
-        let views: Vec<ServerView> = servers.iter().map(|server| server.view(false)).collect();
-        let unavailable: Vec<&str> = views
-            .iter()
-            .filter(|view| {
-                matches!(
-                    view.status(),
-                    Status::Failed | Status::NeedsAuth | Status::Unavailable
-                )
-            })
-            .map(|view| view.name.as_str())
-            .collect();
-        match origin {
-            Origin::Startup => {
-                let needs_auth = views
-                    .iter()
-                    .filter(|view| view.status() == Status::NeedsAuth)
-                    .count();
-                let failed = views
-                    .iter()
-                    .filter(|view| view.status() == Status::Failed)
-                    .count();
-                let total = needs_auth + failed;
-                if total == 0 {
-                    return;
-                }
-                let mut body = format!(
-                    "MCP startup: {total} server{} need{} attention",
-                    if total == 1 { "" } else { "s" },
-                    if total == 1 { "s" } else { "" }
-                );
-                if needs_auth > 0 {
-                    body.push_str(&format!(
-                        ", {needs_auth} need{} authentication",
-                        if needs_auth == 1 { "s" } else { "" }
-                    ));
-                }
-                if failed > 0 {
-                    body.push_str(&format!(", {failed} failed"));
-                }
-                body.push('.');
-                if let Some(first) = views.iter().find(|view| view.status() == Status::NeedsAuth) {
-                    body.push_str(&format!(" Run /mcp auth {} --open.", first.name));
-                }
-                body.push_str(" Use /mcp list for details.");
-                self.notice(false, body);
-            }
-            Origin::Menu => {
-                let body = if unavailable.is_empty() {
-                    "MCP configuration reloaded.".to_string()
-                } else {
-                    format!(
-                        "MCP reloaded with {} unavailable server{}.",
-                        unavailable.len(),
-                        if unavailable.len() == 1 { "" } else { "s" }
-                    )
-                };
-                self.say(Event::MenuFeedback(body));
-            }
-            Origin::Transcript => {
-                let body = match unavailable.as_slice() {
-                    [] if views.is_empty() => {
-                        "MCP configuration reloaded. No servers are configured.".to_string()
-                    }
-                    [] => "MCP configuration reloaded successfully.".to_string(),
-                    [one] => format!(
-                        "MCP configuration reloaded, but server '{one}' is unavailable. Run /mcp list for details."
-                    ),
-                    many => format!(
-                        "MCP configuration reloaded, but {} servers are unavailable: {}. Run /mcp list for details.",
-                        many.len(),
-                        many.iter()
-                            .map(|name| format!("'{name}'"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                };
-                self.notice(!unavailable.is_empty(), body);
+        self.present_prompt();
+        self.say(Event::Changed);
+        // Each on a thread of its own, tried until it is up or out of tries;
+        // nobody waits for them.
+        for server in connecting {
+            let runtime = Arc::clone(self);
+            let spawned = std::thread::Builder::new()
+                .name("xfx-mcp-connect".into())
+                .spawn({
+                    let server = Arc::clone(&server);
+                    move || runtime.connect(&server)
+                });
+            if spawned.is_err() {
+                let mut live = server.live();
+                live.connection = Connection::Failed;
+                live.failure = Some("xfx couldn't start a thread for it".to_string());
             }
         }
     }
 
-    /// Connects `server`, starting it again up to its restart limit.
+    /// Connects `server`: tried until it is up, it is stopped, or its tries
+    /// run out ([`Retry`]). Between tries it is `Retrying`, with why the last
+    /// one failed.
     fn connect(&self, server: &Arc<Server>) {
-        let limit = if server.config.transport == Kind::Stdio {
-            server.config.restart_limit
-        } else {
-            0
-        };
-        let mut attempt = 0u8;
+        let retry = self.retry();
+        let mut tries = 0u8;
         loop {
             if server.stopped.load(Ordering::Acquire) {
                 return;
             }
-            match self.open(server) {
+            tries = tries.saturating_add(1);
+            server.live().connection = Connection::Connecting;
+            let failed = match self.open(server) {
                 Ok(()) => return,
-                Err(err) => {
-                    let auth = err == McpError::Named("McpAuthenticationRequired");
-                    if !auth && attempt < limit && !server.stopped.load(Ordering::Acquire) {
-                        attempt += 1;
-                        continue;
-                    }
-                    let mut live = server.live();
-                    live.connection = Connection::Failed;
-                    live.needs_auth = auth;
-                    live.failure = Some(err.to_string());
-                    return;
-                }
+                Err(failed) => failed,
+            };
+            let auth = failed.error == McpError::Named("McpAuthenticationRequired");
+            let mut live = server.live();
+            live.needs_auth = auth;
+            live.failure = Some(failed.words);
+            if !worth_retrying(&failed.error) || tries >= retry.attempts {
+                live.connection = Connection::Failed;
+                return;
+            }
+            live.connection = Connection::Retrying;
+            drop(live);
+            if !server.pause(retry.backoff(tries)) {
+                return;
             }
         }
     }
 
-    /// One attempt: start, initialize, list the tools, publish.
-    fn open(&self, server: &Arc<Server>) -> Result<(), McpError> {
+    /// One attempt: start, initialize, list the tools, publish. A failure
+    /// comes with fx's words for it ([`failure_words`]).
+    fn open(&self, server: &Arc<Server>) -> Result<(), Box<Failed>> {
         let config = &server.config;
         let deadline = Instant::now() + config.startup_timeout();
         let left = || deadline.saturating_duration_since(Instant::now());
+        let started = |error: McpError| Box::new(Failed::new(Step::Start, error, None, None));
         let transport: Arc<dyn Transport> = match config.transport {
-            Kind::Stdio => Arc::new(StdioTransport::spawn(
-                &config.command,
-                &config.args,
-                &config.env,
-                None,
-            )?),
-            Kind::Http => Arc::new(HttpTransport::open(
-                &config.url,
-                &http_headers(config, &*self.environment)?,
-            )?),
-            Kind::Sse => return Err(McpError::Named("McpTransportUnsupported")),
+            Kind::Stdio => Arc::new(
+                StdioTransport::spawn(&config.command, &config.args, &config.env, None)
+                    .map_err(started)?,
+            ),
+            Kind::Http => Arc::new(
+                HttpTransport::open(
+                    &config.url,
+                    &http_headers(config, &*self.environment).map_err(started)?,
+                )
+                .map_err(started)?,
+            ),
+            Kind::Sse => return Err(started(McpError::Named("McpTransportUnsupported"))),
         };
         let result = self.handshake(server, &transport, &left);
         let (version, capabilities, instructions, tools) = match result {
             Ok(found) => found,
-            Err(err) => {
-                let diagnostic = transport.diagnostic();
+            Err((step, error)) => {
+                // What a stdio server said on its way out, and how it ended,
+                // both read before it is stopped: a stop would end it itself.
+                // An HTTP server has neither.
+                let (stderr, exit) = if config.transport == Kind::Stdio {
+                    (transport.diagnostic(), transport.exit())
+                } else {
+                    (None, None)
+                };
                 transport.close();
-                return Err(match (err, diagnostic) {
-                    (McpError::Named("McpConnectionClosed"), Some(_)) => {
-                        McpError::Named("McpInitFailed")
-                    }
-                    (err, _) => err,
-                });
+                return Err(Box::new(Failed::new(step, error, exit, stderr.as_deref())));
             }
         };
         if server.stopped.load(Ordering::Acquire) {
@@ -1114,7 +1160,8 @@ impl McpRuntime {
         server: &Server,
         transport: &Arc<dyn Transport>,
         left: &dyn Fn() -> Duration,
-    ) -> Result<(String, Capabilities, Option<String>, Vec<McpTool>), McpError> {
+    ) -> Result<(String, Capabilities, Option<String>, Vec<McpTool>), (Step, McpError)> {
+        let at = |step: Step| move |error: McpError| (step, error);
         let initialized = transport.request(
             "initialize",
             json!({
@@ -1126,18 +1173,25 @@ impl McpRuntime {
             }),
             left(),
             None,
-        )?;
+        );
+        let initialized = initialized.map_err(at(Step::Initialize))?;
         let version = initialized
             .get("protocolVersion")
             .and_then(Value::as_str)
-            .ok_or(McpError::Named("McpUnsupportedProtocolVersion"))?;
+            .ok_or((
+                Step::Initialize,
+                McpError::Named("McpUnsupportedProtocolVersion"),
+            ))?;
         let accepted: &[&str] = if server.config.transport == Kind::Stdio {
             &STDIO_VERSIONS
         } else {
             &HTTP_VERSIONS
         };
         if !accepted.contains(&version) {
-            return Err(McpError::Named("McpUnsupportedProtocolVersion"));
+            return Err((
+                Step::Initialize,
+                McpError::Named("McpUnsupportedProtocolVersion"),
+            ));
         }
         let advertised = initialized.get("capabilities").and_then(Value::as_object);
         let has = |key: &str| {
@@ -1153,10 +1207,12 @@ impl McpRuntime {
             .get("instructions")
             .and_then(Value::as_str)
             .map(str::to_string);
-        transport.notify(
-            "notifications/initialized",
-            (server.config.transport != Kind::Stdio).then(|| json!({})),
-        )?;
+        transport
+            .notify(
+                "notifications/initialized",
+                (server.config.transport != Kind::Stdio).then(|| json!({})),
+            )
+            .map_err(at(Step::Initialized))?;
         let mut tools = Vec::new();
         if capabilities.tools {
             let mut cursor: Option<String> = None;
@@ -1165,11 +1221,13 @@ impl McpRuntime {
                     Some(cursor) => json!({"cursor": cursor}),
                     None => json!({}),
                 };
-                let page = transport.request("tools/list", params, left(), None)?;
+                let page = transport
+                    .request("tools/list", params, left(), None)
+                    .map_err(at(Step::Tools))?;
                 for tool in page
                     .get("tools")
                     .and_then(Value::as_array)
-                    .ok_or(McpError::Named("McpInvalidResult"))?
+                    .ok_or((Step::Tools, McpError::Named("McpInvalidResult")))?
                 {
                     if let Some(tool) = self.tool(&server.config.name, tool) {
                         tools.push(tool);
@@ -1502,11 +1560,11 @@ impl McpRuntime {
                         .transport
                         .clone()
                         .ok_or(McpError::Named("McpConnectionClosed")),
-                    Err(err) => {
+                    Err(failed) => {
                         let mut live = server.live();
                         live.connection = Connection::Failed;
-                        live.failure = Some(err.to_string());
-                        Err(McpError::Restart(err.to_string()))
+                        live.failure = Some(failed.words);
+                        Err(McpError::Restart(failed.error.to_string()))
                     }
                 }
             }
@@ -1803,6 +1861,154 @@ impl Drop for McpRuntime {
     }
 }
 
+/// The step of a start a failure came at: what says which of fx's words is
+/// meant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// Starting the process, or opening the endpoint.
+    Start,
+    /// `initialize`, and the version it answered with.
+    Initialize,
+    /// `notifications/initialized`.
+    Initialized,
+    /// `tools/list`.
+    Tools,
+}
+
+/// Whether another try could bring a server up after `error`. A sign-in, a
+/// transport xfx does not connect and a variable a header needs that is not
+/// set are the person's to change, not time's: fx holds such a server back
+/// rather than starting it (`held`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/runtime.zig:1851-1861`), so it is `Failed` at once.
+fn worth_retrying(error: &McpError) -> bool {
+    !matches!(
+        error,
+        McpError::Named(
+            "McpAuthenticationRequired"
+                | "McpTransportUnsupported"
+                | "McpHeaderEnvironmentMissing"
+                | "McpBearerEnvironmentMissing"
+        )
+    )
+}
+
+/// One failed attempt: the error, for what is decided by it, and how a
+/// person is told of it.
+#[derive(Debug, Clone, PartialEq)]
+struct Failed {
+    error: McpError,
+    words: String,
+}
+
+impl Failed {
+    fn new(step: Step, error: McpError, exit: Option<Exit>, stderr: Option<&str>) -> Self {
+        let words = failure_words(step, &error, exit, stderr);
+        Self { error, words }
+    }
+}
+
+/// Why a server is down, in fx v0.0.16's words (`writeFailure`,
+/// `describeFailure`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/runtime.zig:2277-2308`): the reason, how a stdio
+/// server's process ended -- `its process exited with code 3` -- and its last
+/// stderr lines ([`stderr_tail`]), quoted:
+/// `its process exited with code 3; its last stderr lines: "boom-stderr"`
+/// (`fail-server-1`). fx's own name is xfx's here. What xfx has no word of
+/// fx's for -- a spawn that failed, a page of tools that could not be read --
+/// is its error's name, as fx shows a reason it has no words for as it is.
+fn failure_words(step: Step, error: &McpError, exit: Option<Exit>, stderr: Option<&str>) -> String {
+    let unsupported = *error == McpError::Named("McpUnsupportedProtocolVersion");
+    // A process that is gone is the reason, however the request it was asked
+    // saw it go (`.{ "process", "its process exited" }`); its exit then says
+    // how, and after any other reason it is added.
+    let own = step != Step::Start
+        && exit.is_some()
+        && !unsupported
+        && *error != McpError::Named("McpAuthenticationRequired");
+    let mut words = match (step, error) {
+        (_, McpError::Named("McpAuthenticationRequired")) => "it needs a login".to_string(),
+        _ if own => "its process exited".to_string(),
+        (Step::Initialize, _) if unsupported => {
+            "it answered with an MCP version xfx doesn't support".to_string()
+        }
+        (Step::Initialize, _) => {
+            "it refused or never answered xfx's initialize request".to_string()
+        }
+        (Step::Initialized, _) => "it never answered xfx's initialized notification".to_string(),
+        (Step::Start | Step::Tools, error) => error.to_string(),
+    };
+    match exit {
+        Some(Exit::Code(code)) => words.push_str(&format!(
+            "{} with code {code}",
+            if own { "" } else { "; its process exited" }
+        )),
+        Some(Exit::Signal(signal)) => words.push_str(&format!(
+            "{} on signal {signal}",
+            if own { "" } else { "; its process exited" }
+        )),
+        None => {}
+    }
+    if let Some(tail) = stderr.and_then(stderr_tail) {
+        words.push_str(&format!("; its last stderr lines: \"{tail}\""));
+    }
+    words
+}
+
+/// A stdio server's last stderr lines as a failure quotes them
+/// (`keepTail`, `stderrTail`, `vercel-labs/fx@481104fd
+/// src/mcp/io/process.zig:721-756`): the last three, each without its
+/// trailing blanks and cut to 240 bytes, oldest first, joined with ` / `, and
+/// the whole cut from the front to 240 bytes -- never inside a character.
+/// `None` when it wrote nothing.
+///
+/// Each line is made inert first by [`super::terminal_safe`]: what a server
+/// writes to its standard error is the server's, and reaches the screen only
+/// spelled -- a control byte, a line break or a bidirectional override is
+/// named rather than obeyed. fx writes such a byte as `?`; xfx spells it,
+/// as it does every name a server supplies.
+pub(crate) fn stderr_tail(stderr: &str) -> Option<String> {
+    let mut lines: Vec<&str> = stderr.split('\n').collect();
+    // What follows the last line break is a line only when it holds text.
+    if lines.last().is_some_and(|last| last.is_empty()) {
+        lines.pop();
+    }
+    let start = lines.len().saturating_sub(STDERR_TAIL_LINES);
+    let kept: Vec<String> = lines[start..]
+        .iter()
+        .map(|line| {
+            let spelled = super::terminal_safe(line.trim_end_matches([' ', '\t', '\r']));
+            head_bytes(&spelled, STDERR_TAIL_MAX_BYTES).to_string()
+        })
+        .collect();
+    let joined = kept.join(" / ");
+    let tail = tail_bytes(&joined, STDERR_TAIL_MAX_BYTES);
+    (!tail.is_empty()).then(|| tail.to_string())
+}
+
+/// At most `max` bytes from the start of `text`, never inside a character.
+fn head_bytes(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// At most `max` bytes from the end of `text`, never inside a character.
+fn tail_bytes(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut start = text.len() - max;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
 /// The trust prompt's rows that say what approving lets run or reach, as the
 /// entry has it: a stdio server's command line and a row for each variable it
 /// sets, or a remote server's address and a row for each header it sends,
@@ -2023,6 +2229,126 @@ fn shell_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failure_quotes_the_last_three_stderr_lines_joined_and_cut_from_the_front() {
+        // `stderrTail`, `vercel-labs/fx@481104fd src/mcp/io/process.zig:737-756`.
+        assert_eq!(stderr_tail("boom-stderr\n").as_deref(), Some("boom-stderr"));
+        assert_eq!(stderr_tail("a\nb\nc\nd\n").as_deref(), Some("b / c / d"));
+        assert_eq!(stderr_tail("a\nb \t\r\nc").as_deref(), Some("a / b / c"));
+        assert_eq!(stderr_tail(""), None);
+        assert_eq!(stderr_tail("\n"), None);
+        // Each line at most 240 bytes from its start, the whole at most 240
+        // from its end, never inside a character.
+        let long = format!("{}\n{}\n", "a".repeat(300), "\u{e9}".repeat(200));
+        let tail = stderr_tail(&long).expect("a tail");
+        assert!(tail.len() <= STDERR_TAIL_MAX_BYTES, "{}", tail.len());
+        assert!(tail.ends_with('\u{e9}') && !tail.contains('a'), "{tail}");
+        let lines = format!(
+            "{}\n{}\n{}\n",
+            "x".repeat(100),
+            "y".repeat(100),
+            "z".repeat(100)
+        );
+        let tail = stderr_tail(&lines).expect("a tail");
+        assert_eq!(tail.len(), STDERR_TAIL_MAX_BYTES);
+        assert!(tail.ends_with(&"z".repeat(100)), "{tail}");
+    }
+
+    #[test]
+    fn what_a_server_writes_to_stderr_reaches_the_screen_spelled_never_obeyed() {
+        // A clear screen, a colour, a bidirectional override and a bell a
+        // server writes are named in the quote (fx writes `?` for the C0
+        // ones; xfx spells them, as it does every server-supplied name).
+        let tail = stderr_tail("boom\u{1b}[2J\u{1b}[31mred\u{7}\u{202e}gnp.exe\n").expect("a tail");
+        for obeyed in ['\u{1b}', '\u{7}', '\u{202e}'] {
+            assert!(!tail.contains(obeyed), "{tail:?}");
+        }
+        assert!(tail.starts_with("boom\\x1b[2J"), "{tail:?}");
+        let words = failure_words(
+            Step::Initialize,
+            &McpError::Named("McpConnectionClosed"),
+            Some(Exit::Code(3)),
+            Some("\u{1b}]52;c;aGk=\u{7}\n"),
+        );
+        assert!(
+            !words.contains('\u{1b}') && !words.contains('\u{7}'),
+            "{words:?}"
+        );
+    }
+
+    #[test]
+    fn a_failure_is_said_in_fxs_words_with_how_the_process_ended() {
+        // `writeFailure`, `describeFailure`,
+        // `vercel-labs/fx@481104fd src/core/mcp_host/runtime.zig:2277-2308`.
+        let closed = McpError::Named("McpConnectionClosed");
+        type Case<'a> = (Step, McpError, Option<Exit>, Option<&'a str>, &'a str);
+        let cases: [Case; 8] = [
+            (
+                Step::Initialize,
+                closed.clone(),
+                Some(Exit::Code(3)),
+                Some("boom-stderr\n"),
+                "its process exited with code 3; its last stderr lines: \"boom-stderr\"",
+            ),
+            (
+                Step::Tools,
+                closed.clone(),
+                Some(Exit::Signal(9)),
+                None,
+                "its process exited on signal 9",
+            ),
+            (
+                Step::Initialize,
+                McpError::Named("McpTimeout"),
+                None,
+                Some("still starting\n"),
+                "it refused or never answered xfx's initialize request; its last stderr lines: \"still starting\"",
+            ),
+            (
+                Step::Initialize,
+                McpError::Named("McpUnsupportedProtocolVersion"),
+                Some(Exit::Code(0)),
+                None,
+                "it answered with an MCP version xfx doesn't support; its process exited with code 0",
+            ),
+            (
+                Step::Initialized,
+                McpError::Named("McpTimeout"),
+                None,
+                None,
+                "it never answered xfx's initialized notification",
+            ),
+            (
+                Step::Initialize,
+                McpError::Named("McpAuthenticationRequired"),
+                None,
+                None,
+                "it needs a login",
+            ),
+            (
+                Step::Start,
+                McpError::Named("McpSpawnFailed"),
+                None,
+                None,
+                "McpSpawnFailed",
+            ),
+            (
+                Step::Tools,
+                McpError::Named("McpInvalidResult"),
+                None,
+                None,
+                "McpInvalidResult",
+            ),
+        ];
+        for (step, error, exit, stderr, said) in cases {
+            assert_eq!(
+                failure_words(step, &error, exit, stderr),
+                said,
+                "{step:?} {error:?}"
+            );
+        }
+    }
 
     #[test]
     fn the_prompt_shows_each_word_as_a_shell_would_read_it_back() {

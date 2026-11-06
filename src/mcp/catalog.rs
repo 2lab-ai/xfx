@@ -70,7 +70,9 @@ pub fn encode_scalar(value: &str) -> String {
 fn availability(view: &ServerView) -> &'static str {
     match view.status() {
         Status::Disabled => "disabled",
-        Status::Connecting => "discovering",
+        // fx v0.0.16: `.connecting, .retrying => .discovering`
+        // (`src/core/mcp_host/model.zig:490@481104fd`).
+        Status::Connecting | Status::Retrying => "discovering",
         Status::Ready => "ready",
         Status::NeedsAuth => "authentication_required",
         Status::Failed => "failed",

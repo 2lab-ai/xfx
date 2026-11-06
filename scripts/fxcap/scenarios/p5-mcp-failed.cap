@@ -1,0 +1,21 @@
+# p5 mcp: a stdio server that writes to stderr and exits 3 at every start is
+# `retrying` -- which the status line never names -- until its eighth try in a
+# row fails, about 91 s after launch (fx v0.0.16's engine: eight tries, the
+# backoffs 1, 2, 4, 8, 16, 30 and 30 s), and is then `bad failed · /mcp`; a
+# prompt sent clears it. No project server and no menu: the whole screen is
+# the status line's (MCP-S).
+# The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+fx: homefile .fx/mcp.json p5-mcp-fail-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-fail-profile.json
+gateway p5-mcp-hello.json
+wait 13
+snap retrying
+wait 71
+snap still-retrying
+wait 16
+snap failed
+type hello
+key Enter
+wait 4
+snap after-prompt

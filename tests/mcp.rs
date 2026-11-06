@@ -172,10 +172,14 @@ fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
     session.wait_for("Project MCP server 'proj' is defined in .mcp.json.");
     session.wait_for("[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts");
+    // And the status line says so on its right, as fx v0.0.16's does
+    // (`dismiss-settled`): no server is still starting, so at once.
+    session.wait_for("proj is waiting for approval \u{b7} /mcp");
     // A letter typed at the prompt is not a draft: the prompt owns the keys.
     session.type_bytes(b"x3");
     session.wait_for("Rejecting project MCP server 'proj'.");
-    session.wait_for("MCP configuration reloaded successfully.");
+    // The reload after it says nothing (fx v0.0.16); the choice is saved
+    // before the sentence is written.
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
     let settings: Value = serde_json::from_str(
@@ -239,8 +243,10 @@ fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_a
     session.wait_for("command: /bin/sh /");
     session.wait_for("[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts");
     session.type_bytes(b"1");
+    // Saved before the sentence is written; the reload after it says
+    // nothing (fx v0.0.16), and one that read the model's rewrite would ask
+    // about it all the same.
     session.wait_for("Approving project MCP server 'proj'.");
-    session.wait_for("MCP configuration reloaded successfully.");
 
     session.type_bytes(b"tidy the MCP config\r");
     session.wait_for("MARKER-MCP-REWRITTEN");
