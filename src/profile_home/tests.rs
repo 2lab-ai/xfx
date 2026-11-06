@@ -142,12 +142,19 @@ fn writers() -> Vec<Writer> {
             )
             .map_err(|err| err.to_string())
         }),
-        ("the MCP profile", |bench| {
-            crate::mcp::config::add_profile_server(
+        // `/mcp add` and `/mcp remove` (fx v0.0.16's verbs): one edit under
+        // the profile's `mcp.lock`, of the profile or, with `--project`, of
+        // the workspace's `.mcp.json`, whose lock is still the profile's.
+        ("/mcp add", |bench| {
+            let profile = bench.profile().join("mcp.json");
+            mcp_add(&profile, crate::mcp::config::File::Profile, &profile)
+        }),
+        ("/mcp add --project", |bench| {
+            mcp_add(
                 &bench.profile().join("mcp.json"),
-                crate::mcp::config::ServerConfig::local("demo", "true", &[]),
+                crate::mcp::config::File::Project,
+                &bench.work.join(".mcp.json"),
             )
-            .map_err(|err| err.to_string())
         }),
         ("the prompt history", |bench| {
             PromptHistory::in_profile(&bench.profile())
@@ -161,6 +168,22 @@ fn writers() -> Vec<Writer> {
             skills(bench, &format!("add {}", source.display()))
         }),
     ]
+}
+
+/// `/mcp add demo -- true` into `file` at `path`, its lock beside `profile`.
+fn mcp_add(profile: &Path, file: crate::mcp::config::File, path: &Path) -> Answer {
+    use crate::mcp::config::{Change, Entry};
+    let change = Change::Add {
+        name: "demo".to_string(),
+        entry: Entry::Stdio {
+            command: "true".to_string(),
+            args: Vec::new(),
+            env: Vec::new(),
+        },
+    };
+    crate::mcp::config::update(profile, file, path, &change)
+        .map(drop)
+        .map_err(|err| err.to_string())
 }
 
 /// Every directory at or below `dir`, links not followed.
@@ -253,11 +276,12 @@ fn every_writer_makes_the_profile_home_private_under_any_umask() {
 }
 
 /// What `writer` is expected to say for a home refused with `store`, the
-/// session store's own sentence: each says it in its surface's shape, the MCP
-/// profile in upstream's error name.
-fn refused_as(writer: &str, store: &str, name: &str) -> String {
+/// session store's own sentence: each says it in its surface's shape. `/mcp`'s
+/// verbs say it as it is (after `Couldn't add demo to <file>: `, which the
+/// verb adds); the MCP profile's whole-file writer that spoke in upstream's
+/// error names is test-only since the verbs replaced it (`edit_profile`).
+fn refused_as(writer: &str, store: &str) -> String {
     match writer {
-        "the MCP profile" => name.to_string(),
         "/skills create" => format!("Failed to create skill 'demo': {store}."),
         "/skills add" => format!("Failed to install: {store}."),
         _ => store.to_string(),
@@ -285,15 +309,7 @@ fn an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never
                 )
             )
         );
-        assert_eq!(
-            write(&bench),
-            Err(refused_as(
-                writer,
-                &store,
-                "PrivateStatePermissionsUnsupported"
-            )),
-            "{writer}"
-        );
+        assert_eq!(write(&bench), Err(refused_as(writer, &store)), "{writer}");
         assert_eq!(mode(&profile), 0o755, "{writer} changed the home's mode");
         assert_eq!(
             fs::read_dir(&profile).expect("a listing").count(),
@@ -316,11 +332,7 @@ fn a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it
             .expect_err("the store refuses a linked home")
             .to_string();
         assert_eq!(store, refusal(&profile, &Problem::Link.detail(&profile)));
-        assert_eq!(
-            write(&bench),
-            Err(refused_as(writer, &store, "DurablePathUnsafe")),
-            "{writer}"
-        );
+        assert_eq!(write(&bench), Err(refused_as(writer, &store)), "{writer}");
         assert!(fs::symlink_metadata(&profile)
             .expect("still there")
             .file_type()
@@ -383,8 +395,6 @@ fn a_missing_home_is_refused_by_every_writer_and_nothing_is_made() {
         let bench = Bench::homeless();
         let answer = write(&bench).expect_err(writer);
         match writer {
-            // Upstream's error name, as every other MCP profile failure.
-            "the MCP profile" => assert_eq!(answer, "McpConfigPathInvalid"),
             // Every install failure that is not a refused home is said in
             // upstream's one sentence.
             "/skills add" => assert_eq!(answer, crate::skills::install::FAILED),

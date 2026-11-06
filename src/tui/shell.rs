@@ -6286,6 +6286,13 @@ impl Shell {
         // ([`super::worker::WorkHandle::submit_switch`]).
         match self.work.submit_switch(TurnWork::Resume(id.clone())) {
             Ok(()) => {
+                // Another session is on its way in: a fork's prompt, held
+                // under this picker or still on its way with the fork, is the
+                // replaced conversation's. An Escape before the resume lands
+                // would otherwise put it in the composer the resumed session
+                // keeps ([`Self::settle_fork_prompt`]).
+                self.fork_prompt = None;
+                self.fork_prompt_held = None;
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.resuming(id);
                 }
@@ -12772,6 +12779,11 @@ impl CommandHandlers for Shell {
         self.statusline_menu = None;
         self.workspace_menu = None;
         self.info_panel = None;
+        // `/mcp`'s menu, as `/mcp` closes this screen ([`Self::mcp`]): one
+        // surface in the slot. Not reached by a typed line -- the menu takes
+        // Enter, and its filter is the composer -- so this holds the rule for
+        // any other way the handler is reached.
+        self.mcp_menu = None;
         self.close_fork_menu();
         self.close_usage();
         self.open_usage_runtime();
@@ -33508,7 +33520,7 @@ mod tests {
         let home = tempfile::tempdir().expect("a home");
         let workspace = home.path().join("work");
         std::fs::create_dir_all(&workspace).expect("a workspace");
-        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile dir");
+        crate::profile_home::made(&home.path().join(".xfx"));
         std::fs::write(
             home.path().join(".xfx").join("mcp.json"),
             r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
@@ -42559,6 +42571,25 @@ mod tests {
     }
 
     #[test]
+    fn the_usage_screen_and_the_mcp_menu_close_each_other() {
+        // Two slot surfaces, one at a time (`slot`): each opener, reached
+        // through the router as the opener table's are, closes the other.
+        for (first, second) in [("/mcp", "/usage"), ("/usage", "/mcp")] {
+            let root = tempfile::tempdir().expect("a root");
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            router::route(&router::classify(first), &mut *shell);
+            router::route(&router::classify(second), &mut *shell);
+            assert_eq!(
+                slot_occupants(&shell),
+                1,
+                "{second} over {first}: two surfaces in the slot"
+            );
+            assert_eq!(shell.mcp_menu.is_some(), second == "/mcp", "{second}");
+            assert_eq!(shell.usage_menu.is_some(), second == "/usage", "{second}");
+        }
+    }
+
+    #[test]
     fn a_rule_confirmation_opening_drops_a_fork_on_its_way() {
         // `/permissions remember`'s own close, reached through the router
         // without the line-sent one in front of it: the opener table's bare
@@ -42968,6 +42999,104 @@ mod tests {
         while shell.sent.try_recv().is_ok() {
             shell.work.give_back();
         }
+    }
+
+    #[test]
+    fn a_fork_prompt_held_under_the_session_picker_is_dropped_by_the_resume_an_escape_left_running()
+    {
+        // Escape takes the picker down while the resume it asked for runs (a
+        // switch, `resume_selected`). The prompt held under the picker is the
+        // forked conversation's: the session the resume lands in must not get
+        // it as its draft, whether the Escape came first or the resume did.
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = fork_landed_under("/resume", |shell| shell.sessions.is_some());
+        let session = |id: &str, title: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(title.to_string()),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![
+                session("b", "second question beta"),
+                session("a", "first question alpha"),
+            ],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        shell.route_bytes(b"\x1b[B\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("a".to_string()));
+        shell.work.give_back();
+        escape(&mut shell);
+        assert!(shell.sessions.is_none(), "Escape left the picker up");
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the forked conversation's prompt came back over a resume in flight"
+        );
+        shell.apply(UiEvent::Resumed(replay(
+            Some("first question alpha"),
+            Vec::new(),
+        )));
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the forked conversation's prompt became the resumed session's draft"
+        );
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+    }
+
+    #[test]
+    fn a_fork_still_on_its_way_when_another_session_is_resumed_brings_no_prompt_to_it() {
+        // The same switch with the fork landing after the resume was asked
+        // for and the picker taken down: the runtime makes the fork first and
+        // the resume then replaces it, so the fork's prompt is never the
+        // resumed session's draft.
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        taken_up(&mut shell);
+        escape(&mut shell);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\x1b[A\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
+        shell.work.give_back();
+        recall_until(&mut shell, "/resume");
+        shell.route_bytes(b"\r");
+        taken_up(&mut shell);
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![ListedSession {
+                id: "a".to_string(),
+                title: Some("first question alpha".to_string()),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            }],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("a".to_string()));
+        shell.work.give_back();
+        escape(&mut shell);
+        assert!(shell.sessions.is_none());
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
+            source: "1793751392050-7d3ce346fd20313d".to_string(),
+        });
+        shell.apply(UiEvent::Resumed(replay(
+            Some("first question alpha"),
+            Vec::new(),
+        )));
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the fork's prompt became the resumed session's draft"
+        );
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
     }
 
     #[test]

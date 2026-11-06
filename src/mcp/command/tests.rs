@@ -68,7 +68,7 @@ impl Scratch {
     }
 
     fn write_profile(&self, text: &str) {
-        std::fs::create_dir_all(self.profile().parent().unwrap()).unwrap();
+        crate::profile_home::made(self.profile().parent().unwrap());
         std::fs::write(self.profile(), text).unwrap();
     }
 

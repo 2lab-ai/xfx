@@ -1071,7 +1071,10 @@ fn edit_profile(
 /// `DurablePathUnsafe`, another account's or an open one
 /// `PrivateStatePermissionsUnsupported` (`openOrCreateVerifiedPrivateChild`,
 /// `src/core/shared/io.zig:733-739@481104fd`). Upstream `chmod`s an open one
-/// it owns and goes on; xfx refuses it ([`crate::profile_home`]).
+/// it owns and goes on; xfx refuses it ([`crate::profile_home`]). Test-only
+/// with the writer it speaks for ([`edit_profile`]); `/mcp`'s own writer
+/// ([`update`]) says the refusal in words ([`EditError::Refused`]).
+#[cfg(test)]
 fn profile_error(err: &io::Error) -> ConfigError {
     use crate::profile_home::{Problem, Refused};
     match Refused::of(err).map(|refused| refused.problem) {
@@ -1632,6 +1635,14 @@ pub enum EditError {
     ReadOnly,
     /// Another xfx held `mcp.lock` past upstream's two seconds.
     Busy,
+    /// The profile home `mcp.lock` is in could not be used -- a link, not a
+    /// directory, another account's or open to group or other, or a home
+    /// directory that is not there -- in the session store's words
+    /// ([`crate::profile_home::refusal`]). Upstream repairs an open one it
+    /// owns, and says `something went wrong` for the rest (`describe`,
+    /// `verbs.zig:313-327@481104fd`); xfx refuses it and says why, as every
+    /// writer in the profile does.
+    Refused(String),
     /// Anything else: an I/O error, a file over 1 MiB or not a regular file.
     Failed,
 }
@@ -1676,6 +1687,7 @@ impl EditError {
             }
             Self::ReadOnly => "permission denied".into(),
             Self::Busy => "another xfx is changing the MCP config; try again".into(),
+            Self::Refused(why) => why.clone(),
             Self::Failed => "something went wrong".into(),
         }
     }
@@ -1913,7 +1925,18 @@ pub fn update(
     change: &Change,
 ) -> Result<Updated, EditError> {
     let dir = profile_path.parent().ok_or(EditError::Failed)?;
-    create_private_dir(dir).map_err(|_| EditError::Failed)?;
+    // The profile home the lock is in, made private or refused, never
+    // repaired ([`crate::profile_home::ensure`]); upstream opens it verified
+    // private for the lock the same way (`profileDir`,
+    // `config_file.zig:147-155@481104fd`), whichever file the edit is of.
+    crate::profile_home::ensure(dir, dir).map_err(|err| {
+        if crate::profile_home::Refused::of(&err).is_some() || err.kind() == io::ErrorKind::NotFound
+        {
+            EditError::Refused(err.to_string())
+        } else {
+            EditError::Failed
+        }
+    })?;
     let _lock = ProfileLock::acquire(&dir.join(PROFILE_LOCK)).map_err(|err| match err.0 {
         "McpConfigLockTimeout" => EditError::Busy,
         _ => EditError::Failed,
@@ -3745,6 +3768,9 @@ mod tests {
         let repo = scratch.join("repo");
         fs::create_dir_all(repo.join(".git")).unwrap();
         fs::write(repo.join(".git").join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // A home that is there, as a person's is: xfx makes `~/.xfx` in it,
+        // never the home itself ([`crate::profile_home`]).
+        fs::create_dir(scratch.join("home")).unwrap();
         let profile = scratch.join("home").join(".xfx").join(PROFILE_FILE);
         (dir, repo, profile)
     }
@@ -3901,7 +3927,7 @@ mod tests {
             "it's a link to x\\x1b]0;t\\x07, and xfx edits only a plain file; edit x\\x1b]0;t\\x07 by hand"
         );
         // The profile is held to the same rule.
-        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        crate::profile_home::made(profile.parent().unwrap());
         std::os::unix::fs::symlink(&outside, &profile).unwrap();
         assert!(matches!(
             update(&profile, File::Profile, &profile, &add),
@@ -4028,7 +4054,7 @@ mod tests {
         // where a project's `.mcp.json` keeps its mode.
         use std::os::unix::fs::PermissionsExt;
         let (_dir, _repo, profile) = scratch_repo();
-        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        crate::profile_home::made(profile.parent().unwrap());
         for (mode, change) in [
             (
                 0o644,
@@ -4237,7 +4263,7 @@ mod tests {
         // an entry the reader would skip must stop it instead.
         let dir = tempfile::tempdir().expect("dir");
         let path = dir.path().join("p").join(PROFILE_FILE);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        crate::profile_home::made(path.parent().unwrap());
         let text = r#"{"mcp":{"broken":{"command":123}}}"#;
         fs::write(&path, text).unwrap();
         assert_eq!(
