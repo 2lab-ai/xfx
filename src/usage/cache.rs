@@ -26,10 +26,18 @@
 //!   (`identityOf`, `cache.zig:21-35`), the formula and the prefix fx's own,
 //!   so a fixture seeded for fx's cache seeds this one. [`Identity`] is the
 //!   only thing this module is given; the key stays in
-//!   [`super::report::Question`], which also refuses a report whose model name
-//!   spells the key (`report::KeySpellings`), so no row stored here carries it.
-//!   **This assumes a high-entropy key**: the digest is unsalted and its
-//!   prefix public, so a short key could be guessed offline from a file name.
+//!   [`super::report::Question`]. That module also refuses a report whose
+//!   model name spells the key (`report::KeySpellings`): any 12-byte run of
+//!   it as is, in hex of either case, or in base64, standard or URL-safe, at
+//!   each of the three byte alignments -- where a shifted run keeps only its
+//!   whole base64 groups, so the shortest run looked for in base64 is 9 bytes.
+//!   Other encodings (percent-escapes, base32, a reversal) are not looked for.
+//!   **That refusal guards against an accidental echo, not a hostile
+//!   Gateway**: the configured Gateway is trusted with the key -- it is where
+//!   the bearer rule sends it -- and the session log keeps its reply text
+//!   anyway (`SessionEvent::AssistantMessage`).
+//!   **The digest assumes a high-entropy key**: it is unsalted and its prefix
+//!   public, so a short key could be guessed offline from a file name.
 //! - **Server text as text.** A model name is the Gateway's string
 //!   ([`ModelRow::model`]): written as an escaped JSON string, read back as
 //!   the same string, and never part of a path -- every name below the
@@ -435,8 +443,9 @@ pub enum StoreError {
     /// `/usage` reports as the `cache` failure, `usage.zig:705-708`).
     Invalid,
     /// A link, a hard-linked file, or something that is not a regular file or
-    /// directory is where the cache's directory or one of its files belongs.
-    /// It is neither followed nor replaced.
+    /// directory is where the cache's directory or one of its files belongs;
+    /// or `~/.xfx` or `usage-cache` is not private -- another user's, or open
+    /// to group or other. It is neither followed, nor replaced, nor repaired.
     Refused(&'static str),
     /// The directory or a file could not be made, locked, written or renamed,
     /// or another process held the lock past the deadline.
@@ -499,7 +508,7 @@ fn base_of(stored: Option<Entry>, held: Option<&Entry>, now_ms: i64) -> Entry {
 }
 
 /// The cache's file system half: every name opened relative to a descriptor,
-/// and from `usage-cache` down never through a link.
+/// and from `~/.xfx` down never through a link.
 #[cfg(unix)]
 mod fs {
     use std::fs::File;
@@ -610,7 +619,7 @@ mod fs {
     }
 
     /// Refuses the directory `fd` unless it is private to this user.
-    fn verify_private_dir(fd: &OwnedFd) -> Result<(), StoreError> {
+    pub(super) fn verify_private_dir(fd: &OwnedFd) -> Result<(), StoreError> {
         let stat = rustix::fs::fstat(fd).map_err(io_err)?;
         match private_dir_problem(
             FileType::from_raw_mode(stat.st_mode),
@@ -702,9 +711,13 @@ mod fs {
         if u64::try_from(stat.st_size).map_or(true, |size| size > MAX_FILE_BYTES) {
             return Load::Unusable;
         }
+        #[cfg(test)]
+        seam::after_stat();
         let Ok(bytes) = read_capped(File::from(fd)) else {
             return Load::Unusable;
         };
+        #[cfg(test)]
+        seam::read(bytes.len());
         decode(identity, &bytes).map_or(Load::Unusable, Load::Found)
     }
 
@@ -896,6 +909,38 @@ mod fs {
         let entry = decode(identity, &bytes).ok_or(StoreError::Invalid)?;
         replace(&dir, identity, &bytes)?;
         Ok(entry)
+    }
+
+    /// Test-only: what runs between a load's size check and its read, and how
+    /// many bytes the read took, per thread. Compiled only into tests.
+    #[cfg(test)]
+    pub(super) mod seam {
+        use std::cell::{Cell, RefCell};
+
+        thread_local! {
+            static AFTER_STAT: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+            static READ: Cell<Option<usize>> = const { Cell::new(None) };
+        }
+
+        /// Runs `hook` in this thread's next load, after the size check.
+        pub(in super::super) fn on_after_stat(hook: impl FnOnce() + 'static) {
+            AFTER_STAT.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        }
+
+        /// How many bytes this thread's last load read, once.
+        pub(in super::super) fn last_read() -> Option<usize> {
+            READ.with(Cell::take)
+        }
+
+        pub(super) fn after_stat() {
+            if let Some(hook) = AFTER_STAT.with(|slot| slot.borrow_mut().take()) {
+                hook();
+            }
+        }
+
+        pub(super) fn read(len: usize) {
+            READ.with(|read| read.set(Some(len)));
+        }
     }
 }
 
