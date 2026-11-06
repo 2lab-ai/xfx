@@ -22,6 +22,13 @@ lrwxr-xr-x <tmp>/base/link/HOME/.xfx
 entries where a link points: settings.json settings.lock 
 sessions exit=1
 xfx: <tmp>/base/link/HOME/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives
+## xfx setup gateway, HOME not there
+setup exit=0
+xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+drwx------ <tmp>/base/nohome/HOME
+drwx------ <tmp>/base/nohome/HOME/.xfx
+-rw------- <tmp>/base/nohome/HOME/.xfx/settings.json
+-rw------- <tmp>/base/nohome/HOME/.xfx/settings.lock
 ## XFX_TUI=1: /skills create demo, then /skills add <that skill>
 child status 0
 drwx------ <tmp>/base/tui/HOME/.xfx

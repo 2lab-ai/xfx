@@ -33967,6 +33967,7 @@ mod tests {
         // on both paths -- the picker is silent only about success.
         let root = tempfile::tempdir().expect("a root");
         let settings = root.path().join("home").join(".xfx").join("settings.json");
+        std::fs::create_dir(root.path().join("home")).expect("a home");
         crate::profile_home::made(settings.parent().expect("a parent"));
         std::fs::write(&settings, "{not json").expect("an unreadable profile");
         let mut shell = shell_at_home(root.path(), 40, 200);

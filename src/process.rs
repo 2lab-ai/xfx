@@ -141,9 +141,106 @@ pub fn collect_own_children() -> std::io::Result<()> {
     Ok(())
 }
 
+/// A test's child, run to its end within `limit`: its output, or `TimedOut`
+/// once it has run that long, killed and reaped -- a hung child fails the case
+/// that started it rather than the whole run waiting on it. The child's stdin
+/// is null and its stdout and stderr are read whole, each on a thread of its
+/// own, so a child that fills one pipe cannot stall waiting on the other.
+#[cfg(test)]
+pub(crate) fn output_within(
+    command: &mut Command,
+    limit: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    };
+    let stdout = drain(
+        child
+            .stdout
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+    );
+    let stderr = drain(
+        child
+            .stderr
+            .take()
+            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+    );
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() >= limit {
+            // This test's own child, by its handle: killed, then waited for,
+            // so no zombie is left behind. The readers are not joined -- a
+            // grandchild could still hold the pipes.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("the child was still running after {limit:?}, and was killed"),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_child_past_its_limit_is_killed_and_reaped() {
+        let pid_file = tempfile::NamedTempFile::new().expect("a pid file");
+        let mut child = command("/bin/sh");
+        child.args(["-c", "echo $$ > \"$1\"; exec sleep 30", "sh"]);
+        child.arg(pid_file.path());
+        let started = std::time::Instant::now();
+        let err = output_within(&mut child, std::time::Duration::from_millis(500))
+            .expect_err("a child that sleeps past its limit");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut, "{err}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        let pid: i32 = std::fs::read_to_string(pid_file.path())
+            .expect("the pid")
+            .trim()
+            .parse()
+            .expect("a number");
+        // Reaped, not only killed: a zombie still answers a signal 0.
+        let pid = rustix::process::Pid::from_raw(pid).expect("a pid");
+        assert_eq!(
+            rustix::process::test_kill_process(pid),
+            Err(rustix::io::Errno::SRCH)
+        );
+    }
+
+    #[test]
+    fn a_child_within_its_limit_hands_back_all_it_said() {
+        let mut child = command("/bin/sh");
+        child.args(["-c", "printf out; printf err >&2; exit 3"]);
+        let output = output_within(&mut child, std::time::Duration::from_secs(60)).expect("ran");
+        assert_eq!(output.status.code(), Some(3));
+        assert_eq!(output.stdout, b"out");
+        assert_eq!(output.stderr, b"err");
+    }
     use std::time::{Duration, Instant};
 
     /// Runs `body` on a thread that blocks every signal the TUI owns, as

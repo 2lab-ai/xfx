@@ -28,6 +28,13 @@ for case in fresh open link; do
 	(cd "$r/work" && timeout 20 env -i PATH=/usr/bin:/bin HOME="$r/HOME" TMPDIR=$tmp "$xfx" sessions > "$r/sessions.out" 2>&1; echo "sessions exit=$?")
 	head -1 "$r/sessions.out"
 done
+r=$tmp/$label/nohome
+rm -rf "$r"
+mkdir -p "$r/work"
+echo "## xfx setup gateway, HOME not there"
+(cd "$r/work" && timeout 20 env -i PATH=/usr/bin:/bin HOME="$r/HOME" TMPDIR=$tmp "$xfx" setup gateway > "$r/setup.out" 2>&1; echo "setup exit=$?")
+grep -v '^\[setup\]' "$r/setup.out"
+if [ -e "$r/HOME" ]; then find "$r/HOME" -exec stat -f '%Sp %N' {} \; | sort -k2; else echo "HOME still not there"; fi
 r=$tmp/$label/tui
 rm -rf "$r"
 mkdir -p "$r/HOME" "$r/work"

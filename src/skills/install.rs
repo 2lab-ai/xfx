@@ -286,11 +286,14 @@ fn profile_of(managed: &Path) -> io::Result<&Path> {
 /// Makes `dir` -- the managed root, or a directory in it -- if it is not there,
 /// the profile home above it as every writer in the profile makes it: each
 /// missing level `0700`, an existing `~/.xfx` that is not private refused
-/// rather than repaired ([`crate::profile_home::ensure`]). Upstream makes these
-/// with the default mode (`makeDirRecursive`, `skills.zig:247`, `:252`,
-/// `ensureDir`, `:786-798@481104fd`); `docs/parity.md` says why xfx does not.
+/// rather than repaired. The managed root and a skill's directory are the
+/// user's content, so one that is a link to a directory is followed, as
+/// upstream follows it ([`crate::profile_home::ensure_content`]). Upstream
+/// makes these with the default mode (`makeDirRecursive`, `skills.zig:247`,
+/// `:252`, `ensureDir`, `:786-798@481104fd`); `docs/parity.md` says why xfx
+/// does not.
 pub(super) fn ensure_managed(managed: &Path, dir: &Path) -> io::Result<()> {
-    crate::profile_home::ensure(profile_of(managed)?, dir)
+    crate::profile_home::ensure_content(profile_of(managed)?, dir)
 }
 
 /// Copies `source` into `managed/<name>` whole, or not at all
@@ -375,6 +378,9 @@ fn lock(managed: &Path, name: &str) -> io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
     let parent = profile_of(managed)?;
     let dir = parent.join(LOCK_DIR);
+    // Private state, as upstream's `openOrCreateVerifiedPrivateDirFromDir`
+    // holds it (`acquireSkillInstallLock`, `skills.zig:684-702@481104fd`): a
+    // link, another account's or an open one is refused, never followed.
     crate::profile_home::ensure(parent, &dir)?;
     if !fs::symlink_metadata(&dir)?.is_dir() {
         return Err(io::Error::new(
@@ -461,6 +467,7 @@ mod tests {
         );
         write(&source.join("foo/.git/HEAD"), "ref");
         write(&source.join("foo/notes/extra.md"), "extra");
+        fs::create_dir(root.join("home")).unwrap();
         let managed = root.join("home/.xfx/skills");
         let said = install(&managed, "./skill-src", None, &root.join("work"));
         assert_eq!(said, "Installed: foo");
@@ -481,6 +488,7 @@ mod tests {
     #[test]
     fn a_source_that_is_not_a_directory_is_a_failed_install_and_no_fetch() {
         let base = tempfile::tempdir().unwrap();
+        fs::create_dir(base.path().join("home")).unwrap();
         let managed = base.path().join("home/.xfx/skills");
         for source in [
             "owner/repo",
@@ -503,6 +511,7 @@ mod tests {
         let source = base.path().join("src");
         write(&source.join("a/SKILL.md"), "---\nname: a\n---\n");
         write(&source.join("b/SKILL.md"), "---\nname: b\n---\n");
+        fs::create_dir(base.path().join("home")).unwrap();
         let managed = base.path().join("home/.xfx/skills");
         let absolute = source.to_string_lossy().into_owned();
         assert_eq!(

@@ -186,7 +186,8 @@ fn create(managed: &Path, name: &str) -> Result<String, String> {
     let file = dir.join("SKILL.md");
     // The managed root's directories are the profile's: `~/.xfx` and each
     // missing level below it made owner-only, an existing `~/.xfx` that is not
-    // private refused (`crate::profile_home::ensure`).
+    // private refused; a managed root linked into the user's own files is
+    // followed, as upstream follows it (`crate::profile_home::ensure_content`).
     let written = super::install::ensure_managed(managed, &dir)
         .and_then(|()| std::fs::write(&file, template(name)));
     match written {

@@ -7,12 +7,16 @@
 //! each used to make it its own way. One made it with the umask's mode, `0755`,
 //! and the session store, which refuses a `~/.xfx` that group or other can
 //! reach, then refused the home that writer left until the user ran `chmod`.
-//! [`ensure`] is now how every one of them makes a directory there.
+//! [`ensure`] and [`ensure_content`] are now how every one of them makes a
+//! directory there.
 //!
 //! - **Made private.** A missing `~/.xfx`, and each missing directory below it
 //!   the writer needs, is made `0700` from its creation, one level at a time
-//!   (`DirBuilder::mode`), so no level is ever the umask's for a moment. So is a
-//!   missing home directory above it.
+//!   (`DirBuilder::mode`), so no level is ever the umask's for a moment.
+//! - **No home, no profile.** A home directory that is not there is refused
+//!   (`NotFound`), never made: a missing `$HOME` is a misconfiguration -- an
+//!   unmounted home, a stale environment, a typo -- and upstream refuses it too
+//!   (`Store.initFromHome`, `src/core/config/settings_store.zig:343-347@481104fd`).
 //! - **Checked, never repaired.** A `~/.xfx` that is there must be a plain
 //!   directory, owned by this user, with nothing granted to group or other
 //!   ([`problem`], the session store's rule). One that is not is refused, in
@@ -21,6 +25,30 @@
 //!   stopping. Upstream repairs one instead (`openOrCreateVerifiedPrivateChild`,
 //!   `src/core/shared/io.zig:712-742@481104fd`); `docs/parity.md` says why xfx
 //!   does not.
+//! - **Private state and user content below it.** The two kinds of level
+//!   below `~/.xfx` are told apart as upstream tells them apart:
+//!   - *Private state* -- `.skill-install-locks/` through [`ensure`], and
+//!     `sessions/` and `sessions.staged/` through the session store's own
+//!     check -- is held to `~/.xfx`'s rule when it is there: a link, something
+//!     that is not a directory, another account's or an open one is refused
+//!     (upstream opens it with `follow_symlinks = false` and answers
+//!     `DurablePathUnsafe`, `openOrCreateVerifiedPrivateChild`).
+//!   - *User content* -- the managed skills root `skills/` and each
+//!     `skills/<name>/`, through [`ensure_content`] -- is followed when it is a
+//!     link to a directory, so a skills directory linked into dotfiles keeps
+//!     working, as upstream's `makeDirRecursive` follows one
+//!     (`createSkillTemplate`, `src/builtins/skills.zig:247-252@481104fd`).
+//! - **A trusted home, stable ancestors.** Every check here is on a path:
+//!   `~/.xfx` is looked at with `lstat`, and each writer then reaches it again
+//!   by the same path. That is sound while `$HOME` and the directories above it
+//!   are not replaced between the check and the write, which takes write access
+//!   to `$HOME` -- this user or root, who hold the profile already, or anyone
+//!   at all when `$HOME` is writable by others without the sticky bit, the
+//!   user's own misconfiguration. Two things are named and not done here: an
+//!   opener that pins the directory it checked (`O_NOFOLLOW | O_DIRECTORY`,
+//!   `fstat`, then `*at` calls, as the usage cache's `open_dir_in` does), and
+//!   access-control lists, which the mode bits do not show on macOS and which
+//!   are not read.
 //!
 //! Workspace `.xfx/` directories are not this module's: they live in the
 //! project, nothing here makes them, and the write tools refuse any path through
@@ -48,8 +76,10 @@ pub enum Problem {
 }
 
 impl Problem {
-    /// The session store's clause for this problem, word for word.
-    pub fn detail(&self) -> String {
+    /// The session store's clause for this problem at `path`. An open
+    /// directory -- the one problem this user can fix, it being theirs --
+    /// names the fix.
+    pub fn detail(&self, path: &Path) -> String {
         match *self {
             Self::Link => "it is a symbolic link, and xfx will not follow one to decide where \
                            session state lives"
@@ -59,9 +89,27 @@ impl Problem {
                 format!("it is owned by uid {owner}, not by uid {current} running xfx")
             }
             Self::Open { mode } => format!(
-                "it is mode {mode:o}; session state must not be reachable by group or other"
+                "it is mode {mode:o}; session state must not be reachable by group or other \
+                 (`chmod 700 {}` makes it private)",
+                shell_word(path)
             ),
         }
+    }
+}
+
+/// `path` as one shell word: as it is when every byte is one a shell leaves
+/// alone, single-quoted otherwise, so the `chmod` a refusal names can be
+/// pasted as it is.
+fn shell_word(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let plain = !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"/._-+@%:,=~".contains(&byte));
+    if plain {
+        text.into_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
     }
 }
 
@@ -82,7 +130,7 @@ pub struct Refused {
 
 impl fmt::Display for Refused {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&refusal(&self.path, &self.problem.detail()))
+        f.write_str(&refusal(&self.path, &self.problem.detail(&self.path)))
     }
 }
 
@@ -140,19 +188,43 @@ pub fn problem(path: &Path) -> io::Result<Option<Problem>> {
     }
 }
 
-/// Makes sure `dir` -- the profile home `profile` itself, or a directory below
-/// it -- is there.
+/// Makes sure `dir` -- the profile home `profile` itself, or a directory of
+/// **private state** below it -- is there.
 ///
 /// `profile` is checked when it is there ([`problem`]) and refused, never
-/// repaired, when it is not fit; when it is missing it is made `0700`, and so
-/// is any missing directory above it. Then each missing level from `profile`
-/// down to `dir` is made `0700` by itself. A level below `profile` that is
-/// already there is used as it is, as long as it is a directory: below a
-/// private home only its owner could have put it there.
+/// repaired, when it is not fit; when it is missing it is made `0700`, as long
+/// as the home directory it goes in is there. Then each level from `profile`
+/// down to `dir` is made `0700` when it is missing, and held to `profile`'s
+/// rule when it is there: a link, something that is not a directory, another
+/// account's or an open one is refused, never followed.
 ///
 /// `dir` must be `profile` or name a directory under it in plain components
 /// (no `..`), so nothing this makes is ever outside the profile.
 pub fn ensure(profile: &Path, dir: &Path) -> io::Result<()> {
+    ensure_levels(profile, dir, Kind::Private)
+}
+
+/// [`ensure`] for a directory of **user content** below the profile home --
+/// the managed skills root and a skill's directory in it: `profile` is checked
+/// and made exactly as [`ensure`] checks and makes it, and each missing level
+/// below it is made `0700`, but a level that is there is used as it is when it
+/// is a directory **or a link to one**, which is followed, as upstream follows
+/// one (`makeDirRecursive`, `src/core/shared/io.zig:1077-1093@481104fd`).
+pub fn ensure_content(profile: &Path, dir: &Path) -> io::Result<()> {
+    ensure_levels(profile, dir, Kind::Content)
+}
+
+/// What a level below the profile home holds, which decides how one that is
+/// already there is taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Held to the profile home's rule; a link is refused.
+    Private,
+    /// The user's: a link to a directory is followed.
+    Content,
+}
+
+fn ensure_levels(profile: &Path, dir: &Path, kind: Kind) -> io::Result<()> {
     let below = dir.strip_prefix(profile).map_err(|_| outside(dir))?;
     // Every level named before anything is made: a `..` refused after the
     // profile home was made would have made it for nothing.
@@ -169,11 +241,28 @@ pub fn ensure(profile: &Path, dir: &Path) -> io::Result<()> {
         level.push(name);
         match make_new(&level) {
             Ok(()) => {}
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists && level.is_dir() => {}
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => match kind {
+                Kind::Private => refuse_unfit(&level)?,
+                Kind::Content if level.is_dir() => {}
+                Kind::Content => return Err(err),
+            },
             Err(err) => return Err(err),
         }
     }
     Ok(())
+}
+
+/// `Err` with the [`Refused`] for a directory at `path` that [`problem`]
+/// finds unfit; `Ok` for a fit one.
+fn refuse_unfit(path: &Path) -> io::Result<()> {
+    match problem(path)? {
+        None => Ok(()),
+        Some(problem) => Err(Refused {
+            path: path.to_path_buf(),
+            problem,
+        }
+        .into_io()),
+    }
 }
 
 fn outside(dir: &Path) -> io::Error {
@@ -183,14 +272,21 @@ fn outside(dir: &Path) -> io::Error {
     )
 }
 
-/// The profile home, checked when it is there and made `0700` when it is not.
+/// The profile home, checked when it is there and made `0700` when it is not;
+/// a home directory that is not there is `NotFound`, and nothing is made.
 fn ensure_profile(profile: &Path) -> io::Result<()> {
     match fs::symlink_metadata(profile) {
         Ok(_) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            if let Some(parent) = profile.parent() {
-                if !parent.as_os_str().is_empty() && !parent.is_dir() {
-                    make_all(parent)?;
+            if let Some(home) = profile.parent() {
+                if !home.as_os_str().is_empty() && !home.is_dir() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!(
+                            "the home directory {} is not there, and xfx does not make one",
+                            home.display()
+                        ),
+                    ));
                 }
             }
             match make_new(profile) {
@@ -203,14 +299,7 @@ fn ensure_profile(profile: &Path) -> io::Result<()> {
         }
         Err(err) => return Err(err),
     }
-    match problem(profile)? {
-        None => Ok(()),
-        Some(problem) => Err(Refused {
-            path: profile.to_path_buf(),
-            problem,
-        }
-        .into_io()),
-    }
+    refuse_unfit(profile)
 }
 
 /// Makes one new directory, owner-only from the moment it exists; one already
@@ -225,22 +314,6 @@ pub fn make_new(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 pub fn make_new(path: &Path) -> io::Result<()> {
     fs::create_dir(path)
-}
-
-/// Makes `path` and each missing directory above it, every one owner-only:
-/// `DirBuilder`'s recursive create gives each level it makes the builder's mode.
-#[cfg(unix)]
-fn make_all(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(DIR_MODE)
-        .create(path)
-}
-
-#[cfg(not(unix))]
-fn make_all(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)
 }
 
 /// A profile home for a test's fixture: `profile` made as [`ensure`] makes it,

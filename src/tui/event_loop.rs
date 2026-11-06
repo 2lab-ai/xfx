@@ -2263,6 +2263,10 @@ mod tests {
         shell: Shell,
         _work: tokio::sync::mpsc::Receiver<crate::tui::bridge::TurnWork>,
         _control: tokio::sync::mpsc::UnboundedReceiver<crate::tui::bridge::TurnControl>,
+        // Kept for the fixture's life: a setting the shell saves goes into
+        // this home, and xfx makes no home that is not there.
+        _home: tempfile::TempDir,
+        _workspace: tempfile::TempDir,
     }
 
     impl std::ops::Deref for Fixture {
@@ -2335,6 +2339,8 @@ mod tests {
             .anchored(),
             _work,
             _control,
+            _home: home,
+            _workspace: workspace,
         }
     }
 

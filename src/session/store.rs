@@ -3402,7 +3402,7 @@ fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
         Ok(None) => Ok(()),
         Ok(Some(problem)) => Err(SessionError::InsecureParent {
             path: path.to_path_buf(),
-            detail: problem.detail(),
+            detail: problem.detail(path),
         }),
         Err(err) => Err(io_error(path, err)),
     }
@@ -3414,7 +3414,7 @@ fn profile_error(path: &Path, err: io::Error) -> SessionError {
     match crate::profile_home::Refused::of(&err) {
         Some(refused) => SessionError::InsecureParent {
             path: refused.path.clone(),
-            detail: refused.problem.detail(),
+            detail: refused.problem.detail(&refused.path),
         },
         None => io_error(path, err),
     }

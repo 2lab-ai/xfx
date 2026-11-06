@@ -102,6 +102,40 @@ fn writers() -> Vec<Writer> {
             )
             .map_err(|err| err.to_string())
         }),
+        // The three settings transactions that take `settings.lock` after
+        // making the home: a home refused after the lock was taken would hold
+        // a `settings.lock` it never should have.
+        ("/allowlist", |bench| {
+            crate::provider::profile::write_permission(
+                &bench.profile().join("settings.json"),
+                None,
+                &crate::permission::allowlist::Patch::Add {
+                    category: "command".to_string(),
+                    pattern: "ls".to_string(),
+                    action: crate::permission::rules::RuleAction::Allow,
+                },
+            )
+            .map(drop)
+            .map_err(|err| err.to_string())
+        }),
+        ("a settings edit", |bench| {
+            crate::provider::profile::edit_document::<io::Error>(
+                &bench.profile().join("settings.json"),
+                |document| {
+                    document.insert("profile_home_test".to_string(), true.into());
+                    Ok(true)
+                },
+            )
+            .map(drop)
+            .map_err(|err| err.to_string())
+        }),
+        ("xfx setup's rewrite", |bench| {
+            crate::provider::profile::rewrite_document(
+                &bench.profile().join("settings.json"),
+                |_| Ok(b"{}\n".to_vec()),
+            )
+            .map_err(|err| err.to_string())
+        }),
         ("the MCP profile", |bench| {
             crate::mcp::config::add_profile_server(
                 &bench.profile().join("mcp.json"),
@@ -168,6 +202,10 @@ const UNDER_OPEN_UMASK_CASE: &str =
 /// Set in the copy, which alone runs the case's body.
 const UNDER_OPEN_UMASK: &str = "XFX_TEST_PROFILE_HOME_UNDER_OPEN_UMASK";
 
+/// How long that copy may run: it runs one case, which takes well under a
+/// second; a copy still running after this is hung.
+const CHILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+
 #[test]
 fn under_an_open_umask_every_writer_makes_the_profile_home_private() {
     if std::env::var_os(UNDER_OPEN_UMASK).is_none() {
@@ -194,7 +232,8 @@ fn every_writer_makes_the_profile_home_private_under_any_umask() {
             Ok(())
         });
     }
-    let output = runner.output().expect("a runner");
+    // Bounded: a child that hangs is killed and reaped, and the case fails.
+    let output = crate::process::output_within(&mut runner, CHILD_LIMIT).expect("a runner");
     let report = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -233,7 +272,11 @@ fn an_open_profile_home_is_refused_by_every_writer_in_the_stores_words_and_never
             store,
             refusal(
                 &profile,
-                "it is mode 755; session state must not be reachable by group or other"
+                &format!(
+                    "it is mode 755; session state must not be reachable by group or other \
+                     (`chmod 700 {}` makes it private)",
+                    profile.display()
+                )
             )
         );
         assert_eq!(
@@ -266,7 +309,7 @@ fn a_linked_profile_home_is_refused_by_every_writer_and_nothing_is_made_where_it
         let store = SessionStore::open(&profile)
             .expect_err("the store refuses a linked home")
             .to_string();
-        assert_eq!(store, refusal(&profile, &Problem::Link.detail()));
+        assert_eq!(store, refusal(&profile, &Problem::Link.detail(&profile)));
         assert_eq!(
             write(&bench),
             Err(refused_as(writer, &store, "DurablePathUnsafe")),
@@ -315,43 +358,203 @@ fn another_accounts_directory_is_refused_before_its_mode_is_looked_at() {
         Some(Problem::Owner { owner: 0, current })
     );
     assert_eq!(
-        Problem::Owner { owner: 0, current }.detail(),
+        Problem::Owner { owner: 0, current }.detail(Path::new("/")),
         format!("it is owned by uid 0, not by uid {current} running xfx")
     );
 }
 
 #[test]
-fn a_missing_home_and_every_level_below_the_profile_home_are_made_private() {
+fn a_missing_home_is_refused_and_nothing_is_made() {
+    // Upstream refuses a home that is not there (`settings_store.zig:343-347`);
+    // the base made it, `0755` through the store.
     let bench = Bench::new();
     let home = bench.root.join("absent").join("home");
     let profile = home.join(crate::config::PROFILE_DIR_NAME);
-    let deepest = profile.join("skills").join("demo");
-    ensure(&profile, &deepest).expect("made");
-    for dir in [bench.root.join("absent"), home, profile.clone()]
-        .into_iter()
-        .chain(directories(&profile))
-    {
-        assert_eq!(mode(&dir), 0o700, "{}", dir.display());
+    for (writer, result) in [
+        ("ensure", ensure(&profile, &profile.join("skills"))),
+        (
+            "ensure_content",
+            ensure_content(&profile, &profile.join("skills")),
+        ),
+        (
+            "the session store",
+            SessionStore::open(&profile)
+                .map(drop)
+                .map_err(|err| io::Error::other(err.to_string())),
+        ),
+    ] {
+        let err = result.expect_err(writer);
+        assert!(
+            err.to_string().contains(&format!(
+                "the home directory {} is not there, and xfx does not make one",
+                home.display()
+            )),
+            "{writer}: {err}"
+        );
     }
-    assert!(deepest.is_dir());
+    assert_eq!(
+        ensure(&profile, &profile).expect_err("no home").kind(),
+        io::ErrorKind::NotFound
+    );
+    assert!(!bench.root.join("absent").exists(), "a home was made");
 }
 
 #[test]
-fn a_level_below_the_profile_home_that_is_there_is_used_as_it_is() {
+fn every_level_below_the_profile_home_is_made_private() {
+    let bench = Bench::new();
+    let profile = bench.profile();
+    let deepest = profile.join(".skill-install-locks").join("deeper");
+    ensure(&profile, &deepest).expect("made");
+    let content = profile.join("skills").join("demo");
+    ensure_content(&profile, &content).expect("made");
+    for dir in directories(&profile) {
+        assert_eq!(mode(&dir), 0o700, "{}", dir.display());
+    }
+    assert!(deepest.is_dir() && content.is_dir());
+}
+
+#[test]
+fn a_private_level_that_is_a_link_is_refused_and_its_target_left_alone() {
+    // `.skill-install-locks` is private state: upstream opens it without
+    // following a link (`openOrCreateVerifiedPrivateDirFromDir`), and so a
+    // link there is refused -- by `ensure` and by `/skills add`, which takes
+    // its lock there -- with nothing made where it points.
     let bench = Bench::new();
     let profile = made(&bench.profile()).to_path_buf();
-    let skills = profile.join("skills");
-    fs::create_dir(&skills).expect("skills");
-    fs::set_permissions(&skills, fs::Permissions::from_mode(0o755)).expect("open");
-    ensure(&profile, &skills.join("demo")).expect("made below it");
-    assert_eq!(mode(&skills), 0o755, "an existing level is never chmodded");
-    assert_eq!(mode(&skills.join("demo")), 0o700);
+    let locks = profile.join(".skill-install-locks");
+    let elsewhere = bench.root.join("elsewhere");
+    fs::create_dir(&elsewhere).expect("a directory");
+    fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o700)).expect("private");
+    std::os::unix::fs::symlink(&elsewhere, &locks).expect("a link");
+    let err = ensure(&profile, &locks).expect_err("a linked private level");
+    assert_eq!(
+        Refused::of(&err).map(|refused| (refused.path.clone(), refused.problem)),
+        Some((locks.clone(), Problem::Link))
+    );
+    assert_eq!(
+        err.to_string(),
+        refusal(&locks, &Problem::Link.detail(&locks))
+    );
+    let source = bench.root.join("source").join("carried");
+    let found = discover(&bench.work, Some(&bench.home));
+    let said = execute(
+        &parse(&format!("add {}", source.display())),
+        &found,
+        &managed_root(&bench.home),
+        &bench.work,
+    );
+    assert_eq!(
+        said,
+        Outcome::Said(vec![
+            format!("Installing from {}...", source.display()),
+            format!("Failed to install: {err}."),
+        ])
+    );
+    assert!(fs::symlink_metadata(&locks)
+        .expect("there")
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_dir(&elsewhere).expect("a listing").count(), 0);
+    assert_eq!(mode(&elsewhere), 0o700);
+    assert!(!managed_root(&bench.home).join("carried").exists());
+}
+
+#[test]
+fn an_open_private_level_is_refused_before_a_lock_is_taken_in_it() {
+    // The lock directory is held to `~/.xfx`'s rule: an open one is refused
+    // and nothing -- no lock file -- is made in it (the base took its lock
+    // there).
+    let bench = Bench::new();
+    let profile = made(&bench.profile()).to_path_buf();
+    let locks = profile.join(".skill-install-locks");
+    fs::create_dir(&locks).expect("a lock directory");
+    fs::set_permissions(&locks, fs::Permissions::from_mode(0o755)).expect("open it");
+    let source = bench.root.join("source").join("carried");
+    let found = discover(&bench.work, Some(&bench.home));
+    let said = execute(
+        &parse(&format!("add {}", source.display())),
+        &found,
+        &managed_root(&bench.home),
+        &bench.work,
+    );
+    let refused = refusal(&locks, &Problem::Open { mode: 0o755 }.detail(&locks));
+    assert_eq!(
+        said,
+        Outcome::Said(vec![
+            format!("Installing from {}...", source.display()),
+            format!("Failed to install: {refused}."),
+        ])
+    );
+    assert_eq!(mode(&locks), 0o755, "never chmodded");
+    assert_eq!(fs::read_dir(&locks).expect("a listing").count(), 0);
+    assert!(!managed_root(&bench.home).join("carried").exists());
+
+    // Something there that is not a directory is refused the same way.
+    let blocked = profile.join("blocked");
+    fs::write(&blocked, b"").expect("a file");
+    let err = ensure(&profile, &blocked.join("x")).expect_err("in the way");
+    assert_eq!(
+        Refused::of(&err).map(|refused| refused.problem),
+        Some(Problem::NotDirectory)
+    );
+    assert!(blocked.is_file());
+}
+
+#[test]
+fn a_content_level_that_is_there_is_used_as_it_is_and_a_link_to_one_is_followed() {
+    // The managed skills root is the user's: an open one is used, not
+    // chmodded, and one linked into the user's dotfiles is followed, as
+    // upstream's `makeDirRecursive` follows it (`skills.zig:247-252`).
+    let bench = Bench::new();
+    let profile = made(&bench.profile()).to_path_buf();
+    let dotfiles = bench.root.join("dotfiles").join("skills");
+    fs::create_dir_all(&dotfiles).expect("a dotfiles skills directory");
+    fs::set_permissions(&dotfiles, fs::Permissions::from_mode(0o755)).expect("open");
+    let skills = managed_root(&bench.home);
+    std::os::unix::fs::symlink(&dotfiles, &skills).expect("a link");
+    let found = discover(&bench.work, Some(&bench.home));
+    let said = execute(&parse("create demo"), &found, &skills, &bench.work);
+    assert!(matches!(said, Outcome::Changed { .. }), "{said:?}");
+    assert!(fs::symlink_metadata(&skills)
+        .expect("there")
+        .file_type()
+        .is_symlink());
+    assert!(dotfiles.join("demo").join("SKILL.md").is_file());
+    assert_eq!(
+        mode(&dotfiles),
+        0o755,
+        "an existing level is never chmodded"
+    );
+    assert_eq!(
+        mode(&dotfiles.join("demo")),
+        0o700,
+        "a level made is private"
+    );
 
     // Something in the way that is not a directory is an error, not replaced.
-    fs::write(profile.join("blocked"), b"").expect("a file");
-    let err = ensure(&profile, &profile.join("blocked").join("x")).expect_err("in the way");
+    let blocked = profile.join("blocked");
+    fs::write(&blocked, b"").expect("a file");
+    let err = ensure_content(&profile, &blocked.join("x")).expect_err("in the way");
     assert_eq!(err.kind(), io::ErrorKind::AlreadyExists, "{err}");
-    assert!(profile.join("blocked").is_file());
+    assert!(blocked.is_file());
+}
+
+#[test]
+fn an_open_home_names_the_chmod_that_makes_it_private_as_one_shell_word() {
+    for (path, word) in [
+        ("/h/u/.xfx", "/h/u/.xfx"),
+        ("/h/a b/.xfx", "'/h/a b/.xfx'"),
+        ("/h/it's/.xfx", "'/h/it'\\''s/.xfx'"),
+    ] {
+        assert_eq!(
+            Problem::Open { mode: 0o750 }.detail(Path::new(path)),
+            format!(
+                "it is mode 750; session state must not be reachable by group or other \
+                 (`chmod 700 {word}` makes it private)"
+            ),
+            "{path}"
+        );
+    }
 }
 
 #[test]
@@ -382,122 +585,4 @@ fn an_existing_private_home_is_used_and_its_mode_left_as_it_was() {
     assert_eq!(mode(&profile), 0o700);
 }
 
-/// `text` with every comment line and its tests module cut away.
-fn product(text: &str) -> String {
-    // The tests module: `#[cfg(test)]` over a `mod tests` of any visibility.
-    let lines: Vec<&str> = text.lines().collect();
-    let cut = lines
-        .windows(2)
-        .position(|pair| {
-            let next = pair[1].trim_start();
-            pair[0].trim() == "#[cfg(test)]"
-                && ["mod tests", "pub mod tests", "pub(crate) mod tests"]
-                    .iter()
-                    .any(|head| next.starts_with(head))
-        })
-        .unwrap_or(lines.len());
-    lines[..cut]
-        .iter()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .copied()
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn source(relative: &str) -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
-    fs::read_to_string(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()))
-}
-
-#[test]
-fn every_profile_writer_makes_its_directories_through_this_module() {
-    // Each writer that can be the first to need `~/.xfx` makes no directory
-    // of its own: one `create_dir_all` there is a home with the umask's mode.
-    for (file, through) in [
-        (
-            "src/provider/profile.rs",
-            "crate::profile_home::ensure(dir, dir)?",
-        ),
-        ("src/mcp/config.rs", "crate::profile_home::ensure(dir, dir)"),
-        (
-            "src/session/prompt_history.rs",
-            "crate::profile_home::ensure(&self.dir, &self.dir)?",
-        ),
-        (
-            "src/skills/command.rs",
-            "super::install::ensure_managed(managed, &dir)",
-        ),
-        (
-            "src/skills/install.rs",
-            "crate::profile_home::ensure(profile_of(managed)?, dir)",
-        ),
-    ] {
-        let code = product(&source(file));
-        for plain in ["create_dir_all(", "fs::create_dir(", "DirBuilder"] {
-            assert!(
-                !code.contains(plain),
-                "{file} makes a directory with `{plain}`"
-            );
-        }
-        assert!(
-            code.contains(through),
-            "{file} does not go through `{through}`"
-        );
-    }
-    // The settings writers: every one of the five.
-    let profile = product(&source("src/provider/profile.rs"));
-    assert_eq!(
-        profile
-            .matches("crate::profile_home::ensure(dir, dir)?")
-            .count(),
-        5
-    );
-    // `/skills add`: the managed root twice, the lock directory, and every
-    // directory the copy makes, its transaction's included.
-    let install = product(&source("src/skills/install.rs"));
-    assert_eq!(
-        install.matches("ensure_managed(managed, managed)?").count(),
-        2
-    );
-    assert_eq!(install.matches("crate::profile_home::make_new(").count(), 2);
-    assert!(install.contains("crate::profile_home::ensure(parent, &dir)?"));
-
-    // The session store makes `~/.xfx` through this module and nothing above
-    // a directory it is handed.
-    let store = product(&source("src/session/store.rs"));
-    assert!(
-        !store.contains("create_dir_all("),
-        "the store makes a parent"
-    );
-    assert!(store.contains("crate::profile_home::ensure(&store.profile_dir, &store.profile_dir)"));
-    assert!(store.contains("crate::profile_home::problem(path)"));
-}
-
-#[test]
-fn no_product_code_but_this_module_makes_a_directory_tree() {
-    // `create_dir_all` makes every missing level with the umask's mode; the
-    // only product use left is this module's, on a platform without modes.
-    let mut pending = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
-    let mut offenders = Vec::new();
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).expect("a listing") {
-            let path = entry.expect("an entry").path();
-            if path.is_dir() {
-                if path.file_name().is_some_and(|name| name != "tests") {
-                    pending.push(path);
-                }
-                continue;
-            }
-            if path.extension().is_none_or(|ext| ext != "rs")
-                || path.file_name().is_some_and(|name| name == "tests.rs")
-            {
-                continue;
-            }
-            let code = product(&fs::read_to_string(&path).expect("a source"));
-            if code.contains("create_dir_all(") && !path.ends_with("src/profile_home.rs") {
-                offenders.push(path.display().to_string());
-            }
-        }
-    }
-    assert!(offenders.is_empty(), "{offenders:?}");
-}
+mod scan;
