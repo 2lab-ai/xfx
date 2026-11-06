@@ -232,6 +232,49 @@ Gates at `220f8acd`:
 | `scripts/smoke-tui.sh … --faulty …` | 37 scenarios + the oracle, 1107 checks, 0 failures |
 | `scripts/fxcap/ci-sweep.sh` vs fx v0.0.16 | 15 scenarios, 117 pairs: 50 pass, 14 new, **0 regressions**, exit 0 (`sweep-report-h3b.md`) |
 
+## H3c: no controlling terminal, a cleanup that cannot hang, scan statuses
+
+Review round on `69985f92`, code at `8b9da914` and `b2f3e3bd`.
+`red-h3c.txt` has the runs.
+
+1. **`O_NOCTTY`.** The clock file opens with `O_NONBLOCK | O_NOCTTY`. The open
+   comes before the regular-file check, and std does not add `O_NOCTTY`. On
+   Linux, opening a terminal (or a link to one) without it would make that
+   terminal the controlling one of a session leader that has none.
+2. **The FIFO test's cleanup is bounded.** On a failed wait it frees a reader
+   stuck in `open(2)` with a non-blocking write open; with no reader left
+   that fails at once with `ENXIO`. The failure names the wait's reason
+   (`Timeout` or `Disconnected`).
+   - RED, on a throwaway clone with a reader thread that dies before it sends:
+     H3b's blocking cleanup hung until `timeout 120` ended the run (exit 124,
+     no result line);
+   - with this cleanup the test fails in 0.01 s.
+   - `near_system` saturates.
+3. **smoke.sh section 0 statuses.** 0 clean, 10 the name found, 11 the
+   control missing, 12 the file unreadable. Any other status, such as
+   python's 1 for an uncaught exception, reads `the byte scan failed (status
+   N)` with its stderr. Every status but 0 fails the check.
+   - RED, on a copy of the release binary at mode 0111: `69985f92`'s smoke.sh
+     printed `the binary carries a test-only variable name, so it reads it: `
+     with an empty report;
+   - this head prints `the byte scan could not run: could not read the
+     binary: [Errno 13] Permission denied` (1 failure of 47; every other check
+     passes).
+
+Gates at `b2f3e3bd`:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; both `cargo clippy … -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 14 result lines: 4558 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 14: 4579 passed, 0 failed |
+| identity, no-stubs, no-secrets, `check-preview-contract.sh` | ok |
+| `scripts/check-usage-clock.sh` | ok (debug honoured; release, release + fault-injection ignored) |
+| release and faulty builds | ok |
+| `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures (section 0 ok) |
+| `scripts/smoke-tui.sh … --faulty …` | 37 scenarios + the oracle, 1107 checks, 0 failures |
+| `scripts/fxcap/ci-sweep.sh` vs fx v0.0.16 | 15 scenarios, 117 pairs: 50 pass, 14 new, **0 regressions**, exit 0 (`sweep-report-h3c.md`) |
+
 ## Files
 
 - `cap/<size>/{fx,xfx}-p5-usage-<scenario>-<size>-<label>.{txt,ansi}`: the
@@ -240,6 +283,6 @@ Gates at `220f8acd`:
   not kept. Snaps and listings were copied only if they held no local path
   (none did); the logs went through `scripts/fxcap/redact.py`.
 - `runs.txt`: the 30 runs, each `exit=0`.
-- `sweep-report.md`, `sweep-report-h3b.md`: the CI sweep's reports at `5a2f4c2d` and `220f8acd` (redacted by ci_sweep.py).
+- `sweep-report.md`, `sweep-report-h3b.md`, `sweep-report-h3c.md`: the CI sweep's reports at `5a2f4c2d`, `220f8acd` and `b2f3e3bd` (redacted by ci_sweep.py).
 - `pairs.txt`: each pair's differing row count.
-- `red-harness.txt`, `red-clock-mutant.txt`, `red-h3b.txt`: the REDs above.
+- `red-harness.txt`, `red-clock-mutant.txt`, `red-h3b.txt`, `red-h3c.txt`: the REDs above.
