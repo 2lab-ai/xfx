@@ -1053,6 +1053,19 @@ fn a_copy_of_this_binary_plays_its_role() {
                 last = now_at;
             }
         }
+        "racer" => {
+            // Each store at its own moment, the same moment as the other racer's,
+            // each to an identity whose lock nobody has made yet.
+            let start: i64 = arg.parse().expect("a start time");
+            for k in 0..RACES {
+                let at = start + k * RACE_GAP_MS;
+                while wall_ms() < at {
+                    std::hint::spin_loop();
+                }
+                let id = Identity::of(API_KEY_SCOPE, &format!("race {k}"), "");
+                store(&home, &id, small_fetch(), TEST_NOW, None).expect("every store succeeds");
+            }
+        }
         "umask" => {
             rustix::process::umask(rustix::fs::Mode::empty());
             let id = Identity::of(API_KEY_SCOPE, "umask", "");
@@ -1120,6 +1133,40 @@ fn finish(mut child: Child, limit: Duration) -> (ExitStatus, String) {
 
 fn run_role(role: &str, home: &Path, arg: &str) -> (ExitStatus, String) {
     finish(spawn_role(role, home, arg), Duration::from_secs(60))
+}
+
+/// Simultaneous first stores per racer in the lock race, and how far apart.
+const RACES: i64 = 40;
+const RACE_GAP_MS: i64 = 25;
+
+fn wall_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_millis() as i64
+}
+
+#[test]
+fn two_processes_making_the_same_lock_at_once_both_store() {
+    // Two copies of this binary create each of 40 locks at the same moment.
+    // macOS answers one of two simultaneous creates of a name `ENOENT`
+    // (measured 2026-11-06); a store must not fail for it.
+    let (root, home) = home();
+    let start = wall_ms() + 1500;
+    let racers: Vec<Child> = (0..2)
+        .map(|_| spawn_role("racer", root.path(), &start.to_string()))
+        .collect();
+    for racer in racers {
+        let (status, report) = finish(racer, Duration::from_secs(60));
+        assert!(
+            status.success() && report.contains("test result: ok. 1 passed"),
+            "{report}"
+        );
+    }
+    for k in 0..RACES {
+        let id = Identity::of(API_KEY_SCOPE, &format!("race {k}"), "");
+        assert_eq!(read(&home, &id), Some(small_fetch()), "race {k}");
+    }
 }
 
 #[test]
