@@ -33,7 +33,8 @@ merged in (`--no-edit`) before the gates; nothing conflicted.
   `app_mcp_runtime.zig:643-653`); a choice is a job on the verbs' own paths
   (`mcp_key`): Approve `Job::Trust { ApproveShown, body: "" }`, Reject
   `Job::Trust { Reject, body: "" }`, Remove `Job::Choice(["remove",
-  "--profile"|"--project", NAME])`.
+  "--profile"|"--project", NAME])` (since MCP-Mc `Job::Remove { name, file }`,
+  below).
 - **C1** (`ba0ea4a9`): the launch trust prompt is gone -- `Event::TrustPrompt`,
   `present_prompt`/`prompt_again`/`suppress_prompts`, the shell's
   `TrustPromptUp` and `offer_to_trust_prompt`, `what_it_runs`/`fitted`/
@@ -44,7 +45,7 @@ merged in (`--no-edit`) before the gates; nothing conflicted.
   approve-all of a drawn list (`TrustAction::ApproveListed`) and `z`
   (`TrustAction::Reset`), none with a caller left.
 - Seams in `src/mcp/command.rs` (named for the dispatcher): `choose` (a
-  verb run warnings-only, `.warnings_only`), `safe_within` (`safe` with its
+  verb run warnings-only, `.warnings_only`; since MCP-Mc `remove_chosen`), `safe_within` (`safe` with its
   cut as a parameter, for fx's 4096-byte footer spelling), `typed` and
   `first_line` made `pub(crate)`. `runtime.rs`: `Job::Choice`; a trust job
   with an empty body says nothing. `statusline.rs`: `needs_attention`
@@ -195,6 +196,128 @@ release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios + the
 oracle, 1091 / 0; `tests/permissions.rs`
 `a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
 alone 3 of 3 (0.30-0.32 s).
+
+## MCP-Mc: the reviews' fixes
+
+The six MCP-M reviews (gpt6 and opus, slices A-C) found one MUST (opus-B) and
+the SHOULDs below; the coordinator listed them as items 1-10. Every fix has a
+test that fails on `5632596c` (MCP-Mb's head) -- the new tests put on that
+code, `bounded.py 1500 6144`: 13 of 38 failed in 4.9 s, peak 1832 MiB; the
+restore test and the split command-line case after, on a throwaway clone at
+`5632596c` -- and passes on the head.
+
+| item | test | on `5632596c` | on the head |
+|---|---|---|---|
+| MUST: a one-row entry drew a wrapped piece four columns in, as a row of its own | `tui::mcp_menu::tests::a_one_row_address_never_draws_a_wrapped_piece_as_a_header_row` (`https://a.example/mcp?q=`, 300 spaces, `header: X-Team: blue`, which `validate_endpoint` takes; 40, 60, 120 columns) | `40: "    header: X-Team: blue" in ["    https://a.example/mcp?q=", "    header: X-Team: blue"]` | every piece after the first `  ↳ ` |
+| | `…::a_one_row_command_line_never_draws_a_wrapped_piece_as_a_variable_row` (`/bin/sh server.sh env: PATH=./x`, 22-26 columns) | `22: ["    /bin/sh server.sh", "    env: PATH=./x"]` | `    /bin/sh server.sh` / `  ↳ env: PATH=./x` |
+| 1: Remove and Reject answered a question no frame drew | `tui::mcp_menu::tests::remove_and_reject_take_no_answer_before_a_frame_painted_the_question` | `left: Run(Remove { name: "remote", file: Profile })`, `right: None` | Enter waits for a frame; a frame written over since (`forget_drawn`) is waited past too |
+| | `tui::shell::tests::a_burst_of_enters_in_one_read_answers_no_question_it_never_painted` (`/mcp⏎⏎⏎⏎` in one `consume`) | `a question nobody saw was answered` (the profile emptied) | nothing removed |
+| | `tui::shell::tests::a_held_enter_after_a_choice_runs_reaches_no_other_question` (Enter held, 40 reads 40 ms apart, after a Remove) | `assertion failed: case.drained().is_empty()` (a second Remove ran) | nothing more runs |
+| 2: keys under Ctrl-O reached the menu | `tui::shell::tests::the_menu_takes_no_key_while_the_full_transcript_covers_it` (Remove, Reject and Approve each) | `Remove keep from ~/.xfx/mcp.json? was answered unseen` | no key reaches the menu while the full transcript is up; closed, the question is still asked |
+| 3: a resize, a blind screen or a refused restore left the last frame "drawn" | `tui::shell::tests::an_approval_drawn_before_a_resize_is_not_taken_after_it` | `approved after a resize, unseen` (`settings.json` written) | nothing written, after a resize or on a blind screen |
+| | `tui::event_loop::tests::a_menu_question_the_return_from_the_full_transcript_never_painted_takes_no_answer` (the band `restore_primary` composes, refused by its check and by the screen) | `a question no frame painted was answered (screen refuses: false)` | Enter answers only after the retry lands |
+| 4: Remove re-parsed an argv and took the file at answer time | `tui::mcp_menu::tests::a_question_whose_server_moved_to_the_other_file_is_cancelled` | `left: Run(Remove { name: "proj", file: Profile })`, `right: None` | the question is cancelled |
+| | `tui::shell::tests::remove_in_the_menu_removes_a_server_whose_name_reads_as_a_flag` (`--help` in `.mcp.json`) | `.mcp.json` still `{"mcpServers":{"--help":…}}` (Help, said to nobody) | removed |
+| 5: a reload kept a server's shown entry across a respelling | `tui::shell::tests::a_project_entry_respelled_is_approved_from_the_menu` (`{"command"}` → `{"type":"stdio","command"}`, reload, approve) | `the respelled entry kept the old one's digest` (`sha256:cee8c958…`, the fresh read `sha256:af302ff9…`) | approved, the fresh digest saved |
+| 6: `${VAR}` shown in single quotes, which a shell reads as not expanded | `mcp::runtime::tests::a_word_xfx_expands_is_shown_as_a_shell_reads_an_expansion` | ``command: /bin/node '${SECRET}' 'a\"b$c`d\\e${X:-d$f}' '$HOME'`` | ``command: /bin/node "${SECRET}" "a\"b\$c\`d\\e${X:-d\$f}" '$HOME'`` |
+| | `mcp::runtime::tests::every_row_shows_the_entry_as_written_and_never_a_value_from_the_environment` (its expectation changed) | `command: '${TOOL}' --key '${SECRET}'…` | `command: "${TOOL}" --key "${SECRET}"…` |
+| 7: a row cut with `…` by clusters still counted whole | `tui::mcp_menu::tests::a_line_wider_on_the_screen_than_it_was_measured_is_not_drawn_whole` (`❤️` ×40: one cell a character, two a cluster) | Enter approved (`assertion failed: matches!(menu.press(Key::Enter), Effect::Refused(..))`) | refused, `couldn't show all` |
+| 8: `$` opened a skills menu behind the menu | `tui::shell::tests::a_dollar_typed_into_the_menus_filter_opens_no_skills_menu_behind_it` | `a skills menu opened behind /mcp` | none opens |
+
+**Item 9, the pins a revert left green.** Each guard below removed on a
+throwaway clone of the head (`mutants_mc.py <clone> [names]`, which refuses a path outside a scratchpad: never the worktree), and the test
+that should fail run:
+
+| guard removed | test that failed |
+|---|---|
+| `width >= APPROVAL_MIN_COLS` | `an_approval_below_twenty_columns_approves_nothing` -- rewritten: the first version (a long entry) stayed green, since below 20 columns the row-width term refuses a long entry anyway; it now uses `/bin/sh`, which fits 19 columns, refused at 19 and approved at 20 |
+| `*self.drawn.borrow_mut() = None` when an approval opens | `opening_an_approval_again_forgets_the_one_drawn_before` |
+| `drawn.name == row.name` | `an_approval_drawn_for_one_server_approves_no_other` |
+| the tool name's spelling | `every_name_target_error_and_tool_is_spelled_…` (fixture `t\x1b]0;x\x07`, an OSC no colour check accepts; the old `t\x1b[1m` was a valid SGR) |
+| `Some(file)` in `remove_chosen` (both files hold the name) | `remove_in_the_menu_removes_from_the_file_its_question_named_when_both_hold_the_name` |
+| ↑↓ flipping the answer | `up_and_down_on_a_question_leave_its_answer` -- rewritten: the first version pressed ↑ then ↓ before reading, and two flips cancel; it now reads after every key |
+| a printable key answering yes | `remove_and_reject_ask_in_place_and_anything_but_yes_changes_nothing_on_disk`, which now compares the bytes and existence of `~/.xfx/mcp.json`, `settings.json` and `.mcp.json` before and after |
+
+The `!shortened` term in `whole` is deleted rather than pinned: `confirmed`
+refuses a shortened entry before it reads `whole`, and
+`a_row_too_long_to_show_is_shortened_saying_so_and_approves_nothing` pins
+that branch's exact message.
+
+The new guards removed the same way, each caught: the `↳` rule reverted to
+`led` (both one-row tests); the question's drawn gate
+(`remove_and_reject_take_no_answer_…`; the shell burst test stays green on
+that mutant, because the held-Enter rule also refuses Enters of one read --
+each test pins its own guard); `question_drawn` not cleared by `forget_drawn`;
+the identity check; the held-Enter rule; Ctrl-O's swallow; the forget on
+resize, and on a blind screen, separately (`an_approval_drawn_before_a_resize_…`);
+each `restore_primary` arm's forget, separately (the event-loop test); the
+fresh-digest term in `kept`; the double-quoted expansion; the cluster term
+(`fits`). The skills fix is two guards -- the `$` check and
+`reconcile_picker` clearing `skills_menu` -- either of which alone keeps the
+menu closed: removed one at a time the test stays green, removed together it
+fails.
+
+**Item 10.** Deleted: `spelled` and the `None` arm that drew a row no approval
+could bind (an entry with no digest shows nothing); `ConfirmLine::Detail`
+(only ever empty, now `Blank`); `Layout.window` (always `SERVER_WINDOW`);
+`server_screen`'s second copy of `keep_visible` (`Layout::top`, one rule);
+`Job::Choice` and `command::choose` (`Job::Remove { name, file }` and
+`command::remove_chosen`). Kept: `cut_at`, with the cluster check (`fits`) that
+item 7 offered in place of `wrap::wrap`.
+
+**Decisions.** Every wrapped piece is led by `↳ `: its cost is the look of fx's
+wrapped command line or address (`docs/parity.md` `/mcp`). The held-Enter rule
+covers every confirmation, Approve's too, at 500 ms (`MCP_ENTER_HELD`): a key
+held repeats every 30-100 ms after an initial delay of about 375 ms on macOS
+and 660 ms on X11, and a person answering reads first. Yes stays chosen first,
+as fx's (`menu.zig` `answer_no: bool = false`, presentation `:771-775`);
+`offer_to_mcp`'s comment said `[y/N]`, and now says so. Ctrl-O swallows every
+event while the menu is up, not only Enter. `tests/mcp.rs`' `press` waits 700
+ms after an Enter (300 ms after any other key), and the narrow-terminal
+approval case strips the leads and asserts one. The event-loop test sleeps
+600 ms before each of its four Enters, two arms: about 5 s.
+
+**The pairs.** `sweep.sh` on the head build (`562149d`'s code, which
+`0dac6b0a` changes only in tests; debug, sha256 `e14fe347138794d7…`), the
+five scenarios at 40x120 and `p5-mcp-menu-new` at 40x60, then re-scored with
+the ledger entry below (`scoreboard-head-mc-120.md`, `-60.md`):
+
+- `p5-mcp-menu-new`: 22 / 34 at both sizes, where MCP-Mb had 23.
+  `approve-confirm` moved, from normalized-identical to approved-divergence:
+  the waiting entry's command line (`<bun> <scenarios>/p5-mcp-stdio.ts`)
+  wraps, and its second piece is `  ↳ …` where fx's is `    …` (row 9 at
+  40x120, rows 8-9 at 40x60) -- the one pair that shows the `↳` rule. Before
+  the entry it scored an unresolved defect. The other 11 are `remote`'s
+  status alone (`remote_only.py`: 11 of 11 and `approve-confirm`, 0 other,
+  both sizes), as before.
+- `p5-mcp-empty` 24 / 24, `p5-input-mcp` 9 / 9, `p5-mcp-dismiss` 2 / 2: did
+  not move.
+- `p5-mcp-verbs` 1 / 28 positionally, did not move: aligned, its unmatched
+  rows are MCP-V's own causes in MCP-M's numbers (`verbs_causes.py`: the
+  `list` cell 140, typed order 91, `retrying` 45, `login` gated 22, the rows
+  ordering moves 24).
+
+`scripts/fxcap/parity-ledger.toml` gains `mcp-approval-wrap-led`, class
+`unsafe-to-copy`, pin `v0.0.16`, `p5-mcp-menu-new`/`approve-confirm` only,
+`fx_row = '^    \S'` and `xfx_row = '^  ↳ '` (each regex speaks for its own
+side), owner MCP-M, expiring `date:2027-05-06`. This is the unit's call, not
+a reviewer's: a reviewer may drop it, and the pair is then an unresolved
+defect with this paragraph as its cause. `xfx-head/` holds this run's
+captures, redacted (`redact_copy.py`).
+
+MCP-Mc gates on `0dac6b0a` (the code head; the receipt commit after it changes
+this directory and the ledger only): fmt ok; clippy ok, both feature sets;
+`cargo test` 4665 / 0 (lib 3789); `--features fault-injection` 4688 / 0 (lib
+3798) -- its first run was ended by a SIGTERM from outside its process group
+part-way, all passing until then, and its second failed one test once,
+`tui::shell::tests::a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu`
+(`a word no skill matches showed the menu`), a skills test this unit does not
+touch, which passed in the plain run, 5 of 5 alone and in the third, whole
+run; identity, stubs, secrets ok; release and faulty release builds ok;
+`smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios + the oracle, 1091 / 0;
+`tests/permissions.rs`
+`a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
+alone 3 of 3 (0.31-0.33 s); `tests/mcp.rs` 5 / 0.
 
 ## smoke-tui and the pty cases
 

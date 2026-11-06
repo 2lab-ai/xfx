@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-8f9104d [debug] · Run /help for commands
+x𝒇x v0.1.0-562149d [debug] · Run /help for commands
 
 ┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -6,7 +6,7 @@ x𝒇x v0.1.0-8f9104d [debug] · Run /help for commands
 
   Approve proj for this project? It runs:
     <bun>
-    <scenarios>/p5-mcp-stdio.ts
+  ↳ <scenarios>/p5-mcp-stdio.ts
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 enter confirm     esc cancel
 
