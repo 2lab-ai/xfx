@@ -1,0 +1,262 @@
+# Mutant RED runs (P5-US-U2)
+
+Each mutant was applied to a `git clone --no-local` copy of this branch in the
+session scratchpad (never the worktree), built there with its own target dir,
+and only the named test run, under `gtimeout -k 10 600`. The unmutated copy
+passed first (`cargo test --lib usage::cache`: 26 passed on `1f2f6425`, 27 on
+`85e18a25`, where M10 and M15 ran). Lines below are the copy's own output, redacted.
+
+## M1-no-flock (property 4)
+
+Guarding test: `two_processes_storing_at_once_never_tear_or_regress_the_file`. Mutation, in `src/usage/cache.rs`:
+
+- `match rustix::fs::flock(&fd, FlockOperation::NonBlockingLockExclusive) {` -> `match Ok::<(), Errno>(()) {`
+
+```
+== M1-no-flock attempt 1 rc=101
+thread 'usage::cache::tests::two_processes_storing_at_once_never_tear_or_regress_the_file' (232951088) panicked at src/usage/cache/tests.rs:1174:9:
+thread 'usage::cache::tests::a_copy_of_this_binary_plays_its_role' (232951094) panicked at src/usage/cache/tests.rs:1047:22:
+every store succeeds: Io(Os { code: 2, kind: NotFound, message: "No such file or directory" })
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.14s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.94s
+```
+
+## M2a-file-follows-links (property 3)
+
+Guarding test: `a_link_where_a_cache_file_belongs_is_refused_not_followed`. Mutation, in `src/usage/cache.rs`:
+
+- `flags | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,` -> `flags | OFlags::NONBLOCK | OFlags::CLOEXEC,`
+
+```
+== M2a-file-follows-links attempt 1 rc=101
+thread 'usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed' (232955008) panicked at src/usage/cache/tests.rs:883:9:
+assertion `left == right` failed: hard=false: the link was followed
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 999, models: [ModelRow { model: "anthropic/claude-opus-5.5", totals: Totals { request_count: 2, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 9.0, cache_hit_requests: 0.0, failed_requests: 0.0, ttft_weighted: 0.0, ttft_requests: 0, tps_weighted: 0.0, tps_requests: 0 } }] }), f
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.01s
+```
+
+## M2b-dir-follows-links (property 3)
+
+Guarding test: `a_link_where_the_cache_directory_belongs_is_refused_not_followed`. Mutation, in `src/usage/cache.rs`:
+
+- `OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,` -> `OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,`
+
+```
+== M2b-dir-follows-links attempt 1 rc=101
+thread 'usage::cache::tests::a_link_where_the_cache_directory_belongs_is_refused_not_followed' (232956788) panicked at src/usage/cache/tests.rs:847:5:
+assertion `left == right` failed: the link was followed
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 999, models: [ModelRow { model: "anthropic/claude-opus-5.5", totals: Totals { request_count: 2, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 9.0, cache_hit_requests: 0.0, failed_requests: 0.0, ttft_weighted: 0.0, ttft_requests: 0, tps_weighted: 0.0, tps_requests: 0 } }] }), f
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.01s
+```
+
+## M3-no-nlink-check (property 3)
+
+Guarding test: `a_link_where_a_cache_file_belongs_is_refused_not_followed`. Mutation, in `src/usage/cache.rs`:
+
+- `if stat.st_nlink > 1 {` -> `if false && stat.st_nlink > 1 {`
+
+```
+== M3-no-nlink-check attempt 1 rc=101
+thread 'usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed' (232959500) panicked at src/usage/cache/tests.rs:883:9:
+assertion `left == right` failed: hard=true: the link was followed
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 999, models: [ModelRow { model: "anthropic/claude-opus-5.5", totals: Totals { request_count: 2, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 9.0, cache_hit_requests: 0.0, failed_requests: 0.0, ttft_weighted: 0.0, ttft_requests: 0, tps_weighted: 0.0, tps_requests: 0 } }] }), f
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.01s
+```
+
+## M4a-no-fchmod (property 3)
+
+Guarding test: `modes_are_owner_only_even_under_a_permissive_umask`. Mutation, in `src/usage/cache.rs`:
+
+- `if bits != wanted {` -> `if false && bits != wanted {`
+
+```
+== M4a-no-fchmod attempt 1 rc=101
+thread 'usage::cache::tests::modes_are_owner_only_even_under_a_permissive_umask' (232962547) panicked at src/usage/cache/tests.rs:814:5:
+assertion `left == right` failed
+  left: 493
+ right: 448
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.02s
+```
+
+## M4b-std-default-modes (property 3)
+
+Guarding test: `modes_are_owner_only_even_under_a_permissive_umask`. Mutation, in `src/usage/cache.rs`:
+
+- `const DIR_MODE: Mode = Mode::RWXU;` -> `const DIR_MODE: Mode = Mode::RWXU.union(Mode::RWXG).union(Mode::RWXO);`
+- `const FILE_MODE: Mode = Mode::RUSR.union(Mode::WUSR);` -> `const FILE_MODE: Mode = Mode::RUSR.union(Mode::WUSR).union(Mode::RGRP).union(Mode::WGRP).union(Mode::ROTH).union(Mode::WOTH);`
+- `if bits != wanted {` -> `if false && bits != wanted {`
+
+```
+== M4b-std-default-modes attempt 1 rc=101
+thread 'usage::cache::tests::modes_are_owner_only_even_under_a_permissive_umask' (232965608) panicked at src/usage/cache/tests.rs:797:5:
+assertion `left == right` failed
+  left: 511
+ right: 448
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.05s
+```
+
+## M5-no-identity-check (property 5)
+
+Guarding test: `hostile_or_oversized_files_are_refused_whole`. Mutation, in `src/usage/cache.rs`:
+
+- `if wire.schema_version != SCHEMA_VERSION || wire.identity != identity.as_str() {` -> `if wire.schema_version != SCHEMA_VERSION {`
+
+```
+== M5-no-identity-check attempt 1 rc=101
+thread 'usage::cache::tests::hostile_or_oversized_files_are_refused_whole' (232970510) panicked at src/usage/cache/tests.rs:1428:9:
+assertion `left == right` failed: another identity
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 800, models: [ModelRow { model: "m", totals: Totals { request_count: 1, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 1.0, cache_hit_requests: 0.0, failed_requests: 0.0, ttft_weighted: 0.0, ttft_requests: 0, tps_weighted: 0.0, tps_requests: 0 } }] }), finished: None, budget: N
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.06s
+```
+
+## M6-writes-unchecked (property 5)
+
+Guarding test: `store_never_writes_an_entry_its_reader_would_reject`. Mutation, in `src/usage/cache.rs`:
+
+- `if !merged.valid() {` -> `if false {`
+- `let entry = decode(identity, &bytes).ok_or(StoreError::Invalid)?;` -> `let entry = merged.clone();`
+
+```
+== M6-writes-unchecked attempt 1 rc=101
+thread 'usage::cache::tests::store_never_writes_an_entry_its_reader_would_reject' (232972762) panicked at src/usage/cache/tests.rs:431:5:
+assertion failed: matches!(store(&home, &id, huge.clone(), TEST_NOW, None),
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.01s
+```
+
+## M7-no-period-sum-check (property 5)
+
+Guarding test: `hostile_or_oversized_files_are_refused_whole`. Mutation, in `src/usage/cache.rs`:
+
+- `sum.valid()` -> `sum.valid() || true`
+
+```
+== M7-no-period-sum-check attempt 1 rc=101
+thread 'usage::cache::tests::hostile_or_oversized_files_are_refused_whole' (232974746) panicked at src/usage/cache/tests.rs:1428:9:
+assertion `left == right` failed: a sum past f64
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 800, models: [ModelRow { model: "a", totals: Totals { request_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 1e308, cache_hit_requests: 0.0, failed_requests: 0.0, ttft_weighted: 0.0, ttft_requests: 0, tps_weighted: 0.0, tps_requests: 0 } }, ModelRow { model: "b", tota
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.15s
+```
+
+## M8-no-size-bound (property 5)
+
+Guarding test: `hostile_or_oversized_files_are_refused_whole`. Mutation, in `src/usage/cache.rs`:
+
+- `if bytes.len() as u64 > MAX_FILE_BYTES {` -> `if false {`
+- `map_or(true, |size| size > MAX_FILE_BYTES)` -> `map_or(true, |size| size > u64::MAX)`
+
+```
+== M8-no-size-bound attempt 1 rc=101
+thread 'usage::cache::tests::hostile_or_oversized_files_are_refused_whole' (232976149) panicked at src/usage/cache/tests.rs:1428:9:
+assertion `left == right` failed: over 4 MiB
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 800, models: [ModelRow { model: "m", totals: Totals { request_count: 1, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 1.0, cache_hit_requests: 0.0, failed_requests: 0.0, ttft_weighted: 0.0, ttft_requests: 0, tps_weighted: 0.0, tps_requests: 0 } }] }), finished: None, budget: N
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.07s
+```
+
+## M9-relative-home (property 3)
+
+Guarding test: `no_absolute_home_means_no_cache`. Mutation, in `src/usage/cache.rs`:
+
+- `path.is_absolute().then(` -> `true.then(`
+
+```
+== M9-relative-home attempt 1 rc=101
+thread 'usage::cache::tests::no_absolute_home_means_no_cache' (232978502) panicked at src/usage/cache/tests.rs:552:9:
+assertion `left == right` failed: ""
+  left: Some(Home { path: "" })
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.00s
+```
+
+## M10-no-create-race-retry (property 4)
+
+Guarding test: `two_processes_making_the_same_lock_at_once_both_store`. Mutation, in `src/usage/cache.rs`:
+
+- `Err(Errno::NOENT) if lost_races < CREATE_RACES => {` -> `Err(Errno::NOENT) if false && lost_races < CREATE_RACES => {`
+
+```
+== M10-no-create-race-retry attempt 1 rc=101
+thread 'usage::cache::tests::two_processes_making_the_same_lock_at_once_both_store' (233049258) panicked at src/usage/cache/tests.rs:1161:9:
+thread 'usage::cache::tests::a_copy_of_this_binary_plays_its_role' (233049263) panicked at src/usage/cache/tests.rs:1066:66:
+every store succeeds: Io(Os { code: 2, kind: NotFound, message: "No such file or directory" })
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3723 filtered out; finished in 1.50s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3723 filtered out; finished in 1.51s
+```
+
+## M15-first-draft-nlink (property 4)
+
+Guarding test: `two_processes_storing_at_once_never_tear_or_regress_the_file`. Mutation, in `src/usage/cache.rs`:
+
+- `if stat.st_nlink > 1 {` -> `if stat.st_nlink != 1 {`
+
+```
+== M15-first-draft-nlink attempt 1 rc=101
+thread 'usage::cache::tests::two_processes_storing_at_once_never_tear_or_regress_the_file' (233051200) panicked at src/usage/cache/tests.rs:1206:21:
+a reader found the file unreadable
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3723 filtered out; finished in 0.13s
+```
+
+## M11-blocking-open (property 3)
+
+Guarding test: `something_that_is_not_a_regular_file_is_refused`. Mutation, in `src/usage/cache.rs`:
+
+- `flags | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,` -> `flags | OFlags::NOFOLLOW | OFlags::CLOEXEC,`
+
+```
+== M11-blocking-open attempt 1 rc=101
+thread 'usage::cache::tests::something_that_is_not_a_regular_file_is_refused' (232987377) panicked at src/usage/cache/tests.rs:939:32:
+finished in time: Timeout
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 10.02s
+```
+
+## M12-stage-through-link (property 3)
+
+Guarding test: `a_link_where_a_cache_file_belongs_is_refused_not_followed`. Mutation, in `src/usage/cache.rs`:
+
+- `match rustix::fs::unlinkat(dir, name.as_str(), AtFlags::empty()) {` -> `match Ok::<(), Errno>(()) {`
+- `let fd = open_in( dir, &stage.name, OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL, ) .map_err(io_err)?;` -> `let fd = rustix::fs::openat(dir, stage.name.as_str(), OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC, FILE_MODE) .map_err(io_err)?;`
+
+```
+== M12-stage-through-link attempt 1 rc=101
+thread 'usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed' (232994558) panicked at src/usage/cache/tests.rs:927:5:
+assertion `left == right` failed
+  left: [123, 34, 115, 99, 104, 101, 109, 97, 95, 118, 101, 114, 115, 105, 111, 110, 34, 58, 50, 44, 34, 105, 100, 101, 110, 116, 105, 116, 121, 34, 58, 34, 57, 57, 48, 56, 51, 52, 50, 101, 101, 52, 57, 50, 52, 102, 49, 49, 102, 102, 55, 49, 57, 101, 48, 56, 54, 53, 51, 50, 53, 99, 57, 97, 102, 101, 51, 55, 49, 49, 51, 56, 56, 99, 54, 54, 57, 97, 52, 52, 52, 101, 53, 49, 49, 54, 101, 100, 51, 57, 
+ right: [116, 104, 101, 105, 114, 115]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.03s
+```
+
+## M13-identity-leaks-key (property 1)
+
+Guarding test: `the_key_never_reaches_the_disk`. Mutation, in `src/usage/cache.rs`:
+
+- `for (i, byte) in hash.finalize().iter().enumerate() {` -> `for (i, byte) in subject.as_bytes().iter().chain([0u8; 32].iter()).take(32).enumerate() {`
+
+```
+== M13-identity-leaks-key attempt 1 rc=101
+thread 'usage::cache::tests::the_key_never_reaches_the_disk' (232997110) panicked at src/usage/cache/tests.rs:702:9:
+assertion `left == right` failed: <local-path> names the key
+  left: Some("66616b652d6b65792d5a7137")
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.02s
+```
+
+## M14-write-in-place (property 4)
+
+Guarding test: `a_crash_between_the_stage_and_the_rename_leaves_the_old_file_whole`. Mutation, in `src/usage/cache.rs`:
+
+- `let name = identity.file(".tmp");` -> `let name = identity.file(".json");`
+
+```
+== M14-write-in-place attempt 1 rc=101
+thread 'usage::cache::tests::a_crash_between_the_stage_and_the_rename_leaves_the_old_file_whole' (233001279) panicked at src/usage/cache/tests.rs:1208:5:
+assertion `left == right` failed
+  left: [123, 34, 115, 99, 104, 101, 109, 97, 95, 118, 101, 114, 115, 105, 111, 110, 34, 58, 50, 44, 34, 105, 100, 101, 110, 116, 105, 116, 121, 34, 58, 34, 57, 57, 48, 56, 51, 52, 50, 101, 101, 52, 57, 50, 52, 102, 49, 49, 102, 102, 55, 49, 57, 101, 48, 56, 54, 53, 51, 50, 53, 99, 57, 97, 102, 101, 51, 55, 49, 49, 51, 56, 56, 99, 54, 54, 57, 97, 52, 52, 52, 101, 53, 49, 49, 54, 101, 100, 51, 57, 
+ right: [123, 34, 115, 99, 104, 101, 109, 97, 95, 118, 101, 114, 115, 105, 111, 110, 34, 58, 50, 44, 34, 105, 100, 101, 110, 116, 105, 116, 121, 34, 58, 34, 57, 57, 48, 56, 51, 52, 50, 101, 101, 52, 57, 50, 52, 102, 49, 49, 102, 102, 55, 49, 57, 101, 48, 56, 54, 53, 51, 50, 53, 99, 57, 97, 102, 101, 51, 55, 49, 49, 51, 56, 56, 99, 54, 54, 57, 97, 52, 52, 52, 101, 53, 49, 49, 54, 101, 100, 51, 57, 
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3722 filtered out; finished in 0.02s
+```
+
