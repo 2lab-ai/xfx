@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: usage: /mcp COMMAND
+
+    list                        configured servers; never connects
+    show NAME                   connect to NAME: status, version, tools
+    add NAME URL                add an HTTP server
+    add NAME -- CMD [ARGS...]   add a stdio server
+    add slack                   add Slack's server
+    remove NAME                 remove a server and its login
+    login NAME                  sign in to an HTTP server
+    logout NAME                 sign out and delete the login
+    approve NAME | --all        approve project servers from .mcp.json
+    reject NAME                 reject a project server
+
+  Run '/mcp COMMAND -h' for a command's flags.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

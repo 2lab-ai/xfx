@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9034e3b [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 0  [Servers]  Tools  Resources  Prompts
+
+  No MCP servers configured.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

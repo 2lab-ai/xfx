@@ -4,12 +4,12 @@
 //! shell surface (`.shell`, `/mcp`): `list`, `show`, `add`, `remove`,
 //! `login`, `logout`, `approve` and `reject`, the overview `/mcp help`, `-h`
 //! and `--help` print, each verb's usage, and the sentence each verb fx v1
-//! had now says about where it went (`parse`, `verbs.zig:58-174`). The line
+//! had now says about where it went (`parse`, `verbs.zig:60-174`). The line
 //! is split as fx splits it (`command_lex.tokenize_argv`,
 //! `src/core/shell_command/command_lex.zig:140-226@481104fd`, [`tokenize`]),
 //! and what a verb prints is what fx's does: its standard output one neutral
 //! notice under `mcp`, its standard error one warning
-//! (`VerbJob.run`, `src/core/app/app_mcp_runtime.zig:568-602@481104fd`).
+//! (`VerbJob.run`, `src/core/app/app_mcp_runtime.zig:585-602@481104fd`).
 //! `fx` in a sentence is `xfx` here, and `~/.fx/mcp.json` is `~/.xfx/mcp.json`.
 //!
 //! **In typed order.** fx runs each typed `/mcp` on a thread of its own and
@@ -64,7 +64,7 @@ const PROG: &str = "/mcp";
 /// worker answers every `/mcp` in turn, so the wait has an end.
 const SHOW_WAIT_MAX: Duration = Duration::from_secs(60);
 
-/// fx's cut for a name or a line said back (`safe`, `verbs.zig:476-478`).
+/// fx's cut for a name or a line said back (`safe`, `verbs.zig:469-472`).
 const SAFE_MAX_BYTES: usize = 240;
 
 /// One of the verbs (`Verb`, `verbs.zig:37`).
@@ -415,7 +415,7 @@ const OVERVIEW: [(&str, &str); 10] = [
     ("reject NAME", "reject a project server"),
 ];
 
-/// One verb's usage, or every verb's (`writeUsage`, `verbs.zig:201-230`),
+/// One verb's usage, or every verb's (`writeUsage`, `verbs.zig:202-230`),
 /// each line ending in a line break.
 pub fn usage(verb: Option<Verb>) -> String {
     let p = PROG;
@@ -514,7 +514,7 @@ pub fn tokenize(line: &str) -> Option<Vec<String>> {
     Some(tokens)
 }
 
-/// `redirection_operator_len` (`command_lex.zig:282-301`).
+/// `redirection_operator_len` (`command_lex.zig:268-301`).
 fn redirection_len(chars: &[char], start: usize) -> Option<usize> {
     let at = |k: usize| chars.get(start + k).copied();
     match chars[start] {
@@ -608,7 +608,7 @@ pub fn command_line(command: &str, args: &[String]) -> String {
 }
 
 /// A server's status in words, as `list`, `show` and the completion's
-/// descriptions say it (`statusText`, `verbs.zig:368-388@481104fd`): what
+/// descriptions say it (`statusText`, `verbs.zig:369-388@481104fd`): what
 /// holds it back first -- switched off, waiting for approval, rejected, a
 /// transport xfx does not connect -- then a login it needs, then how its
 /// connection is. `enabled` is its configuration's.
@@ -725,7 +725,7 @@ pub fn handle(runtime: &Arc<McpRuntime>, rest: &str) {
     }
 }
 
-/// `runParsed` (`verbs.zig:274-297`).
+/// `runParsed` (`verbs.zig:273-297`).
 fn run(runtime: &Arc<McpRuntime>, args: &[String]) -> Said {
     let mut said = Said::default();
     let command = match parse(args) {
@@ -755,19 +755,19 @@ fn run(runtime: &Arc<McpRuntime>, args: &[String]) -> Said {
 }
 
 /// The two files a verb edits, or `None` with no home to keep a profile in
-/// (`paths`, `verbs.zig:332-337`).
+/// (`paths`, `verbs.zig:331-336`).
 fn paths(runtime: &McpRuntime) -> Option<(PathBuf, PathBuf)> {
     let profile = runtime.paths().profile.clone()?;
     Some((profile, config::project_path(&runtime.paths().workspace)))
 }
 
-/// fx's `run` catch for `HomeNotSet` (`verbs.zig:262-266`, `describe`).
+/// fx's `run` catch for `HomeNotSet` (`verbs.zig:262-266`, `describe`, `:313-327`).
 fn no_home(said: &mut Said) {
     said.err = format!("{PROG}: HOME isn't set\n");
 }
 
 /// What loading the config skipped, so a server never vanishes without a
-/// reason (`writeNotes`, `verbs.zig:466-472`): each note a line of the
+/// reason (`writeNotes`, `verbs.zig:462-467`): each note a line of the
 /// warning. A config with no server still carries its notes.
 fn notes(runtime: &McpRuntime, said: &mut Said) {
     for note in runtime.issues() {
@@ -932,7 +932,7 @@ fn show(runtime: &McpRuntime, name: &str, said: &mut Said) {
 }
 
 /// A tool's description, first line only, blanks trimmed (`toolDescription`,
-/// `verbs.zig:567-575`).
+/// `verbs.zig:568-575`).
 fn first_line(description: &str) -> &str {
     description
         .split('\n')
@@ -941,7 +941,7 @@ fn first_line(description: &str) -> &str {
         .trim_matches([' ', '\t', '\r'])
 }
 
-/// Whether the file at `path` defines `name` (`defines`, `verbs.zig:594-598`).
+/// Whether the file at `path` defines `name` (`defines`, `verbs.zig:593-597`).
 fn defines(file: File, path: &Path, name: &str) -> Result<bool, config::EditError> {
     Ok(config::read_config(path)?.is_some_and(|text| config::defines(file, &text, name)))
 }
@@ -999,7 +999,7 @@ fn add(runtime: &McpRuntime, name: &str, file: File, entry: &Entry, said: &mut S
     }
 }
 
-/// `remove` (`verbs.zig:600-629`).
+/// `remove` (`verbs.zig:599-629`).
 fn remove(runtime: &McpRuntime, name: &str, only: Option<File>, said: &mut Said) {
     let Some((profile, project)) = paths(runtime) else {
         return no_home(said);
@@ -1058,7 +1058,7 @@ fn find(runtime: &McpRuntime, name: &str) -> Option<(ServerView, bool)> {
         .find(|(view, _)| view.name == name)
 }
 
-/// `login NAME` (`verbs.zig:771-806`): every refusal fx makes before it
+/// `login NAME` (`verbs.zig:765-806`): every refusal fx makes before it
 /// would sign in, and then the gate.
 fn login(runtime: &McpRuntime, name: &str, said: &mut Said) {
     let Some((view, enabled)) = find(runtime, name) else {
@@ -1080,7 +1080,7 @@ fn login(runtime: &McpRuntime, name: &str, said: &mut Said) {
     said.err = format!("{AUTH_UNAVAILABLE}\n");
 }
 
-/// `logout NAME` (`verbs.zig:688-716`). xfx saves no login and holds none,
+/// `logout NAME` (`verbs.zig:689-716`). xfx saves no login and holds none,
 /// so a remote server is one that wasn't signed in.
 fn logout(runtime: &McpRuntime, name: &str, said: &mut Said) {
     let Some((view, _)) = find(runtime, name) else {

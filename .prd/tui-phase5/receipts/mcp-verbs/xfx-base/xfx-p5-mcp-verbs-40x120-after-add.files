@@ -1,0 +1,19 @@
+=== ~/.xfx/history.jsonl (2312 bytes)
+{"schema_version":1,"timestamp_ms":1793943753068,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793943755451,"workspace_root":"<scratch>/work","text":"/mcp show fixture"}
+{"schema_version":1,"timestamp_ms":1793943759512,"workspace_root":"<scratch>/work","text":"/mcp show remote"}
+{"schema_version":1,"timestamp_ms":1793943763546,"workspace_root":"<scratch>/work","text":"/mcp show proj"}
+{"schema_version":1,"timestamp_ms":1793943766595,"workspace_root":"<scratch>/work","text":"/mcp login fixture"}
+{"schema_version":1,"timestamp_ms":1793943768622,"workspace_root":"<scratch>/work","text":"/mcp login remote"}
+{"schema_version":1,"timestamp_ms":1793943773648,"workspace_root":"<scratch>/work","text":"/mcp auth remote"}
+{"schema_version":1,"timestamp_ms":1793943778683,"workspace_root":"<scratch>/work","text":"/mcp logout remote"}
+{"schema_version":1,"timestamp_ms":1793943780713,"workspace_root":"<scratch>/work","text":"/mcp add two -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793943784738,"workspace_root":"<scratch>/work","text":"/mcp add three <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793943788768,"workspace_root":"<scratch>/work","text":"/mcp add --transport http web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793943791789,"workspace_root":"<scratch>/work","text":"/mcp add web2 http://127.0.0.1:9/web2"}
+{"schema_version":1,"timestamp_ms":1793943794811,"workspace_root":"<scratch>/work","text":"/mcp add bad.name http://127.0.0.1:9/x"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (1142 bytes)
+{"mcp":{"fixture":{"type":"local","command":["<bun>","<scenarios>/p5-mcp-stdio.ts"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1},"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000},"two":{"type":"local","command":["--","<bun>","<scenarios>/p5-mcp-stdio.ts"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1},"three":{"type":"local","command":["<bun>","<scenarios>/p5-mcp-stdio.ts"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1},"web":{"type":"http","url":"http://127.0.0.1:9/web","enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000},"web2":{"type":"local","command":["http://127.0.0.1:9/web2"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}}}
+=== ~/.xfx/mcp.lock (0 bytes)
