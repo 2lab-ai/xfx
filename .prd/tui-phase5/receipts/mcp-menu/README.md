@@ -305,19 +305,20 @@ a reviewer's: a reviewer may drop it, and the pair is then an unresolved
 defect with this paragraph as its cause. `xfx-head/` holds this run's
 captures, redacted (`redact_copy.py`).
 
-MCP-Mc gates on `0dac6b0a` (the code head; the receipt commit after it changes
-this directory and the ledger only): fmt ok; clippy ok, both feature sets;
-`cargo test` 4665 / 0 (lib 3789); `--features fault-injection` 4688 / 0 (lib
-3798) -- its first run was ended by a SIGTERM from outside its process group
-part-way, all passing until then, and its second failed one test once,
-`tui::shell::tests::a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu`
-(`a word no skill matches showed the menu`), a skills test this unit does not
-touch, which passed in the plain run, 5 of 5 alone and in the third, whole
-run; identity, stubs, secrets ok; release and faulty release builds ok;
-`smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios + the oracle, 1091 / 0;
+MCP-Mc gates on `6737611d` (code as of `0dac6b0a`; the commits after it change
+this directory and the ledger only), one run, nothing else of this unit's
+running: fmt ok; clippy ok, both feature sets; `cargo test` 4665 / 0 (lib
+3789); `--features fault-injection` 4688 / 0 (lib 3798); identity, stubs,
+secrets ok (7241 files); release and faulty release builds ok; `smoke.sh`
+46 / 0; `smoke-tui.sh` 37 scenarios + the oracle, 1091 / 0;
 `tests/permissions.rs`
 `a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
-alone 3 of 3 (0.31-0.33 s); `tests/mcp.rs` 5 / 0.
+alone 3 of 3 (0.31-0.32 s); `tests/mcp.rs` 5 / 0. An earlier run does not
+count: another worker's clean-up sent its fault-injection suite a SIGTERM
+part-way (the dispatcher's notice); its re-run then failed once in
+`tui::shell::tests::a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu`
+(`a word no skill matches showed the menu`), a skills test this unit does not
+touch, which passed in every other run and 5 of 5 alone.
 
 ## smoke-tui and the pty cases
 
