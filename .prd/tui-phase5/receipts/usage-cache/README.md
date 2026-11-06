@@ -214,6 +214,17 @@ changes behaviour, and a mutant for every new guard: `red-u2b.txt`
 | opus: `format_day` and ranges | `format_day` clamps to `report::MAX_DAY` (`i64::MAX / 86_400_000`); `Entry::valid` refuses a day outside `0..=MAX_DAY` and a stamp below 0 | `format_day(i64::MAX)`: `attempt to add with overflow` at `report.rs:247`; `kept: Some(Entry { today: Some(Today { day: 9223372036854775807, at_ms: -1 …` | `days_and_stamps_no_clock_wrote_are_refused` (six cases; the last day accepted). M24 (no day range): `a day past the last`; M25 (no clamp): the overflow panic at `report.rs:253` |
 | receipt count | "16 mutants" was 17: M1-M15 with M2a/M2b and M4a/M4b | -- | -- |
 
+**Gates, US-U2b**, run once, green, on `0a73ee8f` (the code; only this
+receipt changed after it), rustc 1.99.1 on macOS, short `TMPDIR`: fmt,
+both clippy runs (a first run on `fae3cd82` failed
+`clippy::chunks_exact_to_as_chunks` in the new base64 helper, fixed in
+`0a73ee8f`), `cargo test` 4607 passed / 0 failed / 7 ignored (35
+`usage::cache` and 4 `usage::view` among them), with fault-injection 4628 /
+0 / 7, identity/stubs/secrets ok, release and faulty builds ok, `smoke.sh`
+46 checks / 0 failures, `smoke-tui.sh` 37 scenarios + the oracle, 1107
+checks / 0 failures, MSRV 1.96.1 `cargo check --all-targets` ok. No pty test
+failed.
+
 **Exported API, changed:** `report::MAX_DAY` (new, `pub`). `report::KeySpellings`
 and `report::KEY_RUN` are `pub(crate)`. `cache` is unchanged except that `read`
 and `store` now refuse a non-private or linked profile or cache directory.
