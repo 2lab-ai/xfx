@@ -1,0 +1,68 @@
+RED (base 6c99caa5) against GREEN (this branch), every snap of every p5-transcript capture, .ansi cell by cell after the ledger's normalizations:
+p5-transcript-anchor-40x120-end                  identical
+p5-transcript-anchor-40x120-full-pgup            identical
+p5-transcript-anchor-40x120-full-pgup2-after     identical
+p5-transcript-anchor-40x120-full-pgup2           identical
+p5-transcript-anchor-40x120-full-running         identical
+p5-transcript-anchor-40x120-running              identical
+p5-transcript-anchormid-40x120-end               identical
+p5-transcript-anchormid-40x120-full-end          identical
+p5-transcript-anchormid-40x120-full-pgup-after   identical
+p5-transcript-anchormid-40x120-full-pgup         identical
+p5-transcript-anchormid-40x120-full-running      identical
+p5-transcript-anchormid-40x120-running           identical
+p5-transcript-cancel-40x120-cmd-esc              identical
+p5-transcript-cancel-40x120-cmd-running          identical
+p5-transcript-cancel-40x120-end.full             identical
+p5-transcript-cancel-40x120-esc                  identical
+p5-transcript-cancel-40x120-full                 identical but the zone: 9 header(s) UTC -> KST
+p5-transcript-cancel-40x120-mid                  identical
+p5-transcript-cancel-40x120-next                 identical
+p5-transcript-diffctl-40x120-closed              identical
+p5-transcript-diffctl-40x120-edited              identical
+p5-transcript-diffctl-40x120-edited.full         identical
+p5-transcript-diffctl-40x120-full                identical but the zone: 8 header(s) UTC -> KST
+p5-transcript-md-40x120-answered                 identical
+p5-transcript-md-40x120-answered.full            identical
+p5-transcript-md-40x120-closed                   identical
+p5-transcript-md-40x120-full-pgup                identical but the zone: 4 header(s) UTC -> KST
+p5-transcript-md-40x120-full                     identical but the zone: 2 header(s) UTC -> KST
+p5-transcript-md-light-40x120-answered           identical
+p5-transcript-md-light-40x120-answered.full      identical
+p5-transcript-md-light-40x120-closed             identical
+p5-transcript-md-light-40x120-full-pgup          identical but the zone: 4 header(s) UTC -> KST
+p5-transcript-md-light-40x120-full               identical but the zone: 2 header(s) UTC -> KST
+p5-transcript-resize-40x120-full-pgup-120        identical
+p5-transcript-resize-40x120-full-pgup-80         identical
+p5-transcript-resize-40x120-full-pgup-after      identical
+p5-transcript-resize-40x120-full-pgup            identical
+p5-transcript-resize-40x120-full-running         identical
+p5-transcript-resize-40x120-full-tail-120        identical
+p5-transcript-resize-40x120-full-tail-80         identical
+p5-transcript-submit-40x120-filled               identical
+p5-transcript-submit-40x120-second               identical
+p5-transcript-submit-40x120-submit-0.15          identical
+p5-transcript-submit-40x120-tall                 identical
+p5-transcript-submit-40x120-tall.full            identical
+p5-transcript-tallfirst-40x120-tall              identical
+p5-transcript-tallfirst-40x120-tall.full         identical
+p5-transcript-tools-40x120-end                   identical
+p5-transcript-tools-40x120-end.full              identical
+p5-transcript-tools-40x120-full-pgup-after       identical
+p5-transcript-tools-40x120-full-pgup             identical
+p5-transcript-tools-40x120-full-running          identical
+p5-transcript-tools-40x120-full-tail-up4         identical
+p5-transcript-tools-40x120-full-tail             identical
+p5-transcript-tools-40x120-running               identical
+p5-transcript-tools-40x80-end                    identical
+p5-transcript-tools-40x80-end.full               identical
+p5-transcript-tools-40x80-full-pgup-after        identical
+p5-transcript-tools-40x80-full-pgup              identical
+p5-transcript-tools-40x80-full-running           identical
+p5-transcript-tools-40x80-full-tail-up4          identical
+p5-transcript-tools-40x80-full-tail              identical
+p5-transcript-tools-40x80-running                identical
+p5-transcript-tz-40x120-full                     identical but the zone: 6 header(s) UTC -> IST
+p5-transcript-tzsys-40x120-full                  identical but the zone: 6 header(s) UTC -> KST
+65 snaps, 0 with a difference other than a header's zone
+exit 0

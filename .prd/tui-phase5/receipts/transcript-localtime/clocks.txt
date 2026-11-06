@@ -1,0 +1,40 @@
+== p5-transcript-tz-40x120 (Asia/Kolkata), fx v0.0.16 then xfx (green), each header against its snap's file time
+  fx  clock 2026-11-07 04:36:44.327 IST -> 5.8s before the snap
+  fx  clock 2026-11-07 04:36:44.103 IST -> 6.0s before the snap
+  fx  clock 2026-11-07 04:36:44.125 IST -> 6.0s before the snap
+  fx  clock 2026-11-07 04:36:44.125 IST -> 6.0s before the snap
+  fx  clock 2026-11-07 04:36:44.327 IST -> 5.8s before the snap
+  fx  clock 2026-11-07 04:36:44.319 IST -> 5.8s before the snap
+  xfx clock 2026-11-07 05:09:32.934 IST -> 5.8s before the snap
+  xfx clock 2026-11-07 05:09:32.709 IST -> 6.1s before the snap
+  xfx clock 2026-11-07 05:09:32.798 IST -> 6.0s before the snap
+  xfx clock 2026-11-07 05:09:32.798 IST -> 6.0s before the snap
+  xfx clock 2026-11-07 05:09:32.972 IST -> 5.8s before the snap
+  xfx clock 2026-11-07 05:09:32.972 IST -> 5.8s before the snap
+== p5-transcript-tz-40x120, the base (red)
+  xfx clock 2026-11-06 23:11:41.451 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:40.665 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:41.201 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:41.201 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:41.734 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:41.734 UTC -> WRONG
+== p5-transcript-tzsys-40x120 (Asia/Seoul), fx v0.0.16 then xfx (green), each header against its snap's file time
+  fx  clock 2026-11-07 08:06:57.278 KST -> 5.8s before the snap
+  fx  clock 2026-11-07 08:06:57.057 KST -> 6.0s before the snap
+  fx  clock 2026-11-07 08:06:57.080 KST -> 6.0s before the snap
+  fx  clock 2026-11-07 08:06:57.080 KST -> 6.0s before the snap
+  fx  clock 2026-11-07 08:06:57.278 KST -> 5.8s before the snap
+  fx  clock 2026-11-07 08:06:57.273 KST -> 5.8s before the snap
+  xfx clock 2026-11-07 08:39:45.970 KST -> 5.8s before the snap
+  xfx clock 2026-11-07 08:39:45.752 KST -> 6.1s before the snap
+  xfx clock 2026-11-07 08:39:45.833 KST -> 6.0s before the snap
+  xfx clock 2026-11-07 08:39:45.833 KST -> 6.0s before the snap
+  xfx clock 2026-11-07 08:39:46.016 KST -> 5.8s before the snap
+  xfx clock 2026-11-07 08:39:46.016 KST -> 5.8s before the snap
+== p5-transcript-tzsys-40x120, the base (red)
+  xfx clock 2026-11-06 23:11:54.961 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:54.747 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:54.825 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:54.825 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:54.995 UTC -> WRONG
+  xfx clock 2026-11-06 23:11:54.995 UTC -> WRONG
