@@ -304,7 +304,10 @@ pub(crate) fn rows_of(runtime: &McpRuntime) -> (Vec<Row>, usize) {
                 Some(server) => {
                     let config = &server.config;
                     match config.transport {
-                        Transport::Stdio => command::command_line(&config.command, &config.args),
+                        Transport::Stdio => {
+                            let (program, args) = config.shown_command();
+                            command::command_line(program, args)
+                        }
                         Transport::Http | Transport::Sse => config.url.clone(),
                     }
                 }

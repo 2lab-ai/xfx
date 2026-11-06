@@ -1303,3 +1303,28 @@ fn a_name_or_a_target_reaches_the_screen_spelled() {
         "npx '' 'a b' 'it'\\''s' '$HOME'"
     );
 }
+
+#[test]
+fn a_profile_servers_expanded_variable_is_shown_by_show_as_written() {
+    // Epic 2's merge: MCP-C2 expands a profile server's `${VAR}` before it
+    // starts -- the value is for the server, never a screen (`ServerConfig`'s
+    // doc, `docs/parity.md` profile row) -- and MCP-V's `show` and MCP-M's
+    // menu print the running server's command line. Both print the entry as
+    // its file has it, as they did before the profile was expanded (the
+    // menu's case: `tui::shell::tests::the_menu_shows_a_profile_servers_variable_as_written`).
+    let value = std::env::var("PATH").expect("PATH is set");
+    let scratch = Scratch::new();
+    scratch.write_profile(
+        &serde_json::json!({"mcpServers": {"fixture": {
+            "command": "/bin/sh",
+            "args": [fixture(), "--path=${PATH}"],
+        }}})
+        .to_string(),
+    );
+    let runtime = scratch.runtime();
+    ready(&runtime, "fixture");
+    let shown = said(&runtime, "show fixture").join("\n");
+    assert!(shown.contains("--path=${PATH}"), "{shown}");
+    assert!(!shown.contains(&value), "show printed the value");
+    runtime.shutdown();
+}

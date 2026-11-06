@@ -14766,6 +14766,29 @@ mod tests {
     }
 
     #[test]
+    fn the_menu_shows_a_profile_servers_variable_as_written() {
+        // Epic 2's merge: the menu's `runs` row is the running server's
+        // command line, and MCP-C2 expands a profile server's `${VAR}` before
+        // it starts; the value is for the server, never a screen
+        // (`mcp::command::tests::a_profile_servers_expanded_variable_is_shown_by_show_as_written`).
+        let value = std::env::var("PATH").expect("PATH is set");
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture, "--path=${PATH}"]});
+        let mut case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit)]);
+        // The fixture's path is long: the row is cut inside the variable.
+        let screen = case.screen();
+        assert!(screen.contains("'--path=${"), "{screen}");
+        assert!(!screen.contains(&value), "the menu printed the value");
+    }
+
+    #[test]
     fn a_burst_of_enters_in_one_read_answers_no_question_it_never_painted() {
         // opus-C: `/mcp⏎⏎⏎⏎` in one read opened the menu, the profile
         // server, its Remove question, and answered it -- before any frame.

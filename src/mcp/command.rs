@@ -928,10 +928,13 @@ fn show(runtime: &McpRuntime, name: &str, said: &mut Said) {
     }
     out.push_str(&format!("  transport  {}\n", config.transport.tag()));
     match config.transport {
-        Transport::Stdio => out.push_str(&format!(
-            "  command    {}\n",
-            safe(&command_line(&config.command, &config.args))
-        )),
+        Transport::Stdio => {
+            let (command, args) = config.shown_command();
+            out.push_str(&format!(
+                "  command    {}\n",
+                safe(&command_line(command, args))
+            ))
+        }
         Transport::Http | Transport::Sse => {
             out.push_str(&format!("  url        {}\n", safe(&config.url)))
         }

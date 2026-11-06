@@ -167,6 +167,11 @@ pub struct ServerConfig {
     /// The program, for a stdio server.
     pub command: String,
     pub args: Vec<String>,
+    /// A profile stdio server's command and arguments as its file has them,
+    /// kept by [`prepare_to_start`] before it expands them: what a screen
+    /// shows of the server ([`Self::shown_command`]). `None` for a server
+    /// the profile's expansion never saw.
+    pub written: Option<(String, Vec<String>)>,
     /// A stdio server's own variables, set over the few of xfx's it is given
     /// ([`super::transport::server_environment`]).
     pub env: Vec<(String, String)>,
@@ -246,6 +251,7 @@ impl ServerConfig {
             transport: Transport::Stdio,
             command: command.to_string(),
             args: args.to_vec(),
+            written: None,
             env: Vec::new(),
             url: String::new(),
             headers: Vec::new(),
@@ -268,6 +274,16 @@ impl ServerConfig {
             command: String::new(),
             url: url.to_string(),
             ..Self::local(name, "", &[])
+        }
+    }
+
+    /// The command and arguments a screen shows (`/mcp show`, the menu's
+    /// `runs`): as the file has them -- a value an expansion put in is for
+    /// the server alone.
+    pub fn shown_command(&self) -> (&str, &[String]) {
+        match &self.written {
+            Some((command, args)) => (command, args),
+            None => (&self.command, &self.args),
         }
     }
 
@@ -402,6 +418,7 @@ fn parse_entry(
         transport,
         command: String::new(),
         args: Vec::new(),
+        written: None,
         env,
         url: String::new(),
         headers: Vec::new(),
@@ -2591,6 +2608,9 @@ fn expand_profile_server(
     environment: &dyn Fn(&str) -> Option<String>,
     budget: &mut ExpansionBudget,
 ) -> Result<(), Unresolved> {
+    if server.transport == Transport::Stdio {
+        server.written = Some((server.command.clone(), server.args.clone()));
+    }
     let mut expand = |value: &mut String, field: &'static str| {
         *value = expand_template(value, field, environment, budget)?;
         Ok(())
