@@ -226,7 +226,7 @@ mod tests {
                     .custom_flags(libc::O_NONBLOCK)
                     .open(&fifo);
                 panic!(
-                    "reading the clock from a FIFO with no writer did not answer in 10 s ({why:?})"
+                    "reading the clock from a FIFO with no writer did not answer within 10 s ({why:?})"
                 );
             }
         }
