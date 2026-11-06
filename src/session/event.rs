@@ -1404,9 +1404,12 @@ mod tests {
             "{}",
             frame.encode().expect("encodes")
         );
-        // The runtime's own frame about a bill: no totals, a `settled`
-        // request or a `rejected` id. Nothing at all to this build.
+        // The runtime's own frame about a bill -- no totals, a `settled`
+        // request or a `rejected` id -- and a compaction's between turns --
+        // no totals, its notes request. Nothing at all to this build.
         for answer in [
+            r#""requests":[{"at_ms":1,"duration_ms":9,"model":"zai/glm-5.2","input_tokens":900,"output_tokens":60}]"#,
+            r#""requests":[],"unaccounted":true"#,
             r#""settled":[{"at_ms":1,"duration_ms":0,"model":"m","input_tokens":1,"output_tokens":1,"cost":0.1,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1"}]"#,
             r#""rejected":["gen_01JABCDEFGHJKMNPQRSTVWXYZ1"]"#,
         ] {

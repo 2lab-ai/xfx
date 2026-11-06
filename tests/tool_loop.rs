@@ -2575,9 +2575,9 @@ async fn a_fatal_turn_journals_every_sentence_even_when_the_stream_refuses_the_f
             "tool_result",
             "tool_feedback",
             "tool_feedback",
-            // The turn's one request completed before the revocation, and a
-            // request that completed is spend `/usage` counts: it is recorded
-            // even though the turn failed, just ahead of the conclusion.
+            // The turn's one request completed before the revocation, so the
+            // turn has a frame to write even though it failed: its summary
+            // row's output, just ahead of the conclusion.
             "usage_recorded",
             "turn_concluded"
         ],
@@ -2721,7 +2721,7 @@ async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
             "tool_result",
             "tool_feedback",
             "tool_feedback",
-            // The completed request, recorded for `/usage` though the turn failed.
+            // The completed request makes the failed turn's frame due.
             "usage_recorded",
             "turn_concluded"
         ]
@@ -4158,6 +4158,106 @@ async fn a_turn_that_failed_after_a_request_still_writes_its_summary_frame() {
     )
     .await
     .expect_err("a refusal ends the turn");
+    assert!(matches!(
+        usage_frame(&journal),
+        SessionEvent::UsageRecorded {
+            input_tokens: None,
+            output_tokens: None,
+            turn_output_tokens: Some(_),
+        }
+    ));
+}
+
+/// A turn whose only request was lost after it was sent -- a broken stream
+/// after part of the answer, or a stop -- and no step of which completed
+/// still writes its frame: the request may have reached a model
+/// (`may_have_billed`), and the summary row said what it streamed. The pin
+/// the ledger's `unaccounted` was, on the turn's frame alone.
+#[tokio::test]
+async fn a_turn_whose_only_request_was_lost_after_it_was_sent_writes_its_frame() {
+    for broken in [true, false] {
+        let lost = if broken {
+            ProviderError::Transport {
+                subject: "the Gateway",
+                detail: "the connection reset".to_string(),
+            }
+        } else {
+            ProviderError::Cancelled
+        };
+        let tree = Tree::new();
+        let provider = StreamingProvider::new(vec![(vec![Chunk::Text("half an ans")], Err(lost))]);
+        let mut journal = RecordingJournal::default();
+        run_turn_saved(
+            turn("hi", context(&tree)),
+            ProjectContext::none(),
+            &provider,
+            &mut RecordingSink::new(),
+            &mut journal,
+        )
+        .await
+        .expect_err("a lost request ends the turn");
+        assert_eq!(
+            usage_frame(&journal),
+            &SessionEvent::UsageRecorded {
+                input_tokens: None,
+                output_tokens: None,
+                turn_output_tokens: Some(3),
+            },
+            "broken={broken}"
+        );
+    }
+}
+
+/// A provider whose first call streams part of an answer and is cut there by
+/// a steer, and whose second is refused with a status.
+struct SteeredThenRefused {
+    steering: Steering,
+    calls: std::cell::Cell<usize>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for SteeredThenRefused {
+    async fn stream(
+        &self,
+        _request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        if call == 0 {
+            deltas.text_delta("PARTIAL ").map_err(ProviderError::Sink)?;
+            assert!(self.steering.offer(1, "change tone".to_string()));
+            return std::future::pending().await;
+        }
+        Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "bad request".to_string(),
+            retryable: false,
+            retry_after: None,
+        })
+    }
+}
+
+/// A request a steer cut off was sent, so it may have reached a model: a
+/// turn whose only other request is then refused -- a status, which reached
+/// none -- still writes its frame.
+#[tokio::test]
+async fn a_request_a_steer_cut_off_makes_a_refused_turns_frame_due() {
+    let tree = Tree::new();
+    let steering = Steering::new();
+    steering.open();
+    let provider = SteeredThenRefused {
+        steering: steering.clone(),
+        calls: std::cell::Cell::new(0),
+    };
+    let mut journal = RecordingJournal::default();
+    xfx::agent::TurnMachine::new(turn("go", context(&tree)))
+        .with_steering(steering)
+        .run_journaled(&provider, &mut RecordingSink::new(), &mut journal)
+        .await
+        .expect_err("the second request is refused");
+    assert_eq!(provider.calls.get(), 2);
     assert!(matches!(
         usage_frame(&journal),
         SessionEvent::UsageRecorded {

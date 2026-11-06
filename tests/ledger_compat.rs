@@ -22,9 +22,11 @@
 mod support;
 
 use std::fs;
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -131,6 +133,61 @@ fn private(path: &Path, mode: u32) {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// How long one CLI run may take before it is killed and the test fails:
+/// every one here is a single scripted turn on loopback, or a read.
+const RUN_DEADLINE: Duration = Duration::from_secs(60);
+
+/// Runs `command` to its end, but no longer than [`RUN_DEADLINE`]: past it,
+/// the child -- this test's own -- is killed and reaped, and the test fails.
+/// Its two pipes are drained on threads of their own, so a full pipe cannot
+/// stall it either.
+fn run(command: &mut Command, what: &str) -> Output {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start xfx");
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    };
+    let stdout = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll xfx") {
+            break status;
+        }
+        if started.elapsed() > RUN_DEADLINE {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("{what}: still running after {RUN_DEADLINE:?}; killed");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Output {
+        status,
+        stdout: stdout.join().expect("stdout"),
+        stderr: stderr.join().expect("stderr"),
+    }
 }
 
 fn ok(output: &Output, what: &str) -> String {
@@ -310,7 +367,8 @@ fn the_tui_asks_for_no_bill_on_a_resume_a_turn_or_usage() {
 // ---------------------------------------------------------------------------
 
 /// `ask --resume-id` on the ledger build's session: it replays whole -- the
-/// model is sent its five prompts and answers before the new one -- the turn
+/// model is sent its five prompts and five answers, in order, before the new
+/// one, and `session --json` reads its exact totals -- the turn
 /// appends after the old bytes without touching them, and what it appends
 /// carries none of the ledger. The session reads, and resumes again, after.
 #[test]
@@ -323,49 +381,92 @@ fn the_ledger_builds_session_resumes_replays_and_appends_without_its_fields() {
     seed(&sandbox, &origin_of(&gateway));
     let before = fs::read(log_path(&sandbox, OLD)).expect("the log");
 
-    // Read first: the totals the old frames add up to, as they always did.
+    // Read first: the totals the old frames add up to, as they always did --
+    // the five answering steps' (12000 + 1200 x 3 in, 800 + 40 x 3 out; the
+    // cut turn and the runtime's two answer frames add nothing).
     let shown: Value = serde_json::from_str(&ok(
-        &sandbox
-            .command()
-            .args(["session", "--id", OLD, "--json"])
-            .output()
-            .expect("run xfx"),
+        &run(
+            sandbox.command().args(["session", "--id", OLD, "--json"]),
+            "session --id --json",
+        ),
         "session --id --json",
     ))
     .expect("JSON");
     assert_eq!(fs::read(log_path(&sandbox, OLD)).expect("the log"), before);
-    let text = shown.to_string();
-    for needle in ["15600", "920"] {
-        assert!(text.contains(needle), "{needle} not in {text}");
-    }
+    assert_eq!(
+        (&shown["total_input_tokens"], &shown["total_output_tokens"]),
+        (&json!(15600), &json!(920)),
+        "{shown}"
+    );
 
     ok(
-        &sandbox
-            .command_with(&gateway)
-            .args(["ask", "--resume-id", OLD, "one more question"])
-            .output()
-            .expect("run xfx"),
+        &run(
+            sandbox
+                .command_with(&gateway)
+                .args(["ask", "--resume-id", OLD, "one more question"]),
+            "ask --resume-id",
+        ),
         "ask --resume-id",
     );
-    let body = &gateway.requests()[0].body;
-    let mut at = 0;
-    for said in [
-        "first billed turn",
-        "LEDGER-ONE billed answer",
-        "second deferred turn",
-        "LEDGER-TWO settled later",
-        "third deferred turn",
-        "fourth cut turn",
-        "LEDGER-FOUR cut short",
-        "fifth deferred turn",
-        "LEDGER-FIVE left pending",
-        "one more question",
-    ] {
-        let found = body[at..]
-            .find(said)
-            .unwrap_or_else(|| panic!("`{said}` is not in the request, in order: {body}"));
-        at += found + said.len();
-    }
+    // The model is sent the whole conversation, message by message: every
+    // prompt and every answer -- the rejected turn's too -- the cut turn
+    // closed as a turn that ended early, then the new prompt.
+    let body = gateway.requests()[0].json();
+    let sent: Vec<(String, String)> = body["prompt"]
+        .as_array()
+        .expect("a prompt array")
+        .iter()
+        .map(|message| {
+            let text = match &message["content"] {
+                Value::String(text) => text.clone(),
+                Value::Array(parts) => parts
+                    .iter()
+                    .filter_map(|part| part["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(""),
+                other => panic!("content {other}"),
+            };
+            (message["role"].as_str().expect("a role").to_string(), text)
+        })
+        .collect();
+    let roles: Vec<&str> = sent.iter().map(|(role, _)| role.as_str()).collect();
+    assert_eq!(
+        roles,
+        [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "user",
+            "assistant",
+            "user"
+        ],
+        "{sent:?}"
+    );
+    let texts: Vec<&str> = sent.iter().map(|(_, text)| text.as_str()).collect();
+    assert_eq!(
+        [&texts[..8], &texts[9..]].concat(),
+        [
+            "first billed turn",
+            "LEDGER-ONE billed answer",
+            "second deferred turn",
+            "LEDGER-TWO settled later",
+            "third deferred turn",
+            "LEDGER-THREE rejected later",
+            "fourth cut turn",
+            "LEDGER-FOUR cut short\n\nThe previous response ended before completion.",
+            "fifth deferred turn",
+            "LEDGER-FIVE left pending",
+            "one more question",
+        ],
+        "{sent:?}"
+    );
+    assert!(texts[8].starts_with("<turn_aborted>\n"), "{sent:?}");
     let once = fs::read(log_path(&sandbox, OLD)).expect("the log");
     assert!(once.starts_with(&before), "the old bytes were rewritten");
     let gained = &once[before.len()..];
@@ -379,22 +480,22 @@ fn the_ledger_builds_session_resumes_replays_and_appends_without_its_fields() {
 
     // And it goes on from there.
     ok(
-        &sandbox
-            .command_with(&gateway)
-            .args(["ask", "--resume-id", OLD, "and again"])
-            .output()
-            .expect("run xfx"),
+        &run(
+            sandbox
+                .command_with(&gateway)
+                .args(["ask", "--resume-id", OLD, "and again"]),
+            "the second ask --resume-id",
+        ),
         "the second ask --resume-id",
     );
     let twice = fs::read(log_path(&sandbox, OLD)).expect("the log");
     assert!(twice.starts_with(&once));
     assert_eq!(ledger_keys(&twice[before.len()..]), Vec::<String>::new());
     ok(
-        &sandbox
-            .command()
-            .args(["session", "--id", OLD])
-            .output()
-            .expect("run xfx"),
+        &run(
+            sandbox.command().args(["session", "--id", OLD]),
+            "session --id after the continuation",
+        ),
         "session --id after the continuation",
     );
     assert_eq!(bill_asks(&gateway), Vec::<String>::new());
@@ -424,11 +525,10 @@ fn an_old_usage_json_is_left_as_it_was() {
             .expect("mtime"),
     );
     ok(
-        &sandbox
-            .command_with(&gateway)
-            .args(["ask", "count this"])
-            .output()
-            .expect("run xfx"),
+        &run(
+            sandbox.command_with(&gateway).args(["ask", "count this"]),
+            "ask",
+        ),
         "ask",
     );
     let after = (

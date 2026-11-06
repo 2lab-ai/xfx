@@ -3984,6 +3984,22 @@ mod tests {
             .collect();
         assert_eq!(outputs, [Some(800), Some(40), Some(40), Some(6), Some(40)]);
         assert_eq!(state.last_event_seq, 29);
+
+        // And the frame a compaction between turns wrote -- no totals, its
+        // notes request -- after the last conclusion: no turn takes it, and
+        // it adds nothing.
+        let extra = format!(
+            r#"{{"schema_version":1,"log_generation":"{}","seq":30,"event_id":"ffffffffffffffffffffffffffffffff","timestamp_ms":1793983614000,"event":{{"kind":"usage_recorded","input_tokens":null,"output_tokens":null,"requests":[{{"at_ms":1793983613999,"duration_ms":9,"model":"zai/glm-5.2","input_tokens":900,"output_tokens":60}}]}}}}"#,
+            EventEnvelope::decode(log.lines().next().expect("a frame"))
+                .expect("a frame")
+                .log_generation
+        );
+        apply(&mut state, &EventEnvelope::decode(&extra).expect("decodes")).expect("applies");
+        assert_eq!(
+            (state.total_input_tokens, state.total_output_tokens),
+            (15_600, 920)
+        );
+        assert_eq!(state.turns[4].timing.output_tokens, Some(40));
     }
 
     #[test]
