@@ -167,6 +167,8 @@ class Normalize(unittest.TestCase):
             ("  2s (↑6 ↓40)", "  1s (↑6 ↓40)"),
             ("• Generating (3s) (↑4 ↓6)", "  Generating (4s) (↑4 ↓6)"),
             ("  2026-11-03 12:45:01.234 UTC · Tool", "  2026-11-03 12:46:11.004 UTC · Tool"),
+            ("  2026-11-03 21:45:01.234 KST · Prompt", "  2026-11-03 21:46:11.004 KST · Prompt"),
+            ("  2026-11-03 18:15:01.234 +0530 · Tool", "  2026-11-03 18:16:11.004 +0530 · Tool"),
             ("Pane is dead (status 0, Tue Nov  3 21:51:45 2026)", "Pane is dead (status 0, Tue Nov  3 21:52:01 2026)"),
             ("Continue session with: fx --resume 9yclcdoOjcsQ", "Continue session with: xfx --resume 1793709927101-83b1c1b7b10564ac"),
             ("* network: provider: gateway · model: fake/model-a · 444ms", "* network: provider: gateway · model: fake/model-a · 101ms"),
@@ -183,6 +185,9 @@ class Normalize(unittest.TestCase):
             ("Pane is dead (status 0, Tue Nov  3 21:51:45 2026)", "Pane is dead (status 1, Tue Nov  3 21:52:01 2026)"),
             ("Continue session with: fx --resume 9yclcdoOjcsQ", "Continue session with: xfx --resume 9yclcdoOjcsQ"),
             ("~ Generating (3s) (↑4 ↓6)", "~ Thinking (3s) (↑4 ↓6)"),
+            # The clock is the run's; the zone after it is the product's.
+            ("  2026-11-03 21:45:01.234 KST · Tool", "  2026-11-03 12:46:11.004 UTC · Tool"),
+            ("  2026-11-03 18:15:01.234 IST · Tool", "  2026-11-03 18:16:11.004 +0530 · Tool"),
         ):
             self.assertEqual(len(compare(fx, xfx, self.led)), 1, (fx, xfx))
 

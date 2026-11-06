@@ -4,7 +4,8 @@
 //!
 //! The inline transcript is the conversation as it is read; this is the same
 //! conversation as it was **recorded**: every entry under a dim timestamp
-//! header (`full_transcript_metadata.zig:27-60`), and under each tool call what
+//! header in the local time zone (`full_transcript_metadata.zig:28-38@481104fd`,
+//! [`stamp`]), and under each tool call what
 //! it was called with and what it returned -- a command's output, a file's
 //! lines, the change it was asked to make -- which the inline group never shows
 //! (`tool_group_projection.zig:1150-1158`; upstream's e2e
@@ -12,7 +13,7 @@
 //! Ctrl-O").
 //!
 //! ```text
-//!   2026-10-06 14:43:50.639 UTC · Tool
+//!   2026-10-06 23:43:50.639 KST · Tool
 //! ├ Exited 3 echo boom; echo err >&2; exit 3
 //! │ boom
 //! │ err
@@ -91,7 +92,6 @@ use crate::markdown;
 use crate::permission::ApprovalDiff;
 use crate::session::{SessionEvent, TurnStep};
 use crate::tools::{Activity, LineChanges, Outcome, Registry, Shown};
-use crate::trace::civil;
 
 use super::approval_view::{Line as ReviewLine, Review};
 use super::blocks;
@@ -157,24 +157,17 @@ impl Kind {
     }
 }
 
-/// `YYYY-MM-DD HH:MM:SS.mmm UTC`, or nothing for a moment upstream will not
-/// print either (`formatHeader`, `full_transcript_metadata.zig:27-60`: zero,
-/// negative, or past the year 9999).
+/// `YYYY-MM-DD HH:MM:SS.mmm <zone>`, read in the local zone in effect at that
+/// moment -- `KST`, or `+0545` for a zone without a plain abbreviation
+/// ([`crate::local_time`], v0.0.16's c9bc4876) -- or nothing for a moment
+/// upstream will not print either (`formatHeader`,
+/// `full_transcript_metadata.zig:28-38@481104fd`: zero, negative, or past the
+/// year 9999).
 pub(crate) fn stamp(at_ms: i64) -> Option<String> {
-    const LAST: i64 = 253_402_300_799_999;
-    if at_ms <= 0 || at_ms > LAST {
+    if at_ms <= 0 {
         return None;
     }
-    let seconds = at_ms.div_euclid(1000);
-    let millis = at_ms.rem_euclid(1000);
-    let (year, month, day) = civil(seconds.div_euclid(86_400));
-    let of_day = seconds.rem_euclid(86_400);
-    Some(format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{millis:03} UTC",
-        of_day / 3600,
-        of_day % 3600 / 60,
-        of_day % 60
-    ))
+    crate::local_time::local(at_ms).map(|reading| reading.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -2137,8 +2130,9 @@ mod tests {
     }
 
     #[test]
-    fn a_header_is_upstreams_utc_stamp_and_the_entrys_kind() {
-        // `full_transcript_metadata.zig:63-72`, the same instant.
+    fn a_header_is_upstreams_local_stamp_and_the_entrys_kind() {
+        // `full_transcript_metadata.zig:40-52@481104fd`, the same instant: a
+        // test build reads its zone from `local_time`'s test zone, UTC.
         assert_eq!(
             stamp(1_704_164_645_006).as_deref(),
             Some("2024-01-02 03:04:05.006 UTC")
@@ -2157,6 +2151,27 @@ mod tests {
         assert_eq!(stamp(0), None);
         assert_eq!(stamp(-1), None);
         assert_eq!(stamp(253_402_300_800_000), None);
+        // West of UTC, the day before; and a zone with no plain name.
+        let est = crate::local_time::Zone {
+            offset_s: -5 * 3600,
+            name: b"EST",
+        };
+        crate::local_time::with_test_zone(Some(est), || {
+            assert_eq!(
+                stamp(1_704_164_645_006).as_deref(),
+                Some("2024-01-01 22:04:05.006 EST")
+            );
+        });
+        let unnamed = crate::local_time::Zone {
+            offset_s: 5 * 3600 + 45 * 60,
+            name: b"\x1b]0;x\x07",
+        };
+        crate::local_time::with_test_zone(Some(unnamed), || {
+            assert_eq!(
+                stamp(1_704_164_645_006).as_deref(),
+                Some("2024-01-02 08:49:05.006 +0545")
+            );
+        });
     }
 
     #[test]

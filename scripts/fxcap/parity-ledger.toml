@@ -132,11 +132,11 @@ source = [".prd/tui-phase4/receipts/f5/README.md:38"]
 
 [[normalization]]
 id = "transcript-timestamp"
-fx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC\b'
-xfx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC\b'
+fx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}(?= [A-Za-z0-9+-]{1,10}(?: · |$))'
+xfx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}(?= [A-Za-z0-9+-]{1,10}(?: · |$))'
 mask = "X"
-why = "The full transcript (Ctrl-O) heads every entry with the moment it was recorded (`  <ts> UTC · Tool`): the run's clock, masked to the same length."
-source = [".prd/tui-phase4/receipts/f5/README.md:38", ".prd/tui-phase4/receipts/f5/README.md:49"]
+why = "The full transcript (Ctrl-O) heads every entry with the moment it was recorded (`  <ts> <zone> · Tool`): the run's clock, masked to the same length. The zone after it -- `UTC`, `KST`, `+0530`, the local zone since v0.0.16's c9bc4876 -- is the product's and is compared."
+source = [".prd/tui-phase4/receipts/f5/README.md:38", ".prd/tui-phase4/receipts/f5/README.md:49", "docs/parity.md:238"]
 
 [[normalization]]
 id = "tmux-dead-pane"
