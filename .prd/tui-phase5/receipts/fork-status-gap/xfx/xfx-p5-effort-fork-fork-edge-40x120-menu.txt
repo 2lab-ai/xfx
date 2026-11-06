@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ea3db6e [debug] · Run /help for commands
+
+* session: nothing to fork yet
+
+✗ command: Unknown command. Try /help.
+
+┃ slow turn please
+
+* session: /fork is available once the current turn finishes
+
+  SLOW one two three four five six seven eight nine ten.
+
+  7s (↑4 ↓40)
+
+┃ quick second
+
+  AFTER answer.
+
+  0s (↑4 ↓40)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  slow turn please
+  quick second
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter fork     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+

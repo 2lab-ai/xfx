@@ -1,0 +1,40 @@
+
+original session xfx --resume 1793966287951-ea45d0a2ad9c923c
+
+* session: nothing to fork yet
+
+
+Continue session with: xfx --resume 1793966311298-7c5b52f8bdbccd3d
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Fri Nov  6 20:58:39 2026)
