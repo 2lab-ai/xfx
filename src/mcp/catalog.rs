@@ -115,7 +115,9 @@ fn note_read(runtime: &McpRuntime, view: &ServerView) {
     match view.status() {
         Status::Ready => server.set_tools_known(true),
         Status::Failed | Status::NeedsAuth => server.set_tools_known(false),
-        Status::Connecting | Status::Disabled | Status::Unavailable => {}
+        // `retrying` is still coming up: fx's `tools()` waits through it
+        // (`p5-mcp-fail`'s `show bad`), and xfx keeps what it had.
+        Status::Connecting | Status::Retrying | Status::Disabled | Status::Unavailable => {}
     }
 }
 
