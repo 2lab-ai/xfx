@@ -63,7 +63,7 @@ pair. 33 of the 34 snaps differ. Only `launch` matches.
 ## GREEN
 
 `green.txt` is `cells.py` (`.prd/tui-phase4/receipts/m1/cells.py`) over
-every `fx/` and `xfx/` pair. All 34 are identical, row 1 (each product's
+every `fx/` and `xfx/` pair. All 37 are identical, row 1 (each product's
 banner) left out.
 
 | scenario | snaps, all identical |
@@ -75,6 +75,7 @@ banner) left out.
 | `effort-loading` | `early`, `later` |
 | `effort-ctrlc` | `ctrlc`, `ctrlc-later` |
 | `effort-backtab` | `backtab`, `backtab-esc` |
+| `slash-rank` (EF1g) | `se`, `ex`, `et` (`e`: see below) |
 
 The xfx binary is `target/debug/xfx` at `2630f11` (EF1b), its banner
 `v0.1.0-2630f11`. EF1b's changes -- the effort-only change written again and
@@ -133,6 +134,37 @@ unit.
 - `/fork`, which shares the research doc: P5-FK1 and P5-FK2.
 - Upstream's click after the announcement (`playInteractionSound`,
   `main.zig:800-802`): xfx ships no chimes.
+
+## The slash popup's ranking (EF1g)
+
+`/effort` takes the prefix `/e`, so smoke-tui's scenario 16, which typed `/e`
+to pin an alias above the substrings, timed out on CI: the menu opened on
+`/effort`, not on the `/exit` alias. fx v0.0.16 ranks the same way. It puts an
+exact name first. Then come names and aliases that start with the word, as one
+tier in the registry's order. Substrings come last. Each command keeps the
+best of its name and its aliases (`completionCommandMatchRank`,
+`bestCompletionCommandMatch`, `nthSlashCommandCompletionMatch`,
+`src/core/slash_commands/command_specs.zig:520-565@481104fd`). So xfx's
+ranking was right and the scenario was stale.
+
+`p5-effort-fork-slash-rank` (40x120) types `/e`, `/se`, `/ex` and `/et` on
+both binaries:
+
+| typed | fx v0.0.16 | xfx | pair |
+|---|---|---|---|
+| `/e` | `Commands 23`: `/effort`, `/exit`, `/help`, `/clear`, `/new`, `/reset`, … | `Commands 21`: the same six rows | header count differs |
+| `/se` | `Commands 3`: `/setup`, `/settings`, `/reset` | the same | identical |
+| `/ex` | `Commands 1`: `/exit` | the same | identical |
+| `/et` | `Commands 3`: `/reset`, `/setup`, `/settings` | the same | identical |
+
+`/e`'s count differs because fx v0.0.16 has commands that other units add
+(`/fork`, `/login`, `/logout`, `/feedback`, `/shell`). Its rows match. The
+three identical pairs are in `green.txt`.
+
+Scenario 16 now types `/se`. There, `/setup`, the `/provider` alias, comes
+first, and `/reset`, a substring, comes after it. The scenario computes the
+expected list from the registry by fx's rule (`ranked_completions`), and
+requires that this list starts with the alias and holds a substring after it.
 
 ## Residual: EF1-RESID
 
