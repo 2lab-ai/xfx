@@ -1,0 +1,5 @@
+# mutant 2 (O_NOFOLLOW removed from load_not_through_a_link): the refusal test
+test session::store::fork::tests::a_fork_whose_source_rules_cannot_be_read_or_are_a_link_is_refused_and_leaves_nothing ... FAILED
+thread 'session::store::fork::tests::a_fork_whose_source_rules_cannot_be_read_or_are_a_link_is_refused_and_leaves_nothing' (235268216) panicked at src/session/store/fork/tests.rs:1667:28:
+a link to a store: forked 1793966268909-3f1e7e5d1b045ba4
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3838 filtered out; finished in 0.17s

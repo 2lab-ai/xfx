@@ -13183,3 +13183,401 @@ fn a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a
         "{answered}"
     );
 }
+
+/// Types `/fork` until the Fork menu is up: it is refused while a turn is in
+/// hand, as the one that just answered may still be.
+fn open_the_fork_menu(session: &Session) {
+    let deadline = Instant::now() + WAIT;
+    let busy = "/fork is available once the current turn finishes";
+    let menu = |text: &str| {
+        Screen::painted(text, 40, 120).is_some_and(|screen| screen.find("enter fork").is_some())
+    };
+    loop {
+        let refusals = session.text().matches(busy).count();
+        session.type_bytes(b"/fork\r");
+        let text = session.wait_until("the Fork menu, or `/fork` refused", |text| {
+            menu(text) || text.matches(busy).count() > refusals
+        });
+        if menu(&text) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the turn never ended");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Pastes a `/permissions remember` or `revoke` form, and confirms its
+/// `question` with Enter.
+fn confirm_rule_change(session: &Session, form: &str, question: &str) {
+    session.type_bytes(format!("\x1b[200~{form}\x1b[201~").as_bytes());
+    // The paste is whole in the composer before Enter: a key that follows
+    // its end marker in the same read refuses it.
+    on_screen(session, (40, 120), &[&form[form.len() - 8..]], &[]);
+    session.type_bytes(b"\r");
+    on_screen(session, (40, 120), &[question], &[]);
+    let updated = "saved-session permission rule updated";
+    let before = session.text().matches(updated).count();
+    session.type_bytes(b"\r");
+    session.wait_until("the change confirmed", |text| {
+        text.matches(updated).count() > before
+    });
+    on_screen(session, (40, 120), &[], &[question]);
+}
+
+/// The id of the session `sessions_dir/id` was forked from, read off its
+/// line 1, or `None` for a session that was not forked.
+fn forked_from(sandbox: &Sandbox, id: &str) -> Option<String> {
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(id).join("events.jsonl")).ok()?;
+    let first: Value = serde_json::from_str(log.lines().next()?).ok()?;
+    first["event"]["forked_from"]["id"]
+        .as_str()
+        .map(str::to_string)
+}
+
+/// Remembers a deny for one exact call before the first prompt, has the second
+/// turn's model make that call -- refused by the rule -- then forks before the
+/// second prompt and sends it again in the fork, whose model makes the same
+/// call. Answers the five requests the turns sent, oldest first: the fork's
+/// tool result is the last.
+///
+/// The fork keeps the first turn, so the rule was in force at the cut: fx
+/// v0.0.16's fork holds it (its `set permissions` line is among the lines
+/// 2..S `openFork` copies, `src/core/session_manager/session.zig:1744-1747`,
+/// `copyFolded`, `:1837-1868@481104fd`).
+fn a_denied_call_made_again_in_a_fork(
+    sandbox: &Sandbox,
+    mode: &str,
+    remember: &str,
+    tool: &str,
+    input: Value,
+) -> Vec<support::fake_gateway::CapturedRequest> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        Reply::Sse(sse_body(&[
+            tool_call("in-source", tool, input.clone()),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-TWO"])),
+        Reply::Sse(sse_body(&[
+            tool_call("in-fork", tool, input),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-FORK"])),
+    ]);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", mode);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(format!("\x1b[200~{remember}\x1b[201~").as_bytes());
+    // The paste is whole in the composer before Enter: a key that follows
+    // its end marker in the same read refuses it.
+    on_screen(
+        &session,
+        (40, 120),
+        &[&remember[remember.len() - 12..]],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Remember deny for this saved session?"],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["saved-session permission rule updated"],
+        &["Remember deny for this saved session?"],
+    );
+    session.type_bytes(b"first prompt\r");
+    session.wait_for("MARKER-ONE");
+    session.type_bytes(b"second prompt\r");
+    session.wait_for("MARKER-TWO");
+
+    // The menu opens on the newest prompt: Enter forks before it, keeping the
+    // first turn, and puts it back in the composer.
+    open_the_fork_menu(&session);
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["session forked:", "second prompt"],
+        &["enter fork"],
+    );
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-FORK");
+    // The fork's turn is on disk before the session goes.
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let concluded = sandbox.session_ids().iter().any(|id| {
+            let log = std::fs::read_to_string(sandbox.sessions_dir().join(id).join("events.jsonl"))
+                .unwrap_or_default();
+            log.lines()
+                .next()
+                .is_some_and(|line| line.contains("\"forked_from\":{"))
+                && log.contains("\"turn_concluded\"")
+        });
+        if concluded {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the fork's turn never concluded");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 5, "one request per reply");
+    requests
+}
+
+/// The tool result the request carries for the call `id`.
+fn tool_result_of(request: &support::fake_gateway::CapturedRequest, id: &str) -> Value {
+    request.json()["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["toolCallId"] == id)
+        .unwrap_or_else(|| panic!("no result for `{id}` went back"))
+}
+
+#[test]
+fn a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto() {
+    // `auto` admits a write inside the workspace on its own; a remembered deny
+    // is what stops this one, in the source and -- because the fork carries
+    // the source's remembered denies -- in the fork. Red before: the fork's
+    // directory had no `permissions.json`, so `auto` wrote `b.txt`.
+    let sandbox = Sandbox::new();
+    let requests = a_denied_call_made_again_in_a_fork(
+        &sandbox,
+        "auto",
+        r#"/permissions remember deny write_file {"path":"b.txt","content":"y"}"#,
+        "write_file",
+        serde_json::json!({"path": "b.txt", "content": "y"}),
+    );
+    for (request, id, which) in [(2, "in-source", "source"), (4, "in-fork", "fork")] {
+        let result = tool_result_of(&requests[request], id);
+        assert_eq!(
+            result["output"]["type"], "execution-denied",
+            "{which}: {result}"
+        );
+        assert!(
+            result
+                .to_string()
+                .contains("a saved-session permission rule denies"),
+            "{which}: {result}"
+        );
+    }
+    assert!(
+        !sandbox.workspace.join("b.txt").exists(),
+        "the fork wrote what the source's remembered deny refused"
+    );
+}
+
+#[test]
+fn a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask() {
+    // A read is free in every mode once no rule decides it, `ask` included --
+    // so a remembered deny on a read that did not reach the fork would let
+    // the fork read the file without a question. Red before: `hunter2` went
+    // to the model from the fork.
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("secret.txt"), "hunter2\n").expect("the secret");
+    let requests = a_denied_call_made_again_in_a_fork(
+        &sandbox,
+        "ask",
+        r#"/permissions remember deny read_file {"path":"secret.txt"}"#,
+        "read_file",
+        serde_json::json!({"path": "secret.txt"}),
+    );
+    for (request, id, which) in [(2, "in-source", "source"), (4, "in-fork", "fork")] {
+        let result = tool_result_of(&requests[request], id);
+        assert_eq!(
+            result["output"]["type"], "execution-denied",
+            "{which}: {result}"
+        );
+        assert!(
+            result
+                .to_string()
+                .contains("a saved-session permission rule denies"),
+            "{which}: {result}"
+        );
+    }
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.body.contains("hunter2")),
+        "the fork read what the source's remembered deny refused"
+    );
+}
+
+#[test]
+fn a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation() {
+    // The source's store, before its first prompt: a deny (id 1), an allow
+    // (id 2), the allow revoked -- `{deny 1}` under next generation 4. A fork
+    // of it, and a fork of that fork, each hold the deny with its id and that
+    // generation, and the second refuses the call. There `/permissions
+    // revoke 1` takes it out of that fork alone, spending generation 4, and
+    // the next rule remembered there takes id 5: no id the source gave, and
+    // the generation the store is at.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        Reply::Sse(content_only(&["MARKER-TWO"])),
+        Reply::Sse(content_only(&["MARKER-F1"])),
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "in-fork2",
+                "write_file",
+                serde_json::json!({"path": "b.txt", "content": "y"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-F2"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "auto");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    confirm_rule_change(
+        &session,
+        r#"/permissions remember deny write_file {"path":"b.txt","content":"y"}"#,
+        "Remember deny for this saved session?",
+    );
+    confirm_rule_change(
+        &session,
+        r#"/permissions remember allow write_file {"path":"a.txt","content":"x"}"#,
+        "Remember allow for this saved session?",
+    );
+    confirm_rule_change(
+        &session,
+        "/permissions revoke 2",
+        "Revoke this saved-session permission rule?",
+    );
+    session.type_bytes(b"first prompt\r");
+    session.wait_for("MARKER-ONE");
+    session.type_bytes(b"second prompt\r");
+    session.wait_for("MARKER-TWO");
+    let [source] = sandbox.session_ids().try_into().expect("one session");
+
+    // Each fork is before the newest prompt, so it keeps the first turn and
+    // puts "second prompt" back in the composer; its plain line names the
+    // session it was made from.
+    let fork_from = |session: &Session, from: &str, marker: &str| -> String {
+        let known = sandbox.session_ids();
+        open_the_fork_menu(session);
+        session.type_bytes(b"\r");
+        let deadline = Instant::now() + WAIT;
+        let made = loop {
+            let fresh: Vec<String> = sandbox
+                .session_ids()
+                .into_iter()
+                .filter(|id| !known.contains(id))
+                .collect();
+            if let [id] = fresh.as_slice() {
+                break id.clone();
+            }
+            assert!(Instant::now() < deadline, "no fork of {from} was made");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert_eq!(forked_from(&sandbox, &made).as_deref(), Some(from));
+        on_screen(
+            session,
+            (40, 120),
+            &[
+                &format!("original session xfx --resume {from}"),
+                "second prompt",
+            ],
+            &["enter fork"],
+        );
+        session.type_bytes(b"\r");
+        session.wait_for(marker);
+        made
+    };
+    let fork1 = fork_from(&session, &source, "MARKER-F1");
+    let fork2 = fork_from(&session, &fork1, "MARKER-F2");
+
+    confirm_rule_change(
+        &session,
+        "/permissions revoke 1",
+        "Revoke this saved-session permission rule?",
+    );
+    confirm_rule_change(
+        &session,
+        r#"/permissions remember deny write_file {"path":"c.txt","content":"z"}"#,
+        "Remember deny for this saved session?",
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The deny reached the fork of the fork and refused its call.
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 5, "one request per reply");
+    let result = tool_result_of(&requests[4], "in-fork2");
+    assert_eq!(result["output"]["type"], "execution-denied", "{result}");
+    assert!(
+        result
+            .to_string()
+            .contains("a saved-session permission rule denies"),
+        "{result}"
+    );
+    assert!(!sandbox.workspace.join("b.txt").exists());
+
+    let rules = |id: &str| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(sandbox.sessions_dir().join(id).join("permissions.json"))
+                .unwrap_or_else(|err| panic!("{id}'s rules: {err}")),
+        )
+        .expect("JSON")
+    };
+    let summary = |store: &Value| -> (u64, Vec<(u64, u64, String)>) {
+        (
+            store["next_generation"].as_u64().expect("a generation"),
+            store["rules"]
+                .as_array()
+                .expect("rules")
+                .iter()
+                .map(|rule| {
+                    (
+                        rule["id"].as_u64().expect("an id"),
+                        rule["generation"].as_u64().expect("a generation"),
+                        format!(
+                            "{} {}",
+                            rule["decision"].as_str().expect("a decision"),
+                            rule["display_identity"].as_str().expect("a display")
+                        ),
+                    )
+                })
+                .collect(),
+        )
+    };
+    let deny_b = "deny write_file b.txt preimage=absent after=a1fce4363854ff88".to_string();
+    // The source and the first fork: the deny, untouched by the revoke.
+    for id in [&source, &fork1] {
+        assert_eq!(
+            summary(&rules(id)),
+            (4, vec![(1, 1, deny_b.clone())]),
+            "{id}"
+        );
+    }
+    // The fork of the fork: the deny revoked, generation 4 spent on it, and
+    // the new rule at id 5.
+    let (next, held) = summary(&rules(&fork2));
+    assert_eq!(next, 6, "{held:?}");
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!((held[0].0, held[0].1), (5, 5), "{held:?}");
+    assert!(
+        held[0]
+            .2
+            .starts_with("deny write_file c.txt preimage=absent after="),
+        "{held:?}"
+    );
+}
