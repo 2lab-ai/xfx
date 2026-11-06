@@ -41044,7 +41044,7 @@ mod tests {
     }
 
     /// How many of the slot's surfaces a command or a `/fork` can open are
-    /// up at once: upstream's slot holds one (`surface_frame.zig:396-408@481104fd`).
+    /// up at once: upstream's slot holds one (`surface_frame.zig:398-408@481104fd`).
     fn slot_occupants(shell: &Shell) -> usize {
         [
             shell.info_panel.is_some(),
