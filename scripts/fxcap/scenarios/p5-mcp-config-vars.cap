@@ -1,0 +1,30 @@
+# p5 mcp config: fx v0.0.16's three profile deltas on one screen -- `${VAR}`
+# expanded in a profile entry's command, arguments, environment and header
+# values (`expandProfileConfigs`), an entry left without a value or with a
+# `${...}` that isn't a variable skipped with a note, and an entry whose name
+# a terminal can't show skipped with one (`skipUnprintableNames`).
+# `fixture` reaches p5-mcp-stdio.ts only through P5_DIR, and writes its wire
+# log where its expanded `env` says, which `home end` lists by name; the
+# values are this run's own fake ones.
+fx: homefile .fx/mcp.json p5-mcp-config-vars-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-config-vars-profile.json
+env P5_DIR=@SCENARIOS@ P5_HOME=@HOME@ P5_TAG=fake-p5-tag
+keep
+wait 12
+snap startup
+type /mcp
+key Enter
+wait 2
+snap menu
+key Escape
+wait 0.5
+key C-u
+type /mcp list
+key Enter
+wait 2
+snap list
+key Escape
+wait 0.3
+key C-u
+home end
+snapfull end

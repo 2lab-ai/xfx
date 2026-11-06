@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9c83b7e [debug] · Run /help for commands
+
+* mcp: MCP startup: 7 servers need attention, 7 failed. Use /mcp list for details.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 7  [Servers]  Tools  Resources  Prompts
+
+  fixture               Failed                stdio · Profile
+  fallback              Failed                stdio · Profile
+  unset                 Failed                stdio · Profile
+  remote                Failed                HTTP · Profile
+  badref                Failed                stdio · Profile
+  evil\x1b]0;x\x07      Failed                stdio · Profile
+  rtl\u{202e}txt        Failed                stdio · Profile
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -29,7 +29,7 @@
 //! reads: `/mcp add` says `Failed to save MCP server config: <name>.`
 //! (`mcp.zig:296-300`).
 //!
-//! fx v0.0.16 (`481104fd`) changed three things here, and this file has them:
+//! fx v0.0.16 (`481104fd`) changed four things here, and this file has them:
 //!
 //! - **An entry xfx can't read is skipped with a note** in fx's words, rather
 //!   than the whole profile refused (`parseProfileServerMap`,
@@ -46,6 +46,11 @@
 //!   [`add_profile_server`] and [`remove_profile_server`].
 //! - **`--project` edits the workspace's `.mcp.json`**, never through a link
 //!   or a file with another hard link, keeping its mode.
+//! - **Before any server starts** ([`prepare_to_start`]; `loadHost`,
+//!   `src/builtins/mcp.zig:121-134@481104fd`), a profile server's `${VAR}`
+//!   is expanded, and a server whose name a terminal can't show is skipped,
+//!   each with a note. The file keeps `${VAR}`; the values go only to the
+//!   server they start or reach.
 
 use std::fmt;
 use std::fs;
@@ -146,6 +151,12 @@ pub enum Admission {
 }
 
 /// One configured server, whole.
+///
+/// Once through [`prepare_to_start`], a profile server's command, arguments,
+/// `env` values and header values are what its `${VAR}`s expanded to, and an
+/// approved workspace server's are too ([`load_workspace`]): values from the
+/// environment, a credential among them, for the server and never for a
+/// screen. What a person is shown of an entry is read from its file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerConfig {
     pub name: String,
@@ -688,23 +699,47 @@ const MAX_NOTE_NAME_BYTES: usize = 160;
 /// [`crate::mcp::terminal_safe`], one character at a time, and cut as it cuts
 /// to [`MAX_NOTE_NAME_BYTES`].
 fn note_name(name: &str) -> String {
+    spelled(name, MAX_NOTE_NAME_BYTES)
+}
+
+/// `text` as `encodeTerminalSafe(.., max)` gives it
+/// (`src/core/shared/text_utils.zig:353-390@481104fd`): each character
+/// spelled by [`crate::mcp::terminal_safe`], and past `max` bytes cut at a
+/// character's boundary to end `...` within `max`.
+fn spelled(text: &str, max: usize) -> String {
     const MARKER: &str = "...";
     let mut out = String::new();
     let mut boundary = 0;
     let mut buf = [0u8; 4];
-    for character in name.chars() {
+    for character in text.chars() {
         let token = crate::mcp::terminal_safe(character.encode_utf8(&mut buf));
-        if out.len() + token.len() > MAX_NOTE_NAME_BYTES {
+        if out.len() + token.len() > max {
             out.truncate(boundary);
             out.push_str(MARKER);
             return out;
         }
         out.push_str(&token);
-        if out.len() <= MAX_NOTE_NAME_BYTES - MARKER.len() {
+        if out.len() <= max - MARKER.len() {
             boundary = out.len();
         }
     }
     out
+}
+
+/// Whether a terminal shows `name` as it is: no character in it that
+/// [`crate::mcp::terminal_safe`] spells -- a control, a default-ignorable
+/// code point (the bidirectional and zero-width ones among them), one a
+/// terminal was measured drawing wider than xfx counts, a zero-width one
+/// that isn't a combining mark. fx's `isTerminalSafe`
+/// (`text_utils.zig:478-488@481104fd`) tests a smaller set: the C0 controls,
+/// `DEL`, and `isNonPrintingCodepoint`'s (`:703-709`), the C1 controls among
+/// them (`docs/parity.md`).
+fn printable(name: &str) -> bool {
+    let mut buf = [0u8; 4];
+    name.chars().all(|character| {
+        let one = character.encode_utf8(&mut buf);
+        crate::mcp::terminal_safe(one) == *one
+    })
 }
 
 /// Why an entry was skipped, by the error that refused it (`entryProblem`,
@@ -734,6 +769,10 @@ fn entry_problem(err: Option<ConfigError>) -> &'static str {
         // A name a terminal can't show as is (`.name`, `skipUnprintableNames`,
         // `src/builtins/mcp.zig:99-116@481104fd`).
         Some(NAME_PROBLEM) => "its name has a character xfx won't print",
+        // What expanding a profile entry's `${...}` would have made past
+        // fx's cap: the cause's own name, as fx renders a cause with no
+        // problem (`environment_expansion_limit_exceeded`, `project_config.zig:207-210@481104fd`).
+        Some(LIMIT_PROBLEM) => LIMIT_PROBLEM,
         _ => "xfx can't read it",
     }
 }
@@ -742,6 +781,8 @@ fn entry_problem(err: Option<ConfigError>) -> &'static str {
 const VARIABLE_PROBLEM: &str = "variable";
 /// [`entry_problem`]'s key for a name a terminal can't show as is.
 const NAME_PROBLEM: &str = "name";
+/// [`entry_problem`]'s key, and its words, for an expansion past the cap.
+const LIMIT_PROBLEM: &str = "environment_expansion_limit_exceeded";
 
 /// `<file> server '<name>' was skipped: <why>.` (`:211-214@481104fd`).
 fn skipped(source: Source, name: &str, err: Option<ConfigError>) -> String {
@@ -2093,10 +2134,7 @@ pub fn load_workspace(
             // names are the ones `/mcp add` takes, since a tool is named by
             // its server's (`mcp_<server>_<tool>`), and the rest are notes in
             // fx's general words.
-            let printable = name.chars().all(|character| {
-                crate::mcp::terminal_safe(&character.to_string()) == character.to_string()
-            });
-            let problem = (!printable).then_some(ConfigError(NAME_PROBLEM));
+            let problem = (!printable(name)).then_some(ConfigError(NAME_PROBLEM));
             result
                 .issues
                 .push(skipped(Source::Workspace, name, problem));
@@ -2109,7 +2147,9 @@ pub fn load_workspace(
             match expand_entry(value, &lookup) {
                 Ok(value) => value,
                 Err(unresolved) => {
-                    result.issues.push(unresolved.issue(name));
+                    result
+                        .issues
+                        .push(unresolved.issue(Source::Workspace, name));
                     continue;
                 }
             }
@@ -2151,18 +2191,20 @@ fn withheld_source(config: &ServerConfig) -> Option<(&'static str, &str)> {
 /// shape of upstream's below.
 fn withheld(server: &str, field: &str, variable: &str) -> String {
     format!(
-        ".mcp.json server '{server}' field {field} uses '{variable}', which xfx withholds \
-         from project servers; a server in ~/.xfx/mcp.json may use it."
+        ".mcp.json server '{}' field {field} uses '{}', which xfx withholds \
+         from project servers; a server in ~/.xfx/mcp.json may use it.",
+        note_name(server),
+        spelled(variable, MAX_RENDERED_VARIABLE)
     )
 }
 
 /// The most of a variable's name a sentence carries
-/// (`max_rendered_environment_name_bytes`, `project_config.zig:549`).
+/// (`max_rendered_environment_name_bytes`, `project_config.zig:662@481104fd`).
 const MAX_RENDERED_VARIABLE: usize = 128;
 
-/// Why an approved workspace server's `${...}` could not be expanded. The
-/// server is dropped, as upstream drops it (`expandApprovedWorkspaceConfigs`,
-/// `project_config.zig:526-545`).
+/// Why a server's `${...}` could not be expanded: an approved workspace
+/// server's, or a profile server's. The server is dropped, as upstream drops
+/// it (`expandConfigs`, `project_config.zig:607-660@481104fd`).
 enum Unresolved {
     /// A plain name with no value and no default, or one of xfx's
     /// credentials, which it never gets.
@@ -2177,29 +2219,33 @@ enum Unresolved {
     /// answers `NAME=…` with `NAME`'s value, past the exact-name credential
     /// guard.
     Invalid,
+    /// A profile server's expansion past fx's cap: one value over 1 MiB, or
+    /// every profile server's together (`.limit_exceeded`, `:735-749`). Only
+    /// the profile's expansion is capped ([`expand_profile_server`]).
+    Limit,
 }
 
 impl Unresolved {
-    /// What the menu says (`renderWorkspaceDiagnostic`, `:146-183`; an
-    /// invalid `${...}` as `.variable`, `:645-650@481104fd`).
-    fn issue(&self, server: &str) -> String {
-        let Self::Missing { field, variable } = self else {
-            return skipped(
-                Source::Workspace,
-                server,
-                Some(ConfigError(VARIABLE_PROBLEM)),
-            );
+    /// What `/mcp` says about the server called `server` in `source`'s file
+    /// (`renderWorkspaceDiagnostic`, `project_config.zig:161-215@481104fd`),
+    /// the server's name and the variable's spelled and cut as fx cuts them,
+    /// and never a value.
+    fn issue(&self, source: Source, server: &str) -> String {
+        let (field, variable) = match self {
+            Self::Missing { field, variable } => (field, variable),
+            Self::Invalid => return skipped(source, server, Some(ConfigError(VARIABLE_PROBLEM))),
+            Self::Limit => return skipped(source, server, Some(ConfigError(LIMIT_PROBLEM))),
         };
-        if is_credential_variable(variable) {
+        // A profile server may name xfx's credentials: the person wrote it.
+        if source == Source::Workspace && is_credential_variable(variable) {
             return withheld(server, field, variable);
         }
-        let variable: String = crate::mcp::terminal_safe(variable)
-            .chars()
-            .take(MAX_RENDERED_VARIABLE)
-            .collect();
+        let variable = spelled(variable, MAX_RENDERED_VARIABLE);
         format!(
-            ".mcp.json server '{server}' field {field} requires environment variable \
-             '{variable}'; set it or use ${{{variable}:-default}}."
+            "{} server '{}' field {field} requires environment variable '{variable}'; \
+             set it or use ${{{variable}:-default}}.",
+            source.file(),
+            note_name(server)
         )
     }
 }
@@ -2309,6 +2355,179 @@ fn expand_text(
         rest = &after[end + 1..];
     }
     out.push_str(rest);
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// before the servers start
+// ---------------------------------------------------------------------------
+
+/// What fx v0.0.16 does to the servers both files gave, the workspace's
+/// already behind the profile's, before it starts any (`loadHost`,
+/// `src/builtins/mcp.zig:121-134@481104fd`), each server it drops a note
+/// after `notes`' own:
+///
+/// 1. **A profile server's `${VAR}` and `${VAR:-default}` are expanded**
+///    from `environment` (`expandProfileConfigs`,
+///    `src/core/mcp/project_config.zig:598-605@481104fd`), in its command,
+///    each argument, each `env` value and each header value, and nowhere
+///    else ([`expand_profile_server`]). One left without a value, a `${...}`
+///    that isn't a variable, a header the expansion made invalid, or
+///    expansion past fx's cap drops the server. Only a profile server: a
+///    workspace server here is one [`load_workspace`] already expanded, once
+///    approved and never with xfx's credentials, and expanding what that
+///    produced would read a variable the repository named in a value.
+/// 2. **A server whose name a terminal can't show as is is dropped**
+///    (`skipUnprintableNames`, `src/builtins/mcp.zig:99-116@481104fd`), so it
+///    never reaches a row or the model; its note spells the name.
+///
+/// The profile on disk is never what changes: a profile server here carries
+/// the values its variables had, which go to the server it starts or
+/// reaches and nowhere else -- no note, row or error names one.
+pub fn prepare_to_start(
+    servers: &mut Vec<ServerConfig>,
+    notes: &mut Vec<String>,
+    environment: &dyn Fn(&str) -> Option<String>,
+) {
+    let mut budget = ExpansionBudget {
+        remaining: MAX_EXPANDED_BYTES,
+    };
+    servers.retain_mut(|server| {
+        if server.source != Source::Profile {
+            return true;
+        }
+        match expand_profile_server(server, environment, &mut budget) {
+            Ok(()) => true,
+            Err(unresolved) => {
+                notes.push(unresolved.issue(Source::Profile, &server.name));
+                false
+            }
+        }
+    });
+    servers.retain(|server| {
+        if printable(&server.name) {
+            return true;
+        }
+        notes.push(skipped(
+            server.source,
+            &server.name,
+            Some(ConfigError(NAME_PROBLEM)),
+        ));
+        false
+    });
+}
+
+/// The most bytes one expanded value may come to, and every profile server's
+/// together (`max_expanded_workspace_value_bytes`,
+/// `max_expanded_workspace_total_bytes`, `project_config.zig:663-664@481104fd`).
+const MAX_EXPANDED_BYTES: usize = 1024 * 1024;
+
+/// What is left of [`MAX_EXPANDED_BYTES`] for one [`prepare_to_start`]
+/// (`WorkspaceExpansionBudget`, `project_config.zig:666-681@481104fd`): every
+/// byte an expansion writes counts, the text around a `${...}` and a value
+/// with no `${` in it included, and a server dropped part way through keeps
+/// what it used.
+struct ExpansionBudget {
+    remaining: usize,
+}
+
+impl ExpansionBudget {
+    /// `appendExpandedBytes` (`:735-749@481104fd`): `bytes` onto `out`, or
+    /// [`Unresolved::Limit`] when `out` would pass the cap for one value, or
+    /// `bytes` what is left -- which then leaves nothing for any server after.
+    fn append(&mut self, out: &mut String, bytes: &str) -> Result<(), Unresolved> {
+        if out.len() > MAX_EXPANDED_BYTES || bytes.len() > MAX_EXPANDED_BYTES - out.len() {
+            return Err(Unresolved::Limit);
+        }
+        if bytes.len() > self.remaining {
+            self.remaining = 0;
+            return Err(Unresolved::Limit);
+        }
+        self.remaining -= bytes.len();
+        out.push_str(bytes);
+        Ok(())
+    }
+}
+
+/// One profile server's expansion, fx's fields in fx's order, the first that
+/// fails dropping it (`expandWorkspaceConfig`, `project_config.zig:760-788@481104fd`):
+/// a stdio server's command (`command`), each argument (`argument`), each
+/// `env` value whatever the transport (`environment`), each header value
+/// (`http_header`) -- and then the headers held to the rules a written one is
+/// ([`valid_static_headers`]), so a value that expands to a line break is
+/// `a ${...} in it isn't valid` rather than a header of its own. The URL,
+/// `header_env`, `bearer_token_env`, `oauth` and every name are as written.
+fn expand_profile_server(
+    server: &mut ServerConfig,
+    environment: &dyn Fn(&str) -> Option<String>,
+    budget: &mut ExpansionBudget,
+) -> Result<(), Unresolved> {
+    let mut expand = |value: &mut String, field: &'static str| {
+        *value = expand_template(value, field, environment, budget)?;
+        Ok(())
+    };
+    if server.transport == Transport::Stdio {
+        expand(&mut server.command, "command")?;
+    }
+    for argument in &mut server.args {
+        expand(argument, "argument")?;
+    }
+    for (_, value) in &mut server.env {
+        expand(value, "environment")?;
+    }
+    for (_, value) in &mut server.headers {
+        expand(value, "http_header")?;
+    }
+    if valid_static_headers(&server.headers) {
+        Ok(())
+    } else {
+        Err(Unresolved::Invalid)
+    }
+}
+
+/// `${VAR}` and `${VAR:-default}` in `text` (`expandWorkspaceTemplate`,
+/// `project_config.zig:698-733@481104fd`): the first `}` ends the expression,
+/// the name is what comes before its first `:-`, and a name that isn't a
+/// plain variable's is [`Unresolved::Invalid`] without a lookup. A variable
+/// that is set is its value, an empty one too; one that isn't is the default
+/// when there is one. Once through: a value or a default is written in as it
+/// is, never read for a `${` of its own. Not [`expand_text`], the
+/// workspace's, where an empty variable takes the default and nothing is
+/// capped (`docs/parity.md`).
+fn expand_template(
+    text: &str,
+    field: &'static str,
+    environment: &dyn Fn(&str) -> Option<String>,
+    budget: &mut ExpansionBudget,
+) -> Result<String, Unresolved> {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        budget.append(&mut out, &rest[..start])?;
+        let after = &rest[start + 2..];
+        let end = after.find('}').ok_or(Unresolved::Invalid)?;
+        let expression = &after[..end];
+        let (name, default) = match expression.split_once(":-") {
+            Some((name, default)) => (name, Some(default)),
+            None => (expression, None),
+        };
+        if !is_env_name(name) {
+            return Err(Unresolved::Invalid);
+        }
+        let value = match (environment(name), default) {
+            (Some(value), _) => value,
+            (None, Some(default)) => default.to_string(),
+            (None, None) => {
+                return Err(Unresolved::Missing {
+                    field,
+                    variable: name.to_string(),
+                })
+            }
+        };
+        budget.append(&mut out, &value)?;
+        rest = &after[end + 1..];
+    }
+    budget.append(&mut out, rest)?;
     Ok(out)
 }
 
@@ -4298,5 +4517,557 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(&taken).unwrap(), "someone else's");
         assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
+    }
+
+    // -----------------------------------------------------------------------
+    // before the servers start: the profile's `${VAR}`, and names a terminal
+    // can't show (MCP-C2)
+    // -----------------------------------------------------------------------
+
+    /// A lookup that answers `pairs` and nothing else: every value a test
+    /// expands is a fake one of its own.
+    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    /// `text`'s profile, then [`prepare_to_start`] over its servers under
+    /// `pairs`: what would start, and every note.
+    fn prepared(text: &str, pairs: &[(&str, &str)]) -> (Vec<ServerConfig>, Vec<String>) {
+        let Profile {
+            mut servers,
+            mut notes,
+        } = parse_profile(text).expect("the profile reads");
+        prepare_to_start(&mut servers, &mut notes, &env_of(pairs));
+        (servers, notes)
+    }
+
+    /// The `note:` rows of an fx `/mcp list` capture, each whole: a note too
+    /// long for its row goes on in the rows under it, indented two columns.
+    /// `/.fx/` is read as `/.xfx/` and fx's name as xfx's, as the rest of
+    /// this file reads fx's sentences.
+    fn fx_notes(capture: &str) -> Vec<String> {
+        let mut notes: Vec<String> = Vec::new();
+        let mut open = false;
+        for row in capture.lines().map(str::trim_end) {
+            if let Some((_, note)) = row.split_once("! mcp: note: ") {
+                notes.push(note.to_string());
+                open = true;
+            } else if !open {
+                continue;
+            } else if let Some(note) = row.strip_prefix("  note: ") {
+                notes.push(note.to_string());
+            } else if let Some(more) = row.strip_prefix("  ") {
+                let last = notes.last_mut().expect("a note it goes on from");
+                last.push(' ');
+                last.push_str(more.trim_start());
+            } else {
+                break;
+            }
+        }
+        notes
+            .into_iter()
+            .map(|note| {
+                note.replace("/.fx/", "/.xfx/")
+                    .replace("fx won't print", "xfx won't print")
+            })
+            .collect()
+    }
+
+    /// The fake values the `p5-mcp-config-vars` scenario's run is given, as
+    /// this file names its placeholders.
+    const VARS_ENV: [(&str, &str); 3] = [
+        ("P5_DIR", "<scenarios>"),
+        ("P5_HOME", "<home>"),
+        ("P5_TAG", "fake-p5-tag"),
+    ];
+
+    #[test]
+    fn the_vars_scenario_starts_what_fx_v0_0_16_starts_and_says_what_it_says() {
+        // `cap/fx/fx-p5-mcp-config-vars-40x120-list.txt`: fx starts `fixture`
+        // and `fallback`, each `ready, 1 tool` only because its `${...}`
+        // reached the script, and gives five notes; `fixture`'s wire log is
+        // where its expanded `env` put it (`...-end.files`,
+        // `~/p5-wire-fake-p5-tag.log`).
+        let (servers, notes) = prepared(
+            &placeholders(include_str!(
+                "../../scripts/fxcap/scenarios/p5-mcp-config-vars-profile.json"
+            )),
+            &VARS_ENV,
+        );
+        let names: Vec<&str> = servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["fixture", "fallback"]);
+        assert_eq!(servers[0].command, "<bun>");
+        assert_eq!(servers[0].args, [SCRIPT]);
+        assert_eq!(
+            servers[0].env,
+            [(
+                "MCPSTDIO_WIRE_LOG".to_string(),
+                "<home>/p5-wire-fake-p5-tag.log".to_string()
+            )]
+        );
+        assert_eq!(servers[1].args, [SCRIPT]);
+        let captured = fx_notes(include_str!(
+            "../../.prd/tui-phase5/receipts/mcp-config-deltas/cap/fx/fx-p5-mcp-config-vars-40x120-list.txt"
+        ));
+        assert_eq!(captured.len(), 5, "{captured:?}");
+        assert_eq!(notes, captured);
+        assert_eq!(
+            notes,
+            [
+                "~/.xfx/mcp.json server 'unset' field argument requires environment variable \
+                 'P5_UNSET_TOKEN'; set it or use ${P5_UNSET_TOKEN:-default}.",
+                "~/.xfx/mcp.json server 'remote' field http_header requires environment \
+                 variable 'P5_UNSET_HEADER'; set it or use ${P5_UNSET_HEADER:-default}.",
+                "~/.xfx/mcp.json server 'badref' was skipped: a ${...} in it isn't valid.",
+                r"~/.xfx/mcp.json server 'evil\x1b]0;x\x07' was skipped: its name has a character xfx won't print.",
+                r"~/.xfx/mcp.json server 'rtl\u{202e}txt' was skipped: its name has a character xfx won't print.",
+            ]
+        );
+        // Not one value the variables had is in a note.
+        for note in &notes {
+            for (_, value) in VARS_ENV {
+                assert!(!note.contains(value), "{note}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_profile_servers_variables_expand_where_fxs_do_and_nowhere_else() {
+        let (servers, notes) = prepared(
+            r#"{"mcp":{
+                "local":{"command":"${A}/bin","args":["--a=${A}","${B:-b}","plain"],
+                         "env":{"K":"${A}-v","L":"x"}},
+                "web":{"type":"http","url":"https://${A}.example.test/mcp",
+                       "headers":{"X-One":"${B}","X-Two":"t"},
+                       "header_env":{"X-E":"A"},"bearer_token_env":"B",
+                       "env":{"E":"${A}"},"oauth":{"client_id":"${A}"}}}}"#,
+            &[("A", "fake-a"), ("B", "fake-b")],
+        );
+        assert_eq!(notes, Vec::<String>::new());
+        let [local, web] = servers.as_slice() else {
+            panic!("{servers:?}")
+        };
+        assert_eq!(local.command, "fake-a/bin");
+        assert_eq!(local.args, ["--a=fake-a", "fake-b", "plain"]);
+        // A value is expanded; a name has no `${` to expand, since a
+        // variable's or a header's name that did would not parse.
+        assert_eq!(
+            local.env,
+            [
+                ("K".to_string(), "fake-a-v".to_string()),
+                ("L".to_string(), "x".to_string())
+            ]
+        );
+        assert_eq!(web.command, "");
+        assert_eq!(web.url, "https://${A}.example.test/mcp");
+        assert_eq!(
+            web.headers,
+            [
+                ("X-One".to_string(), "fake-b".to_string()),
+                ("X-Two".to_string(), "t".to_string())
+            ]
+        );
+        assert_eq!(web.header_env, [("X-E".to_string(), "A".to_string())]);
+        assert_eq!(web.bearer_token_env.as_deref(), Some("B"));
+        // fx expands an HTTP server's `env` too, which it then never uses.
+        assert_eq!(web.env, [("E".to_string(), "fake-a".to_string())]);
+        assert_eq!(web.oauth, Some(json!({"client_id": "${A}"})));
+    }
+
+    #[test]
+    fn a_variable_is_its_value_even_empty_and_its_default_only_when_unset() {
+        // `expandWorkspaceTemplate` (`project_config.zig:698-733@481104fd`),
+        // one argument at a time.
+        let expanded = |template: &str| {
+            let (servers, notes) = prepared(
+                &json!({"mcp": {"s": {"command": "x", "args": [template]}}}).to_string(),
+                &[("EMPTY", ""), ("SET", "v"), ("NESTED", "${SET}")],
+            );
+            match (servers.as_slice(), notes.as_slice()) {
+                ([server], []) => Ok(server.args[0].clone()),
+                ([], [note]) => Err(note
+                    .strip_prefix("~/.xfx/mcp.json server 's' ")
+                    .expect("the note's start")
+                    .to_string()),
+                _ => panic!("{template}: {servers:?} {notes:?}"),
+            }
+        };
+        let invalid = Err("was skipped: a ${...} in it isn't valid.".to_string());
+        let missing = |name: &str| {
+            Err(format!(
+                "field argument requires environment variable '{name}'; set it or use \
+                 ${{{name}:-default}}."
+            ))
+        };
+        for (template, expected) in [
+            ("${SET}", Ok("v".to_string())),
+            ("a${SET}b${SET}c", Ok("avbvc".to_string())),
+            // Set to nothing is a value, not a reason for the default.
+            ("<${EMPTY:-d}>", Ok("<>".to_string())),
+            ("${UNSET:-d}", Ok("d".to_string())),
+            ("${UNSET:-}", Ok(String::new())),
+            // The first `}` ends it, and a default is written in as it is.
+            ("${UNSET:-b}c}", Ok("bc}".to_string())),
+            ("${UNSET:-${SET}}", Ok("${SET}".to_string())),
+            ("${UNSET:-a:-b}", Ok("a:-b".to_string())),
+            // A value is never read for a `${` of its own.
+            ("${NESTED}", Ok("${SET}".to_string())),
+            ("$SET {SET} $", Ok("$SET {SET} $".to_string())),
+            ("${UNSET}", missing("UNSET")),
+            ("ok ${SET} ${UNSET}", missing("UNSET")),
+            ("${}", invalid.clone()),
+            ("${:-x}", invalid.clone()),
+            ("${1A}", invalid.clone()),
+            ("${A B}", invalid.clone()),
+            ("${KEY=}", invalid.clone()),
+            ("${SET", invalid.clone()),
+            ("${SET}${", invalid.clone()),
+        ] {
+            assert_eq!(expanded(template), expected, "{template}");
+        }
+    }
+
+    #[test]
+    fn a_server_left_without_a_value_is_dropped_with_fxs_sentence_for_its_field() {
+        // `renderWorkspaceDiagnostic`'s `.missing_environment_variable`
+        // (`project_config.zig:171-192@481104fd`): the first field that
+        // fails, in fx's order, names it.
+        let (servers, notes) = prepared(
+            r#"{"mcp":{
+                "c":{"command":"${U1}","args":["${U2}"]},
+                "a":{"command":"x","args":["ok","${U2}"],"env":{"K":"${U3}"}},
+                "e":{"command":"x","env":{"K":"${U3}"}},
+                "h":{"type":"http","url":"https://example.test/mcp","env":{"K":"${U3}"},"headers":{"X":"${U4}"}},
+                "hh":{"type":"http","url":"https://example.test/mcp","headers":{"X":"${U4}"}},
+                "kept":{"command":"x","args":["${U5:-d}"]}}}"#,
+            &[],
+        );
+        let names: Vec<&str> = servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["kept"]);
+        let sentence = |server: &str, field: &str, variable: &str| {
+            format!(
+                "~/.xfx/mcp.json server '{server}' field {field} requires environment variable \
+                 '{variable}'; set it or use ${{{variable}:-default}}."
+            )
+        };
+        assert_eq!(
+            notes,
+            [
+                sentence("c", "command", "U1"),
+                sentence("a", "argument", "U2"),
+                sentence("e", "environment", "U3"),
+                sentence("h", "environment", "U3"),
+                sentence("hh", "http_header", "U4"),
+            ]
+        );
+        // A name spelled and cut at 160 bytes, a variable's at 128, each to
+        // end `...` (`encodeTerminalSafe`, `text_utils.zig:353-390@481104fd`).
+        let long_name = format!("\u{1b}{}", "n".repeat(300));
+        let long_variable = "V".repeat(200);
+        let (_, notes) = prepared(
+            &json!({"mcp": {long_name.clone(): {"command": format!("${{{long_variable}}}")}}})
+                .to_string(),
+            &[],
+        );
+        let name = format!("\\x1b{}...", "n".repeat(160 - 4 - 3));
+        let variable = format!("{}...", "V".repeat(125));
+        assert_eq!(notes, [sentence(&name, "command", &variable)]);
+        // The workspace's sentence cuts them the same way.
+        let workspace = Unresolved::Missing {
+            field: "argument",
+            variable: long_variable,
+        }
+        .issue(Source::Workspace, &"w".repeat(300));
+        assert_eq!(
+            workspace,
+            sentence(&format!("{}...", "w".repeat(157)), "argument", &variable)
+                .replace("~/.xfx/mcp.json", ".mcp.json")
+        );
+    }
+
+    #[test]
+    fn an_expanded_header_is_held_to_a_written_headers_rules() {
+        // `http_config.validateStaticHeaders` after the expansion
+        // (`project_config.zig:786@481104fd`): a value that expands to a line
+        // break is no header of its own, and the server does not connect.
+        let entry = |value: &str| {
+            json!({"mcp": {"web": {"type": "http", "url": "https://example.test/mcp",
+                "headers": {"X-A": value}}}})
+            .to_string()
+        };
+        for value in ["x\r\nInjected: y", "x\ny", "\u{7f}", "a\u{0}b"] {
+            let (servers, notes) = prepared(&entry("${V}"), &[("V", value)]);
+            assert!(servers.is_empty(), "{value:?}");
+            assert_eq!(
+                notes,
+                ["~/.xfx/mcp.json server 'web' was skipped: a ${...} in it isn't valid."],
+                "{value:?}"
+            );
+            assert!(!notes[0].contains(value), "{value:?}");
+        }
+        let (servers, notes) = prepared(&entry("${V}"), &[("V", "tab\there")]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(servers[0].headers[0].1, "tab\there");
+    }
+
+    #[test]
+    fn the_expansion_is_capped_as_fxs_is() {
+        // 1 MiB for one value, and 1 MiB for every profile server's together,
+        // each byte written counting (`appendExpandedBytes`,
+        // `project_config.zig:735-749@481104fd`).
+        let big = "v".repeat(600 * 1024);
+        let limit = |name: &str| {
+            format!(
+                "~/.xfx/mcp.json server '{name}' was skipped: environment_expansion_limit_exceeded."
+            )
+        };
+        // One value over the cap: the server goes, and what it wrote counts.
+        let (servers, notes) = prepared(
+            r#"{"mcp":{"one":{"command":"x","args":["${BIG}${BIG}"]},"next":{"command":"x","args":["${BIG}"]}}}"#,
+            &[("BIG", &big)],
+        );
+        assert!(servers.is_empty(), "{:?}", servers.len());
+        assert_eq!(notes, [limit("one"), limit("next")]);
+        // Two servers under the cap each, over it together: the second goes,
+        // and then nothing is left for one with a byte to write -- but a
+        // server with none still starts.
+        let (servers, notes) = prepared(
+            r#"{"mcp":{"a":{"command":"x","args":["${BIG}"]},"b":{"command":"x","args":["${BIG}"]},"c":{"command":"","args":[""]},"d":{"command":"x"}}}"#,
+            &[("BIG", &big)],
+        );
+        let names: Vec<&str> = servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["a", "c"]);
+        assert_eq!(servers[0].args[0].len(), big.len());
+        assert_eq!(notes, [limit("b"), limit("d")]);
+        // A workspace server is not counted, nor capped here.
+        let mut servers = vec![ServerConfig {
+            source: Source::Workspace,
+            ..ServerConfig::local("w", &big, &[big.clone(), big.clone()])
+        }];
+        let mut notes = Vec::new();
+        prepare_to_start(&mut servers, &mut notes, &|_| None);
+        assert_eq!((servers.len(), notes.len()), (1, 0));
+    }
+
+    #[test]
+    fn only_a_profile_server_is_expanded_so_a_repository_never_reads_a_credential() {
+        // A repository's approved entry asks for `${FOO}`, and the environment's
+        // `FOO` holds `${AI_GATEWAY_API_KEY}`: the workspace's expansion writes
+        // that in as it is, and the profile's pass must leave it so. Read
+        // again, it would hand the repository's server xfx's credential.
+        let dir = tempfile::tempdir().expect("dir");
+        fs::write(
+            dir.path().join(WORKSPACE_FILE),
+            r#"{"mcpServers":{"proj":{"command":"node","args":["${FOO}","${P5_TAG}"]},"pending":{"command":"node","args":["${P5_TAG}"]}}}"#,
+        )
+        .unwrap();
+        let env = env_of(&[
+            ("FOO", "${AI_GATEWAY_API_KEY}"),
+            ("AI_GATEWAY_API_KEY", "fake-gateway-key"),
+            ("P5_TAG", "fake-p5-tag"),
+        ]);
+        let read = load_workspace(dir.path(), &Choices::default(), &env);
+        let approved = Choices {
+            approved: vec![("proj".into(), read.digests[0].1.clone())],
+            ..Choices::default()
+        };
+        let workspace = load_workspace(dir.path(), &approved, &env);
+        let Profile {
+            mut servers,
+            mut notes,
+        } = parse_profile(
+            r#"{"mcp":{"mine":{"command":"x","args":["${FOO}","${AI_GATEWAY_API_KEY}"]}}}"#,
+        )
+        .unwrap();
+        servers.extend(workspace.servers);
+        prepare_to_start(&mut servers, &mut notes, &env);
+        assert_eq!(notes, Vec::<String>::new());
+        let args: Vec<(&str, &[String])> = servers
+            .iter()
+            .map(|s| (s.name.as_str(), s.args.as_slice()))
+            .collect();
+        assert_eq!(
+            args,
+            [
+                // The person's own file may name the credential, as fx's may.
+                (
+                    "mine",
+                    &[
+                        "${AI_GATEWAY_API_KEY}".to_string(),
+                        "fake-gateway-key".to_string()
+                    ][..]
+                ),
+                (
+                    "proj",
+                    &[
+                        "${AI_GATEWAY_API_KEY}".to_string(),
+                        "fake-p5-tag".to_string()
+                    ][..]
+                ),
+                // Pending: never expanded at all.
+                ("pending", &["${P5_TAG}".to_string()][..]),
+            ]
+        );
+        for server in &servers[1..] {
+            assert!(
+                !format!("{server:?}").contains("fake-gateway-key"),
+                "{server:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_a_terminal_cant_show_is_skipped_last_with_a_note_that_spells_it() {
+        // fx's own case (`src/builtins/mcp.zig:593-619@481104fd`), but for
+        // the name that isn't UTF-8, which a Rust string can't be: an escape
+        // sequence and a right-to-left override go, a printable `caf\u{e9} two`
+        // stays.
+        let (servers, notes) = prepared(
+            r#"{"mcpServers":{"ok":{"command":"true"},"evil\u001b]0;x\u0007":{"command":"true"},"rtl\u202etxt":{"command":"true"},"caf\u00e9 two":{"command":"true"}}}"#,
+            &[],
+        );
+        let names: Vec<&str> = servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["ok", "caf\u{e9} two"]);
+        assert_eq!(
+            notes,
+            [
+                r"~/.xfx/mcp.json server 'evil\x1b]0;x\x07' was skipped: its name has a character xfx won't print.",
+                r"~/.xfx/mcp.json server 'rtl\u{202e}txt' was skipped: its name has a character xfx won't print.",
+            ]
+        );
+        // After the expansion: a name that can't be shown and is left without
+        // a value has the expansion's note, once; and the name notes come
+        // after every expansion note, whatever the file's order.
+        let (servers, notes) = prepared(
+            r#"{"mcp":{"tab\tname":{"command":"true"},"bel\u0007":{"command":"${UNSET}"},"later":{"command":"${UNSET}"}}}"#,
+            &[],
+        );
+        assert!(servers.is_empty(), "{servers:?}");
+        assert_eq!(
+            notes,
+            [
+                r"~/.xfx/mcp.json server 'bel\x07' field command requires environment variable 'UNSET'; set it or use ${UNSET:-default}.",
+                "~/.xfx/mcp.json server 'later' field command requires environment variable 'UNSET'; set it or use ${UNSET:-default}.",
+                r"~/.xfx/mcp.json server 'tab\x09name' was skipped: its name has a character xfx won't print.",
+            ]
+        );
+        // xfx's set is its `terminal_safe`'s, wider than fx's
+        // `isNonPrintingCodepoint`: a variation selector and a soft hyphen go
+        // too (`docs/parity.md`); a combining mark is printable.
+        for name in ["vs\u{fe0f}", "soft\u{ad}hyphen"] {
+            let (servers, notes) = prepared(
+                &json!({"mcp": {name: {"command": "true"}}}).to_string(),
+                &[],
+            );
+            assert!(servers.is_empty(), "{name:?}");
+            assert_eq!(notes.len(), 1, "{name:?}");
+            assert!(!notes[0].contains(name), "{}", notes[0]);
+        }
+        let (servers, notes) = prepared(r#"{"mcp":{"e\u0301":{"command":"true"}}}"#, &[]);
+        assert_eq!((servers.len(), notes.len()), (1, 0));
+    }
+
+    #[test]
+    fn the_profile_on_disk_keeps_its_variables_as_written() {
+        // The expansion is of what is about to start; the file, and the
+        // writer that edits it, keep `${...}`.
+        let text = r#"{"mcp":{"s":{"command":"${A}","args":["${B:-b}"],"env":{"K":"${A}"}}}}"#;
+        let profile = parse_profile(text).unwrap();
+        assert_eq!(profile.servers[0].command, "${A}");
+        assert_eq!(profile.servers[0].args, ["${B:-b}"]);
+        assert_eq!(profile.servers[0].env[0].1, "${A}");
+        let edited = add_entry(
+            File::Profile,
+            Some(text),
+            "t",
+            &Entry::Stdio {
+                command: "y".into(),
+                args: Vec::new(),
+                env: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert!(edited.contains(r#""command": "${A}""#), "{edited}");
+        assert!(edited.contains(r#""${B:-b}""#), "{edited}");
+    }
+
+    #[test]
+    fn the_runtime_starts_only_what_the_expansion_and_the_name_check_leave() {
+        // The one call site (`McpRuntime::read_configuration`): what a
+        // session reads goes through `prepare_to_start`. Variables no test
+        // environment sets, so nothing here reads a real one, and no server
+        // in it starts.
+        let dir = tempfile::tempdir().expect("dir");
+        let home = dir.path().join(".xfx");
+        fs::create_dir(&home).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        fs::create_dir(dir.path().join("work")).unwrap();
+        let profile = home.join(PROFILE_FILE);
+        let unset = "XFX_P5_MCP_C2_NEVER_SET_7F3A";
+        let text = format!(
+            r#"{{"mcp":{{"needs":{{"command":"${{{unset}}}"}},"esc\u001b[2J":{{"command":"${{{unset}:-}}"}}}}}}"#
+        );
+        fs::write(&profile, &text).unwrap();
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(profile.clone()),
+            settings: Some(home.join("settings.json")),
+            workspace: dir.path().join("work"),
+        });
+        runtime.start_and_wait(Duration::from_secs(10));
+        assert!(runtime.views().is_empty());
+        assert_eq!(
+            runtime.issues(),
+            [
+                format!(
+                    "~/.xfx/mcp.json server 'needs' field command requires environment variable \
+                     '{unset}'; set it or use ${{{unset}:-default}}."
+                ),
+                r"~/.xfx/mcp.json server 'esc\x1b[2J' was skipped: its name has a character xfx won't print."
+                    .to_string(),
+            ]
+        );
+        assert_eq!(fs::read_to_string(&profile).unwrap(), text);
+    }
+
+    #[test]
+    fn fxs_ignored_key_notes_are_not_given_since_xfx_acts_on_both_keys() {
+        // `cap/fx/fx-p5-mcp-config-ignored-40x120-list.txt`: fx v0.0.16 reads
+        // `required` and `restart_limit` and no longer acts on them, and says
+        // so (`noteIgnoredKeys`, `project_config.zig:217-235@481104fd`). xfx
+        // restarts a stopped stdio server up to its `restart_limit` and shows
+        // `required` as the server's `Policy` in `/mcp`'s details, so it
+        // gives neither note (`docs/parity.md`).
+        let captured = fx_notes(include_str!(
+            "../../.prd/tui-phase5/receipts/mcp-config-deltas/cap/fx/fx-p5-mcp-config-ignored-40x120-list.txt"
+        ));
+        assert_eq!(
+            captured,
+            [
+                "~/.xfx/mcp.json server 'fixture' sets \"required\", which fx ignores; remove it.",
+                "~/.xfx/mcp.json server 'fixture' sets \"restart_limit\", which fx ignores; remove it.",
+            ]
+        );
+        let (servers, notes) = prepared(
+            &placeholders(include_str!(
+                "../../scripts/fxcap/scenarios/p5-mcp-config-ignored-profile.json"
+            )),
+            &[],
+        );
+        assert_eq!(notes, Vec::<String>::new());
+        assert!(servers[0].required);
+        assert_eq!(servers[0].restart_limit, 3);
     }
 }

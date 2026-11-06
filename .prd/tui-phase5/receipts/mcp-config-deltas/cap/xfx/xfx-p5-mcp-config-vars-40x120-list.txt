@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9c83b7e [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 2  [Servers]  Tools  Resources  Prompts
+  5 project MCP configuration errors. Run /mcp list for details. ~/.xfx/mcp.json server 'unset' field argument requires…
+  fixture               Ready                 stdio · Profile
+  fallback              Ready                 stdio · Profile
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
