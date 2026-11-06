@@ -85,10 +85,13 @@ fn close_the_menu(session: &mut Session) {
     }
 }
 
-/// A key the menu takes, and a moment for the frame it asks for.
+/// A key the menu takes, and a moment for the frame it asks for. An Enter
+/// waits past the 500 ms in which a second Enter reads as the first one held
+/// down and answers no question (`MCP_ENTER_HELD`).
 fn press(session: &Session, key: &[u8]) {
     session.type_bytes(key);
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    let settle = if key == ENTER { 700 } else { 300 };
+    std::thread::sleep(std::time::Duration::from_millis(settle));
 }
 
 const DOWN: &[u8] = b"\x1b[B";
@@ -555,7 +558,16 @@ fn a_long_command_or_address_is_shown_whole_on_the_approval_screen_of_a_narrow_t
         from,
         "Approve remote for this project? It connects to:",
     );
-    let joined: String = shown.chars().filter(|c| !c.is_whitespace()).collect();
+    // Every piece after the first is led by `↳ `, so no piece of an address
+    // reads as a row of its own; without the leads it is the address whole.
+    assert!(
+        shown.contains("\u{21b3} /p"),
+        "a piece is not led:\n{shown}"
+    );
+    let joined: String = shown
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{21b3}')
+        .collect();
     assert!(joined.contains(&url), "the address is not whole:\n{shown}");
     close_the_menu(&mut session);
     session.type_bytes(b"/quit\r");

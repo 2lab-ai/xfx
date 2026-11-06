@@ -1894,12 +1894,15 @@ fn paint_alternate(
             let frame = match band.restore_primary(&shell.band_rows(), &shell.geometry, cursor) {
                 Ok(frame) => frame,
                 // A builder does no I/O, so its failure is a refusal and is
-                // said so here rather than inferred downstream.
+                // said so here rather than inferred downstream. The band it
+                // composed was not painted: what `/mcp`'s menu drew in it is
+                // not on the screen.
                 Err(refusal) => {
+                    shell.forget_mcp_drawn();
                     return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
-                    }
+                    };
                 }
             };
             match out.emit(frame.bytes()) {
@@ -1912,10 +1915,13 @@ fn paint_alternate(
                     failures.succeeded();
                     Ok(())
                 }
-                Err(emit) => match disposed(emit, failures, now) {
-                    Some(fatal) => Err(fatal),
-                    None => Ok(()),
-                },
+                Err(emit) => {
+                    shell.forget_mcp_drawn();
+                    match disposed(emit, failures, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    }
+                }
             }
         }
         // A change the band cannot show: take the plane and paint the whole

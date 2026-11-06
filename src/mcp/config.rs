@@ -512,7 +512,7 @@ fn is_credential_variable(name: &str) -> bool {
     crate::config::CREDENTIAL_VARIABLES.contains(&name)
 }
 
-fn is_env_name(name: &str) -> bool {
+pub(crate) fn is_env_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     matches!(bytes.next(), Some(first) if first.is_ascii_alphabetic() || first == b'_')
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')

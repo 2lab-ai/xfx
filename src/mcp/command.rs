@@ -734,14 +734,16 @@ pub fn handle(runtime: &Arc<McpRuntime>, rest: &str) {
     report(runtime, run(runtime, &args), true);
 }
 
-/// A choice made in `/mcp`'s menu: `args`, the verb and its words as the
-/// menu has them -- never split again, so a name is one word whatever it
-/// holds -- run as the typed verb runs, and only its warnings and errors
-/// said: the menu shows its result in the row's status
+/// `/mcp`'s menu's Remove: `name` from `file`, the ones its question named,
+/// as the typed `remove NAME --profile|--project` removes them -- never
+/// parsed again, so a name that reads as a flag is a name -- and only its
+/// warnings said: the menu shows its result in the list
 /// (`.warnings_only`, `VerbJob.run`, `app_mcp_runtime.zig:545-560`,
 /// `:609-614@481104fd`).
-pub fn choose(runtime: &Arc<McpRuntime>, args: &[String]) {
-    report(runtime, run(runtime, args), false);
+pub fn remove_chosen(runtime: &Arc<McpRuntime>, name: &str, file: File) {
+    let mut said = Said::default();
+    remove(runtime, name, Some(file), &mut said);
+    report(runtime, said, false);
 }
 
 /// Says what a verb did -- its output (unless only its warnings are

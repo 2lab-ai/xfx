@@ -73,7 +73,7 @@
 
 use std::collections::VecDeque;
 use std::process::ExitCode;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
@@ -213,6 +213,15 @@ pub(crate) fn resume_handoff(id: &str, columns: u16, palette: Palette) -> String
 
 /// Upstream's label for that line (`render.zig:801`).
 const RESUME_LABEL: &str = "Continue session with:";
+
+/// An Enter this soon after the Enter before it answers none of `/mcp`'s
+/// questions ([`Shell::offer_to_mcp`]): a terminal's autorepeat sends one
+/// every 30-100 ms once it starts, and a burst read at once has none
+/// between; a person who reads the question and answers it takes longer.
+/// The first repeat comes after the terminal's delay (macOS's default
+/// 375 ms, X11's 660 ms) and may open a screen, never answer one: every
+/// repeat after it is this close.
+const MCP_ENTER_HELD: Duration = Duration::from_millis(500);
 
 /// The command it names, without the id.
 const RESUME_COMMAND: &str = "xfx --resume";
@@ -1139,6 +1148,8 @@ pub(crate) struct Shell {
     /// `/mcp`'s menu, while it is up ([`super::mcp_menu`]): a view of the
     /// composer, which holds its filter.
     mcp_menu: Option<super::mcp_menu::McpMenu>,
+    /// When the menu last took an Enter ([`MCP_ENTER_HELD`]).
+    mcp_enter: Option<Instant>,
     /// What the status line's right-hand slot says about MCP
     /// ([`statusline::McpStatus`]): rebuilt from the runtime by
     /// [`Self::settle_band`], cleared by a prompt sent ([`Self::send`]).
@@ -2240,6 +2251,7 @@ impl Shell {
                     .and_then(std::path::Path::parent),
             ),
             mcp_menu: None,
+            mcp_enter: None,
             mcp_status: statusline::McpStatus::default(),
             rule_confirm: None,
             workspace_identity: {
@@ -4465,6 +4477,14 @@ impl Shell {
         }
     }
 
+    /// What `/mcp`'s menu last drew is no longer known to be on the screen:
+    /// no answer it drew is taken until a frame draws it again.
+    pub(crate) fn forget_mcp_drawn(&self) {
+        if let Some(menu) = self.mcp_menu.as_ref() {
+            menu.forget_drawn();
+        }
+    }
+
     /// Everything the screen said is no longer true.
     pub(crate) fn invalidate_approval(&mut self) {
         self.readiness.invalidate();
@@ -6458,17 +6478,28 @@ impl Shell {
     /// typed, and → acts like Enter with the caret at the end of the filter,
     /// each choosing yes or no on a question asked on its row
     /// (`backMcpHostMenuScreen`, `enterMcpHostMenuItem`, `:1773-1806`); on a
-    /// confirmation any printable key -- Backspace's DEL among them -- means
-    /// no, like `[y/N]` (`routeMcpHostMenuByte`, `:1808-1824`); Ctrl-C closes
-    /// it from any screen and takes the filter with it
+    /// confirmation any printable key -- Backspace's DEL among them --
+    /// cancels it (`routeMcpHostMenuByte`, `:1808-1824`), though the answer
+    /// it opens on is yes, as fx's is (presentation `:771-775`); Ctrl-C
+    /// closes it from any screen and takes the filter with it
     /// (`exitMcpHostMenuIfActive`, `:1498-1509`), and Ctrl-P does nothing
     /// (`modelPickerShortcutBlocked`, `:1963-1975`). Everything else goes to
     /// the composer, which holds the filter.
-    fn offer_to_mcp(&mut self, event: &Input) -> bool {
+    ///
+    /// **xfx's, over fx's:** while Ctrl-O's full transcript covers the menu
+    /// it takes no key at all -- what that screen does not bind would
+    /// otherwise answer a question nobody can see (opus-C); and an Enter
+    /// that comes within [`MCP_ENTER_HELD`] of the Enter before it answers
+    /// no question: that is a key held down, or a burst read at once, not
+    /// an answer to what was shown.
+    fn offer_to_mcp(&mut self, event: &Input, now: Instant) -> bool {
         use super::mcp_menu::{Key, Screen};
         let Some(menu) = self.mcp_menu.as_ref() else {
             return false;
         };
+        if self.full.is_open() {
+            return true;
+        }
         let screen = menu.screen();
         let confirming = matches!(screen, Screen::Confirm(_));
         let key = match event {
@@ -6512,6 +6543,15 @@ impl Shell {
             },
             _ => return false,
         };
+        if key == Key::Enter {
+            let held = self
+                .mcp_enter
+                .is_some_and(|last| now.saturating_duration_since(last) < MCP_ENTER_HELD);
+            self.mcp_enter = Some(now);
+            if held && confirming {
+                return true;
+            }
+        }
         self.mcp_key(key);
         true
     }
@@ -6524,11 +6564,16 @@ impl Shell {
     /// saying only what warns; then each screen's own filter in the composer.
     fn mcp_key(&mut self, key: super::mcp_menu::Key) {
         use super::mcp_menu::{Effect, Run};
-        use crate::mcp::config::{File, TrustAction};
+        use crate::mcp::config::TrustAction;
         use crate::mcp::runtime::Job;
+        let blind = self.blind();
         let Some(menu) = self.mcp_menu.as_mut() else {
             return;
         };
+        // A screen the band is blind on shows nothing it last drew for sure.
+        if blind {
+            menu.forget_drawn();
+        }
         let was = menu.screen();
         match menu.press(key) {
             Effect::None => {}
@@ -6547,15 +6592,7 @@ impl Shell {
                         action: TrustAction::Reject(name),
                         body: String::new(),
                     },
-                    Run::Remove { name, file } => Job::Choice(vec![
-                        "remove".into(),
-                        match file {
-                            File::Profile => "--profile",
-                            File::Project => "--project",
-                        }
-                        .into(),
-                        name,
-                    ]),
+                    Run::Remove { name, file } => Job::Remove { name, file },
                 };
                 self.work.mcp().submit(job);
             }
@@ -7186,6 +7223,7 @@ impl Shell {
             self.file_picker = None;
             self.provider_picker = None;
             self.mcp_args = None;
+            self.skills_menu = None;
             return;
         }
         // The skills menu reads the draft again (`syncSkillsMenu`,
@@ -9846,7 +9884,7 @@ impl Shell {
             }
             // `/mcp`'s menu takes the keys it binds; the rest go to the
             // composer, which holds its filter, as fx v0.0.16's does.
-            if self.offer_to_mcp(&event) {
+            if self.offer_to_mcp(&event, now) {
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -9926,6 +9964,7 @@ impl Shell {
             .map_or(self.editor.caret(), |range| range.start);
         let mention = character == '$'
             && !file_picker::contains_position(self.editor.text().as_bytes(), at)
+            && self.mcp_menu.is_none()
             && self.help_menu.is_none()
             && self.model_menu.is_none()
             && self.settings_menu.is_none()
@@ -13647,6 +13686,9 @@ impl Shell {
         };
         self.geometry = geometry;
         self.transcript.resize_unfinished(cols);
+        // The terminal re-wrapped what was on it: what `/mcp`'s menu last drew
+        // is no longer known to be there.
+        self.forget_mcp_drawn();
         // A frame of every row is owed anyway, so the workspace segment reads
         // `HEAD` again on it, as upstream's does on every render
         // (`tui-startup.test.ts:175-240` moves the branch and resizes).
@@ -14194,6 +14236,9 @@ mod tests {
         runtime: Arc<crate::mcp::McpRuntime>,
         shell: Shell,
         sent: Receiver<TurnWork>,
+        /// The clock the keys are read at: a second between keystrokes, so
+        /// none is a key held down unless a case says so ([`Self::held`]).
+        clock: Instant,
     }
 
     impl McpCase {
@@ -14240,6 +14285,7 @@ mod tests {
                 runtime,
                 shell,
                 sent,
+                clock: Instant::now(),
             }
         }
 
@@ -14254,8 +14300,36 @@ mod tests {
 
         fn keys(&mut self, keys: impl IntoIterator<Item = Input>) {
             for key in keys {
-                self.shell.consume(vec![key], Instant::now());
+                self.clock += Duration::from_secs(1);
+                self.shell.consume(vec![key], self.clock);
             }
+        }
+
+        /// `key` as a key held down repeats it: `times` reads `every` apart,
+        /// a frame painted between each, as a terminal's autorepeat sends.
+        fn held(&mut self, key: Input, times: usize, every: Duration) {
+            for _ in 0..times {
+                self.clock += every;
+                self.shell.consume(vec![key.clone()], self.clock);
+                self.reread();
+                let _ = self.screen();
+            }
+        }
+
+        /// Every file a choice could write, as it is now: whether each is
+        /// there, and its bytes.
+        fn files(&self) -> Vec<(std::path::PathBuf, Option<Vec<u8>>)> {
+            [
+                self.profile.clone(),
+                self.settings.clone(),
+                self.workspace.join(".mcp.json"),
+            ]
+            .into_iter()
+            .map(|path| {
+                let bytes = std::fs::read(&path).ok();
+                (path, bytes)
+            })
+            .collect()
         }
 
         fn typed(&mut self, text: &str) {
@@ -14692,6 +14766,244 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_of_enters_in_one_read_answers_no_question_it_never_painted() {
+        // opus-C: `/mcp⏎⏎⏎⏎` in one read opened the menu, the profile
+        // server, its Remove question, and answered it -- before any frame.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let before = case.files();
+        let mut burst: Vec<Input> = "/mcp".chars().map(Input::Text).collect();
+        burst.extend((0..4).map(|_| Input::Action(Action::Submit)));
+        case.clock += Duration::from_secs(1);
+        case.shell.consume(burst, case.clock);
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "a question nobody saw was answered");
+        assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+    }
+
+    #[test]
+    fn a_held_enter_after_a_choice_runs_reaches_no_other_question() {
+        // opus-C: after a Remove the list falls back to its first row, and
+        // Enter held down went on to open it, ask, and answer.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"a": entry.clone(), "b": entry})),
+        );
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("Remove a from ~/.xfx/mcp.json?"));
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let profile = std::fs::read_to_string(&case.profile).expect("profile");
+        assert!(!profile.contains("\"a\""), "{profile}");
+        // Held: an autorepeat 40 ms apart, a frame between each.
+        case.held(Input::Action(Action::Submit), 40, Duration::from_millis(40));
+        assert!(case.drained().is_empty());
+        let profile = std::fs::read_to_string(&case.profile).expect("profile");
+        assert!(
+            profile.contains("\"b\""),
+            "a held Enter removed b: {profile}"
+        );
+    }
+
+    #[test]
+    fn the_menu_takes_no_key_while_the_full_transcript_covers_it() {
+        // opus-C: Ctrl-O over the menu, and the Enter the full transcript
+        // does not bind answered the question it hid. While it is up the
+        // menu takes nothing; closed, the question is still asked.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({"proj": entry.clone()}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let before = case.files();
+        for (path, question) in [
+            (
+                vec![Input::Action(Action::Submit), Input::Action(Action::Submit)],
+                "Remove keep from ~/.xfx/mcp.json?",
+            ),
+            (
+                vec![
+                    Input::Action(Action::Down),
+                    Input::Action(Action::Submit),
+                    Input::Action(Action::Down),
+                    Input::Action(Action::Submit),
+                ],
+                "Reject proj? xfx won't start it in this project.",
+            ),
+            (
+                vec![
+                    Input::Action(Action::Down),
+                    Input::Action(Action::Submit),
+                    Input::Action(Action::Submit),
+                ],
+                "Approve proj for this project?",
+            ),
+        ] {
+            case.open();
+            case.reread();
+            case.keys(path);
+            assert!(case.screen().contains(question), "{}", case.screen());
+            case.keys([Input::Action(Action::ToggleTranscript)]);
+            assert!(case.shell.full.is_open(), "Ctrl-O opened nothing");
+            case.keys([
+                Input::Action(Action::Submit),
+                Input::Action(Action::Left),
+                Input::Action(Action::Submit),
+                Input::Text('y'),
+            ]);
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{question} was answered unseen");
+            case.keys([Input::Action(Action::ToggleTranscript)]);
+            assert!(!case.shell.full.is_open());
+            assert!(case.screen().contains(question), "{}", case.screen());
+            case.keys([Input::Action(Action::Cancel)]);
+        }
+    }
+
+    #[test]
+    fn an_approval_drawn_before_a_resize_is_not_taken_after_it() {
+        // opus-B: a resize, or a screen the band is blind on, leaves what
+        // the last frame drew no longer known to be there.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(serde_json::json!({"proj": entry}), None);
+        let before = case.files();
+        let approval = |case: &mut McpCase| {
+            case.open();
+            case.reread();
+            case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+            assert!(case.screen().contains("Approve proj for this project?"));
+        };
+        approval(&mut case);
+        assert!(!matches!(case.shell.resize(30, 100), Resize::Unchanged));
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "approved after a resize, unseen");
+        case.keys([Input::Action(Action::Cancel)]);
+        approval(&mut case);
+        case.shell.render.mark_resize(Instant::now());
+        assert!(case.shell.blind());
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "approved on a blind screen");
+    }
+
+    #[test]
+    fn remove_in_the_menu_removes_a_server_whose_name_reads_as_a_flag() {
+        // opus-A, opus-C: `--help` is a name `.mcp.json` may hold, and the
+        // menu's Remove, parsed again as words, was `remove --project --help`
+        // -- help, said to nobody, and nothing removed.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(serde_json::json!({"--help": entry}), None);
+        case.open();
+        case.reread();
+        case.keys([
+            Input::Action(Action::Submit),
+            Input::Action(Action::Down),
+            Input::Action(Action::Down),
+            Input::Action(Action::Submit),
+        ]);
+        assert!(
+            case.screen().contains("Remove --help from .mcp.json?"),
+            "{}",
+            case.screen()
+        );
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let project = std::fs::read_to_string(case.workspace.join(".mcp.json")).expect("project");
+        assert!(!project.contains("--help"), "{project}");
+    }
+
+    #[test]
+    fn remove_in_the_menu_removes_from_the_file_its_question_named_when_both_hold_the_name() {
+        // opus-C: the flag pinned. `dup` is in both files; the profile's is
+        // the one in force, and its question names `~/.xfx/mcp.json`: yes
+        // removes it from there, and the repository's stays.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({"dup": entry.clone()}),
+            Some(serde_json::json!({"dup": entry})),
+        );
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(
+            case.screen().contains("Remove dup from ~/.xfx/mcp.json?"),
+            "{}",
+            case.screen()
+        );
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let profile = std::fs::read_to_string(&case.profile).expect("profile");
+        assert!(!profile.contains("dup"), "{profile}");
+        let project = std::fs::read_to_string(case.workspace.join(".mcp.json")).expect("project");
+        assert!(project.contains("dup"), "{project}");
+    }
+
+    #[test]
+    fn a_project_entry_respelled_is_approved_from_the_menu() {
+        // opus-A SHOULD 1: `{"command": …}` rewritten as `{"type": "stdio",
+        // "command": …}` parses to the same server, which a reload kept with
+        // the digest of the old spelling: the menu's Approve saved that, the
+        // reload found it no approval of the file, and it waited for good.
+        use crate::mcp::config::entry_digest;
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let plain = serde_json::json!({"command": "/bin/sh", "args": [fixture.clone()]});
+        let typed = serde_json::json!({"type": "stdio", "command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(serde_json::json!({"proj": plain}), None);
+        std::fs::write(
+            case.workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": typed.clone()}}).to_string(),
+        )
+        .expect("write .mcp.json");
+        case.reload();
+        assert_eq!(
+            case.view("proj").entry.map(|entry| entry.digest.clone()),
+            Some(entry_digest(&typed)),
+            "the respelled entry kept the old one's digest"
+        );
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let _ = case.screen();
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        case.ready("proj");
+    }
+
+    #[test]
+    fn a_dollar_typed_into_the_menus_filter_opens_no_skills_menu_behind_it() {
+        // opus-C: `$` opened a skills menu the band never showed, which then
+        // took Tab and Shift-Tab.
+        let mut case = McpCase::new(serde_json::json!({}), None);
+        case.open();
+        case.typed("$a");
+        assert!(
+            case.shell.skills_menu.is_none(),
+            "a skills menu opened behind /mcp"
+        );
+        assert_eq!(case.shell.editor.text(), "$a");
+    }
+
+    #[test]
     fn remove_and_reject_ask_in_place_and_anything_but_yes_changes_nothing_on_disk() {
         // S3. Remove and Reject ask on the choice's row, an approval on its
         // own screen; Esc, Ctrl-C, a printable key, Backspace and `no` each
@@ -14704,15 +15016,10 @@ mod tests {
             serde_json::json!({"proj": entry.clone()}),
             Some(serde_json::json!({"keep": entry})),
         );
-        let profile = std::fs::read(&case.profile).expect("the profile");
+        let files = case.files();
         let unchanged = |case: &mut McpCase, why: &str| {
             assert!(case.drained().is_empty(), "{why}");
-            assert_eq!(
-                std::fs::read(&case.profile).expect("the profile"),
-                profile,
-                "{why}"
-            );
-            assert_eq!(case.saved(), serde_json::Value::Null, "{why}");
+            assert_eq!(case.files(), files, "{why}: a file changed");
             assert!(
                 case.shell.editor.is_empty(),
                 "{why}: the key reached the composer"

@@ -392,9 +392,11 @@ pub enum Job {
     /// A trust choice, and the sentence that announces it; none for a
     /// choice made in `/mcp`'s menu, which says only what warns.
     Trust { action: TrustAction, body: String },
-    /// A choice made in `/mcp`'s menu: a verb and its words, never split
-    /// again, run warnings-only ([`super::command::choose`]).
-    Choice(Vec<String>),
+    /// `/mcp`'s menu's Remove: this name, from this file -- the ones its
+    /// question named, never parsed again as words, so a name that reads
+    /// as a flag (`--help`) is a name -- said only if it warns
+    /// ([`super::command::remove_chosen`]).
+    Remove { name: String, file: config::File },
 }
 
 /// A server's live half.
@@ -903,7 +905,7 @@ impl McpRuntime {
         match job {
             Job::Command(line) => super::command::handle(self, &line),
             Job::Trust { action, body } => self.trust(action, &body),
-            Job::Choice(args) => super::command::choose(self, &args),
+            Job::Remove { name, file } => super::command::remove_chosen(self, &name, file),
         }
     }
 
@@ -1075,9 +1077,16 @@ impl McpRuntime {
         let mut next: Vec<Arc<Server>> = Vec::with_capacity(configs.len());
         let mut connecting: Vec<Arc<Server>> = Vec::new();
         for config in configs {
-            let kept = current
-                .iter()
-                .find(|server| server.config == config && !server.stopped.load(Ordering::Acquire));
+            // And, for one a person is asked about, the entry it shows: two
+            // spellings of one server (`"type": "stdio"` or none) are two
+            // entries, and an approval is for the one in the file now
+            // (opus-A).
+            let kept = current.iter().find(|server| {
+                server.config == config
+                    && !server.stopped.load(Ordering::Acquire)
+                    && server.entry.as_ref().map(|entry| entry.digest.as_str())
+                        == shown_entry_digest(&config, &index)
+            });
             let server = match kept {
                 Some(server) => Arc::clone(server),
                 None => Server::new(config, &index),
@@ -1976,6 +1985,18 @@ fn by_name(digests: &[(String, String)]) -> HashMap<&str, &str> {
         .collect()
 }
 
+/// The digest a server built from `config` now would show
+/// ([`shown_entry`]'s), without spelling its rows.
+fn shown_entry_digest<'a>(
+    config: &ServerConfig,
+    digests: &HashMap<&str, &'a str>,
+) -> Option<&'a str> {
+    if config.source != Source::Workspace || config.admission == Some(Admission::Approved) {
+        return None;
+    }
+    digests.get(config.name.as_str()).copied()
+}
+
 /// A project server's [`ShownEntry`], when it is one a person is asked
 /// about: a workspace entry not approved as it stands, which is never
 /// expanded, so its rows are the entry as written.
@@ -2056,13 +2077,21 @@ fn prompt_value(text: &str) -> String {
 }
 
 /// One word of a command line as a POSIX shell would read it back: bare when
-/// nothing in it needs quoting, else single-quoted, else -- when it holds a
-/// control character -- ANSI-C quoted with the character spelled out, so the
-/// shown word means what the shell would be given.
+/// nothing in it needs quoting; double-quoted when it holds a `${VAR}` or
+/// `${VAR:-default}` -- an approved entry's command and arguments have those
+/// expanded (`config::expand_text`), and a shell expands them in double
+/// quotes -- with every other `$`, `"`, `\` and `` ` `` escaped, since
+/// nothing else in it is (opus-B, `c4d252f5`'s single quotes said the
+/// opposite); else single-quoted; else -- when it holds a control character
+/// -- ANSI-C quoted with the character spelled out, so the shown word means
+/// what the shell would be given.
 fn shell_word(word: &str) -> String {
     let bare = |byte: u8| byte.is_ascii_alphanumeric() || b"/._-+=:,@%".contains(&byte);
     if !word.is_empty() && word.bytes().all(bare) {
         return word.to_string();
+    }
+    if let Some(quoted) = expanded_word(word) {
+        return quoted;
     }
     if !word.chars().any(char::is_control) {
         return format!("'{}'", word.replace('\'', r"'\''"));
@@ -2081,6 +2110,53 @@ fn shell_word(word: &str) -> String {
     }
     out.push('\'');
     out
+}
+
+/// `word` double-quoted, its expansions as they are and the rest escaped,
+/// when it holds an expansion `config::expand_text` would make; `None`
+/// otherwise.
+fn expanded_word(word: &str) -> Option<String> {
+    let escape = |text: &str, out: &mut String| {
+        for character in text.chars() {
+            if matches!(character, '$' | '"' | '\\' | '`') {
+                out.push('\\');
+            }
+            out.push(character);
+        }
+    };
+    let mut out = String::from("\"");
+    let mut rest = word;
+    let mut any = false;
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            break;
+        };
+        let inner = &after[..end];
+        let (name, default) = match inner.split_once(":-") {
+            Some((name, default)) => (name, Some(default)),
+            None => (inner, None),
+        };
+        if !config::is_env_name(name) {
+            break;
+        }
+        any = true;
+        escape(&rest[..start], &mut out);
+        out.push_str("${");
+        out.push_str(name);
+        if let Some(default) = default {
+            out.push_str(":-");
+            escape(default, &mut out);
+        }
+        out.push('}');
+        rest = &after[end + 1..];
+    }
+    if !any {
+        return None;
+    }
+    escape(rest, &mut out);
+    out.push('"');
+    Some(out)
 }
 
 #[cfg(test)]
@@ -2266,6 +2342,28 @@ mod tests {
     }
 
     #[test]
+    fn a_word_xfx_expands_is_shown_as_a_shell_reads_an_expansion() {
+        // opus-B SHOULD 4: an approved entry's `${VAR}` and `${VAR:-default}`
+        // are expanded in its command and arguments (`config::expand_text`),
+        // so the word is shown double-quoted -- read as a shell reads it, the
+        // expansion expands -- with every other `$`, `"`, `\\` and `` ` ``
+        // escaped, as nothing else in it is expanded.
+        let config = ServerConfig::local(
+            "p",
+            "/bin/node",
+            &[
+                "${SECRET}".into(),
+                "a\"b$c`d\\e${X:-d$f}".into(),
+                "$HOME".into(),
+            ],
+        );
+        assert_eq!(
+            what_it_runs(&config),
+            r#"command: /bin/node "${SECRET}" "a\"b\$c\`d\\e${X:-d\$f}" '$HOME'"#
+        );
+    }
+
+    #[test]
     fn a_character_that_reorders_or_hides_text_is_named_in_every_prompt_row() {
         // U+202E (right-to-left override) would draw `exec evil.sh ; safe`
         // backwards; U+2066 (left-to-right isolate) and U+200B (zero width
@@ -2365,7 +2463,7 @@ mod tests {
         let local = shown("local");
         assert_eq!(
             local,
-            "command: '${TOOL}' --key '${SECRET}'\n  env: PLAIN=literal-secret\n  env: K=Bearer ${SECRET}\n  env: M=${A:-fallback-secret}${B}"
+            "command: \"${TOOL}\" --key \"${SECRET}\"\n  env: PLAIN=literal-secret\n  env: K=Bearer ${SECRET}\n  env: M=${A:-fallback-secret}${B}"
         );
         let remote = shown("remote");
         assert_eq!(

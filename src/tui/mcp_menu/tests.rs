@@ -371,11 +371,13 @@ fn remove_asks_on_its_own_row_and_only_yes_runs_it() {
     menu.press(Key::Enter);
     assert_eq!(menu.press(Key::Escape), Effect::None);
     assert_eq!(menu.screen(), Screen::Server);
-    // Asked again it starts on yes; → then ← keeps yes, and Enter removes,
-    // from the file the question named, and goes back to the list.
+    // Asked again it starts on yes; → then ← keeps yes, and Enter -- once a
+    // frame drew the question -- removes, from the file the question named,
+    // and goes back to the list.
     menu.press(Key::Enter);
     menu.press(Key::Right);
     menu.press(Key::Left);
+    drawn(&menu, 120);
     assert_eq!(
         menu.press(Key::Enter),
         Effect::Run(Run::Remove {
@@ -453,7 +455,8 @@ fn reject_asks_on_its_row_and_approve_keeps_a_screen_that_shows_what_it_trusts()
 #[test]
 fn an_approval_wraps_what_it_trusts_at_spaces_and_never_cuts_it() {
     // fx's own case (presentation `:728-749`): the target wrapped at
-    // width - 4.
+    // width - 4 -- and, where fx's goes on four columns in, every piece led
+    // by `↳ ` (opus-B; `docs/parity.md`, `/mcp`).
     let mut long = pending("docs");
     long.entry = entry(
         &["command: node ./scripts/docs-server.js --root . --port 4100 --watch"],
@@ -469,7 +472,7 @@ fn an_approval_wraps_what_it_trusts_at_spaces_and_never_cuts_it() {
             "",
             "  Approve docs for this project? It runs:",
             "    node ./scripts/docs-server.js --root .",
-            "    --port 4100 --watch",
+            "  \u{21b3} --port 4100 --watch",
         ]
     );
     // Longer than the menu's thirteen rows: the screen takes the room it
@@ -785,7 +788,7 @@ fn every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_si
     row.error = Some("boom\u{1b}[31m".into());
     let mut ok = ready("tools\u{9b}x");
     ok.found = Found::Tools(vec![Tool {
-        name: "t\u{1b}[1m".into(),
+        name: "t\u{1b}]0;x\u{7}".into(),
         description: "d\u{7}e".into(),
     }]);
     let mut menu = McpMenu::open(vec![ok, row], 0, Instant::now());
@@ -832,12 +835,14 @@ fn every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_si
     assert!(all.contains("e\\x1b[2J="), "{all}");
     assert!(all.contains("owned") && all.contains("\\u{202e}z"), "{all}");
     assert!(all.contains("boom\\x1b[31m"), "{all}");
+    assert!(all.contains("t\\x1b]0;x\\x07"), "{all}");
     assert!(all.contains("env: API_KEY=k\\u{202e}v\\x0aw"), "{all}");
     // The choice still runs on the name as configured.
     let mut menu = McpMenu::open(vec![pending(hostile)], 0, Instant::now());
     menu.press(Key::Enter);
     menu.press(Key::Down);
     menu.press(Key::Enter);
+    drawn(&menu, 120);
     assert_eq!(
         menu.press(Key::Enter),
         Effect::Run(Run::Reject {
@@ -882,4 +887,205 @@ fn the_kept_list_filter_is_never_cut_inside_a_character() {
     assert_eq!(menu.list_filter().len(), NAME_CAPACITY - 1);
     menu.keep_list_filter("dat");
     assert_eq!(menu.list_filter(), "dat");
+}
+
+// --- MCP-Mc ------------------------------------------------------------------
+
+/// `config`'s rows as the runtime shows them for approval, with digest `d`.
+fn shown(config: &crate::mcp::config::ServerConfig) -> Option<Arc<ShownEntry>> {
+    Some(Arc::new(ShownEntry {
+        rows: crate::mcp::runtime::entry_rows(config),
+        digest: "d".into(),
+    }))
+}
+
+/// The approval's rows below its question, at `cols`.
+fn approval_body(row: Row, cols: u16) -> Vec<String> {
+    let mut menu = McpMenu::open(vec![row], 0, Instant::now());
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    let rows = drawn(&menu, cols);
+    assert!(rows[2].starts_with("  Approve "), "{rows:?}");
+    rows[3..].to_vec()
+}
+
+#[test]
+fn a_one_row_entry_never_draws_a_wrapped_piece_as_a_row_of_its_own() {
+    // opus-B MUST: a command line or an address the width wraps went on four
+    // columns in, as a row of the entry's own does, so `.mcp.json` could
+    // draw a variable or a header the child is never given. Every piece a
+    // row wraps onto is led by `↳ `, whatever the entry holds.
+    use crate::mcp::config::ServerConfig;
+    let url = format!(
+        "https://a.example/mcp?q={}header: X-Team: blue",
+        " ".repeat(300)
+    );
+    let mut http = pending("web");
+    http.transport = Transport::Http;
+    http.entry = shown(&ServerConfig::http("web", &url));
+    for cols in [40u16, 60, 120] {
+        let body = approval_body(http.clone(), cols);
+        assert!(body[0].starts_with("    https://"), "{cols}: {body:?}");
+        for row in &body[1..] {
+            assert!(
+                row.starts_with("  \u{21b3} "),
+                "{cols}: {row:?} in {body:?}"
+            );
+        }
+    }
+    let mut stdio = pending("proj");
+    stdio.entry = shown(&ServerConfig::local(
+        "proj",
+        "/bin/sh",
+        &["server.sh".into(), "env:".into(), "PATH=./x".into()],
+    ));
+    for cols in 22u16..=26 {
+        let body = approval_body(stdio.clone(), cols);
+        assert_eq!(body[0], "    /bin/sh server.sh", "{cols}: {body:?}");
+        assert_eq!(body[1], "  \u{21b3} env: PATH=./x", "{cols}: {body:?}");
+    }
+}
+
+#[test]
+fn remove_and_reject_take_no_answer_before_a_frame_painted_the_question() {
+    // opus-C, gpt6-C: as Approve takes no Enter before a frame drew it,
+    // Remove and Reject take no answer before a frame drew their question --
+    // a burst of Enters in one read never answers one nobody saw.
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    drawn(&menu, 120);
+    // Written over since: no frame known to show it.
+    menu.forget_drawn();
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+    drawn(&menu, 120);
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Run(Run::Remove { .. })
+    ));
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Reject));
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+    drawn(&menu, 120);
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Run(Run::Reject { .. })
+    ));
+}
+
+#[test]
+fn a_question_whose_server_moved_to_the_other_file_is_cancelled() {
+    // gpt6-C: the removal is of the name and the file the question named;
+    // a read that finds the name in the other file now cancels it.
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Down);
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Remove));
+    assert!(drawn(&menu, 120)[7].contains("Remove proj from .mcp.json?"));
+    let mut moved = ready("proj");
+    moved.source = Source::Profile;
+    menu.take(vec![ready("fixture"), connecting("remote"), moved], 0);
+    drawn(&menu, 120);
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+    assert_eq!(menu.screen(), Screen::Server);
+}
+
+#[test]
+fn up_and_down_on_a_question_leave_its_answer() {
+    let mut menu = three();
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    let answer = |menu: &McpMenu| {
+        let row = &menu.rows(120, 10, PALETTE)[6];
+        row.contains("\u{1b}[1;38;5;255mno")
+    };
+    assert!(!answer(&menu));
+    menu.press(Key::Up);
+    menu.press(Key::Down);
+    assert!(!answer(&menu));
+    menu.press(Key::Right);
+    assert!(answer(&menu));
+    menu.press(Key::Down);
+    menu.press(Key::Up);
+    assert!(answer(&menu));
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+    assert_eq!(menu.screen(), Screen::Server);
+}
+
+#[test]
+fn an_approval_below_twenty_columns_approves_nothing() {
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    let count = menu.height(19, MAX_ROWS, 30);
+    menu.rows(19, count, PALETTE);
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Refused(why) if why.contains("couldn't show all")
+    ));
+}
+
+#[test]
+fn opening_an_approval_again_forgets_the_one_drawn_before() {
+    // The approval drawn, Esc, opened again: its Enter waits for a frame of
+    // the screen now up, not the one drawn before it.
+    let mut menu = three();
+    menu.press(Key::Down);
+    menu.press(Key::Down);
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    drawn(&menu, 120);
+    menu.press(Key::Escape);
+    menu.press(Key::Enter);
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+    assert_eq!(menu.screen(), Screen::Confirm(Choice::Approve));
+}
+
+#[test]
+fn an_approval_drawn_for_one_server_approves_no_other() {
+    // Two waiting servers with the same digest: what was drawn for one is no
+    // approval of the other, should the open server change under it.
+    let mut menu = McpMenu::open(vec![pending("one"), pending("two")], 0, Instant::now());
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    drawn(&menu, 120);
+    menu.selected = "two".into();
+    assert_eq!(menu.press(Key::Enter), Effect::None);
+}
+
+#[test]
+fn a_line_wider_on_the_screen_than_it_was_measured_is_not_drawn_whole() {
+    // opus-B SHOULD 3: the wrap measures a character at a time and the row a
+    // cluster at a time; a line the row has to cut with `…` is not all on
+    // the screen, so Enter approves nothing. (No spelled row is known to
+    // hold such a cluster; the rows here are put in as they are.)
+    let mut wide = pending("wide");
+    wide.entry = Some(Arc::new(ShownEntry {
+        rows: vec![format!("command: {}", "\u{2764}\u{fe0f}".repeat(40))],
+        digest: "d".into(),
+    }));
+    let mut menu = McpMenu::open(vec![wide], 0, Instant::now());
+    menu.press(Key::Enter);
+    menu.press(Key::Enter);
+    let rows = drawn(&menu, 60);
+    assert!(rows.iter().any(|row| row.ends_with('\u{2026}')), "{rows:?}");
+    assert!(matches!(
+        menu.press(Key::Enter),
+        Effect::Refused(why) if why.contains("couldn't show all")
+    ));
 }

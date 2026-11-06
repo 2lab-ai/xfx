@@ -38,7 +38,7 @@
 //! only as far as its first `=`, as the verbs say it
 //! ([`crate::mcp::command::typed`]).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -409,7 +409,6 @@ struct Layout {
     choices: usize,
     gap: usize,
     tools: usize,
-    window: usize,
 }
 
 impl Layout {
@@ -430,14 +429,24 @@ impl Layout {
         }
     }
 
-    /// Content lines shown; when everything doesn't fit, a row goes to the
-    /// count of what's below.
-    fn shown(self) -> usize {
-        if self.lines() <= self.window {
-            self.lines()
-        } else {
-            self.window.saturating_sub(1).max(1)
+    /// The first line a `window`-line view shows with the `cursor`th item
+    /// selected, from `top` (`keepVisible`, `menu.zig:423-433`; `scrolled`,
+    /// presentation `:411-427`): the selection in view, and, when everything
+    /// doesn't fit, a row left for the count of what's below.
+    fn top(self, top: usize, cursor: usize, window: usize) -> usize {
+        if self.lines() <= window || cursor == 0 {
+            return 0;
         }
+        let shown = window.saturating_sub(1).max(1);
+        let at = self.line(cursor);
+        let mut top = top.min(self.lines() - shown);
+        if at < top {
+            top = at;
+        }
+        if at >= top + shown {
+            top = at + 1 - shown;
+        }
+        top
     }
 }
 
@@ -466,6 +475,13 @@ pub(crate) struct McpMenu {
     top: usize,
     /// On a question asked on its row: "no" is chosen instead of "yes".
     answer_no: bool,
+    /// What Remove or Reject asked about, captured as it asked: the name and
+    /// the file its question named. An answer is about these, and a read
+    /// that finds the name in the other file since cancels it.
+    question: Option<(String, File)>,
+    /// A frame has drawn the question's row, and nothing has written over
+    /// the screen since: no answer is taken before (`Drawn` for Approve).
+    question_drawn: Cell<bool>,
     /// The list's filter, kept while a server's screen filters its tools.
     list_filter: String,
     /// What the composer holds: the list's filter, or the open server's tools'.
@@ -490,6 +506,8 @@ impl McpMenu {
             cursor: 0,
             top: 0,
             answer_no: false,
+            question: None,
+            question_drawn: Cell::new(false),
             list_filter: String::new(),
             filter: String::new(),
             rows,
@@ -556,6 +574,7 @@ impl McpMenu {
         if let Some(drawn) = self.drawn.borrow_mut().as_mut() {
             drawn.whole = false;
         }
+        self.question_drawn.set(false);
     }
 
     /// Reads the servers again when [`REFRESH`] has passed since the last
@@ -701,7 +720,6 @@ impl McpMenu {
             // A blank, then the heading or the reason there are no tools.
             gap: 2,
             tools: self.tool_count(),
-            window: SERVER_WINDOW,
         })
     }
 
@@ -829,6 +847,8 @@ impl McpMenu {
                         let Some(&choice) = row.choices().get(self.cursor) else {
                             return Effect::None;
                         };
+                        self.question = Some((row.name.clone(), row.file()));
+                        self.question_drawn.set(false);
                         self.screen = Screen::Confirm(choice);
                         self.answer_no = false;
                         *self.drawn.borrow_mut() = None;
@@ -868,11 +888,26 @@ impl McpMenu {
         }
     }
 
-    /// Yes to `choice` on `row`. A removed server has no screen to come back
-    /// to. An approval approves the entry its screen drew, and only once all
-    /// of it was on the screen; anything else approves nothing and says why.
+    /// Yes to `choice` on `row`. Remove and Reject answer only a question a
+    /// frame drew, about the name and the file it asked about: until a frame
+    /// has, the key waits for one; a server found in the other file since is
+    /// another server, and the question is cancelled. A removed server has
+    /// no screen to come back to. An approval approves the entry its screen
+    /// drew, and only once all of it was on the screen; anything else
+    /// approves nothing and says why.
     fn confirmed(&mut self, choice: Choice, row: &Row) -> Effect {
         let shown = command::typed(&row.name);
+        if choice.asks_on_row() {
+            if !self.question_drawn.get() {
+                return Effect::None;
+            }
+            let asked = self.question.take();
+            if asked.as_ref() != Some(&(row.name.clone(), row.file())) {
+                self.screen = Screen::Server;
+                self.answer_no = false;
+                return Effect::None;
+            }
+        }
         let run = match choice {
             Choice::Remove => {
                 self.back_to_list();
@@ -920,19 +955,7 @@ impl McpMenu {
     }
 
     fn keep_visible(&mut self, layout: Layout) {
-        if layout.lines() <= layout.window || self.cursor == 0 {
-            self.top = 0;
-            return;
-        }
-        let at = layout.line(self.cursor);
-        let shown = layout.shown();
-        if at < self.top {
-            self.top = at;
-        }
-        if at >= self.top + shown {
-            self.top = at + 1 - shown;
-        }
-        self.top = self.top.min(layout.lines() - shown);
+        self.top = layout.top(self.top, self.cursor, SERVER_WINDOW);
     }
 
     // -----------------------------------------------------------------------
@@ -1109,18 +1132,7 @@ impl McpMenu {
             );
             return out;
         }
-        let shown = window.saturating_sub(1).max(1);
-        let mut top = self.top.min(layout.lines() - shown);
-        let at = layout.line(cursor);
-        if at < top {
-            top = at;
-        }
-        if at >= top + shown {
-            top = at + 1 - shown;
-        }
-        if cursor == 0 {
-            top = 0;
-        }
+        let top = layout.top(self.top, cursor, window);
         let mut lines = window;
         if top + lines < layout.lines() {
             lines -= 1;
@@ -1201,6 +1213,8 @@ impl McpMenu {
             // chosen one is bright, and ← → move between them.
             if self.screen == Screen::Confirm(choice) {
                 const ANSWERS: &str = "   yes  no";
+                // The row is in this frame: its answer may be taken.
+                self.question_drawn.set(true);
                 out.push_str(&ellipsized(
                     &command::safe_within(&question(row, choice), 4096),
                     width.saturating_sub(2).saturating_sub(ANSWERS.len()),
@@ -1294,21 +1308,29 @@ impl McpMenu {
             palette,
         )];
         let (lines, shortened) = confirm_lines(row, width);
+        // All of it is on the screen only when every line is among the rows
+        // the panel has, none cut to its row with `…` -- the wrap measures a
+        // character at a time, the row a cluster at a time, so each is
+        // measured here as `spelled_row` draws it -- and the screen is wide
+        // enough for the wrap's lines at all.
+        let fits = lines.iter().all(|line| match line {
+            ConfirmLine::Target(text) => 4 + cells(text) <= width,
+            ConfirmLine::Continued(text) => 2 + cells(&format!("\u{21b3} {text}")) <= width,
+            ConfirmLine::Blank | ConfirmLine::Question(_) => true,
+        });
         if let Some(digest) = row.digest() {
             *self.drawn.borrow_mut() = Some(Drawn {
                 name: row.name.clone(),
                 digest: digest.to_string(),
-                whole: !shortened && lines.len() < count && width >= APPROVAL_MIN_COLS,
+                whole: fits && lines.len() < count && width >= APPROVAL_MIN_COLS,
                 shortened,
             });
         }
         for line in lines {
             out.push(match line {
+                ConfirmLine::Blank => String::new(),
                 ConfirmLine::Question(text) => {
                     text_row(&text, width, palette.subtitle(), 2, palette)
-                }
-                ConfirmLine::Detail(text) => {
-                    format!("{}{}", palette.dim(), spelled_row(&text, width, 2, palette))
                 }
                 ConfirmLine::Target(text) => spelled_row(&text, width, 4, palette),
                 ConfirmLine::Continued(text) => {
@@ -1406,13 +1428,14 @@ fn question(row: &Row, choice: Choice) -> String {
 /// One line of the approval's screen below its title.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ConfirmLine {
+    Blank,
     Question(String),
-    Detail(String),
     /// The start of a row of what it trusts, four columns in; spelled already.
     Target(String),
     /// The rest of a row the width wrapped, led by `↳ ` two columns in, so
-    /// it never reads as a row of the entry's own -- when the entry has more
-    /// rows than its command line or address for it to pass for.
+    /// it never reads as a row of the entry's own (opus-B): not even in an
+    /// entry of one row, whose wrapped address could otherwise draw a
+    /// `header: …` it never sends. fx's continues its target four columns in.
     Continued(String),
 }
 
@@ -1431,7 +1454,7 @@ const ENTRY_ROW_MAX_BYTES: usize = 1024;
 /// shortened ([`ENTRY_ROW_MAX_BYTES`]).
 fn confirm_lines(row: &Row, width: usize) -> (Vec<ConfirmLine>, bool) {
     let mut out = vec![
-        ConfirmLine::Detail(String::new()),
+        ConfirmLine::Blank,
         ConfirmLine::Question(format!(
             "Approve {} for this project? It {}:",
             command::typed(&row.name),
@@ -1453,9 +1476,9 @@ fn confirm_lines(row: &Row, width: usize) -> (Vec<ConfirmLine>, bool) {
                 unlabelled.unwrap_or(text).to_string()
             })
             .collect(),
-        None => vec![spelled(&row.target)],
+        // No entry, no digest: nothing to approve, and nothing shown.
+        None => Vec::new(),
     };
-    let led = rows.len() > 1;
     let limit = width.saturating_sub(4).max(16);
     let mut shortened = false;
     for text in rows {
@@ -1465,7 +1488,7 @@ fn confirm_lines(row: &Row, width: usize) -> (Vec<ConfirmLine>, bool) {
         let mut first = true;
         while !rest.is_empty() {
             let (line, after) = cut_at(&rest, limit);
-            out.push(if first || !led {
+            out.push(if first {
                 ConfirmLine::Target(line.to_string())
             } else {
                 ConfirmLine::Continued(line.to_string())
@@ -1479,8 +1502,9 @@ fn confirm_lines(row: &Row, width: usize) -> (Vec<ConfirmLine>, bool) {
 
 /// `row` whole, or -- past [`ENTRY_ROW_MAX_BYTES`] -- its head and tail with
 /// how long it is and where it is whole between them, and whether it was
-/// shortened. Cut on a character boundary; `row` is spelled already, so no
-/// escape it carries is split from the code point it names.
+/// shortened. Cut on a character boundary of a row spelled already: a cut
+/// may fall inside an escape's text (`\u{20` … `2e}`), which leaves both
+/// halves printable text, never the character it named.
 fn fitted(row: &str) -> (String, bool) {
     if row.len() <= ENTRY_ROW_MAX_BYTES {
         return (row.to_string(), false);
@@ -1533,15 +1557,6 @@ fn cut_at(text: &str, limit: usize) -> (&str, &str) {
         Some(space) if space > 0 => (&text[..space], &text[space..]),
         _ => (&text[..end], &text[end..]),
     }
-}
-
-/// Every character of `raw` as [`crate::mcp::terminal_safe`] spells it, and
-/// nothing cut: what an approval trusts is shown whole.
-fn spelled(raw: &str) -> String {
-    let mut buf = [0u8; 4];
-    raw.chars()
-        .map(|character| crate::mcp::terminal_safe(character.encode_utf8(&mut buf)))
-        .collect()
 }
 
 /// `title` (presentation `:172-184`): the name bright in half the width, the
