@@ -64,7 +64,7 @@ pub fn handle(runtime: &Arc<McpRuntime>, rest: &str) {
     }
     if trimmed == "reload" {
         runtime.notice(false, RELOAD_STARTED);
-        return runtime.reload(Origin::Transcript);
+        return runtime.reconnect(Origin::Transcript);
     }
     if let Some(rest) = trimmed.strip_prefix("trust ") {
         return trust(runtime, rest);
@@ -583,15 +583,11 @@ mod tests {
     }
 
     #[test]
-    fn reload_says_it_started_and_then_how_it_went() {
+    fn reload_says_it_started_and_the_reload_itself_says_nothing() {
+        // fx v0.0.16 reloads in place and says nothing of it (`333d4764`);
+        // the reload's own sentence is gone with it.
         let dir = tempfile::tempdir().expect("dir");
         let runtime = runtime(dir.path());
-        assert_eq!(
-            said(&runtime, "reload"),
-            [
-                RELOAD_STARTED,
-                "MCP configuration reloaded. No servers are configured."
-            ]
-        );
+        assert_eq!(said(&runtime, "reload"), [RELOAD_STARTED]);
     }
 }

@@ -1153,6 +1153,10 @@ pub(crate) struct Shell {
     /// Escape answers it (`routeProjectMcpPromptByte`,
     /// `app_input_runtime.zig:884-937`), and `1` approves that entry.
     mcp_prompt: Option<TrustPromptUp>,
+    /// What the status line's right-hand slot says about MCP
+    /// ([`statusline::McpStatus`]): rebuilt from the runtime by
+    /// [`Self::settle_band`], cleared by a prompt sent ([`Self::send`]).
+    mcp_status: statusline::McpStatus,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -2241,6 +2245,7 @@ impl Shell {
             ),
             mcp_menu: None,
             mcp_prompt: None,
+            mcp_status: statusline::McpStatus::default(),
             rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
@@ -2751,11 +2756,17 @@ impl Shell {
             // keystroke would do rather than another fact about the
             // session, and a warning that moved left and right with the
             // queue's depth would be one the eye has to look for.
+            //
+            // Last, in the same dim grey as the cues, what the status line
+            // says about MCP: `right_text`'s last fallback
+            // (`input_presentation.zig:548-550@481104fd`), blank while a
+            // question is up.
             right: self
                 .escape_armed
                 .then_some(ESCAPE_ARMED)
-                .or_else(|| self.warning_shown()),
-            right_style: if self.escape_armed {
+                .or_else(|| self.warning_shown())
+                .or_else(|| self.mcp_status_shown()),
+            right_style: if self.escape_armed || self.warning_shown().is_none() {
                 cue_style.as_str()
             } else {
                 self.palette.danger()
@@ -8638,8 +8649,12 @@ impl Shell {
         self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
-        // And what the MCP runtime has to say.
+        // And what the MCP runtime has to say, and what the status line says
+        // of its servers.
         self.settle_mcp();
+        if self.mcp_status.refresh(now, self.work.mcp()) {
+            self.render.request(Reason::Footer);
+        }
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
         // And how a `/fast` or `/ultrafast` save went.
@@ -10831,6 +10846,11 @@ impl Shell {
     /// terminal's document, so a submission is something the session visibly
     /// did rather than something that vanished.
     fn send(&mut self, prompt: String, text: &str) -> bool {
+        // Sending a prompt clears the MCP text the person has seen, whether
+        // or not the prompt is then taken (`enqueuePromptForSubmit`,
+        // `vercel-labs/fx@481104fd src/core/app/input_submit_runtime.zig:
+        // 1108-1109`).
+        self.mcp_status.dismiss();
         // Of the prompt as the runtime is given it, which is what the store
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
@@ -12138,6 +12158,14 @@ impl Shell {
     /// replaces the row with its key help (`paint_plan.zig:946-972`). The
     /// clock ([`permissions::Warning::observe`]) is asked with this same
     /// answer, so the time spent is time the person could see it.
+    /// The status line's MCP text, while it has something to say and no
+    /// question has the row (`question_hint != null` blanks the slot,
+    /// `input_presentation.zig:543-544@481104fd`).
+    fn mcp_status_shown(&self) -> Option<&str> {
+        let text = self.mcp_status.text();
+        (!text.is_empty() && !self.modal()).then_some(text)
+    }
+
     fn warning_shown(&self) -> Option<&'static str> {
         if !self.warning.active() || self.mode != PermissionMode::Yolo {
             return None;
@@ -14140,15 +14168,16 @@ mod tests {
         runtime.shutdown();
     }
 
-    /// Takes the runtime's events until a reload asked for from the transcript
-    /// has answered and the prompt over `listed` has gone up, and returns
-    /// everything taken, oldest first.
+    /// Takes the runtime's events until the prompt over `listed` has gone up
+    /// and the reload that put it up is over, and returns everything taken,
+    /// oldest first.
     ///
     /// Not a poll of the views: a reload asked for while the startup reload
     /// runs is folded into it, and the views hold the rewrite before that
-    /// reload answers and puts the prompt up (`McpRuntime::reload`). A case
-    /// that went on as soon as the views changed could drain the queue before
-    /// the prompt or the answer were in it.
+    /// reload puts the prompt up (`McpRuntime::reload`). A case that went on
+    /// as soon as the views changed could drain the queue before the prompt
+    /// was in it. A reload says nothing since fx v0.0.16, so its end is read
+    /// from the runtime ([`crate::mcp::McpRuntime::reloading`]).
     fn until_prompted(
         runtime: &crate::mcp::McpRuntime,
         listed: &[(String, String)],
@@ -14161,10 +14190,7 @@ mod tests {
             let prompted = taken.iter().any(|event| {
                 matches!(event, Event::TrustPrompt { listed: up, .. } if up.as_slice() == listed)
             });
-            let answered = taken.iter().any(|event| {
-                matches!(event, Event::Notice { body, .. } if body.starts_with("MCP configuration reloaded"))
-            });
-            if prompted && answered {
+            if prompted && !runtime.reloading() {
                 return taken;
             }
             assert!(
@@ -14835,11 +14861,11 @@ mod tests {
         let _ = until_prompted(&runtime, &[("proj".to_string(), rewritten)]);
         assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
 
-        // The answer is saved and announced, and the reload it asks for has
-        // said how it went, whichever way that was.
+        // The answer is saved and announced, and the reload it asks for is
+        // over, whichever way it went (it says nothing since fx v0.0.16).
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
         let mut said: Vec<String> = Vec::new();
-        while said.len() < 2 {
+        while said.is_empty() || runtime.reloading() {
             said.extend(
                 runtime
                     .take_events()
@@ -14984,6 +15010,44 @@ mod tests {
             hint.ends_with(PALETTE.reset()),
             "the hint row left its colour open: {hint:?}"
         );
+    }
+
+    #[test]
+    fn the_mcp_text_is_the_right_slots_last_word_in_the_dim_grey_at_the_last_column() {
+        // fx v0.0.16's `right_text`: the Escape cues, then the full-access
+        // warning, then the MCP text (`input_presentation.zig:539-550@481104fd`), in
+        // `dim_style` flush with the last column (`dismiss-settled`, row 5:
+        // `auto · model-a` ... `proj is waiting for approval · /mcp`).
+        let text = "proj is waiting for approval \u{b7} /mcp";
+        let mut shell = shell(40, 120);
+        shell.mcp_status = statusline::McpStatus::showing(text);
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(
+            row.ends_with(&format!("{}{text}{}", PALETTE.dim(), PALETTE.reset())),
+            "{row:?}"
+        );
+        assert_eq!(
+            super::super::wrap::width(&unpainted(
+                &row.replace(PALETTE.statusline(), "")
+                    .replace(PALETTE.activity(), "")
+            )),
+            120
+        );
+        // An armed Escape outranks it, and it is back once the cue is gone.
+        shell.escape_armed = true;
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(row.contains(ESCAPE_ARMED) && !row.contains(text), "{row:?}");
+        shell.escape_armed = false;
+        assert!(shell.band_rows().last().expect("a hint row").contains(text));
+        // A left-hand notice does not take it away (fx keeps `mcp_status`
+        // beside an auth or refusal hint).
+        shell.notice = Some(QUEUE_REJECTED);
+        assert!(shell.band_rows().last().expect("a hint row").contains(text));
+        // Nothing to say is nothing on the right.
+        shell.notice = None;
+        shell.mcp_status = statusline::McpStatus::default();
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(!row.contains("/mcp"), "{row:?}");
     }
 
     #[test]

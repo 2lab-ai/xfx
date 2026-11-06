@@ -1,0 +1,60 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       failed
+
+┃
+
+auto · model-a                                                                                      remote failed · /mcp
+
+
+
+
