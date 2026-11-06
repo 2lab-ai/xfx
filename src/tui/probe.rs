@@ -1057,7 +1057,7 @@ mod tests {
     /// A pipe standing in for the terminal: the write end is the terminal
     /// answering, the read end is what the probe reads.
     fn pipe() -> (OwnedFd, OwnedFd) {
-        rustix::pipe::pipe().expect("a pipe")
+        crate::process::pipe().expect("a pipe")
     }
 
     /// A terminal that remembers how it was written to, not only what.

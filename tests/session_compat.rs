@@ -169,7 +169,7 @@ impl Preview {
     }
 
     fn xfx(&self, args: &[&str]) -> Output {
-        self.sandbox.command().args(args).output().expect("run xfx")
+        xfx::process::output(self.sandbox.command().args(args)).expect("run xfx")
     }
 }
 
@@ -406,9 +406,7 @@ fn the_previews_signed_reasoning_goes_back_to_llmux_verbatim() {
     // The model the session's reasoning was sealed by: a state goes back only
     // to the model that wrote it.
     command.env("XFX_MODEL", "fake/model-a");
-    let output = command
-        .args(["ask", "--resume-id", LLMUX, "and once more"])
-        .output()
+    let output = xfx::process::output(command.args(["ask", "--resume-id", LLMUX, "and once more"]))
         .expect("run xfx");
     ok(&output, "ask --resume-id on llmux");
 
@@ -500,13 +498,14 @@ fn continuing_a_session_the_preview_wrote_appends_only_frames_the_preview_reads(
         let before = preview.log(id);
         let published = preview.manifest(id);
         let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["continued here"]))]);
-        let output = preview
-            .sandbox
-            .command_with(&gateway)
-            .current_dir(preview.workspace_of(id))
-            .args(["ask", "--resume-id", id, "one more question"])
-            .output()
-            .expect("run xfx");
+        let output = xfx::process::output(
+            preview
+                .sandbox
+                .command_with(&gateway)
+                .current_dir(preview.workspace_of(id))
+                .args(["ask", "--resume-id", id, "one more question"]),
+        )
+        .expect("run xfx");
         ok(&output, &format!("ask --resume-id {id}"));
 
         let gained = appended(&preview, id, &before);

@@ -91,13 +91,15 @@ fn user_messages(body: &Value) -> Vec<String> {
 #[test]
 fn a_bare_invocation_without_a_terminal_is_refused_before_anything_runs() {
     let sandbox = Sandbox::new();
-    let output = sandbox
-        .command()
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn xfx");
+    let output = xfx::process::spawn(
+        sandbox
+            .command()
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .and_then(std::process::Child::wait_with_output)
+    .expect("spawn xfx");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "stdout must stay empty");
@@ -120,13 +122,15 @@ fn a_shell_whose_answers_would_go_into_a_pipe_is_refused() {
         .write(true)
         .open(&pty.slave_path)
         .expect("open the pty slave");
-    let output = sandbox
-        .command()
-        .stdin(Stdio::from(slave))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn xfx");
+    let output = xfx::process::spawn(
+        sandbox
+            .command()
+            .stdin(Stdio::from(slave))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .and_then(std::process::Child::wait_with_output)
+    .expect("spawn xfx");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "stdout must stay empty");
@@ -1558,10 +1562,7 @@ fn the_shell_records_a_session_the_command_line_can_read() {
     type_and_wait(&session, "remember me", "recorded");
     assert_eq!(session.quit().code(), Some(0));
 
-    let listed = sandbox
-        .command()
-        .args(["sessions", "--json"])
-        .output()
+    let listed = xfx::process::output(sandbox.command().args(["sessions", "--json"]))
         .expect("spawn xfx sessions");
     assert_eq!(listed.status.code(), Some(0));
     let document: Value =
@@ -1665,10 +1666,7 @@ fn a_model_chosen_in_the_shell_is_what_the_session_records() {
 
     // The durable record agrees with what the terminal was told, so a later
     // `xfx ask --resume` continues in the model the conversation was held in.
-    let shown = sandbox
-        .command()
-        .args(["session", "last", "--json"])
-        .output()
+    let shown = xfx::process::output(sandbox.command().args(["session", "last", "--json"]))
         .expect("spawn xfx session");
     let document: Value = serde_json::from_slice(&shown.stdout).expect("one JSON document");
     assert_eq!(document["model"], "acme/model-9");
@@ -2413,12 +2411,13 @@ fn status_reports_the_mode_the_shell_is_running_under() {
     // The same fact from the other side of the product: what the shell warned
     // about is what `status` says, so the two cannot disagree.
     let sandbox = Sandbox::new();
-    let listed = sandbox
-        .command()
-        .args(["status", "--json"])
-        .env("XFX_PERMISSION_MODE", "yolo")
-        .output()
-        .expect("spawn xfx status");
+    let listed = xfx::process::output(
+        sandbox
+            .command()
+            .args(["status", "--json"])
+            .env("XFX_PERMISSION_MODE", "yolo"),
+    )
+    .expect("spawn xfx status");
     let document: Value = serde_json::from_slice(&listed.stdout).expect("one JSON document");
     assert_eq!(document["permission_mode"], "yolo");
     assert_eq!(document["sandbox"], "none");

@@ -1316,7 +1316,7 @@ fn a_forks_folders_are_private_from_creation_under_any_umask() {
             Ok(())
         });
     }
-    let output = runner.output().expect("a runner");
+    let output = crate::process::output(&mut runner).expect("a runner");
     let report = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -1663,9 +1663,7 @@ fn a_fork_whose_source_rules_cannot_be_read_or_are_a_link_is_refused_and_leaves_
         // Opened without waiting for a writer, then refused. Made by
         // `mkfifo(1)` through the one door every child process goes through.
         ("a FIFO", |path, _| {
-            let status = crate::process::command("mkfifo")
-                .arg(path)
-                .status()
+            let status = crate::process::status(crate::process::command("mkfifo").arg(path))
                 .expect("run mkfifo");
             assert!(status.success(), "mkfifo failed: {status:?}");
         }),

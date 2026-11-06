@@ -1055,12 +1055,13 @@ fn a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken() {
     // the stdin requirement gone the TUI would be entered and would then fail
     // on `/dev/null` with an ioctl error instead of the shell's own refusal.
     // stderr is the one pipe, because `should_run` never looks at it.
-    let child = tui(&sandbox)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(open_slave(&pty.slave_path)))
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn xfx");
+    let child = xfx::process::spawn(
+        tui(&sandbox)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(open_slave(&pty.slave_path)))
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn xfx");
     let output = child.wait_with_output().expect("wait for xfx");
 
     assert_eq!(output.status.code(), Some(1));
@@ -1087,12 +1088,14 @@ fn a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken() {
         .write(true)
         .open(&pty.slave_path)
         .expect("open the pty slave");
-    let output = tui(&sandbox)
-        .stdin(Stdio::from(slave))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn xfx");
+    let output = xfx::process::spawn(
+        tui(&sandbox)
+            .stdin(Stdio::from(slave))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .and_then(std::process::Child::wait_with_output)
+    .expect("spawn xfx");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "stdout must stay empty");
@@ -7222,13 +7225,14 @@ mod faults {
         assert_eq!(before, modes(&pty));
 
         // A torn manifest is worse than a slow exit: the session must still read.
-        let listed = Command::new(env!("CARGO_BIN_EXE_xfx"))
-            .arg("session")
-            .arg("last")
-            .current_dir(&sandbox.workspace)
-            .env("HOME", &sandbox.home)
-            .output()
-            .expect("read the session back");
+        let listed = xfx::process::output(
+            Command::new(env!("CARGO_BIN_EXE_xfx"))
+                .arg("session")
+                .arg("last")
+                .current_dir(&sandbox.workspace)
+                .env("HOME", &sandbox.home),
+        )
+        .expect("read the session back");
         assert!(
             listed.status.success(),
             "the session log was left unreadable: {listed:?}"
@@ -9301,12 +9305,13 @@ fn a_resumed_session_keeps_its_model_and_opening_it_writes_nothing() {
     ]);
     let sandbox = Sandbox::new();
     // A session held in `fake/model-b`, under `yolo`.
-    let output = sandbox
-        .command_with(&gateway)
-        .env("XFX_MODEL", "fake/model-b")
-        .args(["ask", "--yolo", "first question"])
-        .output()
-        .expect("run xfx ask");
+    let output = xfx::process::output(
+        sandbox
+            .command_with(&gateway)
+            .env("XFX_MODEL", "fake/model-b")
+            .args(["ask", "--yolo", "first question"]),
+    )
+    .expect("run xfx ask");
     assert!(output.status.success(), "{output:?}");
     let ids = sandbox.session_ids();
     assert_eq!(ids.len(), 1, "{ids:?}");

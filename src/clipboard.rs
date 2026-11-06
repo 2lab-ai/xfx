@@ -242,14 +242,19 @@ impl Clipboard {
         if let Some(search) = &self.search {
             command.env("PATH", search);
         }
-        // Outside the lock, so a stop never waits on a start -- which macOS
+        // Looked at twice: here, so work already given up refuses without
+        // waiting on another start, and under the lock every start takes, so
+        // a stop that lands while another start holds it refuses the tool
+        // rather than starting it to kill it. Each look is a flag's, never
+        // the stop's lock, so a stop never waits on a start -- which macOS
         // can take seconds over for a fresh executable. A stop that lands
-        // after this look is caught by the hold or by the stop itself,
-        // whichever takes the lock second.
+        // after the second look is caught by the hold or by the stop itself,
+        // whichever takes the stop's lock second.
         if stop.stopped() {
             return false;
         }
-        let Ok(mut child) = command.spawn() else {
+        let Ok(Some(mut child)) = crate::process::spawn_unless(&mut command, || stop.stopped())
+        else {
             return false;
         };
         let stdin = child.stdin.take();
@@ -426,11 +431,9 @@ impl Clipboard {
         let dir = private_directory("xfx-clipboard")
             .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
         let path = dir.join("clipboard.png");
-        let outcome = self
-            .command("osascript")
-            .arg("-e")
-            .arg(clipboard_script(&path))
-            .status();
+        let mut command = self.command("osascript");
+        command.arg("-e").arg(clipboard_script(&path));
+        let outcome = crate::process::status(&mut command);
         let read = match outcome {
             Err(err) => Err(ImageReadError::Failed(crate::image::io_name(err.kind()))),
             Ok(status) if !status.success() => Err(ImageReadError::NoImage),
@@ -444,11 +447,11 @@ impl Clipboard {
 
     fn read_image_with_xclip(&self) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
         use std::io::Read;
-        let mut child = self
-            .command("xclip")
+        let mut command = self.command("xclip");
+        command
             .args(["-selection", "clipboard", "-t", "image/png", "-o"])
-            .stdout(Stdio::piped())
-            .spawn()
+            .stdout(Stdio::piped());
+        let mut child = crate::process::spawn(&mut command)
             .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
         let mut bytes = Vec::new();
         let read = child.stdout.take().map(|stdout| {
@@ -854,6 +857,64 @@ mod tests {
                 move |stop| clipboard.copy_file_until(std::path::Path::new(REPORT), &stop)
             ));
             assert_eq!(tool.hung(), None, "a file copy given up started its tool");
+        }
+
+        #[test]
+        fn work_already_given_up_refuses_without_waiting_on_another_start() {
+            // A start waits for any other start in flight (`crate::process`'s
+            // lock). Work given up before it got there is refused before
+            // that wait, so a session's exit, which joins it with no limit
+            // (`crate::tui`'s `Errands`), does not wait out another start.
+            let tool = FakeTool::running("echo $$ > \"${0%/*}/hung\"\nexec cat >/dev/null");
+            let stop = super::super::Stop::default();
+            stop.stop();
+            let starts = crate::process::hold_every_start();
+            let copying = {
+                let (clipboard, stop) = (tool.clipboard(), stop.clone());
+                std::thread::spawn(move || clipboard.copy_until("reply", &stop))
+            };
+            until(|| copying.is_finished() || crate::process::has_arrived(copying.thread().id()));
+            let refused_at_once = copying.is_finished();
+            drop(starts);
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a copy given up succeeded"
+            );
+            assert!(
+                refused_at_once,
+                "work already given up waited on another start before it refused"
+            );
+            assert_eq!(tool.hung(), None, "a copy given up started its tool");
+        }
+
+        #[test]
+        fn a_stop_that_lands_while_the_start_waits_on_another_never_starts_the_tool() {
+            // The stop lands while the copy waits for another start to be
+            // done. It is seen under the start lock, so the tool is refused,
+            // not started and then killed. The case holds the hand-over lock
+            // as well, so a tool that was started has the time to say so.
+            let tool = FakeTool::running("echo $$ > \"${0%/*}/hung\"\nexec cat >/dev/null");
+            let stop = super::super::Stop::default();
+            let starts = crate::process::hold_every_start();
+            let copying = {
+                let (clipboard, stop) = (tool.clipboard(), stop.clone());
+                std::thread::spawn(move || clipboard.copy_until("reply", &stop))
+            };
+            until(|| crate::process::has_arrived(copying.thread().id()));
+            stop.stop();
+            let hand_over = stop.lock();
+            drop(starts);
+            until(|| copying.is_finished() || tool.hung().is_some());
+            drop(hand_over);
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a copy given up succeeded"
+            );
+            assert_eq!(
+                tool.hung(),
+                None,
+                "a copy given up in its wait for the start lock started its tool"
+            );
         }
 
         #[test]
