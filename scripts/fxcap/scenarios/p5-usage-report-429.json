@@ -1,0 +1,6 @@
+{
+ "/v1/report": {
+  "status": 429,
+  "body": "rate limited"
+ }
+}

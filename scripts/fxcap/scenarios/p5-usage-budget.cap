@@ -1,14 +1,21 @@
-# p5 usage (v0.0.16 only): the budget table (member-only in real use) from a seeded cache already on disk for the
-# harness's fake key (scope api_key, identity sha256 of
-# "fx-usage-cache-v1\\0api_key\\0fake-key-not-real\\0", src/usage/cache.zig:25-35@481104fd),
-# written for today's UTC day by p5-usage-mkcache.py (rerun it on another UTC day); the open's fetch gets 404. Table,
-# selection, detail screen, next model, periods, r.
+# p5 usage (v0.0.16): the budget table (fx reads a budget only for an fx login
+# with a team, usage.zig:867-875@481104fd: here only because the seeded cache
+# holds one) from a cache on disk for the harness's fake key, under the pinned
+# clock (2026-10-12 15:30 UTC), so it reads the same on any day. Opening reads
+# today alone (p5-usage-report.json, held 3 s); a fetch that brings no budget
+# keeps the stored one (cache.zig merge, newest part wins). Table, selection,
+# detail screen, next model, periods, r.
+clock 1791819000000
 fx: homefile .fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache-budget.json
+xfx: homefile .xfx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache-budget.json
+usage p5-usage-report.json
 models models.json
 wait 2.5
 type /usage
 key Enter
-wait 3
+wait 1
+snap updating
+wait 3.5
 snap open
 key Down
 wait 0.5
@@ -38,7 +45,9 @@ key Left
 wait 0.7
 snap left-7d
 key r
-wait 2
+wait 1
+snap r-updating
+wait 3.5
 snap r
 key Escape
 wait 0.5

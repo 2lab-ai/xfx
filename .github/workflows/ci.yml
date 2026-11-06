@@ -150,6 +150,14 @@ jobs:
       - name: The output check still fits inside a frame's budget
         run: ./scripts/check-tui-preflight-cost.sh
 
+      # `XFX_E2E_USAGE_CLOCK_FILE` pins /usage's clock for the capture harness
+      # (src/usage/clock.rs), and only a build with debug assertions reads it.
+      # That is a property of the build profile, so the one test that knows
+      # both halves runs under each: debug, and the two release builds this
+      # job makes. The release runs reuse the test builds the step above made.
+      - name: A release build ignores the pinned usage clock
+        run: ./scripts/check-usage-clock.sh
+
       - name: Release build
         run: cargo build --locked --release
 

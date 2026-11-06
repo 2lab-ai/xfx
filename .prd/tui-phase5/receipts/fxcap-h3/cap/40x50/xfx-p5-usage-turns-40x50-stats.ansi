@@ -1,0 +1,40 @@
+[38;5;245mcommands[39m
+
+[38;5;250m* statusline: saved to user settings (scope=user)[39m
+
+[38;5;250m* statusline: context: on
+
+* statusline: saved to user settings (scope=user)[39m
+
+[38;5;250m* statusline: session: on
+
+[38;5;255m┃[39m [1mfirst question[0m
+
+  First billed answer.
+
+[38;5;245m  0s (↑4 ↓800)[39m
+
+[38;5;255m┃[39m [1msecond question[0m
+
+  Second billed answer.
+
+[38;5;245m  0s (↑4 ↓3.1k)[39m
+
+[38;5;250m* stats: ansi_bytes=9161, redraws=0,[39m
+  [38;5;250mdebounced_resizes=0, footer_updates=0,[39m
+  [38;5;250mstream_chunks=0[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a · first question · 52k[39m
+
+
+
+
+
+
+
+
+
+
+

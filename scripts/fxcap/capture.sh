@@ -194,8 +194,13 @@
 #                          and the file holding the first one's <ms>; each
 #                          `clock` line writes its <ms> there when the script
 #                          reaches it. fx's own e2e time is 1791819000000
-#                          (2026-10-12 15:30 UTC, usage-fakes.ts:10). xfx reads
-#                          no usage and is given nothing.
+#                          (2026-10-12 15:30 UTC, usage-fakes.ts:10). xfx is
+#                          launched with XFX_E2E_USAGE_CLOCK_FILE naming the
+#                          same file: xfx's usage clock (src/usage/clock.rs),
+#                          which only a build with debug assertions reads --
+#                          target/debug/xfx, the binary this script runs by
+#                          default and the CI sweep builds -- and a release
+#                          build ignores.
 #   usage <usage.json>|off what the fake gateway answers fx v0.0.16's usage
 #                          reads with (/v1/report, /ai-gateway/usage-report,
 #                          the three /backend-api/wham paths, /billing,
@@ -588,7 +593,8 @@ main() {
   extra_env=${extra_env//@MCPPORT@/$mcpport}
   extra_env=${extra_env//@SCENARIOS@/$fill_scenarios}
   extra_env=${extra_env//@BUN@/$fill_bun}
-  # fx's usage clock, owner-only in HOME, holding the first `clock` line's time.
+  # The usage clock (fx's and xfx's), owner-only in HOME, holding the first
+  # `clock` line's time.
   local clockfile=''
   if [[ -n $clock ]]; then
     clockfile=$run/home/.fxcap-usage-clock
@@ -659,7 +665,7 @@ $fx_model ${clockfile:+FX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env FX_AUTO_UP
   else
     mkdir -p "$run/xfxtmp"
     launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
-$xfx_model $extra_env $runner"
+$xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
   fi
   # Every bell the pane rings, one line each, for `bells`. The hook is set on a
   # server started for it, **before** the session that runs the binary: fx

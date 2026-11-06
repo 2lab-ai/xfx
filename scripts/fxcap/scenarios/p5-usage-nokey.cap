@@ -1,6 +1,11 @@
 # p5 usage (v0.0.16): /usage with no credential at all (the harness's
-# AI_GATEWAY_API_KEY blanked; a blank value counts as unset).
+# AI_GATEWAY_API_KEY blanked; a blank value counts as unset). The report is
+# answered and the clock pinned as in p5-usage-cached, so a read the screen
+# should not make would be served and still leave its line in the gateway log;
+# r on this screen too.
 env AI_GATEWAY_API_KEY=
+clock 1791819000000
+usage p5-usage-report.json
 models models.json
 wait 3
 snap start
@@ -8,6 +13,10 @@ type /usage
 key Enter
 wait 3
 snap open
+key r
+wait 1.5
+snap r
 key Escape
 wait 0.5
 snap closed
+gwlog

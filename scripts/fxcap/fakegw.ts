@@ -35,8 +35,9 @@
 // and /v1/report's may also carry `rows` (the default), `byStart: {<start_date>: rows}` and
 // `byRange: {"<start_date>..<end_date>": rows}`, chosen most specific first. A path the file does
 // not name answers as upstream's fake does: /v1/report no rows, /ai-gateway/usage-report no users,
-// the others 404. `status` with no `json`/`body` answers `fake status <n>`; `delayMs` holds the
-// answer that long. Without the file every one of those paths is unknown here, and answers 404.
+// the others 404. `status` other than 200 with no `json`/`body` answers `fake status <n>` on every
+// one of them, the report's and the budget's too (so a 401, 429 or 5xx carries no rows); `delayMs`
+// holds the answer that long. Without the file every one of those paths is unknown here, and answers 404.
 // `billing` is what the Gateway sends for a turn it billed, and what both binaries need before
 // they count one: a `response-metadata` event with the billing time ahead of the text, and a
 // finish whose usage has the cache and reasoning counts and whose `providerMetadata.gateway`
@@ -203,13 +204,16 @@ async function usage(url: URL): Promise<Response | null> {
   if (route.delayMs) await Bun.sleep(route.delayMs);
   let json = route.json;
   let what = "";
-  if (json === undefined && route.body === undefined && url.pathname === "/v1/report") {
+  // The default answers (rows, no users) are a 200's: a `status` alone answers
+  // `fake status <n>` on these two paths as on the others.
+  const plain = json === undefined && route.body === undefined && (route.status ?? 200) === 200;
+  if (plain && url.pathname === "/v1/report") {
     const from = url.searchParams.get("start_date") ?? "", to = url.searchParams.get("end_date") ?? "";
     const rows = route.byRange?.[`${from}..${to}`] ?? route.byStart?.[from] ?? route.rows ?? [];
     json = { results: rows };
     what = ` rows=${rows.length}`;
   }
-  if (json === undefined && route.body === undefined && url.pathname === "/ai-gateway/usage-report") json = { users: [] };
+  if (plain && url.pathname === "/ai-gateway/usage-report") json = { users: [] };
   const status = route.status ?? (json === undefined && route.body === undefined ? 404 : 200);
   log(`usage ${url.pathname} -> ${status}${what}${route.delayMs ? ` held ${route.delayMs}ms` : ""}`);
   if (route.body !== undefined) return new Response(route.body, { status });

@@ -1,0 +1,24 @@
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+* stats: ansi_bytes=11022, redraws=0, debounced_resizes=0, footer_updates=0,
+  stream_chunks=0
+
+✗ credits: HTTP 404: not found
+
+┃
+
+auto · model-a · first question · 52k
+
+
+
+
+
+
+
+
+
+
