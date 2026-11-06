@@ -1,0 +1,114 @@
+# Mutant RED runs (P5-US-U1)
+
+Each mutant was applied to a `git clone --no-local` copy of this branch in the
+session scratchpad (never the worktree), built there with its own target dir,
+and only the named test run, under `gtimeout -k 10 600`. The unmutated copy
+passed first (`M0-clean`). Lines below are the copy's own output, redacted.
+
+## M1-redirect
+
+Mutation: client built without bearer_rules: reqwest's default redirect policy (no_proxy kept).
+
+```
+thread 'usage::report::tests::a_redirect_is_an_error_and_never_followed_with_the_key' (228099631) panicked at src/usage/report.rs:1296:13:
+a 301 was followed: ["GET /v1/report HTTP/1.1\r\nuser-agent: xfx/0.1.0\r\naccept: */*\r\nreferer: http://127.0.0.1:52651/v1/report?start_date=2026-10-11&end_date=2026-10-11&group_by=model&api_key_id=self\r\nhost: 127.0.0.1:52650\r\n\r\n"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.02s
+```
+
+## M2-proxy
+
+Mutation: client built with Policy::none() but without bearer_rules' no_proxy for cleartext.
+
+```
+thread 'usage::report::tests::the_report_takes_no_proxy_to_a_loopback_gateway' (228100636) panicked at src/test_net.rs:85:5:
+the proxy received 1 request(s), bearer attached: [true]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.04s
+```
+
+## M3-deadline
+
+Mutation: tokio::time::timeout(DEADLINE, ..) removed around the GET.
+
+```
+thread 'usage::report::tests::a_gateway_that_never_answers_fails_at_15_seconds' (228102172) panicked at src/usage/report.rs:1471:18:
+an outcome within 25 s
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 25.01s
+```
+
+## M4-cap
+
+Mutation: the per-chunk cap check in read_capped removed (the Content-Length pre-check kept).
+
+```
+thread 'usage::report::tests::an_answer_over_1_mib_is_refused_without_being_read_whole' (228112454) panicked at src/usage/report.rs:1394:9:
+assertion `left == right` failed
+  left: Failed { failure: BadResponse, detail: "unexpected report: over 1 MiB" }
+ right: Failed { failure: Network, detail: "AI Gateway's answer is over 1 MiB" }
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.03s
+```
+
+## M5-body-in-detail
+
+Mutation: a non-200's body quoted into Failed.detail (`HTTP {status}: {body}`).
+
+```
+thread 'usage::report::tests::the_key_never_appears_in_a_failure_even_when_echoed' (228114093) panicked at src/usage/report.rs:1565:17:
+HTTP 403: {"error":{"message":"bad key xfx-usage-report-test-key-must-not-appear\n\u0078\u0066\u0078\u002d\u0075\u0073\u0061\u0067\u0065\u002d\u0072\u0065\u0070\u006f\u0072\u0074\u002d\u0074\u0065\u0073\u0074\u002d\u006b\u0065\u0079\u002d\u…
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.02s
+```
+
+## M6-key-in-name
+
+Mutation: the refusal of a model name that holds the key removed.
+
+```
+thread 'usage::report::tests::the_key_never_appears_in_a_failure_even_when_echoed' (228121157) panicked at src/usage/report.rs:1220:22:
+a failure, not Fetched([[ModelRow { model: "xfx-usage-report-test-key-must-not-appear", totals: Totals { request_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 1.0,…
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.07s
+```
+
+## M7-overflow
+
+Mutation: the per-row Totals::valid() check removed.
+
+```
+thread 'usage::report::tests::malformed_reports_are_rejected_instead_of_shown' (228123080) panicked at src/usage/report.rs:941:13:
+{"results":[{"model":"m","request_count":100000000000000000,"total_cost":1,"p90_ttft_ms":1e300}]}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.00s
+```
+
+## M8-oidc
+
+Mutation: VERCEL_OIDC_TOKEN accepted as the api_key scope.
+
+```
+thread 'usage::report::tests::only_an_ai_gateway_api_key_is_asked_for_usage' (228124826) panicked at src/usage/report.rs:1174:13:
+assertion `left == right` failed: [("VERCEL_OIDC_TOKEN", "xfx-usage-report-test-key-must-not-appear")]
+  left: Ok(())
+ right: Err(UnsupportedProvider)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.00s
+```
+
+## M9-duplicate
+
+Mutation: the duplicate-key refusal in the Json visitor removed.
+
+```
+thread 'usage::report::tests::a_key_twice_in_any_object_refuses_the_report' (228125839) panicked at src/usage/report.rs:1031:13:
+{"results":[],"results":[]}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3690 filtered out; finished in 0.00s
+```

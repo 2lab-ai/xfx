@@ -1,0 +1,47 @@
+# RED for US-U3c (the two-engine review's MUSTs and the stale `now`)
+
+The four tests, written first, run against `019f0512`'s code (`9c6c6c50`)
+in the worktree, before any code change:
+
+    TMPDIR=<short> gtimeout -k 10 600 cargo test --locked --lib -- usage::dashboard
+
+Bounded: the whole run by `gtimeout`, every wait in the tests by 20 s, the
+fake Gateway's held answers by its own 20 s, the held cache lock by the
+store's 5 s deadline. The fourth line's file dump is cut to its `today`.
+
+```
+test usage::dashboard::tests::a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in ... FAILED
+test usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close ... FAILED
+test usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start ... FAILED
+test usage::dashboard::tests::a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today ... FAILED
+thread 'usage::dashboard::tests::a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in' panicked at src/usage/dashboard/tests.rs:1523:5:
+assertion `left == right` failed: the failure was stamped when it was taken in
+  left: 1
+ right: 2
+thread 'usage::dashboard::tests::a_later_success_clears_an_earlier_failure_across_a_close' panicked at src/usage/dashboard/tests.rs:1495:5:
+assertion `left == right` failed: an older failure over fresh numbers
+  left: Failed(Server)
+ right: Ready
+thread 'usage::dashboard::tests::the_floor_counts_from_a_failure_as_well_as_a_start' panicked at src/usage/dashboard/tests.rs:1186:5:
+assertion `left == right` failed
+  left: 1
+ right: 2
+thread 'usage::dashboard::tests::a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today' panicked at src/usage/dashboard/tests.rs:1557:5:
+the later today was replaced: {"schema_version":2,"identity":"f19785e7b4850f06bf1d492f9221fe7c5af47c95675233d478e9ef9cfa6239d1","today":{"day":20737,"at_ms":1791687600000,"models":[{"model":"vendor-a/m-opus","totals":{"request_count":10,"input_tokens":5,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":2.5,"cache_hit_requests":0.0,"failed_requests":0.0,"ttft_weighted":0.0,"ttft_requests":0,"tps_weighted":0.0,"tps_requests":0}}]} …
+test result: FAILED. 25 passed; 4 failed; 0 ignored; 0 measured; 3741 filtered out; finished in 0.43s
+error: test failed, to rerun pass `--lib`
+```
+
+- `a_later_success_clears_an_earlier_failure_across_a_close` (MUST 1):
+  `Failed(Server)` over the fresh numbers, where `Ready` is right.
+- `a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in`
+  (MUST 2): reopened 10 min after the failure, no fetch (1, not 2).
+- `the_floor_counts_from_a_failure_as_well_as_a_start`, now with the failure
+  at +45 s and its take-in at +50 s: no fetch at +105 s (1, not 2).
+- `a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today` (both
+  engines' stale `now`): the file's today is this fetch's (`at_ms`
+  1791687600000, `vendor-a/m-opus`), not the later one another process
+  stored while the worker waited on the lock. It reproduced on the first run.
+
+After the change (`04b84236`) all four pass, with the rest of
+`usage::dashboard`, `usage::policy` and `usage::cache` (74 in all).

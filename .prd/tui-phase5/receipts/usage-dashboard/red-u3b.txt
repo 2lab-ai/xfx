@@ -1,0 +1,23 @@
+# RED for US-U3b (close follows fx)
+
+The new test, written first, run against `be9b2318`'s `src/usage/dashboard.rs`
+(close still cancelled the fetch) in the worktree, before any code change:
+
+    TMPDIR=<short> gtimeout -k 10 300 cargo test --locked --lib -- \
+        usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close
+
+Bounded: the whole run by `gtimeout`, every wait in the test by 20 s, the
+held answer by the fake Gateway's own 20 s.
+
+```
+thread 'usage::dashboard::tests::a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new' panicked at src/usage/dashboard/tests.rs:1016:5:
+close dropped the request
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3766 filtered out; finished in 0.22s
+error: test failed, to rerun pass `--lib`
+```
+
+The first check after the close fails: the client hung up on the request the
+dashboard was holding (`close` retired the fetch and cancelled its token).
+After the change (`close` keeps the fetch, an epoch stamp keeps its outcome
+off the screen) the same test passes, and so do the other 30 `usage::dashboard`
+and `usage::policy` tests.
