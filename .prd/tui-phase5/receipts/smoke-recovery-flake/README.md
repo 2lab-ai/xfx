@@ -61,8 +61,10 @@ server when xfx hangs up, and it does not cause either failure.
 - 3d reads the rebuilt screen only up to the rebuild's close, as 3e does,
   because the forced frame rewrites every band row. It then requires the
   forced frame to show the same screen and caret.
-- `oracle_test.py` checks every boundary of `through_closed_frames`, in bytes
-  and in text.
+- `oracle_test.py` checks `through_closed_frames`, in bytes and in text, on:
+  a complete frame; a frame with no closer yet; a closer still arriving; a
+  complete frame before an unfinished one; a capture with no frame; and a
+  frame closed by a bare `?2026l` (a hidden caret).
 - `LoopbackHTTPServer.handle_error` no longer prints `ConnectionResetError`
   or `BrokenPipeError`.
 

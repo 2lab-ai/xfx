@@ -1386,11 +1386,20 @@ def a_wait_and_a_grid_cut_the_capture_at_the_same_frame():
             whole,
         ),
         ("a capture with no frame at all is kept", b"probe\x1b[6n", b"probe\x1b[6n"),
+        (
+            # `END_FRAME_HIDDEN` (`src/tui/frame.rs:65`): a frame whose caret
+            # stays hidden ends on `?2026l` alone, and it is closed.
+            "a frame closed without showing its caret is kept whole",
+            b"pre" + begin + b"one" + scenarios.FRAME_CLOSE_BYTES,
+            b"pre" + begin + b"one" + scenarios.FRAME_CLOSE_BYTES,
+        ),
     )
     for what, given, expected in cases:
         got = cut(given)
         require(got == expected, "%s: %r gave %r" % (what, given, got))
-        # The text form exactly as `Trial.wait_for` calls it.
+        # The text form, with the markers `Trial.wait_for` passes. Decoded
+        # latin-1 here so the two forms line up byte for byte; `Session.text()`
+        # decodes utf-8 with replacement, which the ASCII markers survive alike.
         text = cut(given.decode("latin-1"), scenarios.pty.FRAME_BEGIN, scenarios.pty.FRAME_CLOSE)
         require(
             text == expected.decode("latin-1"),
@@ -4861,6 +4870,7 @@ def scenario_3d(run):
     forced_frame = forced[: forced_ends + len(FRAME_END_BYTES)] if forced_ends >= 0 else b""
     run.require(
         forced_ends >= 0
+        and forced_frame.startswith(FRAME_BEGIN_BYTES)
         and forced_frame.count(FRAME_BEGIN_BYTES) == 1
         and RECOVERY_CLEANUP_BYTES not in forced_frame,
         "recovery: the tick behind the recovery wrote one whole frame of its own, "
