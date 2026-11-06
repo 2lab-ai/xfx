@@ -1,0 +1,40 @@
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.xfx/mcp.json
+
+* mcp: Added web2 to ~/.xfx/mcp.json.
+
+! mcp: 'bad.name' can't be a server name: use letters, digits, '-' and '_'.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.xfx/mcp.json
+
+* mcp: Approved proj, which runs: <bun> <local-path>
+  scripts/fxcap/scenarios/p5-mcp-stdio.ts
+
+! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.
+
+* mcp: NAME     SOURCE           TRANSPORT  STATUS
+  fixture  ~/.xfx/mcp.json  stdio      ready, 1 tool
+  remote   ~/.xfx/mcp.json  http       retrying
+  two      ~/.xfx/mcp.json  stdio      ready, 1 tool
+  web2     ~/.xfx/mcp.json  http       retrying
+  proj     .mcp.json        stdio      ready, 1 tool
+
+* mcp: Rejected proj. xfx won't start it in this project.
+
+* mcp: Removed two from ~/.xfx/mcp.json.
+
+! mcp: No MCP server named three in ~/.xfx/mcp.json or .mcp.json.
+
+* mcp: Removed web2 from ~/.xfx/mcp.json.
+
+! mcp: No MCP server named web2 in ~/.xfx/mcp.json or .mcp.json.
+
+! mcp: /mcp resource is gone: xfx doesn't support MCP resources and prompts yet.
+
+┃
+
+auto · model-a
+

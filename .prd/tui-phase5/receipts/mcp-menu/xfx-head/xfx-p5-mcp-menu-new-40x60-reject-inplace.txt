@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ce55177 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────
+  proj
+  runs      <bun> <local-path>
+  file      .mcp.json
+  status    waiting for approval
+
+  Approve       /mcp approve proj
+› Reject proj? xfx won't start it in this project.   yes  no
+  Remove        /mcp remove proj
+
+  Its tools show here once you approve it.
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter run     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

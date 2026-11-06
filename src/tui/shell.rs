@@ -14550,6 +14550,50 @@ mod tests {
     }
 
     #[test]
+    fn approve_in_the_menu_approves_the_entry_drawn_when_the_runtime_read_another_before_the_menu_did(
+    ) {
+        // S2, the race between the runtime's read and the menu's: the
+        // approval's screen drew A and the menu still holds A when Enter
+        // comes, but the runtime has read B since. The job approves A by its
+        // digest, not the name -- an approval by name would bind what the
+        // runtime holds by then, B, which nobody saw -- so B stays waiting.
+        use crate::mcp::config::entry_digest;
+        let marks = tempfile::tempdir().expect("a marker dir");
+        let ran = marks.path().join("b-ran");
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let a = serde_json::json!({"command": "/bin/sh", "args": [fixture, "entry-a"]});
+        let b = McpCase::marked(&ran, "entry-b");
+        let mut case = McpCase::new(serde_json::json!({"proj": a.clone()}), None);
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("entry-a"));
+        std::fs::write(
+            case.workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": b}}).to_string(),
+        )
+        .expect("write .mcp.json");
+        case.reload();
+        assert_eq!(
+            case.view("proj").entry.map(|entry| entry.digest.clone()),
+            Some(entry_digest(&b))
+        );
+        // No menu read since: Enter is about the A it drew.
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        assert_eq!(
+            case.saved()["enabledMcpjsonServerDigests"]["proj"],
+            serde_json::json!(entry_digest(&a))
+        );
+        assert_eq!(
+            case.view("proj").admission,
+            Some(crate::mcp::config::Admission::Pending)
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!ran.exists(), "the entry read after the frame ran");
+    }
+
+    #[test]
     fn remove_and_reject_ask_in_place_and_anything_but_yes_changes_nothing_on_disk() {
         // S3. Remove and Reject ask on the choice's row, an approval on its
         // own screen; Esc, Ctrl-C, a printable key, Backspace and `no` each

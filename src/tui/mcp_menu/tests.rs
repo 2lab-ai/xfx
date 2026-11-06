@@ -688,7 +688,8 @@ fn every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_si
     // S4: what the configuration and a server supply never reaches the
     // terminal as a sequence, and a name is said only as far as its first
     // `=` -- a value after one may be a secret, as the verbs cut it.
-    let hostile = "evil\u{1b}[2J=TOKEN-secret";
+    // Short enough that no row's width cuts it before its `=` would.
+    let hostile = "e\u{1b}[2J=SECRET";
     let mut row = pending(hostile);
     row.target = "/bin/sh -c 'x\u{1b}]0;owned\u{7}y\u{202e}z'".into();
     row.error = Some("boom\u{1b}[31m".into());
@@ -738,8 +739,8 @@ fn every_name_target_error_and_tool_is_spelled_and_a_name_stops_at_its_equals_si
         rest = &tail[end + 1..];
     }
     assert!(!all.contains('\u{7}') && !all.contains('\u{9b}') && !all.contains('\u{202e}'));
-    assert!(!all.contains("TOKEN-secret"), "{all}");
-    assert!(all.contains("evil\\x1b[2J="), "{all}");
+    assert!(!all.contains("SECRET"), "{all}");
+    assert!(all.contains("e\\x1b[2J="), "{all}");
     assert!(all.contains("x\\x1b]0;owned\\x07y\\u{202e}z"), "{all}");
     assert!(all.contains("boom\\x1b[31m"), "{all}");
     assert!(all.contains("It sets API_KEY."), "{all}");

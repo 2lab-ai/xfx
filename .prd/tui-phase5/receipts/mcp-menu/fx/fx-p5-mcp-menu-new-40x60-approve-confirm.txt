@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────
+  proj  waiting for approval
+
+  Approve proj for this project? It runs:
+    <bun>
+    <local-path>
+    /scripts/fxcap/scenarios/p5-mcp-stdio.ts
+────────────────────────────────────────────────────────────
+enter confirm     esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

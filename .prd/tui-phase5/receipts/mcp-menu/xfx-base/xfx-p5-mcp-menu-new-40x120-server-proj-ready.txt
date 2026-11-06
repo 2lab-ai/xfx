@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-6df717a [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  command: <bun>
+↳ <scenarios>/p5-mcp-stdio.ts
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+┃ x
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 3  [Servers]  Tools  Resources  Prompts
+
+  Server              remote
+  State               Retrying
+  Source              Profile · ~/.xfx/mcp.json
+  Transport           http
+  Policy              optional
+  Protocol            unavailable
+  Capabilities        tools=0 resources=0 templates=0 prompts=0
+  Error               it refused or never answered xfx's initialize request
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+d remove  c help  esc back
+
+
+
+
+
+
+
+
+
+
+
+
+

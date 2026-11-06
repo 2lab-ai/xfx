@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: NAME     SOURCE          TRANSPORT  STATUS
+  fixture  ~/.fx/mcp.json  stdio      ready, 1 tool
+  remote   ~/.fx/mcp.json  http       connecting
+  proj     .mcp.json       stdio      waiting for approval
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2025-03-26
+    transport  stdio
+    command    <bun> <scenarios>/
+  p5-mcp-stdio.ts
+    source     ~/.fx/mcp.json
+    tools      1
+      echo  Echo text through the legacy MCP fixture
+
+┃
+
+auto · model-a                                                                       proj is waiting for approval · /mcp
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

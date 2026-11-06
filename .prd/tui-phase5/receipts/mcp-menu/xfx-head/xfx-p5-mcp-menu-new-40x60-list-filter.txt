@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ce55177 [debug] · Run /help for commands
+
+┃ re
+────────────────────────────────────────────────────────────
+  MCP servers  2 of 3
+› fixture          ready, 1 tool
+  remote           retrying
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+    status     ready, 1 tool
+    version    2025-03-26
+    transport  stdio
+    command    <bun> <scenarios>/
+  p5-mcp-stdio.ts
+    source     ~/.xfx/mcp.json
+    tools      1
+      echo  Echo text through the legacy MCP fixture
+
+* mcp: remote
+    status     retrying
+    transport  http
+    url        http://127.0.0.1:9/mcp
+    source     ~/.xfx/mcp.json
+    error      it refused or never answered xfx's initialize request
+
+* mcp: proj
+    status     waiting for approval
+    transport  stdio
+    command    <bun> <scenarios>/
+  p5-mcp-stdio.ts
+    source     .mcp.json
+    next       /mcp approve proj
+
+! mcp: fixture runs a command, so it has no login.
+
+! mcp: Interactive MCP authentication is unavailable here.
+
+! mcp: /mcp auth is now /mcp login NAME.
+
+* mcp: remote wasn't signed in.
+
+* mcp: Added two to ~/.xfx/mcp.json.
+
+┃
+
+auto · model-a
+
+
+
