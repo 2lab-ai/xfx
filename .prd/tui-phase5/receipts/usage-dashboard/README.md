@@ -144,13 +144,15 @@ counts and names the worker threads. Every wait is bounded (20 s).
 ## RED: mutants
 
 Each guard taken out, one at a time, on a `git clone --no-local` copy at
-`a72e6cef` in the scratchpad (never the worktree), only `usage::dashboard`
-and `usage::policy` run, bounded by `gtimeout -k 10 600`. Baseline on the
-copy: 31 passed. Every mutant compiled and failed a named test; the copy was
-clean at the end. Full output: `red-mutants.txt`. (A first run at
-`1c3b0359` found M12 surviving: the timer test planted its floor by hand.
-The test was replaced by `the_floor_counts_from_a_failure_as_well_as_a_start`,
-and the whole set was run again.)
+`d42f07ab` (the code head) in the scratchpad (never the worktree), only
+`usage::dashboard` and `usage::policy` run, bounded by `gtimeout -k 10 600`.
+Baseline on the copy: 31 passed. All 14 mutants compiled and each failed a
+named test; the copy was clean at the end. Full output: `red-mutants.txt`.
+(A first run at `1c3b0359` found M12 surviving: the timer test planted its
+floor by hand. The test was replaced by
+`the_floor_counts_from_a_failure_as_well_as_a_start`, M14 was added with
+`the_same_key_to_another_origin_is_another_sign_in`, and the whole set was
+run again at `a72e6cef` and at `d42f07ab`, with the same results.)
 
 | Mutant | Guard removed | Property | Killed by |
 |---|---|---|---|
@@ -207,7 +209,27 @@ and the whole set was run again.)
 
 ## Gates
 
-GATES
+Run once, green, on `d42f07ab` (the code; only this receipt changed after
+it), rustc 1.99.1 on macOS (aarch64), with `TMPDIR` a short directory in the
+harness temp folder (`claude-501/p5ud`):
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4642 passed, 0 failed, 7 ignored (14 binaries); the 26 `usage::dashboard` and 5 `usage::policy` tests among them |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4663 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
+| `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok, ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1107 checks, 0 failures |
+| MSRV: `rustup run 1.96.1 cargo check --locked --all-targets` | ok (the gate script's first `cargo +1.96` form was refused by a non-rustup `cargo`; re-run through `rustup run`) |
+| clippy and tests for `x86_64-unknown-linux-gnu` | not run here: no Linux target installed `[unverified]`; CI's Linux runners |
+
+No pty test failed, so none was re-run. The dashboard tests were also run
+alone five times during development and the whole `usage::` set three times
+on `d42f07ab`'s code: green every time.
 
 ## Residuals
 
