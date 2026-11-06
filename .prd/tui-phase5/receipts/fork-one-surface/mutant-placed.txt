@@ -1,0 +1,20 @@
+Throwaway clone of 1dc3c37c; the question/ask/rule branch of `fit` back to `geometry.floated(self.document_rows)` (no `self.placed`):
+
+test tui::shell::tests::a_panel_over_a_forks_plain_line_keeps_a_blank_row_above_it_until_it_closes ... ok
+test tui::shell::tests::a_block_that_lands_under_the_panel_ends_the_document_blank_and_takes_the_row_back ... ok
+test tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row ... FAILED
+test tui::shell::tests::a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row ... FAILED
+
+failures:
+--
+thread 'tui::shell::tests::a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row' (237304894) panicked at src/tui/shell.rs:41418:9:
+assertion `left == right` failed: no blank row above the question
+  left: 0
+--
+thread 'tui::shell::tests::a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row' (237304895) panicked at src/tui/shell.rs:41464:9:
+assertion `left == right` failed: no blank row above the confirmation
+  left: 0
+--
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 3842 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

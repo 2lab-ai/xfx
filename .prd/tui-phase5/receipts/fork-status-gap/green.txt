@@ -1,0 +1,63 @@
+cells.py (row 1 not compared), this branch against fx v0.0.16, every fork-edge pair:
+SAME fork-edge-40x120-at-launch.ansi
+SAME fork-edge-40x120-edit-closes.ansi
+DIFF fork-edge-40x120-fork-of-empty.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-forked-first.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-forked-first.full.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+SAME fork-edge-40x120-menu.ansi
+SAME fork-edge-40x120-midturn.ansi
+DIFF fork-edge-40x120-quit.ansi
+row 2: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 2: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+row 7: fx [(23, 'f', (('fg', 245),)), (24, 'x', (('fg', 245),)), (25, ' ', ()), (26, '-', (('fg', 245),))]
+row 7: xfx [(23, 'x', (('fg', 245),)), (24, 'f', (('fg', 245),)), (25, 'x', (('fg', 245),)), (26, ' ', ())]
+row 40: fx [(41, '0', ()), (42, '4', ()), (43, ' ', ()), (44, '2', ())]
+row 40: xfx [(41, '3', ()), (42, '9', ()), (43, ' ', ()), (44, '2', ())]
+3 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-resume.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+DIFF fork-edge-40x120-status-empty.ansi
+row 3: fx [(17, 'f', ()), (18, 'x', ()), (19, ' ', ()), (20, '-', ())]
+row 3: xfx [(17, 'x', ()), (18, 'f', ()), (19, 'x', ()), (20, ' ', ())]
+row 8: fx [(20, 'O', (('fg', 245),)), (21, 'c', (('fg', 245),)), (22, '6', (('fg', 245),)), (23, 'p', (('fg', 245),))]
+row 8: xfx [(20, '1', (('fg', 245),)), (21, '7', (('fg', 245),)), (22, '9', (('fg', 245),)), (23, '3', (('fg', 245),))]
+row 12: fx [(2, 'W', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'k', (('bold', True), ('fg', 252)))]
+row 12: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'a', (('bold', True), ('fg', 252))), (4, 'n', (('bold', True), ('fg', 252))), (5, 'd', (('bold', True), ('fg', 252)))]
+row 13: fx [(2, 'T', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'n', (('bold', True), ('fg', 252)))]
+row 13: xfx [(2, 'W', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'k', (('bold', True), ('fg', 252)))]
+row 14: fx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252)))]
+row 14: xfx [(2, 'T', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'n', (('bold', True), ('fg', 252)))]
+row 15: fx [(3, 't', (('bold', True), ('fg', 252))), (4, 'e', (('bold', True), ('fg', 252))), (5, 'p', (('bold', True), ('fg', 252))), (6, ' ', ())]
+row 15: xfx [(3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252))), (6, 'i', (('bold', True), ('fg', 252)))]
+row 16: fx [(2, 'U', (('bold', True), ('fg', 252))), (3, 'l', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'r', (('bold', True), ('fg', 252)))]
+row 16: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 't', (('bold', True), ('fg', 252))), (4, 'e', (('bold', True), ('fg', 252))), (5, 'p', (('bold', True), ('fg', 252)))]
+row 17: fx [(3, 'p', (('bold', True), ('fg', 252))), (4, 'd', (('bold', True), ('fg', 252))), (5, 'a', (('bold', True), ('fg', 252))), (6, 't', (('bold', True), ('fg', 252)))]
+row 17: xfx [(3, 'l', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'r', (('bold', True), ('fg', 252))), (6, 'a', (('bold', True), ('fg', 252)))]
+row 18: fx [(20, 's', (('fg', 245),)), (21, 't', (('fg', 245),)), (22, 'a', (('fg', 245),)), (23, 'b', (('fg', 245),))]
+row 18: xfx [(20, 'd', (('fg', 245),)), (21, 'e', (('fg', 245),)), (22, 'b', (('fg', 245),)), (23, 'u', (('fg', 245),))]
+9 rows differ in their cells (row 1 not compared)
+SAME fork-edge-40x120-with-arg.ansi
+
+status-panel/pairs.py over fx/ and xfx/:
+p5-effort-fork-fork-edge-40x120-at-launch            normalized-identical               -
+p5-effort-fork-fork-edge-40x120-edit-closes          normalized-identical               -
+p5-effort-fork-fork-edge-40x120-fork-of-empty        normalized-identical               -
+p5-effort-fork-fork-edge-40x120-forked-first         normalized-identical               -
+p5-effort-fork-fork-edge-40x120-forked-first.full    normalized-identical               -
+p5-effort-fork-fork-edge-40x120-menu                 normalized-identical               -
+p5-effort-fork-fork-edge-40x120-midturn              normalized-identical               -
+p5-effort-fork-fork-edge-40x120-quit                 normalized-identical               -
+p5-effort-fork-fork-edge-40x120-resume               normalized-identical               -
+p5-effort-fork-fork-edge-40x120-status-empty         approved-divergence-cascade (aligned) status-panel-sandbox,status-panel-step-limit,status-panel-updates
+p5-effort-fork-fork-edge-40x120-with-arg             normalized-identical               -
