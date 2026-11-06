@@ -1457,8 +1457,9 @@ fn question(row: &Row, choice: Choice) -> String {
 /// from its end, a long name hid which file the answer acts on. Where the
 /// name neither fits nor keeps something beside the `…` -- one cell is only
 /// the `…` (opus-Md), and so is two for a name whose first cluster is two
-/// cells wide (MCP-Mf) -- the question is cut as any row is and not whole.
-/// Reject's names no file and is cut from its end.
+/// cells wide (MCP-Mf) -- or `Remove ` and ` from FILE?` alone don't fit,
+/// which an empty name would otherwise pass, the question is cut as any row
+/// is and not whole. Reject's names no file and is cut from its end.
 fn asked(row: &Row, choice: Choice, room: usize) -> (String, bool) {
     let spelled = |text: &str| command::safe_within(text, 4096);
     if choice == Choice::Remove {
@@ -1468,7 +1469,8 @@ fn asked(row: &Row, choice: Choice, room: usize) -> (String, bool) {
         let name = spelled(&command::typed(&row.name));
         let left = room.saturating_sub(fixed);
         let shown = ellipsized(&name, left);
-        if cells(&name) <= left || !(shown.is_empty() || shown == "\u{2026}") {
+        let named = cells(&name) <= left || !(shown.is_empty() || shown == "\u{2026}");
+        if room >= fixed && named {
             return (format!("{head}{shown}{tail}"), true);
         }
         return (ellipsized(&spelled(&question(row, choice)), room), false);

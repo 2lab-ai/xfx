@@ -1286,4 +1286,17 @@ fn a_name_cut_to_its_ellipsis_alone_is_not_a_question_drawn_whole() {
         matches!(answer, Effect::Run(Run::Remove { .. })),
         "{answer:?}"
     );
+    // An empty name fits whole only where the question does: at 40 columns
+    // `Remove  from ~/.xfx/mcp.json?` is a cell past the 28 there.
+    let (answer, asked) = ask("", 40);
+    assert!(
+        matches!(answer, Effect::Refused(ref why) if why.contains("couldn't show which file")),
+        "{answer:?} {asked:?}"
+    );
+    let (answer, asked) = ask("", 41);
+    assert!(asked.contains("Remove  from ~/.xfx/mcp.json?"), "{asked:?}");
+    assert!(
+        matches!(answer, Effect::Run(Run::Remove { .. })),
+        "{answer:?}"
+    );
 }
