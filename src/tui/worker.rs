@@ -2542,7 +2542,10 @@ impl Runtime {
     /// line with what the source still grants -- an "always" the source took
     /// back after the cut is not the fork's ([`bind_conversation`] seeds the
     /// conversation's ledger from the fork's state alone, and a turn records
-    /// only what that ledger holds). No child process is the conversation's
+    /// only what that ledger holds); the saved-session rules are the fork's
+    /// own file, which the store wrote with each deny the source remembered
+    /// and no allow, and which every decision of the fork reads
+    /// ([`bind_conversation`] points the authority at it). No child process is the conversation's
     /// to move: the MCP servers are this runtime's and the shell tool's
     /// commands end with their calls.
     fn fork(

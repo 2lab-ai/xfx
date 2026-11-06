@@ -1448,3 +1448,226 @@ fn every_folder_a_fork_makes_is_made_private_from_creation() {
     assert!(body.contains("match create_private_dir(path)"), "{body}");
     assert!(!body.contains("fs::create_dir("), "{body}");
 }
+
+// ---------------------------------------------------------------------------
+// saved-session rules: the source's denies, and nothing wider
+// ---------------------------------------------------------------------------
+
+/// A store with `rules` remembered in order, each a new rule, then the rule
+/// with id `revoked` taken out when one is named.
+fn remembered(
+    rules: &[(&str, crate::permission::session_rules::Decision)],
+    revoked: Option<u64>,
+) -> crate::permission::session_rules::State {
+    use crate::permission::session_rules::{Applied, Event, KeyKind, RuleKey, State};
+    let mut state = State::default();
+    for (command, decision) in rules {
+        let event = Event::Set {
+            key: RuleKey::new(KeyKind::Command, command.as_bytes().to_vec()).expect("a key"),
+            display: format!("terminal.exec {command}"),
+            decision: *decision,
+            expected: None,
+        };
+        state = match state.apply(&event) {
+            Applied::Applied(next) => next,
+            other => panic!("not applied: {other:?}"),
+        };
+    }
+    if let Some(id) = revoked {
+        let expected = state.rule_for_id(id).expect("the rule").generation;
+        state = match state.apply(&Event::Revoke { id, expected }) {
+            Applied::Applied(next) => next,
+            other => panic!("not revoked: {other:?}"),
+        };
+    }
+    state
+}
+
+/// A session with one ended turn and `store` as its saved-session rules.
+fn with_rules(bench: &Bench, store: Option<&crate::permission::session_rules::State>) -> SessionId {
+    let (mut recorder, source) = bench.open(&bench.workspace);
+    turn(&mut recorder, "one", "ONE");
+    assert_eq!(recorder.failure(), None);
+    drop(recorder);
+    if let Some(store) = store {
+        let path = crate::permission::session_rules::path_in(&bench.store.session_dir(&source));
+        fs::write(&path, store.encode()).expect("the source's rules");
+        #[cfg(unix)]
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("private");
+    }
+    source
+}
+
+#[test]
+fn a_fork_carries_the_sources_remembered_denies_and_no_allow() {
+    // fx v0.0.16 keeps the rules as `set permissions` lines its fork copies
+    // with lines 2..S (`session_adapter.zig:2205-2208`, `session.zig:
+    // 1744-1747@481104fd`), so its fork holds them as of the cut. xfx's file
+    // says only what they are now: the fork takes every deny -- which can
+    // only narrow it -- and no allow, which nothing shows was in force at
+    // the cut. Red before: the fork had no `permissions.json`, so a deny the
+    // source remembered decided nothing in it.
+    use crate::permission::session_rules::{self, Decision, KeyKind, RuleKey, Verdict};
+    let bench = bench();
+    // ids 1-4; `rm` (id 3) revoked, which spends generation 5.
+    let source_rules = remembered(
+        &[
+            ("git push", Decision::Deny),
+            ("ls", Decision::Allow),
+            ("rm -rf build", Decision::Deny),
+            ("cat notes.txt", Decision::Deny),
+        ],
+        Some(3),
+    );
+    assert_eq!(source_rules.next_generation, 6);
+    let source = with_rules(&bench, Some(&source_rules));
+    let theirs = session_rules::path_in(&bench.store.session_dir(&source));
+    let before = fs::read(&theirs).expect("the source's rules");
+
+    for before_turn in [1, 2] {
+        let fork = bench.fork(&source, before_turn).expect("forked");
+        let ours = session_rules::path_in(&bench.store.session_dir(fork.id()));
+        let held = session_rules::load(&ours).expect("the fork's rules");
+        let key = |command: &str| {
+            RuleKey::new(KeyKind::Command, command.as_bytes().to_vec()).expect("a key")
+        };
+        assert_eq!(held.decide(&key("git push")), Verdict::Deny);
+        assert_eq!(held.decide(&key("cat notes.txt")), Verdict::Deny);
+        assert_eq!(held.decide(&key("ls")), Verdict::Unresolved, "an allow");
+        assert_eq!(held.decide(&key("rm -rf build")), Verdict::Unresolved);
+        // Each deny as the source holds it, and the next generation, so a
+        // rule the fork remembers takes no id the source gave.
+        let ids: Vec<(u64, u64)> = held
+            .rules
+            .iter()
+            .map(|rule| (rule.id, rule.generation))
+            .collect();
+        assert_eq!(ids, [(1, 1), (4, 4)]);
+        assert_eq!(held.next_generation, 6);
+        assert_eq!(
+            held.rules,
+            source_rules
+                .rules
+                .iter()
+                .filter(|rule| rule.decision == Decision::Deny)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        #[cfg(unix)]
+        {
+            let meta = fs::symlink_metadata(&ours).expect("stat");
+            assert!(meta.is_file());
+            assert_eq!(mode(&meta), 0o600);
+            assert_ne!(
+                meta.ino(),
+                fs::metadata(&theirs).expect("stat").ino(),
+                "the fork's rules are its own file"
+            );
+        }
+        // Nothing else of the store's is left in the fork's folder (sorted).
+        let mut names: Vec<String> = fs::read_dir(bench.store.session_dir(fork.id()))
+            .expect("the fork's folder")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [EVENTS_FILE, session_rules::FILE_NAME, MANIFEST_FILE],
+            "before turn {before_turn}"
+        );
+    }
+    assert_eq!(
+        fs::read(&theirs).expect("read"),
+        before,
+        "the source was written"
+    );
+}
+
+#[test]
+fn a_fork_of_a_session_with_no_deny_has_no_rules_file() {
+    use crate::permission::session_rules::{self, Decision};
+    let bench = bench();
+    let allows = remembered(&[("ls", Decision::Allow)], None);
+    let revoked = remembered(&[("git push", Decision::Deny)], Some(1));
+    for (what, store) in [
+        ("no store", None),
+        ("allows only", Some(&allows)),
+        ("every deny revoked", Some(&revoked)),
+    ] {
+        let source = with_rules(&bench, store);
+        let fork = bench.fork(&source, 2).expect("forked");
+        assert!(
+            !session_rules::path_in(&bench.store.session_dir(fork.id())).exists(),
+            "{what}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fork_whose_source_rules_cannot_be_read_or_are_a_link_is_refused_and_leaves_nothing() {
+    // The source refuses every call while its store cannot be read
+    // (`PermissionSession::decide_with_feedback`), so a fork that dropped the
+    // store would let by what the source refuses. A link is refused even to
+    // a store that reads, as a fork takes no image through one.
+    use crate::permission::session_rules::{self, Decision};
+    let bench = bench();
+    let outside = bench.root.path().join("outside");
+    fs::create_dir(&outside).expect("a directory outside the store");
+    let planted = outside.join("permissions.json");
+    let deny = remembered(&[("git push", Decision::Deny)], None);
+    fs::write(&planted, deny.encode()).expect("a store outside");
+    fs::set_permissions(&planted, fs::Permissions::from_mode(0o600)).expect("private");
+
+    type Damage = fn(&Path, &Path);
+    let damages: [(&str, Damage); 5] = [
+        ("broken", |path, _| {
+            fs::write(path, "{broken").expect("write")
+        }),
+        ("a link to a store", |path, planted| {
+            std::os::unix::fs::symlink(planted, path).expect("plant a link")
+        }),
+        ("a dangling link", |path, planted| {
+            std::os::unix::fs::symlink(planted.with_extension("gone"), path).expect("plant a link")
+        }),
+        ("a folder", |path, _| {
+            fs::create_dir(path).expect("a folder")
+        }),
+        // Opened without waiting for a writer, then refused. Made by
+        // `mkfifo(1)` through the one door every child process goes through.
+        ("a FIFO", |path, _| {
+            let status = crate::process::command("mkfifo")
+                .arg(path)
+                .status()
+                .expect("run mkfifo");
+            assert!(status.success(), "mkfifo failed: {status:?}");
+        }),
+    ];
+    for (what, damage) in damages {
+        let source = with_rules(&bench, None);
+        damage(
+            &session_rules::path_in(&bench.store.session_dir(&source)),
+            &planted,
+        );
+        let before = bench.names();
+        match bench.fork(&source, 2) {
+            Err(SessionError::Corrupt { id, detail }) => {
+                assert_eq!(id, source.as_str(), "{what}");
+                assert!(
+                    detail.contains("saved-session permission rules"),
+                    "{what}: {detail}"
+                );
+            }
+            Err(other) => panic!("{what}: refused as {other:?}"),
+            Ok(session) => panic!("{what}: forked {}", session.id()),
+        }
+        assert_eq!(bench.names(), before, "{what}");
+        assert_eq!(bench.names().1, Vec::<String>::new(), "{what}");
+    }
+}
