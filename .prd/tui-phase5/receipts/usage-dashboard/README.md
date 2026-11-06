@@ -28,7 +28,8 @@ still reads the local ledger until U4 wires this in. There is no xfx screen to
 put beside fx's, so the paired-capture rule (`p5-unit-common.md` § Method 2)
 does not apply, and the `fetching…` -> table capture belongs to U4. RED is
 the mutants below (`red-mutants.txt`): the module is new, so on the base it
-does not compile.
+does not compile. US-U3b's RED is a behaviour test that fails on
+`be9b2318` (`red-u3b.txt`).
 
 ## What it exports (for U4)
 
@@ -153,34 +154,35 @@ counts and names the worker threads. Every wait is bounded (20 s).
 ## RED: mutants
 
 Each guard taken out, one at a time, on a `git clone --no-local` copy at
-`d42f07ab` (the code head) in the scratchpad (never the worktree), only
-`usage::dashboard` and `usage::policy` run, bounded by `gtimeout -k 10 600`.
-Baseline on the copy: 31 passed. All 14 mutants compiled and each failed a
-named test; the copy was clean at the end. Full output: `red-mutants.txt`.
-(A first run at `1c3b0359` found M12 surviving: the timer test planted its
-floor by hand. The test was replaced by
-`the_floor_counts_from_a_failure_as_well_as_a_start`, M14 was added with
-`the_same_key_to_another_origin_is_another_sign_in`, and the whole set was
-run again at `a72e6cef` and at `d42f07ab`, with the same results.)
+`9c6c6c50` (US-U3b's code head) in the scratchpad (never the worktree),
+only `usage::dashboard` and `usage::policy` run, bounded by `gtimeout -k 10
+600`. Baseline on the copy: 31 passed. All 16 mutants compiled and each
+failed a named test; the copy was clean at the end. Full output:
+`red-mutants.txt`. History: a first run at `1c3b0359` found M12 surviving
+(the timer test planted its floor by hand; replaced by
+`the_floor_counts_from_a_failure_as_well_as_a_start`); M14 came with the
+origin test; the set ran again at `a72e6cef` and `d42f07ab`. US-U3b turned
+M1 around (close now keeps the fetch, so the mutant re-adds the cancel) and
+added M15 and M16. Its behaviour RED is `red-u3b.txt`.
 
 | Mutant | Guard removed | Property | Killed by |
 |---|---|---|---|
-| M1 | `close` cancels the fetch (US-U3's behaviour, now reverted to fx's) | S1 | MUTANT_M1 |
-| M2 | a switch keeps the old sign-in's fetch | S5 | `a_sign_in_switch_…` (`:1305`, A's request not dropped), `the_same_key_to_another_origin_…` |
-| M3 | no admission swap in the worker | S4, S5 | `a_stale_answer_…` (`:1223`), `a_sign_in_switch_…` (`:1336`, A's answer stored after the switch) |
-| M4 | `quit` keeps the fetch | S1 | `quit_cancels_…` (`:1035`) |
-| M5 | `open` works after `quit` | S1 | `quit_cancels_…` (`:1046`, a request after quit) |
-| M6 | the floor forgotten on a switch (fx's reset) | S2 | `no_sign_in_is_asked_…` (`:1100`), `the_same_key_to_another_origin_…` |
-| M7 | the fetch in flight not seen by the floor | S2, S3 | `no_sign_in_is_asked_…` (`:1073`, `r` started a second fetch), `the_timer_refreshes_…` (`:1183`) |
-| M8 | the timer not held to an open dashboard (policy) | S1, S3 | `nothing_is_requested_while_the_dashboard_is_closed` (`:994`), `the_timer_refreshes_…`, `policy::…the_timer_fires_…` |
-| M9 | opening ignores the floor (policy) | S2 | 8 tests, among them `no_sign_in_is_asked_…`, `the_floor_holds_open_…`, the policy ports |
+| M1 | `close` cancels the fetch (US-U3's behaviour; fx's is restored) | S1, S4 | `a_fetch_started_while_open_finishes_after_close_…` (`:1016`, close dropped the request), `an_answer_from_a_closed_or_older_generation_…` (`:1254`, the fetch did not run to its end) |
+| M2 | a switch keeps the old sign-in's fetch | S5 | `a_sign_in_switch_…` (`:1352`, A's request not dropped), `the_same_key_to_another_origin_…`, `a_sign_in_that_arrives_during_…` |
+| M3 | no admission swap in the worker | S5 | `a_sign_in_switch_…` (`:1383`, A's answer stored after the switch) |
+| M4 | `quit` keeps the fetch | S1 | `quit_cancels_…` (`:1063`) |
+| M5 | `open` works after `quit` | S1 | `quit_cancels_…` (`:1074`, a request after quit) |
+| M6 | the floor forgotten on a switch (fx's reset) | S2 | `the_floor_binds_opening_…` (`:1130`), `the_same_key_to_another_origin_…` |
+| M7 | the fetch in flight not seen by the floor | S2, S3 | `the_floor_binds_opening_…` (`:1103`, `r` started a second fetch), `the_timer_refreshes_…` (`:1213`) |
+| M8 | the timer not held to an open dashboard (policy) | S1, S3 | `nothing_is_requested_while_the_dashboard_is_closed` (`:994`), `a_fetch_started_while_open_finishes_after_close_…` (`:1047`), `the_timer_refreshes_…`, `policy::…the_timer_fires_…` |
+| M9 | opening ignores the floor (policy) | S2 | 9 tests, among them `the_floor_binds_opening_…`, `the_floor_holds_open_…`, the policy ports |
 | M10 | `StoreError::Invalid` shown, not the cache failure | cache failure | `an_answer_the_cache_would_refuse_…` (`:872`) |
-| M11 | `snapshot` does not re-read the cache | cache first | `a_dashboard_reads_what_another_process_stored_since` (`:549`) |
-| M12 | a failure does not stamp the floor | S2 | `the_floor_counts_from_a_failure_…` (`:1148`) |
-| M13 | retiring does not cancel the token | S1, S5 | MUTANT_M13 |
-| M15 | an older epoch's outcome is shown | S4 | MUTANT_M15 |
-| M16 | `open` does not take in a fetch that ended while closed | S1 | MUTANT_M16 |
-| M14 | a switch compares the key only, not the origin | S5 | `the_same_key_to_another_origin_…` (`:1362`) |
+| M11 | `snapshot` does not re-read the cache | cache first | `a_dashboard_reads_what_another_process_stored_since` (`:549`), `a_fetch_started_while_open_finishes_after_close_…` (`:1034`) |
+| M12 | a failure does not stamp the floor | S2 | `the_floor_counts_from_a_failure_…` (`:1178`) |
+| M13 | retiring does not cancel the token | S1, S5 | `quit_cancels_…` (`:1063`), `a_sign_in_switch_…`, `the_same_key_to_another_origin_…`, `a_sign_in_that_arrives_during_…` |
+| M14 | a switch compares the key only, not the origin | S5 | `the_same_key_to_another_origin_…` (`:1409`) |
+| M15 | an older epoch's outcome is shown (US-U3b) | S4 | `an_answer_from_a_closed_or_older_generation_…` (`:1257`, the closed fetch's answer shown with no cache) |
+| M16 | `open` does not take in a fetch that ended while closed (US-U3b) | S1 | `a_fetch_started_while_open_finishes_after_close_…` (`:1033`, `Fetching` after the fetch had ended) |
 
 ## Decisions (reversible, mine)
 
@@ -215,9 +217,9 @@ run again at `a72e6cef` and at `d42f07ab`, with the same results.)
 
 ## Gates
 
-Run once, green, on `d42f07ab` (the code; only this receipt changed after
-it), rustc 1.99.1 on macOS (aarch64), with `TMPDIR` a short directory in the
-harness temp folder (`claude-501/p5ud`):
+**US-U3b**, run once, green, on `9c6c6c50` (the code; only this receipt
+changed after it), rustc 1.99.1 on macOS (aarch64), with `TMPDIR` a short
+directory in the harness temp folder (`claude-501/p5ud`):
 
 | Gate | Result |
 |---|---|
@@ -230,12 +232,13 @@ harness temp folder (`claude-501/p5ud`):
 | `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok, ok |
 | `scripts/smoke.sh target/release/xfx <dir>` | 46 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1107 checks, 0 failures |
-| MSRV: `rustup run 1.96.1 cargo check --locked --all-targets` | ok (the gate script's first `cargo +1.96` form was refused by a non-rustup `cargo`; re-run through `rustup run`) |
+| MSRV: `rustup run 1.96.1 cargo check --locked --all-targets` | ok |
 | clippy and tests for `x86_64-unknown-linux-gnu` | not run here: no Linux target installed `[unverified]`; CI's Linux runners |
 
-No pty test failed, so none was re-run. The dashboard tests were also run
-alone five times during development and the whole `usage::` set three times
-on `d42f07ab`'s code: green every time.
+No pty test failed, so none was re-run. The `usage::dashboard` and
+`usage::policy` tests were also run alone five times on `9c6c6c50`'s code:
+green every time. The same gate list was green on US-U3's `d42f07ab` (same
+counts), before the close change.
 
 ## Residuals
 
