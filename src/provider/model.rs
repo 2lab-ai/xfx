@@ -983,7 +983,15 @@ impl ModelCatalog for GatewayCatalog {
 /// contact a remote host on its own initiative, and a Gateway with no
 /// credential cannot run a turn either, so `/model` there says there is
 /// nothing to browse. A llmux daemon's is its `GET /models`.
+///
+/// None at all where no provider was chosen: a provider selection xfx could
+/// not read poisons every turn before either provider is built
+/// ([`crate::provider::Bundle::select`]), and the Gateway it leaves in
+/// `provider` is the compiled default, not a choice to send its key to.
 pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog + Send + Sync>> {
+    if config.provider_rejected.is_some() {
+        return None;
+    }
     match config.provider {
         ProviderId::Gateway => {
             let credential = config.credential.clone()?;
@@ -2938,6 +2946,30 @@ mod tests {
         .expect("a configuration");
         assert_eq!(config.provider, ProviderId::Gateway);
         assert!(catalog_for(&config).is_none());
+    }
+
+    #[test]
+    fn an_unreadable_provider_has_no_catalog_to_ask_with_the_key() {
+        // The catalog is asked with the bearer a turn sends, and a provider
+        // selection xfx could not read leaves no turn to send it with
+        // (`Bundle::select`): the compiled default it stands on is no choice.
+        use crate::config::{Environment, ProviderRejection};
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = RuntimeConfig::load_with(
+            &Environment::new(
+                None,
+                [("AI_GATEWAY_API_KEY".to_string(), "fake-key".to_string())].into(),
+            ),
+            workspace.path(),
+        )
+        .expect("a configuration");
+        assert!(catalog_for(&config).is_some(), "a Gateway with a key asks");
+        config.provider_rejected = Some(ProviderRejection {
+            key: "provider",
+            value: "not-a-provider".to_string(),
+        });
+        assert_eq!(config.provider, ProviderId::Gateway);
+        assert!(catalog_for(&config).is_none(), "asked with the key");
     }
 
     /// One HTTP exchange on a loopback port: the request it read, and the
