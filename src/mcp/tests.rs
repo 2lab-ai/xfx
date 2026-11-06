@@ -467,7 +467,10 @@ fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_erro
     let runtime = home.runtime();
     runtime.start_and_wait(WAIT);
     assert_eq!(settled(&runtime, "shown").state_label(), "Pending trust");
-    assert_eq!(runtime.issues(), ["templated: McpConfigInvalidType"]);
+    assert_eq!(
+        runtime.issues(),
+        [".mcp.json server 'templated' was skipped: its \"type\" isn't valid."]
+    );
     bounded_run(
         &runtime,
         Job::Trust {
@@ -1334,7 +1337,8 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
         [
             withheld("bearer", "bearer_token_env", "VERCEL_OIDC_TOKEN"),
             withheld("header-env", "header_env", "AI_GATEWAY_API_KEY"),
-            "indirect: McpConfigInvalidBearerEnvironment".to_string(),
+            ".mcp.json server 'indirect' was skipped: its \"bearer_token_env\" isn't valid."
+                .to_string(),
         ]
     );
     // The profile is the person's own file: the same fields still resolve.
@@ -1447,7 +1451,9 @@ fn a_name_that_is_not_a_plain_variable_name_is_never_looked_up() {
     assert_eq!(names, ["plain"], "{loaded:?}");
     let mut issues = loaded.issues.clone();
     issues.sort();
-    let skipped = |server: &str| format!(".mcp.json server '{server}' was skipped: invalid_entry.");
+    let skipped = |server: &str| {
+        format!(".mcp.json server '{server}' was skipped: a ${{...}} in it isn't valid.")
+    };
     assert_eq!(
         issues,
         [

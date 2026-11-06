@@ -1,0 +1,52 @@
+# p5 mcp: the config writer's oracle (MCP-C, E1 + A7). fx v0.0.16's `/mcp add`
+# and `/mcp remove` edit `~/.fx/mcp.json` and the workspace's `.mcp.json` in
+# place; `home` and `workls` keep the bytes they leave. The profile is the old
+# `{"mcp":…}` shape with keys, numbers and escapes fx doesn't know (the
+# migration case); the workspace file is 4-space JSON with a key of its own.
+# The stdio server is p5-mcp-stdio.ts, which both files name by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in). xfx is given the same files; its
+# `/mcp` verbs are MCP-V's, so its side of these bytes is the writer's unit
+# test (`src/mcp/config.rs`) until they land.
+work p5-mcp-config-ws
+fx: homefile .fx/mcp.json p5-mcp-config-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-config-profile.json
+wait 5
+home before
+workls before
+type /mcp add two -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts
+key Enter
+wait 3
+type /mcp add --env K=v --env Z=1 three -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts --flag
+key Enter
+wait 3
+type /mcp add --header X-Team=core web http://127.0.0.1:9/web
+key Enter
+wait 3
+type /mcp add --project p2 -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts
+key Enter
+wait 3
+snapfull added
+home after-add
+workls after-add
+type /mcp list
+key Enter
+wait 4
+snap list
+key Escape
+wait 0.3
+key C-u
+type /mcp remove --project p2
+key Enter
+wait 3
+type /mcp remove old
+key Enter
+wait 3
+type /mcp remove three
+key Enter
+wait 3
+type /mcp remove web
+key Enter
+wait 3
+snapfull removed
+home end
+workls end

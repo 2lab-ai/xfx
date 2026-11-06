@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: Added two to ~/.fx/mcp.json.
+
+* mcp: Added three to ~/.fx/mcp.json.
+
+* mcp: Added web to ~/.fx/mcp.json.
+
+* mcp: Added p2 to .mcp.json.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,54 @@
+{
+  "theme": "dark",
+  "mcp": {
+    "old": {
+      "type": "local",
+      "command": [
+        "<bun>",
+        "<scenarios>/p5-mcp-stdio.ts"
+      ],
+      "enabled": true,
+      "startup_timeout_ms": 30000,
+      "operation_timeout_ms": 60000,
+      "restart_limit": 1
+    },
+    "two": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "three": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts",
+        "--flag"
+      ],
+      "env": {
+        "K": "v",
+        "Z": "1"
+      }
+    },
+    "web": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/web",
+      "headers": {
+        "X-Team": "core"
+      }
+    }
+  },
+  "n": 1.50,
+  "e": -0.5E+10,
+  "s": "café / \u001f 😀 tab\t",
+  "empty": {},
+  "list": [],
+  "nested": [
+    [
+      1,
+      {
+        "a": null,
+        "b": false
+      }
+    ]
+  ]
+}

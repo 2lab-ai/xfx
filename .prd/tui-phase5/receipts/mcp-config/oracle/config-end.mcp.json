@@ -1,0 +1,25 @@
+{
+  "theme": "dark",
+  "mcp": {
+    "two": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    }
+  },
+  "n": 1.50,
+  "e": -0.5E+10,
+  "s": "café / \u001f 😀 tab\t",
+  "empty": {},
+  "list": [],
+  "nested": [
+    [
+      1,
+      {
+        "a": null,
+        "b": false
+      }
+    ]
+  ]
+}

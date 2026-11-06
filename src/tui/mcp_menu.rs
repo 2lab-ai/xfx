@@ -1446,8 +1446,9 @@ mod tests {
     #[test]
     fn a_hostile_project_server_name_is_spelled_out_on_the_issue_row() {
         // A `.mcp.json` key that would retitle the window and reverse what
-        // follows it is no valid server name (`config.rs`'s issue for it
-        // carries the name as written); the menu's issue row spells it out.
+        // follows it is no valid server name (`config.rs`'s note for it
+        // spells the name, as fx v0.0.16's does); the menu's issue row keeps
+        // it spelled.
         let dir = tempfile::tempdir().expect("dir");
         std::fs::write(
             dir.path().join(crate::mcp::config::WORKSPACE_FILE),
@@ -1470,7 +1471,7 @@ mod tests {
         );
         assert_eq!(
             plain(row),
-            r"  1 project MCP configuration error. Run /mcp list for details. \x1b]0;owned\x07\u{202e}live: McpInvalidServerName"
+            r"  1 project MCP configuration error. Run /mcp list for details. .mcp.json server '\x1b]0;owned\x07\u{202e}live' was ski…"
         );
     }
 

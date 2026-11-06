@@ -809,13 +809,14 @@ impl McpRuntime {
         ),
         McpError,
     > {
-        let mut servers = match &self.paths.profile {
-            Some(path) => {
-                config::load_profile(path)
-                    .map_err(|err| McpError::Named(err.0))?
-                    .servers
-            }
-            None => Vec::new(),
+        // A profile entry that can't be read is a note, ahead of the
+        // workspace's (`loadNativeConfigs`, `src/builtins/mcp.zig:45-56@481104fd`).
+        let config::Profile {
+            mut servers,
+            notes: mut issues,
+        } = match &self.paths.profile {
+            Some(path) => config::load_profile(path).map_err(|err| McpError::Named(err.0))?,
+            None => config::Profile::default(),
         };
         let choices = config::load_choices(self.paths.settings.as_deref(), &self.paths.workspace);
         let workspace = if self.paths.profile.is_some() || self.paths.settings.is_some() {
@@ -829,7 +830,8 @@ impl McpRuntime {
                 servers.push(server);
             }
         }
-        Ok((servers, workspace.issues, choices, workspace.digests))
+        issues.extend(workspace.issues);
+        Ok((servers, issues, choices, workspace.digests))
     }
 
     /// Reads both files again and connects what changed, telling `origin`
