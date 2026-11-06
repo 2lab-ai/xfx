@@ -225,8 +225,7 @@ impl Provider for LlmuxProvider {
             &completion.usage,
             cache,
             crate::session::event::system_now_ms(),
-        )
-        .map(crate::gateway::protocol::Bill::Exact);
+        );
         Ok(completion)
     }
 
@@ -238,18 +237,20 @@ impl Provider for LlmuxProvider {
     }
 }
 
-/// What a llmux answer is billed as **through xfx**: the request, its tokens,
-/// and no spend.
+/// A llmux answer's tokens, as a bill with no spend: the carrier of its cache
+/// counts.
 ///
 /// llmux puts a turn on one of the user's subscription accounts, which is what
-/// upstream's ChatGPT and Grok sign-ins are, and upstream accounts for those
-/// at a cost of nought under `<provider>/<model>` (`buildSubscriptionBilling`,
-/// `vercel-labs/fx@c1db9191 src/gateway/responses_protocol.zig:2568-2606`):
-/// the subscription is paid elsewhere, and nothing the turn did added to a bill
-/// xfx can see. `/usage` therefore counts these requests and tokens and says
-/// `$0.00` for them, which is "not billed through xfx", not "free".
+/// upstream's ChatGPT and Grok sign-ins are, and fx c1db9191 accounted for
+/// those at a cost of nought under `<provider>/<model>` (`buildSubscriptionBilling`,
+/// `vercel-labs/fx@c1db9191 src/gateway/responses_protocol.zig:2568-2606`).
+/// **That accounting is gone** with the local usage ledger (US-U5; fx removed
+/// `buildSubscriptionBilling` in `a41fc2d4`): no frame records it and
+/// `/usage` reads the provider's reports, so no `$0.00 llmux/<model>` row is
+/// shown anywhere. What the bill still carries is the cache counts, which a
+/// compaction's notes request traces ([`crate::gateway::protocol::Billing`]).
 ///
-/// Only when the daemon said both totals, as upstream requires; a cache count
+/// Only when the daemon said both totals, as upstream required; a cache count
 /// larger than the input it is part of is dropped rather than believed
 /// (`boundedOptionalCounter`, `:2608-2620`).
 fn bill(

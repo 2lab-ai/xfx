@@ -9535,7 +9535,7 @@ impl Shell {
         // And so is a `/sound` save, and a line the history kept.
         self.settle_saves();
         self.settle_history();
-        // And a read of the session logs for `/usage`.
+        // And `/usage`'s runtime, while its screen is up.
         self.settle_usage();
         // And what the MCP runtime has to say.
         self.settle_mcp();
@@ -26034,7 +26034,6 @@ mod tests {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
-            usage: Default::default(),
             checkpoint: None,
             turn_settings: None,
         };

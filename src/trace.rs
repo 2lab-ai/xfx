@@ -2500,12 +2500,6 @@ mod tests {
                     input_tokens: Some(1200),
                     output_tokens: Some(40),
                     turn_output_tokens: None,
-                    requests: Vec::new(),
-                    unaccounted: false,
-                    lines_added: 0,
-                    lines_removed: 0,
-                    settled: Vec::new(),
-                    rejected: Vec::new(),
                 },
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {

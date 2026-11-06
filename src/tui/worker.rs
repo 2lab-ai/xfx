@@ -1140,8 +1140,7 @@ static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
 ///
 /// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
 /// so none can be delivered to it -- nor to the threads it starts, its runtime's
-/// blocking pool and the bills it asks for ([`super::reconcile`]) included --
-/// and every handler runs on the UI thread, as `signals::release` requires.
+/// blocking pool included -- and every handler runs on the UI thread, as `signals::release` requires.
 /// `hold` calls this before [`super::signals::install`] as well, which is the
 /// order its own startup needs; the mask no longer depends on it.
 ///
@@ -1296,7 +1295,6 @@ pub(crate) fn spawn(
         state.title_answers = Some(title_answers);
         if let Some(resumed) = resumed {
             state.resume(resumed, &session_cancel.mirror());
-            state.ask_for_bills();
             // A resumed conversation's last reply is `/copy`'s from the
             // start, as fx's hydrated history is (`session.zig:2067-2079`).
             state.publish_reply();
@@ -1672,10 +1670,6 @@ struct Runtime {
     /// Where `/usage` reads what to ask with ([`UsageBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     usage: UsageBoard,
-    /// Asks the Gateway for the bills the conversation's streams did not
-    /// carry ([`Runtime::ask_for_bills`]), and hands the answers to
-    /// [`turn_loop`] to write down ([`Runtime::settle_bill`]).
-    bills: super::reconcile::Reconciler,
     /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     credits: CreditsBoard,
@@ -1798,7 +1792,6 @@ impl Runtime {
             steering: Steering::new(),
             rules: LiveRules::new(config_rules),
             usage: UsageBoard::default(),
-            bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
             mcp: crate::mcp::McpRuntime::inert(),
             titles,
@@ -2071,59 +2064,6 @@ impl Runtime {
             .map_err(|err| err.to_string())
     }
 
-    /// Publishes what `/copy` would copy from the conversation as it stands.
-    ///
-    /// Read out of the session log's own state ([`last_reply`]) rather than
-    /// out of the stream the UI was shown, because that stream has been made
-    /// inert on its way over (`bridge::inert`): a tab in a code block reached
-    /// the screen as a space, and the clipboard is owed the tab.
-    /// Starts asking the Gateway for the bills of the conversation's pending
-    /// requests, with the Gateway credential that made them
-    /// (`startReconciliationWithCredential`, `session_usage.zig:2008-2100`).
-    ///
-    /// Called after every piece of work, so a turn that recorded one and a
-    /// resume that opened a session holding one are both asked about, and
-    /// asked about once ([`super::reconcile::Reconciler::ask`]). Without a
-    /// Gateway credential nothing is asked and the requests stay pending, as
-    /// upstream withholds its asking without a credential for them
-    /// (`:1924-1945`).
-    fn ask_for_bills(&mut self) {
-        let Some(conversation) = self.conversation.as_ref() else {
-            return;
-        };
-        let Some(credential) = gateway_credential(&self.config) else {
-            return;
-        };
-        let state = conversation.recorder.state();
-        let pending: Vec<&crate::session::RequestUsage> = state.usage.pending().collect();
-        if pending.is_empty() {
-            return;
-        }
-        self.bills.ask(
-            conversation.recorder.id().as_str(),
-            &pending,
-            credential.secret(),
-        );
-    }
-
-    /// Writes what the Gateway said about a pending request into the log of
-    /// the session it belongs to, and tells `/usage` (`applyGeneration`,
-    /// `session_usage.zig:1080-1126`).
-    ///
-    /// Only into the conversation in front of the user: an answer about one
-    /// that was dropped or replaced is left unwritten, and that session's
-    /// request stays pending for the next time it is opened.
-    fn settle_bill(&mut self, answered: &super::reconcile::Answered) {
-        let Some(conversation) = self.conversation.as_mut() else {
-            return;
-        };
-        if conversation.recorder.id().as_str() != answered.session {
-            return;
-        }
-        conversation.recorder.commit(answered.frame());
-        self.publish();
-    }
-
     /// Where a title is asked from now: the Gateway with its key, or nobody
     /// (`sessionTitleModel`, `vercel-labs/fx@c1db9191 src/main.zig:471-475`:
     /// the Gateway names a title model, a configured provider -- llmux's
@@ -2261,6 +2201,12 @@ impl Runtime {
         Some(title.to_string())
     }
 
+    /// Publishes what `/copy` would copy from the conversation as it stands.
+    ///
+    /// Read out of the session log's own state ([`last_reply`]) rather than
+    /// out of the stream the UI was shown, because that stream has been made
+    /// inert on its way over (`bridge::inert`): a tab in a code block reached
+    /// the screen as a space, and the clipboard is owed the tab.
     fn publish_reply(&self) {
         self.reply.publish(
             self.conversation
@@ -2762,7 +2708,6 @@ impl Runtime {
     /// `hydrateResumedSession` (`:2368-2420`). A session opened to be read and
     /// left is a session its owner did not change.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
-        self.bills.forget();
         // Another conversation: a question about the one it replaces runs on
         // to an answer that is dropped, and one already back and waiting for
         // that conversation to open is dropped now.
@@ -2910,15 +2855,6 @@ impl Runtime {
         // and one that still said Fast would turn it back on for a model
         // that was never asked for it.
         self.record_settings();
-        // The bills the Gateway still owes this session are asked with the
-        // Gateway's credential, and only while it is the provider: upstream
-        // drops its asking credential on a switch to a provider that is not
-        // the Gateway and starts again with the new one on a switch to it
-        // (`reconcileGatewayCredential`, `app_auth_runtime.zig:2039-2070`).
-        // Forgotten here, the requests stay pending in the log, and the asking
-        // after this work ([`Runtime::ask_for_bills`]) starts again on the
-        // Gateway.
-        self.bills.forget();
         // The title machinery's lineage stays where it is, and so does a
         // title waiting for the conversation to open: the conversation the
         // band shows is the one it showed before the switch, as upstream's
@@ -3358,15 +3294,12 @@ async fn turn_loop(
             // does, as upstream syncs its queued prompts to a new mode
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
-            // A bill the Gateway gave later, written down between pieces of
-            // work by the recorder that owns the log; never during one, which
-            // may be writing that log itself.
-            answered = state.bills.next() => Taken::Bill(answered),
             // The catalog read in the background, answered while nothing
             // needed it yet: taken now, the UI having been told already.
             () = state.selector.settle_load(), if state.selector.is_loading() => Taken::Catalog,
             // A session title, written down and shown between pieces of work
-            // for the reason a bill is: the recorder that owns the log.
+            // by the recorder that owns the log; never during one, which may
+            // be writing that log itself.
             titled = next_title(&mut state.title_answers) => Taken::Title(titled),
             item = queue.work.recv() => Taken::Work(item),
         };
@@ -3412,10 +3345,6 @@ async fn turn_loop(
                 continue;
             }
             Taken::Nothing => continue,
-            Taken::Bill(answered) => {
-                state.settle_bill(&answered);
-                continue;
-            }
             Taken::Catalog => continue,
             Taken::CatalogAsked => {
                 ask_catalog(&mut state, events).await;
@@ -3537,9 +3466,6 @@ async fn turn_loop(
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
-        // And a request this work recorded without its bill, or a session it
-        // opened holding one, is asked about now.
-        state.ask_for_bills();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
         // given back is the moment the queue really has room -- and by then the
@@ -3600,7 +3526,6 @@ async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, throug
     // next conversation's log starts with the selection in force.
     state.unrecorded_resume = None;
     state.opened = None;
-    state.bills.forget();
     // The band moved the title lineage on at the keystroke
     // ([`WorkHandle::new_title_lineage`]): what was asked about this
     // conversation is cancelled already, and what was asked since is the next
@@ -3671,8 +3596,6 @@ enum Taken {
     Change(Option<Change>),
     /// `/rename`'s title, to write now, and whether the shell has said so.
     Rename { title: String, announced: bool },
-    /// What the Gateway said about a pending request's bill.
-    Bill(super::reconcile::Answered),
     /// The catalog read in the background has answered, and its answer is
     /// taken.
     Catalog,
@@ -4022,6 +3945,8 @@ async fn compact_conversation(
         )
         .await;
     }
+    // Between turns no turn is waiting to know whether a notes request
+    // was spent: nothing reads it after.
     let spent = compact::Spent::default();
     let finished = {
         let model = state.model().to_string();
@@ -4052,11 +3977,6 @@ async fn compact_conversation(
     let Some(conversation) = state.conversation.as_mut() else {
         return Feedback::Failed;
     };
-    // What the notes requests cost goes to `/usage` however the compaction
-    // ends: a request that was answered was billed (`spent`'s doc).
-    if let Some(frame) = spent.frame() {
-        conversation.recorder.commit(frame);
-    }
     let event = match finished {
         Ok(event) => event,
         Err(failure) => {
@@ -4114,7 +4034,7 @@ fn feedback_of(failure: Failure) -> Feedback {
     }
 }
 
-/// The Gateway key a question beside the turn -- a bill, a title -- is asked
+/// The Gateway key a question beside the turn -- a title -- is asked
 /// with, or `None` when no turn here would send it: on another provider, with
 /// no key, or **where no provider was chosen**. A selection xfx could not read
 /// leaves `provider` on the compiled default and poisons every turn
@@ -4758,7 +4678,7 @@ impl crate::agent::StepCompactor for TurnCompactor {
         }))
     }
 
-    fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
+    fn spent(&mut self) -> bool {
         self.spent.take()
     }
 
@@ -7959,197 +7879,6 @@ mod tests {
             let through = if between_turns { 0 } else { 4 };
             assert_eq!(seen.try_recv(), Ok(UiEvent::Fresh { through }));
         }
-    }
-
-    /// A request whose stream named its generation and not its bill is asked
-    /// about with the Gateway key, and the answer is written into the log of
-    /// the session it belongs to -- the live conversation holds it at once,
-    /// and the log says it on the next read (`applyGeneration`,
-    /// `session_usage.zig:1080-1126`). An answer about another session is not
-    /// written into this one.
-    #[test]
-    fn a_pending_bill_is_asked_for_with_the_gateway_key_and_written_into_its_session() {
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = tempfile::tempdir().expect("a workspace");
-        let config = RuntimeConfig::load_with(
-            &Environment::new(
-                Some(home.path().to_path_buf()),
-                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
-            ),
-            workspace.path(),
-        )
-        .expect("load a configuration");
-        let store = open_store(&config).expect("a store");
-        let conversation = open_conversation(
-            &store,
-            &config,
-            &config.model.clone(),
-            PermissionSession::new(config.permission_mode),
-            None,
-            &CancelToken::new(),
-        )
-        .expect("open a conversation");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
-        state.conversation = Some(conversation);
-        let held = |state: &Runtime| {
-            state
-                .conversation
-                .as_ref()
-                .expect("opened")
-                .recorder
-                .state()
-                .usage
-                .clone()
-        };
-        const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
-        let bill = crate::gateway::protocol::Billing {
-            at_ms: 1_900,
-            model: "fake/model-a".to_string(),
-            generation_id: Some(ID.to_string()),
-            cost: 0.0125,
-            input_tokens: 1340,
-            output_tokens: 250,
-            cache_read_tokens: 300,
-            cache_write_tokens: 40,
-            reasoning_tokens: Some(50),
-        };
-        let answered_bill = bill.clone();
-        state.bills = super::super::reconcile::Reconciler::answering(
-            move |origin, secret, id| {
-                assert_eq!((origin, secret, id), ("http://127.0.0.1:4100", "key", ID));
-                crate::gateway::generation::Lookup::Found(answered_bill.clone())
-            },
-            Duration::from_millis(1),
-        );
-        let recorder = &mut state.conversation.as_mut().expect("opened").recorder;
-        recorder.commit(SessionEvent::UserMessage {
-            text: "asked".to_string(),
-        });
-        recorder.commit(SessionEvent::UsageRecorded {
-            input_tokens: Some(1200),
-            output_tokens: Some(40),
-            turn_output_tokens: None,
-            requests: vec![crate::session::RequestUsage {
-                at_ms: 2_000,
-                duration_ms: 700,
-                model: "fake/model-a".to_string(),
-                input_tokens: 1200,
-                output_tokens: 40,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                reasoning_tokens: None,
-                cost: None,
-                generation_id: Some(ID.to_string()),
-                origin: Some("http://127.0.0.1:4100".to_string()),
-            }],
-            unaccounted: false,
-            lines_added: 0,
-            lines_removed: 0,
-            settled: Vec::new(),
-            rejected: Vec::new(),
-        });
-        let session = recorder.id().clone();
-        state.publish();
-        assert_eq!(held(&state).pending().count(), 1);
-
-        state.ask_for_bills();
-        let answered = on_a_runtime(async {
-            tokio::time::timeout(TEST_DRAIN, state.bills.next())
-                .await
-                .expect("an answer")
-        });
-        assert_eq!(answered.session, session.as_str());
-
-        let elsewhere = super::super::reconcile::Answered {
-            session: "another".to_string(),
-            ..answered.clone()
-        };
-        state.settle_bill(&elsewhere);
-        assert_eq!(held(&state).pending().count(), 1);
-
-        state.settle_bill(&answered);
-        let settled = held(&state).requests[0].clone();
-        assert_eq!(settled.cost, Some(0.0125));
-        assert_eq!((settled.at_ms, settled.duration_ms), (1_900, 700));
-        assert!(!settled.pending());
-        state.conversation = None;
-        let detail = state
-            .store
-            .detail(&crate::session::Selector::Id(session), workspace.path())
-            .expect("the log reads back");
-        assert_eq!(detail.state.usage.requests[0], settled);
-    }
-
-    /// A pending bill is asked for with the key a turn sends, so it is not
-    /// asked for where no turn can be: a provider selection xfx could not
-    /// read (`Bundle::select`). It stays pending for a session that can.
-    #[test]
-    fn a_pending_bill_is_not_asked_for_when_no_provider_was_validly_chosen() {
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = tempfile::tempdir().expect("a workspace");
-        let mut config = RuntimeConfig::load_with(
-            &Environment::new(
-                Some(home.path().to_path_buf()),
-                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
-            ),
-            workspace.path(),
-        )
-        .expect("load a configuration");
-        config.provider_rejected = Some(crate::config::ProviderRejection {
-            key: "provider",
-            value: "not-a-provider".to_string(),
-        });
-        assert_eq!(config.provider, ProviderId::Gateway);
-        let store = open_store(&config).expect("a store");
-        let conversation = open_conversation(
-            &store,
-            &config,
-            &config.model.clone(),
-            PermissionSession::new(config.permission_mode),
-            None,
-            &CancelToken::new(),
-        )
-        .expect("open a conversation");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
-        state.conversation = Some(conversation);
-        const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ4";
-        let asked = Arc::new(AtomicUsize::new(0));
-        let counts = Arc::clone(&asked);
-        state.bills = super::super::reconcile::Reconciler::answering(
-            move |_origin, _secret, _id| {
-                counts.fetch_add(1, Ordering::SeqCst);
-                crate::gateway::generation::Lookup::Retry
-            },
-            Duration::from_millis(1),
-        );
-        let recorder = &mut state.conversation.as_mut().expect("opened").recorder;
-        recorder.commit(SessionEvent::UsageRecorded {
-            input_tokens: Some(1200),
-            output_tokens: Some(40),
-            turn_output_tokens: None,
-            requests: vec![crate::session::RequestUsage {
-                at_ms: 2_000,
-                duration_ms: 700,
-                model: "fake/model-a".to_string(),
-                input_tokens: 1200,
-                output_tokens: 40,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                reasoning_tokens: None,
-                cost: None,
-                generation_id: Some(ID.to_string()),
-                origin: Some("http://127.0.0.1:4100".to_string()),
-            }],
-            unaccounted: false,
-            lines_added: 0,
-            lines_removed: 0,
-            settled: Vec::new(),
-            rejected: Vec::new(),
-        });
-
-        state.ask_for_bills();
-        std::thread::sleep(Duration::from_millis(200));
-        assert_eq!(asked.load(Ordering::SeqCst), 0, "the bill was asked for");
     }
 
     /// `signals::release`'s argument is that no handler runs off the UI
@@ -15220,9 +14949,12 @@ mod tests {
         );
         let recorded = state.conversation.as_ref().expect("open").recorder.state();
         assert_eq!(recorded.title().as_deref(), Some("Fix the renderer"));
-        // A side call: nothing it cost is in what `/usage` reads
+        // A side call: nothing it used is in the session's totals
         // (`session_title_generation.zig:185-187`).
-        assert!(recorded.usage.requests.is_empty());
+        assert_eq!(
+            (recorded.total_input_tokens, recorded.total_output_tokens),
+            (0, 0)
+        );
         let record = state.titles.generation();
         assert_eq!(record.status, crate::trace::TitleStatus::Installed);
         assert_eq!(
@@ -15544,8 +15276,16 @@ mod tests {
         let recorded = state.conversation.as_ref().expect("open").recorder.state();
         assert_eq!(recorded.title().as_deref(), Some("Fix the renderer"));
         assert_eq!(recorded.turns.len(), 1);
-        // The turn's own request, and none for the title.
-        assert_eq!(recorded.usage.requests.len(), 1);
+        // The turn's own usage frame, and none for the title.
+        let conversation = state.conversation.as_ref().expect("open");
+        let log = std::fs::read_to_string(
+            state
+                .store
+                .session_dir(conversation.recorder.id())
+                .join(crate::session::EVENTS_FILE),
+        )
+        .expect("the log");
+        assert_eq!(log.matches("\"kind\":\"usage_recorded\"").count(), 1);
         assert!(!state.titles.running());
         assert!(
             state.title_answers.is_some(),

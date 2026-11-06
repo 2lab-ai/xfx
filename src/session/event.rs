@@ -149,79 +149,6 @@ pub struct RecordedImage {
     pub bytes: u64,
 }
 
-/// One model request a turn made, as the provider accounted for it.
-///
-/// What `/usage` adds up (`GenerationFact`, `vercel-labs/fx@c1db9191
-/// src/core/session/usage_report.zig:125-165`). **`cost` is the provider's
-/// own number**, never one xfx worked out: upstream spends exactly what the
-/// Gateway's `providerMetadata.gateway.cost` says (`src/gateway/client.zig:3352-3359`)
-/// and reads no price list to do it, so neither does this.
-///
-/// A request with no `cost` is one the provider did not account for -- a
-/// Gateway answer without its billing metadata. It is kept, because its
-/// existence is the fact that some spend is unknown, and counted nowhere:
-/// upstream's dashboard counts a generation only once its cost is known
-/// (`session_usage.zig:110-175`).
-///
-/// One with no `cost` and an `origin` is **pending**: the stream named its
-/// generation and not its bill, and the Gateway at `origin` is asked for it
-/// by id (upstream's deferred usage, `session_usage.zig:608-640`, reconciled
-/// by `reconcilePendingBlocking`, `:3322-3423`). Its answer arrives as a later
-/// frame's `settled` or `rejected` ([`SessionEvent::UsageRecorded`]).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RequestUsage {
-    /// When the request was billed: the Gateway's own `response-metadata`
-    /// timestamp when it sent one, else when the answer arrived here. Which
-    /// window of `/usage` the request falls in.
-    pub at_ms: i64,
-    /// How long the request took, retries included: `/usage`'s `API` time.
-    pub duration_ms: u64,
-    /// What the request was billed as: the Gateway's canonical slug when it
-    /// said one, else the model that was asked for.
-    pub model: String,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    /// Part of `input_tokens`, never in addition to it.
-    #[serde(default)]
-    pub cache_read_tokens: u64,
-    /// Part of `input_tokens`, never in addition to it.
-    #[serde(default)]
-    pub cache_write_tokens: u64,
-    /// Part of `output_tokens`. `None` is "the provider did not say".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning_tokens: Option<u64>,
-    /// What it cost, in US dollars, as the provider said.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost: Option<f64>,
-    /// The Gateway's id for the generation (`gen_…`), which is what keeps one
-    /// request from being counted twice.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generation_id: Option<String>,
-    /// Where to ask what it cost, while that is still to be asked: the scheme
-    /// and authority of the endpoint the request went to (the `scope` of
-    /// upstream's deferred reference, `gateway.zig:668-686`). `None` once the
-    /// bill is known, or will never be.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<String>,
-}
-
-impl RequestUsage {
-    /// Whether its bill is still to be asked for.
-    pub fn pending(&self) -> bool {
-        self.cost.is_none() && self.origin.is_some() && self.generation_id.is_some()
-    }
-}
-
-/// For `skip_serializing_if`: a flag that is off is a flag that is not written.
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
-/// For `skip_serializing_if`: a count of nothing is not written.
-fn is_zero(value: &u64) -> bool {
-    *value == 0
-}
-
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -542,18 +469,20 @@ pub enum SessionEvent {
     /// The two totals are the **answering step's**, as they always were, and
     /// mean what they always meant: the context meter reads them, and so does
     /// a replayed turn's summary row on a frame from before
-    /// `turn_output_tokens`. What `/usage` reads is beside them -- one entry
-    /// per model request the turn made ([`RequestUsage`]), and what the turn
-    /// changed on disk -- because a turn of three steps is three requests, and
-    /// upstream bills, counts and windows each one
-    /// (`vercel-labs/fx@c1db9191 src/core/session/usage_report.zig:125-165`).
+    /// `turn_output_tokens`.
     ///
-    /// **Extended rather than joined by a new variant**, and every addition is
-    /// skipped when empty: an older binary ignores a field it does not know in
-    /// a variant it does, so a log written with these still opens there, and a
-    /// turn that has none of them encodes to exactly the bytes it always did.
-    /// A new variant would make every log with a turn in it unreadable to the
-    /// binary before this one ([`EVENT_SCHEMA_VERSION`]).
+    /// **The local usage ledger is retired** (US-U5): `/usage` reads the
+    /// provider's reports, and xfx no longer keeps what each request cost,
+    /// as fx v0.0.16 keeps no usage ledger of its own (`vercel-labs/fx@a41fc2d4`,
+    /// "saved sessions with old usage data still load and resume; old usage
+    /// fields and files are left in place and ignored"). A frame a build
+    /// before it wrote may hold `requests` (one per model request, with its
+    /// cost), `unaccounted`, `lines_added` and `lines_removed`, or be the
+    /// runtime's own answer about a bill, `settled` or `rejected` and no
+    /// totals. Those fields are **read past** -- a field this variant does not
+    /// know is ignored, the envelope alone denies unknown fields -- so the
+    /// frame still decodes and replays as its totals, and is written back,
+    /// by a fork, without them. This build writes none of them.
     UsageRecorded {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
@@ -567,38 +496,6 @@ pub enum SessionEvent {
         /// Absent on a frame written before it was.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_output_tokens: Option<u64>,
-        /// Every model request the turn completed, in order. Empty only on a
-        /// frame written before requests were recorded, or on one that says
-        /// the turn's only request was cut off (`unaccounted`): a turn that
-        /// answered has at least one, and one that failed without either
-        /// writes no frame. That is how `/usage` tells an older frame from a
-        /// turn that cost nothing.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        requests: Vec<RequestUsage>,
-        /// A request of this turn may have been billed without the provider
-        /// saying what it cost: the stream broke, or was stopped, after the
-        /// request had been sent (`DeliveryOutcome.ambiguous_delivery`,
-        /// `session_usage.zig:43-53`).
-        #[serde(default, skip_serializing_if = "is_false")]
-        unaccounted: bool,
-        /// Lines the turn's file changes added and removed, for `/usage`'s
-        /// `Code +N · -N` (`recordCommittedLines`, `session_usage.zig:1584`).
-        #[serde(default, skip_serializing_if = "is_zero")]
-        lines_added: u64,
-        #[serde(default, skip_serializing_if = "is_zero")]
-        lines_removed: u64,
-        /// Bills the Gateway gave later for pending requests an earlier frame
-        /// recorded ([`RequestUsage::pending`]), each the request as it is now
-        /// known, under the same generation id (`applyGeneration`,
-        /// `session_usage.zig:1080-1126`). Written by the runtime between
-        /// turns, on a frame of its own: one with these carries nothing else.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        settled: Vec<RequestUsage>,
-        /// Generation ids of pending requests whose bill will never be known:
-        /// spend that stays missing (`rejectPendingGeneration`,
-        /// `session_usage.zig:2171-2187`).
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        rejected: Vec<String>,
     },
     /// The turn ended. Exactly one per opened turn.
     TurnConcluded { outcome: TurnConclusion },
@@ -1307,12 +1204,6 @@ mod tests {
                 input_tokens: None,
                 output_tokens: Some(1),
                 turn_output_tokens: None,
-                requests: Vec::new(),
-                unaccounted: false,
-                lines_added: 0,
-                lines_removed: 0,
-                settled: Vec::new(),
-                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
@@ -1452,11 +1343,10 @@ mod tests {
     }
 
     #[test]
-    fn a_usage_frame_without_requests_encodes_exactly_as_it_always_did() {
+    fn a_usage_frame_with_its_totals_alone_encodes_exactly_as_it_always_did() {
         // The shape a binary before `/usage` wrote, byte for byte: the two
-        // totals and nothing else. A turn written by this build has requests,
-        // so this is the frame only an older log holds -- and it must still
-        // decode, and say nothing new when written back.
+        // totals and nothing else. It still decodes, and says nothing new when
+        // written back.
         let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":3,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"usage_recorded","input_tokens":11,"output_tokens":7}}"#;
         let frame = EventEnvelope::decode(line).expect("an older usage frame decodes");
         assert_eq!(
@@ -1465,12 +1355,6 @@ mod tests {
                 input_tokens: Some(11),
                 output_tokens: Some(7),
                 turn_output_tokens: None,
-                requests: Vec::new(),
-                unaccounted: false,
-                lines_added: 0,
-                lines_removed: 0,
-                settled: Vec::new(),
-                rejected: Vec::new(),
             }
         );
         assert_eq!(frame.encode().expect("encodes").trim_end(), line);
@@ -1484,12 +1368,6 @@ mod tests {
                 input_tokens: Some(1300),
                 output_tokens: Some(40),
                 turn_output_tokens: Some(80),
-                requests: Vec::new(),
-                unaccounted: false,
-                lines_added: 0,
-                lines_removed: 0,
-                settled: Vec::new(),
-                rejected: Vec::new(),
             },
         );
         let encoded = frame.encode().expect("encodes");
@@ -1504,60 +1382,49 @@ mod tests {
     }
 
     #[test]
-    fn a_usage_frame_keeps_each_request_and_what_the_turn_changed() {
-        let frame = envelope(
-            4,
+    fn a_usage_frame_the_ledger_wrote_reads_as_its_totals() {
+        // A turn's frame from the build before the ledger was retired: a
+        // request with its bill, a request lost after it was sent, the lines
+        // the turn changed. Read as its totals; the rest is read past.
+        let turn = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":4,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"usage_recorded","input_tokens":52000,"output_tokens":3100,"requests":[{"at_ms":1700000000123,"duration_ms":812,"model":"anthropic/claude-opus-5","input_tokens":52000,"output_tokens":3100,"cache_read_tokens":30000,"cache_write_tokens":0,"reasoning_tokens":900,"cost":0.421,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1"}],"unaccounted":true,"lines_added":3,"lines_removed":1}}"#;
+        let frame = EventEnvelope::decode(turn).expect("a ledger frame decodes");
+        assert_eq!(
+            frame.event,
             SessionEvent::UsageRecorded {
                 input_tokens: Some(52000),
                 output_tokens: Some(3100),
                 turn_output_tokens: None,
-                requests: vec![RequestUsage {
-                    at_ms: 1_700_000_000_123,
-                    duration_ms: 812,
-                    model: "anthropic/claude-opus-5".to_string(),
-                    input_tokens: 52000,
-                    output_tokens: 3100,
-                    cache_read_tokens: 30000,
-                    cache_write_tokens: 0,
-                    reasoning_tokens: Some(900),
-                    cost: Some(0.421),
-                    generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1".to_string()),
-                    origin: None,
-                }],
-                unaccounted: true,
-                lines_added: 3,
-                lines_removed: 1,
-                settled: Vec::new(),
-                rejected: Vec::new(),
-            },
-        );
-        let encoded = frame.encode().expect("encodes");
-        assert!(
-            encoded.contains(
-                r#""requests":[{"at_ms":1700000000123,"duration_ms":812,"model":"anthropic/claude-opus-5","input_tokens":52000,"output_tokens":3100,"cache_read_tokens":30000,"cache_write_tokens":0,"reasoning_tokens":900,"cost":0.421,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1"}],"unaccounted":true,"lines_added":3,"lines_removed":1}"#
-            ),
-            "{encoded}"
-        );
-        assert_eq!(
-            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
-            frame
-        );
-
-        // A request the provider did not account for says so by having no
-        // cost, rather than a cost of nought.
-        let unbilled = RequestUsage {
-            cost: None,
-            generation_id: None,
-            origin: None,
-            reasoning_tokens: None,
-            ..match &frame.event {
-                SessionEvent::UsageRecorded { requests, .. } => requests[0].clone(),
-                _ => unreachable!(),
             }
-        };
-        let text = serde_json::to_string(&unbilled).expect("encodes");
-        assert!(!text.contains("cost"), "{text}");
-        assert!(!text.contains("reasoning"), "{text}");
+        );
+        assert!(
+            frame.encode().expect("encodes").ends_with(
+                r#""event":{"kind":"usage_recorded","input_tokens":52000,"output_tokens":3100}}
+"#
+            ),
+            "{}",
+            frame.encode().expect("encodes")
+        );
+        // The runtime's own frame about a bill: no totals, a `settled`
+        // request or a `rejected` id. Nothing at all to this build.
+        for answer in [
+            r#""settled":[{"at_ms":1,"duration_ms":0,"model":"m","input_tokens":1,"output_tokens":1,"cost":0.1,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1"}]"#,
+            r#""rejected":["gen_01JABCDEFGHJKMNPQRSTVWXYZ1"]"#,
+        ] {
+            let line = format!(
+                r#"{{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":5,"event_id":"22222222222222222222222222222222","timestamp_ms":1700000000001,"event":{{"kind":"usage_recorded","input_tokens":null,"output_tokens":null,{answer}}}}}"#
+            );
+            assert_eq!(
+                EventEnvelope::decode(&line)
+                    .expect("an answer frame decodes")
+                    .event,
+                SessionEvent::UsageRecorded {
+                    input_tokens: None,
+                    output_tokens: None,
+                    turn_output_tokens: None,
+                },
+                "{line}"
+            );
+        }
     }
 
     #[test]
@@ -1579,5 +1446,48 @@ mod tests {
             .label(),
             "interrupted"
         );
+    }
+
+    /// A session the local usage ledger was kept in: the log the build before
+    /// it was retired wrote (`120f7b20`, `tests/ledger_compat.rs`), with a
+    /// billed request, a pending one, a cut-off turn (`unaccounted`) and the
+    /// runtime's `settled` and `rejected` frames. Every frame of it decodes,
+    /// and a `usage_recorded` frame written again -- what a fork does with
+    /// it -- holds only the two totals and the summary row's output: the
+    /// ledger's fields are read past, as fx v0.0.16 reads its old usage
+    /// fields past (`a41fc2d4`; `session_event.zig:1808@481104fd`).
+    #[test]
+    fn a_frame_the_ledger_wrote_decodes_and_encodes_without_the_ledger() {
+        let log = include_str!(
+            "../../tests/fixtures/ledger-120f7b20/sessions/1793983613244-206c9ac7f3059b4a/events.jsonl"
+        );
+        let mut usage = 0;
+        for line in log.lines() {
+            let envelope =
+                EventEnvelope::decode(line).expect("every frame the ledger wrote decodes");
+            if !matches!(envelope.event, SessionEvent::UsageRecorded { .. }) {
+                continue;
+            }
+            usage += 1;
+            let written: serde_json::Value =
+                serde_json::from_str(&envelope.encode().expect("encodes")).expect("JSON");
+            let keys: Vec<&str> = written["event"]
+                .as_object()
+                .expect("an event")
+                .keys()
+                .map(String::as_str)
+                .filter(|key| {
+                    ![
+                        "kind",
+                        "input_tokens",
+                        "output_tokens",
+                        "turn_output_tokens",
+                    ]
+                    .contains(key)
+                })
+                .collect();
+            assert_eq!(keys, Vec::<&str>::new(), "{line}");
+        }
+        assert_eq!(usage, 7);
     }
 }

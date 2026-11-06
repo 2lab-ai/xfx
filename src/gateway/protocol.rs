@@ -941,8 +941,15 @@ pub struct Usage {
 /// before it counts a request (`parseSseBilling`, `vercel-labs/fx@c1db9191
 /// src/gateway/client.zig:3313-3395`): when it was billed, what it was billed
 /// as, what it cost, and every token count it is made of. A response that
-/// said less is a response whose spend is unknown, and it has no billing
-/// rather than a partial one -- a partial bill would be summed as if whole.
+/// said less has no billing rather than a partial one.
+///
+/// **Nothing adds it up any more**: the local usage ledger that recorded each
+/// request's bill is retired (US-U5), as fx v0.0.16 retired its own
+/// (`a41fc2d4`). What is still read of it is the cache counts, which only a
+/// bill carries here -- a compaction's notes request traces them
+/// (`crate::agent::compact`), where upstream reads them off its usage
+/// (`text_completion.zig:271-273@481104fd`); moving them onto [`Usage`] is
+/// the later token-totals unit's (U7).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Billing {
     /// When the provider billed it, milliseconds since the epoch.
@@ -961,31 +968,6 @@ pub struct Billing {
     pub cache_write_tokens: u64,
     /// Part of `output_tokens`, when the provider said.
     pub reasoning_tokens: Option<u64>,
-}
-
-/// What is known of a response's bill.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Bill {
-    /// The stream said all of it ([`Billing`]).
-    Exact(Billing),
-    /// The stream named its generation and said nothing of what it cost:
-    /// upstream's `.deferred` usage (`gatewayUsageOutcome`,
-    /// `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:650-660`), whose bill
-    /// the Gateway is asked for later, by that id ([`crate::gateway::generation`]).
-    Deferred(Deferred),
-}
-
-/// A generation whose bill is still to be asked for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Deferred {
-    /// The Gateway's id for it (`gen_…`).
-    pub generation_id: String,
-    /// Where it was made, and so where to ask -- the scheme and authority of
-    /// the endpoint the request went to, as upstream records the `scope` of a
-    /// deferred reference at request time (`gatewayUsageReference`,
-    /// `gateway.zig:668-686`). Empty when the decoder was not told, which is
-    /// no origin a lookup trusts ([`crate::gateway::is_trusted_generation_origin`]).
-    pub origin: String,
 }
 
 /// One completed model response.
@@ -1015,10 +997,9 @@ pub struct Completion {
     /// provider it *asked*, the decoder knows which wire actually answered, and
     /// the second is the one a replay contract is written against.
     pub wire: Wire,
-    /// What the response cost, when the provider accounted for it, or the
-    /// generation to ask about it ([`Bill`]). `None` is "unknown", never
-    /// "free".
-    pub billing: Option<Bill>,
+    /// What the response cost, when the provider accounted for all of it
+    /// ([`Billing`]). `None` is "unknown", never "free".
+    pub billing: Option<Billing>,
     /// The tier the Gateway says it served the response at, from the finish
     /// event's `providerMetadata.gateway.serviceTier` (`parseSseServiceTier`,
     /// `client.zig:3451-3463`). `None` is "not confirmed" -- absent, unknown,

@@ -384,7 +384,6 @@ mod tests {
             last_event_seq: 0,
             renamed: None,
             turn_settings: None,
-            usage: crate::session::RecordedUsage::default(),
             checkpoint: None,
         };
         let replay = Hydration::of(&state, None);
