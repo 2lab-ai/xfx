@@ -3603,6 +3603,11 @@ impl Shell {
         self.abandoned.clear();
         self.raw_gap = false;
         self.prompts.clear();
+        // A landed fork's prompt held under a search is the replaced
+        // conversation's draft: a resume (the session picker is a search) or
+        // a later fork must not hand it to this one. A fork landing now
+        // holds its own prompt after this ([`Self::forked_into`]).
+        self.fork_prompt_held = None;
         self.tally = Tally::default();
         self.context_used = None;
         self.forget_session_title();
@@ -6914,13 +6919,23 @@ impl Shell {
     /// The draft `C-p` lent out, back in the composer in place of whatever
     /// the flow left there (`restoreModelPickerDraft`,
     /// `app_input_runtime.zig:2377-2386`), and whether there was one.
+    ///
+    /// Giving it back is no edit of the user's, so a fork's prompt still on
+    /// its way or held under the menu is kept through it: an edit in the
+    /// menu's search has already dropped it ([`Self::amended`]), and a draft
+    /// given back non-empty is the user's text, which
+    /// [`Self::settle_fork_prompt`] leaves alone.
     fn give_back_model_draft(&mut self) -> bool {
         let Some(lent) = self.model_draft.take() else {
             return false;
         };
+        let prompt = self.fork_prompt.take();
+        let held = self.fork_prompt_held.take();
         self.take_draft();
         self.editor.give_back(lent);
         self.amended(None);
+        self.fork_prompt = prompt;
+        self.fork_prompt_held = held;
         true
     }
 
@@ -42541,35 +42556,49 @@ mod tests {
     }
 
     #[test]
-    fn a_fork_that_lands_under_the_mcp_menu_keeps_its_prompt_out_of_the_filter() {
-        // The fork is the runtime's, so `/mcp` can open between the Enter that
-        // chose it and the fork landing: recalled and sent, as any command
-        // can. The menu's filter is the composer, and Escape clears it; the
-        // prompt the fork hands back is the composer's draft
+    fn a_fork_that_lands_under_a_search_keeps_its_prompt_out_of_it() {
+        // The fork is the runtime's, so a surface whose search is the
+        // composer can open between the Enter that chose it and the fork
+        // landing: recalled and sent, as any command can. Escape clears the
+        // search; the prompt the fork hands back is the composer's draft
         // (`submitForkMenuSelection`'s `replace`,
-        // `app_input_runtime.zig:1686@481104fd`), not a filter. So it waits
-        // for the menu to close -- and the catalog's search the same way.
-        for (command, open) in [
-            (
-                "/mcp",
-                (|shell: &Shell| shell.mcp_menu.is_some()) as fn(&Shell) -> bool,
-            ),
-            ("/help", |shell: &Shell| shell.help_menu.is_some()),
-        ] {
-            let mut shell = fork_landed_under(command, open);
+        // `app_input_runtime.zig:1686@481104fd`), not a search. So it waits
+        // for the surface to close -- every one [`Shell::composer_searched`]
+        // names.
+        let surfaces: [(&str, IsOpen); 6] = [
+            ("/mcp", |shell| shell.mcp_menu.is_some()),
+            ("/help", |shell| shell.help_menu.is_some()),
+            ("/settings", |shell| shell.settings_menu.is_some()),
+            ("/model", |shell| shell.model_menu.is_some()),
+            ("/resume", |shell| shell.sessions.is_some()),
+            ("/skills", |shell| {
+                shell
+                    .skills_menu
+                    .as_ref()
+                    .is_some_and(|menu| !menu.origin().is_mention())
+            }),
+        ];
+        for (command, open) in surfaces {
+            // A fixture with skills, so `/skills` has a list to search.
+            let mut skilled = skilled();
+            let shell: &mut Fixture = &mut skilled;
+            land_fork_under(shell, command, open);
             assert_eq!(
                 shell.editor.text(),
                 "",
                 "{command}: the fork's prompt went into the search"
             );
-            escape(&mut shell);
-            assert!(!open(&shell), "{command}: Escape left it up");
+            escape(shell);
+            assert!(!open(shell), "{command}: Escape left it up");
             assert_eq!(
                 shell.editor.text(),
                 "second prompt beta",
                 "{command}: the prompt did not come back once it closed"
             );
-            assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{command}: the prompt was sent"
+            );
         }
         // A search typed into after the fork landed is an edit, as one
         // before it is: the prompt is left out.
@@ -42580,28 +42609,186 @@ mod tests {
         assert_eq!(shell.editor.text(), "");
     }
 
-    /// `command` run once and closed, then a fork chosen, `command` recalled
-    /// and sent while the fork is on its way, and the fork landed under the
-    /// surface it opened (`open`).
-    fn fork_landed_under(command: &str, open: fn(&Shell) -> bool) -> Fixture {
+    #[test]
+    fn a_key_read_with_the_close_of_a_search_lands_after_the_forks_prompt() {
+        // The prompt comes back before the next key of the same read, as a
+        // C-p draft does (`settleModelPickerDraft`, after every input): a
+        // Ctrl-C that closes `/mcp`'s menu and a letter read with it type the
+        // letter after the prompt, not into an empty composer that would drop
+        // it.
+        let mut shell = fork_landed_under("/mcp", |shell| shell.mcp_menu.is_some());
+        shell.consume(
+            vec![Input::Action(Action::Cancel), Input::Text('x')],
+            Instant::now(),
+        );
+        assert!(shell.mcp_menu.is_none());
+        assert_eq!(shell.editor.text(), "second prompt betax");
+    }
+
+    #[test]
+    fn a_held_forks_prompt_never_replaces_text_and_a_reset_drops_it() {
+        // Once no search has the composer, the prompt goes only into an
+        // empty one. A line recalled while the fork is on its way (a recall
+        // is no edit) and lent to C-p's model menu comes back when the menu
+        // closes: it is the user's draft, and the prompt is left out rather
+        // than written over it.
         let mut shell = shell(40, 120);
-        shell.route_bytes(format!("{command}\r").as_bytes());
-        assert!(open(&shell), "{command} opened nothing");
-        escape(&mut shell);
-        assert!(!open(&shell));
+        shell.route_bytes(b"/version\r");
+        let _ = shell.document();
         forked_menu(&mut shell, three_points());
         shell.route_bytes(b"\x1b[A\r");
         assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
         shell.work.give_back();
-        recall_until(&mut shell, command);
-        shell.route_bytes(b"\r");
-        assert!(open(&shell), "the recalled {command} opened nothing");
+        recall_until(&mut shell, "/version");
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_some(), "C-p opened no model menu");
         shell.apply(UiEvent::Forked {
             replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
             source: "1793751392050-7d3ce346fd20313d".to_string(),
         });
-        assert!(open(&shell), "the fork closed {command}");
+        assert_eq!(shell.editor.text(), "", "the prompt went into the search");
+        escape(&mut shell);
+        assert!(shell.model_menu.is_none());
+        assert_eq!(
+            shell.editor.text(),
+            "/version",
+            "the prompt replaced the draft"
+        );
+        assert!(shell.fork_prompt_held.is_none());
+        // A reset drops a held prompt with the conversation it was about.
+        let mut shell = fork_landed_under("/mcp", |shell| shell.mcp_menu.is_some());
+        shell.reset_session();
+        shell.mcp_menu = None;
+        shell.settle_fork_prompt();
+        assert_eq!(shell.editor.text(), "");
+    }
+
+    /// Whether a surface a case opens is up.
+    type IsOpen = fn(&Shell) -> bool;
+
+    /// `command` run once and closed, then a fork chosen, `command` recalled
+    /// and sent while the fork is on its way, and the fork landed under the
+    /// surface it opened (`open`).
+    fn fork_landed_under(command: &str, open: IsOpen) -> Fixture {
+        let mut shell = shell(40, 120);
+        land_fork_under(&mut shell, command, open);
         shell
+    }
+
+    /// [`fork_landed_under`], over a fixture of the case's own.
+    fn land_fork_under(shell: &mut Fixture, command: &str, open: IsOpen) {
+        // `/skills` opens its menu once the list it asked for lands.
+        let landed = |shell: &mut Fixture| {
+            if command == "/skills" {
+                skills_landed(shell);
+            }
+        };
+        shell.route_bytes(format!("{command}\r").as_bytes());
+        landed(shell);
+        assert!(open(shell), "{command} opened nothing");
+        taken_up(shell);
+        escape(shell);
+        assert!(!open(shell));
+        forked_menu(shell, three_points());
+        shell.route_bytes(b"\x1b[A\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
+        shell.work.give_back();
+        recall_until(shell, command);
+        shell.route_bytes(b"\r");
+        landed(shell);
+        assert!(open(shell), "the recalled {command} opened nothing");
+        taken_up(shell);
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
+            source: "1793751392050-7d3ce346fd20313d".to_string(),
+        });
+        assert!(open(shell), "the fork closed {command}");
+    }
+
+    #[test]
+    fn a_ctrl_p_model_menu_opened_and_closed_with_no_edit_keeps_the_forks_prompt() {
+        // C-p needs no line, so it opens the model menu while a fork is on
+        // its way, lending the draft -- empty -- to the menu
+        // (`openModelPickerShortcut`, `app_input_runtime.zig:2356-2375`).
+        // Giving it back is no edit of the user's: the fork's prompt, landed
+        // under the menu or after it, comes back once the composer is free.
+        for lands_under_the_menu in [true, false] {
+            let mut shell = shell(40, 120);
+            forked_menu(&mut shell, three_points());
+            shell.route_bytes(b"\x1b[A\r");
+            assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
+            shell.work.give_back();
+            shell.route_bytes(&[0x10]);
+            assert!(shell.model_menu.is_some(), "C-p opened no model menu");
+            let forked = || UiEvent::Forked {
+                replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
+                source: "1793751392050-7d3ce346fd20313d".to_string(),
+            };
+            if lands_under_the_menu {
+                shell.apply(forked());
+                assert_eq!(shell.editor.text(), "", "the prompt went into the search");
+            }
+            escape(&mut shell);
+            assert!(shell.model_menu.is_none());
+            if !lands_under_the_menu {
+                shell.apply(forked());
+            }
+            assert_eq!(
+                shell.editor.text(),
+                "second prompt beta",
+                "landed under the menu: {lands_under_the_menu}"
+            );
+            assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        }
+    }
+
+    /// Whatever opening a surface handed the runtime (`/resume`'s listing),
+    /// taken up and its place given back.
+    fn taken_up(shell: &mut Fixture) {
+        while shell.sent.try_recv().is_ok() {
+            shell.work.give_back();
+        }
+    }
+
+    #[test]
+    fn a_fork_prompt_held_under_the_session_picker_does_not_follow_a_resume_into_another_session() {
+        // `/resume` recalled and sent while the fork is on its way: the picker
+        // opens, the fork lands under it and its prompt is held. The user
+        // then resumes another session. The prompt is the forked
+        // conversation's, so it never becomes the resumed session's draft --
+        // not when the resume lands, and not on the tick after it.
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = fork_landed_under("/resume", |shell| shell.sessions.is_some());
+        let session = |id: &str, title: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(title.to_string()),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![
+                session("b", "second question beta"),
+                session("a", "first question alpha"),
+            ],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        shell.route_bytes(b"\x1b[B\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("a".to_string()));
+        shell.work.give_back();
+        shell.apply(UiEvent::Resumed(replay(
+            Some("first question alpha"),
+            Vec::new(),
+        )));
+        assert!(shell.sessions.is_none());
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the forked conversation's prompt became the resumed session's draft"
+        );
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
     }
 
     #[test]
