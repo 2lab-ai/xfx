@@ -114,6 +114,10 @@ Both engines' findings (`.../p5/MCP-C/reviews/gpt6.md`, opus's in the brief):
 | the profile's 0600 after an edit was unpinned | test | `Some(plain.mode)` for the profile: `from 644` fails | `a_profile_is_owner_only_after_an_edit_whatever_mode_it_had` (0644 and 0666 before) |
 | an `O_NONBLOCK` revert would hang the FIFO tests | both run on a thread with `recv_timeout(10 s)`, a blocked read let go by a writer; the swap now also lands between the first look and the open, where only `O_NONBLOCK` keeps the open from waiting | `O_NONBLOCK` removed: `the read blocked on … for 10 s`, exit 101 in 13 s | `a_config_swapped_for_a_fifo_…`, `a_fifo_where_a_config_should_be_…` |
 
+## MCP-Cd: the test helper
+
+`within_seconds` (test-only) now resumes a read's own panic on `Disconnected`, releases a blocked read with an `O_NONBLOCK` writer (`ENXIO` with no reader, never a wait), keeps that writer open until the read answers, and joins the thread, or names it in the failure when it still runs. RED on the old helper, each run in its own process group under `timeout -s KILL 20`: `a_read_that_panics_fails_its_test_at_once_with_its_own_panic` and `a_slow_read_with_no_reader_on_the_fifo_does_not_block_the_release` killed at 20 s (exit 137); GREEN in 1 s and 2 s, with `a_read_blocked_on_the_fifo_is_let_go_joined_and_reported`. The release without `O_NONBLOCK` hangs again (killed at 20 s).
+
 ## For other units
 
 - MCP-V: print `Couldn't add X to FILE: <EditError::why()>`; refuse `--header Authorization=…` with `--project` before `update` (xfx's reader skips such a `.mcp.json` entry); delete `render_profile` / `add_profile_server` / `remove_profile_server` once the verbs call `update`.

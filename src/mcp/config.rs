@@ -3958,24 +3958,142 @@ mod tests {
 
     /// `read` on a thread of its own, its answer within `seconds`, or the
     /// test fails -- rather than hangs, when a read blocks on the FIFO at
-    /// `fifo`. A blocked read is let go by opening the FIFO for writing.
+    /// `fifo`. A read that panics fails the test with its own panic, at once.
+    /// One past its time is let go by opening the FIFO for writing without
+    /// blocking (no reader there is `ENXIO`, not a wait), given `seconds`
+    /// more, and joined; one still running then is named in the failure, the
+    /// only way a thread that never returns can be accounted for.
     #[cfg(unix)]
     fn within_seconds<T: Send + 'static>(
         fifo: &Path,
         seconds: u64,
         read: impl FnOnce() -> T + Send + 'static,
     ) -> T {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc::RecvTimeoutError;
         let (sent, answer) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        let worker = std::thread::spawn(move || {
             let _ = sent.send(read());
         });
-        match answer.recv_timeout(Duration::from_secs(seconds)) {
-            Ok(answer) => answer,
-            Err(_) => {
-                let _ = fs::OpenOptions::new().write(true).open(fifo);
-                panic!("the read blocked on {fifo:?} for {seconds} s");
+        let wait = Duration::from_secs(seconds);
+        match answer.recv_timeout(wait) {
+            Ok(answer) => {
+                let _ = worker.join();
+                answer
+            }
+            // The answer is gone because the thread is: it panicked.
+            Err(RecvTimeoutError::Disconnected) => match worker.join() {
+                Err(panic) => std::panic::resume_unwind(panic),
+                Ok(()) => panic!("the read ended without an answer"),
+            },
+            Err(RecvTimeoutError::Timeout) => {
+                // Held until the read has answered: a reader woken by a
+                // writer that is already gone may go back to waiting.
+                let release = fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(fifo);
+                let let_go = answer.recv_timeout(wait).is_ok();
+                drop(release);
+                if let_go {
+                    let _ = worker.join();
+                    panic!("the read blocked on {fifo:?} for {seconds} s");
+                }
+                panic!(
+                    "the read blocked on {fifo:?} for {seconds} s, and was still running \
+                     {seconds} s after it was let go: its thread is left behind"
+                );
             }
         }
+    }
+
+    /// A payload's text, when a panic carried one.
+    fn panic_text(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
+        payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_that_panics_fails_its_test_at_once_with_its_own_panic() {
+        // The read made the FIFO and then panicked: the answer is gone, and
+        // no reader will ever open it. The test fails now, with that panic.
+        let dir = tempfile::tempdir().expect("dir");
+        let fifo = dir.path().join("fifo");
+        let started = std::time::Instant::now();
+        let caught = std::panic::catch_unwind(|| {
+            within_seconds(&fifo, 10, {
+                let fifo = fifo.clone();
+                move || -> () {
+                    make_fifo(&fifo);
+                    panic!("the read's own panic");
+                }
+            })
+        });
+        let payload = caught.expect_err("the read's panic reaches the test");
+        assert_eq!(panic_text(&*payload), Some("the read's own panic"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_blocked_on_the_fifo_is_let_go_joined_and_reported() {
+        let dir = tempfile::tempdir().expect("dir");
+        let fifo = dir.path().join("fifo");
+        make_fifo(&fifo);
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let caught = std::panic::catch_unwind(|| {
+            within_seconds(&fifo, 1, {
+                let (fifo, done) = (fifo.clone(), std::sync::Arc::clone(&done));
+                move || {
+                    // A blocking open: it waits for a writer.
+                    let opened = fs::File::open(&fifo).is_ok();
+                    done.store(true, std::sync::atomic::Ordering::SeqCst);
+                    opened
+                }
+            })
+        });
+        let payload = caught.expect_err("a blocked read fails its test");
+        assert!(
+            panic_text(&*payload).is_some_and(|text| text.contains("blocked")),
+            "{:?}",
+            panic_text(&*payload)
+        );
+        // Let go, and joined before the helper returned.
+        assert!(done.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_read_with_no_reader_on_the_fifo_does_not_block_the_release() {
+        // Nothing has the FIFO open: a release that waited for a reader would
+        // wait for ever. It doesn't, and the read is still accounted for.
+        let dir = tempfile::tempdir().expect("dir");
+        let fifo = dir.path().join("fifo");
+        make_fifo(&fifo);
+        let started = std::time::Instant::now();
+        let caught = std::panic::catch_unwind(|| {
+            within_seconds(&fifo, 1, || {
+                std::thread::sleep(Duration::from_millis(1_500))
+            })
+        });
+        let payload = caught.expect_err("a read past its time fails its test");
+        assert!(
+            panic_text(&*payload).is_some_and(|text| text.contains("blocked")),
+            "{:?}",
+            panic_text(&*payload)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     /// The paths [`read_bounded_then`] reached its open with.
