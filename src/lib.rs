@@ -18,7 +18,7 @@
 //! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`session`]: the durable event log, its published boundary, and resume
-//! - [`usage`]: what xfx itself has spent, added up by window for `/usage`
+//! - [`usage`]: what the provider says the account has spent, for `/usage`
 //! - [`interactive`]: the line-oriented shell a bare `xfx` runs
 //! - [`trace`]: `/trace`'s private diagnostic report, for both shells
 //! - [`tui`]: the opt-in raw-mode shell `XFX_TUI=1` runs in its place

@@ -1,0 +1,40 @@
+* session resumed: first question
+
+┃ first question
+
+  First answer, billed later.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second answer, billed later.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

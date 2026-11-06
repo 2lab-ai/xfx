@@ -1,0 +1,24 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: session: on
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+

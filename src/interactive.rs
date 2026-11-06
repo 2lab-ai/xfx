@@ -249,12 +249,11 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
     SlashSpec {
         command: Slash::Usage,
         name: "/usage",
-        // Upstream's own alias for the same command
-        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:474`).
-        aliases: &["/cost"],
-        // Upstream's sentence with this product's name in it (`:474`): what
-        // it shows is what xfx itself spent.
-        summary: "show local xfx tokens, models, and spend",
+        // Upstream's row (`vercel-labs/fx@481104fd src/builtins/commands.zig:454`):
+        // no alias since v0.0.16 dropped `/cost`, which is an unknown command
+        // now, and the help entry is the bare name.
+        aliases: &[],
+        summary: "show your provider's usage and spend",
         category: "Account",
         has_args: false,
     },
@@ -904,9 +903,9 @@ pub enum Slash {
     /// What the terminal writer has done this session: upstream's five render
     /// counters.
     Stats,
-    /// What xfx itself has spent -- tokens, requests and the provider's own
-    /// cost, by model -- over the last 30 days, 7 days, 24 hours or this
-    /// session ([`crate::usage`]).
+    /// What the provider reports this sign-in spent -- AI Gateway's usage
+    /// reports, by model, today, over 7 days and this month
+    /// ([`crate::usage::dashboard`]).
     Usage,
     /// What the Gateway account has left ([`crate::credits`]).
     Credits,
@@ -3357,8 +3356,8 @@ mod tests {
             ),
             (
                 "/usage",
-                &["/cost"][..],
-                "show local xfx tokens, models, and spend",
+                &[][..],
+                "show your provider's usage and spend",
                 "Account",
                 false
             )
@@ -3380,23 +3379,29 @@ mod tests {
                 false
             )
         );
-        for (alias, command) in [("/cost", Slash::Usage), ("/balance", Slash::Credits)] {
-            assert_eq!(
-                classify(alias),
-                Submitted::Command {
-                    command,
-                    argument: String::new()
-                }
-            );
-            assert!(!SLASH_COMMANDS.contains(&alias), "{alias}");
-        }
+        // v0.0.16 dropped `/cost` (`commands.zig:454@481104fd`): typed, it is
+        // an unknown command.
+        assert_eq!(
+            classify("/cost"),
+            Submitted::UnknownCommand {
+                token: "/cost".to_string()
+            }
+        );
+        assert_eq!(
+            classify("/balance"),
+            Submitted::Command {
+                command: Slash::Credits,
+                argument: String::new()
+            }
+        );
+        assert!(!SLASH_COMMANDS.contains(&"/balance"));
         // Upstream's order: `/copy` before `/credits` before `/statusline`
         // (`commands.zig:484-494`).
         let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
         assert!(at("/copy") < at("/credits") && at("/credits") < at("/statusline"));
         let help = help_text();
         assert!(
-            help.contains("(also /cost)") && help.contains("(also /balance)"),
+            !help.contains("/cost") && help.contains("(also /balance)"),
             "{help}"
         );
     }
