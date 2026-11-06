@@ -30,22 +30,27 @@
 //!
 //! These requests carry the Gateway key, so:
 //!
-//! - **Nothing is requested unless the dashboard is open.** Building one asks
-//!   nothing; [`Dashboard::tick`] and [`Dashboard::refresh`] ask nothing while
-//!   it is closed, and nothing at all after [`Dashboard::quit`].
-//! - **Closing cancels the fetch in flight**, and so do quitting, a sign-in
-//!   switch and an unavailable sign-in. fx's `close` leaves the fetch running
-//!   and stores its answer (`usage.zig:300-304`); fx's switch lets the old
-//!   sign-in's fetch finish and caches it for its own identity (`:596-601`).
-//!   Here the old key's fetch stops at once and its answer is never stored or
-//!   shown.
-//! - **A stale answer never wins, by ownership.** The dashboard holds at most
-//!   one fetch and is the only reader of its answer; closing, a switch and
-//!   quitting let go of it, and the worker stores only if it is admitted
-//!   first -- one compare-and-swap that the retiring side races for. An answer
-//!   that loses is dropped. fx's generation counter is a redraw counter, kept
-//!   as one ([`Dashboard::generation`]); fx's stale guard is the identity
-//!   compare in `finishJob` (`:589,605`), which this replaces.
+//! - **Nothing new is requested unless the dashboard is open.** Building one
+//!   asks nothing; [`Dashboard::tick`] and [`Dashboard::refresh`] start
+//!   nothing while it is closed, and nothing at all after
+//!   [`Dashboard::quit`]. Closing does not cancel the fetch in flight, as in
+//!   fx (`usage.zig:300-304`): it finishes and stores its answer under its own
+//!   sign-in, so reopening within the floor shows fresh numbers from the
+//!   cache.
+//! - **A sign-in switch, an unavailable sign-in and quitting cancel the fetch
+//!   in flight**, and its answer is never stored or shown. fx's switch lets the
+//!   old sign-in's fetch finish and caches it for its own identity
+//!   (`:596-601`). Here the old key's fetch stops at once. The dashboard holds
+//!   at most one fetch; retiring it and the worker's store race for one
+//!   compare-and-swap, and an answer that loses is dropped.
+//! - **An answer from a closed or older generation is never shown.** Each
+//!   fetch carries the generation it started in; closing, a switch, an
+//!   unavailable sign-in and quitting start a new one. A fetch that ends in a
+//!   later generation stamps its sign-in's floor, and its answer or failure
+//!   reaches the screen only through the cache, as any other process's would.
+//!   fx's stale guard is the identity compare in `finishJob` (`:589,605`),
+//!   which this replaces. fx's generation counter is a redraw counter, kept as
+//!   one ([`Dashboard::generation`]).
 //! - **The floor is kept per sign-in, across switches.** fx forgets it when
 //!   the sign-in changes (`:465-470`), so switching away and back fetches
 //!   again at once. Here each identity keeps its own [`policy::State`], so
@@ -158,6 +163,8 @@ struct Session {
 /// The one fetch the dashboard holds.
 struct InFlight {
     identity: Identity,
+    /// The dashboard's [`Dashboard::epoch`] when the fetch started.
+    epoch: u64,
     done: Receiver<Done>,
     cancel: CancellationToken,
     admission: Arc<AtomicU8>,
@@ -190,7 +197,11 @@ pub struct Dashboard {
     fetch: Option<InFlight>,
     /// Workers of fetches let go of, until they end.
     retired: Vec<JoinHandle<()>>,
+    /// The redraw counter.
     generation: u64,
+    /// Moves on every close, switch, unavailable sign-in and quit: an answer
+    /// from an earlier epoch is never shown.
+    epoch: u64,
 }
 
 impl std::fmt::Debug for Dashboard {
@@ -225,6 +236,7 @@ impl Dashboard {
             fetch: None,
             retired: Vec::new(),
             generation: 0,
+            epoch: 0,
         }
     }
 
@@ -239,12 +251,15 @@ impl Dashboard {
         if self.quit {
             return;
         }
+        // A fetch a close left running may have ended since the last pass.
+        self.settle();
         self.open = true;
         let identity = question.identity();
         let same = self.session.as_ref().is_some_and(|held| {
             held.identity == identity && held.question.origin() == question.origin()
         });
         if !same {
+            self.epoch += 1;
             self.retire_fetch();
             self.entry = self
                 .home
@@ -265,7 +280,9 @@ impl Dashboard {
         if self.quit {
             return;
         }
+        self.settle();
         self.open = true;
+        self.epoch += 1;
         self.retire_fetch();
         self.session = None;
         self.entry = None;
@@ -275,15 +292,18 @@ impl Dashboard {
     }
 
     /// Esc, or anything else that takes the dashboard away (`close`,
-    /// `usage.zig:300-304`). Cancels the fetch in flight.
+    /// `usage.zig:300-304`). The fetch in flight runs on and stores its answer
+    /// under its own sign-in; nothing new starts, and its answer is not shown
+    /// but through the cache.
     pub fn close(&mut self) {
         self.open = false;
-        self.retire_fetch();
+        self.epoch += 1;
     }
 
     /// `r` (`refresh`, `usage.zig:306-313`): fetches unless a fetch is in
     /// flight. Returns whether one started.
     pub fn refresh(&mut self) -> bool {
+        self.settle();
         let started = self.maybe_start(Trigger::Manual);
         if started {
             self.bump();
@@ -313,6 +333,7 @@ impl Dashboard {
         }
         self.quit = true;
         self.open = false;
+        self.epoch += 1;
         self.retire_fetch();
         self.session = None;
         let deadline = Instant::now() + QUIT_WAIT;
@@ -361,6 +382,8 @@ impl Dashboard {
         let status = if let Some(reason) = self.unavailable {
             Status::Unavailable(reason)
         } else if self.fetch.is_some() {
+            // A fetch a close left running is still this sign-in's: no other
+            // starts beside it.
             Status::Fetching
         } else if let Some(failure) = self.failure {
             Status::Failed(failure)
@@ -444,6 +467,7 @@ impl Dashboard {
                 self.stamp(identity, now, |state| state.last_start_ms = Some(now));
                 self.fetch = Some(InFlight {
                     identity,
+                    epoch: self.epoch,
                     done: receive,
                     cancel,
                     admission,
@@ -466,7 +490,8 @@ impl Dashboard {
     }
 
     /// Takes in the held fetch's end, if it has ended (`finishJob`,
-    /// `usage.zig:582-615`).
+    /// `usage.zig:582-615`): its sign-in's floor always, and what it shows only
+    /// when it ended in the generation it started in.
     fn settle(&mut self) {
         let Some(fetch) = self.fetch.as_ref() else {
             return;
@@ -477,25 +502,34 @@ impl Dashboard {
             Err(TryRecvError::Disconnected) => Done::Failed(Failure::Network),
         };
         let Some(InFlight {
-            identity, worker, ..
+            identity,
+            epoch,
+            worker,
+            ..
         }) = self.fetch.take()
         else {
             return;
         };
         self.retired.push(worker);
         let now = self.now_ms();
+        let current = epoch == self.epoch;
         match done {
             Done::Kept(kept) => {
                 self.stamp(identity, now, |state| state.failed_at_ms = None);
-                self.failure = None;
-                // What the worker kept already holds what the dashboard held
-                // and what the file held at the store, and is an entry the
-                // cache reads; the next snapshot merges anything newer.
-                self.entry = Some(kept);
+                if current {
+                    self.failure = None;
+                    // What the worker kept already holds what the dashboard
+                    // held and what the file held at the store, and is an
+                    // entry the cache reads; the next snapshot merges anything
+                    // newer.
+                    self.entry = Some(kept);
+                }
             }
             Done::Failed(failure) => {
                 self.stamp(identity, now, |state| state.failed_at_ms = Some(now));
-                self.failure = Some(failure);
+                if current {
+                    self.failure = Some(failure);
+                }
             }
             Done::Dropped => {}
         }

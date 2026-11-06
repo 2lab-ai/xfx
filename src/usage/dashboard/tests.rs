@@ -996,9 +996,11 @@ fn nothing_is_requested_while_the_dashboard_is_closed() {
 }
 
 #[test]
-fn close_cancels_the_fetch_in_flight_and_its_worker_ends() {
-    // S1: the request held at the Gateway is dropped by the client, and the
-    // worker thread ends, within a bound.
+fn a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new() {
+    // S1, US-U3b: fx's `close` leaves the fetch in flight
+    // (`usage.zig:300-304@481104fd`). It finishes, every range asked, and
+    // stores under its own sign-in; the closed dashboard asks nothing new,
+    // and reopening within the floor shows its numbers from the cache.
     let rig = rig();
     let mut dashboard = rig.dashboard();
     rig.gateway.hold(true);
@@ -1010,14 +1012,40 @@ fn close_cancels_the_fetch_in_flight_and_its_worker_ends() {
         closed.elapsed() < Duration::from_millis(100),
         "close does not wait"
     );
-    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
-    assert!(rig.gateway.hung_up(0));
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        !rig.gateway.seen()[0].hung_up.load(Ordering::SeqCst),
+        "close dropped the request"
+    );
     rig.gateway.hold(false);
-    dashboard.tick();
+    rig.gateway.wait_for(3);
+    assert!(rig.workers.all_ended_within(Duration::from_secs(5)));
+    assert!(
+        rig.cached(KEY_A)
+            .is_some_and(|file| file.contains("vendor-a/m-opus")),
+        "the answer is stored under its own sign-in"
+    );
+
+    // Reopened within the floor, before any pass: no new request, the
+    // finished fetch is no longer in flight, and its numbers are shown.
+    dashboard.open(rig.question(KEY_A));
+    let shown = dashboard.snapshot();
+    assert_eq!(shown.status, Status::Ready);
+    assert_eq!(shown.fetched_at_ms(), Some(NOW));
+    approx(shown.of(Period::Days7).totals.total_cost, 43.0);
+    assert_eq!(rig.workers.fetches(), 1);
+
+    // Closed again: passes, `r` and snapshots past the timer ask nothing.
+    dashboard.close();
+    for _ in 0..50 {
+        rig.clock.advance(policy::TIMER_MS);
+        dashboard.tick();
+        assert!(!dashboard.refresh());
+        let _ = dashboard.snapshot();
+    }
     std::thread::sleep(Duration::from_millis(100));
-    // The week and the month were never asked, and nothing was kept.
-    assert_eq!(rig.gateway.count(), 1);
-    assert!(rig.cached(KEY_A).is_none());
+    assert_eq!(rig.workers.fetches(), 1);
+    assert_eq!(rig.gateway.count(), 3);
 }
 
 #[test]
@@ -1060,10 +1088,12 @@ fn quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it() {
 }
 
 #[test]
-fn no_sign_in_is_asked_more_than_once_a_floor_by_opening_or_the_timer() {
-    // S2: however fast `r` and passes arrive while a fetch is in flight, one
-    // fetch; reopening inside the floor, from this sign-in or after another,
-    // fetches nothing.
+fn the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight() {
+    // S2: the 60 s floor per sign-in binds opening and the timer; `r` is held
+    // only by a fetch in flight. However fast `r` and passes arrive while a
+    // fetch is in flight, one fetch; reopening inside the floor, from this
+    // sign-in or after another, fetches nothing; after the fetch ends, `r`
+    // fetches again at once.
     let rig = rig();
     let mut dashboard = rig.dashboard();
     rig.gateway.hold(true);
@@ -1207,74 +1237,91 @@ fn the_timer_refreshes_only_while_open_and_only_through_the_floor() {
 }
 
 #[test]
-fn a_stale_answer_is_dropped_never_stored_or_shown() {
-    // S4. (a) The answer is in, and the worker is between it and the store
-    // when the dashboard closes: it is not admitted.
-    let rig = rig();
-    let mut dashboard = rig.dashboard();
-    rig.clock.hold_worker.store(true, Ordering::SeqCst);
-    dashboard.open(rig.question(KEY_A));
-    rig.clock.wait_for_held_workers(1);
-    assert_eq!(rig.gateway.count(), 3, "every range was answered");
+fn an_answer_from_a_closed_or_older_generation_is_never_shown() {
+    // S4. (a) Closed mid-fetch, with no cache to keep the answer in: the
+    // fetch ends after the close, and neither the closed dashboard nor the
+    // one reopened since shows it -- not its numbers, not "fetching".
+    let gateway = Gateway::new();
+    let clock = TestClock::at(NOW);
+    let workers = Workers::default();
+    let mut dashboard = Dashboard::new(None, clock.clock(), workers.spawn());
+    gateway.hold(true);
+    dashboard.open(question_at(&gateway.origin, KEY_A));
+    gateway.wait_for(1);
     dashboard.close();
-    rig.clock.hold_worker.store(false, Ordering::SeqCst);
-    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
+    gateway.hold(false);
+    assert!(workers.all_ended_within(Duration::from_secs(5)));
+    assert_eq!(gateway.count(), 3, "the fetch ran to its end");
     dashboard.tick();
-    assert!(
-        rig.cached(KEY_A).is_none(),
-        "the closed dashboard's answer was stored"
-    );
-    dashboard.open(rig.question(KEY_A));
+    assert!(dashboard.fetch.is_none(), "the pass took the end in");
+    assert!(!dashboard.snapshot().of(Period::Today).today_current);
+    dashboard.open(question_at(&gateway.origin, KEY_A));
     let shown = dashboard.snapshot();
-    assert!(!shown.of(Period::Today).today_current, "it was shown");
+    assert!(
+        !shown.of(Period::Today).today_current,
+        "the closed fetch's answer was shown"
+    );
     assert_eq!(shown.status, Status::Ready);
+    assert_eq!(workers.fetches(), 1, "inside the floor");
 
-    // (b) Reopened since: the newer fetch's answer is the one kept, whatever
-    // order the two workers end in.
-    rig.clock.advance(policy::FLOOR_MS);
+    // (b) Reopened while the closed generation's fetch still runs, and it
+    // fails: the failure is not shown, but it holds the floor.
+    let failing = rig();
+    let rig = &failing;
+    let mut dashboard = rig.dashboard();
+    rig.gateway.status(500);
+    rig.gateway.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(1);
+    dashboard.close();
+    dashboard.open(rig.question(KEY_A));
+    assert_eq!(
+        dashboard.snapshot().status,
+        Status::Fetching,
+        "it is still in flight"
+    );
+    rig.gateway.hold(false);
+    wait_for_fetch(&mut dashboard);
+    assert_eq!(
+        dashboard.snapshot().status,
+        Status::Ready,
+        "an older failure was shown"
+    );
+    rig.gateway.status(200);
+    rig.clock.advance(policy::FLOOR_MS - 1);
+    dashboard.close();
+    dashboard.open(rig.question(KEY_A));
+    assert_eq!(rig.workers.fetches(), 1, "the failure holds the floor");
+
+    // (c) An older generation's answer never replaces a newer one in the
+    // cache: this dashboard's fetch, closed and held between its answer and
+    // its store, ends after another process stored a later fetch's today.
+    let racing = super::tests::rig();
+    let rig = &racing;
+    let mut first = rig.dashboard();
     rig.gateway.tag("stale");
     rig.clock.hold_worker.store(true, Ordering::SeqCst);
-    dashboard.close();
-    dashboard.open(rig.question(KEY_A));
-    rig.clock.wait_for_held_workers(2);
-    dashboard.close();
-    rig.clock.advance(policy::FLOOR_MS);
+    first.open(rig.question(KEY_A));
+    rig.clock.wait_for_held_workers(1);
+    first.close();
     rig.gateway.tag("fresh");
-    dashboard.open(rig.question(KEY_A));
-    rig.clock.wait_for_held_workers(3);
+    let second_clock = TestClock::at(NOW + 30 * 1000);
+    let mut second = rig.dashboard_with(&second_clock);
+    second.open(rig.question(KEY_A));
+    wait_for_fetch(&mut second);
+    // The first stores later in wall time, on a clock that agrees: a part
+    // stamped ahead of the storing clock would yield (`cache::merge`).
+    rig.clock.set(NOW + 60 * 1000);
     rig.clock.hold_worker.store(false, Ordering::SeqCst);
-    wait_for_fetch(&mut dashboard);
-    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
-    let file = rig.cached(KEY_A).expect("the fresh answer is stored");
-    assert!(
-        file.contains("fresh-opus") && !file.contains("stale"),
-        "{file}"
-    );
-    let shown = dashboard.snapshot();
+    assert!(rig.workers.all_ended_within(Duration::from_secs(5)));
+    first.tick();
+    let file = rig.cached(KEY_A).expect("a cache file");
+    assert!(file.contains("vendor-a/fresh-opus"), "{file}");
+    first.open(rig.question(KEY_A));
     assert_eq!(
-        models(shown.of(Period::Days7)),
-        ["vendor-a/fresh-opus", "vendor-a/fresh-luna"]
+        models(first.snapshot().of(Period::Today)),
+        ["vendor-a/fresh-opus"]
     );
-
-    // (c) Closed mid-request: the request is dropped, and what the Gateway
-    // answers afterwards reaches nobody.
-    rig.clock.advance(policy::FLOOR_MS);
-    rig.gateway.tag("late");
-    rig.gateway.hold(true);
-    dashboard.close();
-    let before = rig.gateway.count();
-    dashboard.open(rig.question(KEY_A));
-    rig.gateway.wait_for(before + 1);
-    dashboard.close();
-    assert!(rig.gateway.hung_up(before));
-    rig.gateway.hold(false);
-    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
-    dashboard.tick();
-    assert!(!rig.cached(KEY_A).expect("the fresh file").contains("late"));
-    dashboard.open(rig.question(KEY_A));
-    assert!(models(dashboard.snapshot().of(Period::Today))
-        .iter()
-        .all(|model| !model.contains("late")));
 }
 
 #[test]

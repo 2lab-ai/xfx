@@ -76,21 +76,30 @@ shell calls `quit()`.
   fetch from memory, merged with what can still be read (`unsaved`,
   `:713-723`). The store's fsync and lock wait stay off the UI thread, as in
   fx.
-- **The generation counter is fx's: a redraw counter** (`usage.zig:243-245`,
-  `collectUsageDashboardFacts`), bumped on every change the screen should
-  show; `redraw_due` is "it moved, or the minute turned". It is not the stale
-  guard (next item), and nothing compares answers by it.
-- **The stale guard is ownership plus one compare-and-swap.** The dashboard
-  holds at most one fetch. A switch, an unavailable sign-in, `close` and
-  `quit` let go of it: they swap its admission flag LIVE -> RETIRED and
-  cancel its token. The worker, once its answer is in, swaps LIVE ->
-  ADMITTED before it stores; if it loses, it drops the answer. **The
-  linearization:** a worker that wins the swap before `close` runs stores
-  *after* `close` returns, under its own identity -- it was the current
-  answer when it was taken. The closed dashboard does not take it in (the
-  fetch it came from is gone); a later open of the same sign-in reads it from
-  the cache, as it would any process's answer. One that loses never stores. fx's own stale guard is
-  the identity compare in `finishJob` (`:589,605`), which this replaces.
+- **Two counters.** `generation()` is fx's redraw counter
+  (`usage.zig:243-245`, `collectUsageDashboardFacts`), bumped on every change
+  the screen should show; `redraw_due` is "it moved, or the minute turned".
+  The private `epoch` is the stale guard's: closing, a switch, an unavailable
+  sign-in and quitting move it, and each fetch carries the epoch it started
+  in.
+- **Close follows fx (US-U3b).** `close` leaves the fetch in flight running
+  (`usage.zig:300-304`): it finishes, stores its answer under its own
+  sign-in, and starts nothing new. Its end is taken in at the next pass,
+  open or `r` -- the floor is stamped, and its answer or failure reaches the
+  screen only through the cache, because it ended in a later epoch. So
+  reopening within the floor shows its fresh numbers, read from the file.
+  With no cache to keep it in, the closed generation's answer is not shown
+  at all.
+- **A switch, an unavailable sign-in and quit cancel.** The dashboard holds
+  at most one fetch. These three let go of it: they swap its admission flag
+  LIVE -> RETIRED and cancel its token. The worker, once its answer is in,
+  swaps LIVE -> ADMITTED before it stores; if it loses, it drops the answer.
+  **The linearization:** a worker that wins the swap just before a switch
+  stores *after* the switch returns, under its own identity -- it was the
+  current answer when it was taken -- and the switched dashboard never shows
+  it: it reads only the new sign-in's file. One that loses never stores.
+  fx's own stale guard is the identity compare in `finishJob` (`:589,605`),
+  which the epoch and the swap replace.
 - **Floors per sign-in.** `HashMap<Identity, policy::State>`: a start stamps
   `last_start_ms`, a failure `failed_at_ms`, a success clears the failure.
   Another sign-in's entry is forgotten once its floor has passed.
@@ -135,10 +144,10 @@ counts and names the worker threads. Every wait is bounded (20 s).
 
 | # | Property | Test(s) |
 |---|---|---|
-| 1 | Nothing is requested unless the dashboard is open; close and quit cancel the fetch in flight and its worker ends within a bound | `nothing_is_requested_until_the_dashboard_opens` (a built dashboard -- what launch would do -- ticked, refreshed and snapshotted 50 times past the timer and midnight: 0 workers, 0 requests), `nothing_is_requested_while_the_dashboard_is_closed` (after a fetch and a close, and under an unavailable sign-in, 100 timer periods of ticks and `r`: no new request), `close_cancels_the_fetch_in_flight_and_its_worker_ends` (an answer held at the Gateway: `close` returns in < 100 ms, the worker ends within 2 s, the Gateway sees the hang-up, the week and month are never asked, nothing is cached), `quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it` (`quit` waits at most 1 s and the worker has ended when it returns; `open`, `r` and `tick` after it ask nothing; dropping a dashboard does the same) |
-| 2 | At most one fetch per sign-in per 60 s by opening or the timer; `r` starts no second fetch while one is in flight | `no_sign_in_is_asked_more_than_once_a_floor_by_opening_or_the_timer` (200 `r` and ticks during one held fetch: one fetch; 20 reopenings inside the floor: none; another key fetches at once, but coming back -- straight or through an unavailable sign-in -- does not; the floor passes at exactly 60 s from the start; `r` after a fetch ends does fetch, as fx), `the_floor_counts_from_a_failure_as_well_as_a_start` (a fetch failing 45 s after it started holds opening until 60 s after the failure), `the_floor_holds_open_and_the_15_minute_timer_never_r` (fx's) |
+| 1 | Nothing new is requested unless the dashboard is open; a fetch started while open may finish after close and store, but starts nothing new; quit cancels and its worker ends within a bound | `nothing_is_requested_until_the_dashboard_opens` (a built dashboard -- what launch would do -- ticked, refreshed and snapshotted 50 times past the timer and midnight: 0 workers, 0 requests), `nothing_is_requested_while_the_dashboard_is_closed` (after a fetch and a close, and under an unavailable sign-in, 100 timer periods of ticks and `r`: no new request), `a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new` (US-U3b: an answer held at the Gateway; `close` returns in < 100 ms and does not drop the request; released, all three ranges are answered and stored under the key's own identity; reopened within the floor: `Ready`, the fresh numbers from the cache, no new fetch; closed again, 50 timer periods of ticks, `r` and snapshots: nothing), `quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it` (`quit` waits at most 1 s and the worker has ended when it returns; the Gateway sees the hang-up; `open`, `r` and `tick` after it ask nothing; dropping a dashboard does the same) |
+| 2 | The 60 s floor per sign-in binds opening and the timer; `r` is held only by a fetch in flight (fx, `policy.zig:8-9,46-53`; decided 2026-11-06) | `the_floor_binds_opening_and_the_timer_and_r_waits_only_for_a_fetch_in_flight` (200 `r` and ticks during one held fetch: one fetch; 20 reopenings inside the floor: none; another key fetches at once, but coming back -- straight or through an unavailable sign-in -- does not; the floor passes at exactly 60 s from the start; `r` after a fetch ends does fetch, as fx), `the_floor_counts_from_a_failure_as_well_as_a_start` (a fetch failing 45 s after it started holds opening until 60 s after the failure), `the_floor_holds_open_and_the_15_minute_timer_never_r` (fx's) |
 | 3 | The 15-minute timer refreshes only while open, and only through the same floor | `the_timer_refreshes_only_while_open_and_only_through_the_floor` (fires at exactly 15 min, not 1 ms before; none beside a fetch in flight through 20 periods; once, not 20 times, when that fetch ends; never while closed). The floor's other halves cannot hold a timer fetch through the dashboard -- it is due a period after the last start, and a failure comes at most one fetch (three 15 s requests) after its start -- so they are pinned by `policy::tests::the_timer_fires_every_15_minutes_while_open_never_while_closed` and, through the dashboard's open, `the_floor_counts_from_a_failure_as_well_as_a_start` |
-| 4 | A stale answer (closed, reopened or switched since) is dropped, never stored or shown | `a_stale_answer_is_dropped_never_stored_or_shown` ((a) every range answered and the worker held between its answer and the store when the dashboard closes: no file, not shown after reopening; (b) reopened since: a retired fetch's worker and the current one's both held at the store, released together: only the current answer is in the file and on screen; (c) closed mid-request: the request is dropped, and what the Gateway answers afterwards reaches neither) |
+| 4 | An answer from a closed or older generation is never shown; one from a switched-away sign-in is never stored either | `an_answer_from_a_closed_or_older_generation_is_never_shown` ((a) closed mid-fetch with no cache: the answer ends after the close and is shown neither by the closed dashboard nor after reopening; (b) reopened while the closed generation's fetch runs, and it fails: `Fetching` while it runs, then `Ready`, not the failure, which still holds the floor; (c) the closed fetch, held between its answer and its store, ends after another process stored a later fetch: the file and the screen keep the later today), and S5's tests for the switch |
 | 5 | A sign-in switch takes effect at once: the old key is never sent after it, and no identity's answer is shown or stored under another's | `a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key` (key A's request held when the key becomes B under an open dashboard: B's cached numbers at once, `Fetching` for B's own fetch, A's request dropped; every request after it carries B; A's answer is cached nowhere and never in B's file; again with A's worker held at the store: not stored; no file holds either key), `the_same_key_to_another_origin_is_another_sign_in` (a Gateway origin change drops the old origin's request; the new origin is asked once the key's floor passes, the old never again), `another_sign_in_never_shows_the_previous_ones_numbers` (fx's) |
 
 ## RED: mutants
@@ -156,7 +165,7 @@ run again at `a72e6cef` and at `d42f07ab`, with the same results.)
 
 | Mutant | Guard removed | Property | Killed by |
 |---|---|---|---|
-| M1 | `close` keeps the fetch (fx's `close`) | S1, S4 | `close_cancels_…` (`:1013`, the worker did not end), `a_stale_answer_…` (`:1223`, the closed dashboard's answer was stored) |
+| M1 | `close` cancels the fetch (US-U3's behaviour, now reverted to fx's) | S1 | MUTANT_M1 |
 | M2 | a switch keeps the old sign-in's fetch | S5 | `a_sign_in_switch_…` (`:1305`, A's request not dropped), `the_same_key_to_another_origin_…` |
 | M3 | no admission swap in the worker | S4, S5 | `a_stale_answer_…` (`:1223`), `a_sign_in_switch_…` (`:1336`, A's answer stored after the switch) |
 | M4 | `quit` keeps the fetch | S1 | `quit_cancels_…` (`:1035`) |
@@ -168,7 +177,9 @@ run again at `a72e6cef` and at `d42f07ab`, with the same results.)
 | M10 | `StoreError::Invalid` shown, not the cache failure | cache failure | `an_answer_the_cache_would_refuse_…` (`:872`) |
 | M11 | `snapshot` does not re-read the cache | cache first | `a_dashboard_reads_what_another_process_stored_since` (`:549`) |
 | M12 | a failure does not stamp the floor | S2 | `the_floor_counts_from_a_failure_…` (`:1148`) |
-| M13 | retiring does not cancel the token | S1, S5 | 6 tests: `close_cancels_…`, `quit_cancels_…`, `a_sign_in_switch_…`, `a_stale_answer_…` (c), the origin and arrive-during tests |
+| M13 | retiring does not cancel the token | S1, S5 | MUTANT_M13 |
+| M15 | an older epoch's outcome is shown | S4 | MUTANT_M15 |
+| M16 | `open` does not take in a fetch that ended while closed | S1 | MUTANT_M16 |
 | M14 | a switch compares the key only, not the origin | S5 | `the_same_key_to_another_origin_…` (`:1362`) |
 
 ## Decisions (reversible, mine)
@@ -190,22 +201,17 @@ run again at `a72e6cef` and at `d42f07ab`, with the same results.)
 - **`quit` waits at most 1 s** for cancelled workers, then lets them go: a
   cancelled fetch ends at its next poll, and quitting must not hang on one.
 
-## Open questions for the user
+## Decided since (US-U3b, the coordinator's call, 2026-11-06)
 
-1. **`r` and the floor.** Property 2 reads "never more than one fetch per
-   sign-in per 60 s, however fast `r` ... arrive". fx (`policy.zig:8-9,46-53`,
-   16dc07ec "Refresh /usage on every r, with a floor per sign-in": the floor holds opening and the timer) and this unit's own scope ("`r`
-   always refreshes, unless a fetch is already in flight") let `r` fetch again
-   as soon as the previous fetch ends. Built: fx's. `r` is held only by a
-   fetch in flight, so its rate is one fetch at a time (at most three
-   requests, each within 15 s). Holding `r` to the floor would be a
-   divergence from fx with no oracle.
-2. **Close cancels, and a cancelled fetch holds the floor** (fx `:612`). So
-   open -> close within a second -> reopen within the minute shows the cache
-   without asking again until `r`; fx, which does not cancel, would have
-   finished and shown fresh numbers. Built: the brief's cancel with fx's
-   floor. Not holding the floor for a cancelled fetch would let open/close
-   repeat a request per open.
+1. **`r` and the floor: fx.** `r` refreshes whenever no fetch is in flight
+   (`policy.zig:8-9`); the 60 s floor binds opening and the timer. The S2
+   test is named for what it proves.
+2. **Close: fx.** `close` does not cancel; the fetch finishes and stores under
+   its own sign-in, and reopening within the floor shows its numbers from the
+   cache. A switch, an unavailable sign-in and quit still cancel. An answer
+   from a closed or older generation is never shown but through the cache.
+   RED on `be9b2318`: `a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new`
+   failed at its first check, `close dropped the request` (`red-u3b.txt`).
 
 ## Gates
 
