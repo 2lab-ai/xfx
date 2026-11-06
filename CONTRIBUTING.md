@@ -54,6 +54,7 @@ cargo build --locked --release --features fault-injection --target-dir target/fa
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
+./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx
 ```
@@ -65,13 +66,32 @@ no allowlist -- prose, an identifier, a fake test literal, and a file name are
 all findings.
 
 `scripts/check-preview-contract.sh` parses `.github/workflows/preview.yml` and
-holds it to what `brew install xfx-preview` needs: the tag and version grammar
-the tap parses, the four native rows and their exact asset names, the gate
-running before the binary it guards, the `preview` stamp, the five published
-files, a prerelease that is not marked latest, an actionlint pin new enough to
-recognize every runner label in the matrix, and a tap push whose freshness
-comparator it extracts and runs rather than reads. It needs `ruby`, which is on
-every CI image, and uses `actionlint` when it is installed.
+holds it to what `brew install xfx-preview` needs: a trigger that is a push to
+`main` changing `.github/preview-epoch` and nothing wider, a preflight gate --
+run here over real commits -- that skips the build and the publication unless
+the push's own diff names that file, that file present as one line naming an
+epic, the tag and version grammar the tap parses, the four native rows and
+their exact asset names, the gate running before the binary it guards, the
+`preview` stamp, the five published files, a prerelease that is not marked
+latest, an actionlint pin new enough to recognize every runner label in the
+matrix, and a tap push whose freshness comparator it extracts and runs rather
+than reads. It needs `ruby` and `git`, which are on every CI image, and uses
+`actionlint` when it is installed. `scripts/test-preview-contract.sh` breaks the
+trigger, the epoch gate, the condition on the jobs behind it, the tap key's
+environment, and the epoch file one at a time in a scratch copy, and fails
+unless the contract check reports each break by name.
+
+The tap is pushed with a deploy key, `TAP_PUSH_KEY`, that can write to
+`2lab-ai/homebrew-tap`. It is not a repository secret: it lives in the
+repository's `preview` environment, whose deployment branch policy is `main`
+only. A job can read it only by naming that environment, and GitHub admits a
+job to it only in a run on `main`, so a workflow pushed on another branch cannot
+read it. The contract check holds `publish` to being the one job that names the
+environment and the one job that reads a secret, and there only as
+`secrets.TAP_PUSH_KEY` in the `env` of a `run` step, never handed to an
+action. Every other workflow is read job by job and fails if it names an
+environment, reads a secret in any form, passes secrets to a reusable
+workflow, or so much as names the key.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway
 on a loopback port -- no credential, no network -- and prints an evidence

@@ -81,6 +81,7 @@ scripts/
   check-no-secrets.sh        # credential shapes, with a positive control
   check-xfx-identity.sh      # the retired local name must not survive, with a positive control
   check-preview-contract.sh  # the preview release's artifact set and naming
+  test-preview-contract.sh   # mutants of the preview trigger and epoch gate, each caught by name
   smoke.sh                   # release binary, end to end, on a fake Gateway and a real pty
 ```
 

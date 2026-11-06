@@ -21,6 +21,29 @@ upstream `fx`.** What is and is not implemented lives in
 
 ### Changed
 
+- **A preview is published per epic, not per push.** A push to `main`
+  publishes only when it changes `.github/preview-epoch`, a one-line file
+  naming the epic the preview closes, so the units of an epic can merge to
+  `main` one PR at a time without each of them reaching the tap. A path filter
+  keeps the workflow from starting on any other push. GitHub runs a filtered
+  workflow anyway for a push of more than 1,000 commits or one whose diff
+  times out, so `preflight` diffs the push's previous commit against the new
+  one itself, and `build` and `publish` are skipped, with the run green,
+  unless that diff names the file. `scripts/check-preview-contract.sh` fails if
+  the filter is dropped or widened, another filter or trigger is added, the
+  gate or the condition on either job is removed, or the file is missing or is
+  not one line; it runs the gate over real commits. The new
+  `scripts/test-preview-contract.sh`, run by CI, breaks each of those in a
+  scratch copy and requires the check to name the break.
+- **The tap key is an environment secret.** `TAP_PUSH_KEY` moved from a
+  repository secret into the `preview` environment, whose deployment branch
+  policy is `main` only, and `publish` names that environment. A workflow
+  pushed on another branch cannot read the key.
+  `scripts/check-preview-contract.sh` fails if `publish` stops naming the
+  environment, if any other job names it or reads a secret, if `publish` holds
+  any secret expression but `secrets.TAP_PUSH_KEY` in a `run` step's `env`, or
+  if another workflow names an environment, reads a secret in any form, passes
+  secrets to a reusable workflow, or mentions the key.
 - **`status` and `doctor` report `provider` where they reported `backend`.**
   The fields are `provider`, `provider_url` and `provider_rejected`, and the
   `doctor` check is named `provider`. The settings key that selects it is still
