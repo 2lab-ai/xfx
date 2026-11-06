@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+──────────────────────────────────────────────────
+usage: API key (AI_…WAY_API_KEY)  updated just now
+
+period        spent  requests  tokens
+today       $0.4735        16    110K
+7d           $23.41       240    5.8M
+month        $23.72       249    5.9M
+
+budget        size       used       avail  use%
+user       $316.00     $65.97     $250.03   21%
+
+  model (month)                spent  requests
+  anthropic/claude-opus-5     $19.21       153
+❯ openai/gpt-5.6               $4.10        64
+  xai/grok-5                 $0.3100         9
+  fake/model-a               $0.1025        23
+──────────────────────────────────────────────────
+↑↓ model  enter detail  tab period  r refresh  esc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

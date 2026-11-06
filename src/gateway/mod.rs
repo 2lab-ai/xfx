@@ -17,7 +17,6 @@
 //! attempts, the transport's retry count is forced to one
 //! (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1169-1172`).
 
-pub mod generation;
 pub mod protocol;
 pub mod sse;
 pub mod tool_call_ids;
@@ -44,32 +43,6 @@ use sse::{SseError, SseReader};
 /// the URL and nothing it sends or reads. xfx already announced specification
 /// version 4 in its headers ([`GatewayProvider`]'s `headers`).
 pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v4/ai/language-model";
-
-/// The origin of [`DEFAULT_CHAT_URL`]: the one remote place a generation's
-/// bill is asked for (`default_gateway_base_url`,
-/// `vercel-labs/fx@c1db9191 src/gateway/client.zig:233`).
-pub const DEFAULT_ORIGIN: &str = "https://ai-gateway.vercel.sh";
-
-/// Whether a generation made at `origin` may be asked about there, with the
-/// credential that made it (`isTrustedGenerationOrigin`, `client.zig:637-640`):
-/// the Gateway's own origin, or plain http on loopback with a port -- a local
-/// test server (`isLoopbackHttpUrl`, `client.zig:2383-2399`).
-///
-/// **Narrower than [`Endpoint`]'s bearer rule**, which takes https anywhere:
-/// upstream asks for a bill only where it would have sent its own default or
-/// its loopback override, so a generation made through any other https host is
-/// one it will not ask about, and neither does xfx.
-pub fn is_trusted_generation_origin(origin: &str) -> bool {
-    if origin == DEFAULT_ORIGIN {
-        return true;
-    }
-    ParsedUrl::parse(origin).is_some_and(|parsed| {
-        parsed.scheme == "http"
-            && !parsed.has_userinfo
-            && parsed.path.is_empty()
-            && parsed.is_loopback_with_port()
-    })
-}
 
 /// The environment variable that overrides the endpoint.
 ///
@@ -128,7 +101,7 @@ pub(crate) fn build_client(endpoint: &Endpoint) -> Result<reqwest::Client, Provi
 
 /// The two rules every client that sends a credential to `url` is built
 /// under: the completion and title client ([`build_client`]), the catalog, the
-/// `/credits` question and the generation-bill lookup, which send the Gateway
+/// `/credits` question and `/usage`'s report reads, which send the Gateway
 /// bearer, and the MCP HTTP client, which sends a server's configured
 /// `headers`, `header_env` and `bearer_token_env` (`crate::mcp`).
 ///
@@ -915,8 +888,7 @@ impl Provider for GatewayProvider {
             });
         }
 
-        let mut reader =
-            SseReader::with_cancel(self.cancel.clone()).from_origin(self.endpoint.origin());
+        let mut reader = SseReader::with_cancel(self.cancel.clone());
         let mut stream = response.bytes_stream();
         loop {
             // Waiting for the *next* chunk is where a cancelled turn actually
@@ -1422,7 +1394,7 @@ mod tests {
         // would read the bearer. Anything not plainly https is direct.
         for url in [
             DEFAULT_CHAT_URL,
-            DEFAULT_ORIGIN,
+            "https://ai-gateway.vercel.sh",
             "HTTPS://gateway.example.com/v4/ai/language-model",
             "  https://gateway.example.com  ",
         ] {

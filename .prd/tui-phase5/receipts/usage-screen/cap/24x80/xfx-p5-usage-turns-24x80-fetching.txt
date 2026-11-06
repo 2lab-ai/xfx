@@ -1,0 +1,24 @@
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                                    fetching…
+
+  fetching usage from AI Gateway
+────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+

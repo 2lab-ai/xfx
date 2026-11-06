@@ -411,6 +411,10 @@ where
         drain,
         size,
     } = caller;
+    // Fail closed: `session` returns an error without `leave_by`, and the
+    // drain below applies events -- a provider switch among them would open
+    // `/usage`'s runtime again with the new key.
+    shell.quit_usage();
     // Before anything is written, and once: a winch nobody has resolved yet
     // would otherwise hold every write below -- the drain's frames and the
     // pacer's tail alike -- until a deadline this session will not live to see.
@@ -2263,6 +2267,10 @@ mod tests {
         shell: Shell,
         _work: tokio::sync::mpsc::Receiver<crate::tui::bridge::TurnWork>,
         _control: tokio::sync::mpsc::UnboundedReceiver<crate::tui::bridge::TurnControl>,
+        // Kept for the fixture's life: a setting the shell saves goes into
+        // this home, and xfx makes no home that is not there.
+        _home: tempfile::TempDir,
+        _workspace: tempfile::TempDir,
     }
 
     impl std::ops::Deref for Fixture {
@@ -2335,6 +2343,8 @@ mod tests {
             .anchored(),
             _work,
             _control,
+            _home: home,
+            _workspace: workspace,
         }
     }
 
@@ -2928,6 +2938,82 @@ mod tests {
         assert!(broken.is_none());
         assert!(out.written.is_empty(), "a frame reached a refused screen");
         assert_eq!(shell.fatal(), Some("A-TURN-CAME-APART"));
+    }
+
+    /// What `/usage` asks with `key` for a Gateway at `origin`.
+    fn usage_question(origin: &str, key: &str) -> crate::usage::report::Question {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), key.to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let endpoint =
+            crate::gateway::Endpoint::resolve(Some(&format!("{origin}/v4/ai/language-model")))
+                .expect("a loopback endpoint");
+        crate::usage::report::question(&config, &endpoint).expect("a key is asked")
+    }
+
+    #[test]
+    fn a_session_that_ended_in_error_asks_usage_nothing_while_it_drains() {
+        // `session` returns its error without `leave_by`, so `/usage`'s
+        // runtime is still live when the drain applies what the runtime had
+        // left to say. A provider switch among it, with `/usage` up, opens the
+        // runtime again with the new key -- which must start nothing: the
+        // session is over (US-U4b; `Dashboard::deinit`, `usage.zig:265-278@481104fd`).
+        let mut shell = shell();
+        let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (counted, jobs) = (
+            std::sync::Arc::clone(&started),
+            std::sync::Arc::clone(&held),
+        );
+        shell.usage_runtime(crate::usage::dashboard::Dashboard::new(
+            None,
+            std::sync::Arc::new(|| 1_791_819_000_000),
+            Box::new(move |job| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                jobs.lock().expect("the jobs").push(job);
+                std::thread::Builder::new().spawn(|| {})
+            }),
+        ));
+        shell.publish_usage_question(Ok(usage_question("http://127.0.0.1:9", "fake-key-a")));
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // The switch, published and then said, as the runtime does.
+        shell.publish_usage_question(Ok(usage_question("http://127.0.0.1:9", "fake-key-b")));
+
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            false,
+            Shutdown {
+                reconcile: |_, _| panic!("a screen the session gave up on was reconciled"),
+                drain: |taken| {
+                    taken(UiEvent::ProviderSelected {
+                        provider: crate::provider::ProviderId::Gateway,
+                        model: "fake/model-a".to_string(),
+                        missing_credential: false,
+                    })
+                },
+                size: || panic!("a screen the session gave up on was measured"),
+            },
+        );
+        assert!(broken.is_none());
+        assert_eq!(
+            started.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the drain started a fetch with the new key"
+        );
     }
 
     #[test]

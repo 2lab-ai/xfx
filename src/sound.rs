@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn a_save_writes_both_switches_and_keeps_the_rest_of_the_file() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = crate::profile_home::temp_home();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, r#"{"model":"x/y","notifications":{"max":true}}"#).expect("seed");
         save(&path, Level::On).expect("save on");

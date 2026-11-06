@@ -1,0 +1,116 @@
+# The new tests on the base (120f7b20): tests/ledger_compat.rs, the fixture and
+# tests/sessions.rs's rewritten test dropped into a `git clone --no-local` at
+# 120f7b20, then cargo test (TMPDIR short, under `timeout 1500`; macOS refuses
+# `ulimit -v`, and no RED here reads an unbounded source: each reads a
+# bounded fixture and a scripted fake gateway).
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.17s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-289fdfb8a5e98c98)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/sessions.rs (target/debug/deps/sessions-6075dbd4fddb1d5f)
+
+running 1 test
+test a_saved_turn_records_its_tokens_and_no_usage_ledger ... FAILED
+
+failures:
+
+---- a_saved_turn_records_its_tokens_and_no_usage_ledger stdout ----
+
+thread 'a_saved_turn_records_its_tokens_and_no_usage_ledger' (252145673) panicked at tests/sessions.rs:1694:5:
+assertion `left == right` failed
+  left: Object {"kind": String("usage_recorded"), "input_tokens": Number(12000), "output_tokens": Number(800), "turn_output_tokens": Number(800), "requests": Array [Object {"at_ms": Number(1791334923456), "duration_ms": Number(5), "model": String("fake/model-a"), "input_tokens": Number(12000), "output_tokens": Number(800), "cache_read_tokens": Number(4000), "cache_write_tokens": Number(0), "reasoning_tokens": Number(0), "cost": Number(0.0125), "generation_id": String("gen_01JABCDEFGHJKMNPQRSTVWXYZ0")}]}
+ right: Object {"kind": String("usage_recorded"), "input_tokens": Number(12000), "output_tokens": Number(800), "turn_output_tokens": Number(800)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_saved_turn_records_its_tokens_and_no_usage_ledger
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 63 filtered out; finished in 2.15s
+
+error: test failed, to rerun pass `--test sessions`
+error: 1 target failed:
+    `--test sessions`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-289fdfb8a5e98c98)
+
+running 5 tests
+test the_fixture_holds_every_frame_the_ledger_wrote ... ok
+test the_binary_holds_no_bill_route_and_no_ledger_file_name ... FAILED
+test the_ledger_builds_session_resumes_replays_and_appends_without_its_fields ... FAILED
+test an_old_usage_json_is_left_as_it_was ... ok
+test the_tui_asks_for_no_bill_on_a_resume_a_turn_or_usage ... FAILED
+
+failures:
+
+---- the_binary_holds_no_bill_route_and_no_ledger_file_name stdout ----
+
+thread 'the_binary_holds_no_bill_route_and_no_ledger_file_name' (252146430) panicked at tests/ledger_compat.rs:228:9:
+the binary holds `/v1/generation`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- the_ledger_builds_session_resumes_replays_and_appends_without_its_fields stdout ----
+
+thread 'the_ledger_builds_session_resumes_replays_and_appends_without_its_fields' (252146432) panicked at tests/ledger_compat.rs:378:5:
+assertion `left == right` failed
+  left: ["requests"]
+ right: []
+
+---- the_tui_asks_for_no_bill_on_a_resume_a_turn_or_usage stdout ----
+
+thread 'the_tui_asks_for_no_bill_on_a_resume_a_turn_or_usage' (252146433) panicked at tests/ledger_compat.rs:261:5:
+assertion `left == right` failed: the resume asked for a bill
+  left: ["/v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ3"]
+ right: []
+
+
+failures:
+    the_binary_holds_no_bill_route_and_no_ledger_file_name
+    the_ledger_builds_session_resumes_replays_and_appends_without_its_fields
+    the_tui_asks_for_no_bill_on_a_resume_a_turn_or_usage
+
+test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+error: test failed, to rerun pass `--test ledger_compat`
+error: 1 target failed:
+    `--test ledger_compat`
+
+# The lib tests on the base code in the worktree, before any source edit
+# (the same three, added first).
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.40s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 4 tests
+test permission::authority::tests::a_ledger_spends_a_nonce_once_and_refuses_a_stranger ... ok
+test session::store::tests::a_session_the_ledger_build_wrote_replays_its_turns_and_totals ... ok
+test session::event::tests::a_frame_the_ledger_wrote_decodes_and_encodes_without_the_ledger ... FAILED
+test session::store::fork::tests::a_fork_of_a_session_the_ledger_build_wrote_carries_none_of_the_ledger ... FAILED
+
+failures:
+
+---- session::event::tests::a_frame_the_ledger_wrote_decodes_and_encodes_without_the_ledger stdout ----
+
+thread 'session::event::tests::a_frame_the_ledger_wrote_decodes_and_encodes_without_the_ledger' (251753465) panicked at src/session/event.rs:1615:13:
+assertion `left == right` failed: {"schema_version":1,"log_generation":"eb3031f8a385a42947c167c548ccb349","seq":6,"event_id":"a028c39242711cb4a7511401193e2491","timestamp_ms":1793983613544,"event":{"kind":"usage_recorded","input_tokens":12000,"output_tokens":800,"turn_output_tokens":800,"requests":[{"at_ms":1793966401000,"duration_ms":7,"model":"fake/model-a","input_tokens":12000,"output_tokens":800,"cache_read_tokens":4000,"cache_write_tokens":0,"reasoning_tokens":0,"cost":0.0125,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ0"}]}}
+  left: ["requests"]
+ right: []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- session::store::fork::tests::a_fork_of_a_session_the_ledger_build_wrote_carries_none_of_the_ledger stdout ----
+
+thread 'session::store::fork::tests::a_fork_of_a_session_the_ledger_build_wrote_carries_none_of_the_ledger' (251753466) panicked at src/session/store/fork/tests.rs:1837:9:
+["requests"] in {"schema_version":1,"log_generation":"2ed82311cb373c59442eb53852dd8e66","seq":6,"event_id":"3ccdd6a3e814afcbb0b93eab49534580","timestamp_ms":1793983613544,"event":{"kind":"usage_recorded","input_tokens":12000,"output_tokens":800,"turn_output_tokens":800,"requests":[{"at_ms":1793966401000,"duration_ms":7,"model":"fake/model-a","input_tokens":12000,"output_tokens":800,"cache_read_tokens":4000,"cache_write_tokens":0,"reasoning_tokens":0,"cost":0.0125,"generation_id":"gen_01JABCDEFGHJKMNPQRSTVWXYZ0"}]}}
+
+
+failures:
+    session::event::tests::a_frame_the_ledger_wrote_decodes_and_encodes_without_the_ledger
+    session::store::fork::tests::a_fork_of_a_session_the_ledger_build_wrote_carries_none_of_the_ledger
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `--lib`

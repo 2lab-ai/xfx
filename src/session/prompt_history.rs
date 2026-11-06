@@ -196,7 +196,7 @@ impl PromptHistory {
         if line.len() > MAX_RECORD_BYTES {
             return Ok(Appended::TooLarge);
         }
-        create_private_dir(&self.dir)?;
+        crate::profile_home::ensure(&self.dir, &self.dir)?;
         let _lock = HistoryLock::acquire(&self.dir, LOCK_DEADLINE)?;
         let mut file = open_private(&self.path)?;
         repair_incomplete_tail(&mut file)?;
@@ -334,27 +334,6 @@ fn open_private(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// Creates the profile directory owner-only, if it is not already there --
-/// created `0700` rather than tightened afterwards, as the settings writer does
-/// (`crate::provider::profile`).
-fn create_private_dir(dir: &Path) -> io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-    }
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(dir)
-    }
-}
-
 /// Replaces `path` with `bytes` through a stage of its own beside it, opened
 /// `create_new` at `0600`, synced, renamed over the file, and the directory
 /// synced -- so a reader sees the old file or the new one, never half of
@@ -445,7 +424,7 @@ mod tests {
     /// Writes `records` as the whole file, as appends would have left it --
     /// the cases about what a long file does, without an `fsync` per line.
     fn seeded(history: &PromptHistory, records: impl Iterator<Item = (u64, String, String)>) {
-        create_private_dir(&history.dir).expect("dir");
+        crate::profile_home::made(&history.dir);
         let bytes: String = records
             .map(|(at, workspace, text)| record(at, &workspace, &text))
             .collect();
@@ -698,7 +677,7 @@ mod tests {
     #[test]
     fn a_compaction_keeps_the_newest_thousand_records_and_drops_what_is_not_one() {
         let (_home, history) = store();
-        create_private_dir(&history.dir).expect("dir");
+        crate::profile_home::made(&history.dir);
         let mut bytes = String::new();
         for at in 0..1500u64 {
             bytes.push_str(&record(at, WORK, &format!("line {at}")));
@@ -725,7 +704,7 @@ mod tests {
     fn a_lock_held_past_the_deadline_is_a_failure_rather_than_a_wait_for_ever() {
         use rustix::fs::{flock, FlockOperation};
         let (_home, history) = store();
-        create_private_dir(&history.dir).expect("dir");
+        crate::profile_home::made(&history.dir);
         let held = open_private(&history.dir.join(LOCK_FILE_NAME)).expect("open");
         flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold");
         let err = HistoryLock::acquire(&history.dir, Duration::from_millis(50))

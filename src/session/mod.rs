@@ -32,15 +32,14 @@ pub mod store;
 
 pub use event::{
     new_identifier, CancellationOrigin, EventEnvelope, FrameError, LineCounts, RecordedChange,
-    RecordedImage, RecordedToolCall, RequestUsage, SessionEvent, TerminalReason, TitleSource,
-    ToolEnding, TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
+    RecordedImage, RecordedToolCall, SessionEvent, TerminalReason, TitleSource, ToolEnding,
+    TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
 };
 pub use store::{
     turn_messages, validate_title, workspace_key, Checkpoint, Clock, DurableState, HistoryTurn,
-    ListFilter, ListScope, NewSession, RecordedUsage, Resumed, Selector, SessionDetail,
-    SessionError, SessionId, SessionList, SessionManifest, SessionRecorder, SessionStore,
-    SessionSummary, Snapshot, TitleError, TurnImage, TurnSeqs, TurnStep, TurnTiming, UsageScan,
-    WritableSession, DEFAULT_LIST_LIMIT, EVENTS_FILE, IMAGES_DIR, MANIFEST_FILE,
-    MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT, MAX_RENAMED_TITLE_BYTES, SESSIONS_DIR_NAME,
-    STAGE_SUFFIX, STORAGE_FORMAT,
+    ListFilter, ListScope, NewSession, Resumed, Selector, SessionDetail, SessionError, SessionId,
+    SessionList, SessionManifest, SessionRecorder, SessionStore, SessionSummary, Snapshot,
+    TitleError, TurnImage, TurnSeqs, TurnStep, TurnTiming, WritableSession, DEFAULT_LIST_LIMIT,
+    EVENTS_FILE, IMAGES_DIR, MANIFEST_FILE, MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT,
+    MAX_RENAMED_TITLE_BYTES, SESSIONS_DIR_NAME, STAGE_SUFFIX, STORAGE_FORMAT,
 };

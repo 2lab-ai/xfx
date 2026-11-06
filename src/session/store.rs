@@ -291,7 +291,7 @@ impl fmt::Display for SessionError {
                 path.display()
             ),
             Self::InsecureParent { path, detail } => {
-                write!(f, "{} cannot hold session state: {detail}", path.display())
+                f.write_str(&crate::profile_home::refusal(path, detail))
             }
             Self::InvalidForkPoint { id, detail } => {
                 write!(f, "session `{id}` cannot be forked there: {detail}")
@@ -693,76 +693,10 @@ pub struct DurableState {
     /// (`crate::tui::worker`'s `open_next`), so `None` is a log an older
     /// build wrote, `ask` or the line shell, which send no effort.
     pub turn_settings: Option<crate::provider::effort::TurnSettings>,
-    /// What the session's `usage_recorded` frames say about its spend, for
-    /// `/usage` ([`crate::usage`]).
-    pub usage: RecordedUsage,
     /// The last `context_checkpoint` in the log, when there is one: the turns
     /// it covers are still in [`Self::turns`] -- a resumed screen shows them
     /// -- and [`Self::history_messages`] sends its compacted form instead.
     pub checkpoint: Option<Checkpoint>,
-}
-
-/// What a session's `usage_recorded` frames add up to, kept per request
-/// rather than summed: `/usage` windows them by time, and a sum cannot be cut
-/// at a window's edge.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct RecordedUsage {
-    /// Every request the session's turns completed, in log order.
-    pub requests: Vec<crate::session::RequestUsage>,
-    /// When each frame that predates request records was written: a turn's
-    /// usage that was recorded only as totals, which no window can place
-    /// (upstream's `legacy` completeness, `usage_report.zig:90-95`).
-    pub legacy_at_ms: Vec<i64>,
-    /// When each turn that may have been billed without a record ended.
-    pub unaccounted_at_ms: Vec<i64>,
-    pub lines_added: u64,
-    pub lines_removed: u64,
-}
-
-impl RecordedUsage {
-    /// The requests whose bill is still to be asked for
-    /// ([`crate::session::RequestUsage::pending`]).
-    pub fn pending(&self) -> impl Iterator<Item = &crate::session::RequestUsage> {
-        self.requests.iter().filter(|request| request.pending())
-    }
-
-    /// Puts what the Gateway said later in place of the pending requests it
-    /// was about (`applyGeneration`, `session_usage.zig:1080-1126`, and
-    /// `rejectPendingGeneration`, `:2171-2187`).
-    ///
-    /// A bill takes the request's place under the same generation id and keeps
-    /// how long the request took, which only this side measured. A rejection
-    /// leaves the request with no cost and nowhere to ask: spend that stays
-    /// missing. Either applies only to a request still pending, so a second
-    /// answer for one generation changes nothing.
-    fn settle(&mut self, settled: &[crate::session::RequestUsage], rejected: &[String]) {
-        for bill in settled {
-            let Some(id) = bill.generation_id.as_deref() else {
-                continue;
-            };
-            if let Some(request) = self
-                .requests
-                .iter_mut()
-                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
-            {
-                let duration_ms = request.duration_ms;
-                *request = crate::session::RequestUsage {
-                    duration_ms,
-                    origin: None,
-                    ..bill.clone()
-                };
-            }
-        }
-        for id in rejected {
-            if let Some(request) = self
-                .requests
-                .iter_mut()
-                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
-            {
-                request.origin = None;
-            }
-        }
-    }
 }
 
 impl DurableState {
@@ -784,7 +718,6 @@ impl DurableState {
             last_event_seq: 0,
             renamed: None,
             turn_settings: None,
-            usage: RecordedUsage::default(),
             checkpoint: None,
         }
     }
@@ -1647,18 +1580,6 @@ pub struct SessionList {
     pub skipped_invalid: usize,
 }
 
-/// What [`SessionStore::usage_since`] found.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct UsageScan {
-    /// Each readable session's recorded spend.
-    pub sessions: Vec<RecordedUsage>,
-    /// One entry per session that could not be read: when its manifest says it
-    /// was last written, or `None` when not even that could be read.
-    pub unreadable: Vec<Option<i64>>,
-    /// Whether the scan cap left sessions unread.
-    pub truncated: bool,
-}
-
 /// One session read in full.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionDetail {
@@ -1711,7 +1632,10 @@ impl SessionStore {
     /// than one file, so it is refused instead of repaired.
     pub fn open(profile_dir: &Path) -> Result<Self, SessionError> {
         let store = Self::read_only(profile_dir);
-        ensure_private_dir(&store.profile_dir)?;
+        // `~/.xfx` is made, and an existing one held to the rule below, the one
+        // way every writer in the profile makes it.
+        crate::profile_home::ensure(&store.profile_dir, &store.profile_dir)
+            .map_err(|err| profile_error(&store.profile_dir, err))?;
         ensure_private_dir(&store.sessions_dir)?;
         Ok(Self {
             writable: true,
@@ -2062,74 +1986,6 @@ impl SessionStore {
             truncated,
             skipped_invalid: skipped,
         })
-    }
-
-    /// What every session written since `since_ms` recorded about its spend,
-    /// for `/usage` ([`crate::usage`]).
-    ///
-    /// Each session is replayed through its published boundary and
-    /// cross-checked against its manifest, as [`Self::detail`] does, so a
-    /// window adds up only what a resume would believe. A session last written
-    /// before `since_ms` is not opened: nothing it holds is that recent. One
-    /// that cannot be read is **reported, not skipped** -- its spend is missing
-    /// from whichever windows it could be in, and the dashboard has to say so.
-    /// The store's scan cap applies, newest kept, as it does to a listing.
-    ///
-    /// `Ok(None)` once `cancel` is set: it is looked at before each session is
-    /// opened, so a reader nobody wants any more stops after the one it is in
-    /// (`collectFromHomeConservativeCancelable`, `vercel-labs/fx@c1db9191
-    /// src/core/session/usage_recovery.zig:43-47`).
-    pub fn usage_since(
-        &self,
-        since_ms: i64,
-        cancel: &std::sync::atomic::AtomicBool,
-    ) -> Result<Option<UsageScan>, SessionError> {
-        let cancelled = || cancel.load(std::sync::atomic::Ordering::Acquire);
-        if cancelled() {
-            return Ok(None);
-        }
-        self.verify_store_dirs()?;
-        let mut scan = UsageScan::default();
-        let entries = match fs::read_dir(&self.sessions_dir) {
-            Ok(entries) => entries,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Some(scan)),
-            Err(err) => return Err(io_error(&self.sessions_dir, err)),
-        };
-        let mut names: Vec<String> = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|err| io_error(&self.sessions_dir, err))?;
-            names.push(entry.file_name().to_string_lossy().into_owned());
-        }
-        names.sort();
-        if names.len() > self.scan_cap {
-            names.drain(..names.len() - self.scan_cap);
-            scan.truncated = true;
-        }
-        for name in names {
-            if cancelled() {
-                return Ok(None);
-            }
-            // Not a session's name is not a session: a stray file beside them
-            // holds no spend.
-            let Ok(id) = SessionId::parse(&name) else {
-                continue;
-            };
-            let manifest = match self.read_manifest(&id) {
-                Ok(manifest) => manifest,
-                Err(_) => {
-                    scan.unreadable.push(None);
-                    continue;
-                }
-            };
-            if manifest.updated_at_ms < since_ms {
-                continue;
-            }
-            match self.replay(&id, &manifest) {
-                Ok(replay) => scan.sessions.push(replay.state.usage),
-                Err(_) => scan.unreadable.push(Some(manifest.updated_at_ms)),
-            }
-        }
-        Ok(Some(scan))
     }
 
     /// One session, replayed and cross-checked against its manifest.
@@ -2608,26 +2464,12 @@ impl SessionRecorder {
             return;
         }
         let kind = event.kind();
-        // A turn that recorded what its requests cost is the moment `/usage`
-        // began counting, if none has been before it ([`crate::usage::start_tracking`]).
-        let counted = matches!(
-            &event,
-            SessionEvent::UsageRecorded { requests, unaccounted, .. }
-                if !requests.is_empty() || *unaccounted
-        );
         let outcome = self
             .store
             .append(&mut self.session, event)
             .and_then(|()| self.store.publish(&mut self.session));
-        match outcome {
-            Err(err) => {
-                self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
-            }
-            Ok(()) if counted => crate::usage::start_tracking(
-                self.store.profile_dir(),
-                self.session.state().updated_at_ms,
-            ),
-            Ok(()) => {}
+        if let Err(err) = outcome {
+            self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
         }
     }
 
@@ -3156,32 +2998,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         // Every approval recorded so far is withdrawn; one recorded after
         // this is a new answer and stands.
         SessionEvent::PermissionGrantsCleared => state.grants.clear(),
+        // A frame a build before the retired ledger wrote may carry its
+        // fields, or be one of the runtime's answers about a bill with no
+        // totals at all: both are read past at the decode
+        // ([`SessionEvent::UsageRecorded`]), and replay as their totals --
+        // nought, for an answer.
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
             turn_output_tokens,
-            requests,
-            unaccounted,
-            lines_added,
-            lines_removed,
-            settled,
-            rejected,
         } => {
-            // A frame with neither requests nor a cut-off one is one a binary
-            // before request records wrote: usage that happened and cannot be
-            // placed in any window. One that settles bills is the runtime's
-            // answer about earlier requests, and is none of those.
-            let settles = !settled.is_empty() || !rejected.is_empty();
-            if requests.is_empty() && !unaccounted && !settles {
-                state.usage.legacy_at_ms.push(envelope.timestamp_ms);
-            }
-            state.usage.settle(settled, rejected);
-            if *unaccounted {
-                state.usage.unaccounted_at_ms.push(envelope.timestamp_ms);
-            }
-            state.usage.requests.extend(requests.iter().cloned());
-            state.usage.lines_added = state.usage.lines_added.saturating_add(*lines_added);
-            state.usage.lines_removed = state.usage.lines_removed.saturating_add(*lines_removed);
             state.total_input_tokens = state
                 .total_input_tokens
                 .saturating_add(input_tokens.unwrap_or(0));
@@ -3365,16 +3191,16 @@ pub fn workspace_key(path: &Path) -> String {
 /// points; if another account owns it or can write it, that account chooses what
 /// xfx resumes. Neither is repaired -- silently `chmod`ing a directory xfx does
 /// not own would be a worse answer than stopping.
+///
+/// `path` is a directory **in** `~/.xfx`, and its parent must already be there:
+/// nothing here makes one. A `~/.xfx` that went away since the store was opened
+/// is an error rather than a home made again with the umask's mode -- only
+/// [`crate::profile_home::ensure`] makes the profile home.
 fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
     match fs::symlink_metadata(path) {
         Ok(_) => return verify_store_dir(path),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(io_error(path, err)),
-    }
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            fs::create_dir_all(parent).map_err(|err| io_error(parent, err))?;
-        }
     }
     match create_private_dir(path) {
         Ok(()) => {
@@ -3390,57 +3216,30 @@ fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
 
 /// Requires an existing store directory to be a plain directory, owned by this
 /// user, with nothing granted to group or other.
-#[cfg(unix)]
+///
+/// The rule is [`crate::profile_home::problem`]'s, the one every writer in the
+/// profile holds `~/.xfx` to; a directory that is not there passes, being the
+/// caller's to make.
 fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
-    use std::os::unix::fs::MetadataExt;
-    use std::os::unix::fs::PermissionsExt;
-
-    let insecure = |detail: String| {
-        Err(SessionError::InsecureParent {
+    match crate::profile_home::problem(path) {
+        Ok(None) => Ok(()),
+        Ok(Some(problem)) => Err(SessionError::InsecureParent {
             path: path.to_path_buf(),
-            detail,
-        })
-    };
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(io_error(path, err)),
-    };
-    if metadata.file_type().is_symlink() {
-        return insecure(
-            "it is a symbolic link, and xfx will not follow one to decide where session state lives"
-                .to_string(),
-        );
+            detail: problem.detail(path),
+        }),
+        Err(err) => Err(io_error(path, err)),
     }
-    if !metadata.is_dir() {
-        return insecure("it is not a directory".to_string());
-    }
-    let owner = metadata.uid();
-    let current = rustix::process::geteuid().as_raw();
-    if owner != current {
-        return insecure(format!(
-            "it is owned by uid {owner}, not by uid {current} running xfx"
-        ));
-    }
-    let mode = metadata.permissions().mode() & 0o777;
-    if mode & 0o077 != 0 {
-        return insecure(format!(
-            "it is mode {mode:o}; session state must not be reachable by group or other"
-        ));
-    }
-    Ok(())
 }
 
-#[cfg(not(unix))]
-fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_dir() => Ok(()),
-        Ok(_) => Err(SessionError::InsecureParent {
-            path: path.to_path_buf(),
-            detail: "it is not a directory".to_string(),
-        }),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(io_error(path, err)),
+/// What [`crate::profile_home::ensure`] answered, as a store error: a refused
+/// home is the insecure parent it always was.
+fn profile_error(path: &Path, err: io::Error) -> SessionError {
+    match crate::profile_home::Refused::of(&err) {
+        Some(refused) => SessionError::InsecureParent {
+            path: refused.path.clone(),
+            detail: refused.problem.detail(&refused.path),
+        },
+        None => io_error(path, err),
     }
 }
 
@@ -4120,23 +3919,11 @@ mod tests {
                 input_tokens: Some(3),
                 output_tokens: Some(4),
                 turn_output_tokens: None,
-                requests: Vec::new(),
-                unaccounted: false,
-                lines_added: 0,
-                lines_removed: 0,
-                settled: Vec::new(),
-                rejected: Vec::new(),
             },
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
                 turn_output_tokens: None,
-                requests: Vec::new(),
-                unaccounted: false,
-                lines_added: 0,
-                lines_removed: 0,
-                settled: Vec::new(),
-                rejected: Vec::new(),
             },
         ])
         .expect("reduces");
@@ -4144,88 +3931,51 @@ mod tests {
         assert_eq!(state.total_output_tokens, 5);
     }
 
-    /// The runtime's later answer about a pending request takes its place
-    /// under the same generation id (`applyGeneration`,
-    /// `session_usage.zig:1080-1126`): the Gateway's time, model, tokens and
-    /// cost, and the request's own duration. A rejection leaves it missing.
-    /// Neither touches a request that is not pending, or the meter's totals,
-    /// and neither is a frame from before request records.
+    /// The session the local usage ledger was kept in
+    /// (`tests/fixtures/ledger-120f7b20`) replays as it always did: five
+    /// turns, the totals of the answering steps (15600 in, 920 out), and each
+    /// turn's summary-row output -- the cut-off turn's 6 from its own frame.
+    /// The runtime's `settled` and `rejected` frames, written between turns,
+    /// add nothing to a turn or to a total.
     #[test]
-    fn a_later_bill_settles_its_pending_request_and_a_rejection_leaves_it_missing() {
-        let pending = |id: &str| crate::session::RequestUsage {
-            at_ms: 1_000,
-            duration_ms: 700,
-            model: "vendor/model".to_string(),
-            input_tokens: 12,
-            output_tokens: 3,
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
-            reasoning_tokens: None,
-            cost: None,
-            generation_id: Some(id.to_string()),
-            origin: Some("http://127.0.0.1:4100".to_string()),
-        };
-        let first = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
-        let second = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
-        let bill = crate::session::RequestUsage {
-            at_ms: 900,
-            duration_ms: 0,
-            model: "anthropic/claude-opus-5".to_string(),
-            input_tokens: 1340,
-            output_tokens: 250,
-            cache_read_tokens: 300,
-            cache_write_tokens: 40,
-            reasoning_tokens: Some(50),
-            cost: Some(0.0123),
-            generation_id: Some(first.to_string()),
-            origin: None,
-        };
-        let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
-            input_tokens: None,
-            output_tokens: None,
-            turn_output_tokens: None,
-            requests,
-            unaccounted: false,
-            lines_added: 0,
-            lines_removed: 0,
-            settled,
-            rejected,
-        };
-        let state = reduce(vec![
-            started(),
-            frame(
-                vec![pending(first), pending(second)],
-                Vec::new(),
-                Vec::new(),
-            ),
-            frame(Vec::new(), vec![bill.clone()], vec![second.to_string()]),
-            // A second answer about the same generation changes nothing.
-            frame(
-                Vec::new(),
-                vec![crate::session::RequestUsage {
-                    cost: Some(9.0),
-                    ..bill.clone()
-                }],
-                Vec::new(),
-            ),
-        ])
-        .expect("reduces");
-        let requests = &state.usage.requests;
-        assert_eq!(
-            requests[0],
-            crate::session::RequestUsage {
-                duration_ms: 700,
-                ..bill
-            }
-        );
-        assert!(!requests[1].pending());
-        assert_eq!(requests[1].cost, None);
-        assert_eq!(state.usage.pending().count(), 0);
-        assert!(state.usage.legacy_at_ms.is_empty());
+    fn a_session_the_ledger_build_wrote_replays_its_turns_and_totals() {
+        let log = include_str!(
+            "../../tests/fixtures/ledger-120f7b20/sessions/1793983613244-206c9ac7f3059b4a/events.jsonl"
+        )
+        .replace("@WS_A@", "/w")
+        .replace("@ORIGIN@", "http://127.0.0.1:4100");
+        let mut state = DurableState::empty();
+        for line in log.lines() {
+            apply(&mut state, &EventEnvelope::decode(line).expect("a frame")).expect("it applies");
+        }
+        assert_eq!(state.turns.len(), 5);
         assert_eq!(
             (state.total_input_tokens, state.total_output_tokens),
-            (0, 0)
+            (15_600, 920)
         );
+        let outputs: Vec<Option<u64>> = state
+            .turns
+            .iter()
+            .map(|turn| turn.timing.output_tokens)
+            .collect();
+        assert_eq!(outputs, [Some(800), Some(40), Some(40), Some(6), Some(40)]);
+        assert_eq!(state.last_event_seq, 29);
+
+        // And the frame a compaction between turns wrote -- no totals, its
+        // notes request -- after the last conclusion: no turn takes it, and
+        // it adds nothing.
+        let extra = format!(
+            r#"{{"schema_version":1,"log_generation":"{}","seq":30,"event_id":"ffffffffffffffffffffffffffffffff","timestamp_ms":1793983614000,"event":{{"kind":"usage_recorded","input_tokens":null,"output_tokens":null,"requests":[{{"at_ms":1793983613999,"duration_ms":9,"model":"zai/glm-5.2","input_tokens":900,"output_tokens":60}}]}}}}"#,
+            EventEnvelope::decode(log.lines().next().expect("a frame"))
+                .expect("a frame")
+                .log_generation
+        );
+        apply(&mut state, &EventEnvelope::decode(&extra).expect("decodes")).expect("applies");
+        assert_eq!(
+            (state.total_input_tokens, state.total_output_tokens),
+            (15_600, 920)
+        );
+        assert_eq!(state.turns[4].timing.output_tokens, Some(40));
     }
 
     #[test]
@@ -4864,12 +4614,6 @@ mod tests {
                 input_tokens: Some(6),
                 output_tokens: Some(40),
                 turn_output_tokens: None,
-                requests: Vec::new(),
-                unaccounted: false,
-                lines_added: 0,
-                lines_removed: 0,
-                settled: Vec::new(),
-                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Final {
@@ -4922,12 +4666,6 @@ mod tests {
             input_tokens: Some(1300),
             output_tokens: Some(output),
             turn_output_tokens: turn,
-            requests: Vec::new(),
-            unaccounted: false,
-            lines_added: 0,
-            lines_removed: 0,
-            settled: Vec::new(),
-            rejected: Vec::new(),
         };
         let concluded = || SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Final {

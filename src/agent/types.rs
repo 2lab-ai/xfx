@@ -134,10 +134,11 @@ pub trait StepCompactor {
         check: StepCheck<'_>,
     ) -> Result<Option<StepCompaction>, TurnError>;
 
-    /// What its notes requests cost since it was last asked, and whether one
-    /// was lost after it was sent: the turn's `/usage` record carries them.
-    fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
-        (Vec::new(), false)
+    /// Whether a notes request of its completed, or was lost after it was
+    /// sent, since it was last asked: the turn then has a `usage_recorded`
+    /// frame to write even if it fails.
+    fn spent(&mut self) -> bool {
+        false
     }
 
     /// The provider counted `input_tokens` for the request measured as

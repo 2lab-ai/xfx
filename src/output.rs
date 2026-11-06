@@ -2090,7 +2090,6 @@ mod tests {
             turns,
             renamed: None,
             turn_settings: None,
-            usage: crate::session::RecordedUsage::default(),
             checkpoint: None,
         }
     }
