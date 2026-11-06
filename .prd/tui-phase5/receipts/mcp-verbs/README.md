@@ -116,6 +116,14 @@ bounded (`timeout 900`):
 `config.rs` takes two additive functions for this (`unreadable`,
 `project_entry`) and one doc comment; nothing in it was moved.
 
+Re-run on `fde07d6a` (`sweep.sh --only p5-mcp-empty --only p5-mcp-verbs`):
+21 / 52 pairs as before (`p5-mcp-empty` 21 of 24), notices 22 of 22 and 20 of
+24 in order as before, `mcp.json` after-add and end byte-identical to fx's.
+Gates on `fde07d6a`: fmt ok; clippy ok, both feature sets; `cargo test`
+4647 / 0 and 4670 / 0 (fault-injection); identity, stubs, secrets ok; release
+and faulty release builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios
++ the oracle, 1091 / 0.
+
 ## Gates
 
 On `3c09b481` (the head after it changes comments, docs and this
