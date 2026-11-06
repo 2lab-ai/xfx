@@ -6226,21 +6226,22 @@ impl Shell {
 
     /// What the runtime said a `/fork` can start before
     /// ([`UiEvent::ForkPoints`]), when the `/fork` is still waiting for it:
-    /// the menu, the newest prompt selected, with the pickers and menus a
-    /// draft or a key can leave up closed -- or upstream's sentence for why
+    /// the menu, the newest prompt selected -- or upstream's sentence for why
     /// there is none (`openForkMenu`, `app_session_runtime.zig:2072-2096@481104fd`).
     ///
-    /// The slot's other surfaces are not closed here because none can be up
-    /// while the `/fork` still waits. The info panel, `/effort`'s and `/mcp`'s
-    /// menus and a rule's confirmation each open from a line sent, and a line
-    /// sent, like an edit or a recall, drops the `/fork` first
-    /// ([`Self::close_fork_menu`]). A turn's permission question and the
-    /// model's questions open from the runtime, but only inside a turn: a
-    /// `/fork` is refused while one is in hand ([`Self::provider_work_busy`]),
-    /// and a turn after it starts only from a line sent, which drops it. The
-    /// session picker opens with `/resume`'s line, not with its answer. So the
-    /// answer that lands after any of them opens nothing, and the slot holds
-    /// one surface, as upstream's does.
+    /// **Nothing else in the slot can be up when it opens**, because whatever
+    /// opens one moves the composer on from the `/fork` and drops it
+    /// ([`Self::close_fork_menu`]). The pickers and the slash menu open from
+    /// an edit. The info panel, `/effort`'s, `/mcp`'s, `/statusline`'s,
+    /// `/usage`'s and `/workspace`'s menus, the catalog, the settings menu
+    /// and a rule's confirmation open from a line sent, and so does the
+    /// session picker (from `/resume`'s line, not its answer). A turn's
+    /// permission question and the model's questions open only inside a
+    /// turn: a `/fork` is refused while one is in hand
+    /// ([`Self::provider_work_busy`]), and a later turn starts only from a
+    /// line sent. So the slot holds one surface, as upstream's does. The
+    /// closes below are kept for a way in that does not pass through any of
+    /// those, so a menu opened that way cannot sit under this one.
     fn fork_points(&mut self, points: ForkPoints) {
         if !std::mem::take(&mut self.fork_asked) {
             return;

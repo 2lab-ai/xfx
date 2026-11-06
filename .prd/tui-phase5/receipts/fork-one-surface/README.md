@@ -9,7 +9,8 @@ Branch `fix/p5-fork-status-gap`, on FK-GAP (`f2dcc4c8`). Two findings:
    `run_command` go through `edited`, not `amended`), and opened their
    surface without closing the fork menu. The answer then opened the fork
    menu beside it, and after the panel closed a typed-ahead Return forked.
-2. **Two unpinned wirings of FK-GAP** (review FK-GAP, opus SHOULD 1): the
+2. **Two unpinned wirings of FK-GAP** (review FK-GAP, opus SHOULD-FIX (1),
+   zbrain `workflow/2lab-ai/repos/xfx-tui-phase4/p5/FK-GAP/reviews/opus.md`): the
    question/ask/rule branch of `fit` (`self.placed`) and the readiness
    offset. Pinning the offset found it was wrong before FK-GAP as well.
 
@@ -112,13 +113,16 @@ All four one-surface tests pass, and so do the two pins:
   where the band paints.
 
 Left alone, as asked: the `restore_primary` one-frame transient (FK-GAP
-opus SHOULD 2). No test fails on it.
+opus SHOULD-FIX (2), "PLAUSIBLE, fix only after a failing test"). No test
+fails on it.
 
 ## Pairs (fx v0.0.16; xfx = this branch)
 
 The `sweep.yml` job, run locally:
 `ci-sweep.sh --base f2dcc4c8 --fx <fx v0.0.16> --pin v0.0.16 --xfx <head
-debug> --base-xfx <f2dcc4c8 debug> --jobs 2`, `FX_AUTO_UPGRADE=0`, head
+debug> --base-xfx <f2dcc4c8 debug> --jobs 2`, `FX_AUTO_UPGRADE=0`. The base
+binary was built at `ea3db6ea`, whose code is `f2dcc4c8`'s (only the receipt
+differs), so its banner reads `ea3db6e`. Head
 `15e1b764` (this receipt's draft on `1dc3c37c`'s code). 43 scenarios (10
 core, 33 named here), **275 snap pairs: 216 pass at the head, 0 new, 0
 regressions**; 1,112 s. Every pair not passing at the head fails the same
@@ -164,3 +168,26 @@ every pair): `allowlist` 10/0/10, `allowlist-remember` 7/0/7,
 
 Every file here went through `scripts/fxcap/redact.py`:
 `/private/tmp/claude-501` is `<tmp>`.
+
+## Gates
+
+Run at `c591a6a7`, with `TMPDIR=/private/tmp/claude-501/fsg`. The commit on
+top of it changes doc comments in `fork_points` and this receipt only. On
+that commit, fmt, both clippy runs, the fork/effort/status/approval tests
+and the three tree checks were re-run (below the table).
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy … --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4,727 passed, 0 failed, 7 ignored (FK-GAP's 4,721 and this unit's 6) |
+| `cargo test … --features fault-injection` | 4,756 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/check-tui-preflight-cost.sh` | ok (every case under budget) |
+
+No pty test failed, so none was re-run.
