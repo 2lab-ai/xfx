@@ -130,4 +130,21 @@ applied to the whole GET by `runBoundedHttpOperation` at `:299-308`, with
 
 ## Gates
 
-GATES_PLACEHOLDER
+Run once, green, on `f0cfe711` (the code; this receipt is the only change
+after it), rustc 1.99.1:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4566 passed, 0 failed, 7 ignored (14 binaries); the 20 `usage::report` tests among them |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4587 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
+| `cargo test --locked --test parity` (the ledger row) | 24 passed |
+| `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1107 checks, 0 failures |
+| MSRV: 1.96.1 `cargo check --locked --all-targets` | ok |
+
+No pty test failed, so none was re-run.
