@@ -1,0 +1,20 @@
+# The start rule (`src/process.rs`): a child of xfx's is started only by
+# `process::spawn`, under the one lock every start takes, and a pipe is made
+# only by `process::pipe`, under the same lock. Checked on the resolved call,
+# so a command started in a later statement, a `Command::spawn(&mut c)` and a
+# `map(Command::output)` are each caught; `process::tests::no_child_process_is_made_any_other_way`
+# keeps these entries here.
+disallowed-methods = [
+  { path = "std::process::Command::spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "std::process::Command::status", reason = "a child is started by crate::process::spawn (or process::status), under the one lock every start takes" },
+  { path = "std::process::Command::output", reason = "a child is started by crate::process::spawn (or process::output), under the one lock every start takes" },
+  { path = "tokio::process::Command::spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
+  { path = "tokio::process::Command::status", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
+  { path = "tokio::process::Command::output", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
+  { path = "libc::fork", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "libc::posix_spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "libc::posix_spawnp", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
+  { path = "libc::pipe", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec" },
+  { path = "rustix::pipe::pipe", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec" },
+  { path = "std::io::pipe", reason = "a pipe is made by crate::process::pipe, so no start's fork lands between the pipe and its close-on-exec" },
+]

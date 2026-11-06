@@ -980,9 +980,7 @@ mod tests {
         let held = applied(State::default().apply(&set("a", Decision::Deny, None)));
         let dir = tempfile::tempdir().expect("a session directory");
         let fifo = path_in(dir.path());
-        let status = std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
+        let status = crate::process::status(std::process::Command::new("mkfifo").arg(&fifo))
             .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1089,9 +1087,7 @@ mod tests {
         // rather than hangs.
         let dir = tempfile::tempdir().expect("a session directory");
         let fifo = path_in(dir.path());
-        let status = std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
+        let status = crate::process::status(std::process::Command::new("mkfifo").arg(&fifo))
             .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
         assert_eq!(stamp(&fifo), Stamp::Unknown);

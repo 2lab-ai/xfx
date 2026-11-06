@@ -1353,15 +1353,16 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
         let run = |args: &[&str]| {
-            let status = Command::new(&git)
-                .args(args)
-                .current_dir(root)
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .expect("git runs");
+            let status = crate::process::status(
+                Command::new(&git)
+                    .args(args)
+                    .current_dir(root)
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null()),
+            )
+            .expect("git runs");
             assert!(status.success(), "git {args:?}");
         };
         run(&["init", "--quiet"]);

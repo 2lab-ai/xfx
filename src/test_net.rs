@@ -74,7 +74,7 @@ pub(crate) fn assert_no_proxy_is_used(test: &str, answer: String) {
     }
     copy.env(SERVER, server.origin());
     copy.args(["--exact", "--test-threads=1", test]);
-    let output = copy.output().expect("a copy of this test binary");
+    let output = crate::process::output(&mut copy).expect("a copy of this test binary");
     let reached = proxy.finish();
     let served = server.finish();
     let report = format!(

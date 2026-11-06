@@ -784,15 +784,16 @@ tinued
         for (index, text) in cases.iter().enumerate() {
             let file = dir.path().join(format!("case{index}"));
             std::fs::write(&file, text).expect("a case");
-            let output = std::process::Command::new(&git)
-                .args(["config", "--file"])
-                .arg(&file)
-                .args(["--no-includes", "-z", "--get-regexp"])
-                .arg(r"^(include\.path|includeif\..*\.path)$")
-                .env_clear()
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .output()
-                .expect("git runs");
+            let output = crate::process::output(
+                std::process::Command::new(&git)
+                    .args(["config", "--file"])
+                    .arg(&file)
+                    .args(["--no-includes", "-z", "--get-regexp"])
+                    .arg(r"^(include\.path|includeif\..*\.path)$")
+                    .env_clear()
+                    .env("GIT_CONFIG_NOSYSTEM", "1"),
+            )
+            .expect("git runs");
             let Ok(ours) = include_paths(text) else {
                 continue;
             };

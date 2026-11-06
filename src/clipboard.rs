@@ -242,14 +242,15 @@ impl Clipboard {
         if let Some(search) = &self.search {
             command.env("PATH", search);
         }
-        // Outside the lock, so a stop never waits on a start -- which macOS
-        // can take seconds over for a fresh executable. A stop that lands
-        // after this look is caught by the hold or by the stop itself,
-        // whichever takes the lock second.
-        if stop.stopped() {
-            return false;
-        }
-        let Ok(mut child) = crate::process::spawn(&mut command) else {
+        // Looked at under the lock every start takes, so a stop that lands
+        // while another start holds it refuses the tool rather than starting
+        // it to kill it. The look is a flag's, never the stop's lock, so a
+        // stop never waits on a start -- which macOS can take seconds over
+        // for a fresh executable. A stop that lands after this look is caught
+        // by the hold or by the stop itself, whichever takes the stop's lock
+        // second.
+        let Ok(Some(mut child)) = crate::process::spawn_unless(&mut command, || stop.stopped())
+        else {
             return false;
         };
         let stdin = child.stdin.take();
@@ -428,7 +429,7 @@ impl Clipboard {
         let path = dir.join("clipboard.png");
         let mut command = self.command("osascript");
         command.arg("-e").arg(clipboard_script(&path));
-        let outcome = crate::process::spawn(&mut command).and_then(|mut child| child.wait());
+        let outcome = crate::process::status(&mut command);
         let read = match outcome {
             Err(err) => Err(ImageReadError::Failed(crate::image::io_name(err.kind()))),
             Ok(status) if !status.success() => Err(ImageReadError::NoImage),
