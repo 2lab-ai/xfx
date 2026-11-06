@@ -1,0 +1,42 @@
+# US-U2c mutant runs
+
+On a `git clone --no-local` copy at `934754b2` (never this worktree); the
+unmutated copy passed first (`usage::` 78 passed). One mutant at a time,
+only the named test, under `gtimeout -k 10 600`.
+
+## M27-no-url-safe
+
+```
+== M27-no-url-safe attempt 1 rc=101
+thread 'usage::report::tests::a_url_safe_base64_echo_is_caught_where_it_differs_from_standard' (235761794) panicked at src/usage/report.rs:1830:9:
+assertion failed: spellings.found_in(format!("m/{url_safe}").as_bytes())
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3734 filtered out; finished in 0.00s
+```
+
+## M28-dir-uid-for-euid
+
+```
+== M28-dir-uid-for-euid attempt 1 rc=101
+thread 'usage::cache::tests::a_directory_another_user_owns_is_refused_for_its_owner' (235764045) panicked at src/usage/cache/tests.rs:1216:5:
+Err(Refused("a directory open to group or other"))
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3734 filtered out; finished in 0.00s
+```
+
+## M29-load-bypasses-cap
+
+```
+== M29-load-bypasses-cap attempt 1 rc=101
+thread 'usage::cache::tests::a_load_reads_no_further_than_the_cap_when_the_file_grows_under_it' (235770500) panicked at src/usage/cache/tests.rs:1891:5:
+assertion `left == right` failed
+  left: Some(4260338)
+ right: Some(4194305)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3734 filtered out; finished in 0.01s
+```
+
+## M29-old-test
+
+```
+== M29-old-test attempt 1 rc=0
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3734 filtered out; finished in 0.01s
+```
+

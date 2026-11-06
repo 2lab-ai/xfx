@@ -1,0 +1,181 @@
+# US-U2b RED runs
+
+## On 854fbbc7, the round's base
+
+Six tests in a module added only to a `git clone --no-local` copy at
+`854fbbc7` (never this worktree), run under `gtimeout -k 10 600` with a short
+`TMPDIR`. Each fails on the base; their committed forms pass on the new head.
+
+```
+test usage::cache::red::red_format_day_overflows ... FAILED
+test usage::cache::red::red_a_day_no_clock_wrote_is_kept ... FAILED
+test usage::cache::red::red_a_linked_profile_is_followed ... FAILED
+test usage::cache::red::red_a_shared_profile_is_used ... FAILED
+test usage::cache::red::red_a_key_echo_reaches_the_cache_file ... FAILED
+test usage::cache::red::red_rows_are_built_past_the_cap ... FAILED
+---- usage::cache::red::red_format_day_overflows stdout ----
+thread 'usage::cache::red::red_format_day_overflows' (234470283) panicked at src/usage/report.rs:247:13:
+attempt to add with overflow
+thread 'usage::cache::red::red_format_day_overflows' (234470283) panicked at src/usage/cache/red.rs:118:5:
+format_day(i64::MAX) panicked
+---- usage::cache::red::red_a_day_no_clock_wrote_is_kept stdout ----
+thread 'usage::cache::red::red_a_day_no_clock_wrote_is_kept' (234470279) panicked at src/usage/cache/red.rs:112:5:
+kept: Some(Entry { today: Some(Today { day: 9223372036854775807, at_ms: -1, models: [] }), finished: None, budget: None })
+---- usage::cache::red::red_a_linked_profile_is_followed stdout ----
+thread 'usage::cache::red::red_a_linked_profile_is_followed' (234470281) panicked at src/usage/cache/red.rs:81:5:
+thread 'usage::cache::red::red_a_shared_profile_is_used' (234470282) panicked at src/usage/cache/red.rs:94:5:
+a 0755 ~/.xfx: read true, stored true
+thread 'usage::cache::red::red_a_key_echo_reaches_the_cache_file' (234470280) panicked at src/usage/cache/red.rs:69:5:
+the cache file holds the key's echo: ["hex", "base64", "base64 one byte in", "base64 two bytes in", "a 12-byte run"]
+---- usage::cache::red::red_rows_are_built_past_the_cap stdout ----
+thread 'usage::cache::red::red_rows_are_built_past_the_cap' (234470284) panicked at src/usage/cache/red.rs:104:5:
+deserialization built Some(466011) rows before the 256 cap
+    usage::cache::red::red_a_day_no_clock_wrote_is_kept
+    usage::cache::red::red_a_linked_profile_is_followed
+    usage::cache::red::red_format_day_overflows
+    usage::cache::red::red_rows_are_built_past_the_cap
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 3724 filtered out; finished in 0.26s
+thread 'usage::cache::red::red_a_linked_profile_is_followed' (234473524) panicked at src/usage/cache/red.rs:81:5:
+stored Ok(()); made through the link: ["usage-cache"]
+```
+
+## Mutants on the new code
+
+Applied one at a time to the clone (2a29e812 for M17-M26; 1fd5076f for the
+M18 rerun), only the named test run, under `gtimeout -k 10 600`; the
+unmutated clone passed first (`usage::` 75 passed on both).
+
+### M17-literal-key-only
+
+```
+== M17-literal-key-only attempt 1 rc=101
+test usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored ... FAILED
+---- usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored stdout ----
+thread 'usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored' (234505091) panicked at src/usage/cache/tests.rs:766:21:
+hex: <local-path> holds the key
+    usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.04s
+```
+
+### M18-survived-on-2a29e812
+
+```
+== M18-no-base64-alignments attempt 1 rc=0
+test usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.15s
+```
+
+### M18-no-base64-alignments
+
+```
+== M18-no-base64-alignments attempt 1 rc=101
+test usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored ... FAILED
+---- usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored stdout ----
+thread 'usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored' (234566392) panicked at src/usage/cache/tests.rs:781:17:
+a 12-byte run in base64, one byte in: a report naming the key was accepted
+    usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.20s
+```
+
+### M19-no-hex
+
+```
+== M19-no-hex attempt 1 rc=101
+test usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored ... FAILED
+---- usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored stdout ----
+thread 'usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored' (234511710) panicked at src/usage/cache/tests.rs:772:17:
+hex: a report naming the key was accepted
+    usage::cache::tests::a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.04s
+```
+
+### M20-profile-follows-links
+
+```
+== M20-profile-follows-links attempt 1 rc=101
+test usage::cache::tests::a_linked_profile_is_refused_and_nothing_is_made_where_it_points ... FAILED
+---- usage::cache::tests::a_linked_profile_is_refused_and_nothing_is_made_where_it_points stdout ----
+thread 'usage::cache::tests::a_linked_profile_is_refused_and_nothing_is_made_where_it_points' (234514537) panicked at src/usage/cache/tests.rs:1093:5:
+    usage::cache::tests::a_linked_profile_is_refused_and_nothing_is_made_where_it_points
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.01s
+```
+
+### M21-no-private-dir-check
+
+```
+== M21-no-private-dir-check attempt 1 rc=101
+test usage::cache::tests::a_directory_that_is_not_private_is_refused_not_repaired ... FAILED
+---- usage::cache::tests::a_directory_that_is_not_private_is_refused_not_repaired stdout ----
+thread 'usage::cache::tests::a_directory_that_is_not_private_is_refused_not_repaired' (234516580) panicked at src/usage/cache/tests.rs:1138:9:
+assertion `left == right` failed: .xfx 755 was read
+  left: Some(Entry { today: Some(Today { day: 5, at_ms: 1, models: [ModelRow { model: "anthropic/claude-opus-5.5", totals: Totals { request_count: 2, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, total_cost: 1.0, cache_hit_requests: 0.0, failed_
+ right: None
+    usage::cache::tests::a_directory_that_is_not_private_is_refused_not_repaired
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.01s
+```
+
+### M22-rows-cap-after-reading
+
+```
+== M22-rows-cap-after-reading attempt 1 rc=101
+test usage::cache::tests::rows_past_the_cap_are_refused_before_they_are_read ... FAILED
+---- usage::cache::tests::rows_past_the_cap_are_refused_before_they_are_read stdout ----
+thread 'usage::cache::tests::rows_past_the_cap_are_refused_before_they_are_read' (234519408) panicked at src/usage/cache/tests.rs:1748:5:
+    usage::cache::tests::rows_past_the_cap_are_refused_before_they_are_read
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.00s
+```
+
+### M23-no-streaming-cap
+
+```
+== M23-no-streaming-cap attempt 1 rc=101
+test usage::cache::tests::a_file_that_grows_after_its_size_was_read_is_read_no_further_than_the_cap ... FAILED
+---- usage::cache::tests::a_file_that_grows_after_its_size_was_read_is_read_no_further_than_the_cap stdout ----
+thread 'usage::cache::tests::a_file_that_grows_after_its_size_was_read_is_read_no_further_than_the_cap' (234521363) panicked at src/usage/cache/tests.rs:1780:5:
+assertion `left == right` failed
+  left: 4260338
+ right: 4194305
+    usage::cache::tests::a_file_that_grows_after_its_size_was_read_is_read_no_further_than_the_cap
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.02s
+```
+
+### M24-no-day-range
+
+```
+== M24-no-day-range attempt 1 rc=101
+test usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused ... FAILED
+---- usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused stdout ----
+thread 'usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused' (234523757) panicked at src/usage/cache/tests.rs:1824:9:
+assertion `left == right` failed: a day past the last
+  left: Some(Entry { today: Some(Today { day: 9223372036854775807, at_ms: 1, models: [] }), finished: None, budget: None })
+ right: None
+    usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.00s
+```
+
+### M25-format-day-unclamped
+
+```
+== M25-format-day-unclamped attempt 1 rc=101
+test usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused ... FAILED
+---- usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused stdout ----
+thread 'usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused' (234525445) panicked at src/usage/report.rs:253:13:
+attempt to add with overflow
+    usage::cache::tests::days_and_stamps_no_clock_wrote_are_refused
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.00s
+```
+
+### M26-lock-mode-before-check
+
+```
+== M26-lock-mode-before-check attempt 1 rc=101
+test usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed ... FAILED
+---- usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed stdout ----
+thread 'usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed' (234528823) panicked at src/usage/cache/tests.rs:1010:5:
+assertion `left == right` failed: the other name's mode was changed
+  left: 384
+ right: 420
+    usage::cache::tests::a_link_where_a_cache_file_belongs_is_refused_not_followed
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3731 filtered out; finished in 0.01s
+```
+

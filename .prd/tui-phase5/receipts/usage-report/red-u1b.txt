@@ -1,0 +1,78 @@
+# US-U1b RED runs
+
+The RED on the base ran in the worktree; every mutant ran on a fresh `git clone
+--no-local` copy of `3137a750` in the session scratchpad, its own target dir,
+only the named test, under `gtimeout -k 10 600`. The unmutated copy passed the
+deadline test first. Lines below are the runs' own output, redacted.
+
+## RED-base-provider-rejected
+
+Mutation: none: the code at 1b9f80ba, with only the new test added (run in the worktree under `gtimeout -k 10 600`; it sends a fake key to a loopback listener).
+
+```
+thread 'usage::report::tests::an_unreadable_provider_setting_sends_the_key_nowhere' (230456517) panicked at src/usage/report.rs:1311:9:
+question: Ok(Question { origin: "http://127.0.0.1:57270", credential: Credential { source: AiGatewayApiKey, secret: "<redacted>" } }); requests that reached the Gateway: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3691 filtered out; finished in 0.02s
+```
+
+## M3b-deadline-send-only
+
+Mutation: the total deadline moved to wrap `send()` only.
+
+```
+thread 'usage::report::tests::a_gateway_that_never_answers_fails_at_15_seconds' (230651214) panicked at src/usage/report.rs:1581:13:
+assertion `left == right` failed
+  left: Failed { failure: Network, detail: "AI Gateway's answer stopped partway" }
+ right: Failed { failure: Network, detail: "AI Gateway did not answer within 15 s" }
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3692 filtered out; finished in 30.02s
+```
+
+## M3c-deadline-as-read-timeout
+
+Mutation: the total deadline replaced by reqwest's `connect_timeout` + `read_timeout` (15 s each).
+
+```
+thread 'usage::report::tests::a_gateway_that_never_answers_fails_at_15_seconds' (230685324) panicked at src/usage/report.rs:1579:13:
+assertion `left == right` failed
+  left: Failed { failure: Network, detail: "couldn't reach AI Gateway" }
+ right: Failed { failure: Network, detail: "AI Gateway did not answer within 15 s" }
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3692 filtered out; finished in 15.02s
+```
+
+## M3d-deadline-per-read
+
+Mutation: the total deadline replaced by one 15 s timeout around `send()` and one around each `chunk()`: a timeout that resets on progress.
+
+```
+thread 'usage::report::tests::a_gateway_that_never_answers_fails_at_15_seconds' (230733349) panicked at src/usage/report.rs:1581:13:
+assertion `left == right` failed
+  left: Failed { failure: Network, detail: "AI Gateway's answer stopped partway" }
+ right: Failed { failure: Network, detail: "AI Gateway did not answer within 15 s" }
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3692 filtered out; finished in 30.03s
+```
+
+## M10-no-drop-cancel
+
+Mutation: `impl Drop for Fetch` removed.
+
+```
+thread 'usage::report::tests::a_dropped_fetch_stops_and_lets_go_of_the_key' (230693011) panicked at src/usage/report.rs:1657:9:
+the worker outlived its fetch
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3692 filtered out; finished in 6.52s
+```
+
+## M11-provider-rejected
+
+Mutation: the `provider_rejected` refusal in `question()` removed.
+
+```
+thread 'usage::report::tests::an_unreadable_provider_setting_sends_the_key_nowhere' (230707602) panicked at src/usage/report.rs:1354:9:
+question: Ok(Question { origin: "http://127.0.0.1:60454", credential: Credential { source: AiGatewayApiKey, secret: "<redacted>" } }); requests that reached the Gateway: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3692 filtered out; finished in 0.02s
+```
