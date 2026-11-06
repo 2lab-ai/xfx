@@ -1267,4 +1267,23 @@ fn a_name_cut_to_its_ellipsis_alone_is_not_a_question_drawn_whole() {
         matches!(answer, Effect::Run(Run::Remove { .. })),
         "{answer:?}"
     );
+    // MCP-Mf: a first cluster two cells wide does not fit the one cell
+    // beside the `…` -- at 43 columns the name was a bare `…` again. A
+    // profile name written by hand can be one; a project name cannot.
+    let wide = "\u{540d}\u{524d}\u{30b5}\u{30fc}\u{30d0}\u{30fc}";
+    let (answer, asked) = ask(wide, 43);
+    assert!(!asked.contains("Remove \u{2026} from"), "{asked:?}");
+    assert!(
+        matches!(answer, Effect::Refused(ref why) if why.contains("couldn't show which file")),
+        "{answer:?}"
+    );
+    let (answer, asked) = ask(wide, 44);
+    assert!(
+        asked.contains("Remove \u{540d}\u{2026} from ~/.xfx/mcp.json?"),
+        "{asked:?}"
+    );
+    assert!(
+        matches!(answer, Effect::Run(Run::Remove { .. })),
+        "{answer:?}"
+    );
 }

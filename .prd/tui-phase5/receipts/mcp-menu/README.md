@@ -348,7 +348,7 @@ in 5.8 s, peak 99 MiB) and passes on the head.
 
 **The fixes.**
 - 1: `server_screen` saturates (`count.saturating_sub(1)`, `lines.saturating_sub(1)`) and composes no line for a panel of the title alone, and `rows` forgets what it drew whenever it cuts a composed row away. Each alone keeps the question undrawn; the test fails only with all three reverted.
-- 2: `shell_word`'s double-quoted form writes each control character outside the expansions as an ANSI-C piece between quoted ones; a control character inside a default, which has no exact double-quoted spelling, ANSI-C quotes the word whole, as before MCP-Mc.
+- 2: `shell_word`'s double-quoted form writes each control character outside the expansions as an ANSI-C piece between quoted ones; a control character inside a default, which has no exact double-quoted spelling, ANSI-C quotes the word whole, as before MCP-Mc. (Superseded by MCP-Me R1, below: such a byte stays inside the double quotes for the row's own spelling, and the word's expansions stay expansions.)
 - 3: `open_full_transcript` and `ask_question` forget what the menu drew.
 - 4: every Enter while the menu is up counts for `MCP_ENTER_HELD`, whichever surface takes it (`McpEnters`). A swallowed Enter keeps the window open only when it comes within 150 ms of the one before (`MCP_ENTER_REPEAT`): a key held down, or a burst. A tap does not -- the brief asked that no swallow restart the window, and taken literally that would let a key held past 500 ms answer (the held test, `a_held_enter_after_a_choice_runs_reaches_no_other_question`, fails on that mutant). A swallow is said once until an Enter counts again. (Superseded by MCP-Me R2, below: every Enter now holds the window.)
 - 5: Remove's question keeps ` from FILE?` whole and shortens the name; where not even one cell of the name fits beside it (under 42 columns for `~/.xfx/mcp.json`, 36 for `.mcp.json`), Enter says `xfx couldn't show which file Remove X acts on at this width, so nothing was removed.` and the question stays up for a frame that draws it whole. Reject's names no file and is cut as before.
@@ -503,6 +503,18 @@ alone 3 of 3 (0.31-0.33 s).
 
 **The pairs.** Every `p5-mcp-*` scenario at 40x120 on the MCP-Me build
 (debug): 85 of 146, every pair's verdict as on MCP-Md's.
+
+## MCP-Mf: a wide first cluster
+
+MCP-Me's rule took two cells beside ` from FILE?` as room for a name's first
+character and its `…`, but a name whose first cluster is two cells wide clips
+to nothing in one (`frame::clip`), so the row was a bare `…` again (`Remove …
+from ~/.xfx/mcp.json?` at 43 columns) and counted whole. Only a hand-written
+profile name can be one. Remove's question is now whole only when the name
+fits, or the shortened name holds more than the `…`.
+`tui::mcp_menu::tests::a_name_cut_to_its_ellipsis_alone_is_not_a_question_drawn_whole`
+gains the case (`名前サーバー`: refused at 43 columns, `Remove 名… from` at 44):
+on `37391e34` it fails with `"› Remove … from ~/.xfx/mcp.json?   yes  no"`.
 
 ## smoke-tui and the pty cases
 
