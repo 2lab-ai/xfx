@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-562149d [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────
+  proj
+  runs      <bun> <local-path>
+  file      .mcp.json
+  status    rejected
+
+› Approve       /mcp approve proj
+  Remove        /mcp remove proj
+
+  Tools 1
+  echo                  Echo text through the legacy MCP fi…
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter run     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

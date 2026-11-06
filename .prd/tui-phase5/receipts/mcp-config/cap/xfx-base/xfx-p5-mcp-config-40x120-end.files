@@ -1,0 +1,39 @@
+=== ~/.xfx/history.jsonl (1591 bytes)
+{"schema_version":1,"timestamp_ms":1793933489271,"workspace_root":"<scratch>/work","text":"<local-path>"}
+{"schema_version":1,"timestamp_ms":1793933492297,"workspace_root":"<scratch>/work","text":"/mcp add --env K=v --env Z=1 three -- <bun> <scenarios>/p5-mcp-stdio.ts --flag"}
+{"schema_version":1,"timestamp_ms":1793933495317,"workspace_root":"<scratch>/work","text":"/mcp add --header X-Team=core web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793933498337,"workspace_root":"<scratch>/work","text":"/mcp add --project p2 -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793933501813,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793933506215,"workspace_root":"<scratch>/work","text":"/mcp remove --project p2"}
+{"schema_version":1,"timestamp_ms":1793933509244,"workspace_root":"<scratch>/work","text":"/mcp remove old"}
+{"schema_version":1,"timestamp_ms":1793933512265,"workspace_root":"<scratch>/work","text":"/mcp remove three"}
+{"schema_version":1,"timestamp_ms":1793933515286,"workspace_root":"<scratch>/work","text":"/mcp remove web"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (725 bytes)
+{"mcp":{"--env":{"type":"local","command":["K=v","--env","Z=1","three","--","<bun>","<scenarios>/p5-mcp-stdio.ts","--flag"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1},"--header":{"type":"local","command":["X-Team=core","web","http://127.0.0.1:9/web"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1},"--project":{"type":"local","command":["p2","--","<bun>","<scenarios>/p5-mcp-stdio.ts"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}}}
+=== ~/.xfx/mcp.lock (0 bytes)
+=== ~/.xfx/sessions/1793933489271-4985ca9c4ed03600/events.jsonl (1231 bytes)
+{"schema_version":1,"log_generation":"22857ce8b9051469448b918ccb1d0978","seq":1,"event_id":"0e640493c0e0fc3fa6ca95583b107be8","timestamp_ms":1793933489279,"event":{"kind":"session_started","id":"1793933489271-4985ca9c4ed03600","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"22857ce8b9051469448b918ccb1d0978","seq":2,"event_id":"ee172afda15fe36e5dfbbe95a067bd1e","timestamp_ms":1793933489308,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"22857ce8b9051469448b918ccb1d0978","seq":3,"event_id":"1d552d5592b8d8dee611aec03c370d77","timestamp_ms":1793933489327,"event":{"kind":"user_message","text":"<local-path>"}}
+{"schema_version":1,"log_generation":"22857ce8b9051469448b918ccb1d0978","seq":4,"event_id":"da72c6db8636ce97e26f863aba1376de","timestamp_ms":1793933490104,"event":{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"the Gateway returned HTTP 500: unexpected request","terminal_reason":"failed"}}}
+
+=== ~/.xfx/sessions/1793933489271-4985ca9c4ed03600/session.json (678 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793933489271-4985ca9c4ed03600","log_generation":"22857ce8b9051469448b918ccb1d0978","created_at_ms":1793933489279,"updated_at_ms":1793933490104,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"<local-path>","history_turns":1,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":4,"event_log_bytes":1231,"event_log_sha256":"e3f9c5f828924d9fd557627e039229fd40446d8dc46c3b3cbda66665fdf9b0f9"}
+
+=== ~/.xfx/settings.json (277 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "enabledMcpjsonServers": [
+        "proj"
+      ],
+      "enabledMcpjsonServerDigests": {
+        "proj": "sha256:58fe7bbef3db96ce75880dcadc710361905507c15c5209368ab1ea36f1e28e38"
+      }
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-6df717a [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  command: <bun>
+↳ <scenarios>/p5-mcp-stdio.ts
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+┃ x
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 3  [Servers]  Tools  Resources  Prompts
+  Interactive MCP authentication is unavailable here.
+  Server              fixture
+  State               Ready
+  Source              Profile · ~/.xfx/mcp.json
+  Transport           stdio
+  Policy              optional
+  Protocol            2025-03-26
+  Capabilities        tools=1 resources=0 templates=0 prompts=0
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+d remove  c help  esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+

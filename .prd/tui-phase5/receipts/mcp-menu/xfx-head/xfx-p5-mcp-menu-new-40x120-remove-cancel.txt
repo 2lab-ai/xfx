@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-562149d [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  remote
+  http      http://127.0.0.1:9/mcp
+  file      ~/.xfx/mcp.json
+  status    retrying
+  error     it refused or never answered xfx's initialize request
+
+› Remove        /mcp remove remote
+
+  Loading tools…
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter run     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

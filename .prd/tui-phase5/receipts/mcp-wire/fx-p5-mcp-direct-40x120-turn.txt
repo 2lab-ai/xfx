@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ call the fixture echo tool
+
+● 1 tool call · 1 MCP call
+└ Ran MCP mcp_fixture_echo
+
+  done.
+
+  0s (↑6 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

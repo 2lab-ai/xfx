@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 [debug] · Run /help for commands
+
+┃ /mcp
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 1
+
+  /mcp   manage local and remote MCP servers, resources, prompts, and project trust                          Extensions
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

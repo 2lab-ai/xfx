@@ -1,0 +1,43 @@
+=== ~/.xfx/history.jsonl (2312 bytes)
+{"schema_version":1,"timestamp_ms":1793943427253,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793943429660,"workspace_root":"<scratch>/work","text":"/mcp show fixture"}
+{"schema_version":1,"timestamp_ms":1793943433694,"workspace_root":"<scratch>/work","text":"/mcp show remote"}
+{"schema_version":1,"timestamp_ms":1793943437720,"workspace_root":"<scratch>/work","text":"/mcp show proj"}
+{"schema_version":1,"timestamp_ms":1793943440740,"workspace_root":"<scratch>/work","text":"/mcp login fixture"}
+{"schema_version":1,"timestamp_ms":1793943442776,"workspace_root":"<scratch>/work","text":"/mcp login remote"}
+{"schema_version":1,"timestamp_ms":1793943447802,"workspace_root":"<scratch>/work","text":"/mcp auth remote"}
+{"schema_version":1,"timestamp_ms":1793943452832,"workspace_root":"<scratch>/work","text":"/mcp logout remote"}
+{"schema_version":1,"timestamp_ms":1793943454856,"workspace_root":"<scratch>/work","text":"/mcp add two -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793943458896,"workspace_root":"<scratch>/work","text":"/mcp add three <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793943462919,"workspace_root":"<scratch>/work","text":"/mcp add --transport http web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793943465955,"workspace_root":"<scratch>/work","text":"/mcp add web2 http://127.0.0.1:9/web2"}
+{"schema_version":1,"timestamp_ms":1793943468986,"workspace_root":"<scratch>/work","text":"/mcp add bad.name http://127.0.0.1:9/x"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (566 bytes)
+{
+  "mcpServers": {
+    "fixture": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "remote": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/mcp"
+    },
+    "two": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "web2": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/web2"
+    }
+  }
+}
+
+=== ~/.xfx/mcp.lock (0 bytes)

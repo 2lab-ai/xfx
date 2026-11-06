@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: NAME     SOURCE          TRANSPORT  STATUS
+  fixture  ~/.fx/mcp.json  stdio      ready, 1 tool
+
+! mcp: note: ~/.fx/mcp.json server 'fixture' sets "required", which fx ignores; remove it.
+  note: ~/.fx/mcp.json server 'fixture' sets "restart_limit", which fx ignores; remove it.
+
+┃
+
+auto · model-a                                                                     MCP config has 2 problems · /mcp list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

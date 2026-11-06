@@ -73,7 +73,7 @@
 
 use std::collections::VecDeque;
 use std::process::ExitCode;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
@@ -104,6 +104,7 @@ use super::info_panel::{self, MenuAction as InfoAction};
 use super::inline_completion;
 use super::input::{Action, Decoder, Delivery, Input};
 use super::layout::{self, Geometry};
+use super::mcp_args::{self, McpArgs};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
 use super::model_menu::{self, ModelAction, ModelMenu};
 use super::notice::{self, unattributed};
@@ -215,6 +216,53 @@ pub(crate) fn resume_handoff(id: &str, columns: u16, palette: Palette) -> String
 
 /// Upstream's label for that line (`render.zig:801`).
 const RESUME_LABEL: &str = "Continue session with:";
+
+/// An Enter this soon after the Enter before it answers none of `/mcp`'s
+/// questions ([`Shell::offer_to_mcp`]): a terminal's autorepeat sends one
+/// every 30-100 ms once it starts, and a burst read at once has none
+/// between; a person who reads the question and answers it takes longer.
+/// The first repeat comes after the terminal's delay (macOS's default
+/// 375 ms, X11's 660 ms) and may open a screen, never answer one: every
+/// repeat after it is this close.
+const MCP_ENTER_HELD: Duration = Duration::from_millis(500);
+
+/// What the menu says of an Enter it swallowed, once each time (opus-Y: a
+/// key that seems to do nothing is a key pressed again).
+const MCP_ENTER_TOO_SOON: &str =
+    "That Enter came too soon after the last one to answer the question: wait a moment, then press Enter.";
+
+/// Every Enter while `/mcp`'s menu is up, whatever takes it -- the menu, the
+/// model's question panel, a permission question, the composer -- and the
+/// last one ([`MCP_ENTER_HELD`]). A swallowed Enter counts too: timing
+/// cannot tell a slow key repeat from a second tap, and on a question that
+/// removes, rejects or approves the safe reading wins (opus-Md R2).
+#[derive(Debug, Clone, Copy, Default)]
+struct McpEnters {
+    /// The last Enter.
+    last: Option<Instant>,
+    /// The swallow since an Enter that was not held has been said.
+    said: bool,
+}
+
+impl McpEnters {
+    /// An Enter at `now`: whether it comes within [`MCP_ENTER_HELD`] of the
+    /// one before it.
+    fn enter(&mut self, now: Instant) -> bool {
+        let held = self
+            .last
+            .is_some_and(|last| now.saturating_duration_since(last) < MCP_ENTER_HELD);
+        self.last = Some(now);
+        if !held {
+            self.said = false;
+        }
+        held
+    }
+
+    /// The menu swallowed one: whether to say so.
+    fn swallowed(&mut self) -> bool {
+        !std::mem::replace(&mut self.said, true)
+    }
+}
 
 /// The command it names, without the id.
 const RESUME_COMMAND: &str = "xfx --resume";
@@ -627,17 +675,6 @@ pub(crate) struct StagedDocument {
     wipe: bool,
     handoff: Option<u16>,
     tail_unknown: bool,
-}
-
-/// The project trust prompt as it is up: the server, the digest of the entry
-/// it showed (what `1` approves), every server pending as it went up with its
-/// digest (what `2` approves), and whether it showed the entry whole.
-#[derive(Debug, Clone)]
-struct TrustPromptUp {
-    name: String,
-    digest: String,
-    listed: Vec<(String, String)>,
-    whole: bool,
 }
 
 /// The UI's state: what the band shows, and what it owes the screen.
@@ -1209,13 +1246,15 @@ pub(crate) struct Shell {
     /// `$word` and `/skills` list. The turn discovers its own on the runtime
     /// thread.
     skills: HeldSkills,
-    /// `/mcp`'s menu, while it is up ([`super::mcp_menu`]).
+    /// `/mcp`'s menu, while it is up ([`super::mcp_menu`]): a view of the
+    /// composer, which holds its filter.
     mcp_menu: Option<super::mcp_menu::McpMenu>,
-    /// The project server the trust prompt is up for, while it is, and the
-    /// digest of the entry it showed: the person's next `1`, `2`, `3` or
-    /// Escape answers it (`routeProjectMcpPromptByte`,
-    /// `app_input_runtime.zig:884-937`), and `1` approves that entry.
-    mcp_prompt: Option<TrustPromptUp>,
+    /// Every Enter while the menu is up ([`MCP_ENTER_HELD`]).
+    mcp_enter: McpEnters,
+    /// What the status line's right-hand slot says about MCP
+    /// ([`statusline::McpStatus`]): rebuilt from the runtime by
+    /// [`Self::settle_band`], cleared by a prompt sent ([`Self::send`]).
+    mcp_status: statusline::McpStatus,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -1269,6 +1308,14 @@ pub(crate) struct Shell {
     /// because whether the draft is the picker's is a property of the whole
     /// text that [`Trigger::of`] -- one slash word -- does not read.
     provider_dismissed: bool,
+    /// `/mcp `'s argument completions, while the draft is a `/mcp ` line
+    /// ([`super::mcp_args`]): the provider column's kind -- a view of the
+    /// composer under its argument, opened and closed in
+    /// [`Self::reconcile_picker`] -- with the servers read at most twice a
+    /// second while it is up ([`Self::settle_mcp_args`]).
+    mcp_args: Option<McpArgs>,
+    /// Whether Escape closed it over the `/mcp ` line the draft still is.
+    mcp_args_dismissed: bool,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -2093,6 +2140,8 @@ enum Slot<'a> {
     /// The `/provider` column. Like the menu it owns nothing but rows, and the
     /// composer's argument is its query.
     Provider(&'a ProviderPicker),
+    /// `/mcp `'s argument completions: the same, under `/mcp `'s argument.
+    McpArgs(&'a McpArgs),
     /// The `@` file picker. It owns nothing but rows either.
     Files(&'a FilePicker),
     /// A completion menu for what the composer holds. It owns nothing but rows.
@@ -2329,7 +2378,8 @@ impl Shell {
                     .and_then(std::path::Path::parent),
             ),
             mcp_menu: None,
-            mcp_prompt: None,
+            mcp_enter: McpEnters::default(),
+            mcp_status: statusline::McpStatus::default(),
             rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
@@ -2352,6 +2402,8 @@ impl Shell {
             ),
             provider_picker: None,
             provider_dismissed: false,
+            mcp_args: None,
+            mcp_args_dismissed: false,
             activity_row: None,
             activity_more: Vec::new(),
             handoff: None,
@@ -2597,17 +2649,10 @@ impl Shell {
                 Some(Slot::Usage(dashboard)) => {
                     dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
-                // In the rows the geometry gave it, with the servers as they
-                // stand now.
+                // In the rows the geometry gave it, with the servers as it
+                // last read them.
                 Some(Slot::Mcp(menu)) => {
-                    let runtime = self.work.mcp();
-                    menu.rows(
-                        &runtime.views(),
-                        &runtime.issues(),
-                        self.geometry.cols,
-                        self.geometry.panel,
-                        self.palette,
-                    )
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
                 // The same, with the directories in force.
                 Some(Slot::Workspace(menu)) => menu.rows(
@@ -2629,6 +2674,13 @@ impl Shell {
                 Some(Slot::Provider(column)) => column.rows(
                     self.geometry.cols,
                     self.provider_anchor(column),
+                    self.geometry.panel,
+                    self.palette,
+                ),
+                // The same, under `/mcp `'s argument.
+                Some(Slot::McpArgs(args)) => args.rows(
+                    self.geometry.cols,
+                    self.anchor_at(args.token_start()),
                     self.geometry.panel,
                     self.palette,
                 ),
@@ -2760,12 +2812,11 @@ impl Shell {
                 self.palette.dim(),
                 usage_menu::key_help(self.geometry.cols).to_string(),
             ),
-            // And `/mcp`'s, for the screen it is on
-            // (`composeMcpMenuHintRow`, `input_presentation.zig:607-692`).
-            Some(Slot::Mcp(menu)) => self.painted(
-                self.palette.dim(),
-                menu.key_help(&self.work.mcp().views(), self.geometry.cols),
-            ),
+            // And `/mcp`'s, for the screen it is on (`hintVariants`,
+            // `vercel-labs/fx@481104fd src/ui/footer/mcp_host_menu_presentation.zig:506-522`).
+            Some(Slot::Mcp(menu)) => {
+                self.painted(self.palette.dim(), menu.key_help(self.geometry.cols))
+            }
             // And the `/workspace` picker's (`input_presentation.zig:782-786`).
             Some(Slot::Workspace(_)) => self.painted(
                 self.palette.dim(),
@@ -2892,11 +2943,17 @@ impl Shell {
             // keystroke would do rather than another fact about the
             // session, and a warning that moved left and right with the
             // queue's depth would be one the eye has to look for.
+            //
+            // Last, in the same dim grey as the cues, what the status line
+            // says about MCP: `right_text`'s last fallback
+            // (`input_presentation.zig:548-550@481104fd`), blank while a
+            // question is up.
             right: self
                 .escape_armed
                 .then_some(ESCAPE_ARMED)
-                .or_else(|| self.warning_shown()),
-            right_style: if self.escape_armed {
+                .or_else(|| self.warning_shown())
+                .or_else(|| self.mcp_status_shown()),
+            right_style: if self.escape_armed || self.warning_shown().is_none() {
                 cue_style.as_str()
             } else {
                 self.palette.danger()
@@ -3141,6 +3198,11 @@ impl Shell {
         if let Some(column) = self.provider_picker.as_ref() {
             return Some(Slot::Provider(column));
         }
+        // Only with a row to show: a `/mcp ` argument nothing completes
+        // leaves the slot, and Enter submits what was typed.
+        if let Some(args) = self.mcp_args.as_ref().filter(|args| args.visible()) {
+            return Some(Slot::McpArgs(args));
+        }
         // The `/model` column before the `@` word, as upstream asks
         // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`) -- and the
         // `/effort ` column, for a model in force that has levels: one without
@@ -3170,11 +3232,17 @@ impl Shell {
     /// draft put at the start of its second row anchors at that row's start
     /// rather than past the edge of the screen.
     fn provider_anchor(&self, column: &ProviderPicker) -> u16 {
+        self.anchor_at(column.token_start())
+    }
+
+    /// The cell under byte `start` of the composer, which a column hangs
+    /// under (`projectedAnchorColumn`): on the row that byte is on, past the
+    /// prompt.
+    fn anchor_at(&self, start: usize) -> u16 {
         let text = self.editor.text();
-        // The column is rebuilt on every edit, so its offset is into this very
+        // A column is rebuilt on every edit, so its offset is into this very
         // text and after an ASCII prefix; checked anyway, because
         // `cursor_point` panics on an offset that is not a `char` boundary.
-        let start = column.token_start();
         if !text.is_char_boundary(start) {
             return PROMPT_CELLS;
         }
@@ -3457,6 +3525,30 @@ impl Shell {
         if title.is_some() {
             self.session_title = title;
             self.retitle();
+        }
+    }
+
+    /// Rows written as they are, with no glyph and no gutter -- the fork's
+    /// `original session` line ([`Self::forked`]) -- made inert first, on a
+    /// block of their own. (The MCP trust prompt's entry rows, two columns
+    /// in, went with the prompt in MCP-M, and their `↳ ` gutter with them;
+    /// the fork's line never starts with a space.)
+    fn write_raw_rows(&mut self, text: &str) {
+        let text = super::bridge::inert(text).into_owned();
+        self.close_group();
+        self.close_answer();
+        self.finish_document_line();
+        if !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        for line in text.trim_end_matches('\n').split('\n') {
+            if self.transcript.queue_gutter(Gutter::None) {
+                self.owed();
+            }
+            self.write_document_line(line, Role::Plain);
+        }
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
         }
     }
 
@@ -4619,6 +4711,9 @@ impl Shell {
             return;
         }
         self.full.open();
+        // It covers `/mcp`'s menu: what the menu drew is not on the screen
+        // while it is up, nor after it closes until a frame paints it (opus-Y).
+        self.forget_mcp_drawn();
         // The alternate plane, through the machinery the large-change review
         // uses: the loop pays what the primary plane owes, takes the plane in
         // the same write, and gives it back whole (`super::event_loop`'s
@@ -4760,6 +4855,21 @@ impl Shell {
     /// A write the screen refused: it may have left half a frame.
     pub(crate) fn approval_write_failed(&mut self) {
         self.readiness.write_failed();
+        if let Some(menu) = self.mcp_menu.as_ref() {
+            menu.forget_drawn();
+        }
+    }
+
+    /// `/mcp`'s menu's screen, read without composing a frame -- which would
+    /// mark its question drawn.
+    #[cfg(test)]
+    pub(crate) fn mcp_screen(&self) -> Option<super::mcp_menu::Screen> {
+        self.mcp_menu.as_ref().map(super::mcp_menu::McpMenu::screen)
+    }
+
+    /// What `/mcp`'s menu last drew is no longer known to be on the screen:
+    /// no answer it drew is taken until a frame draws it again.
+    pub(crate) fn forget_mcp_drawn(&self) {
         if let Some(menu) = self.mcp_menu.as_ref() {
             menu.forget_drawn();
         }
@@ -7332,183 +7442,191 @@ impl Shell {
         }
     }
 
-    /// One keystroke, while `/mcp`'s menu has the focus
-    /// ([`super::mcp_menu::McpMenu::key`]): what it binds it acts on, as a
-    /// repaint, a catalog read, a reload, a subcommand, or a line put in the
-    /// composer; what it does not bind it swallows.
-    fn offer_to_mcp(&mut self, event: Input) {
-        use super::mcp_menu::{Effect, KeyAction};
-        use crate::mcp::runtime::Job;
-        let action = match event {
-            Input::Text(character) => KeyAction::Char(character),
-            Input::Action(action) => match KeyAction::of(action) {
-                Some(action) => action,
-                None => return,
-            },
-            Input::PasteByte(_) | Input::Report(_) => return,
+    /// A keystroke while `/mcp`'s menu is up, and whether the menu took it
+    /// (`vercel-labs/fx@481104fd src/core/app/app_input_runtime.zig`): ↑↓
+    /// (and `C-k`/`C-j`, Page Up/Down) move (`routeMcpHostMenuMove`,
+    /// `input_completion_runtime.zig:424-429`); Enter opens or runs
+    /// (`submitMcpHostMenu`, `:1826-1831`); Escape goes back a screen, and
+    /// closing the list clears its filter (`cancelMcpHostMenu`, `:1752-1762`);
+    /// ← goes back from a server's screen or an approval when nothing is
+    /// typed, and → acts like Enter with the caret at the end of the filter,
+    /// each choosing yes or no on a question asked on its row
+    /// (`backMcpHostMenuScreen`, `enterMcpHostMenuItem`, `:1773-1806`); on a
+    /// confirmation any printable key -- Backspace's DEL among them --
+    /// cancels it (`routeMcpHostMenuByte`, `:1808-1824`), though the answer
+    /// it opens on is yes, as fx's is (presentation `:771-775`); Ctrl-C
+    /// closes it from any screen and takes the filter with it
+    /// (`exitMcpHostMenuIfActive`, `:1498-1509`), and Ctrl-P does nothing
+    /// (`modelPickerShortcutBlocked`, `:1963-1975`). Everything else goes to
+    /// the composer, which holds the filter.
+    ///
+    /// **xfx's, over fx's:** while Ctrl-O's full transcript covers the menu
+    /// it takes no key at all -- what that screen does not bind would
+    /// otherwise answer a question nobody can see (opus-C); and an Enter
+    /// that comes within [`MCP_ENTER_HELD`] of the Enter before it -- the
+    /// menu's or any other surface's while the menu is up (opus-Y) --
+    /// answers no question, and says so: that is a key held down, a burst
+    /// read at once, or a second tap, not an answer to what was shown.
+    fn offer_to_mcp(&mut self, event: &Input, held: bool) -> bool {
+        use super::mcp_menu::{Key, Screen};
+        let Some(menu) = self.mcp_menu.as_ref() else {
+            return false;
         };
-        let runtime = std::sync::Arc::clone(self.work.mcp());
-        let servers = runtime.views();
-        let visible = usize::from(self.geometry.panel.saturating_sub(2)).max(1);
+        if self.full.is_open() {
+            return true;
+        }
+        let screen = menu.screen();
+        let confirming = matches!(screen, Screen::Confirm(_));
+        let key = match event {
+            Input::Text(_) if confirming => Key::Escape,
+            Input::Action(action) => match action {
+                Action::Up | Action::ControlK | Action::PageUp => Key::Up,
+                Action::Down | Action::ControlJ | Action::PageDown => Key::Down,
+                Action::Submit => Key::Enter,
+                Action::Escape => Key::Escape,
+                Action::Backspace if confirming => Key::Escape,
+                Action::Left => {
+                    if screen == Screen::List {
+                        return false;
+                    }
+                    if menu.asks_on_row() {
+                        Key::Left
+                    } else if !self.editor.is_empty() {
+                        return false;
+                    } else {
+                        Key::Escape
+                    }
+                }
+                Action::Right => {
+                    if menu.asks_on_row() {
+                        Key::Right
+                    } else if confirming || !self.editor.caret_at_end() {
+                        return false;
+                    } else {
+                        Key::Enter
+                    }
+                }
+                Action::Cancel => {
+                    self.mcp_menu = None;
+                    self.clear_composer();
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                    return true;
+                }
+                Action::ControlP => return true,
+                _ => return false,
+            },
+            _ => return false,
+        };
+        if key == Key::Enter && held && confirming {
+            if self.mcp_enter.swallowed() {
+                self.write_notice(&notice::Notice::warning(
+                    crate::mcp::command::TOPIC,
+                    MCP_ENTER_TOO_SOON,
+                ));
+            }
+            return true;
+        }
+        self.mcp_key(key);
+        true
+    }
+
+    /// `key` to the menu, and what it asks for (`hostMenuKey`,
+    /// `app_mcp_runtime.zig:698-717`): a choice runs `/mcp`'s verb through
+    /// the verbs' own paths -- an approval as the entry its screen drew
+    /// ([`TrustAction::ApproveShown`]), a rejection as the trust choice the
+    /// verb sends, a removal as the verb with the file the question named --
+    /// saying only what warns; then each screen's own filter in the composer.
+    fn mcp_key(&mut self, key: super::mcp_menu::Key) {
+        use super::mcp_menu::{Effect, Run};
+        use crate::mcp::config::TrustAction;
+        use crate::mcp::runtime::Job;
+        let blind = self.blind();
         let Some(menu) = self.mcp_menu.as_mut() else {
             return;
         };
-        match menu.key(action, &servers, visible) {
-            Effect::Ignored => return,
-            Effect::Repaint => {}
-            Effect::Close => self.mcp_menu = None,
-            Effect::Load {
-                request,
-                section,
-                server,
-            } => runtime.submit(Job::Catalog {
-                request,
-                section,
-                server,
-            }),
-            Effect::Reload => runtime.submit(Job::MenuReload),
-            Effect::Command(line) => runtime.submit(Job::Command(line)),
-            Effect::Trust { action, body } => runtime.submit(Job::Trust { action, body }),
-            Effect::Show(text) => self.write_raw_rows(&text),
-            Effect::Compose(line) => {
-                if !self.editor.set_text(&line, Entities::new()) {
-                    return;
-                }
+        // A screen the band is blind on shows nothing it last drew for sure.
+        if blind {
+            menu.forget_drawn();
+        }
+        let was = menu.screen();
+        match menu.press(key) {
+            Effect::None => {}
+            Effect::Close => {
                 self.mcp_menu = None;
-                self.edit_history.boundary();
-                self.edited(None);
+                self.clear_composer();
+            }
+            Effect::Run(run) => {
+                menu.read_soon();
+                let job = match run {
+                    Run::Approve { name, digest } => Job::Trust {
+                        action: TrustAction::ApproveShown { name, digest },
+                        body: String::new(),
+                    },
+                    Run::Reject { name } => Job::Trust {
+                        action: TrustAction::Reject(name),
+                        body: String::new(),
+                    },
+                    Run::Remove { name, file } => Job::Remove { name, file },
+                };
+                self.work.mcp().submit(job);
+            }
+            Effect::Refused(text) => {
+                self.write_notice(&notice::Notice::warning(crate::mcp::command::TOPIC, text))
             }
         }
+        self.swap_mcp_filter(was);
         self.refit();
         self.render.request(Reason::Modal);
     }
 
-    /// One keystroke while the project trust prompt is up: `1` approves the
-    /// server, `2` approves every pending one, `3` rejects it, and Escape
-    /// dismisses the prompts for this process (`routeProjectMcpPromptByte`,
-    /// `app_input_runtime.zig:884-937`, `:1012-1033`). Anything else is
-    /// swallowed, as upstream's prompt swallows it -- except Ctrl-C and Ctrl-D,
-    /// which still reach the session: a prompt is no reason a person cannot
-    /// leave.
-    fn offer_to_trust_prompt(&mut self, event: &Input) -> bool {
-        use crate::mcp::config::TrustAction;
-        use crate::mcp::runtime::Job;
-        let Some(TrustPromptUp {
-            name,
-            digest,
-            listed,
-            whole,
-        }) = self.mcp_prompt.clone()
-        else {
-            return false;
+    /// Each screen keeps its own filter in the composer: opening a server
+    /// keeps the list's and starts its tool filter empty, and going back
+    /// brings the list's back (`swapHostMenuFilter`,
+    /// `app_mcp_runtime.zig:643-653`).
+    fn swap_mcp_filter(&mut self, was: super::mcp_menu::Screen) {
+        use super::mcp_menu::Screen;
+        let Some(menu) = self.mcp_menu.as_mut() else {
+            return;
         };
-        let shown = crate::mcp::terminal_safe(&name);
-        // A prompt that had to cut a row of the entry did not show it whole:
-        // `1` approves only what was shown, so it points to where it is.
-        if !whole && *event == Input::Text('1') {
-            self.write_notice(&notice::Notice::warning(
-                "mcp",
-                format!(
-                    "The prompt could not show '{shown}' whole. Open /mcp, press Enter on it, then v to see all of it, and approve it there with a."
-                ),
-            ));
-            return true;
-        }
-        // `2` is over the servers pending as the prompt went up; if they are
-        // not the ones pending now, it approves nothing and says so.
-        if *event == Input::Text('2') {
-            let now: Vec<(String, String)> = self
-                .work
-                .mcp()
-                .views()
-                .into_iter()
-                .filter(|view| view.admission == Some(crate::mcp::config::Admission::Pending))
-                .filter_map(|view| Some((view.name, view.entry?.digest.clone())))
-                .collect();
-            if now != listed {
-                // Approves nothing, and puts the prompt up again over the
-                // servers as they are now, so the next `2` is about them.
-                self.mcp_prompt = None;
-                let again = self.work.mcp().prompt_again();
-                self.write_notice(&notice::Notice::warning(
-                    "mcp",
-                    if again {
-                        "The pending servers changed since this prompt; it is shown again as they are now."
-                    } else {
-                        "The pending servers changed since this prompt. Open /mcp to review them."
-                    },
-                ));
-                return true;
+        let now = menu.screen();
+        if was == Screen::List && now == Screen::Server {
+            menu.keep_list_filter(self.editor.text());
+            self.clear_composer();
+        } else if was != Screen::List && now == Screen::List {
+            let filter = menu.list_filter().to_string();
+            if filter != self.editor.text() {
+                self.take_draft();
+                if !filter.is_empty() {
+                    let _ = self.editor.set_text(&filter, Entities::new());
+                }
+                self.amended(None);
             }
         }
-        let job = match event {
-            // The entry the prompt showed, whatever the file says by now.
-            Input::Text('1') => Job::Trust {
-                body: format!("Approving project MCP server '{shown}'."),
-                action: TrustAction::ApproveShown { name, digest },
-            },
-            // The servers pending as the prompt went up, as they were then.
-            Input::Text('2') => Job::Trust {
-                action: TrustAction::ApproveListed(listed),
-                body: "Approving all project MCP servers for this workspace.".to_string(),
-            },
-            Input::Text('3') => Job::Trust {
-                body: format!("Rejecting project MCP server '{shown}'."),
-                action: TrustAction::Reject(name),
-            },
-            Input::Action(Action::Escape) => {
-                self.mcp_prompt = None;
-                self.work.mcp().suppress_prompts();
-                self.write_notice(&notice::Notice::neutral(
-                    "mcp",
-                    "Project MCP approval prompts dismissed for this process.",
-                ));
-                return true;
-            }
-            Input::Action(Action::Cancel | Action::Eof) | Input::Report(_) => return false,
-            _ => return true,
-        };
-        self.mcp_prompt = None;
-        self.work.mcp().submit(job);
-        true
     }
 
-    /// Rows the MCP runtime or its menu wrote as they are, with no glyph --
-    /// the trust prompt, a project entry shown whole -- made inert first, on
-    /// a block of their own. A line two columns in is a row of the entry's
-    /// (or the prompt's choices): it is written behind [`Gutter::Shown`], so
-    /// the rows it wraps onto open with `↳ ` and none reads as a row of its
-    /// own. Every row the runtime writes is spelled, so a line break inside
-    /// a value never starts a line here.
-    fn write_raw_rows(&mut self, text: &str) {
-        let text = super::bridge::inert(text).into_owned();
-        self.close_group();
-        self.close_answer();
-        self.finish_document_line();
-        if !self.transcript.ends_blank() {
-            self.end_transcript_line();
+    /// The open menu reads the servers again, at most every quarter second
+    /// (`refreshHostMenu`, `app_mcp_runtime.zig:719-757`), and repaints what
+    /// changed; a server gone takes its screen back to the list, and its
+    /// filter with it.
+    fn settle_mcp_menu(&mut self, now: Instant) {
+        let Some(menu) = self.mcp_menu.as_mut() else {
+            return;
+        };
+        let was = menu.screen();
+        if !menu.refresh(self.work.mcp(), now, false) {
+            return;
         }
-        for line in text.trim_end_matches('\n').split('\n') {
-            let (gutter, line) = match line.strip_prefix("  ") {
-                Some(row) => (Gutter::Shown, row),
-                None => (Gutter::None, line),
-            };
-            if self.transcript.queue_gutter(gutter) {
-                self.owed();
-            }
-            self.write_document_line(line, Role::Plain);
-        }
-        if self.transcript.queue_gutter(Gutter::None) {
-            self.owed();
-        }
+        self.swap_mcp_filter(was);
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Writes what the MCP runtime has said since the last tick: its notices
-    /// -- a usage line under no topic, as upstream files one
-    /// (`noticeTopicForBody`, `app_commands.zig:1851-1853`) -- the trust
-    /// prompt's rows, and what the menu was waiting for. Everything a server
-    /// supplied is made inert first: a resource's text is the server's, not
-    /// xfx's.
+    /// -- every one under `mcp`, a usage line included, as fx v0.0.16 files
+    /// what a verb prints (`collectMcpHostFacts`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_commands.zig:340-354`). Everything a server supplied
+    /// is made inert first: a server's words are the server's, not xfx's.
     fn settle_mcp(&mut self) {
         use crate::mcp::runtime::Event;
         let events = self.work.mcp().take_events();
@@ -7519,11 +7637,7 @@ impl Shell {
             match event {
                 Event::Notice { warning, body } => {
                     let body = super::bridge::inert(&body).into_owned();
-                    let topic = if body.starts_with("usage:") {
-                        ""
-                    } else {
-                        "mcp"
-                    };
+                    let topic = crate::mcp::command::TOPIC;
                     let notice = if warning {
                         notice::Notice::warning(topic, body)
                     } else {
@@ -7531,38 +7645,8 @@ impl Shell {
                     };
                     self.write_notice(&notice);
                 }
-                // Written and armed in one step: the prompt `1` and `2` answer
-                // is always the one written last.
-                Event::TrustPrompt {
-                    name,
-                    digest,
-                    listed,
-                    whole,
-                    text,
-                } => {
-                    self.write_raw_rows(&text);
-                    self.mcp_prompt = Some(TrustPromptUp {
-                        name,
-                        digest,
-                        listed,
-                        whole,
-                    })
-                }
-                Event::MenuFeedback(text) => {
-                    if let Some(menu) = self.mcp_menu.as_mut() {
-                        menu.tell(super::bridge::inert(&text).into_owned());
-                    }
-                }
-                Event::Catalog { request, result } => {
-                    if let Some(menu) = self.mcp_menu.as_mut() {
-                        menu.loaded(request, result);
-                    }
-                }
                 Event::Changed => {}
             }
-        }
-        if self.mcp_menu.is_some() {
-            self.refit();
         }
         self.render.request(Reason::Modal);
     }
@@ -8104,6 +8188,19 @@ impl Shell {
     /// no path that changes the draft without coming through here, and none
     /// that changes the menu without the draft having changed.
     fn reconcile_picker(&mut self) {
+        // **While `/mcp`'s menu is up the draft is its filter** -- the list's,
+        // or the open server's tools' -- and no completion menu opens for it
+        // (`syncMcpHostMenu`, `vercel-labs/fx@481104fd
+        // src/core/app/app_input_runtime.zig:2487-2490`).
+        if let Some(menu) = self.mcp_menu.as_mut() {
+            menu.set_filter(self.editor.text());
+            self.picker = None;
+            self.file_picker = None;
+            self.provider_picker = None;
+            self.mcp_args = None;
+            self.skills_menu = None;
+            return;
+        }
         // The skills menu reads the draft again (`syncSkillsMenu`,
         // `app_input_runtime.zig:2940-2958`): a `$` word it followed that is
         // gone ends it, and `/skills`' search is the whole draft -- no
@@ -8115,6 +8212,8 @@ impl Shell {
                 self.picker = None;
                 self.file_picker = None;
                 self.provider_picker = None;
+                self.mcp_args = None;
+                self.mcp_args = None;
                 return;
             }
         }
@@ -8128,6 +8227,7 @@ impl Shell {
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             return;
         }
         // The same for the settings menu (`syncSettingsMenu`,
@@ -8142,6 +8242,7 @@ impl Shell {
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             return;
         }
         // The same for `/model`'s menu (`syncModelMenu`,
@@ -8151,6 +8252,7 @@ impl Shell {
             menu.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             self.file_picker = None;
             return;
         }
@@ -8160,6 +8262,7 @@ impl Shell {
             sessions.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
+            self.mcp_args = None;
             self.file_picker = None;
             return;
         }
@@ -8173,6 +8276,15 @@ impl Shell {
             // Still asked, so a completion menu Escape closed over `/provider`
             // is forgotten once the draft has become the column's: the trigger
             // changed kind, and that is what a dismissal lasts until.
+            let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
+            self.mcp_args = None;
+            return;
+        }
+        // `/mcp `'s argument the same way: a space in it, so never a slash
+        // word, and never an `@` word's either.
+        if self.reconcile_mcp_args() {
+            self.picker = None;
+            self.file_picker = None;
             let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
             return;
         }
@@ -8246,6 +8358,108 @@ impl Shell {
         }
         let query = self.editor.text().to_string();
         self.picker = Picker::open(&query, self.skills.skills());
+    }
+
+    /// Settles `/mcp `'s argument completions for the draft, and says
+    /// whether the draft is theirs -- a `/mcp ` line, open or dismissed.
+    ///
+    /// Rebuilt only when the text changed, which puts the mark back on the
+    /// first row, as fx's does; the servers are read when it opens and then
+    /// at most twice a second ([`Self::settle_mcp_args`]).
+    fn reconcile_mcp_args(&mut self) -> bool {
+        let text = self.editor.text();
+        if mcp_args::query_of(text).is_none() {
+            self.mcp_args_dismissed = false;
+            self.mcp_args = None;
+            return false;
+        }
+        // Closed over a recalled line until it is edited
+        // (`history_slash_recall_until_edit`), so Up goes on walking.
+        if self.mcp_args_dismissed || self.recalled_slash {
+            self.mcp_args = None;
+            return true;
+        }
+        if self
+            .mcp_args
+            .as_ref()
+            .is_some_and(|open| open.text() == text)
+        {
+            return true;
+        }
+        let entries = crate::mcp::command::completions(self.work.mcp());
+        self.mcp_args = McpArgs::open(text, entries, Instant::now());
+        true
+    }
+
+    /// Reads the servers again for the open completions, at most twice a
+    /// second (`refreshCompletion`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_mcp_runtime.zig:470-484`), so a status beside a name
+    /// is the server's now; a row that came or went asks the band again.
+    fn settle_mcp_args(&mut self, now: Instant) {
+        if !self.mcp_args.as_ref().is_some_and(|args| args.due(now)) {
+            return;
+        }
+        let entries = crate::mcp::command::completions(self.work.mcp());
+        let Some(args) = self.mcp_args.as_mut() else {
+            return;
+        };
+        let was = args.visible();
+        if args.refresh(entries, now) {
+            if was != args.visible() {
+                self.refit();
+            }
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Offers one keystroke to `/mcp `'s argument completions, and says
+    /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
+    /// Tab writes the marked line; Escape closes them until the draft stops
+    /// being a `/mcp ` line. Enter writes the marked line and is **not**
+    /// taken, so the composer submits it in place of what was typed
+    /// (`resolveSlashSubmission`, `vercel-labs/fx@481104fd
+    /// src/core/app/input_submit_runtime.zig:1819-1824`).
+    fn offer_to_mcp_args(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
+            return false;
+        }
+        let Some(args) = self.mcp_args.as_mut() else {
+            return false;
+        };
+        match action {
+            Action::Up | Action::ControlK | Action::Down | Action::ControlJ => {
+                let down = matches!(action, Action::Down | Action::ControlJ);
+                if args.step_by(if down { 1 } else { -1 }) {
+                    self.render.request(Reason::Modal);
+                }
+                true
+            }
+            Action::Tab => {
+                if let Some(line) = args.chosen().map(str::to_string) {
+                    self.replace_word(&line);
+                }
+                true
+            }
+            Action::Submit => {
+                if let Some(line) = args.chosen().map(str::to_string) {
+                    if line != self.editor.text() {
+                        self.replace_word(&line);
+                    }
+                }
+                false
+            }
+            Action::Escape => {
+                self.mcp_args = None;
+                self.mcp_args_dismissed = true;
+                self.refit();
+                self.render.request(Reason::Modal);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Settles the `/provider` column for the draft, and says whether the
@@ -8746,6 +8960,9 @@ impl Shell {
         // behind a question is a menu whose keys the panel is swallowing.
         self.dismiss_picker();
         self.ask = Some(panel);
+        // Over `/mcp`'s menu, if it is up: what the menu drew is covered
+        // until a frame paints it again (opus-Y).
+        self.forget_mcp_drawn();
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
@@ -9540,8 +9757,14 @@ impl Shell {
         self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
-        // And what the MCP runtime has to say.
+        // And what the MCP runtime has to say, and what the status line says
+        // of its servers.
         self.settle_mcp();
+        self.settle_mcp_menu(now);
+        self.settle_mcp_args(now);
+        if self.mcp_status.refresh(now, self.work.mcp()) {
+            self.render.request(Reason::Footer);
+        }
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
         // And a turn moving what an open `/status` panel shows.
@@ -10570,7 +10793,6 @@ impl Shell {
                     self.ask.is_some()
                         || self.info_panel.is_some()
                         || self.mcp_menu.is_some()
-                        || self.mcp_prompt.is_some()
                         || self.asking()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
@@ -10586,6 +10808,13 @@ impl Shell {
             if disarms && self.gestures.other_key() {
                 self.render.request(Reason::Footer);
             }
+            // Every Enter while `/mcp`'s menu is up, whichever surface takes
+            // it, is one the menu's held rule counts (opus-Y): an Enter the
+            // model's panel took, then a second tap once the question is
+            // painted again, is a double tap, not an answer.
+            let held = matches!(event, Input::Action(Action::Submit))
+                && self.mcp_menu.is_some()
+                && self.mcp_enter.enter(now);
             // The full transcript, while it is up, has the keys it binds;
             // everything else goes where it would have gone with the screen
             // closed -- the composer, the band's menus -- as upstream routes
@@ -10649,26 +10878,9 @@ impl Shell {
                 self.offer_to_workspace(event);
                 continue;
             }
-            // `/mcp`'s menu the same way: it binds its keys and swallows the
-            // rest, as upstream's does while it is active.
-            if self.mcp_menu.is_some() {
-                self.offer_to_mcp(event);
-                continue;
-            }
-            // The project trust prompt, while it is up and no menu is
-            // (`projectMcpPromptMayOwnInput`, `app_input_runtime.zig:124-131`),
-            // and while it is on the screen: Ctrl-O's transcript does not have
-            // its rows, so what is typed over it goes where text goes.
-            if self.mcp_prompt.is_some()
-                && !self.full.is_open()
-                && self.settings_menu.is_none()
-                && self.sessions.is_none()
-                && self.help_menu.is_none()
-                && self.model_menu.is_none()
-                && self.fork_menu.is_none()
-                && self.effort_menu.is_none()
-                && self.offer_to_trust_prompt(&event)
-            {
+            // `/mcp`'s menu takes the keys it binds; the rest go to the
+            // composer, which holds its filter, as fx v0.0.16's does.
+            if self.offer_to_mcp(&event, held) {
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -10707,6 +10919,9 @@ impl Shell {
                 continue;
             }
             if self.offer_to_provider_picker(&event) {
+                continue;
+            }
+            if self.offer_to_mcp_args(&event) {
                 continue;
             }
             match event {
@@ -10751,6 +10966,7 @@ impl Shell {
             .map_or(self.editor.caret(), |range| range.start);
         let mention = character == '$'
             && !file_picker::contains_position(self.editor.text().as_bytes(), at)
+            && self.mcp_menu.is_none()
             && self.help_menu.is_none()
             && self.model_menu.is_none()
             && self.settings_menu.is_none()
@@ -11777,6 +11993,11 @@ impl Shell {
     /// terminal's document, so a submission is something the session visibly
     /// did rather than something that vanished.
     fn send(&mut self, prompt: String, text: &str) -> bool {
+        // Sending a prompt clears the MCP text the person has seen, whether
+        // or not the prompt is then taken (`enqueuePromptForSubmit`,
+        // `vercel-labs/fx@481104fd src/core/app/input_submit_runtime.zig:
+        // 1108-1109`).
+        self.mcp_status.dismiss();
         // Of the prompt as the runtime is given it, which is what the store
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
@@ -12755,14 +12976,15 @@ impl CommandHandlers for Shell {
         }
     }
 
-    /// `/mcp` (`commandHandleMcp`, `app_commands.zig:1312-1405`): bare or
-    /// `list` opens the menu with the menus that share its slot closed
-    /// (`:1315-1332`); anything else is a subcommand, answered in order on
-    /// the MCP runtime's own thread so no server holds up the band
-    /// ([`crate::mcp::command`]).
+    /// `/mcp` (`commandHandleMcp`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_commands.zig:927-945`): bare, it opens the menu with
+    /// the menus that share its slot closed (`closeOtherMenusForMcp`,
+    /// `:325-338`); anything else is a verb -- `list` included, which prints
+    /// its table -- answered in order on the MCP runtime's own thread so no
+    /// server holds up the band ([`crate::mcp::command`]).
     fn mcp(&mut self, argument: &str) {
         let argument = argument.trim_matches([' ', '\t']);
-        if argument.is_empty() || argument == "list" {
+        if argument.is_empty() {
             self.picker = None;
             self.file_picker = None;
             self.help_menu = None;
@@ -12776,7 +12998,8 @@ impl CommandHandlers for Shell {
             self.workspace_menu = None;
             self.info_panel = None;
             self.close_fork_menu();
-            self.mcp_menu = Some(super::mcp_menu::McpMenu::open());
+            let (rows, notes) = super::mcp_menu::rows_of(self.work.mcp());
+            self.mcp_menu = Some(super::mcp_menu::McpMenu::open(rows, notes, Instant::now()));
             self.refit();
             self.render.request(Reason::Modal);
             return;
@@ -13136,6 +13359,14 @@ impl Shell {
     /// replaces the row with its key help (`paint_plan.zig:946-972`). The
     /// clock ([`permissions::Warning::observe`]) is asked with this same
     /// answer, so the time spent is time the person could see it.
+    /// The status line's MCP text, while it has something to say and no
+    /// question has the row (`question_hint != null` blanks the slot,
+    /// `input_presentation.zig:543-544@481104fd`).
+    fn mcp_status_shown(&self) -> Option<&str> {
+        let text = self.mcp_status.text();
+        (!text.is_empty() && !self.modal()).then_some(text)
+    }
+
     fn warning_shown(&self) -> Option<&'static str> {
         if !self.warning.active() || self.mode != PermissionMode::Yolo {
             return None;
@@ -14273,7 +14504,11 @@ impl Shell {
         if !self.dismissed.holds(Trigger::File) {
             self.dismissed.forget();
         }
-        self.recalled_slash = self.completion_kind() == Some(Trigger::Slash);
+        // `/mcp `'s argument completions are the slash popup's kind upstream
+        // (`inlinePickerTriggerKind` says `.slash` for any line that starts
+        // with `/`), so a recalled `/mcp VERB NAME` keeps them closed too.
+        self.recalled_slash = self.completion_kind() == Some(Trigger::Slash)
+            || mcp_args::query_of(self.editor.text()).is_some();
         // A `/fork` still waiting for its answer is left behind with the
         // draft it was typed from: upstream's menu, open by now, would have
         // taken this Up ([`Self::close_fork_menu`]). The menu itself cannot be
@@ -14466,17 +14701,17 @@ impl Shell {
             | Some(Slot::Effort(_))
             | Some(Slot::Skills(_))
             | Some(Slot::Provider(_))
+            | Some(Slot::McpArgs(_))
             | Some(Slot::Files(_))
             | None => 0,
         };
         let snapshot = self.settings_snapshot();
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
-            Some(Slot::Mcp(menu)) => menu.height(
-                &self.work.mcp().views(),
-                cols,
-                help_menu::row_budget(rows, input_rows.saturating_sub(1)),
-            ),
+            Some(Slot::Mcp(menu)) => {
+                let room = super::mcp_menu::room(rows, input_rows.saturating_sub(1));
+                menu.height(cols, room.min(super::mcp_menu::MAX_ROWS), room)
+            }
             Some(Slot::Settings(menu)) => {
                 menu.height(&snapshot, rows, input_rows.saturating_sub(1))
             }
@@ -14487,6 +14722,9 @@ impl Shell {
             Some(Slot::Skills(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
                 ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
+            }
+            Some(Slot::McpArgs(_)) => {
+                McpArgs::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
             }
             // Upstream's budget for a list (`activeListPickerReservedRows`)
             // leaves no room for a running turn's row, which xfx's band puts
@@ -14704,6 +14942,9 @@ impl Shell {
         };
         self.geometry = geometry;
         self.transcript.resize_unfinished(cols);
+        // The terminal re-wrapped what was on it: what `/mcp`'s menu last drew
+        // is no longer known to be there.
+        self.forget_mcp_drawn();
         // A frame of every row is owed anyway, so the workspace segment reads
         // `HEAD` again on it, as upstream's does on every render
         // (`tui-startup.test.ts:175-240` moves the branch and resizes).
@@ -15241,203 +15482,232 @@ mod tests {
         );
     }
 
-    #[test]
-    fn details_forget_what_they_drew_when_the_screen_is_written_over() {
-        // A band invalidation (something else wrote on the screen) or a write
-        // the screen refused leaves nothing known to be on it: `a` on
-        // details then approves nothing until a frame draws the entry again.
-        use crate::mcp::runtime::{Event, Job};
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        std::fs::write(
-            workspace.join(".mcp.json"),
-            serde_json::json!({"mcpServers": {
-                "proj": {"command": "/bin/sh", "args": ["-c", "exit 0"]},
-            }})
-            .to_string(),
-        )
-        .expect("write .mcp.json");
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(home.path().join(".xfx").join("mcp.json")),
-            settings: Some(home.path().join(".xfx").join("settings.json")),
-            workspace: workspace.clone(),
-        });
-        runtime.start();
-        runtime.suppress_prompts();
-        let (work, _sent, _control) = WorkHandle::detached();
-        let mut shell = Shell::new(
-            &config(home.path(), &workspace),
-            crate::tui::layout::solve(40, 200, 1).expect("a band"),
-            PALETTE,
-            false,
-            work.with_mcp(Arc::clone(&runtime)),
-        )
-        .anchored();
-        let quiet =
-            |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
-                runtime.submit(Job::Command("path".into()));
-                let deadline = std::time::Instant::now() + Duration::from_secs(60);
-                let mut said = Vec::new();
-                while !said.iter().any(|body: &String| body.contains("mcp.json")) {
-                    said.extend(runtime.take_events().into_iter().filter_map(
-                        |event| match event {
-                            Event::Notice { body, .. } => Some(body),
-                            _ => None,
-                        },
-                    ));
-                    assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                said
-            };
-        shell.mcp("");
-        shell.offer_to_mcp(Input::Action(Action::Submit));
-        for forget in [Shell::invalidate_approval, Shell::approval_write_failed] {
-            assert!(shell
-                .band_rows()
-                .join("\n")
-                .contains("command: /bin/sh -c 'exit 0'"));
-            forget(&mut shell);
-            let _ = runtime.take_events();
-            shell.offer_to_mcp(Input::Text('a'));
-            let said = quiet(&runtime);
-            assert_eq!(
-                said.len(),
-                1,
-                "`a` approved what is not known to be shown: {said:?}"
-            );
-            assert!(
-                shell.band_rows().join("\n").contains("not shown whole"),
-                "{}",
-                shell.band_rows().join("\n")
-            );
-        }
-        runtime.shutdown();
-    }
-
-    /// Takes the runtime's events until a reload asked for from the transcript
-    /// has answered and the prompt over `listed` has gone up, and returns
-    /// everything taken, oldest first.
-    ///
-    /// Not a poll of the views: a reload asked for while the startup reload
-    /// runs is folded into it, and the views hold the rewrite before that
-    /// reload answers and puts the prompt up (`McpRuntime::reload`). A case
-    /// that went on as soon as the views changed could drain the queue before
-    /// the prompt or the answer were in it.
-    fn until_prompted(
-        runtime: &crate::mcp::McpRuntime,
-        listed: &[(String, String)],
-    ) -> Vec<crate::mcp::runtime::Event> {
-        use crate::mcp::runtime::Event;
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        let mut taken = Vec::new();
-        loop {
-            taken.extend(runtime.take_events());
-            let prompted = taken.iter().any(|event| {
-                matches!(event, Event::TrustPrompt { listed: up, .. } if up.as_slice() == listed)
-            });
-            let answered = taken.iter().any(|event| {
-                matches!(event, Event::Notice { body, .. } if body.starts_with("MCP configuration reloaded"))
-            });
-            if prompted && answered {
-                return taken;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the reload never answered with the prompt over {listed:?} up: {taken:?}"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    /// Two pending project servers, `a` and `b`; the shell with the prompt
-    /// for `a` up; then `b` rewritten, reloaded, and the prompt over the
-    /// rewrite put up. What the runtime said since the first prompt is taken
-    /// off its queue into `said`: a case says it again for the shell to see
-    /// it, or drops it.
-    struct TwoPending {
-        _home: tempfile::TempDir,
+    /// `/mcp`'s menu over a real runtime: a scratch home and workspace, the
+    /// project's `.mcp.json` and, when given, a profile, the runtime started
+    /// and its startup reload waited out, and a 40x120 shell over it.
+    struct McpCase {
+        home: tempfile::TempDir,
         workspace: std::path::PathBuf,
         settings: std::path::PathBuf,
+        profile: std::path::PathBuf,
         runtime: Arc<crate::mcp::McpRuntime>,
         shell: Shell,
-        said: Vec<crate::mcp::runtime::Event>,
+        sent: Receiver<TurnWork>,
+        /// The clock the keys are read at: a second between keystrokes, so
+        /// none is a key held down unless a case says so ([`Self::held`]).
+        clock: Instant,
     }
 
-    fn quiet_entry(mark: &str) -> serde_json::Value {
-        serde_json::json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]})
-    }
+    impl McpCase {
+        fn new(project: serde_json::Value, profile: Option<serde_json::Value>) -> Self {
+            Self::reading(project, profile, &[])
+        }
 
-    impl TwoPending {
-        fn new() -> Self {
-            use crate::mcp::runtime::Job;
+        /// [`Self::new`], its servers' `${VAR}` reading `overrides` first.
+        fn reading(
+            project: serde_json::Value,
+            profile: Option<serde_json::Value>,
+            overrides: &[(&str, &str)],
+        ) -> Self {
             let home = tempfile::tempdir().expect("a home");
             let workspace = home.path().join("work");
             std::fs::create_dir_all(&workspace).expect("a workspace");
-            let write = |b: &str| {
+            std::fs::write(
+                workspace.join(".mcp.json"),
+                serde_json::json!({ "mcpServers": project }).to_string(),
+            )
+            .expect("write .mcp.json");
+            let xfx = home.path().join(".xfx");
+            std::fs::create_dir_all(&xfx).expect("~/.xfx");
+            let profile_path = xfx.join("mcp.json");
+            if let Some(profile) = profile {
                 std::fs::write(
-                    workspace.join(".mcp.json"),
-                    serde_json::json!({"mcpServers": {"a": quiet_entry("a1"), "b": quiet_entry(b)}})
-                        .to_string(),
+                    &profile_path,
+                    serde_json::json!({ "mcpServers": profile }).to_string(),
                 )
-                .expect("write .mcp.json")
-            };
-            write("b1");
-            let settings = home.path().join(".xfx").join("settings.json");
-            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-                profile: Some(home.path().join(".xfx").join("mcp.json")),
-                settings: Some(settings.clone()),
-                workspace: workspace.clone(),
-            });
-            runtime.start();
-            let (work, _sent, _control) = WorkHandle::detached();
-            let mut shell = Shell::new(
+                .expect("write the profile");
+            }
+            let settings = xfx.join("settings.json");
+            let runtime = crate::mcp::McpRuntime::with_environment(
+                crate::mcp::Paths {
+                    profile: Some(profile_path.clone()),
+                    settings: Some(settings.clone()),
+                    workspace: workspace.clone(),
+                },
+                overrides,
+            );
+            runtime.start_and_wait(Duration::from_secs(60));
+            let (work, sent, _control) = WorkHandle::detached();
+            let shell = Shell::new(
                 &config(home.path(), &workspace),
-                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
                 PALETTE,
                 false,
                 work.with_mcp(Arc::clone(&runtime)),
             )
             .anchored();
-            shell.settle_mcp();
-            assert_eq!(
-                shell.mcp_prompt.clone().expect("the prompt is up").name,
-                "a"
-            );
-            write("b2");
-            {
-                let (done, finished) = std::sync::mpsc::channel();
-                let runtime = Arc::clone(&runtime);
-                std::thread::spawn(move || {
-                    runtime.run(Job::Command("reload".into()));
-                    let _ = done.send(());
-                });
-                finished
-                    .recv_timeout(Duration::from_secs(60))
-                    .expect("the reload did not finish within a minute");
-            }
-            let said = until_prompted(&runtime, &Self::now());
             Self {
-                _home: home,
+                home,
                 workspace,
                 settings,
+                profile: profile_path,
                 runtime,
                 shell,
-                said,
+                sent,
+                clock: Instant::now(),
             }
         }
 
-        /// The servers pending once `b` is rewritten, each with its digest.
-        fn now() -> Vec<(String, String)> {
-            use crate::mcp::config::entry_digest;
-            vec![
-                ("a".to_string(), entry_digest(&quiet_entry("a1"))),
-                ("b".to_string(), entry_digest(&quiet_entry("b2"))),
-            ]
+        /// The shell's own fixture server, which writes `ran` when it starts.
+        fn marked(ran: &std::path::Path, mark: &str) -> serde_json::Value {
+            let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/support/mcp_fixture.sh");
+            serde_json::json!({"command": "/bin/sh", "args": [
+                "-c", ": > \"$0\"; exec /bin/sh \"$1\" \"$2\"", ran, fixture, mark,
+            ]})
         }
 
-        /// The text of every row the shell has written since the last call.
+        fn keys(&mut self, keys: impl IntoIterator<Item = Input>) {
+            for key in keys {
+                self.clock += Duration::from_secs(1);
+                self.shell.consume(vec![key], self.clock);
+            }
+        }
+
+        /// `key` as a key held down repeats it: `times` reads `every` apart,
+        /// a frame painted between each, as a terminal's autorepeat sends.
+        fn held(&mut self, key: Input, times: usize, every: Duration) {
+            for _ in 0..times {
+                self.clock += every;
+                self.shell.consume(vec![key.clone()], self.clock);
+                self.reread();
+                let _ = self.screen();
+            }
+        }
+
+        /// Every file a choice could write, as it is now: whether each is
+        /// there, and its bytes.
+        fn files(&self) -> Vec<(std::path::PathBuf, Option<Vec<u8>>)> {
+            [
+                self.profile.clone(),
+                self.settings.clone(),
+                self.workspace.join(".mcp.json"),
+            ]
+            .into_iter()
+            .map(|path| {
+                let bytes = std::fs::read(&path).ok();
+                (path, bytes)
+            })
+            .collect()
+        }
+
+        fn typed(&mut self, text: &str) {
+            self.keys(text.chars().map(Input::Text));
+        }
+
+        /// The menu reads the servers again, as its next tick would.
+        fn reread(&mut self) {
+            self.shell
+                .settle_mcp_menu(Instant::now() + Duration::from_secs(1));
+        }
+
+        /// The band as it is drawn now: a frame, which the approval's screen
+        /// records.
+        fn screen(&self) -> String {
+            self.shell
+                .band_rows()
+                .iter()
+                .map(|row| sgr_free(row))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+
+        /// Opens `/mcp` the way a person does: typed and submitted.
+        fn open(&mut self) {
+            self.typed("/mcp");
+            self.keys([Input::Action(Action::Submit)]);
+            assert!(self.shell.mcp_menu.is_some(), "/mcp opened no menu");
+        }
+
+        /// What the runtime said since the last call, once every job handed
+        /// to it before has run: a sentinel `remove` is queued behind them
+        /// and its own warning taken off. Each with whether it warned.
+        fn drained(&self) -> Vec<(bool, String)> {
+            use crate::mcp::runtime::{Event, Job};
+            self.runtime
+                .submit(Job::Command("remove sentinel-nope".into()));
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let mut said = Vec::new();
+            loop {
+                said.extend(self.runtime.take_events().into_iter().filter_map(
+                    |event| match event {
+                        Event::Notice { warning, body } => Some((warning, body)),
+                        Event::Changed => None,
+                    },
+                ));
+                if let Some(at) = said
+                    .iter()
+                    .position(|(_, body)| body.contains("sentinel-nope"))
+                {
+                    said.remove(at);
+                    return said;
+                }
+                assert!(Instant::now() < deadline, "no answer: {said:?}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// `name` once it is not still coming up.
+        fn view(&self, name: &str) -> crate::mcp::runtime::ServerView {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            loop {
+                let view = self
+                    .runtime
+                    .views()
+                    .into_iter()
+                    .find(|view| view.name == name)
+                    .unwrap_or_else(|| panic!("no server {name}"));
+                if view.connection != crate::mcp::runtime::Connection::Connecting {
+                    return view;
+                }
+                assert!(Instant::now() < deadline, "{name} never settled");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// `name` once it is ready.
+        fn ready(&self, name: &str) {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            while self.view(name).status() != crate::mcp::runtime::Status::Ready {
+                assert!(Instant::now() < deadline, "{name} never came up");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// The workspace's entry in the settings, `Null` when there is none.
+        fn saved(&self) -> serde_json::Value {
+            let saved: serde_json::Value = std::fs::read_to_string(&self.settings)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
+            saved["workspaces"][self.workspace.to_str().unwrap()].clone()
+        }
+
+        /// A reload, bounded: a job that never returns fails the case.
+        fn reload(&self) {
+            let (done, finished) = std::sync::mpsc::channel();
+            let runtime = Arc::clone(&self.runtime);
+            std::thread::spawn(move || {
+                runtime.reload(crate::mcp::runtime::Origin::Transcript);
+                let _ = done.send(());
+            });
+            finished
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the reload did not finish within a minute");
+        }
+
+        /// Every row the shell has written into the transcript since the
+        /// last call, one line each.
         fn written(&mut self) -> String {
             let mut rows = Vec::new();
             while self
@@ -15448,671 +15718,1037 @@ mod tests {
                 })
                 .is_some()
             {}
-            rows.iter()
-                .map(|row| row.trim())
-                .collect::<Vec<_>>()
-                .join(" ")
+            rows.join("\n")
         }
+    }
 
-        /// Waits until the settings hold exactly `want`.
-        fn saved(&self, want: serde_json::Value) {
-            let deadline = std::time::Instant::now() + Duration::from_secs(60);
-            loop {
-                let saved: serde_json::Value = std::fs::read_to_string(&self.settings)
-                    .ok()
-                    .and_then(|text| serde_json::from_str(&text).ok())
-                    .unwrap_or_default();
-                let got = saved["workspaces"][self.workspace.to_str().unwrap()]
-                    ["enabledMcpjsonServerDigests"]
-                    .clone();
-                if got == want {
-                    return;
-                }
-                assert!(std::time::Instant::now() < deadline, "never saved: {got}");
-                std::thread::sleep(Duration::from_millis(10));
-            }
+    impl Drop for McpCase {
+        fn drop(&mut self) {
+            self.runtime.shutdown();
         }
     }
 
     #[test]
-    fn a_change_to_another_pending_server_puts_the_prompt_up_again_over_the_new_set() {
-        // The prompt is about the first pending server; `2` is about all of
-        // them. A reload that changes another one sends the prompt again, so
-        // the prompt armed -- before anything is pressed -- is over the set
-        // as it is now.
-        let mut case = TwoPending::new();
-        for event in std::mem::take(&mut case.said) {
-            case.runtime.say(event);
-        }
-        case.shell.settle_mcp();
-        let prompt = case.shell.mcp_prompt.clone().expect("the prompt is up");
-        assert_eq!(prompt.listed, TwoPending::now());
-        assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
-        let now = TwoPending::now();
-        case.saved(serde_json::json!({"a": now[0].1, "b": now[1].1}));
-        case.runtime.shutdown();
-    }
-
-    #[test]
-    fn a_refused_two_puts_the_prompt_up_again_when_no_refreshed_prompt_is_queued() {
-        // What the reload said is dropped, as if the shell never saw it: the
-        // prompt armed is the old one. `2` over it refuses, and puts the
-        // prompt up again itself -- it does not wait for a reload to -- and
-        // says so.
-        let mut case = TwoPending::new();
-        let stale = case.shell.mcp_prompt.clone().expect("the prompt is up");
-        assert_ne!(stale.listed, TwoPending::now());
-        let _ = case.written();
-        assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
-        case.shell.settle_mcp();
-        let written = case.written();
-        assert!(
-            written.contains(
-                "The pending servers changed since this prompt; it is shown again as they are now."
-            ) && !written.contains("Open /mcp"),
-            "{written}"
+    fn a_project_server_never_starts_unapproved_at_launch_on_reload_or_when_its_menu_opens() {
+        // S1. With the launch prompt gone (fx v0.0.16 `ba0ea4a9`), a
+        // `.mcp.json` server with no approval saved for what it holds is held
+        // back: the session's first load, a reload, and every screen of the
+        // menu leave it waiting, and its command never runs.
+        let marks = tempfile::tempdir().expect("a marker dir");
+        let ran = marks.path().join("ran");
+        let mut case = McpCase::new(
+            serde_json::json!({"proj": McpCase::marked(&ran, "entry-a")}),
+            None,
         );
-        let prompt = case
-            .shell
-            .mcp_prompt
-            .clone()
-            .expect("the prompt is up again");
-        assert_eq!(prompt.listed, TwoPending::now());
-        assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
-        let now = TwoPending::now();
-        case.saved(serde_json::json!({"a": now[0].1, "b": now[1].1}));
-        case.runtime.shutdown();
-    }
-
-    #[test]
-    fn a_refused_two_with_the_prompts_dismissed_puts_nothing_up() {
-        // Escape dismissed the prompts for this process: a refusing `2`
-        // has nothing to put up again, so none is armed (and it says to open
-        // /mcp rather than that the prompt is shown again).
-        let mut case = TwoPending::new();
-        case.runtime.suppress_prompts();
-        let _ = case.written();
-        assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
-        case.shell.settle_mcp();
-        let written = case.written();
-        assert!(
-            written.contains(
-                "The pending servers changed since this prompt. Open /mcp to review them."
-            ) && !written.contains("shown again"),
-            "{written}"
-        );
-        assert!(
-            case.shell.mcp_prompt.is_none(),
-            "{:?}",
-            case.shell.mcp_prompt
-        );
-        case.runtime.shutdown();
-    }
-
-    #[test]
-    fn the_trust_prompt_takes_no_key_while_the_full_transcript_covers_it() {
-        // Ctrl-O's screen has the transcript, and the prompt's rows were never
-        // written to it: a prompt put up while it is open has not been seen.
-        // `1` and `2` typed over it go where text goes -- the composer behind
-        // the screen -- and approve nothing.
-        use crate::mcp::runtime::{Event, Job};
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        std::fs::write(
-            workspace.join(".mcp.json"),
-            serde_json::json!({"mcpServers": {"proj": quiet_entry("p")}}).to_string(),
-        )
-        .expect("write .mcp.json");
-        let settings = home.path().join(".xfx").join("settings.json");
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(home.path().join(".xfx").join("mcp.json")),
-            settings: Some(settings.clone()),
-            workspace: workspace.clone(),
-        });
-        runtime.start();
-        let (work, _sent, _control) = WorkHandle::detached();
-        let mut shell = Shell::new(
-            &config(home.path(), &workspace),
-            crate::tui::layout::solve(24, 80, 1).expect("a band"),
-            PALETTE,
-            false,
-            work.with_mcp(Arc::clone(&runtime)),
-        )
-        .anchored();
-        shell.settle_mcp();
-        assert!(shell.mcp_prompt.is_some(), "the prompt is up");
-        shell.open_full_transcript();
-        assert!(shell.full.is_open());
-        shell.consume(vec![Input::Text('1'), Input::Text('2')], Instant::now());
-        // Nothing was handed to the runtime: a job behind it answers alone.
-        runtime.submit(Job::Command("path".into()));
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        let mut said: Vec<String> = Vec::new();
-        while !said.iter().any(|body| body.contains("mcp.json")) {
-            said.extend(
-                runtime
-                    .take_events()
-                    .into_iter()
-                    .filter_map(|event| match event {
-                        Event::Notice { body, .. } => Some(body),
-                        _ => None,
-                    }),
+        let pending = |case: &McpCase| {
+            let view = case.view("proj");
+            assert_eq!(
+                view.admission,
+                Some(crate::mcp::config::Admission::Pending),
+                "{view:?}"
             );
-            assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(
-            !said.iter().any(|body| body.starts_with("Approving")),
-            "a key over Ctrl-O approved: {said:?}"
-        );
-        assert!(!settings.exists(), "a key over Ctrl-O saved a choice");
-        assert!(shell.mcp_prompt.is_some(), "the prompt is still up");
-        runtime.shutdown();
-    }
-
-    #[test]
-    fn a_wrapped_value_in_the_prompt_draws_no_row_that_reads_as_an_entry_of_its_own() {
-        // The prompt's rows are written into the transcript, which wraps them
-        // to the screen: a continuation drawn like a row would let `v`, a run
-        // of spaces, and `env: PATH=/usr/bin` pass for a second variable.
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        let forged = format!("v{}env: PATH=/usr/bin", " ".repeat(300));
-        std::fs::write(
-            workspace.join(".mcp.json"),
-            serde_json::json!({"mcpServers": {"proj": {"command": "node", "env": {"K": forged}}}})
-                .to_string(),
-        )
-        .expect("write .mcp.json");
-        for cols in [40u16, 80, 120] {
-            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-                profile: Some(home.path().join(".xfx").join("mcp.json")),
-                settings: Some(home.path().join(".xfx").join("settings.json")),
-                workspace: workspace.clone(),
-            });
-            runtime.start();
-            let (work, _sent, _control) = WorkHandle::detached();
-            let mut shell = Shell::new(
-                &config(home.path(), &workspace),
-                crate::tui::layout::solve(24, cols, 1).expect("a band"),
-                PALETTE,
-                false,
-                work.with_mcp(Arc::clone(&runtime)),
-            )
-            .anchored();
-            shell.settle_mcp();
-            assert!(shell.mcp_prompt.is_some(), "the prompt is up");
-            let mut rows = Vec::new();
-            while shell
-                .emit_document_front(|append| {
-                    rows.extend(append.rows.iter().map(|row| unpainted(row)));
-                    Landed::<std::convert::Infallible>::All
-                })
-                .is_some()
-            {}
-            // A row of the entry's own is two columns in; a row it wraps onto
-            // opens with `↳ `, so nothing after the first reads as one.
-            let entries: Vec<&String> = rows
-                .iter()
-                .filter(|row| row.trim_start().starts_with("env: "))
-                .collect();
-            assert_eq!(entries.len(), 1, "{cols}: {rows:#?}");
-            assert!(entries[0].starts_with("  env: K=v"), "{cols}: {rows:#?}");
-            assert!(
-                rows.iter().any(|row| row == "\u{21b3} env: PATH=/usr/bin"),
-                "{cols}: {rows:#?}"
-            );
-            runtime.shutdown();
-        }
-    }
-
-    #[test]
-    fn two_at_the_trust_prompt_approves_nothing_once_the_pending_servers_changed() {
-        // `2` is over the servers pending as the prompt went up. A reload
-        // after it rewrote one: `2` hands the runtime nothing and says so.
-        use crate::mcp::runtime::{Event, Job};
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        let write = |mark: &str| {
-            std::fs::write(
-                workspace.join(".mcp.json"),
-                serde_json::json!({"mcpServers": {
-                    "proj": {"command": "/bin/sh", "args": ["-c", "exit 0", mark]},
-                }})
-                .to_string(),
-            )
-            .expect("write .mcp.json")
+            assert_ne!(view.connection, crate::mcp::runtime::Connection::Ready);
+            assert!(!ran.exists(), "the unapproved entry ran");
         };
-        write("first");
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(home.path().join(".xfx").join("mcp.json")),
-            settings: Some(home.path().join(".xfx").join("settings.json")),
-            workspace: workspace.clone(),
-        });
-        runtime.start();
-        let (work, _sent, _control) = WorkHandle::detached();
-        let mut shell = Shell::new(
-            &config(home.path(), &workspace),
-            crate::tui::layout::solve(24, 80, 1).expect("a band"),
-            PALETTE,
-            false,
-            work.with_mcp(Arc::clone(&runtime)),
-        )
-        .anchored();
-        shell.settle_mcp();
-        assert!(shell.mcp_prompt.is_some(), "the prompt is up");
-        write("second");
-        {
-            let (done, finished) = std::sync::mpsc::channel();
-            let runtime = Arc::clone(&runtime);
-            std::thread::spawn(move || {
-                runtime.run(Job::Command("reload".into()));
-                let _ = done.send(());
-            });
-            finished
-                .recv_timeout(Duration::from_secs(60))
-                .expect("the reload did not finish within a minute");
-        }
-        // The reload's answer and the prompt over the rewrite are taken off
-        // the queue and dropped: the shell never saw them.
-        let second = crate::mcp::config::entry_digest(
-            &serde_json::json!({"command": "/bin/sh", "args": ["-c", "exit 0", "second"]}),
-        );
-        let _ = until_prompted(&runtime, &[("proj".to_string(), second)]);
-        assert!(shell.offer_to_trust_prompt(&Input::Text('2')));
-        // Nothing was handed to the runtime: a job behind it answers alone.
-        runtime.submit(Job::Command("path".into()));
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        let mut said: Vec<String> = Vec::new();
-        while !said.iter().any(|body| body.contains("mcp.json")) {
-            said.extend(
-                runtime
-                    .take_events()
-                    .into_iter()
-                    .filter_map(|event| match event {
-                        Event::Notice { body, .. } => Some(body),
-                        _ => None,
-                    }),
-            );
-            assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(said.len(), 1, "`2` reached the runtime: {said:?}");
-        runtime.shutdown();
-    }
-
-    #[test]
-    fn one_at_a_prompt_that_cut_a_row_approves_nothing_and_says_where_it_is_whole() {
-        // A row over the prompt's limit is shown by its two ends: the entry
-        // was not shown whole, so `1` approves nothing and says where it is.
-        use crate::mcp::runtime::{Event, Job};
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        std::fs::write(
-            workspace.join(".mcp.json"),
-            serde_json::json!({"mcpServers": {"proj": {
-                "command": "/bin/sh",
-                "args": ["-c", format!("true {}", "m".repeat(3000))],
-            }}})
-            .to_string(),
-        )
-        .expect("write .mcp.json");
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(home.path().join(".xfx").join("mcp.json")),
-            settings: Some(home.path().join(".xfx").join("settings.json")),
-            workspace: workspace.clone(),
-        });
-        runtime.start();
-        let (work, _sent, _control) = WorkHandle::detached();
-        let mut shell = Shell::new(
-            &config(home.path(), &workspace),
-            crate::tui::layout::solve(24, 80, 1).expect("a band"),
-            PALETTE,
-            false,
-            work.with_mcp(Arc::clone(&runtime)),
-        )
-        .anchored();
-        shell.settle_mcp();
-        let whole = shell.mcp_prompt.clone().expect("the prompt is up").whole;
-        assert!(!whole, "a 3000-byte row fit the prompt");
-        assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
-        assert!(shell.mcp_prompt.is_some(), "the prompt is still up");
-        // Nothing was handed to the runtime: a job behind it answers first.
-        runtime.submit(Job::Command("path".into()));
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        let mut said: Vec<String> = Vec::new();
-        while !said.iter().any(|body| body.contains("mcp.json")) {
-            said.extend(
-                runtime
-                    .take_events()
-                    .into_iter()
-                    .filter_map(|event| match event {
-                        Event::Notice { body, .. } => Some(body),
-                        _ => None,
-                    }),
-            );
-            assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        pending(&case);
+        // Nothing asks in the transcript.
+        case.shell.settle_band(Instant::now());
+        let written = case.written();
+        assert!(!written.contains("Project MCP server"), "{written}");
+        assert!(!written.contains("[1] approve"), "{written}");
+        case.reload();
+        pending(&case);
+        case.open();
+        case.reread();
         assert!(
-            !said.iter().any(|body| body.starts_with("Approving")),
-            "{said:?}"
+            case.screen().contains("waiting for approval"),
+            "{}",
+            case.screen()
         );
-        runtime.shutdown();
+        case.keys([Input::Action(Action::Submit)]);
+        case.reread();
+        assert!(case
+            .screen()
+            .contains("Its tools show here once you approve it."));
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case
+            .screen()
+            .contains("Approve proj for this project? It runs:"));
+        case.reread();
+        case.keys([Input::Action(Action::Escape)]);
+        case.reread();
+        case.keys([Input::Action(Action::Escape), Input::Action(Action::Escape)]);
+        assert!(case.shell.mcp_menu.is_none());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(case.drained().is_empty());
+        pending(&case);
+        // The marker is real: approved, the entry starts and writes it.
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let _ = case.screen();
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        case.ready("proj");
+        assert!(ran.exists(), "the approved entry never started");
     }
 
     #[test]
-    fn a_on_mcp_details_approves_the_entry_drawn_and_not_one_read_since() {
-        // Details draw entry A; a reload reads entry B before the next frame;
-        // `a` must not approve B, which nobody has seen. It approves nothing,
-        // the next frame shows B and says it changed, and a second `a`
-        // approves B -- the entry that frame drew -- only.
+    fn approve_in_the_menu_binds_the_entry_its_screen_drew_and_not_one_read_since() {
+        // S2. The approval's screen draws entry A; a reload reads entry B
+        // before the next frame; Enter must not approve B, which nobody has
+        // seen. It approves nothing and says so; shown again, Enter approves
+        // B -- the entry that frame drew -- by B's digest, and says nothing
+        // more (a choice made in the menu says only what warns).
         use crate::mcp::config::entry_digest;
-        use crate::mcp::runtime::{Connection, Event, Job};
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        let ran = home.path().join("b-ran");
-        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/support/mcp_fixture.sh")
-            .to_string_lossy()
-            .into_owned();
+        let marks = tempfile::tempdir().expect("a marker dir");
+        let ran = marks.path().join("b-ran");
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
         let a = serde_json::json!({"command": "/bin/sh", "args": [fixture, "entry-a"]});
-        let b = serde_json::json!({"command": "/bin/sh", "args": [
-            "-c", ": > \"$0\"; exec /bin/sh \"$1\" entry-b", ran, fixture,
-        ]});
-        let write = |entry: &serde_json::Value| {
+        let b = McpCase::marked(&ran, "entry-b");
+        let mut case = McpCase::new(serde_json::json!({"proj": a}), None);
+        let write = |case: &McpCase, entry: &serde_json::Value| {
             std::fs::write(
-                workspace.join(".mcp.json"),
+                case.workspace.join(".mcp.json"),
                 serde_json::json!({"mcpServers": {"proj": entry}}).to_string(),
             )
             .expect("write .mcp.json")
         };
-        write(&a);
-        let settings = home.path().join(".xfx").join("settings.json");
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(home.path().join(".xfx").join("mcp.json")),
-            settings: Some(settings.clone()),
-            workspace: workspace.clone(),
-        });
-        runtime.start();
-        runtime.suppress_prompts();
-        let (work, _sent, _control) = WorkHandle::detached();
-        let mut shell = Shell::new(
-            &config(home.path(), &workspace),
-            crate::tui::layout::solve(40, 200, 1).expect("a band"),
-            PALETTE,
-            false,
-            work.with_mcp(Arc::clone(&runtime)),
-        )
-        .anchored();
-        // Every job the runtime was handed before this one has run once it
-        // answers; what they said, in order.
-        let drained =
-            |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
-                runtime.submit(Job::Command("path".into()));
-                let deadline = std::time::Instant::now() + Duration::from_secs(60);
-                let mut said = Vec::new();
-                loop {
-                    said.extend(runtime.take_events().into_iter().filter_map(
-                        |event| match event {
-                            Event::Notice { body, .. } => Some(body),
-                            _ => None,
-                        },
-                    ));
-                    if said.iter().any(|body| body.contains("mcp.json")) {
-                        return said;
-                    }
-                    assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-            };
-        let screen = |shell: &Shell| shell.band_rows().join("\n");
-        let proj = |runtime: &crate::mcp::McpRuntime| {
-            let deadline = std::time::Instant::now() + Duration::from_secs(60);
-            loop {
-                let view = runtime
-                    .views()
-                    .into_iter()
-                    .find(|view| view.name == "proj")
-                    .expect("proj");
-                if view.connection != Connection::Connecting {
-                    return view;
-                }
-                assert!(std::time::Instant::now() < deadline, "proj never settled");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
-        assert_eq!(proj(&runtime).state_label(), "Pending trust");
-
-        shell.mcp("");
-        shell.offer_to_mcp(Input::Action(Action::Submit));
-        assert!(screen(&shell).contains("entry-a"), "{}", screen(&shell));
-        write(&b);
-        {
-            // Bounded: a job that never returns fails the case instead of
-            // hanging the run.
-            let (done, finished) = std::sync::mpsc::channel();
-            let runtime = Arc::clone(&runtime);
-            std::thread::spawn(move || {
-                runtime.run(Job::Command("reload".into()));
-                let _ = done.send(());
-            });
-            finished
-                .recv_timeout(Duration::from_secs(60))
-                .expect("the reload did not finish within a minute");
-        }
-        // A reload asked for while the startup one runs is queued behind it:
-        // the case is only the case once the runtime holds entry B.
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        while proj(&runtime).entry.map(|entry| entry.digest.clone()) != Some(entry_digest(&b)) {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the runtime never read entry B"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = runtime.take_events();
-        shell.offer_to_mcp(Input::Text('a'));
-        let said = drained(&runtime);
-        assert!(
-            !said.iter().any(|body| body.starts_with("Approving")),
-            "`a` approved an entry the screen never drew: {said:?}"
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("entry-a"), "{}", case.screen());
+        write(&case, &b);
+        case.reload();
+        assert_eq!(
+            case.view("proj").entry.map(|entry| entry.digest.clone()),
+            Some(entry_digest(&b))
         );
-        assert_eq!(proj(&runtime).state_label(), "Pending trust");
+        // The menu reads B; no frame has drawn it.
+        case.reread();
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let written = case.written();
+        assert!(
+            written.contains(
+                "! mcp: proj changed in .mcp.json since xfx showed it; nothing was approved."
+            ),
+            "{written}"
+        );
+        assert_eq!(case.saved(), serde_json::Value::Null);
+        assert_eq!(
+            case.view("proj").admission,
+            Some(crate::mcp::config::Admission::Pending)
+        );
         assert!(!ran.exists(), "the entry read after the frame ran");
 
-        let redrawn = screen(&shell);
-        assert!(redrawn.contains("entry-b"), "{redrawn}");
-        assert!(redrawn.contains("changed since it was drawn"), "{redrawn}");
-        shell.offer_to_mcp(Input::Text('a'));
-        let said = drained(&runtime);
-        assert_eq!(said[0], "Approving project MCP server 'proj'.", "{said:?}");
-        let saved: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings"))
-                .expect("json");
+        // Shown again: B, and Enter approves B.
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("entry-b"), "{}", case.screen());
+        case.keys([Input::Action(Action::Submit)]);
+        assert_eq!(case.drained(), Vec::<(bool, String)>::new());
         assert_eq!(
-            saved["workspaces"][workspace.to_str().unwrap()]["enabledMcpjsonServerDigests"]["proj"],
+            case.saved()["enabledMcpjsonServerDigests"]["proj"],
             serde_json::json!(entry_digest(&b)),
-            "{saved:#}"
         );
-        assert_eq!(proj(&runtime).status(), crate::mcp::runtime::Status::Ready);
-        runtime.shutdown();
+        case.ready("proj");
+        assert!(ran.exists(), "the approved entry never started");
     }
 
     #[test]
-    fn one_at_the_trust_prompt_approves_the_entry_it_showed_not_one_read_since() {
-        // `1` answers the prompt on the screen. If the file changed after it
-        // went up -- a reload read the new entry before the shell drew the
-        // new prompt -- the approval is for the entry shown, so the new one
-        // stays pending and never runs. A `1` that approved by name would bind
-        // the entry the runtime read last, and run it.
-        use crate::mcp::runtime::{Connection, Event, Job};
-        let home = tempfile::tempdir().expect("a home");
-        let workspace = home.path().join("work");
-        std::fs::create_dir_all(&workspace).expect("a workspace");
-        let ran = home.path().join("replacement-ran");
-        let write = |args: serde_json::Value| {
-            std::fs::write(
-                workspace.join(".mcp.json"),
-                serde_json::json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": args}}})
-                    .to_string(),
-            )
-            .expect("write .mcp.json")
-        };
-        write(serde_json::json!(["-c", "exit 0"]));
-        let settings = home.path().join(".xfx").join("settings.json");
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(home.path().join(".xfx").join("mcp.json")),
-            settings: Some(settings.clone()),
-            workspace: workspace.clone(),
-        });
-        runtime.start();
-        let (work, _sent, _control) = WorkHandle::detached();
-        let mut shell = Shell::new(
-            &config(home.path(), &workspace),
-            crate::tui::layout::solve(24, 80, 1).expect("a band"),
-            PALETTE,
-            false,
-            work.with_mcp(Arc::clone(&runtime)),
+    fn approve_in_the_menu_saves_the_digest_xfx_read_so_an_entry_rewritten_since_never_runs() {
+        // S2, MCP-Vc's rule: the saved digest is the one xfx read, and a
+        // reload admits only on equality. The file is rewritten after the
+        // approval's screen showed A and before Enter, with no read between:
+        // Enter approves A, the reload after it reads B, and B stays waiting.
+        use crate::mcp::config::entry_digest;
+        let marks = tempfile::tempdir().expect("a marker dir");
+        let ran = marks.path().join("b-ran");
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let a = serde_json::json!({"command": "/bin/sh", "args": [fixture, "entry-a"]});
+        let b = McpCase::marked(&ran, "entry-b");
+        let mut case = McpCase::new(serde_json::json!({"proj": a.clone()}), None);
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("entry-a"));
+        std::fs::write(
+            case.workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": b}}).to_string(),
         )
-        .anchored();
-        shell.settle_mcp();
-        let shown = shell.mcp_prompt.clone().expect("the prompt is up").digest;
-
-        write(serde_json::json!(["-c", ": > \"$0\"", ran]));
-        {
-            // Bounded: a job that never returns fails the case instead of
-            // hanging the run.
-            let (done, finished) = std::sync::mpsc::channel();
-            let runtime = Arc::clone(&runtime);
-            std::thread::spawn(move || {
-                runtime.run(Job::Command("reload".into()));
-                let _ = done.send(());
-            });
-            finished
-                .recv_timeout(Duration::from_secs(60))
-                .expect("the reload did not finish within a minute");
-        }
-        // A reload asked for while the startup one still runs is queued
-        // behind it, so `run` can return first: the case is only the case
-        // once that reload has answered and put the prompt over the new
-        // entry up -- taken off the queue and dropped, as if the shell had
-        // not drawn it yet.
-        let rewritten = crate::mcp::config::entry_digest(&serde_json::json!({
-            "command": "/bin/sh",
-            "args": ["-c", ": > \"$0\"", ran],
-        }));
-        assert_ne!(rewritten, shown);
-        let _ = until_prompted(&runtime, &[("proj".to_string(), rewritten)]);
-        assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
-
-        // The answer is saved and announced, and the reload it asks for has
-        // said how it went, whichever way that was.
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        let mut said: Vec<String> = Vec::new();
-        while said.len() < 2 {
-            said.extend(
-                runtime
-                    .take_events()
-                    .into_iter()
-                    .filter_map(|event| match event {
-                        Event::Notice { body, .. } => Some(body),
-                        _ => None,
-                    }),
-            );
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the answer never landed: {said:?}"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(said[0], "Approving project MCP server 'proj'.", "{said:?}");
-        let saved: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings"))
-                .expect("json");
+        .expect("write .mcp.json");
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
         assert_eq!(
-            saved["workspaces"][workspace.to_str().unwrap()]["enabledMcpjsonServerDigests"]["proj"],
-            serde_json::json!(shown),
-            "{saved:#}"
+            case.saved()["enabledMcpjsonServerDigests"]["proj"],
+            serde_json::json!(entry_digest(&a))
         );
-        let view = runtime
-            .views()
-            .into_iter()
-            .find(|view| view.name == "proj")
-            .expect("proj");
-        assert_ne!(view.connection, Connection::Connecting);
-        assert_eq!(view.state_label(), "Pending trust", "{view:?}");
-        assert!(!ran.exists(), "the entry read after the prompt ran");
-        runtime.shutdown();
+        let view = case.view("proj");
+        assert_eq!(view.admission, Some(crate::mcp::config::Admission::Pending));
+        assert_eq!(
+            view.entry.map(|entry| entry.digest.clone()),
+            Some(entry_digest(&b))
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!ran.exists(), "the rewritten entry ran");
     }
 
     #[test]
-    fn whatever_order_prompts_arrive_in_the_one_armed_is_the_last_printed() {
-        // Two prompts put up at once -- a reload's and a refused `2`'s -- and
-        // a notice the runtime writes can reach the shell in any order. On
-        // f4674457 a prompt's text and its authority were two events, and
-        // A's text, B's text, B armed, A armed left B the last prompt printed
-        // with A armed: the person would approve something other than what
-        // they just read. Each prompt is one event now, so in every order the
-        // prompt armed is the last one printed.
-        use crate::mcp::runtime::Event;
-        let prompt = |name: &str| {
-            Event::TrustPrompt {
-            name: name.into(),
-            digest: format!("sha256:{name}"),
-            listed: Vec::new(),
-            whole: true,
-            text: format!(
-                "Project MCP server '{name}' is defined in .mcp.json.\n  command: /bin/{name}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n"
-            ),
-        }
-        };
-        let other = || Event::Notice {
-            warning: false,
-            body: "MCP configuration reloaded successfully.".into(),
-        };
-        let orders: [[usize; 3]; 6] = [
-            [0, 1, 2],
-            [0, 2, 1],
-            [1, 0, 2],
-            [1, 2, 0],
-            [2, 0, 1],
-            [2, 1, 0],
-        ];
-        for order in orders {
-            let mut fixture = shell(24, 80);
-            let runtime = Arc::clone(fixture.shell.work.mcp());
-            for index in order {
-                runtime.say(match index {
-                    0 => prompt("a"),
-                    1 => prompt("b"),
-                    _ => other(),
-                });
-            }
-            fixture.shell.settle_mcp();
-            let printed: Vec<String> = fixture
-                .written()
-                .into_iter()
-                .filter(|row| row.contains("is defined in .mcp.json."))
-                .filter_map(|row| {
-                    row.strip_prefix("Project MCP server '")
-                        .and_then(|rest| rest.split('\'').next())
-                        .map(str::to_string)
-                })
-                .collect();
-            let armed = fixture.shell.mcp_prompt.clone().expect("a prompt is armed");
-            assert_eq!(
-                Some(&armed.name),
-                printed.last(),
-                "{order:?}: armed {armed:?}, printed {printed:?}"
+    fn approve_in_the_menu_approves_the_entry_drawn_when_the_runtime_read_another_before_the_menu_did(
+    ) {
+        // S2, the race between the runtime's read and the menu's: the
+        // approval's screen drew A and the menu still holds A when Enter
+        // comes, but the runtime has read B since. The job approves A by its
+        // digest, not the name -- an approval by name would bind what the
+        // runtime holds by then, B, which nobody saw -- so B stays waiting.
+        use crate::mcp::config::entry_digest;
+        let marks = tempfile::tempdir().expect("a marker dir");
+        let ran = marks.path().join("b-ran");
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let a = serde_json::json!({"command": "/bin/sh", "args": [fixture, "entry-a"]});
+        let b = McpCase::marked(&ran, "entry-b");
+        let mut case = McpCase::new(serde_json::json!({"proj": a.clone()}), None);
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("entry-a"));
+        std::fs::write(
+            case.workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": b}}).to_string(),
+        )
+        .expect("write .mcp.json");
+        case.reload();
+        assert_eq!(
+            case.view("proj").entry.map(|entry| entry.digest.clone()),
+            Some(entry_digest(&b))
+        );
+        // No menu read since: Enter is about the A it drew.
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        assert_eq!(
+            case.saved()["enabledMcpjsonServerDigests"]["proj"],
+            serde_json::json!(entry_digest(&a))
+        );
+        assert_eq!(
+            case.view("proj").admission,
+            Some(crate::mcp::config::Admission::Pending)
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!ran.exists(), "the entry read after the frame ran");
+    }
+
+    #[test]
+    fn the_approval_shows_what_the_child_is_given_every_variable_and_header_as_written() {
+        // xfx's rule since 2026-11-04 (`c4d252f5`; `docs/parity.md`, `/mcp`,
+        // "Deliberately different from upstream's"): an approval shows the
+        // command line or the address and each variable an entry sets and
+        // each header it sends, every value as written -- a pending entry is
+        // never expanded -- since `PATH`, `NODE_OPTIONS`, `LD_PRELOAD` change
+        // what runs as much as the command does. Spelled as the approval view
+        // spells a command: a bidirectional override and a line break are
+        // named, not drawn.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let mut case = McpCase::new(
+            serde_json::json!({
+                "proj": {"command": "/bin/sh", "args": [fixture], "env": {
+                    "PATH": "./x:${PATH}",
+                    "NODE_OPTIONS": "--require ./evil.js",
+                    "ODD": "a\u{202e}b\nc",
+                }},
+                "web": {"type": "http", "url": "http://127.0.0.1:9/mcp",
+                        "headers": {"X-Team": "blue \u{202e}x"}},
+            }),
+            None,
+        );
+        case.open();
+        case.reread();
+        // proj first of the two waiting; its screen, then its approval.
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let screen = case.screen();
+        assert!(
+            screen.contains("Approve proj for this project? It runs:"),
+            "{screen}"
+        );
+        for row in [
+            "env: PATH=./x:${PATH}",
+            "env: NODE_OPTIONS=--require ./evil.js",
+            "env: ODD=a\\u{202e}b\\x0ac",
+        ] {
+            assert!(
+                screen.contains(row),
+                "{row:?} is not on the screen:\n{screen}"
             );
-            assert_eq!(armed.digest, format!("sha256:{}", armed.name));
         }
+        assert!(!screen.contains('\u{202e}'), "{screen}");
+        case.keys([
+            Input::Action(Action::Escape),
+            Input::Action(Action::Escape),
+            Input::Action(Action::Down),
+            Input::Action(Action::Submit),
+            Input::Action(Action::Submit),
+        ]);
+        let screen = case.screen();
+        assert!(
+            screen.contains("Approve web for this project? It connects to:"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("header: X-Team: blue \\u{202e}x"),
+            "{screen}"
+        );
+        assert!(!screen.contains('\u{202e}'), "{screen}");
+    }
+
+    #[test]
+    fn an_entry_too_tall_for_the_screen_is_not_drawn_whole_and_approve_refuses_it() {
+        // Forty variables, each a row of its own: more than a 40-row
+        // screen's panel can hold. Its approval draws what fits, and Enter
+        // approves nothing and says why; the entry stays waiting.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let env: serde_json::Map<String, serde_json::Value> = (0..40)
+            .map(|at| (format!("V{at:02}"), serde_json::json!("x")))
+            .collect();
+        let mut case = McpCase::new(
+            serde_json::json!({"tall": {"command": "/bin/sh", "args": [fixture], "env": env}}),
+            None,
+        );
+        case.open();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let screen = case.screen();
+        assert!(screen.contains("env: V00=x"), "{screen}");
+        assert!(!screen.contains("env: V39=x"), "{screen}");
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let written = case.written();
+        assert!(
+            written.contains(
+                "! mcp: xfx couldn't show all of what tall runs on this screen, so nothing was approved."
+            ),
+            "{written}"
+        );
+        assert_eq!(case.saved(), serde_json::Value::Null);
+        assert_eq!(
+            case.view("tall").admission,
+            Some(crate::mcp::config::Admission::Pending)
+        );
+    }
+
+    /// A fake value, set only in the runtime a case builds, and a command
+    /// line short enough that no row cuts it before its `${...}`.
+    const SENTINEL: (&str, &str) = ("XFX_TEST_SENTINEL", "fake-sentinel-7c4e");
+
+    fn sentinel_entry() -> serde_json::Value {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        serde_json::json!({"command": "/bin/sh", "args": [
+            "-c", ": ${XFX_TEST_SENTINEL}; exec /bin/sh \"$1\"", "sh", fixture,
+        ]})
+    }
+
+    #[test]
+    fn the_menu_shows_a_profile_servers_variable_as_written() {
+        // Epic 2's merge: the menu's `runs` row is the running server's
+        // command line, and MCP-C2 expands a profile server's `${VAR}` before
+        // it starts; the value is for the server, never a screen
+        // (`mcp::command::tests::a_profile_servers_expanded_variable_is_shown_by_show_as_written`).
+        // The variable is the row's third word, so no width cuts it, and the
+        // value is the case's own (EPIC2-INT1 review).
+        let mut case = McpCase::reading(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": sentinel_entry()})),
+            &[SENTINEL],
+        );
+        case.ready("keep");
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit)]);
+        let screen = case.screen();
+        assert!(screen.contains(": ${XFX_TEST_SENTINEL};"), "{screen}");
+        assert!(
+            !screen.contains(SENTINEL.1),
+            "the menu printed the value: {screen}"
+        );
+    }
+
+    #[test]
+    fn the_menu_shows_an_approved_project_servers_variables_as_written() {
+        // EPIC2-INT1 review: an approved `.mcp.json` entry is expanded
+        // before it is parsed, so its screen's `runs` and `http` rows were
+        // the values from the environment.
+        let mut case = McpCase::reading(
+            serde_json::json!({
+                "proj": sentinel_entry(),
+                "web": {"type": "http", "url": "http://127.0.0.1:9/mcp?k=${XFX_TEST_SENTINEL}"},
+            }),
+            None,
+            &[SENTINEL],
+        );
+        for name in ["proj", "web"] {
+            case.runtime
+                .submit(crate::mcp::runtime::Job::Command(format!("approve {name}")));
+        }
+        let _ = case.drained();
+        case.ready("proj");
+        for (at, row) in [
+            (0, ": ${XFX_TEST_SENTINEL};"),
+            (1, "/mcp?k=${XFX_TEST_SENTINEL}"),
+        ] {
+            case.open();
+            case.reread();
+            let keys: Vec<Input> = (0..at)
+                .map(|_| Input::Action(Action::Down))
+                .chain([Input::Action(Action::Submit)])
+                .collect();
+            case.keys(keys);
+            let screen = case.screen();
+            assert!(screen.contains(row), "{screen}");
+            assert!(
+                !screen.contains(SENTINEL.1),
+                "the menu printed the value: {screen}"
+            );
+            case.keys([Input::Action(Action::Cancel)]);
+        }
+    }
+
+    #[test]
+    fn a_burst_of_enters_in_one_read_answers_no_question_it_never_painted() {
+        // opus-C: `/mcp⏎⏎⏎⏎` in one read opened the menu, the profile
+        // server, its Remove question, and answered it -- before any frame.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let before = case.files();
+        let mut burst: Vec<Input> = "/mcp".chars().map(Input::Text).collect();
+        burst.extend((0..4).map(|_| Input::Action(Action::Submit)));
+        case.clock += Duration::from_secs(1);
+        case.shell.consume(burst, case.clock);
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "a question nobody saw was answered");
+        assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+    }
+
+    /// Every file a choice could write, as [`McpCase::files`] reads them.
+    type Files = Vec<(std::path::PathBuf, Option<Vec<u8>>)>;
+
+    /// A case whose profile server `keep` is asked Remove, the question
+    /// painted by a frame, and the profile as it was.
+    fn asked_to_remove_keep() -> (McpCase, Files) {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let before = case.files();
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+        (case, before)
+    }
+
+    /// One read of `events`, `after` the last.
+    fn one_read(case: &mut McpCase, after: Duration, events: Vec<Input>) {
+        case.clock += after;
+        case.shell.consume(events, case.clock);
+    }
+
+    /// The model's question: one, answered by Enter.
+    fn one_question() -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(7),
+            entries: vec![QuestionEntry {
+                question: "Go on?".to_string(),
+                options: vec![choice("Yes", None), choice("No", None)],
+            }],
+        }
+    }
+
+    fn still_asked(case: &McpCase) -> bool {
+        case.shell
+            .mcp_menu
+            .as_ref()
+            .map(super::super::mcp_menu::McpMenu::screen)
+            == Some(super::super::mcp_menu::Screen::Confirm(
+                super::super::mcp_menu::Choice::Remove,
+            ))
+    }
+
+    #[test]
+    fn the_full_transcript_over_a_question_leaves_it_unpainted_until_a_frame() {
+        // opus-Y: Ctrl-O and then, in one read, the key that closes the full
+        // transcript and an Enter: the transcript is closed but still on the
+        // screen, and the Enter answered with the frame from before Ctrl-O.
+        for closer in [Action::ToggleTranscript, Action::Cancel] {
+            let (mut case, before) = asked_to_remove_keep();
+            one_read(
+                &mut case,
+                Duration::from_secs(1),
+                vec![Input::Action(Action::ToggleTranscript)],
+            );
+            assert!(case.shell.full.is_open());
+            one_read(
+                &mut case,
+                Duration::from_secs(1),
+                vec![Input::Action(closer), Input::Action(Action::Submit)],
+            );
+            assert!(!case.shell.full.is_open(), "{closer:?} left it open");
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{closer:?}: answered unseen");
+            assert!(still_asked(&case), "{closer:?}");
+            // A frame paints it: then Enter answers.
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_secs(1),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_ne!(
+                case.files(),
+                before,
+                "{closer:?}: a painted question took no answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_model_question_over_the_menu_leaves_its_question_unpainted_until_a_frame() {
+        // opus-Y: the model's panel takes the menu's slot; answered, the menu
+        // is back, but no frame has painted its question since.
+        let (mut case, before) = asked_to_remove_keep();
+        case.shell.ask_question(one_question());
+        assert!(case.shell.ask.is_some());
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.shell.ask.is_none(), "Enter did not answer the panel");
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "answered under the panel's frame");
+        assert!(still_asked(&case));
+        // And Enter, Enter in one read, the panel over the question again.
+        case.shell.ask_question(one_question());
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit), Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(
+            case.files(),
+            before,
+            "Enter, Enter answered the panel and Remove"
+        );
+    }
+
+    #[test]
+    fn an_enter_another_surface_took_counts_for_the_held_rule() {
+        // opus-Y: the model's panel took an Enter and the menu's question was
+        // painted again; a second tap 200 ms later is a double tap, not an
+        // answer -- and it is said, once.
+        let (mut case, before) = asked_to_remove_keep();
+        case.shell.ask_question(one_question());
+        let _ = case.written();
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.shell.ask.is_none());
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_millis(200),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "a double tap answered Remove");
+        assert!(case.written().contains(MCP_ENTER_TOO_SOON));
+        let _ = case.screen();
+        // A moment after the swallowed one, which counts too (opus-Md R2).
+        one_read(
+            &mut case,
+            Duration::from_millis(600),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_ne!(
+            case.files(),
+            before,
+            "an Enter past the window took no answer"
+        );
+    }
+
+    #[test]
+    fn a_swallowed_enter_keeps_the_window_open_and_is_said_once() {
+        // opus-Y asked that a swallowed tap not hold the window open; opus-Md
+        // R2: timing cannot tell it from a slow key repeat, which then
+        // answered. Every Enter holds it open, and the swallow is said --
+        // once -- so a person knows to wait.
+        let (mut case, before) = asked_to_remove_keep();
+        let _ = case.written();
+        for gap in [200, 180, 220] {
+            one_read(
+                &mut case,
+                Duration::from_millis(gap),
+                vec![Input::Action(Action::Submit)],
+            );
+            let _ = case.screen();
+        }
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "an Enter within the window answered");
+        assert_eq!(case.written().matches(MCP_ENTER_TOO_SOON).count(), 1);
+        // A moment after the last Enter: answered.
+        one_read(
+            &mut case,
+            Duration::from_millis(600),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_ne!(
+            case.files(),
+            before,
+            "an Enter past the window was swallowed"
+        );
+    }
+
+    #[test]
+    fn a_held_enter_after_a_choice_runs_reaches_no_other_question() {
+        // opus-C: after a Remove the list falls back to its first row, and
+        // Enter held down went on to open it, ask, and answer.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        // Held: an autorepeat 40 ms apart, and a slow one 200 ms apart
+        // (opus-Md R2: one past 150 ms was read as taps, and answered), a
+        // frame between each.
+        for every in [40, 200] {
+            let mut case = McpCase::new(
+                serde_json::json!({}),
+                Some(serde_json::json!({"a": entry.clone(), "b": entry.clone()})),
+            );
+            case.open();
+            case.reread();
+            case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+            assert!(case.screen().contains("Remove a from ~/.xfx/mcp.json?"));
+            case.keys([Input::Action(Action::Submit)]);
+            assert!(case.drained().is_empty());
+            let profile = std::fs::read_to_string(&case.profile).expect("profile");
+            assert!(!profile.contains("\"a\""), "{profile}");
+            case.held(
+                Input::Action(Action::Submit),
+                40,
+                Duration::from_millis(every),
+            );
+            assert!(case.drained().is_empty());
+            let profile = std::fs::read_to_string(&case.profile).expect("profile");
+            assert!(
+                profile.contains("\"b\""),
+                "an Enter held, repeating every {every} ms, removed b: {profile}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_menu_takes_no_key_while_the_full_transcript_covers_it() {
+        // opus-C: Ctrl-O over the menu, and the Enter the full transcript
+        // does not bind answered the question it hid. While it is up the
+        // menu takes nothing; closed, the question is still asked.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({"proj": entry.clone()}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let before = case.files();
+        for (path, question) in [
+            (
+                vec![Input::Action(Action::Submit), Input::Action(Action::Submit)],
+                "Remove keep from ~/.xfx/mcp.json?",
+            ),
+            (
+                vec![
+                    Input::Action(Action::Down),
+                    Input::Action(Action::Submit),
+                    Input::Action(Action::Down),
+                    Input::Action(Action::Submit),
+                ],
+                "Reject proj? xfx won't start it in this project.",
+            ),
+            (
+                vec![
+                    Input::Action(Action::Down),
+                    Input::Action(Action::Submit),
+                    Input::Action(Action::Submit),
+                ],
+                "Approve proj for this project?",
+            ),
+        ] {
+            case.open();
+            case.reread();
+            case.keys(path);
+            assert!(case.screen().contains(question), "{}", case.screen());
+            case.keys([Input::Action(Action::ToggleTranscript)]);
+            assert!(case.shell.full.is_open(), "Ctrl-O opened nothing");
+            case.keys([
+                Input::Action(Action::Submit),
+                Input::Action(Action::Left),
+                Input::Action(Action::Submit),
+                Input::Text('y'),
+            ]);
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{question} was answered unseen");
+            case.keys([Input::Action(Action::ToggleTranscript)]);
+            assert!(!case.shell.full.is_open());
+            assert!(case.screen().contains(question), "{}", case.screen());
+            case.keys([Input::Action(Action::Cancel)]);
+        }
+    }
+
+    #[test]
+    fn an_approval_drawn_before_a_resize_is_not_taken_after_it() {
+        // opus-B: a resize, or a screen the band is blind on, leaves what
+        // the last frame drew no longer known to be there.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(serde_json::json!({"proj": entry}), None);
+        let before = case.files();
+        let approval = |case: &mut McpCase| {
+            case.open();
+            case.reread();
+            case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+            assert!(case.screen().contains("Approve proj for this project?"));
+        };
+        approval(&mut case);
+        assert!(!matches!(case.shell.resize(30, 100), Resize::Unchanged));
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "approved after a resize, unseen");
+        case.keys([Input::Action(Action::Cancel)]);
+        approval(&mut case);
+        case.shell.render.mark_resize(Instant::now());
+        assert!(case.shell.blind());
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "approved on a blind screen");
+    }
+
+    #[test]
+    fn remove_in_the_menu_removes_a_server_whose_name_reads_as_a_flag() {
+        // opus-A, opus-C: `--help` is a name `.mcp.json` may hold, and the
+        // menu's Remove, parsed again as words, was `remove --project --help`
+        // -- help, said to nobody, and nothing removed.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(serde_json::json!({"--help": entry}), None);
+        case.open();
+        case.reread();
+        case.keys([
+            Input::Action(Action::Submit),
+            Input::Action(Action::Down),
+            Input::Action(Action::Down),
+            Input::Action(Action::Submit),
+        ]);
+        assert!(
+            case.screen().contains("Remove --help from .mcp.json?"),
+            "{}",
+            case.screen()
+        );
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let project = std::fs::read_to_string(case.workspace.join(".mcp.json")).expect("project");
+        assert!(!project.contains("--help"), "{project}");
+    }
+
+    #[test]
+    fn remove_in_the_menu_removes_from_the_file_its_question_named_when_both_hold_the_name() {
+        // opus-C: the flag pinned. `dup` is in both files; the profile's is
+        // the one in force, and its question names `~/.xfx/mcp.json`: yes
+        // removes it from there, and the repository's stays.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({"dup": entry.clone()}),
+            Some(serde_json::json!({"dup": entry})),
+        );
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        assert!(
+            case.screen().contains("Remove dup from ~/.xfx/mcp.json?"),
+            "{}",
+            case.screen()
+        );
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        let profile = std::fs::read_to_string(&case.profile).expect("profile");
+        assert!(!profile.contains("dup"), "{profile}");
+        let project = std::fs::read_to_string(case.workspace.join(".mcp.json")).expect("project");
+        assert!(project.contains("dup"), "{project}");
+    }
+
+    #[test]
+    fn a_project_entry_respelled_is_approved_from_the_menu() {
+        // opus-A SHOULD 1: `{"command": …}` rewritten as `{"type": "stdio",
+        // "command": …}` parses to the same server, which a reload kept with
+        // the digest of the old spelling: the menu's Approve saved that, the
+        // reload found it no approval of the file, and it waited for good.
+        use crate::mcp::config::entry_digest;
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let plain = serde_json::json!({"command": "/bin/sh", "args": [fixture.clone()]});
+        let typed = serde_json::json!({"type": "stdio", "command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(serde_json::json!({"proj": plain}), None);
+        std::fs::write(
+            case.workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {"proj": typed.clone()}}).to_string(),
+        )
+        .expect("write .mcp.json");
+        case.reload();
+        assert_eq!(
+            case.view("proj").entry.map(|entry| entry.digest.clone()),
+            Some(entry_digest(&typed)),
+            "the respelled entry kept the old one's digest"
+        );
+        case.open();
+        case.reread();
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        let _ = case.screen();
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.drained().is_empty());
+        case.ready("proj");
+    }
+
+    #[test]
+    fn a_dollar_typed_into_the_menus_filter_opens_no_skills_menu_behind_it() {
+        // opus-C: `$` opened a skills menu the band never showed, which then
+        // took Tab and Shift-Tab.
+        let mut case = McpCase::new(serde_json::json!({}), None);
+        case.open();
+        case.typed("$a");
+        assert!(
+            case.shell.skills_menu.is_none(),
+            "a skills menu opened behind /mcp"
+        );
+        assert_eq!(case.shell.editor.text(), "$a");
+    }
+
+    #[test]
+    fn remove_and_reject_ask_in_place_and_anything_but_yes_changes_nothing_on_disk() {
+        // S3. Remove and Reject ask on the choice's row, an approval on its
+        // own screen; Esc, Ctrl-C, a printable key, Backspace and `no` each
+        // leave both files as they were. Then yes does what it says, and
+        // says nothing (B12).
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({"proj": entry.clone()}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let files = case.files();
+        let unchanged = |case: &mut McpCase, why: &str| {
+            assert!(case.drained().is_empty(), "{why}");
+            assert_eq!(case.files(), files, "{why}: a file changed");
+            assert!(
+                case.shell.editor.is_empty(),
+                "{why}: the key reached the composer"
+            );
+        };
+        let asking = |case: &McpCase, question: &str| {
+            let screen = case.screen();
+            assert!(screen.contains(question), "{screen}");
+            assert!(screen.contains("   yes  no"), "{screen}");
+        };
+        let remove = "Remove keep from ~/.xfx/mcp.json?";
+        case.open();
+        case.reread();
+        // keep, ready, is first; Enter opens it, Enter on Remove asks.
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        asking(&case, remove);
+        for (cancel, why) in [
+            (vec![Input::Action(Action::Escape)], "Esc"),
+            (vec![Input::Text('x')], "a printable key"),
+            (vec![Input::Action(Action::Backspace)], "Backspace"),
+            (
+                vec![Input::Action(Action::Right), Input::Action(Action::Submit)],
+                "no",
+            ),
+        ] {
+            case.keys(cancel);
+            assert!(!case.screen().contains(remove), "{why}: still asking");
+            unchanged(&mut case, why);
+            case.keys([Input::Action(Action::Submit)]);
+            asking(&case, remove);
+        }
+        // Up and Down move nothing while it asks.
+        case.keys([Input::Action(Action::Up), Input::Action(Action::Down)]);
+        asking(&case, remove);
+        case.keys([Input::Action(Action::Cancel)]);
+        assert!(case.shell.mcp_menu.is_none(), "Ctrl-C left the menu up");
+        unchanged(&mut case, "Ctrl-C");
+
+        // Reject: proj, its second choice.
+        let reject = "Reject proj? xfx won't start it in this project.";
+        case.open();
+        case.reread();
+        case.keys([
+            Input::Action(Action::Down),
+            Input::Action(Action::Submit),
+            Input::Action(Action::Down),
+            Input::Action(Action::Submit),
+        ]);
+        asking(&case, reject);
+        for (cancel, why) in [
+            (vec![Input::Action(Action::Escape)], "Esc"),
+            (vec![Input::Text('y')], "a printable key, even y"),
+            (
+                vec![Input::Action(Action::Right), Input::Action(Action::Submit)],
+                "no",
+            ),
+        ] {
+            case.keys(cancel);
+            unchanged(&mut case, why);
+            case.keys([Input::Action(Action::Submit)]);
+            asking(&case, reject);
+        }
+        // The approval's screen: Esc and a printable key go back, unapproved.
+        case.keys([Input::Action(Action::Escape), Input::Action(Action::Up)]);
+        for cancel in [Input::Action(Action::Escape), Input::Text('y')] {
+            case.keys([Input::Action(Action::Submit)]);
+            assert!(case.screen().contains("Approve proj for this project?"));
+            case.keys([cancel]);
+            unchanged(&mut case, "the approval cancelled");
+        }
+
+        // Yes, then: Reject saves the choice, and Remove removes keep.
+        case.keys([Input::Action(Action::Down), Input::Action(Action::Submit)]);
+        asking(&case, reject);
+        case.keys([Input::Action(Action::Submit)]);
+        assert_eq!(case.drained(), Vec::<(bool, String)>::new());
+        assert_eq!(
+            case.saved()["disabledMcpjsonServers"],
+            serde_json::json!(["proj"])
+        );
+        case.keys([Input::Action(Action::Escape)]);
+        case.reread();
+        case.keys([Input::Action(Action::Up), Input::Action(Action::Up)]);
+        case.keys([Input::Action(Action::Submit), Input::Action(Action::Submit)]);
+        asking(&case, remove);
+        case.keys([Input::Action(Action::Submit)]);
+        assert_eq!(case.drained(), Vec::<(bool, String)>::new());
+        let profile: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&case.profile).expect("profile"))
+                .expect("json");
+        assert_eq!(profile["mcpServers"], serde_json::json!({}), "{profile:#}");
+        // A removed server has no screen: back on the list.
+        assert_eq!(
+            case.shell.mcp_menu.as_ref().map(|menu| menu.screen()),
+            Some(super::super::mcp_menu::Screen::List)
+        );
+        let _ = &case.home;
+    }
+
+    #[test]
+    fn the_menu_takes_the_keys_fx_binds_and_the_composer_keeps_each_screens_filter() {
+        // Key routing shared with the composer
+        // (`vercel-labs/fx@481104fd src/core/app/app_input_runtime.zig`).
+        use super::super::mcp_menu::Screen;
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let mut case = McpCase::new(
+            serde_json::json!({"proj": entry.clone()}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let screen_of = |case: &McpCase| case.shell.mcp_menu.as_ref().map(|menu| menu.screen());
+        case.open();
+        case.reread();
+        assert!(case.screen().contains("\u{203a} keep"), "{}", case.screen());
+        // ↓ and C-j move down, ↑ and C-k up.
+        case.keys([Input::Action(Action::Down)]);
+        assert!(case.screen().contains("\u{203a} proj"));
+        case.keys([Input::Action(Action::ControlK)]);
+        assert!(case.screen().contains("\u{203a} keep"));
+        case.keys([Input::Action(Action::ControlJ)]);
+        assert!(case.screen().contains("\u{203a} proj"));
+        case.keys([Input::Action(Action::Up)]);
+        // Typing is the list's filter, in the composer; ← on the list moves
+        // the caret, and → with the caret inside the filter does too.
+        case.typed("pr");
+        assert_eq!(case.shell.editor.text(), "pr");
+        assert!(
+            case.screen().contains("MCP servers  1 of 2"),
+            "{}",
+            case.screen()
+        );
+        case.keys([Input::Action(Action::Left)]);
+        assert_eq!(screen_of(&case), Some(Screen::List));
+        assert!(!case.shell.editor.caret_at_end());
+        case.keys([Input::Action(Action::Right)]);
+        assert_eq!(screen_of(&case), Some(Screen::List));
+        assert!(case.shell.editor.caret_at_end());
+        // → at the end opens, like Enter; the list's filter is kept and the
+        // composer starts the tool filter empty.
+        case.keys([Input::Action(Action::Right)]);
+        assert_eq!(screen_of(&case), Some(Screen::Server));
+        assert!(case.shell.editor.is_empty());
+        // ← with nothing typed goes back, and the list's filter comes back.
+        case.keys([Input::Action(Action::Left)]);
+        assert_eq!(screen_of(&case), Some(Screen::List));
+        assert_eq!(case.shell.editor.text(), "pr");
+        // On a server, typing filters its tools; ← then moves the caret.
+        case.keys([Input::Action(Action::Submit)]);
+        case.typed("zz");
+        assert!(case
+            .screen()
+            .contains("Its tools show here once you approve it."));
+        case.keys([Input::Action(Action::Left)]);
+        assert_eq!(screen_of(&case), Some(Screen::Server));
+        // Esc goes back from it, the list's filter in the composer again.
+        case.keys([Input::Action(Action::Escape)]);
+        assert_eq!(screen_of(&case), Some(Screen::List));
+        assert_eq!(case.shell.editor.text(), "pr");
+        // Enter never sends the composer while the menu is up, and Ctrl-P
+        // opens nothing over it.
+        case.keys([Input::Action(Action::ControlP)]);
+        assert!(case.shell.model_menu.is_none());
+        assert_eq!(screen_of(&case), Some(Screen::List));
+        // Esc on the list closes it and clears the filter.
+        case.keys([Input::Action(Action::Escape)]);
+        assert!(case.shell.mcp_menu.is_none());
+        assert!(case.shell.editor.is_empty());
+        // Ctrl-C closes it from a server's screen, filter and all, and arms
+        // no exit.
+        case.open();
+        case.keys([Input::Action(Action::Submit)]);
+        case.typed("ec");
+        case.keys([Input::Action(Action::Cancel)]);
+        assert!(case.shell.mcp_menu.is_none());
+        assert!(case.shell.editor.is_empty());
+        assert!(
+            !case.shell.gestures.exit_armed(Instant::now()),
+            "Ctrl-C armed the exit"
+        );
+        assert!(case.sent.try_recv().is_err(), "the menu sent a turn");
     }
 
     #[test]
@@ -16160,6 +16796,44 @@ mod tests {
             hint.ends_with(PALETTE.reset()),
             "the hint row left its colour open: {hint:?}"
         );
+    }
+
+    #[test]
+    fn the_mcp_text_is_the_right_slots_last_word_in_the_dim_grey_at_the_last_column() {
+        // fx v0.0.16's `right_text`: the Escape cues, then the full-access
+        // warning, then the MCP text (`input_presentation.zig:539-550@481104fd`), in
+        // `dim_style` flush with the last column (`dismiss-settled`, row 5:
+        // `auto · model-a` ... `proj is waiting for approval · /mcp`).
+        let text = "proj is waiting for approval \u{b7} /mcp";
+        let mut shell = shell(40, 120);
+        shell.mcp_status = statusline::McpStatus::showing(text);
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(
+            row.ends_with(&format!("{}{text}{}", PALETTE.dim(), PALETTE.reset())),
+            "{row:?}"
+        );
+        assert_eq!(
+            super::super::wrap::width(&unpainted(
+                &row.replace(PALETTE.statusline(), "")
+                    .replace(PALETTE.activity(), "")
+            )),
+            120
+        );
+        // An armed Escape outranks it, and it is back once the cue is gone.
+        shell.escape_armed = true;
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(row.contains(ESCAPE_ARMED) && !row.contains(text), "{row:?}");
+        shell.escape_armed = false;
+        assert!(shell.band_rows().last().expect("a hint row").contains(text));
+        // A left-hand notice does not take it away (fx keeps `mcp_status`
+        // beside an auth or refusal hint).
+        shell.notice = Some(QUEUE_REJECTED);
+        assert!(shell.band_rows().last().expect("a hint row").contains(text));
+        // Nothing to say is nothing on the right.
+        shell.notice = None;
+        shell.mcp_status = statusline::McpStatus::default();
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(!row.contains("/mcp"), "{row:?}");
     }
 
     #[test]
@@ -32733,6 +33407,192 @@ mod tests {
         }
     }
 
+    /// A shell over an MCP runtime whose profile has one server it never
+    /// connects -- switched off -- so `/mcp `'s completions have a name.
+    fn mcp_args_shell() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile dir");
+        std::fs::write(
+            home.path().join(".xfx").join("mcp.json"),
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+        )
+        .expect("a profile");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(home.path().join(".xfx").join("settings.json")),
+            workspace: workspace.clone(),
+        });
+        runtime.start_and_wait(Duration::from_secs(60));
+        let _ = runtime.take_events();
+        let (work, sent, control) = WorkHandle::detached();
+        let shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        (
+            Fixture {
+                shell,
+                sent,
+                control,
+            },
+            runtime,
+            home,
+        )
+    }
+
+    /// One `/mcp ` completion row as the band paints it.
+    fn mcp_arg_row(label: &str, width: usize, description: &str, marked: bool) -> String {
+        format!(
+            "       {}{label}{}{}{}{description}{}",
+            if marked {
+                PALETTE.subtitle()
+            } else {
+                PALETTE.dim()
+            },
+            PALETTE.reset(),
+            " ".repeat(width - label.len() + 2),
+            PALETTE.dim(),
+            PALETTE.reset()
+        )
+    }
+
+    #[test]
+    fn a_mcp_line_opens_its_completions_under_the_argument_and_keeps_the_hint() {
+        // `fx-p5-mcp-verbs-40x120-complete-args`, `-complete-show`: at column
+        // 7, no header, six rows, the status line under them.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        let hint = shell.hint();
+        shell.route_bytes(b"/mcp ");
+        assert!(shell.picker.is_none(), "the slash menu is up too");
+        assert_eq!(
+            menu(&shell),
+            [
+                mcp_arg_row("list", 6, "configured servers", true),
+                mcp_arg_row("show", 6, "connect to a server and list its tools", false),
+                mcp_arg_row("add", 6, "add a server", false),
+                mcp_arg_row("remove", 6, "remove a server and its login", false),
+                mcp_arg_row("login", 6, "sign in to an HTTP server", false),
+                mcp_arg_row("logout", 6, "sign out of an HTTP server", false),
+            ]
+        );
+        assert_eq!(shell.hint(), hint, "the hint row was taken over");
+        shell.route_bytes(b"show ");
+        assert_eq!(
+            menu(&shell),
+            [
+                mcp_arg_row("show remote", 11, "disabled", true),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]
+        );
+        // Nothing to complete: no rows at all, and the band gives them back.
+        shell.route_bytes(b"zzz");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert!(shell.document().is_empty(), "a keystroke wrote a row");
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn tab_writes_the_marked_line_and_escape_closes_it_for_the_line() {
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp sh");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/mcp show");
+        shell.route_bytes(b" ");
+        shell.route_bytes(b"\x1b[B");
+        // One row, and the arrows wrap on it.
+        assert_eq!(
+            menu(&shell)[0],
+            mcp_arg_row("show remote", 11, "disabled", true)
+        );
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/mcp show remote");
+        // Escape: closed while the draft is a `/mcp ` line, back after it is not.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(menu(&shell).is_empty());
+        shell.route_bytes(b"x");
+        assert!(menu(&shell).is_empty(), "a dismissed list came back");
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/mcp ");
+        assert_eq!(menu(&shell).len(), 6);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_recalled_mcp_line_opens_no_completions_until_it_is_edited() {
+        // MCP-Vb: `history_slash_recall_until_edit` holds for `/mcp `'s
+        // argument too -- the next Up goes on walking rather than moving the
+        // completions' mark, and Enter would have run the marked row.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        submitted(&mut shell, "older");
+        submitted(&mut shell, "/mcp show remote");
+        let _ = shell.document();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "/mcp show remote");
+        assert!(
+            menu(&shell).is_empty(),
+            "a recalled line opened completions"
+        );
+        older(&mut shell);
+        assert_eq!(shell.editor.text(), "older");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(shell.editor.text(), "/mcp show remote");
+        shell.route_bytes(&[0x7f]);
+        assert!(!menu(&shell).is_empty(), "an edit did not give them back");
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn enter_on_a_mcp_line_submits_the_marked_completion() {
+        // `resolveSlashSubmission`: `/mcp l` runs the marked `/mcp list`, and
+        // `/mcp remove rem` the marked `/mcp remove remote` -- what fx's
+        // `p5-mcp-verbs` shows of `/mcp remove web` with only `web2` there.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        let answer = |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            loop {
+                let said: Vec<String> = runtime
+                    .take_events()
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        crate::mcp::runtime::Event::Notice { body, .. } => Some(body),
+                        _ => None,
+                    })
+                    .collect();
+                if !said.is_empty() {
+                    return said;
+                }
+                assert!(Instant::now() < deadline, "no answer");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        shell.route_bytes(b"/mcp l\r");
+        assert!(shell.editor.is_empty());
+        assert!(
+            answer(&runtime)[0].starts_with("NAME    SOURCE"),
+            "not the list"
+        );
+        shell.route_bytes(b"/mcp remove rem\r");
+        assert_eq!(answer(&runtime), ["Removed remote from ~/.xfx/mcp.json."]);
+        // With nothing to complete the line goes as typed.
+        shell.route_bytes(b"/mcp remove nope\r");
+        assert_eq!(
+            answer(&runtime),
+            ["No MCP server named nope in ~/.xfx/mcp.json or .mcp.json."]
+        );
+        runtime.shutdown();
+    }
+
     #[test]
     fn the_setup_prefix_typed_with_its_space_keeps_its_spelling_and_its_column() {
         // `fx-provider2-40x120-setup-space`: typed rather than run, `/setup `
@@ -39900,6 +40760,19 @@ mod tests {
         }) {
             root = tempfile::tempdir().expect("a root");
         }
+        skilled_over(root, rows, cols)
+    }
+
+    /// [`skilled_at`], its temporary root's name `prefix` and six random
+    /// letters and digits, as `tempfile` names one. A skill's path -- which a
+    /// `$` search reads -- holds that name. It is not drawn again: the case
+    /// that names a prefix wants a root that holds it (MCP-Me).
+    fn skilled_under(rows: u16, cols: u16, prefix: &str) -> Skilled {
+        skilled_over(root_named(prefix), rows, cols)
+    }
+
+    /// The fixture over `root`, as it is.
+    fn skilled_over(root: tempfile::TempDir, rows: u16, cols: u16) -> Skilled {
         let base = root.path().canonicalize().expect("canonical");
         let work = base.join("work");
         let home = base.join("home");
@@ -40051,19 +40924,50 @@ mod tests {
 
     #[test]
     fn a_space_ends_a_dollar_search_and_a_word_nothing_matches_shows_no_menu() {
-        no_menu_for_a_word_nothing_matches(skilled());
+        no_menu_for_a_word_nothing_matches(skilled(), "zz", ".tmp");
         // The draw that failed on CI, held: a root whose name has `zz` in it.
-        no_menu_for_a_word_nothing_matches(skilled_in(root_named(".tmpzz"), 40, 120));
+        no_menu_for_a_word_nothing_matches(
+            skilled_in(root_named(".tmpzz"), 40, 120),
+            "zz",
+            ".tmpzz",
+        );
+        // A word nothing matches is one no skill's name, description, source
+        // or path holds. A skill's path is under its temporary root, `.tmp`
+        // and six random letters and digits, and about one root in 200 held
+        // `zz` -- the menu then showed that skill, as it should. `skilled_in`
+        // draws such a root again; a root drawn once (`skilled_under`) may
+        // hold `zz`, but no such name holds a `:` (MCP-Me). The second root's
+        // name holds `zZ`, as the ones that broke `zz` did.
+        const WORD: &str = "z:";
+        for prefix in [".tmp", ".tmpzZ"] {
+            let shell = skilled_under(40, 120, prefix);
+            for skill in shell.skills.skills() {
+                for text in [
+                    skill.name.clone(),
+                    skill.description.clone(),
+                    skill.source.short_label().to_string(),
+                    skill.path.to_string_lossy().into_owned(),
+                ] {
+                    assert!(
+                        !text.to_ascii_lowercase().contains(WORD),
+                        "{text:?} holds {WORD:?}: the case needs a word nothing matches"
+                    );
+                }
+            }
+            no_menu_for_a_word_nothing_matches(shell, WORD, prefix);
+        }
     }
 
-    fn no_menu_for_a_word_nothing_matches(mut shell: Skilled) {
-        shell.route_bytes(b"$zz");
+    /// `$word`, which no skill matches, opens the search with no menu; a
+    /// space ends it. `root` names the fixture's root in a failure.
+    fn no_menu_for_a_word_nothing_matches(mut shell: Skilled, word: &str, root: &str) {
+        shell.route_bytes(format!("${word}").as_bytes());
         assert!(shell.skills_menu.is_some());
         assert!(
             !skills_band(&shell)
                 .iter()
                 .any(|row| row.starts_with("Skills ")),
-            "a word no skill matches showed the menu"
+            "a word no skill matches showed the menu ({root})"
         );
         shell.route_bytes(b"\x7f\x7fdem ");
         assert!(

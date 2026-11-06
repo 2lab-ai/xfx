@@ -338,9 +338,9 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         command: Slash::Mcp,
         name: "/mcp",
         aliases: &[],
-        // Upstream's row whole (`commands.zig:482`): its words, its place
-        // after `/undo`, and the Extensions tab.
-        summary: "manage local and remote MCP servers, resources, prompts, and project trust",
+        // Upstream's row whole (`src/builtins/commands.zig:463@481104fd`):
+        // its words, its place after `/undo`, and the Extensions tab.
+        summary: "manage MCP servers and their logins",
         category: "Extensions",
         has_args: true,
     },
@@ -728,7 +728,7 @@ pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes
      opens the full-screen one";
 
 /// `/mcp` on the line shell. The MCP client runs in the full-screen shell's
-/// session -- its servers, its menu, its trust prompt -- and this shell starts
+/// session -- its servers and its menu -- and this shell starts
 /// no server, so it says where they are rather than managing a profile it
 /// would never connect to.
 pub const MCP_ON_THE_LINE_SHELL: &str = "xfx: /mcp manages MCP servers in the full-screen \

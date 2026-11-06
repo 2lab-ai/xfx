@@ -1,0 +1,44 @@
+=== ~/.fx/history.jsonl (2080 bytes)
+{"schema_version":1,"timestamp_ms":1793932565300,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793932567648,"workspace_root":"<scratch>/work","text":"/mcp show fixture"}
+{"schema_version":1,"timestamp_ms":1793932571673,"workspace_root":"<scratch>/work","text":"/mcp show remote"}
+{"schema_version":1,"timestamp_ms":1793932575708,"workspace_root":"<scratch>/work","text":"/mcp show proj"}
+{"schema_version":1,"timestamp_ms":1793932578729,"workspace_root":"<scratch>/work","text":"/mcp login fixture"}
+{"schema_version":1,"timestamp_ms":1793932580764,"workspace_root":"<scratch>/work","text":"/mcp login remote"}
+{"schema_version":1,"timestamp_ms":1793932585789,"workspace_root":"<scratch>/work","text":"/mcp auth remote"}
+{"schema_version":1,"timestamp_ms":1793932590810,"workspace_root":"<scratch>/work","text":"/mcp logout remote"}
+{"schema_version":1,"timestamp_ms":1793932592839,"workspace_root":"<scratch>/work","text":"/mcp add two -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932596864,"workspace_root":"<scratch>/work","text":"/mcp add three <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932600891,"workspace_root":"<scratch>/work","text":"/mcp add --transport http web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793932603921,"workspace_root":"<scratch>/work","text":"/mcp add web2 http://127.0.0.1:9/web2"}
+{"schema_version":1,"timestamp_ms":1793932606956,"workspace_root":"<scratch>/work","text":"/mcp add bad.name http://127.0.0.1:9/x"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (568 bytes)
+{
+  "mcpServers": {
+    "fixture": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "remote": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/mcp"
+    },
+    "two": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "web2": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/web2"
+    }
+  }
+}
+
+=== ~/.fx/mcp.lock (0 bytes)

@@ -1894,12 +1894,15 @@ fn paint_alternate(
             let frame = match band.restore_primary(&shell.band_rows(), &shell.geometry, cursor) {
                 Ok(frame) => frame,
                 // A builder does no I/O, so its failure is a refusal and is
-                // said so here rather than inferred downstream.
+                // said so here rather than inferred downstream. The band it
+                // composed was not painted: what `/mcp`'s menu drew in it is
+                // not on the screen.
                 Err(refusal) => {
+                    shell.forget_mcp_drawn();
                     return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
-                    }
+                    };
                 }
             };
             match out.emit(frame.bytes()) {
@@ -1912,10 +1915,13 @@ fn paint_alternate(
                     failures.succeeded();
                     Ok(())
                 }
-                Err(emit) => match disposed(emit, failures, now) {
-                    Some(fatal) => Err(fatal),
-                    None => Ok(()),
-                },
+                Err(emit) => {
+                    shell.forget_mcp_drawn();
+                    match disposed(emit, failures, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    }
+                }
             }
         }
         // A change the band cannot show: take the plane and paint the whole
@@ -11938,5 +11944,143 @@ mod tests {
             "the band did not come back: {written:?}"
         );
         assert_eq!(shell.band_rows(), before, "the band came back different");
+    }
+
+    /// A frame the check refuses when it carries `/mcp`'s Remove question.
+    fn refusing_the_mcp_question(bytes: &mut Vec<u8>) {
+        refusing_rows_with(bytes, b"Remove keep");
+    }
+
+    /// A screen that takes every write -- but, while `refuses`, none of one
+    /// carrying `/mcp`'s Remove question.
+    struct QuestionScreen {
+        refuses: bool,
+    }
+
+    impl Sink for QuestionScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            if self.refuses && bytes.windows(11).any(|window| window == b"Remove keep") {
+                return Err(Emit::ZeroProgress(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "the screen took nothing",
+                )));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_menu_question_the_return_from_the_full_transcript_never_painted_takes_no_answer() {
+        // opus-B (b): the band `restore_primary` gives the plane back with
+        // carries `/mcp`'s question, and the menu marks it drawn as it is
+        // composed. Refused -- by the frame's own check, or by the screen --
+        // it was never painted, so an Enter answers nothing until a frame
+        // that lands draws it again.
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        for screen_refuses in [false, true] {
+            let home = tempfile::tempdir().expect("a home");
+            let root = home.path().join("work");
+            std::fs::create_dir(&root).expect("the workspace directory");
+            let xfx = home.path().join(".xfx");
+            std::fs::create_dir(&xfx).expect("~/.xfx");
+            let profile = xfx.join("mcp.json");
+            let entry = serde_json::json!({"command": "/bin/sh", "args": [&fixture]});
+            let written = serde_json::json!({"mcpServers": {"keep": entry}}).to_string();
+            std::fs::write(&profile, &written).expect("the profile");
+            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+                profile: Some(profile.clone()),
+                settings: Some(xfx.join("settings.json")),
+                workspace: root.clone(),
+            });
+            runtime.start_and_wait(Duration::from_secs(60));
+            let config = RuntimeConfig::load_with(
+                &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+                &root,
+            )
+            .expect("load a configuration");
+            let (work, _sent, _control) = crate::tui::worker::WorkHandle::detached();
+            let mut shell = Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                crate::tui::theme::Palette {
+                    mode: crate::tui::theme::Mode::Dark,
+                    depth: crate::tui::theme::Depth::Ansi256,
+                },
+                false,
+                work.with_mcp(std::sync::Arc::clone(&runtime)),
+            )
+            .anchored();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut frame = |shell: &mut Shell, band: &mut Band, refuses: bool| {
+                shell.settle_band(Instant::now());
+                let mut out = QuestionScreen { refuses };
+                commit_frame(
+                    shell,
+                    band,
+                    &mut out,
+                    &mut failures,
+                    Instant::now(),
+                    Reconciled,
+                )
+                .expect("a refused frame is counted, not fatal on its own");
+            };
+            // An Enter more than `MCP_ENTER_HELD` after the one before it.
+            let enter = |shell: &mut Shell| {
+                std::thread::sleep(Duration::from_millis(600));
+                shell.route_read(b"\r");
+            };
+            frame(&mut shell, &mut band, false);
+            shell.route_read(b"/mcp\r");
+            shell.settle_band(Instant::now() + Duration::from_secs(1));
+            enter(&mut shell);
+            enter(&mut shell);
+            frame(&mut shell, &mut band, false);
+            let asked =
+                super::super::mcp_menu::Screen::Confirm(super::super::mcp_menu::Choice::Remove);
+            assert_eq!(
+                shell.mcp_screen(),
+                Some(asked),
+                "the question was never asked"
+            );
+            // Ctrl-O over it, and Ctrl-O back: the band that returns refused.
+            shell.route_read(b"\x0f");
+            frame(&mut shell, &mut band, false);
+            assert!(band.on_alternate(), "the full transcript took no plane");
+            shell.route_read(b"\x0f");
+            if screen_refuses {
+                frame(&mut shell, &mut band, true);
+            } else {
+                band.tamper_with(refusing_the_mcp_question);
+                frame(&mut shell, &mut band, false);
+                band.untamper();
+            }
+            assert!(
+                band.on_alternate(),
+                "the refused return gave the plane back"
+            );
+            enter(&mut shell);
+            // Read without composing a frame: `band_rows` would mark the
+            // question drawn, and the retry below would prove nothing (opus-Y).
+            assert_eq!(
+                shell.mcp_screen(),
+                Some(asked),
+                "a question no frame painted was answered (screen refuses: {screen_refuses})"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&profile).expect("the profile"),
+                written
+            );
+            // The next frame lands, and draws it: now Enter answers.
+            frame(&mut shell, &mut band, false);
+            assert!(!band.on_alternate(), "the retry never gave the plane back");
+            enter(&mut shell);
+            assert_ne!(
+                shell.mcp_screen(),
+                Some(asked),
+                "a painted question took no answer"
+            );
+        }
     }
 }

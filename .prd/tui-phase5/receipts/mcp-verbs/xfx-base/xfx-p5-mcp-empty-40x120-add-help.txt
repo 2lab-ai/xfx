@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 [debug] · Run /help for commands
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* mcp: <local-path>
+
+* mcp: MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: MCP authentication for 'nope' failed: McpServerNotFound.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* mcp: MCP resource listing failed: McpRuntimeUnavailable.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* mcp: MCP logout for 'nope' failed: McpServerNotFound.
+
+* mcp: MCP server 'nope' not found.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp add slack | mcp add NAME COMMAND [ARGS...] | mcp add --transport http NAME URL
+
+┃
+
+auto · model-a
+
+
+
+
+

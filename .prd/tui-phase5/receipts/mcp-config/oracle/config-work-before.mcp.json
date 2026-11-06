@@ -1,0 +1,6 @@
+{
+    "mcpServers": {
+        "proj": {"command": "<bun>", "args": ["<scenarios>/p5-mcp-stdio.ts"]}
+    },
+    "other": {"keep": [1, 2.0, 3e2]}
+}

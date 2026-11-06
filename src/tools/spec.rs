@@ -22,7 +22,7 @@ use crate::gateway::CancelToken;
 use crate::permission::{ApprovalDiff, PermissionSession, ReadTracker};
 use crate::workspace::AccessScope;
 
-use super::mcp::{CapabilitySearchInput, McpFeaturesInput, McpSelectToolInput};
+use super::mcp::{CapabilitySearchInput, McpSelectToolInput};
 use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
 use super::question::{AskUserQuestionInput, QuestionRequester};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
@@ -85,9 +85,6 @@ pub enum PropertyKind {
     Integer,
     Boolean,
     Array,
-    /// A free-form object: `mcp_features`' string-valued `arguments` and
-    /// `context`, whose keys are the server's to name.
-    Object,
 }
 
 impl PropertyKind {
@@ -97,7 +94,6 @@ impl PropertyKind {
             Self::Integer => "integer",
             Self::Boolean => "boolean",
             Self::Array => "array",
-            Self::Object => "object",
         }
     }
 }
@@ -195,7 +191,6 @@ pub enum ToolInput {
     Skill(SkillInput),
     CapabilitySearch(CapabilitySearchInput),
     McpSelectTool(McpSelectToolInput),
-    McpFeatures(McpFeaturesInput),
 }
 
 impl ToolInput {
@@ -220,10 +215,9 @@ impl ToolInput {
             Self::AskUserQuestion(_) => None,
             Self::Skill(input) => Some(input.target()),
             // Upstream's `label_arg_kind`s: the query, or the server it is
-            // scoped to (`capability_search.zig:91-101`); the name; the action.
+            // scoped to (`capability_search.zig:91-101`); the name.
             Self::CapabilitySearch(input) => Some(input.server.as_deref().unwrap_or(&input.query)),
             Self::McpSelectTool(input) => Some(&input.name),
-            Self::McpFeatures(input) => Some(&input.action),
         }
     }
 

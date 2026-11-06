@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 1  [Servers]  Tools  Resources  Prompts
+  1 project MCP configuration error. Run /mcp list for details. ~/.xfx/mcp.json server 'broken' was skipped: it needs a…
+  fixture               Ready                 stdio · Profile
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

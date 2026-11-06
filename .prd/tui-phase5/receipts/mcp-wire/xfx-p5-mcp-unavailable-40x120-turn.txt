@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+
+* mcp: MCP startup: 1 server needs attention, 1 failed. Use /mcp list for details.
+
+┃ look for a weather forecast tool
+
+● 1 tool call · 1 read
+└ Searched capabilities weather forecast
+
+  none.
+
+  0s (↑8 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

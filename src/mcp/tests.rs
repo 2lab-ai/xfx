@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use super::config::{self, ServerConfig, TrustAction};
-use super::runtime::{Connection, Event, Job, McpRuntime, Paths, Status};
+use super::runtime::{Connection, Event, Job, McpRuntime, Paths, Retry, Status};
 use crate::gateway::protocol::ToolCall;
 use crate::permission::{PermissionMode, PermissionSession, RuleSet};
 use crate::tools::ToolContext;
@@ -50,21 +50,35 @@ impl Home {
         self.dir.path().join("work")
     }
 
+    /// A runtime over this home, whose servers are tried as fx tries them --
+    /// eight times -- but with waits of milliseconds ([`FAST`]).
     fn runtime(&self) -> Arc<McpRuntime> {
-        McpRuntime::new(Paths {
+        let runtime = McpRuntime::new(Paths {
             profile: Some(self.profile()),
             settings: Some(self.settings()),
             workspace: self.workspace(),
-        })
+        });
+        runtime.set_retry(FAST);
+        runtime
     }
 }
 
-/// Waits until `name` has left `Connecting`.
+/// fx's eight tries, with waits a case can sit through.
+const FAST: Retry = Retry {
+    attempts: 8,
+    first: Duration::from_millis(1),
+    cap: Duration::from_millis(5),
+};
+
+/// Waits until `name` is done coming up: neither connecting nor retrying.
 fn settled(runtime: &McpRuntime, name: &str) -> super::runtime::ServerView {
     let deadline = Instant::now() + WAIT;
     loop {
         if let Some(view) = runtime.views().into_iter().find(|view| view.name == name) {
-            if view.connection != Connection::Connecting {
+            if !matches!(
+                view.connection,
+                Connection::Connecting | Connection::Retrying
+            ) {
                 return view;
             }
         }
@@ -152,7 +166,12 @@ fn a_profile_server_is_started_initialized_listed_and_called() {
 }
 
 #[test]
-fn a_server_that_cannot_start_is_tried_once_more_and_then_failed() {
+fn a_server_that_cannot_start_is_retrying_between_its_tries_and_failed_after_the_last() {
+    // fx v0.0.16 tries a server that fails to start eight times in a row,
+    // `retrying` while it waits between them, and then `failed`, with how its
+    // process ended and its last stderr lines as the reason
+    // (`fail-server-1`; `p5-mcp-failed`). The startup notice is gone: the
+    // status line says it instead.
     let home = Home::new();
     let attempts = home.dir.path().join("attempts");
     let mut server = ServerConfig::local(
@@ -160,7 +179,7 @@ fn a_server_that_cannot_start_is_tried_once_more_and_then_failed() {
         "/bin/sh",
         &[
             "-c".into(),
-            "echo started >> \"$1\"; echo 'npm error code E401' >&2; exit 7".into(),
+            "echo started >> \"$1\"; echo 'npm error code E401' >&2; echo 'npm error Incorrect or missing password.' >&2; exit 7".into(),
             "sh".into(),
             attempts.to_string_lossy().into_owned(),
         ],
@@ -168,27 +187,75 @@ fn a_server_that_cannot_start_is_tried_once_more_and_then_failed() {
     server.startup_timeout_ms = 20_000;
     config::add_profile_server(&home.profile(), server).expect("saved");
     let runtime = home.runtime();
+    // Waits long enough to be seen.
+    runtime.set_retry(Retry {
+        attempts: 3,
+        first: Duration::from_millis(400),
+        cap: Duration::from_millis(400),
+    });
+    runtime.start();
+    let words = "its process exited with code 7; its last stderr lines: \"npm error code E401 / npm error Incorrect or missing password.\"";
+    let deadline = Instant::now() + WAIT;
+    let retrying = loop {
+        let view = runtime
+            .views()
+            .into_iter()
+            .find(|view| view.name == "broken")
+            .expect("broken");
+        if view.connection == Connection::Retrying {
+            break view;
+        }
+        assert_ne!(view.connection, Connection::Failed, "{view:?}");
+        assert!(Instant::now() < deadline, "broken never retried");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert_eq!(retrying.status(), Status::Retrying);
+    assert_eq!(retrying.failure.as_deref(), Some(words));
+    let view = settled(&runtime, "broken");
+    assert_eq!(view.status(), Status::Failed);
+    assert_eq!(view.failure.as_deref(), Some(words));
+    assert_eq!(
+        std::fs::read_to_string(&attempts).unwrap().lines().count(),
+        3
+    );
+    assert!(notices(&runtime).is_empty());
+}
+
+#[test]
+fn fx_tries_a_server_eight_times_waiting_one_two_four_eight_sixteen_thirty_and_thirty_seconds() {
+    let waits: Vec<u64> = (1..Retry::FX.attempts)
+        .map(|failed| Retry::FX.backoff(failed).as_secs())
+        .collect();
+    assert_eq!(waits, [1, 2, 4, 8, 16, 30, 30]);
+    assert_eq!(waits.iter().sum::<u64>(), 91);
+    // And with the default schedule, eight starts before `Failed`.
+    let home = Home::new();
+    let attempts = home.dir.path().join("attempts");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "broken",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "echo started >> \"$1\"; exit 3".into(),
+                "sh".into(),
+                attempts.to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
     runtime.start();
     let view = settled(&runtime, "broken");
     assert_eq!(view.status(), Status::Failed);
-    assert_eq!(view.failure.as_deref(), Some("McpInitFailed"));
-    // `restart_limit: 1`: the first start and one restart.
+    assert_eq!(
+        view.failure.as_deref(),
+        Some("its process exited with code 3")
+    );
     assert_eq!(
         std::fs::read_to_string(&attempts).unwrap().lines().count(),
-        2
-    );
-    // A startup that failed says so once discovery settles (`health.zig:438-480`).
-    let deadline = Instant::now() + WAIT;
-    let said = loop {
-        let said = notices(&runtime);
-        if !said.is_empty() || Instant::now() > deadline {
-            break said;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    assert_eq!(
-        said,
-        ["MCP startup: 1 server needs attention, 1 failed. Use /mcp list for details."]
+        8
     );
 }
 
@@ -203,21 +270,16 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     .unwrap();
     let runtime = home.runtime();
     runtime.start_and_wait(WAIT);
-    let events = runtime.take_events();
-    let digest = config::entry_digest(&entry);
+    // Nothing asks: fx v0.0.16 has no launch prompt (`ba0ea4a9`); the
+    // server waits for `/mcp`'s menu or `/mcp approve`, and nothing is said.
     assert!(
-        events.contains(&Event::TrustPrompt {
-            name: "proj".into(),
-            digest: digest.clone(),
-            listed: vec![("proj".into(), digest.clone())],
-            whole: true,
-            text: format!(
-                "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-                fixture().display()
-            ),
-        }),
-        "{events:?}"
+        !runtime
+            .take_events()
+            .iter()
+            .any(|event| matches!(event, Event::Notice { .. })),
+        "something was said at launch"
     );
+    let digest = config::entry_digest(&entry);
     let view = settled(&runtime, "proj");
     assert_eq!(view.state_label(), "Pending trust");
     assert_eq!(
@@ -231,13 +293,8 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
             body: "Approving project MCP server 'proj'.".into(),
         },
     );
-    assert_eq!(
-        notices(&runtime),
-        [
-            "Approving project MCP server 'proj'.",
-            "MCP configuration reloaded successfully."
-        ]
-    );
+    // The reload says nothing of its own (fx v0.0.16, A13).
+    assert_eq!(notices(&runtime), ["Approving project MCP server 'proj'."]);
     assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
     let document: Value =
         serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
@@ -271,10 +328,10 @@ fn an_approval_an_older_xfx_saved_by_name_alone_asks_once_more() {
     let runtime = home.runtime();
     runtime.start();
     assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
-    assert!(runtime
-        .take_events()
-        .iter()
-        .any(|event| matches!(event, Event::TrustPrompt { name, .. } if name == "proj")));
+    assert!(settled(&runtime, "proj")
+        .entry
+        .is_some_and(|entry| entry.digest
+            == config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}))));
     runtime.shutdown();
 }
 
@@ -311,140 +368,6 @@ fn a_pending_entry_is_spelled_once_per_read_and_shared_by_every_view() {
 }
 
 #[test]
-fn a_change_to_a_non_first_pending_server_sends_the_prompt_again_unasked() {
-    // The prompt is about the first pending server and its `2` about all of
-    // them: a reload that changes only the second sends it again, with no
-    // key pressed; a reload that changes nothing sends nothing.
-    let home = Home::new();
-    let quiet = |mark: &str| json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]});
-    let write = |b: &str| {
-        std::fs::write(
-            home.workspace().join(".mcp.json"),
-            json!({"mcpServers": {"a": quiet("a1"), "b": quiet(b)}}).to_string(),
-        )
-        .unwrap()
-    };
-    write("b1");
-    let runtime = home.runtime();
-    runtime.start_and_wait(WAIT);
-    settled(&runtime, "a");
-    let prompts = |events: Vec<Event>| -> Vec<Vec<(String, String)>> {
-        events
-            .into_iter()
-            .filter_map(|event| match event {
-                Event::TrustPrompt { listed, .. } => Some(listed),
-                _ => None,
-            })
-            .collect()
-    };
-    let _ = runtime.take_events();
-    bounded_run(&runtime, Job::Command("reload".into()));
-    assert_eq!(
-        prompts(runtime.take_events()),
-        Vec::<Vec<(String, String)>>::new()
-    );
-    write("b2");
-    bounded_run(&runtime, Job::Command("reload".into()));
-    assert_eq!(
-        prompts(runtime.take_events()),
-        [vec![
-            ("a".to_string(), config::entry_digest(&quiet("a1"))),
-            ("b".to_string(), config::entry_digest(&quiet("b2"))),
-        ]]
-    );
-    runtime.shutdown();
-}
-
-#[test]
-fn approving_a_listed_set_saves_only_the_entries_still_pending_as_listed() {
-    // What persistence does with a list some of which no longer stands: of
-    // what was listed one entry is unchanged, one rewritten, one removed, one
-    // rejected and one approved in the meantime, and one entry was added --
-    // only the unchanged one is approved, and each other is named with what
-    // became of it.
-    let home = Home::new();
-    let quiet = |mark: &str| json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]});
-    let write = |servers: Value| {
-        std::fs::write(
-            home.workspace().join(".mcp.json"),
-            json!({"mcpServers": servers}).to_string(),
-        )
-        .unwrap()
-    };
-    write(json!({
-        "same": quiet("s"), "rewritten": quiet("r1"), "gone": quiet("g"),
-        "refused": quiet("f"), "taken": quiet("t"),
-    }));
-    let runtime = home.runtime();
-    runtime.start_and_wait(WAIT);
-    settled(&runtime, "same");
-    let listed: Vec<(String, String)> = [
-        ("same", "s"),
-        ("rewritten", "r1"),
-        ("gone", "g"),
-        ("refused", "f"),
-        ("taken", "t"),
-    ]
-    .into_iter()
-    .map(|(name, mark)| (name.to_string(), config::entry_digest(&quiet(mark))))
-    .collect();
-    write(json!({
-        "same": quiet("s"), "rewritten": quiet("r2"), "refused": quiet("f"),
-        "taken": quiet("t"), "added": quiet("a"),
-    }));
-    bounded_run(&runtime, Job::Command("reload".into()));
-    let deadline = Instant::now() + WAIT;
-    while !runtime.views().iter().any(|view| view.name == "added") {
-        assert!(
-            Instant::now() < deadline,
-            "the reload never read the new file"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    for action in [
-        TrustAction::Reject("refused".into()),
-        TrustAction::Approve("taken".into()),
-    ] {
-        bounded_run(
-            &runtime,
-            Job::Trust {
-                action,
-                body: "In the meantime.".into(),
-            },
-        );
-    }
-    let _ = runtime.take_events();
-    bounded_run(
-        &runtime,
-        Job::Trust {
-            action: TrustAction::ApproveListed(listed),
-            body: "Approving all project MCP servers for this workspace.".into(),
-        },
-    );
-    let document: Value =
-        serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
-    assert_eq!(
-        document["workspaces"][home.workspace().to_str().unwrap()]["enabledMcpjsonServerDigests"],
-        json!({
-            "taken": config::entry_digest(&quiet("t")),
-            "same": config::entry_digest(&quiet("s")),
-        })
-    );
-    let said = notices(&runtime);
-    for expected in [
-        "Approving all project MCP servers for this workspace.",
-        "Project MCP server 'rewritten' changed since it was listed; it is still waiting for approval.",
-        "Project MCP server 'gone' is no longer a server in .mcp.json; there was nothing to approve.",
-        "Project MCP server 'refused' was rejected in the meantime; it was not approved.",
-        "Project MCP server 'taken' was approved in the meantime.",
-        "Project MCP server 'added' was added since the list was drawn; it is still waiting for approval.",
-    ] {
-        assert!(said.iter().any(|body| body == expected), "{expected}: {said:?}");
-    }
-    runtime.shutdown();
-}
-
-#[test]
 fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_error() {
     // `"type": "${T:-stdio}"` does not parse as written, so the person sees a
     // configuration error, not a server; after expansion it is a stdio
@@ -467,7 +390,10 @@ fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_erro
     let runtime = home.runtime();
     runtime.start_and_wait(WAIT);
     assert_eq!(settled(&runtime, "shown").state_label(), "Pending trust");
-    assert_eq!(runtime.issues(), ["templated: McpConfigInvalidType"]);
+    assert_eq!(
+        runtime.issues(),
+        [".mcp.json server 'templated' was skipped: its \"type\" isn't valid."]
+    );
     bounded_run(
         &runtime,
         Job::Trust {
@@ -557,38 +483,30 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     let wrote = write(PermissionMode::Auto, rules);
     assert!(wrote.ok, "{wrote:?}");
 
-    bounded_run(&runtime, Job::Command("reload".into()));
+    runtime.reload(super::runtime::Origin::Transcript);
     let view = settled(&runtime, "proj");
     assert!(
         !ran.exists(),
-        "the rewritten entry ran without a new prompt"
+        "the rewritten entry ran without being approved again"
     );
     assert_eq!(
         view.state_label(),
         "Pending trust",
         "the rewritten entry kept the approval: {view:?}"
     );
-    // The prompt names what would run, not only the name.
-    let events = runtime.take_events();
-    let shown = format!(
-        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c ': > \"$0\"; exec /bin/sh \"$1\"' {} {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-        ran.display(),
-        fixture().display()
+    // The entry shown for approval is what would run, not only the name.
+    let entry = view.entry.expect("a pending entry is shown");
+    assert_eq!(
+        entry.rows,
+        [format!(
+            "command: /bin/sh -c ': > \"$0\"; exec /bin/sh \"$1\"' {} {}",
+            ran.display(),
+            fixture().display()
+        )]
     );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, Event::TrustPrompt { text, .. } if *text == shown)),
-        "{events:?}"
-    );
-    let Some(Event::TrustPrompt { digest, .. }) = events
-        .iter()
-        .find(|event| matches!(event, Event::TrustPrompt { .. }))
-    else {
-        panic!("no prompt: {events:?}")
-    };
-    // An answer to a prompt that showed the old entry approves the old entry,
-    // which is no longer there.
+    let digest = &entry.digest;
+    // An approval of a screen that showed the old entry approves the old
+    // entry, which is no longer there.
     let first = config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}));
     assert_ne!(*digest, first);
     bounded_run(
@@ -620,44 +538,29 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
 }
 
 #[test]
-fn every_feature_command_answers_in_upstreams_shape() {
+fn every_feature_command_c1db9191_had_says_where_it_went() {
+    // fx v0.0.16 dropped `/mcp resource` and `/mcp prompt` with MCP v1, and
+    // moved `auth` (`src/core/mcp_host/verbs.zig:64-73@481104fd`): with a
+    // server up that would have answered each, each line now says only that,
+    // and nothing is asked of the server.
     let home = Home::new();
     config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
     let runtime = home.runtime();
     runtime.start();
     settled(&runtime, "fixture");
+    let _ = runtime.take_events();
+    let resources = "/mcp resource is gone: xfx doesn't support MCP resources and prompts yet.";
+    let prompts = "/mcp prompt is gone: xfx doesn't support MCP resources and prompts yet.";
     for (line, expected) in [
-        (
-            "resource list fixture",
-            "MCP resources from fixture (1):\n  fixture :: fixture://alpha — alpha\n",
-        ),
-        (
-            "resource read fixture fixture://alpha",
-            "[untrusted MCP resource content] fixture :: fixture://alpha\n\nfixture://alpha (text/plain)\nFIXTURE_RESOURCE_TEXT\n",
-        ),
-        (
-            "prompt list fixture",
-            "MCP prompts from fixture (1):\n  fixture :: review — Review prompt [tone*]\n",
-        ),
-        (
-            "prompt get fixture review {\"tone\":\"brief\"}",
-            "[untrusted MCP prompt content] fixture :: review\nReview prompt\n\nuser (text):\n{\"type\":\"text\",\"text\":\"FIXTURE_PROMPT_TEXT\"}\n",
-        ),
-        (
-            "prompt complete fixture review tone b",
-            "MCP completions from fixture (2 of 2):\n  brief\n  thorough\n",
-        ),
-        (
-            "auth fixture",
-            "MCP authentication for 'fixture' failed: McpAuthenticationNotRemote.",
-        ),
+        ("resource list fixture", resources),
+        ("resource read fixture fixture://alpha", resources),
+        ("prompt list fixture", prompts),
+        ("prompt get fixture review {\"tone\":\"brief\"}", prompts),
+        ("prompt complete fixture review tone b", prompts),
+        ("auth fixture", "/mcp auth is now /mcp login NAME."),
         (
             "logout fixture",
-            "MCP logout for 'fixture' failed: McpAuthenticationNotRemote.",
-        ),
-        (
-            "prompt get fixture review [1]",
-            "MCP prompt invocation failed: McpInvalidPromptArguments.",
+            "fixture runs a command, so it has no login.",
         ),
     ] {
         runtime.run(Job::Command(line.into()));
@@ -702,7 +605,7 @@ fn a_hostile_name_is_spelled_out_and_cut_at_upstreams_256_bytes() {
 }
 
 #[test]
-fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it() {
+fn a_hostile_command_is_named_in_its_entry_as_the_approval_view_names_it() {
     let home = Home::new();
     std::fs::write(
         home.workspace().join(".mcp.json"),
@@ -715,53 +618,14 @@ fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it(
     .unwrap();
     let runtime = home.runtime();
     runtime.start();
-    let events = runtime.take_events();
-    let prompt = events
-        .iter()
-        .find_map(|event| match event {
-            Event::TrustPrompt { text, .. } => Some(text.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("no prompt: {events:?}"));
+    let entry = settled(&runtime, "proj")
+        .entry
+        .expect("a pending entry is shown");
     assert_eq!(
-        prompt,
-        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c 'true \\u{202e}hs.live cexe\\u{200b}'\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+        entry.rows,
+        ["command: /bin/sh -c 'true \\u{202e}hs.live cexe\\u{200b}'"]
     );
     runtime.shutdown();
-}
-
-#[test]
-fn an_entry_that_would_push_its_command_row_off_the_screen_is_not_shown_whole() {
-    // Each variable is a row of its own: none is too long, but enough of them
-    // push the command row above an 80x24 screen before the choices are
-    // drawn. `1` approves only an entry shown whole, so such a prompt sends
-    // the person to the details and `v`.
-    let whole = |count: usize| -> bool {
-        let home = Home::new();
-        let env: serde_json::Map<String, Value> = (0..count)
-            .map(|at| (format!("V{at}"), json!("x")))
-            .collect();
-        std::fs::write(
-            home.workspace().join(".mcp.json"),
-            json!({"mcpServers": {"proj": {"command": "node", "env": env}}}).to_string(),
-        )
-        .unwrap();
-        let runtime = home.runtime();
-        runtime.start();
-        let events = runtime.take_events();
-        runtime.shutdown();
-        events
-            .iter()
-            .find_map(|event| match event {
-                Event::TrustPrompt { whole, .. } => Some(*whole),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("no prompt: {events:?}"))
-    };
-    // The name row, the command row, 18 variables and the choices: the 21
-    // rows the screen's 24 leave over the band's three.
-    assert!(whole(18));
-    assert!(!whole(19));
 }
 
 /// Every entry of the workspace file in `root` approved as it is written --
@@ -847,7 +711,7 @@ fn a_search_selects_the_tool_and_a_rule_or_full_access_admits_its_call() {
     assert!(ran.ok, "{ran:?}");
     assert_eq!(
         ran.output,
-        r#"{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"FIXTURE_ECHO:hi"}]}}"#
+        r#"{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"FIXTURE_ECHO:hi"}],"isError":false}}"#
     );
 
     // A deny keeps it out of every search.
@@ -874,14 +738,495 @@ fn a_search_selects_the_tool_and_a_rule_or_full_access_admits_its_call() {
         selected.output,
         "Selected dynamic MCP tool `mcp_fixture_echo`. Its executable schema will be available on the next model step; call `mcp_fixture_echo` with arguments matching the selected schema."
     );
-    let features = call(
+    // fx v0.0.16 has no `mcp_features`, and neither has xfx: the model
+    // cannot reach a resource or a prompt.
+    assert!(crate::tools::Registry::builtin()
+        .spec("mcp_features")
+        .is_none());
+    runtime.shutdown();
+}
+
+/// Answers every question it is put with one answer, and counts them.
+struct Answering {
+    answer: crate::permission::ApprovalAnswer,
+    asked: Arc<Mutex<usize>>,
+}
+
+impl crate::permission::ApprovalPrompter for Answering {
+    fn request(
+        &mut self,
+        _: &crate::permission::ApprovalRequest,
+    ) -> std::io::Result<crate::permission::ApprovalAnswer> {
+        *self.asked.lock().unwrap() += 1;
+        Ok(self.answer)
+    }
+}
+
+/// How many `tools/call` frames the fixture logged in `log`.
+fn calls_logged(log: &Path) -> usize {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains(r#""method":"tools/call""#))
+        .count()
+}
+
+/// What one call came to, as the model and the server see it.
+#[derive(Debug, PartialEq)]
+struct Came {
+    /// Whether the machine took the name for a tool at all
+    /// (`select_unselected`); a name it does not ends the turn as
+    /// `ToolCallUnsupported` and nothing is judged or sent.
+    a_tool: bool,
+    /// Each call's result: `ok`, its outcome, and the model's text.
+    results: Vec<(bool, crate::tools::Outcome, String)>,
+    /// Questions put to the person.
+    asked: usize,
+    /// `tools/call` frames the server received.
+    sent: usize,
+}
+
+#[test]
+fn an_unselected_call_meets_every_admission_rule_a_selected_one_does() {
+    // fx v0.0.16 runs a live MCP tool the model calls without loading it
+    // (`advertiseUnselectedMcpCalls`, `orchestrator.zig:2497-2538@481104fd`)
+    // and sends it "through normal validation and MCP permission". So here:
+    // every mode, every kind of rule (a name, a glob, an ask, a deny, a
+    // deny of everything) and every answer a person can give, once on a
+    // tool selected first and once on the same call unselected, through the
+    // machine's own two steps -- `select_unselected`, then `call`. The two
+    // must be judged alike: the same questions, the same result, and the
+    // server reached exactly as often. A deny the selected tool met after it
+    // was selected (a rule written mid-turn) leaves the unselected one no
+    // tool at all, so nothing is sent either way.
+    use crate::permission::ApprovalAnswer;
+    let home = Home::new();
+    let log = home.dir.path().join("wire.log");
+    let mut server = fixture_server("fixture");
+    server.env = vec![("MCP_FIXTURE_LOG".into(), log.to_string_lossy().into_owned())];
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    let (owner, tool) = runtime
+        .tool_by_alias("mcp_fixture_echo")
+        .expect("the fixture's tool");
+    let chosen =
+        crate::mcp::catalog::select(&tool, owner.instructions().as_deref()).expect("within budget");
+
+    let modes = [
+        PermissionMode::Ask,
+        PermissionMode::Auto,
+        PermissionMode::Yolo,
+    ];
+    // What each table is, for the expected outcome below.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        NoRule,
+        Allows,
+        Asks,
+        Denies,
+    }
+    let rules = [
+        (json!({}), Kind::NoRule),
+        (json!({"mcp_fixture_echo": "allow"}), Kind::Allows),
+        (json!({"mcp_fixture_*": "allow"}), Kind::Allows),
+        (json!({"mcp_fixture_echo": "ask"}), Kind::Asks),
+        (json!({"mcp_fixture_echo": "deny"}), Kind::Denies),
+        (json!({"mcp_*": "deny"}), Kind::Denies),
+        (json!({"*": "deny"}), Kind::Denies),
+        // The rule after it, naming the tool, decides.
+        (
+            json!({"*": "deny", "mcp_fixture_echo": "allow"}),
+            Kind::Allows,
+        ),
+        // A deny on the two meta-tools is about them, not the server's tools:
+        // a call by name is judged as if no rule spoke (fx hands the lookup
+        // the table and the tool's own name, `tool_runtime.zig:1042-1053`).
+        (
+            json!({"capability_search": "deny", "mcp_select_tool": "deny"}),
+            Kind::NoRule,
+        ),
+    ];
+    // The outcome every case must have, unselected, by the rules alone
+    // (`tool_admission.zig:161-165`, `:1116-1157`, `:1426-1442`): whether the
+    // name is a tool at all, the questions put, and the frames sent for the
+    // two calls. A deny the table holds leaves no tool; an allow sends both
+    // unasked; full access sends both whatever else (an ask rule included);
+    // `auto` holds a call no rule decides; a question answered once asks
+    // each time, "always" once, "deny" refuses each time, nobody to ask
+    // refuses.
+    let expected = |mode: PermissionMode, kind: Kind, answer: Option<ApprovalAnswer>| {
+        let asked = |answer: Option<ApprovalAnswer>| match answer {
+            None => (0, 0),
+            Some(ApprovalAnswer::Once) => (2, 2),
+            Some(ApprovalAnswer::Always) => (1, 2),
+            Some(ApprovalAnswer::Deny) => (2, 0),
+        };
+        match (kind, mode) {
+            (Kind::Denies, _) => (false, 0, 0),
+            (Kind::Allows, _) | (_, PermissionMode::Yolo) => (true, 0, 2),
+            (Kind::NoRule, PermissionMode::Auto) => (true, 0, 0),
+            (Kind::NoRule | Kind::Asks, _) => {
+                let (questions, sent) = asked(answer);
+                (true, questions, sent)
+            }
+        }
+    };
+    let answers = [
+        None,
+        Some(ApprovalAnswer::Once),
+        Some(ApprovalAnswer::Always),
+        Some(ApprovalAnswer::Deny),
+    ];
+    let mut cases = 0;
+    let mut sent_somewhere = false;
+    let mut refused_somewhere = false;
+    for mode in modes {
+        for (table, kind) in &rules {
+            for answer in answers {
+                let came = |selected_first: bool| -> Came {
+                    let asked = Arc::new(Mutex::new(0));
+                    let mut session = PermissionSession::new(mode)
+                        .with_rules(RuleSet::parse(table).expect("rules"));
+                    if let Some(answer) = answer {
+                        session = session.with_prompter(Box::new(Answering {
+                            answer,
+                            asked: Arc::clone(&asked),
+                        }));
+                    }
+                    let scope = AccessScope::primary_only(home.workspace()).expect("scope");
+                    let context = ToolContext::new(scope)
+                        .with_permissions(session)
+                        .with_mcp(Arc::clone(&runtime));
+                    if selected_first {
+                        context.select_mcp(vec![chosen.clone()]);
+                    }
+                    let before = calls_logged(&log);
+                    let a_tool = crate::tools::mcp::select_unselected(&context, "mcp_fixture_echo");
+                    let mut results = Vec::new();
+                    if a_tool {
+                        // Twice, so an "always" answered on the first is
+                        // seen deciding the second.
+                        for text in ["one", "two"] {
+                            let result = call(&context, "mcp_fixture_echo", json!({"text": text}));
+                            results.push((result.ok, result.outcome, result.output));
+                        }
+                        // Selected from now on: advertised in the next request.
+                        assert!(crate::tools::mcp::is_selected(&context, "mcp_fixture_echo"));
+                    } else {
+                        assert!(context.mcp_selected().is_empty());
+                    }
+                    let asked = *asked.lock().unwrap();
+                    Came {
+                        a_tool,
+                        results,
+                        asked,
+                        sent: calls_logged(&log) - before,
+                    }
+                };
+                let selected = came(true);
+                let unselected = came(false);
+                let case = format!("{mode:?} {table} {answer:?}");
+                assert_eq!(
+                    (unselected.a_tool, unselected.asked, unselected.sent),
+                    expected(mode, *kind, answer),
+                    "{case}: {unselected:?}"
+                );
+                assert!(selected.a_tool, "{case}");
+                assert_eq!(
+                    unselected.sent, selected.sent,
+                    "{case}: {selected:?} {unselected:?}"
+                );
+                assert_eq!(
+                    unselected.asked, selected.asked,
+                    "{case}: {selected:?} {unselected:?}"
+                );
+                if unselected.a_tool {
+                    assert_eq!(unselected.results, selected.results, "{case}");
+                } else {
+                    // Refused outright by the table: the selected call is an
+                    // unknown tool's, and neither reached the server.
+                    assert_eq!(selected.sent, 0, "{case}");
+                    assert!(
+                        selected.results.iter().all(|(ok, ..)| !ok),
+                        "{case}: {selected:?}"
+                    );
+                }
+                sent_somewhere |= selected.sent > 0;
+                refused_somewhere |= selected.results.iter().any(|(ok, ..)| !ok);
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 3 * 9 * 4);
+    assert!(sent_somewhere && refused_somewhere);
+
+    // The rules that matter, spelled out: `auto` holds an unselected call
+    // with no rule, as it holds a selected one; full access runs it.
+    let held = {
+        let context = context(&home, &runtime, PermissionMode::Auto, RuleSet::default());
+        assert!(crate::tools::mcp::select_unselected(
+            &context,
+            "mcp_fixture_echo"
+        ));
+        call(&context, "mcp_fixture_echo", json!({"text": "hi"}))
+    };
+    assert_eq!(held.outcome, crate::tools::Outcome::Denied, "{held:?}");
+    assert!(
+        held.output.contains("not admitted in auto mode"),
+        "{}",
+        held.output
+    );
+    let ran = {
+        let context = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+        assert!(crate::tools::mcp::select_unselected(
+            &context,
+            "mcp_fixture_echo"
+        ));
+        call(&context, "mcp_fixture_echo", json!({"text": "hi"}))
+    };
+    assert!(ran.ok, "{ran:?}");
+    // A name no live server has is no tool.
+    let none = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    assert!(!crate::tools::mcp::select_unselected(
+        &none,
+        "mcp_fixture_nope"
+    ));
+    assert!(!crate::tools::mcp::select_unselected(
+        &none,
+        "mcp_other_echo"
+    ));
+    runtime.shutdown();
+}
+
+/// A stdio server with one tool, `echo`, whose `tools/call` answer is the
+/// `result` or `error` member `answer`, written verbatim into the frame --
+/// or, when `answer` is `LONG=<n>`, an error whose message is `n` bytes,
+/// made by the server when it answers (bounded by `head -c`), so the
+/// environment it starts with stays small.
+fn answering_server(home: &Home, name: &str, answer: &str) -> ServerConfig {
+    let script = home.dir.path().join(format!("{name}.sh"));
+    let body = r#"while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/^{"jsonrpc":"2.0","id":\([0-9][0-9]*\),.*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"t","version":"1"}}}\n' "$id" ;;
+    *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}}\n' "$id" ;;
+    *'"method":"tools/call"'*)
+      if [ -n "${LONG:-}" ]; then
+        message=$(/usr/bin/head -c "$LONG" /dev/zero | /usr/bin/tr '\0' x)
+        printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"%s"}}\n' "$id" "$message"
+      else
+        printf '{"jsonrpc":"2.0","id":%s,%s}\n' "$id" "$ANSWER"
+      fi ;;
+    *) if [ -n "$id" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id"; fi ;;
+  esac
+done
+"#;
+    std::fs::write(&script, body).expect("script");
+    let mut server = ServerConfig::local(name, "/bin/sh", &[script.to_string_lossy().into_owned()]);
+    server.env = match answer.strip_prefix("LONG=") {
+        Some(bytes) => vec![("LONG".into(), bytes.into())],
+        None => vec![("ANSWER".into(), answer.into())],
+    };
+    server
+}
+
+#[test]
+fn a_call_the_server_answers_with_no_result_fails_as_fx_says_it_did() {
+    // At `call()`, what the model is told and that it is a failure, never a
+    // success: an `isError` result (`classifyCall`, `protocol/tools.zig:
+    // 255-273@481104fd`), an answer that is no tool result (`copyCall`,
+    // `runtime.zig:2363-2378`, `ended`, `model.zig:855-878`), and a JSON-RPC
+    // error (`write_protocol_diagnostic`, `tool_result.zig:199-214`) -- its
+    // data left out, as `render` leaves it out (`model.zig:841`).
+    let home = Home::new();
+    let cases = [
+        (
+            "iserror",
+            r#""result":{"content":[{"type":"text","text":"no such issue"}],"isError":true}"#,
+            r#"{"server":"iserror","tool":"mcp_iserror_echo","result":{"content":[{"type":"text","text":"no such issue"}],"isError":true}}"#,
+        ),
+        (
+            "malformed",
+            r#""result":{"content":"no such issue"}"#,
+            "MCP server 'malformed' ended the call: the server's answer was malformed. The tool may have run.",
+        ),
+        (
+            "refusing",
+            r#""error":{"code":-32603,"message":"fixture refuses <now> & \"always\"","data":{"why":"x"}}"#,
+            r#"MCP protocol error -32603: fixture refuses <now> & "always""#,
+        ),
+        (
+            "nul",
+            r#""error":{"code":-32000,"message":"a\u0000b"}"#,
+            "MCP protocol error -32000: binary or non-utf8 tool output omitted (3 bytes)",
+        ),
+        // The error's data, whatever it holds, is not told
+        // (`runtime.zig:117`, `:2371`; `model.zig:841`; `p5-mcp-errdata`).
+        (
+            "spaceddata",
+            r#""error":{"code":-32603,"message":"fixture refuses","data": { "b" : [ 2 , 1 ] ,  "a":1.0 } }"#,
+            "MCP protocol error -32603: fixture refuses",
+        ),
+        (
+            "nuldata",
+            r#""error":{"code":-32603,"message":"fixture refuses","data":{"k":"a\u0000b"}}"#,
+            "MCP protocol error -32603: fixture refuses",
+        ),
+    ];
+    // A message over 64 KiB is no error fx reads
+    // (`parseProtocolError`, `features/tools.zig:305-307`).
+    let long = format!("LONG={}", 64 * 1024 + 1);
+    let cases: Vec<(&str, &str, &str)> = cases
+        .iter()
+        .copied()
+        .chain([(
+            "long",
+            long.as_str(),
+            "MCP protocol failure: InvalidEnvelope",
+        )])
+        .collect();
+    for (name, answer, _) in &cases {
+        config::add_profile_server(&home.profile(), answering_server(&home, name, answer))
+            .expect("saved");
+    }
+    let runtime = home.runtime();
+    runtime.start();
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    for (name, _, told) in &cases {
+        assert_eq!(settled(&runtime, name).status(), Status::Ready, "{name}");
+        let alias = format!("mcp_{name}_echo");
+        assert!(
+            crate::tools::mcp::select_unselected(&full, &alias),
+            "{name}"
+        );
+        let result = call(&full, &alias, json!({}));
+        assert!(!result.ok, "{name}: {result:?}");
+        assert_eq!(result.outcome, crate::tools::Outcome::Finished, "{name}");
+        assert_eq!(result.output, *told, "{name}");
+    }
+    runtime.shutdown();
+}
+
+#[test]
+fn the_servers_block_counts_a_servers_tools_only_once_the_model_has_read_them() {
+    // fx v0.0.16's block names a server's tool count only once its catalog
+    // has read the list (`modelSnapshot`, `model.zig:472-500@481104fd`): not
+    // at the first request (`p5-mcp-turn`'s bodies), and from a search, a
+    // selection or a call on, for as long as a reload keeps the server.
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let unread = "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" />\n</mcp_servers>\n";
+    let read = "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n";
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(unread));
+    // The runtime knows the count all along; only the model's block waits.
+    assert_eq!(settled(&runtime, "fixture").tool_count, Some(1));
+
+    // A search that finds nothing still read the list.
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+    let found = call(
         &full,
-        "mcp_features",
-        json!({"action": "resource_read", "server": "fixture", "uri": "fixture://alpha"}),
+        "capability_search",
+        json!({"query": "weather forecast"}),
+    );
+    assert!(
+        found.output.contains(r#""state":"no_match""#),
+        "{}",
+        found.output
+    );
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(read));
+
+    // A reload that keeps the server keeps its list.
+    runtime.reload(super::runtime::Origin::Transcript);
+    settled(&runtime, "fixture");
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(read));
+
+    // One that starts it anew does not; then a direct call reads it again.
+    config::remove_profile_server(&home.profile(), "fixture").expect("removed");
+    let mut changed = fixture_server("fixture");
+    changed.env = vec![("XFX_TEST_CHANGED".into(), "1".into())];
+    config::add_profile_server(&home.profile(), changed).expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(unread));
+    // A call by name a rule refuses is no tool, and fx read the list
+    // before it asked the table (`toolSchema`, `model.zig:296-318`).
+    let refused = context(
+        &home,
+        &runtime,
+        PermissionMode::Yolo,
+        RuleSet::parse(&json!({"mcp_fixture_echo": "deny"})).expect("rules"),
+    );
+    assert!(!crate::tools::mcp::select_unselected(
+        &refused,
+        "mcp_fixture_echo"
+    ));
+    assert!(crate::mcp::catalog::servers_block(&runtime).ends_with(read));
+    runtime.shutdown();
+}
+
+#[test]
+fn an_open_search_that_finds_nothing_names_a_server_it_could_not_look_in() {
+    // fx v0.0.16 (`47154a8f`; `withUnavailableLocked`, `model.zig:282-294`;
+    // `renderCombined`, `capability_search.zig:301-304@481104fd`).
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "bad",
+            "/bin/sh",
+            &["-c".into(), "echo boom >&2; exit 3".into()],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let bad = settled(&runtime, "bad");
+    assert_eq!(bad.status(), Status::Failed, "{bad:?}");
+    let failure = bad.failure.clone().expect("why it failed");
+    let full = context(&home, &runtime, PermissionMode::Yolo, RuleSet::default());
+
+    let nothing = call(
+        &full,
+        "capability_search",
+        json!({"query": "weather forecast"}),
     );
     assert_eq!(
-        features.output,
-        r#"{"trust":"untrusted_external","authority":"none","action":"resource_read","server":"fixture","identity":"fixture://alpha","contents":[{"uri":"fixture://alpha","mimeType":"text/plain","type":"text","text":"FIXTURE_RESOURCE_TEXT"}]}"#
+        nothing.output,
+        format!(
+            r#"{{"skills":[],"mcp_tools":[],"counts":{{"skills":0,"mcp_tools":0}},"total_matches":{{"skills":0,"mcp_tools":0}},"state":"no_match","mcp_unavailable":[{}]}}"#,
+            Value::from(crate::mcp::catalog::encode_scalar(&format!(
+                "MCP server 'bad' is unavailable: {failure}"
+            )))
+        )
+    );
+    // A search that found something, or one that named a server, says
+    // nothing of the rest.
+    let found = call(
+        &full,
+        "capability_search",
+        json!({"query": "echo text back"}),
+    );
+    assert!(
+        !found.output.contains("mcp_unavailable"),
+        "{}",
+        found.output
+    );
+    let named = call(
+        &full,
+        "capability_search",
+        json!({"query": "weather forecast", "server": "fixture"}),
+    );
+    assert!(
+        !named.output.contains("mcp_unavailable"),
+        "{}",
+        named.output
     );
     runtime.shutdown();
 }
@@ -1000,7 +1345,7 @@ fn a_global_deny_hides_the_mcp_meta_tools_and_refuses_a_call_to_one_anyway() {
         "{searched:?}"
     );
     assert!(denied.mcp_selected().is_empty());
-    // Full access offers all three, and the search runs.
+    // Full access offers both, and the search runs.
     let full = context(
         &home,
         &runtime,
@@ -1141,13 +1486,13 @@ fn a_loopback_http_server_is_initialized_and_called_with_its_session_id() {
         ]
     );
     // A remote server's sign-in is the gated leaf: checked, then refused.
-    runtime.run(Job::Command("auth remote --open".into()));
+    runtime.run(Job::Command("login remote".into()));
     assert_eq!(notices(&runtime), [super::command::AUTH_UNAVAILABLE]);
     runtime.shutdown();
 }
 
 #[test]
-fn removing_a_server_stops_its_process_and_says_how_the_reload_went() {
+fn removing_a_server_stops_its_process_and_the_reload_says_nothing_of_its_own() {
     let home = Home::new();
     let log = home.dir.path().join("pid");
     let mut server = ServerConfig::local(
@@ -1172,16 +1517,9 @@ fn removing_a_server_stops_its_process_and_says_how_the_reload_went() {
         .parse()
         .unwrap();
     runtime.run(Job::Command("remove fixture".into()));
-    assert_eq!(
-        notices(&runtime),
-        [
-            format!(
-                "Removed MCP server 'fixture'.\n{}",
-                super::command::RELOAD_STARTED
-            ),
-            "MCP configuration reloaded. No servers are configured.".to_string()
-        ]
-    );
+    // Only the command's own words: the reload says nothing (fx v0.0.16,
+    // `333d4764`), and stops the server before it returns.
+    assert_eq!(notices(&runtime), ["Removed fixture from ~/.xfx/mcp.json."]);
     let pid = rustix::process::Pid::from_raw(pid).expect("pid");
     let deadline = Instant::now() + WAIT;
     while rustix::process::test_kill_process(pid).is_ok() {
@@ -1191,9 +1529,11 @@ fn removing_a_server_stops_its_process_and_says_how_the_reload_went() {
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+    // Edited in place, as fx v0.0.16 edits it: the old profile keeps its
+    // `mcp` key, written two-space (`src/core/mcp_host/config_file.zig@481104fd`).
     assert_eq!(
         std::fs::read_to_string(home.profile()).unwrap(),
-        r#"{"mcp":{}}"#
+        "{\n  \"mcp\": {}\n}\n"
     );
 }
 
@@ -1334,7 +1674,8 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
         [
             withheld("bearer", "bearer_token_env", "VERCEL_OIDC_TOKEN"),
             withheld("header-env", "header_env", "AI_GATEWAY_API_KEY"),
-            "indirect: McpConfigInvalidBearerEnvironment".to_string(),
+            ".mcp.json server 'indirect' was skipped: its \"bearer_token_env\" isn't valid."
+                .to_string(),
         ]
     );
     // The profile is the person's own file: the same fields still resolve.
@@ -1447,7 +1788,9 @@ fn a_name_that_is_not_a_plain_variable_name_is_never_looked_up() {
     assert_eq!(names, ["plain"], "{loaded:?}");
     let mut issues = loaded.issues.clone();
     issues.sort();
-    let skipped = |server: &str| format!(".mcp.json server '{server}' was skipped: invalid_entry.");
+    let skipped = |server: &str| {
+        format!(".mcp.json server '{server}' was skipped: a ${{...}} in it isn't valid.")
+    };
     assert_eq!(
         issues,
         [
@@ -1505,7 +1848,7 @@ fn a_port_nothing_listens_on() -> (u16, Option<tokio::net::TcpSocket>) {
 }
 
 #[test]
-fn an_http_server_nothing_listens_on_fails_as_connection_refused_with_upstreams_counts() {
+fn an_http_server_nothing_listens_on_fails_in_fxs_words_with_upstreams_counts() {
     let (port, _held) = a_port_nothing_listens_on();
     let home = Home::new();
     config::add_profile_server(
@@ -1517,7 +1860,13 @@ fn an_http_server_nothing_listens_on_fails_as_connection_refused_with_upstreams_
     runtime.start();
     let view = settled(&runtime, "remote");
     assert_eq!(view.status(), Status::Failed, "{view:?}");
-    assert_eq!(view.failure.as_deref(), Some("ConnectionRefused"));
+    // fx v0.0.16's `show remote` for a server at a port nothing listens on
+    // (`verbs-end.full`: `error  it refused or never answered fx's
+    // initialize request`).
+    assert_eq!(
+        view.failure.as_deref(),
+        Some("it refused or never answered xfx's initialize request")
+    );
     // `vercel-labs/fx@c1db9191`'s details for the same server
     // (`receipts/m1/fx-mcp-menu-screens-40x120-details-1`).
     assert_eq!(
@@ -1559,4 +1908,1402 @@ fn a_ready_servers_lists_are_counted_once_read() {
         "tools=1 resources=1 templates=0 prompts=1"
     );
     runtime.shutdown();
+}
+
+/// A stdio server that writes its process id to `log` and is then the test
+/// fixture: its process can be told apart from the one a restart starts.
+fn logged_server(name: &str, log: &Path, mark: &str) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        name,
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "echo $$ > \"$1\"; exec /bin/sh \"$2\"".into(),
+            mark.into(),
+            log.to_string_lossy().into_owned(),
+            fixture().to_string_lossy().into_owned(),
+        ],
+    );
+    server.restart_limit = 0;
+    server
+}
+
+fn pid_in(log: &Path) -> i32 {
+    std::fs::read_to_string(log)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+fn running(pid: i32) -> bool {
+    rustix::process::test_kill_process(rustix::process::Pid::from_raw(pid).expect("pid")).is_ok()
+}
+
+#[test]
+fn a_reload_restarts_only_the_server_whose_config_changed_and_says_nothing() {
+    // fx v0.0.16 takes a changed config in place: a server whose config is
+    // the same keeps running with its connection, and only a changed one
+    // starts fresh (`Runtime.reload`, `vercel-labs/fx@481104fd
+    // src/core/mcp_host/runtime.zig:631-641`; `333d4764`).
+    let home = Home::new();
+    let (same_log, changed_log) = (
+        home.dir.path().join("same"),
+        home.dir.path().join("changed"),
+    );
+    config::add_profile_server(&home.profile(), logged_server("same", &same_log, "one"))
+        .expect("saved");
+    config::add_profile_server(
+        &home.profile(),
+        logged_server("changed", &changed_log, "one"),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "same").status(), Status::Ready);
+    assert_eq!(settled(&runtime, "changed").status(), Status::Ready);
+    let (same_pid, changed_pid) = (pid_in(&same_log), pid_in(&changed_log));
+    let same_before = runtime.server("same").expect("same");
+    let started = runtime.started_at().expect("started");
+    runtime.take_events();
+
+    config::add_profile_server(
+        &home.profile(),
+        logged_server("changed", &changed_log, "two"),
+    )
+    .expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+
+    // The same server is the same server, on the same process, still ready.
+    assert!(Arc::ptr_eq(
+        &runtime.server("same").expect("same"),
+        &same_before
+    ));
+    assert_eq!(settled(&runtime, "same").status(), Status::Ready);
+    assert!(running(same_pid));
+    assert_eq!(pid_in(&same_log), same_pid);
+    // The changed one was stopped and started again.
+    assert!(
+        !running(changed_pid),
+        "the changed server's old process still runs"
+    );
+    assert_eq!(settled(&runtime, "changed").status(), Status::Ready);
+    assert_ne!(pid_in(&changed_log), changed_pid);
+    // Nothing said, and the status line's wait starts over.
+    assert!(notices(&runtime).is_empty());
+    assert!(runtime.started_at().expect("started") > started);
+    runtime.shutdown();
+}
+
+#[test]
+fn a_failed_server_whose_config_is_the_same_stays_failed_across_a_reload() {
+    // fx's engine keeps the slot of a server whose config is the same,
+    // whatever its phase (`Engine.reload`, `src/mcp/engine.zig:167-186@481104fd`):
+    // a reload is not a retry.
+    let home = Home::new();
+    let attempts = home.dir.path().join("attempts");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "broken",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "echo started >> \"$1\"; exit 3".into(),
+                "sh".into(),
+                attempts.to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    let tries = std::fs::read_to_string(&attempts).unwrap().lines().count();
+    runtime.reload(super::runtime::Origin::Transcript);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    assert_eq!(
+        std::fs::read_to_string(&attempts).unwrap().lines().count(),
+        tries
+    );
+}
+
+#[test]
+fn a_config_that_cannot_be_read_again_is_one_warning_and_the_servers_stay() {
+    // `collectMcpHostFacts`, `src/core/app/app_commands.zig:340-345@481104fd`.
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    runtime.take_events();
+    std::fs::write(home.profile(), "{ not json").expect("broken profile");
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert_eq!(
+        runtime
+            .take_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Notice { warning, body } => Some((warning, body)),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        [(
+            true,
+            "The MCP config changed, but xfx couldn't load it again. Your current servers are still active.".to_string()
+        )]
+    );
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    runtime.shutdown();
+}
+
+#[test]
+fn a_server_waiting_out_its_backoff_is_stopped_at_once_by_a_reload_or_the_end() {
+    // A 30-second wait is never waited out by `/quit` or by the reload that
+    // removes the server.
+    let home = Home::new();
+    let attempts = home.dir.path().join("attempts");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "broken",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "echo started >> \"$1\"; exit 3".into(),
+                "sh".into(),
+                attempts.to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(Retry::FX);
+    runtime.start_and_wait(WAIT);
+    let deadline = Instant::now() + WAIT;
+    let server = loop {
+        let server = runtime.server("broken").expect("broken");
+        if runtime.views()[0].connection == Connection::Retrying {
+            break server;
+        }
+        assert!(Instant::now() < deadline, "never retried");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(config::remove_profile_server(&home.profile(), "broken").expect("removed"));
+    let asked = Instant::now();
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(runtime.views().is_empty());
+    // Its thread sees the stop within a slice of its wait and starts nothing.
+    std::thread::sleep(Duration::from_millis(1_500));
+    assert!(asked.elapsed() < Duration::from_secs(5));
+    assert_eq!(
+        std::fs::read_to_string(&attempts).unwrap().lines().count(),
+        1
+    );
+    drop(server);
+    runtime.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// MCP-Sb: a child mid-handshake, `Retrying` waited on, the pins
+// ---------------------------------------------------------------------------
+
+/// A stdio server that writes its process id to `pid` and then never answers
+/// `initialize`: it reads nothing and is gone by itself after 20 s, so a case
+/// that fails leaves nothing running for long.
+fn holding_server(name: &str, pid: &Path) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        name,
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "echo $$ > \"$1\"; exec sleep 20".into(),
+            "sh".into(),
+            pid.to_string_lossy().into_owned(),
+        ],
+    );
+    server.startup_timeout_ms = 20_000;
+    server
+}
+
+/// Waits until `path` holds a process id, and returns it.
+fn pid_written(path: &Path) -> i32 {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(pid) = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| text.trim().parse().ok())
+        {
+            return pid;
+        }
+        assert!(Instant::now() < deadline, "the server never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Whether anything is left of `pid`'s process group (each server leads its
+/// own, `process_group(0)`).
+fn group_left(pid: i32) -> bool {
+    rustix::process::test_kill_process_group(rustix::process::Pid::from_raw(pid).expect("pid"))
+        .is_ok()
+}
+
+#[test]
+fn a_server_held_mid_handshake_is_gone_before_its_replacement_starts() {
+    // fx never runs a server twice: what would start one waits while the
+    // process a reload dropped under that name is still stopping
+    // (`Engine.stopping`, `vercel-labs/fx@481104fd src/mcp/engine.zig:194-199`;
+    // `src/core/mcp_host/runtime.zig:832-840`). The replacement says what it
+    // saw of the old one when it started.
+    let home = Home::new();
+    let (old_pid, verdict) = (home.dir.path().join("old"), home.dir.path().join("verdict"));
+    config::add_profile_server(&home.profile(), holding_server("slow", &old_pid)).expect("saved");
+    let runtime = home.runtime();
+    // The startup reload over first: a reload asked for while it runs is
+    // folded into it and returns at once, which would read as a stop that
+    // did not wait.
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&old_pid);
+    assert_eq!(runtime.views()[0].connection, Connection::Connecting);
+    let mut replacement = ServerConfig::local(
+        "slow",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "if kill -0 \"$(cat \"$1\")\" 2>/dev/null; then echo alive; else echo gone; fi > \"$2\"; exec /bin/sh \"$3\"".into(),
+            "sh".into(),
+            old_pid.to_string_lossy().into_owned(),
+            verdict.to_string_lossy().into_owned(),
+            fixture().to_string_lossy().into_owned(),
+        ],
+    );
+    replacement.restart_limit = 0;
+    config::add_profile_server(&home.profile(), replacement).expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        !running(pid),
+        "the old server outlived the reload that dropped it"
+    );
+    assert!(!group_left(pid), "its process group outlived the reload");
+    assert_eq!(settled(&runtime, "slow").status(), Status::Ready);
+    assert_eq!(std::fs::read_to_string(&verdict).unwrap().trim(), "gone");
+    runtime.shutdown();
+}
+
+#[test]
+fn a_server_held_mid_handshake_is_gone_when_a_reload_removes_it_or_the_session_ends() {
+    let home = Home::new();
+    let (removed, ended) = (
+        home.dir.path().join("removed"),
+        home.dir.path().join("ended"),
+    );
+    config::add_profile_server(&home.profile(), holding_server("removed", &removed))
+        .expect("saved");
+    config::add_profile_server(&home.profile(), holding_server("ended", &ended)).expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    let (removed_pid, ended_pid) = (pid_written(&removed), pid_written(&ended));
+    assert!(config::remove_profile_server(&home.profile(), "removed").expect("removed"));
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        !running(removed_pid) && !group_left(removed_pid),
+        "removed, still running"
+    );
+    assert!(running(ended_pid));
+    runtime.shutdown();
+    assert!(
+        !running(ended_pid) && !group_left(ended_pid),
+        "the session ended, it did not"
+    );
+}
+
+#[test]
+fn a_feature_request_during_a_startup_backoff_waits_for_the_next_try() {
+    // `Retrying` is still coming up: a resource or prompt read waits through
+    // it as through `Connecting`, rather than answering from the capabilities
+    // of a try that never got as far as `initialize`.
+    let home = Home::new();
+    let marker = home.dir.path().join("tried");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "flaky",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "if [ -e \"$1\" ]; then exec /bin/sh \"$2\"; else : > \"$1\"; exit 3; fi".into(),
+                "sh".into(),
+                marker.to_string_lossy().into_owned(),
+                fixture().to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(Retry {
+        attempts: 8,
+        first: Duration::from_millis(800),
+        cap: Duration::from_millis(800),
+    });
+    runtime.start();
+    let deadline = Instant::now() + WAIT;
+    while runtime.views()[0].connection != Connection::Retrying {
+        assert!(Instant::now() < deadline, "flaky never retried");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    // Both asked during the backoff, each on its own: the prompt read does
+    // not ride on the resource read's wait.
+    let prompts = {
+        let runtime = Arc::clone(&runtime);
+        in_thread(move || runtime.list_prompts("flaky", None))
+    };
+    let resources = runtime
+        .list_resources("flaky", false, None)
+        .expect("resources");
+    assert_eq!(resources.len(), 1, "{resources:?}");
+    assert_eq!(
+        prompts
+            .recv_timeout(WAIT)
+            .expect("the prompt read ended")
+            .expect("prompts")
+            .len(),
+        1
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn a_config_reload_does_not_start_a_failed_server_again_and_nothing_else_does() {
+    // fx v0.0.16 has no reload of its own -- its `/mcp reload` is gone, and
+    // so is c1db9191's menu `r` that reconnected -- and its reloads keep a
+    // server by its configuration alone (`src/core/mcp_host/verbs.zig:70`,
+    // `src/mcp/engine.zig:167-186@481104fd`).
+    let home = Home::new();
+    let attempts = home.dir.path().join("attempts");
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "broken",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "echo started >> \"$1\"; exit 3".into(),
+                "sh".into(),
+                attempts.to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    let tries = || std::fs::read_to_string(&attempts).unwrap().lines().count();
+    assert_eq!(tries(), 8);
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    assert_eq!(tries(), 8, "a config reload is not a retry");
+    // `/mcp reload` went with c1db9191's `/mcp`: it says where, and starts
+    // nothing.
+    runtime.run(Job::Command("reload".into()));
+    assert_eq!(
+        notices(&runtime),
+        ["/mcp reload is gone: xfx reloads after add, remove, approve, and reject."]
+    );
+    assert_eq!(tries(), 8, "a verb that is gone started a server");
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    runtime.shutdown();
+}
+
+#[test]
+fn a_server_that_answers_401_is_asked_once_and_needs_a_login() {
+    // A sign-in is not something another try brings: one request, then
+    // `NeedsAuth` (`worth_retrying`).
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    let asked = Arc::new(Mutex::new(0usize));
+    {
+        let asked = Arc::clone(&asked);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let asked = Arc::clone(&asked);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let mut length = 0usize;
+                        loop {
+                            let mut header = String::new();
+                            if reader.read_line(&mut header).unwrap_or(0) == 0 {
+                                return;
+                            }
+                            let header = header.trim_end();
+                            if header.is_empty() {
+                                break;
+                            }
+                            if let Some((name, value)) = header.split_once(':') {
+                                if name.eq_ignore_ascii_case("content-length") {
+                                    length = value.trim().parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                        let mut body = vec![0u8; length];
+                        if reader.read_exact(&mut body).is_err() {
+                            return;
+                        }
+                        *asked.lock().unwrap() += 1;
+                        let _ = stream
+                            .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+                    }
+                });
+            }
+        });
+    }
+    let home = Home::new();
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::http("remote", &format!("http://127.0.0.1:{port}/mcp")),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    let view = settled(&runtime, "remote");
+    assert_eq!(view.status(), Status::NeedsAuth, "{view:?}");
+    assert_eq!(view.failure.as_deref(), Some("it needs a login"));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(*asked.lock().unwrap(), 1, "it was tried again");
+    runtime.shutdown();
+}
+
+#[test]
+fn a_servers_hostile_stderr_reaches_capability_search_spelled_and_bounded() {
+    // fx tells the model the same failure (`MCP server '…' is unavailable:
+    // …`, `src/core/mcp_host/model.zig:711@481104fd`, fed by `lastError`,
+    // `runtime.zig:2020-2022`): a configured child's stderr tail, here as the
+    // spelled text it is on the screen.
+    let home = Home::new();
+    let mut server = ServerConfig::local(
+        "bad",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "printf 'boom\\033[2J\\033]52;c;aGk=\\007\\342\\200\\256gnp\\n' >&2; head -c 150 /dev/zero | tr '\\0' z >&2; exit 3".into(),
+        ],
+    );
+    server.restart_limit = 0;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "bad").status(), Status::Failed);
+    let search = super::catalog::search(&runtime, "anything", Some("bad"));
+    let output: Value = serde_json::from_str(&search.output).expect("json");
+    let error = output["mcp_error"].as_str().expect("an error");
+    for obeyed in ['\u{1b}', '\u{7}', '\u{202e}'] {
+        assert!(!error.contains(obeyed), "{error:?}");
+    }
+    // As the model is sent it: JSON, its quotes as entities (`encode_scalar`).
+    let (head, tail) = error
+        .split_once("its last stderr lines: &quot;")
+        .expect("a tail");
+    assert_eq!(
+        head,
+        "MCP server 'bad' is unavailable: its process exited with code 3; "
+    );
+    let tail = tail.strip_suffix("&quot;").expect("closed");
+    assert!(
+        tail.starts_with("boom\\x1b[2J\\x1b]52;c;aGk=\\x07"),
+        "{tail:?}"
+    );
+    assert!(
+        tail.ends_with(&format!(" / {}", "z".repeat(150))),
+        "{tail:?}"
+    );
+    assert!(tail.len() <= 240, "{}", tail.len());
+    runtime.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// MCP-Sc: a failed handshake's own teardown is the stop's to wait for
+// ---------------------------------------------------------------------------
+
+/// A server that writes its pid, ignores `SIGTERM` (an ignored signal stays
+/// ignored across `exec`) and never answers: its try fails at a 200 ms
+/// startup timeout and then reads its stderr, waits for its exit and closes
+/// it -- a close that has to wait out the grace and kill it. Gone by itself
+/// after 20 s.
+fn stubborn_server(name: &str, pid: &Path) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        name,
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "trap '' TERM; echo $$ > \"$1\"; exec sleep 20".into(),
+            "sh".into(),
+            pid.to_string_lossy().into_owned(),
+        ],
+    );
+    server.startup_timeout_ms = 200;
+    server
+}
+
+/// One try only, so the failed one is not followed by another.
+const ONE_TRY: Retry = Retry {
+    attempts: 1,
+    first: Duration::from_millis(1),
+    cap: Duration::from_millis(1),
+};
+
+#[test]
+fn a_reload_during_a_failed_handshakes_teardown_returns_only_once_the_child_is_gone() {
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), stubborn_server("slow", &pid_file)).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    // Past the 200 ms timeout, inside the teardown that follows it.
+    std::thread::sleep(Duration::from_millis(350));
+    assert!(config::remove_profile_server(&home.profile(), "slow").expect("removed"));
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        !running(pid),
+        "the reload returned with the old child alive"
+    );
+    assert!(!group_left(pid), "its group outlived the reload");
+    runtime.shutdown();
+}
+
+#[test]
+fn the_end_of_a_session_during_a_failed_handshakes_teardown_waits_for_the_child() {
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), stubborn_server("slow", &pid_file)).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    std::thread::sleep(Duration::from_millis(350));
+    runtime.shutdown();
+    assert!(!running(pid), "the session ended with the child alive");
+    assert!(!group_left(pid), "its group outlived the session");
+}
+
+/// A hook that holds every try at `point` until released, and says when one
+/// got there.
+#[cfg(feature = "fault-injection")]
+#[allow(clippy::type_complexity)]
+fn holding_at(
+    point: super::runtime::Hold,
+) -> (
+    impl Fn(super::runtime::Hold) + Send + Sync + 'static,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let (reached, arrived) = std::sync::mpsc::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (reached, released) = (Mutex::new(reached), Mutex::new(released));
+    let hook = move |at: super::runtime::Hold| {
+        if at == point {
+            let _ = reached.lock().unwrap().send(());
+            let _ = released.lock().unwrap().recv_timeout(WAIT);
+        }
+    };
+    (hook, arrived, release)
+}
+
+/// `runtime.shutdown()` on a thread of its own, and a way to know it ended.
+#[cfg(feature = "fault-injection")]
+fn shutting_down(runtime: &Arc<McpRuntime>) -> std::sync::mpsc::Receiver<()> {
+    let (done, ended) = std::sync::mpsc::channel();
+    let runtime = Arc::clone(runtime);
+    std::thread::spawn(move || {
+        runtime.shutdown();
+        let _ = done.send(());
+    });
+    ended
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_stop_waits_for_a_try_held_before_its_hand_over_which_then_closes_its_own_process() {
+    // The window between starting a process and handing it to the server: a
+    // stop there finds nothing to close, waits for the try (`Live::opening`),
+    // and the try, finding the server stopped, closes its own
+    // (`Server::hand_over`).
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), holding_server("slow", &pid_file)).expect("saved");
+    let runtime = home.runtime();
+    let (hook, arrived, release) = holding_at(super::runtime::Hold::BeforeHandOver);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    arrived
+        .recv_timeout(WAIT)
+        .expect("the try reached its hand-over");
+    let pid = pid_written(&pid_file);
+    let ended = shutting_down(&runtime);
+    assert!(
+        ended.recv_timeout(Duration::from_millis(400)).is_err(),
+        "the stop did not wait for the try"
+    );
+    release.send(()).expect("released");
+    // At once: the try closes its own process rather than going on to a
+    // handshake only its 20-second timeout would end.
+    ended
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the stop ended with the try's own close");
+    assert!(
+        !running(pid) && !group_left(pid),
+        "the try's process outlived the stop"
+    );
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_stop_waits_for_a_failed_try_closing_its_own_process() {
+    // A failed try has taken its process back and is about to close it: a
+    // stop then finds nothing to close and waits for that close.
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    let mut server = holding_server("slow", &pid_file);
+    server.startup_timeout_ms = 200;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    let (hook, arrived, release) = holding_at(super::runtime::Hold::BeforeOwnClose);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    arrived
+        .recv_timeout(WAIT)
+        .expect("the try failed and took its process back");
+    let ended = shutting_down(&runtime);
+    assert!(
+        ended.recv_timeout(Duration::from_millis(400)).is_err(),
+        "the stop did not wait for the try's own close"
+    );
+    assert!(running(pid), "closed before the try was released");
+    release.send(()).expect("released");
+    ended.recv_timeout(WAIT).expect("the stop ended");
+    assert!(
+        !running(pid) && !group_left(pid),
+        "the try's process outlived the stop"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MCP-Sd: a stop ends a handshake that has no child to wait for
+// ---------------------------------------------------------------------------
+
+/// A loopback HTTP endpoint that takes every request and never answers it;
+/// how many it took.
+fn silent_http() -> (u16, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    let taken = Arc::new(Mutex::new(0usize));
+    let counted = Arc::clone(&taken);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            *counted.lock().unwrap() += 1;
+            // Held open, unanswered, until the case's process ends.
+            std::thread::spawn(move || {
+                let mut stream = stream;
+                let mut sink = [0u8; 4096];
+                while matches!(stream.read(&mut sink), Ok(read) if read > 0) {}
+            });
+        }
+    });
+    (port, taken)
+}
+
+fn waiting_on(taken: &Mutex<usize>) {
+    let deadline = Instant::now() + WAIT;
+    while *taken.lock().unwrap() == 0 {
+        assert!(Instant::now() < deadline, "the endpoint was never asked");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn silent_http_runtime(home: &Home, port: u16) -> Arc<McpRuntime> {
+    let mut server = ServerConfig::http("remote", &format!("http://127.0.0.1:{port}/mcp"));
+    server.startup_timeout_ms = 6_000;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    runtime
+}
+
+#[test]
+fn a_reload_ends_an_http_handshake_against_a_silent_endpoint_at_once() {
+    let (port, taken) = silent_http();
+    let home = Home::new();
+    let runtime = silent_http_runtime(&home, port);
+    waiting_on(&taken);
+    assert!(config::remove_profile_server(&home.profile(), "remote").expect("removed"));
+    let asked = Instant::now();
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn the_end_of_a_session_ends_an_http_handshake_against_a_silent_endpoint_at_once() {
+    let (port, taken) = silent_http();
+    let home = Home::new();
+    let runtime = silent_http_runtime(&home, port);
+    waiting_on(&taken);
+    let asked = Instant::now();
+    runtime.shutdown();
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+}
+
+/// A stdio server that never answers, whose standard output a grandchild in
+/// a session of its own also holds: ending the server's group leaves the
+/// pipe open, so no end of its output says the server is gone. Its pid and
+/// the grandchild's are written to `pid` and `stray`; the grandchild sleeps
+/// 30 s, and the case kills it by its pid.
+fn stray_holding_server(pid: &Path, stray: &Path) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        "held",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "/usr/bin/perl -e 'use POSIX; setsid(); open my $f, \">\", $ARGV[0] or die; print $f $$; close $f; exec \"sleep\", \"30\"' \"$2\" & echo $$ > \"$1\"; exec sleep 30".into(),
+            "sh".into(),
+            pid.to_string_lossy().into_owned(),
+            stray.to_string_lossy().into_owned(),
+        ],
+    );
+    server.startup_timeout_ms = 6_000;
+    server
+}
+
+/// Kills the grandchild by its pid, so a case leaves nothing behind.
+struct Stray(PathBuf);
+
+impl Drop for Stray {
+    fn drop(&mut self) {
+        if let Some(pid) = std::fs::read_to_string(&self.0)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+            .and_then(rustix::process::Pid::from_raw)
+        {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        }
+    }
+}
+
+#[test]
+fn a_stop_ends_a_stdio_handshake_whose_output_a_stray_grandchild_holds() {
+    for end in ["reload", "shutdown"] {
+        let home = Home::new();
+        let (pid_file, stray_file) = (home.dir.path().join("pid"), home.dir.path().join("stray"));
+        let _stray = Stray(stray_file.clone());
+        config::add_profile_server(
+            &home.profile(),
+            stray_holding_server(&pid_file, &stray_file),
+        )
+        .expect("saved");
+        let runtime = home.runtime();
+        runtime.start_and_wait(WAIT);
+        let pid = pid_written(&pid_file);
+        pid_written(&stray_file);
+        let asked = Instant::now();
+        if end == "reload" {
+            assert!(config::remove_profile_server(&home.profile(), "held").expect("removed"));
+            runtime.reload(super::runtime::Origin::Transcript);
+        } else {
+            runtime.shutdown();
+        }
+        assert!(
+            asked.elapsed() < Duration::from_secs(2),
+            "{end}: {:?}",
+            asked.elapsed()
+        );
+        assert!(
+            !running(pid) && !group_left(pid),
+            "{end}: the server outlived the stop"
+        );
+        runtime.shutdown();
+    }
+}
+
+#[test]
+fn a_reload_after_the_end_of_a_session_starts_nothing() {
+    let home = Home::new();
+    let marker = home.dir.path().join("started");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    runtime.shutdown();
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "late",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                ": > \"$1\"; exec /bin/sh \"$2\"".into(),
+                "sh".into(),
+                marker.to_string_lossy().into_owned(),
+                fixture().to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    runtime.reload(super::runtime::Origin::Transcript);
+    runtime.run(Job::Command("reload".into()));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(runtime.views().is_empty());
+    assert!(!marker.exists(), "a server started after the session ended");
+}
+
+/// `work` on a thread of its own, and its result on a channel: a case waits
+/// for it with a bound, so a deadlock fails the case rather than hanging it.
+fn in_thread<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> std::sync::mpsc::Receiver<T> {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(work());
+    });
+    ended
+}
+
+/// A hook that tells of every arrival at a point in `observe`, and holds the
+/// first arrival at `block` until released.
+#[cfg(feature = "fault-injection")]
+#[allow(clippy::type_complexity)]
+fn hooked(
+    observe: &[super::runtime::Hold],
+    block: super::runtime::Hold,
+) -> (
+    impl Fn(super::runtime::Hold) + Send + Sync + 'static,
+    std::sync::mpsc::Receiver<super::runtime::Hold>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let observe = observe.to_vec();
+    let (reached, arrived) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (reached, released) = (Mutex::new(reached), Mutex::new(released));
+    let blocked = std::sync::atomic::AtomicBool::new(false);
+    let hook = move |at: super::runtime::Hold| {
+        if observe.contains(&at) || at == block {
+            let _ = reached.lock().unwrap().send(at);
+        }
+        if at == block && !blocked.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let _ = released.lock().unwrap().recv_timeout(WAIT);
+        }
+    };
+    (hook, arrived, release)
+}
+
+/// Waits, at most 10 s, for an arrival at `at`.
+#[cfg(feature = "fault-injection")]
+fn arrives(arrived: &std::sync::mpsc::Receiver<super::runtime::Hold>, at: super::runtime::Hold) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match arrived.recv_timeout(left) {
+            Ok(got) if got == at => return,
+            Ok(_) => {}
+            Err(_) => panic!("never reached {at:?}"),
+        }
+    }
+}
+
+/// `count` servers that ignore SIGTERM and never answer, so a stop waits out
+/// the group's grace, put in the profile; the files their pids go to.
+#[cfg(feature = "fault-injection")]
+fn stubborn_set(home: &Home, count: usize) -> Vec<PathBuf> {
+    let files: Vec<PathBuf> = (0..count)
+        .map(|i| home.dir.path().join(format!("p{i}")))
+        .collect();
+    for (index, file) in files.iter().enumerate() {
+        let mut server = stubborn_server(&format!("s{index}"), file);
+        server.startup_timeout_ms = 20_000;
+        config::add_profile_server(&home.profile(), server).expect("saved");
+    }
+    files
+}
+
+#[cfg(feature = "fault-injection")]
+fn pids_written(files: &[PathBuf]) -> Vec<i32> {
+    files.iter().map(|file| pid_written(file)).collect()
+}
+
+#[cfg(feature = "fault-injection")]
+fn remove_all(home: &Home, count: usize) {
+    for index in 0..count {
+        assert!(
+            config::remove_profile_server(&home.profile(), &format!("s{index}")).expect("removed")
+        );
+    }
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn the_end_of_a_session_stops_what_a_reload_it_outwaited_was_still_retiring() {
+    // A reload drops three servers and is held at its first close; the end
+    // of the session stops waiting for it at once and must still stop all
+    // three: they are on the list it takes.
+    use super::runtime::Hold;
+    let home = Home::new();
+    let files = stubborn_set(&home, 3);
+    let runtime = home.runtime();
+    let (hook, arrived, release) = hooked(&[Hold::StopWaiting], Hold::StopClosing);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pids = pids_written(&files);
+    remove_all(&home, 3);
+    let reloaded = {
+        let runtime = Arc::clone(&runtime);
+        in_thread(move || runtime.reload(super::runtime::Origin::Transcript))
+    };
+    arrives(&arrived, Hold::StopClosing);
+    runtime.set_reload_wait(Duration::ZERO);
+    let ended = shutting_down(&runtime);
+    arrives(&arrived, Hold::StopWaiting);
+    release.send(()).expect("released");
+    ended.recv_timeout(WAIT).expect("the session ended");
+    for pid in &pids {
+        assert!(
+            !running(*pid) && !group_left(*pid),
+            "{pid} outlived the session"
+        );
+    }
+    reloaded.recv_timeout(WAIT).expect("the reload ended");
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_second_stop_of_a_server_waits_for_the_first_ones_close() {
+    // One server, a reload's stop holding its connection just before
+    // closing it: the session's stop of the same server finds nothing to
+    // take and must wait for that close (`Live::closing`).
+    use super::runtime::Hold;
+    let home = Home::new();
+    let files = stubborn_set(&home, 1);
+    let runtime = home.runtime();
+    let (hook, arrived, release) = hooked(&[Hold::StopWaiting], Hold::StopClosing);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pid = pids_written(&files)[0];
+    remove_all(&home, 1);
+    let reloaded = {
+        let runtime = Arc::clone(&runtime);
+        in_thread(move || runtime.reload(super::runtime::Origin::Transcript))
+    };
+    arrives(&arrived, Hold::StopClosing);
+    runtime.set_reload_wait(Duration::ZERO);
+    let ended = shutting_down(&runtime);
+    arrives(&arrived, Hold::StopWaiting);
+    release.send(()).expect("released");
+    ended.recv_timeout(WAIT).expect("the session ended");
+    assert!(
+        !running(pid) && !group_left(pid),
+        "the session ended before the close did"
+    );
+    reloaded.recv_timeout(WAIT).expect("the reload ended");
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_reload_marks_every_server_it_drops_before_it_closes_any() {
+    // Held at its first close, the reload has already cancelled the second
+    // server's handshake: that try ends and closes its own process.
+    use super::runtime::Hold;
+    let home = Home::new();
+    let files = stubborn_set(&home, 2);
+    let runtime = home.runtime();
+    let (hook, arrived, release) = hooked(&[], Hold::StopClosing);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pids = pids_written(&files);
+    remove_all(&home, 2);
+    let reloaded = {
+        let runtime = Arc::clone(&runtime);
+        in_thread(move || runtime.reload(super::runtime::Origin::Transcript))
+    };
+    arrives(&arrived, Hold::StopClosing);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while running(pids[1]) {
+        assert!(
+            Instant::now() < deadline,
+            "the second server was not marked before the first closed"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Not asserted: the first server is still alive. Its own try, cancelled
+    // by the same marking, closes the connection the held stop took, so it
+    // may already be gone too.
+    release.send(()).expect("released");
+    reloaded.recv_timeout(WAIT).expect("the reload ended");
+    assert!(!running(pids[0]) && !group_left(pids[0]));
+    runtime.shutdown();
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_reload_queued_behind_one_the_end_of_a_session_outwaited_starts_nothing() {
+    // A reload is still stopping a server (its try held in its own close)
+    // when a second is asked for, which would start `late`; the session
+    // ends, its wait for the reload runs out, and once the hold is released
+    // neither pass starts anything (`closed`).
+    use super::runtime::Hold;
+    let home = Home::new();
+    let (pid_file, marker) = (home.dir.path().join("pid"), home.dir.path().join("started"));
+    let mut slow = holding_server("slow", &pid_file);
+    slow.startup_timeout_ms = 200;
+    config::add_profile_server(&home.profile(), slow).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    let (hook, arrived, release) = hooked(&[Hold::StopWaiting], Hold::BeforeOwnClose);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    arrives(&arrived, Hold::BeforeOwnClose);
+    assert!(config::remove_profile_server(&home.profile(), "slow").expect("removed"));
+    let first = {
+        let runtime = Arc::clone(&runtime);
+        in_thread(move || runtime.reload(super::runtime::Origin::Transcript))
+    };
+    arrives(&arrived, Hold::StopWaiting);
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::local(
+            "late",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                ": > \"$1\"; exec /bin/sh \"$2\"".into(),
+                "sh".into(),
+                marker.to_string_lossy().into_owned(),
+                fixture().to_string_lossy().into_owned(),
+            ],
+        ),
+    )
+    .expect("saved");
+    // Folded into the reload under way, as its next pass.
+    runtime.reload(super::runtime::Origin::Transcript);
+    runtime.set_reload_wait(Duration::ZERO);
+    let ended = shutting_down(&runtime);
+    arrives(&arrived, Hold::StopWaiting);
+    release.send(()).expect("released");
+    ended.recv_timeout(WAIT).expect("the session ended");
+    first.recv_timeout(WAIT).expect("the reload ended");
+    // Nothing to wait for but an absence: a start would have been asked for
+    // before the reload returned, and its process writes at once.
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!marker.exists(), "a server started after the session ended");
+    assert!(!running(pid) && !group_left(pid));
+}
+
+/// A fixture server that counts its starts in `starts` and writes its pid,
+/// with `restart_limit` restarts.
+#[cfg(feature = "fault-injection")]
+fn counted_server(home: &Home, restart_limit: u8) -> (PathBuf, PathBuf) {
+    let (starts, pid_file) = (home.dir.path().join("starts"), home.dir.path().join("pid"));
+    let mut server = ServerConfig::local(
+        "fixture",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "echo started >> \"$1\"; echo $$ > \"$2\"; exec /bin/sh \"$3\"".into(),
+            "sh".into(),
+            starts.to_string_lossy().into_owned(),
+            pid_file.to_string_lossy().into_owned(),
+            fixture().to_string_lossy().into_owned(),
+        ],
+    );
+    server.restart_limit = restart_limit;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    (starts, pid_file)
+}
+
+/// Kills the server's process and waits until every surface calls it failed.
+#[cfg(feature = "fault-injection")]
+fn kill_and_see(runtime: &McpRuntime, pid_file: &Path) {
+    rustix::process::kill_process(
+        rustix::process::Pid::from_raw(pid_in(pid_file)).expect("pid"),
+        rustix::process::Signal::KILL,
+    )
+    .expect("killed");
+    let deadline = Instant::now() + WAIT;
+    while settled(runtime, "fixture").status() != Status::Failed {
+        assert!(Instant::now() < deadline, "its death was never seen");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(feature = "fault-injection")]
+fn calling(
+    runtime: &Arc<McpRuntime>,
+    cancel: Option<crate::gateway::CancelToken>,
+) -> std::sync::mpsc::Receiver<Result<Value, super::McpError>> {
+    let runtime = Arc::clone(runtime);
+    in_thread(move || {
+        runtime
+            .call_tool("mcp_fixture_echo", json!({"text": "hi"}), cancel.as_ref())
+            .map(|(_, _, result)| result)
+    })
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn two_calls_that_find_a_server_gone_spend_one_restart_and_start_one_process() {
+    // The first call's restart is held before its process is handed over;
+    // the second, finding that try under way, waits for it and takes what
+    // it opened, rather than spending a restart of its own and getting the
+    // dead connection back.
+    use super::runtime::Hold;
+    let home = Home::new();
+    let (starts, pid_file) = counted_server(&home, 2);
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    let started = || std::fs::read_to_string(&starts).unwrap().lines().count();
+    kill_and_see(&runtime, &pid_file);
+    let (hook, arrived, release) = hooked(&[Hold::WaitingForTry], Hold::BeforeHandOver);
+    runtime.set_hold(hook);
+    let a = calling(&runtime, None);
+    arrives(&arrived, Hold::BeforeHandOver);
+    let b = calling(&runtime, None);
+    arrives(&arrived, Hold::WaitingForTry);
+    // The held try's process writes its start once its shell runs.
+    let deadline = Instant::now() + WAIT;
+    while started() < 2 {
+        assert!(
+            Instant::now() < deadline,
+            "the held try's process never ran"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(started(), 2, "the second call started a process of its own");
+    release.send(()).expect("released");
+    for (name, call) in [("first", a), ("second", b)] {
+        let result = call.recv_timeout(WAIT).expect("the call ended");
+        assert!(result.is_ok(), "{name}: {result:?}");
+    }
+    assert_eq!(started(), 2);
+    // One restart spent: one is left, and then none.
+    runtime.set_hold(|_| {});
+    kill_and_see(&runtime, &pid_file);
+    assert!(runtime
+        .call_tool("mcp_fixture_echo", json!({"text": "hi"}), None)
+        .is_ok());
+    assert_eq!(started(), 3);
+    kill_and_see(&runtime, &pid_file);
+    assert!(runtime
+        .call_tool("mcp_fixture_echo", json!({"text": "hi"}), None)
+        .is_err());
+    assert_eq!(started(), 3);
+    runtime.shutdown();
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_call_waiting_on_another_calls_restart_ends_when_its_own_turn_is_cancelled() {
+    // Esc on the second call ends its wait at once, and only its: the first
+    // call's restart goes on and serves the first call.
+    use super::runtime::Hold;
+    let home = Home::new();
+    let (starts, pid_file) = counted_server(&home, 1);
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    kill_and_see(&runtime, &pid_file);
+    let (hook, arrived, release) = hooked(&[Hold::WaitingForTry], Hold::BeforeHandOver);
+    runtime.set_hold(hook);
+    let a = calling(&runtime, None);
+    arrives(&arrived, Hold::BeforeHandOver);
+    let cancel = crate::gateway::CancelToken::new();
+    let b = calling(&runtime, Some(cancel.clone()));
+    arrives(&arrived, Hold::WaitingForTry);
+    cancel.cancel();
+    let cancelled = Instant::now();
+    let result = b
+        .recv_timeout(Duration::from_secs(1))
+        .expect("the cancelled call kept waiting");
+    assert!(
+        cancelled.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        cancelled.elapsed()
+    );
+    assert_eq!(result, Err(super::McpError::Named("Cancelled")));
+    release.send(()).expect("released");
+    assert!(a.recv_timeout(WAIT).expect("the first call ended").is_ok());
+    assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 2);
+    runtime.shutdown();
+}
+
+#[test]
+fn a_restart_closes_the_dead_connection_it_replaces_outside_the_servers_lock() {
+    // The first start answers the handshake, then shuts its output and lives
+    // on ignoring SIGTERM: its connection is dead, its process is not, and
+    // closing it waits out the group's grace. The restart that replaces it
+    // must not hold the server's lock for that: the status line reads every
+    // server under it four times a second.
+    let home = Home::new();
+    let tried = home.dir.path().join("tried");
+    let server = ServerConfig::local(
+        "fixture",
+        "/bin/sh",
+        &[
+            "-c".into(),
+            concat!(
+                "if [ -e \"$1\" ]; then exec /bin/sh \"$2\"; fi; : > \"$1\"; trap '' TERM; ",
+                "id() { printf '%s' \"$1\" | sed -n 's/^{\"jsonrpc\":\"2.0\",\"id\":\\([0-9][0-9]*\\),.*/\\1/p'; }; ",
+                "read -r line; printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"once\",\"version\":\"1\"}}}\\n' \"$(id \"$line\")\"; ",
+                "read -r line; read -r line; ",
+                "printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"tools\":[{\"name\":\"echo\",\"inputSchema\":{\"type\":\"object\"}}]}}\\n' \"$(id \"$line\")\"; ",
+                "exec >&-; exec sleep 20"
+            )
+            .into(),
+            "sh".into(),
+            tried.to_string_lossy().into_owned(),
+            fixture().to_string_lossy().into_owned(),
+        ],
+    );
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    let deadline = Instant::now() + WAIT;
+    while runtime.views()[0].connection != Connection::Failed {
+        assert!(Instant::now() < deadline, "its output never ended");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let call = {
+        let runtime = Arc::clone(&runtime);
+        in_thread(move || {
+            runtime
+                .call_tool("mcp_fixture_echo", json!({"text": "hi"}), None)
+                .map(|_| ())
+        })
+    };
+    let mut slowest = Duration::ZERO;
+    let result = loop {
+        let asked = Instant::now();
+        let _ = runtime.views();
+        slowest = slowest.max(asked.elapsed());
+        match call.try_recv() {
+            Ok(result) => break result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(err) => panic!("{err}"),
+        }
+        assert!(Instant::now() < deadline, "the restart never ended");
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    assert!(result.is_ok(), "{result:?}");
+    assert!(
+        slowest < Duration::from_millis(250),
+        "a read of the servers waited {slowest:?}"
+    );
+    runtime.shutdown();
+}
+
+/// A loopback HTTP endpoint that answers `initialize` (an accepted version,
+/// tools offered, a session id), takes `notifications/initialized` with 202
+/// when `swallow` is 3, and never answers its `swallow`th request; how many
+/// requests it took.
+fn swallowing_http(swallow: usize) -> (u16, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    let taken = Arc::new(Mutex::new(0usize));
+    let counted = Arc::clone(&taken);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let counted = Arc::clone(&counted);
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let mut length = 0usize;
+                    loop {
+                        let mut header = String::new();
+                        if reader.read_line(&mut header).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let header = header.trim_end();
+                        if header.is_empty() {
+                            break;
+                        }
+                        if let Some((name, value)) = header.split_once(':') {
+                            if name.eq_ignore_ascii_case("content-length") {
+                                length = value.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                    let mut body = vec![0u8; length];
+                    if reader.read_exact(&mut body).is_err() {
+                        return;
+                    }
+                    let index = {
+                        let mut taken = counted.lock().unwrap();
+                        *taken += 1;
+                        *taken
+                    };
+                    if index >= swallow {
+                        // Held: never answered.
+                        let mut sink = [0u8; 4096];
+                        while matches!(reader.get_mut().read(&mut sink), Ok(read) if read > 0) {}
+                        return;
+                    }
+                    let frame: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                    let response = if frame.get("id").is_some() {
+                        let payload = json!({"jsonrpc": "2.0", "id": frame["id"], "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "swallowing", "version": "1"}}}).to_string();
+                        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nMcp-Session-Id: s-1\r\nContent-Length: {}\r\n\r\n{payload}", payload.len())
+                    } else {
+                        "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n".to_string()
+                    };
+                    let _ = stream.write_all(response.as_bytes());
+                }
+            });
+        }
+    });
+    (port, taken)
+}
+
+#[test]
+fn a_stop_ends_an_http_handshake_held_at_its_initialized_notification_or_its_tool_list() {
+    // The notification and `tools/list` wait on the stop's cancel as
+    // `initialize` does.
+    for (step, swallow) in [("notifications/initialized", 2), ("tools/list", 3)] {
+        let (port, taken) = swallowing_http(swallow);
+        let home = Home::new();
+        let mut server = ServerConfig::http("remote", &format!("http://127.0.0.1:{port}/mcp"));
+        server.startup_timeout_ms = 20_000;
+        config::add_profile_server(&home.profile(), server).expect("saved");
+        let runtime = home.runtime();
+        runtime.start_and_wait(WAIT);
+        let deadline = Instant::now() + WAIT;
+        while *taken.lock().unwrap() < swallow {
+            assert!(Instant::now() < deadline, "{step}: never asked");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let asked = Instant::now();
+        runtime.shutdown();
+        assert!(
+            asked.elapsed() < Duration::from_secs(2),
+            "{step}: {:?}",
+            asked.elapsed()
+        );
+    }
 }

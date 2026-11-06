@@ -1,0 +1,40 @@
+
+* mcp: Approved proj, which runs: <bun> <local-path>
+  scripts/fxcap/scenarios/p5-mcp-stdio.ts
+
+! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.
+
+* mcp: NAME     SOURCE          TRANSPORT  STATUS
+  fixture  ~/.fx/mcp.json  stdio      ready, 1 tool
+  remote   ~/.fx/mcp.json  http       connecting
+  two      ~/.fx/mcp.json  stdio      ready, 1 tool
+  web2     ~/.fx/mcp.json  http       connecting
+  proj     .mcp.json       stdio      ready, 1 tool
+
+* mcp: Rejected proj. fx won't start it in this project.
+
+* mcp: Removed two from ~/.fx/mcp.json.
+
+! mcp: No MCP server named three in ~/.fx/mcp.json or .mcp.json.
+
+* mcp: Removed web2 from ~/.fx/mcp.json.
+
+! mcp: No MCP server named web2 in ~/.fx/mcp.json or .mcp.json.
+
+! mcp: /mcp resource is gone: fx doesn't support MCP resources and prompts yet.
+
+! mcp: /mcp prompt is gone: fx doesn't support MCP resources and prompts yet.
+
+! mcp: /mcp show needs one server NAME.
+  usage: /mcp show NAME
+
+┃ /mcp show
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+       show fixture  ready, 1 tool
+       show remote   connecting
+       show proj     rejected
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a

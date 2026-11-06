@@ -4098,7 +4098,6 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_inter
             "capability_search",
             "skill",
             "mcp_select_tool",
-            "mcp_features",
             "ask_user_question",
         ]
     );

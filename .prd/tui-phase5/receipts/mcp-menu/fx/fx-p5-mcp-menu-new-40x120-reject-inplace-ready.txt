@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  proj
+  runs      <bun> <scenarios>/p5-m…
+  file      .mcp.json
+  status    ready
+  protocol  2025-03-26
+
+› Reject proj? fx won't start it in this project.   yes  no
+  Remove        /mcp remove proj
+
+  Tools 1
+  echo                  Echo text through the legacy MCP fixture
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter run     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

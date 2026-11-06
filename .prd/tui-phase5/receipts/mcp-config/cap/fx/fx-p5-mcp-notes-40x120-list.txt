@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: NAME     SOURCE          TRANSPORT  STATUS
+  fixture  ~/.fx/mcp.json  stdio      ready, 1 tool
+
+! mcp: note: ~/.fx/mcp.json server 'broken' was skipped: it needs a "command", with any "args" as strings.
+
+┃
+
+auto · model-a                                                                      MCP config has 1 problem · /mcp list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

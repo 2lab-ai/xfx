@@ -1,0 +1,29 @@
+# p5-mcp-rpcerror: fx v0.0.16 (sha 8e6cda2e) vs xfx at this branch (MCP-Wc)
+requests: fx=4 xfx=4
+002-completion.json vs 002-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+  <mcp_servers> same: True  (1 vs 1)
+  tool calls/results same: True  (0 vs 0)
+003-completion.json vs 003-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool', 'mcp_web_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_web_echo']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+    mcp_web_echo: identical
+  <mcp_servers> same: True  (1 vs 1)
+  tool calls/results same: True  (2 vs 2)
+004-completion.json vs 004-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+  <mcp_servers> same: True  (1 vs 1)
+  tool calls/results same: True  (2 vs 2)
+005-completion.json vs 005-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool', 'mcp_web_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_web_echo']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+    mcp_web_echo: identical
+  <mcp_servers> same: True  (1 vs 1)
+  tool calls/results same: True  (4 vs 4)
+RESULT: identical (but the known differences)

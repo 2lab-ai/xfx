@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-510dcd2 [debug] · Run /help for commands
+
+┃ call the refusing tool three times
+
+● 3 tool calls · 3 commands · 3 failed
+├ Failed MCP mcp_errs_echo
+├ Failed MCP mcp_errs_echo
+└ Failed MCP mcp_errs_echo
+
+  refused.
+
+  0s (↑9 ↓160)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
