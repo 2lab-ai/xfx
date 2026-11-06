@@ -554,9 +554,12 @@ main() {
   # copied into. The names come from `find -type f -print0` and no `-L`: a
   # name with a newline in it is one name, a link is never listed (`cp -R`
   # copied it as a link, and its target is outside the run) and no directory
-  # is entered through one. A listed name that does not resolve to a file
-  # under its own tree is refused. The rewrite goes through `cat >` so a file
-  # keeps the mode it was seeded or copied with.
+  # is entered through one. The name read and written is the listed one,
+  # never one derived from it: `$(realpath x<NL>)` would lose the newline and
+  # name the sibling `x`, maybe a link. Before the write the name is checked
+  # once more -- still no link, still a file, and resolving (newline kept)
+  # under its own tree -- and refused otherwise. The rewrite goes through
+  # `cat >` so a file keeps the mode it was seeded or copied with.
   local root root_real seeded real names='@(PORT|HOME|MCPPORT|SCENARIOS|BUN)@'
   for root in "$run/home" ${copied[@]+"${copied[@]}"}; do
     root_real=$(cd "$root" && pwd -P)
@@ -566,14 +569,15 @@ main() {
       else
         grep -qIE "$names" "$seeded" 2>/dev/null || continue
       fi
-      real=$(realpath "$seeded")
-      if [[ -L $seeded || ! -f $real || $real != "$root_real"/* ]]; then
+      real=$(realpath -- "$seeded"; printf x)
+      real=${real%$'\nx'}
+      if [[ -L $seeded || ! -f $seeded || $real != "$root_real"/* ]]; then
         echo "refusing to rewrite $seeded: it is not a file under $root" >&2
         exit 2
       fi
       can_fill "$mcpport" "$seeded"
-      fill "$port" "$run/home" "$mcpport" < "$real" > "$run/seed.tmp"
-      cat "$run/seed.tmp" > "$real"
+      fill "$port" "$run/home" "$mcpport" < "$seeded" > "$run/seed.tmp"
+      cat "$run/seed.tmp" > "$seeded"
       rm -f "$run/seed.tmp"
     done < <(find "$root" -type f -print0)
   done

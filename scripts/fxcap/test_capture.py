@@ -13,11 +13,13 @@ PATH, and fails -- never skips -- without them.
 """
 
 import atexit
+import glob
 import http.client
 import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -106,8 +108,20 @@ def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen
     for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN"):
         env.pop(k, None)
     env["FX_BIN" if which == "fx" else "XFX_BIN"] = link
-    r = subprocess.run(["bash", CAPTURE, which, "t", size, out], env=env, capture_output=True, text=True, timeout=timeout)
-    return Run(r, out, scen, which, size)
+    # Bounded, whatever the harness under test does: its own process group,
+    # killed whole at the deadline (bash, fakegw, mcphttp), and then each tmux
+    # server it started, through the run's own socket (tmux leaves the group).
+    p = subprocess.Popen(["bash", CAPTURE, which, "t", size, out], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=True)
+    try:
+        stdout, stderr = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.communicate()
+        for sock in glob.glob(os.path.join(d, "fxcap.*", "s")):
+            subprocess.run(["tmux", "-f", "/dev/null", "-S", sock, "kill-server"], capture_output=True, timeout=10)
+        raise AssertionError("capture.sh did not finish in %d s" % timeout)
+    return Run(subprocess.CompletedProcess(p.args, p.returncode, stdout, stderr), out, scen, which, size)
 
 
 class Refusals(unittest.TestCase):
@@ -270,6 +284,25 @@ class Confinement(unittest.TestCase):
         self.assertEqual(slurp(outside), "@PORT@\n", "the file outside the run is untouched")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertTrue(any(re.fullmatch(r"\d+", row) for row in r.file("a").split("\n")), "the copy inside the run is written")
+
+    # A trailing newline is a name's own last character: `$(realpath x<NL>)`
+    # loses it and names the sibling `x`, which the rewrite must never reach.
+    TYPE_BOTH = "type for f in x $'x\\n'; do printf '[%s]' \"$(cat \"$f\")\"; done; echo\nkey Enter\nwait 0.5\nsnap a\n"
+
+    def test_a_trailing_newline_never_turns_a_name_into_its_linked_sibling(self):
+        outside = self.sentinel()
+        r = capture("work ws\nwait 0.5\n" + self.TYPE_BOTH, {"ws/x": ("link", outside), "ws/x\n": "@PORT@\n"})
+        self.assertEqual(slurp(outside), "@PORT@\n", "the file outside the run is untouched")
+        self.assertTrue(os.path.isfile(outside) and not os.path.islink(outside))
+        # The name with the newline is the one rewritten: the link still reads
+        # the sentinel's placeholder, the file the port.
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.screen("a"), r"\[@PORT@\]\[\d+\]")
+
+    def test_a_trailing_newline_never_turns_a_name_into_its_sibling(self):
+        r = capture("work ws\nwait 0.5\n" + self.TYPE_BOTH, {"ws/x": "plain\n", "ws/x\n": "@PORT@\n"})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.screen("a"), r"\[plain\]\[\d+\]")
 
     def test_a_link_to_outside_is_never_written_through(self):
         outside = self.sentinel()

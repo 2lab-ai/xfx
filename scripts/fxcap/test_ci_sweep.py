@@ -340,14 +340,22 @@ class CiSweep(unittest.TestCase):
         r = self.select("HEAD", "ws/in.json", "[1]\n")
         self.assertIn("linked\tuses ws/in.json\n", r)
 
-    def select(self, base, name, text):
-        """The --select output once `name` under scenarios/ is `text`,
-        committed, against `base`."""
-        base = self.git("rev-parse", base).strip()
-        self.write(os.path.join(self.scen, name), text)
-        self.commit("edit " + name)
-        # Its own process group, so a selection that hangs is ended whole
-        # (its python, not only the bash in front of it) and fails the test.
+    def test_a_cap_that_is_no_regular_file_in_the_scenarios_stops_the_selection_at_once(self):
+        """A `.cap` that is a link out of scenarios/ (here to a FIFO no one
+        writes, whose open never returns) is not read: the selection refuses
+        it, exit 2, within the bound, rather than waiting on it."""
+        fifo = os.path.join(self.d, "never.cap")
+        os.mkfifo(fifo)
+        os.symlink(fifo, os.path.join(self.scen, "hang.cap"))
+        self.commit("a linked cap")
+        code, out, err = self.select_run(self.base)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("hang.cap", err)
+        self.assertIn("not a regular file", err)
+
+    def select_run(self, base):
+        """--select against `base`, in its own process group, killed whole
+        after 60 s (a hung read is a failure, never a hang)."""
         p = subprocess.Popen(
             ["bash", CI_SWEEP, "--select", "--base", base, "--scenarios", self.scen, "--core", self.core],
             stdout=subprocess.PIPE,
@@ -361,7 +369,16 @@ class CiSweep(unittest.TestCase):
             os.killpg(p.pid, signal.SIGKILL)
             p.communicate()
             self.fail("the selection did not finish in 60 s")
-        self.assertEqual(p.returncode, 0, err)
+        return p.returncode, out, err
+
+    def select(self, base, name, text):
+        """The --select output once `name` under scenarios/ is `text`,
+        committed, against `base`."""
+        base = self.git("rev-parse", base).strip()
+        self.write(os.path.join(self.scen, name), text)
+        self.commit("edit " + name)
+        code, out, err = self.select_run(base)
+        self.assertEqual(code, 0, err)
         return out
 
 

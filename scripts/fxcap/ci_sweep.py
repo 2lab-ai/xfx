@@ -144,7 +144,11 @@ def reading_index(units):
 
 
 def tokens(path):
-    """A .cap's words, and the path after each `@SCENARIOS@/` in it."""
+    """A .cap's words, and the path after each `@SCENARIOS@/` in it; none for
+    one that is not a regular file inside its directory (capfile.units has
+    already refused such a one: this never opens it either)."""
+    if not capfile.regular_inside(path, os.path.dirname(path)):
+        return set()
     with open(path, encoding="utf-8", errors="replace") as f:
         text = f.read()
     return set(text.split()) | set(PLACED.findall(text))
