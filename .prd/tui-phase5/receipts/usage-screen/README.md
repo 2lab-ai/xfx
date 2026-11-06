@@ -86,9 +86,9 @@ class **S**: the wiring decides when the Gateway key is sent.
 
 | property | tests (fake key, loopback port or fake gateway, injected or pinned clock) |
 |---|---|
-| **S1** no request at launch, none while `/usage` is closed (the 15-minute timer included), none after quit; quit and a sign-in switch cancel the fetch in flight | shell, injected clock and a spawner that holds each fetch: `tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit` (an hour of passes closed: 0 fetches; reopened past the floor on a counting loopback port, one fetch, which `r` and the timer do not double; after `/quit` that fetch, run, connects to the port 0 times -- the first, aimed at a closed port and retired by the reopen, is run too; `open`/`refresh` after it start nothing), `tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight` (`UiEvent::ProviderSelected` with `/usage` closed: the held fetch, run, connects 0 times; with it up the screen reopens on the new key); runtime: `usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same` (loopback gateway: the held request is hung up, 1 request total, no cache file for the old key, the same key keeps its fetch); debug pty with `XFX_E2E_USAGE_CLOCK_FILE` and `FakeGateway`: `tests/tui.rs` `usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert` (0 report GETs at launch; 3 on open, `authorization: Bearer <fake key>`; the clock moved an hour with the screen closed: still 3) and `quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly` (held report; Esc, Ctrl-D: exit under 5 s, 1 GET, no cache file) |
-| **S2** a hostile model name (ESC, CSI, OSC, C1, bidi, zero-width, line break) is inert on the table and the detail screen | `tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen` (7 names x 9 widths x both screens: no raw ESC, BEL, C1, U+202E, U+200B, CR or LF in any row; every escape in a row is the palette's own CSI; the spelled name on the row), `the_name_column_is_measured_on_the_names_as_drawn`; pty: the report's `evil/<ESC>]0;pwned<BEL><ESC>[2Jname` is on screen as `evil/\x1b]0;pwned\x07\x1b[2Jname` and neither sequence is in the terminal's byte stream |
-| **S3** no screen shows the key; only `API key (AI_GATEWAY_API_KEY)` is named | `tui::shell::tests::no_usage_screen_shows_the_key` (a real `Question` with the fake key: the failure heading, the table and the detail screen at 120, 50 and 40 columns, every band row and the `Debug` of the screen), `tui::usage_menu::tests::no_screen_names_the_key` (every status, both screens, 9 widths); pty: `!settled_text().contains(TEST_KEY)`; the 30 committed gateway logs name only `headers=authorization`, and no capture holds the fake key |
+| **S1** no request at launch, none while `/usage` is closed (the 15-minute timer included), none after quit; quit and a sign-in switch cancel the fetch in flight | shell, injected clock and a spawner that holds each fetch: `tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit` (an hour of passes closed: 0 fetches; reopened past the floor on a counting loopback port, one fetch, which `r` and the timer do not double; after `/quit` that fetch, run, connects to the port 0 times -- the first, aimed at a closed port and retired by the reopen, is run too; `open`/`refresh` after it start nothing), `tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight` (`UiEvent::ProviderSelected` with `/usage` closed: the held fetch, run, connects 0 times; with it up the screen reopens on the new key), `tui::shell::tests::a_resume_onto_another_provider_cancels_the_fetch_the_old_key_has_in_flight` (US-U4b: `UiEvent::Resumed` with `provider = Llmux`, through `hydrate_as`), `tui::event_loop::tests::a_session_that_ended_in_error_asks_usage_nothing_while_it_drains` (US-U4b: an error exit's drain applies a `ProviderSelected` with `/usage` up and starts no fetch); runtime: `usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same` (loopback gateway: the held request is hung up, 1 request total, no cache file for the old key, the same key keeps its fetch); debug pty with `XFX_E2E_USAGE_CLOCK_FILE` and `FakeGateway`: `tests/tui.rs` `usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert` (0 report GETs at launch; 3 on open, `authorization: Bearer <fake key>`; the clock moved an hour with the screen closed: still 3) and `quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly` (held report; Esc, Ctrl-D: exit under 5 s, 1 GET, no cache file) |
+| **S2** a hostile model name (ESC, CSI, OSC, C1, bidi, zero-width, line break) is inert on the table and the detail screen | `tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen` (US-U4b: 14 names -- CSI clear and cursor moves, OSC 52 and title, RIS, C1 CSI and OSC, BS, DEL, BEL, CR/LF, bidi override and isolates, zero-width, BOM, LRM, line separator -- x 9 widths x both screens: once exactly the palette's bold, dim and reset sequences are taken out of each raw row, nothing is left that a terminal obeys -- any control (C0, DEL, C1) or bidi, zero-width or separator code point; the spelled name on the row), `the_name_column_is_measured_on_the_names_as_drawn`; pty: the report's `evil/<ESC>]0;pwned<BEL><ESC>[2Jname` is on screen as `evil/\x1b]0;pwned\x07\x1b[2Jname` and neither sequence is in the terminal's byte stream |
+| **S3** no screen shows the key; only `API key (AI_GATEWAY_API_KEY)` is named | `tui::shell::tests::no_usage_screen_shows_the_key` (a real `Question` with the fake key: the failure heading, the table and the detail screen at 120, 50 and 40 columns, every band row and the `Debug` of the screen), `tui::usage_menu::tests::no_screen_the_runtime_reaches_names_the_key` (US-U4b: a `Question` carrying a sentinel key drives the runtime through fetching, ready, 401, 404, 429, 500, a body that is no report, the key echoed as a model name, its first 12 bytes echoed, no answer, and the three unavailable sign-ins, against a loopback Gateway; every raw row of both screens at 9 widths, the hint, and the snapshot's `Debug` hold neither the key nor its first 12 bytes); pty: `!settled_text().contains(TEST_KEY)`; the 30 committed gateway logs name only `headers=authorization`, and no capture holds the fake key |
 
 Every "now" is `usage::clock::now_ms` (`dashboard::wall_clock`); the screen reads
 only `Snapshot::now_ms`. Arithmetic on it: `ago_text` takes
@@ -180,7 +180,8 @@ banner's glyph is a box on both). I read each one; the gaps:
 
 Each on a throwaway `git clone --no-local` of this branch, with its own target
 directory under a short `TMPDIR`, the file restored after each; the tests named
-run with `--exact`. All six are killed.
+run with `--exact`. All nine are killed, re-run at `55146fe4` (M7-M9 are
+US-U4b's; M5 and M6 against the stricter hostile-name test).
 
 | mutant | killed by |
 |---|---|
@@ -190,6 +191,9 @@ run with `--exact`. All six are killed.
 | M4 `sign_in_changed` keeps the held fetch | that test and `a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same` |
 | M5 a model name drawn raw on the table | `a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen` |
 | M6 the detail heading's name drawn raw | the same |
+| M7 `hydrate_as` skips `usage_sign_in_changed` | `a_resume_onto_another_provider_cancels_the_fetch_the_old_key_has_in_flight` |
+| M8 `shut_down` drains before `quit_usage` | `a_session_that_ended_in_error_asks_usage_nothing_while_it_drains` |
+| M9 names through `bridge::inert` instead of `terminal_safe` (it keeps line breaks and bidi controls) | `a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen` |
 
 M1 is the two guards together on purpose: either one alone holds (the shell
 ticks the runtime only while the screen is up, and the runtime starts its
@@ -245,6 +249,22 @@ occurrence in `target/debug/xfx`); `target/release/xfx` and
 `target/faulty/release/xfx` carry it 0 times, which is what smoke.sh's section
 0 holds the shipped bytes to.
 
+## US-U4b: the review round's SHOULDs
+
+- **Fail closed on an error exit** (opus SHOULD 2). `session()` returns `Err`
+  (`event_loop.rs:264`, `:271-272`, `:293-301`) without `leave_by`, and
+  `shut_down` still applies the drained events: a `ProviderSelected` there,
+  with `/usage` up, reached `Dashboard::open` with `quit` false and started a
+  fetch with the new key. `shut_down` now calls `Shell::quit_usage()` first
+  (the same call `leave_by` makes). RED (`red-u4b-exit.txt`):
+  `a_session_that_ended_in_error_asks_usage_nothing_while_it_drains` failed
+  on the unfixed code, 2 fetches started where 1 is right; green after.
+- **The resume path** (opus SHOULD 1, gpt6 #3): the new resume test above;
+  the switch test's doc no longer claims it.
+- **The hostile-name test** (gpt6 #1) and **the no-key test** (gpt6 #2):
+  rewritten as described in the S table.
+- Mutants M7-M9 below.
+
 ## Files
 
 - `cap/<size>/{fx,xfx}-p5-usage-<scenario>-<size>-<label>.{txt,ansi}`: the
@@ -256,5 +276,5 @@ occurrence in `target/debug/xfx`); `target/release/xfx` and
 - `scoreboard-<size>.md`: the three sweeps' scoreboards; `sweep-report.md`: the
   CI sweep's report.
 - `sheets/*.png`: the parity sheets; `render.py`: what draws a capture.
-- `red-base.txt`: the base on `p5-usage-cached` 40x120; `mutants.txt`: the six
-  mutants.
+- `red-base.txt`: the base on `p5-usage-cached` 40x120; `red-u4b-exit.txt`:
+  US-U4b's RED; `mutants.txt`: the nine mutants.

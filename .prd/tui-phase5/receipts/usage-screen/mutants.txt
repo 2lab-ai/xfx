@@ -1,32 +1,47 @@
 == M1 settle_usage ticks with no screen, and close_usage leaves the runtime open: KILLED (exit 101)
    test tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit ... FAILED
-   thread 'tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit' (249725718) panicked at src/tui/shell.rs:37363:9:
-   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3958 filtered out; finished in 0.01s
+   thread 'tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit' (251416367) panicked at src/tui/shell.rs:37379:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 0.01s
    error: test failed, to rerun pass `--lib`
 == M2 leaving the session does not quit the usage runtime: KILLED (exit 101)
    test tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit ... FAILED
-   thread 'tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit' (249754126) panicked at src/tui/shell.rs:37392:9:
-   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3958 filtered out; finished in 3.04s
+   thread 'tui::shell::tests::usage_asks_nothing_at_launch_while_closed_or_after_quit' (251417806) panicked at src/tui/shell.rs:37408:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 3.01s
    error: test failed, to rerun pass `--lib`
 == M3 a provider switch is not told to the usage runtime: KILLED (exit 101)
    test tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight ... FAILED
-   thread 'tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight' (249794177) panicked at src/tui/shell.rs:37423:9:
-   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3958 filtered out; finished in 2.04s
+   thread 'tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight' (251420403) panicked at src/tui/shell.rs:37440:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 2.01s
    error: test failed, to rerun pass `--lib`
 == M4 sign_in_changed keeps the held fetch: KILLED (exit 101)
    test tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight ... FAILED
    test usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same ... FAILED
-   thread 'tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight' (249846261) panicked at src/tui/shell.rs:37425:9:
-   thread 'usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same' (249846262) panicked at src/usage/dashboard/tests.rs:891:5:
-   test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3957 filtered out; finished in 5.09s
+   thread 'tui::shell::tests::a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight' (251422880) panicked at src/tui/shell.rs:37442:9:
+   thread 'usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same' (251422881) panicked at src/usage/dashboard/tests.rs:891:5:
+   test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3959 filtered out; finished in 5.03s
    error: test failed, to rerun pass `--lib`
 == M5 model names drawn raw on the table: KILLED (exit 101)
    test tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen ... FAILED
-   thread 'tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen' (249943212) panicked at src/tui/usage_menu/tests.rs:519:21:
-   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3958 filtered out; finished in 0.00s
+   thread 'tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen' (251425616) panicked at src/tui/usage_menu/tests.rs:536:21:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 0.01s
    error: test failed, to rerun pass `--lib`
 == M6 the detail heading's model name drawn raw: KILLED (exit 101)
    test tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen ... FAILED
-   thread 'tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen' (249990479) panicked at src/tui/usage_menu/tests.rs:519:21:
-   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3958 filtered out; finished in 0.01s
+   thread 'tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen' (251426731) panicked at src/tui/usage_menu/tests.rs:536:21:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 0.01s
+   error: test failed, to rerun pass `--lib`
+== M7 a resume onto another provider is not told to the usage runtime: KILLED (exit 101)
+   test tui::shell::tests::a_resume_onto_another_provider_cancels_the_fetch_the_old_key_has_in_flight ... FAILED
+   thread 'tui::shell::tests::a_resume_onto_another_provider_cancels_the_fetch_the_old_key_has_in_flight' (251428338) panicked at src/tui/shell.rs:37491:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 2.01s
+   error: test failed, to rerun pass `--lib`
+== M8 shut_down drains before quitting the usage runtime: KILLED (exit 101)
+   test tui::event_loop::tests::a_session_that_ended_in_error_asks_usage_nothing_while_it_drains ... FAILED
+   thread 'tui::event_loop::tests::a_session_that_ended_in_error_asks_usage_nothing_while_it_drains' (251429846) panicked at src/tui/event_loop.rs:3005:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 0.01s
+   error: test failed, to rerun pass `--lib`
+== M9 model names drawn through bridge::inert instead of terminal_safe: KILLED (exit 101)
+   test tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen ... FAILED
+   thread 'tui::usage_menu::tests::a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen' (251430851) panicked at src/tui/usage_menu/tests.rs:541:21:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3960 filtered out; finished in 0.01s
    error: test failed, to rerun pass `--lib`
