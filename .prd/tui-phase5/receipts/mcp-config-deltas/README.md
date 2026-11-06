@@ -96,3 +96,21 @@ FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  
                     TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx p5-mcp-config-ignored 40x120 <out>
 cargo test --locked --lib mcp::config
 ```
+
+## Gates (rustc 1.99.1)
+
+At `a75d1c17`; code as of `68501d28`, since only `docs/parity.md` and this
+receipt changed after it. The release and faulty binaries were built from
+`78784789`'s tree, which has the same code.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4590 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4611 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
+| `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1091 checks, 0 failures |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
