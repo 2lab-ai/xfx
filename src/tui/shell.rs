@@ -22968,7 +22968,7 @@ mod tests {
         // (`handleNotificationsCommand`, `app_commands.zig:4014-4027`). The
         // save is on its own thread, so the level waits for it.
         let (home, path) = profile();
-        std::fs::create_dir_all(path.parent().expect("a profile")).expect("profile");
+        crate::profile_home::made(path.parent().expect("a profile"));
         std::fs::write(&path, "{ not json").expect("seed");
         let mut shell = sounding(24, false, Some(path.clone()));
         shell.route_bytes(b"/sound\r");
@@ -33965,7 +33965,8 @@ mod tests {
         // on both paths -- the picker is silent only about success.
         let root = tempfile::tempdir().expect("a root");
         let settings = root.path().join("home").join(".xfx").join("settings.json");
-        std::fs::create_dir_all(settings.parent().expect("a parent")).expect("profile home");
+        std::fs::create_dir(root.path().join("home")).expect("a home");
+        crate::profile_home::made(settings.parent().expect("a parent"));
         std::fs::write(&settings, "{not json").expect("an unreadable profile");
         let mut shell = shell_at_home(root.path(), 40, 200);
         let not_saved = |document: &[String]| {
@@ -39489,7 +39490,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = remembering(root.path());
         // A directory where the file goes: every append fails.
-        std::fs::create_dir_all(root.path().join("home/.xfx/history.jsonl")).expect("a dir");
+        crate::profile_home::made(&root.path().join("home/.xfx"));
+        std::fs::create_dir(root.path().join("home/.xfx/history.jsonl")).expect("a dir");
         shell.route_bytes(b"/version\r");
         let _ = saved_texts(&mut shell, root.path());
         let document = shell.document();

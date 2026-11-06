@@ -1083,7 +1083,7 @@ mod tests {
         let tree = Tree::new();
         let target = tree.dir("target");
         std::os::unix::fs::symlink(&target, tree.base.join("link")).expect("link");
-        fs::create_dir_all(tree.settings.parent().unwrap()).expect("profile");
+        crate::profile_home::made(tree.settings.parent().unwrap());
         fs::write(
             &tree.settings,
             serde_json::json!({"workspaces": {path(&tree.primary): {"additional_directories": [path(&tree.base.join("link"))]}}})
@@ -1285,7 +1285,7 @@ mod tests {
         let a = tree.dir("a");
         let b = tree.dir("b");
         // Another key in the same file survives every change.
-        fs::create_dir_all(tree.settings.parent().unwrap()).expect("profile");
+        crate::profile_home::made(tree.settings.parent().unwrap());
         fs::write(&tree.settings, "{\"model\":\"m\"}\n").expect("seed");
         let access = tree
             .run(&WorkspaceAccess::default(), "add ../a")
@@ -1323,7 +1323,7 @@ mod tests {
         let tree = Tree::new();
         tree.dir("extra");
         let key = path(&tree.primary);
-        fs::create_dir_all(tree.settings.parent().unwrap()).expect("profile");
+        crate::profile_home::made(tree.settings.parent().unwrap());
         fs::write(
             &tree.settings,
             format!(
@@ -1404,7 +1404,7 @@ mod tests {
         let tree = Tree::new();
         let mine = tree.dir("mine");
         let theirs = tree.dir("theirs");
-        fs::create_dir_all(tree.settings.parent().unwrap()).expect("profile");
+        crate::profile_home::made(tree.settings.parent().unwrap());
         fs::write(
             &tree.settings,
             serde_json::json!({"workspaces": {path(&tree.primary): {"additional_directories": [path(&theirs)]}}})

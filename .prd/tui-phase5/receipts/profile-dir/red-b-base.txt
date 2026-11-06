@@ -1,0 +1,24 @@
+RED the session store: answer=Ok(()) absent 755, absent/HOME 755, absent/HOME/.xfx 700
+RED a settings preference: answer=Ok(()) absent 700, absent/HOME 700, absent/HOME/.xfx 700
+RED /allowlist: answer=Ok(()) absent 700, absent/HOME 700, absent/HOME/.xfx 700
+RED a settings edit: answer=Ok(()) absent 700, absent/HOME 700, absent/HOME/.xfx 700
+RED xfx setup's rewrite: answer=Ok(()) absent 700, absent/HOME 700, absent/HOME/.xfx 700
+RED the MCP profile: answer=Ok(()) absent 700, absent/HOME 700, absent/HOME/.xfx 700
+RED the prompt history: answer=Ok(()) absent 700, absent/HOME 700, absent/HOME/.xfx 700
+RED /skills create: answer=Ok(()) absent 755, absent/HOME 755, absent/HOME/.xfx 755
+RED /skills add: answer=Ok(()) absent 755, absent/HOME 755, absent/HOME/.xfx 755
+thread 'red_profile_home_b::red_b_a_missing_home_is_refused_and_nothing_is_made' (252857376) panicked at src/red_profile_home_b.rs:135:5:
+writers that made a missing home: ["the session store", "a settings preference", "/allowlist", "a settings edit", "xfx setup's rewrite", "the MCP profile", "the prompt history", "/skills create", "/skills add"]
+RED the store's refusal: <bench-HOME>/.xfx cannot hold session state: it is mode 755; session state must not be reachable by group or other
+thread 'red_profile_home_b::red_b_an_open_home_names_the_chmod_that_makes_it_private' (252857377) panicked at src/red_profile_home_b.rs:187:5:
+RED /skills add, .skill-install-locks 755: answer=Ok(()) lock files=["carried"]
+thread 'red_profile_home_b::red_b_an_open_lock_directory_is_refused_before_a_lock_is_taken_in_it' (252857378) panicked at src/red_profile_home_b.rs:176:5:
+RED /allowlist: answer=Ok(()) entries=["settings.json", "settings.lock"]
+RED a settings edit: answer=Ok(()) entries=["settings.json", "settings.lock"]
+RED xfx setup's rewrite: answer=Ok(()) entries=["settings.json", "settings.lock"]
+thread 'red_profile_home_b::red_b_settings_transactions_leave_no_lock_in_an_open_home' (252857379) panicked at src/red_profile_home_b.rs:159:5:
+transactions that wrote into an open home: ["/allowlist", "a settings edit", "xfx setup's rewrite"]
+RED fork with ~/.xfx removed before its stage: refused: session `1793987181175-7bee1724ee95b288` cannot be trusted and was not read: the image saved as `image-1-3fd6e6be528c182d.bin` cannot be forked: its saved copy is missing ; ~/.xfx remade 755
+thread 'session::store::fork::tests::red_b_a_profile_home_gone_before_the_stage_is_made_is_not_made_again' (252857380) panicked at src/session/store/fork/tests.rs:65:5:
+test result: FAILED. 16 passed; 5 failed; 0 ignored; 0 measured; 3853 filtered out; finished in 0.58s
+exit=101
