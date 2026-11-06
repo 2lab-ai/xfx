@@ -486,13 +486,31 @@ pub fn store(
     now_ms: i64,
     held: Option<&Entry>,
 ) -> Result<Entry, StoreError> {
+    store_now(home, identity, fetched, &|| now_ms, held)
+}
+
+/// [`store`], reading the wall time from `clock` once the lock is held rather
+/// than taking it as a number.
+///
+/// A store waits for the lock (up to its deadline), and another process may
+/// store a later fetch meanwhile. A time read before the wait would make that
+/// later part look stamped ahead of the clock, and [`merge`] would let the
+/// older fetch replace it. fx reads its time before the store
+/// (`usage.zig:697-705`); xfx reads it under the lock.
+pub fn store_now(
+    home: &Home,
+    identity: &Identity,
+    fetched: Entry,
+    clock: &dyn Fn() -> i64,
+    held: Option<&Entry>,
+) -> Result<Entry, StoreError> {
     #[cfg(unix)]
     {
-        fs::store_within(home, identity, fetched, now_ms, held, LOCK_DEADLINE)
+        fs::store_within(home, identity, fetched, clock, held, LOCK_DEADLINE)
     }
     #[cfg(not(unix))]
     {
-        let _ = (home, identity, fetched, now_ms, held);
+        let _ = (home, identity, fetched, clock, held);
         Err(StoreError::Io(io::ErrorKind::Unsupported.into()))
     }
 }
@@ -883,17 +901,19 @@ mod fs {
         rustix::fs::fsync(dir).map_err(io_err)
     }
 
-    /// [`super::store`], waiting at most `deadline` for the lock.
+    /// [`super::store_now`], waiting at most `deadline` for the lock and
+    /// reading the time once it holds it.
     pub(super) fn store_within(
         home: &Home,
         identity: &Identity,
         fetched: Entry,
-        now_ms: i64,
+        clock: &dyn Fn() -> i64,
         held: Option<&Entry>,
         deadline: std::time::Duration,
     ) -> Result<Entry, StoreError> {
         let dir = open_or_create_dir(home)?;
         let _lock = lock(&dir, identity, deadline)?;
+        let now_ms = clock();
         let stored = match load(&dir, identity) {
             Load::Found(entry) => Some(entry),
             Load::Missing | Load::Unusable => None,

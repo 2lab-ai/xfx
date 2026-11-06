@@ -275,41 +275,22 @@ fn answer(path: &str, bearer: &str, knobs: &Knobs) -> String {
 
 // -- the clock and the workers ---------------------------------------------------
 
-/// A clock the test sets. While `hold_worker` is set, a worker that reads it
-/// -- once, between its answer and the store -- waits there, so a test can act
-/// at exactly that moment.
+/// A clock the test sets.
 #[derive(Clone)]
 struct TestClock {
     now: Arc<AtomicI64>,
-    hold_worker: Arc<AtomicBool>,
-    workers_held: Arc<AtomicUsize>,
 }
 
 impl TestClock {
     fn at(now: i64) -> Self {
         Self {
             now: Arc::new(AtomicI64::new(now)),
-            hold_worker: Arc::new(AtomicBool::new(false)),
-            workers_held: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     fn clock(&self) -> Clock {
-        let (now, hold, held) = (
-            Arc::clone(&self.now),
-            Arc::clone(&self.hold_worker),
-            Arc::clone(&self.workers_held),
-        );
-        Arc::new(move || {
-            if hold.load(Ordering::SeqCst) && std::thread::current().name() == Some(WORKER) {
-                held.fetch_add(1, Ordering::SeqCst);
-                let started = Instant::now();
-                while hold.load(Ordering::SeqCst) && started.elapsed() < PATIENCE {
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-            }
-            now.load(Ordering::SeqCst)
-        })
+        let now = Arc::clone(&self.now);
+        Arc::new(move || now.load(Ordering::SeqCst))
     }
 
     fn get(&self) -> i64 {
@@ -323,12 +304,43 @@ impl TestClock {
     fn advance(&self, by: i64) {
         self.now.fetch_add(by, Ordering::SeqCst);
     }
+}
 
-    /// Waits until `n` workers wait in the clock with their answers.
-    fn wait_for_held_workers(&self, n: usize) {
+/// Holds every worker of a dashboard it is put in, while it is set, between
+/// the worker's answer and its admission -- the moment a switch or quit
+/// races for, and one no cancellation reaches.
+#[derive(Clone, Default)]
+struct Gate {
+    hold: Arc<AtomicBool>,
+    held: Arc<AtomicUsize>,
+}
+
+impl Gate {
+    fn put_in(&self, dashboard: &mut Dashboard) {
+        let (hold, held) = (Arc::clone(&self.hold), Arc::clone(&self.held));
+        dashboard.before_admission = Some(Arc::new(move || {
+            if hold.load(Ordering::SeqCst) {
+                held.fetch_add(1, Ordering::SeqCst);
+                let started = Instant::now();
+                while hold.load(Ordering::SeqCst) && started.elapsed() < PATIENCE {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }));
+    }
+
+    fn hold(&self, on: bool) {
+        self.hold.store(on, Ordering::SeqCst);
+    }
+
+    /// Waits until `n` workers have been held with their answers.
+    fn wait_for_held(&self, n: usize) {
         let started = Instant::now();
-        while self.workers_held.load(Ordering::SeqCst) < n {
-            assert!(started.elapsed() < PATIENCE, "no worker reached its store");
+        while self.held.load(Ordering::SeqCst) < n {
+            assert!(
+                started.elapsed() < PATIENCE,
+                "no worker reached its admission"
+            );
             std::thread::sleep(Duration::from_millis(2));
         }
     }
@@ -1164,6 +1176,10 @@ fn the_floor_counts_from_a_failure_as_well_as_a_start() {
     rig.gateway.wait_for(1);
     rig.clock.advance(45 * 1000);
     rig.gateway.hold(false);
+    // It fails at +45 s; nothing takes it in until +50 s. The floor counts
+    // from the failure, not from when a pass saw it.
+    assert!(rig.workers.all_ended_within(Duration::from_secs(5)));
+    rig.clock.advance(5 * 1000);
     wait_for_fetch(&mut dashboard);
     assert_eq!(dashboard.snapshot().status, Status::Failed(Failure::Server));
     let failed_at = NOW + 45 * 1000;
@@ -1299,10 +1315,12 @@ fn an_answer_from_a_closed_or_older_generation_is_never_shown() {
     let racing = super::tests::rig();
     let rig = &racing;
     let mut first = rig.dashboard();
+    let gate = Gate::default();
+    gate.put_in(&mut first);
     rig.gateway.tag("stale");
-    rig.clock.hold_worker.store(true, Ordering::SeqCst);
+    gate.hold(true);
     first.open(rig.question(KEY_A));
-    rig.clock.wait_for_held_workers(1);
+    gate.wait_for_held(1);
     first.close();
     rig.gateway.tag("fresh");
     let second_clock = TestClock::at(NOW + 30 * 1000);
@@ -1312,7 +1330,7 @@ fn an_answer_from_a_closed_or_older_generation_is_never_shown() {
     // The first stores later in wall time, on a clock that agrees: a part
     // stamped ahead of the storing clock would yield (`cache::merge`).
     rig.clock.set(NOW + 60 * 1000);
-    rig.clock.hold_worker.store(false, Ordering::SeqCst);
+    gate.hold(false);
     assert!(rig.workers.all_ended_within(Duration::from_secs(5)));
     first.tick();
     let file = rig.cached(KEY_A).expect("a cache file");
@@ -1336,8 +1354,8 @@ fn a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key() 
     rig.clock.advance(policy::FLOOR_MS);
 
     rig.gateway.hold(true);
-    dashboard.open(rig.question(KEY_A));
     let switched_at = rig.gateway.count();
+    dashboard.open(rig.question(KEY_A));
     rig.gateway.wait_for(switched_at + 1);
     assert_eq!(rig.gateway.seen()[switched_at].bearer, KEY_A);
     dashboard.open(rig.question(KEY_B));
@@ -1370,14 +1388,16 @@ fn a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key() 
             .all(|model| model.starts_with("vendor-b/")));
     }
 
-    // The same at the store: A's answer is in, its worker waits to store it,
-    // and the key changes.
+    // The same just before the store: A's answer is in, its worker has not
+    // been admitted yet, and the key changes. Retirement wins the swap.
     rig.clock.advance(policy::FLOOR_MS);
-    rig.clock.hold_worker.store(true, Ordering::SeqCst);
+    let gate = Gate::default();
+    gate.put_in(&mut dashboard);
+    gate.hold(true);
     dashboard.open(rig.question(KEY_A));
-    rig.clock.wait_for_held_workers(1);
+    gate.wait_for_held(1);
     dashboard.open(rig.question(KEY_B));
-    rig.clock.hold_worker.store(false, Ordering::SeqCst);
+    gate.hold(false);
     wait_for_fetch(&mut dashboard);
     assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
     assert!(
@@ -1394,11 +1414,11 @@ fn a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key() 
 }
 
 #[test]
-fn the_same_key_to_another_origin_is_another_sign_in() {
+fn the_same_key_on_another_origin_cancels_the_fetch_and_keeps_the_keys_floor() {
     // S5: the Gateway origin changes under an open dashboard. The request to
-    // the old origin is dropped at once; the key keeps its own floor, so the
-    // new origin is asked once that floor passes, and the old one never
-    // again.
+    // the old origin is dropped at once. The floor is the key's (fx's
+    // identity has no origin, `cache.zig:21-35@481104fd`), so the new origin
+    // is asked once that floor passes, and the old one never again.
     let rig = rig();
     let elsewhere = Gateway::new();
     let mut dashboard = rig.dashboard();
@@ -1421,4 +1441,260 @@ fn the_same_key_to_another_origin_is_another_sign_in() {
     assert_eq!(elsewhere.count(), 3);
     assert!(elsewhere.seen().iter().all(|seen| seen.bearer == KEY_A));
     assert_eq!(rig.gateway.count(), 1);
+}
+
+// -- US-U3c ---------------------------------------------------------------------
+
+/// Makes the cache directory and `key`'s lock under the rig's home, through a
+/// store of nothing, then takes the lock as another process would, and hands
+/// it back: the lock is held until the file is dropped.
+fn hold_cache_lock(rig: &Rig, key: &str) -> std::fs::File {
+    use rustix::fs::{flock, FlockOperation};
+    let home = Home::new(Some(rig.home.path())).expect("a home");
+    let identity = rig.question(key).identity();
+    cache::store(&home, &identity, Entry::default(), NOW, None).expect("a store of nothing");
+    let path = rig
+        .home
+        .path()
+        .join(".xfx")
+        .join(cache::DIR_NAME)
+        .join(format!("{}.lock", identity.as_str()));
+    let lock = std::fs::File::open(path).expect("the lock");
+    let started = Instant::now();
+    while flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err() {
+        assert!(started.elapsed() < Duration::from_secs(5), "hold the lock");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    lock
+}
+
+/// A cache file for `key` whose today was fetched at `at_ms` with one model.
+fn today_file(rig: &Rig, key: &str, at_ms: i64, model: &str) -> String {
+    format!(
+        r#"{{"schema_version":2,"identity":"{}","today":{{"day":{},"at_ms":{at_ms},"models":[{{"model":"{model}","totals":{{"request_count":1,"total_cost":9.0}}}}]}},"finished":null,"budget":null,"codex":null,"grok":null}}"#,
+        rig.question(key).identity().as_str(),
+        utc_day(at_ms),
+    )
+}
+
+#[test]
+fn a_later_success_clears_an_earlier_failure_across_a_close() {
+    // US-U3c MUST 1. A fetch fails and says so; past the floor a reopening
+    // fetches, and the dashboard closes while that fetch runs. It succeeds
+    // and stores. Reopened, the dashboard shows its numbers -- and not the
+    // older failure over them (fx's `finishJob` clears the failure on any
+    // stored answer of the held sign-in, `usage.zig:587-595@481104fd`).
+    let rig = rig();
+    let mut dashboard = rig.dashboard();
+    rig.gateway.status(500);
+    dashboard.open(rig.question(KEY_A));
+    wait_for_fetch(&mut dashboard);
+    assert_eq!(dashboard.snapshot().status, Status::Failed(Failure::Server));
+
+    rig.clock.advance(policy::FLOOR_MS);
+    rig.gateway.status(200);
+    rig.gateway.hold(true);
+    dashboard.close();
+    let before = rig.gateway.count();
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(before + 1);
+    dashboard.close();
+    rig.gateway.hold(false);
+    assert!(rig.workers.all_ended_within(Duration::from_secs(5)));
+    assert!(rig
+        .cached(KEY_A)
+        .is_some_and(|file| file.contains("vendor-a/m-opus")));
+
+    rig.clock.advance(10 * 1000);
+    dashboard.open(rig.question(KEY_A));
+    let shown = dashboard.snapshot();
+    assert_eq!(
+        shown.status,
+        Status::Ready,
+        "an older failure over fresh numbers"
+    );
+    approx(shown.of(Period::Today).totals.total_cost, 2.5);
+    assert_eq!(rig.workers.fetches(), 2, "inside the floor");
+}
+
+#[test]
+fn a_failure_holds_the_floor_from_when_it_happened_not_when_it_was_taken_in() {
+    // US-U3c MUST 2. Closed mid-fetch, with no pass while closed (a closed
+    // dashboard need not be ticked): the fetch fails at once, and the
+    // dashboard reopens ten minutes later. The failure's floor passed long
+    // ago, so opening fetches.
+    let rig = rig();
+    let mut dashboard = rig.dashboard();
+    rig.gateway.status(500);
+    rig.gateway.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(1);
+    dashboard.close();
+    rig.gateway.hold(false);
+    assert!(rig.workers.all_ended_within(Duration::from_secs(5)));
+
+    rig.gateway.status(200);
+    rig.clock.advance(10 * MINUTE_MS);
+    dashboard.open(rig.question(KEY_A));
+    assert_eq!(
+        rig.workers.fetches(),
+        2,
+        "the failure was stamped when it was taken in"
+    );
+    wait_for_fetch(&mut dashboard);
+    assert_eq!(dashboard.snapshot().status, Status::Ready);
+}
+
+#[test]
+fn a_worker_waiting_on_the_cache_lock_never_replaces_a_later_today() {
+    // US-U3c, both engines' stale `now`. This dashboard's fetch is answered
+    // and waits on the cache lock, which another process holds while it
+    // stores a today fetched later. Released, the worker merges against the
+    // time under the lock, not the time it had before it: the later today
+    // stays (`cache::merge` yields a stored part only when it is ahead of
+    // the storing clock).
+    let rig = rig();
+    let lock = hold_cache_lock(&rig, KEY_A);
+    let mut dashboard = rig.dashboard();
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(3);
+    // Long enough for the answered worker to reach the lock; the outcome does
+    // not depend on it once the time is read under the lock.
+    std::thread::sleep(Duration::from_millis(300));
+    rig.clock.set(NOW + 60 * 1000);
+    std::fs::write(
+        rig.cache_file(KEY_A),
+        today_file(&rig, KEY_A, NOW + 30 * 1000, "vendor-a/later-opus"),
+    )
+    .expect("the other process's store");
+    drop(lock);
+    assert!(rig.workers.all_ended_within(Duration::from_secs(10)));
+    let file = rig.cached(KEY_A).expect("the file");
+    assert!(
+        file.contains("vendor-a/later-opus"),
+        "the later today was replaced: {file}"
+    );
+    wait_for_fetch(&mut dashboard);
+    assert_eq!(
+        models(dashboard.snapshot().of(Period::Today)),
+        ["vendor-a/later-opus"]
+    );
+}
+
+#[test]
+fn the_same_key_on_another_origin_shows_the_numbers_cached_from_the_first() {
+    // The cache side of the dispatcher's decision (2026-11-06): the cache
+    // entry is the key's, as fx's `identityOf(scope, key, team)` has no
+    // origin. Opened on origin Y inside the key's floor, the dashboard shows
+    // what origin X's fetch stored, at once, and asks Y nothing.
+    let rig = rig();
+    let elsewhere = Gateway::new();
+    let mut dashboard = rig.dashboard();
+    dashboard.open(rig.question(KEY_A));
+    wait_for_fetch(&mut dashboard);
+    dashboard.close();
+
+    rig.clock.advance(10 * 1000);
+    dashboard.open(question_at(&elsewhere.origin, KEY_A));
+    let shown = dashboard.snapshot();
+    approx(shown.of(Period::Today).totals.total_cost, 2.5);
+    assert_eq!(models(shown.of(Period::Today)), ["vendor-a/m-opus"]);
+    assert_eq!(shown.fetched_at_ms(), Some(NOW));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(elsewhere.count(), 0);
+}
+
+#[test]
+fn quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go() {
+    // S1, quit's bound. The worker holds its answer short of admission, where
+    // the cancellation does not reach: quit waits its 1 s and no longer, and
+    // the worker is still alive when it returns. Released, it loses the swap
+    // and stores nothing.
+    let rig = rig();
+    let mut dashboard = rig.dashboard();
+    let gate = Gate::default();
+    gate.put_in(&mut dashboard);
+    gate.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    gate.wait_for_held(1);
+    let quitting = Instant::now();
+    dashboard.quit();
+    let waited = quitting.elapsed();
+    assert!(
+        waited >= QUIT_WAIT && waited <= QUIT_WAIT + Duration::from_millis(200),
+        "{waited:?}"
+    );
+    assert_eq!(
+        rig.workers.alive.load(Ordering::SeqCst),
+        1,
+        "the worker was let go alive"
+    );
+    gate.hold(false);
+    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
+    assert!(rig.cached(KEY_A).is_none(), "a retired answer was stored");
+}
+
+/// Waits until the held fetch's worker has taken its answer.
+fn wait_for_admission(dashboard: &Dashboard) {
+    let started = Instant::now();
+    while dashboard
+        .fetch
+        .as_ref()
+        .is_none_or(|fetch| fetch.admission.load(Ordering::SeqCst) != ADMITTED)
+    {
+        assert!(
+            started.elapsed() < PATIENCE,
+            "the worker was never admitted"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only() {
+    // S4/S5, admission before retirement. A's worker took its answer and
+    // waits on the cache lock another process holds. (a) The key switches
+    // to B: B never shows A's numbers and B's file never holds them;
+    // released, A's answer is stored under A's own identity. (b) The same
+    // with quit: quit lets the worker go after its bound, and the worker
+    // still stores under A.
+    let rig = rig();
+    let lock = hold_cache_lock(&rig, KEY_A);
+    let mut dashboard = rig.dashboard();
+    dashboard.open(rig.question(KEY_A));
+    wait_for_admission(&dashboard);
+    dashboard.open(rig.question(KEY_B));
+    wait_for_fetch(&mut dashboard);
+    for period in Period::ALL {
+        assert!(models(dashboard.snapshot().of(period))
+            .iter()
+            .all(|model| model.starts_with("vendor-b/")));
+    }
+    drop(lock);
+    assert!(rig.workers.all_ended_within(Duration::from_secs(10)));
+    assert!(
+        rig.cached(KEY_A)
+            .is_some_and(|file| file.contains("vendor-a/m-opus")),
+        "the admitted answer is stored under its own sign-in"
+    );
+    assert!(!rig.cached(KEY_B).expect("B's file").contains("vendor-a"));
+    dashboard.tick();
+    assert!(models(dashboard.snapshot().of(Period::Today))
+        .iter()
+        .all(|model| model.starts_with("vendor-b/")));
+
+    let quitting = super::tests::rig();
+    let lock = hold_cache_lock(&quitting, KEY_A);
+    let mut dashboard = quitting.dashboard();
+    dashboard.open(quitting.question(KEY_A));
+    wait_for_admission(&dashboard);
+    let started = Instant::now();
+    dashboard.quit();
+    assert!(started.elapsed() <= QUIT_WAIT + Duration::from_millis(200));
+    assert_eq!(quitting.workers.alive.load(Ordering::SeqCst), 1);
+    drop(lock);
+    assert!(quitting.workers.all_ended_within(Duration::from_secs(10)));
+    assert!(quitting
+        .cached(KEY_A)
+        .is_some_and(|file| file.contains("vendor-a/m-opus")));
 }

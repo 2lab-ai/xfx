@@ -1285,7 +1285,7 @@ fn a_copy_of_this_binary_plays_its_role() {
                     &home,
                     &writer_id(),
                     writer_fetch(at_ms),
-                    WRITER_NOW,
+                    &|| WRITER_NOW,
                     None,
                     Duration::from_secs(60),
                 )
@@ -1549,7 +1549,7 @@ fn a_lock_held_past_the_deadline_is_a_failure_not_a_wait() {
             today: today(5, 2, 2.0),
             ..Entry::default()
         },
-        TEST_NOW,
+        &|| TEST_NOW,
         None,
         Duration::from_millis(200),
     );

@@ -42,12 +42,16 @@
 //!   that echoes the key back has nowhere to put it. A report whose model name
 //!   spells the key, or any [`KEY_RUN`]-byte run of it, as is, in hex or in
 //!   base64 ([`KeySpellings`]), is refused rather than shown or cached.
-//! - **The worker lets go when nobody waits**: dropping a [`Fetch`] cancels it,
-//!   so a dashboard that is gone does not keep the key asking.
+//! - **The worker lets go when it is cancelled**: [`fetch_on_this_thread`]
+//!   checks its cancellation before each range and drops the request in
+//!   flight, so a dashboard that lets go (`crate::usage::dashboard`) does not
+//!   keep the key asking.
 
 use std::collections::BTreeMap;
 use std::fmt;
+#[cfg(test)]
 use std::io;
+#[cfg(test)]
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
@@ -92,7 +96,9 @@ const CUT_SHORT: &str = "AI Gateway's answer stopped partway";
 const UNSENDABLE_KEY: &str = "the key cannot be sent as a header";
 /// What a failure says when no HTTP client or runtime could be made.
 const NO_CLIENT: &str = "no HTTP client could be started";
-/// What a failure says when the worker ended without an answer.
+/// What a failure says when the worker ended without an answer (test-only:
+/// the dashboard maps its own lost worker to `network`).
+#[cfg(test)]
 const WORKER_GONE: &str = "the usage worker ended without an answer";
 /// What a failure says about a report that names the key.
 const KEY_IN_REPORT: &str = "unexpected report: a model name holds the key";
@@ -718,20 +724,25 @@ pub enum Outcome {
     Fetched(Vec<Vec<ModelRow>>),
     /// The first range that failed, and why; nothing after it was asked.
     Failed(Failed),
-    /// [`Fetch::cancel`] was called before the fetch ended.
+    /// The fetch was cancelled before it ended.
     Cancelled,
 }
 
-/// What [`Fetch::start`] hands its spawner: the work of one fetch.
+/// The work of one fetch, as a spawner runs it on a thread of its own
+/// (`crate::usage::dashboard::Spawn`).
 pub type Job = Box<dyn FnOnce() + Send + 'static>;
 
-/// A fetch running on a worker thread of its own. Dropping it cancels it.
+/// Test-only: a fetch running on a worker thread of its own, which this
+/// module's transport tests drive. Dropping it cancels it. The dashboard runs
+/// [`fetch_on_this_thread`] on its own worker instead.
+#[cfg(test)]
 #[derive(Debug)]
 pub struct Fetch {
     outcome: Option<Receiver<Outcome>>,
     cancel: CancellationToken,
 }
 
+#[cfg(test)]
 impl Fetch {
     /// Starts reading one report per range in `ranges`, in order, on a thread
     /// `spawn` starts, and returns without waiting. The first failure ends the
@@ -778,6 +789,7 @@ impl Fetch {
 
 /// A fetch nobody holds is a fetch nobody waits for: it stops, and its worker
 /// lets go of the key, rather than asking for up to 15 s per range left.
+#[cfg(test)]
 impl Drop for Fetch {
     fn drop(&mut self) {
         self.cancel.cancel();
@@ -785,7 +797,7 @@ impl Drop for Fetch {
 }
 
 /// One fetch on the calling thread, which it blocks until the fetch ends or
-/// `cancel` is cancelled: [`Fetch`]'s worker body, and the dashboard's
+/// `cancel` is cancelled: the dashboard's worker body
 /// (`crate::usage::dashboard`), which stores the answer on the same thread. A
 /// runtime of its own for the length of the fetch.
 pub(crate) fn fetch_on_this_thread(

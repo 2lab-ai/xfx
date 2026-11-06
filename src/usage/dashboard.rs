@@ -38,24 +38,32 @@
 //!   sign-in, so reopening within the floor shows fresh numbers from the
 //!   cache.
 //! - **A sign-in switch, an unavailable sign-in and quitting cancel the fetch
-//!   in flight**, and its answer is never stored or shown. fx's switch lets the
-//!   old sign-in's fetch finish and caches it for its own identity
-//!   (`:596-601`). Here the old key's fetch stops at once. The dashboard holds
-//!   at most one fetch; retiring it and the worker's store race for one
-//!   compare-and-swap, and an answer that loses is dropped.
-//! - **An answer from a closed or older generation is never shown.** Each
-//!   fetch carries the generation it started in; closing, a switch, an
-//!   unavailable sign-in and quitting start a new one. A fetch that ends in a
-//!   later generation stamps its sign-in's floor, and its answer or failure
-//!   reaches the screen only through the cache, as any other process's would.
-//!   fx's stale guard is the identity compare in `finishJob` (`:589,605`),
-//!   which this replaces. fx's generation counter is a redraw counter, kept as
-//!   one ([`Dashboard::generation`]).
-//! - **The floor is kept per sign-in, across switches.** fx forgets it when
-//!   the sign-in changes (`:465-470`), so switching away and back fetches
-//!   again at once. Here each identity keeps its own [`policy::State`], so
-//!   no sign-in is asked more than once a minute by opening or the timer.
-//!   `r` is not held by the floor, as in fx.
+//!   in flight**: no further request goes out with the old key, and the
+//!   switched dashboard never shows its answer. fx's switch lets the old
+//!   sign-in's fetch finish and caches it for its own identity (`:596-601`).
+//!   The dashboard holds at most one fetch; letting go of it and the worker's
+//!   store race for one compare-and-swap. A worker that loses drops its
+//!   answer. One that won just before -- its answer was already in -- stores
+//!   it under its own identity, which is that answer's own sign-in, never the
+//!   new one's.
+//! - **A switch is a different key, or the same key on another Gateway
+//!   origin**: either cancels the held fetch. The cache entry and the floor
+//!   are the key's, as fx's identity has no origin (`identityOf`,
+//!   `cache.zig:21-35`): the same key on another origin shows the numbers
+//!   cached from the first and waits out the same floor.
+//! - **An answer from a closed generation is never shown but through the
+//!   cache.** Each fetch carries the epoch it started in, and closing moves
+//!   it. A fetch that a close left running stamps its sign-in's floor --
+//!   with the time it failed, not the time it was taken in -- and clears an
+//!   older failure when it stored, as fx's identity compare in `finishJob`
+//!   does (`:587-611`); its numbers and its own failure reach the screen only
+//!   through the cache, as any other process's would. fx's generation counter
+//!   is a redraw counter, kept as one ([`Dashboard::generation`]).
+//! - **The floor is kept per key, across switches.** fx forgets it when the
+//!   sign-in changes (`:465-470`), so switching away and back fetches again
+//!   at once. Here each identity keeps its own [`policy::State`], so no key is
+//!   asked more than once a minute by opening or the timer. `r` is not held by
+//!   the floor, as in fx.
 
 use std::collections::HashMap;
 use std::io;
@@ -79,6 +87,10 @@ pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 /// Starts a fetch's worker thread and hands back its handle. The full-screen
 /// shell's is a closure around `crate::tui::signals::spawn_unsignalled`.
 pub type Spawn = Box<dyn FnMut(report::Job) -> io::Result<JoinHandle<()>> + Send>;
+
+/// Test-only: what a worker runs between its answer and its admission.
+#[cfg(test)]
+type Pause = Arc<dyn Fn() + Send + Sync>;
 
 /// The wall clock.
 pub fn wall_clock() -> Clock {
@@ -176,7 +188,8 @@ struct InFlight {
 enum Done {
     /// Stored, or shown from memory when the cache could not be written.
     Kept(Entry),
-    Failed(Failure),
+    /// Why, and when by the dashboard's clock: the floor counts from then.
+    Failed(Failure, i64),
     /// Cancelled, or not admitted.
     Dropped,
 }
@@ -199,9 +212,13 @@ pub struct Dashboard {
     retired: Vec<JoinHandle<()>>,
     /// The redraw counter.
     generation: u64,
-    /// Moves on every close, switch, unavailable sign-in and quit: an answer
-    /// from an earlier epoch is never shown.
+    /// Moves on every close: an answer from an earlier epoch is shown only
+    /// through the cache.
     epoch: u64,
+    /// Test-only: a pause in every worker between its answer and its
+    /// admission.
+    #[cfg(test)]
+    before_admission: Option<Pause>,
 }
 
 impl std::fmt::Debug for Dashboard {
@@ -237,6 +254,8 @@ impl Dashboard {
             retired: Vec::new(),
             generation: 0,
             epoch: 0,
+            #[cfg(test)]
+            before_admission: None,
         }
     }
 
@@ -244,9 +263,10 @@ impl Dashboard {
     /// `usage.zig:280-289`): shows what is cached for it at once, and fetches
     /// when its floor allows. Never waits on the network.
     ///
-    /// Another sign-in than the one held -- another key, or the same key to
-    /// another origin -- takes effect here: the held sign-in's fetch is
-    /// cancelled and its answer dropped, and nothing of its numbers stays.
+    /// Another sign-in than the one held -- another key, or the same key on
+    /// another origin -- takes effect here: the held fetch is cancelled, and
+    /// what is shown is the new sign-in's cache entry (the key's: the same key
+    /// on another origin keeps its numbers).
     pub fn open(&mut self, question: Question) {
         if self.quit {
             return;
@@ -259,7 +279,6 @@ impl Dashboard {
             held.identity == identity && held.question.origin() == question.origin()
         });
         if !same {
-            self.epoch += 1;
             self.retire_fetch();
             self.entry = self
                 .home
@@ -282,7 +301,6 @@ impl Dashboard {
         }
         self.settle();
         self.open = true;
-        self.epoch += 1;
         self.retire_fetch();
         self.session = None;
         self.entry = None;
@@ -333,7 +351,6 @@ impl Dashboard {
         }
         self.quit = true;
         self.open = false;
-        self.epoch += 1;
         self.retire_fetch();
         self.session = None;
         let deadline = Instant::now() + QUIT_WAIT;
@@ -460,6 +477,8 @@ impl Dashboard {
             clock: Arc::clone(&self.clock),
             cancel: cancel.clone(),
             admission: Arc::clone(&admission),
+            #[cfg(test)]
+            before_admission: self.before_admission.clone(),
         }
         .job(done);
         match (self.spawn)(job) {
@@ -490,8 +509,9 @@ impl Dashboard {
     }
 
     /// Takes in the held fetch's end, if it has ended (`finishJob`,
-    /// `usage.zig:582-615`): its sign-in's floor always, and what it shows only
-    /// when it ended in the generation it started in.
+    /// `usage.zig:582-615`). Always: the floor, with the failure's own time,
+    /// and a stored answer clears the held sign-in's failure. Only when it
+    /// ended in the epoch it started in: its numbers, and its own failure.
     fn settle(&mut self) {
         let Some(fetch) = self.fetch.as_ref() else {
             return;
@@ -499,7 +519,7 @@ impl Dashboard {
         let done = match fetch.done.try_recv() {
             Ok(done) => done,
             Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Disconnected) => Done::Failed(Failure::Network),
+            Err(TryRecvError::Disconnected) => Done::Failed(Failure::Network, self.now_ms()),
         };
         let Some(InFlight {
             identity,
@@ -513,11 +533,19 @@ impl Dashboard {
         self.retired.push(worker);
         let now = self.now_ms();
         let current = epoch == self.epoch;
+        let held = self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.identity == identity);
         match done {
             Done::Kept(kept) => {
                 self.stamp(identity, now, |state| state.failed_at_ms = None);
-                if current {
+                if held {
+                    // A later answer of this sign-in's than any failure shown,
+                    // whichever epoch it ended in (`usage.zig:587-595`).
                     self.failure = None;
+                }
+                if current {
                     // What the worker kept already holds what the dashboard
                     // held and what the file held at the store, and is an
                     // entry the cache reads; the next snapshot merges anything
@@ -525,8 +553,8 @@ impl Dashboard {
                     self.entry = Some(kept);
                 }
             }
-            Done::Failed(failure) => {
-                self.stamp(identity, now, |state| state.failed_at_ms = Some(now));
+            Done::Failed(failure, at_ms) => {
+                self.stamp(identity, now, |state| state.failed_at_ms = Some(at_ms));
                 if current {
                     self.failure = Some(failure);
                 }
@@ -593,6 +621,8 @@ struct Worker {
     clock: Clock,
     cancel: CancellationToken,
     admission: Arc<AtomicU8>,
+    #[cfg(test)]
+    before_admission: Option<Pause>,
 }
 
 impl Worker {
@@ -604,16 +634,19 @@ impl Worker {
     }
 
     /// Fetches, then stores the answer if it is admitted (`fetchAll`,
-    /// `usage.zig:692-711`).
+    /// `usage.zig:692-711`), reading the time under the cache's lock.
     fn run(self) -> Done {
         let ranges = self.plan.ranges();
         let reports = match report::fetch_on_this_thread(&self.question, &ranges, &self.cancel) {
             Outcome::Fetched(reports) => reports,
-            Outcome::Failed(failed) => return Done::Failed(failed.failure),
+            Outcome::Failed(failed) => return Done::Failed(failed.failure, (self.clock)()),
             Outcome::Cancelled => return Done::Dropped,
         };
         let fetched = entry_of(self.plan, self.started_ms, reports);
-        let now = (self.clock)();
+        #[cfg(test)]
+        if let Some(pause) = &self.before_admission {
+            pause();
+        }
         if self
             .admission
             .compare_exchange(LIVE, ADMITTED, Ordering::SeqCst, Ordering::SeqCst)
@@ -625,7 +658,7 @@ impl Worker {
             self.home.as_ref(),
             &self.identity,
             fetched,
-            now,
+            &*self.clock,
             self.held.as_ref(),
         )
     }
@@ -665,17 +698,17 @@ fn keep(
     home: Option<&Home>,
     identity: &Identity,
     fetched: Entry,
-    now: i64,
+    clock: &dyn Fn() -> i64,
     held: Option<&Entry>,
 ) -> Done {
     if let Some(home) = home {
-        match cache::store(home, identity, fetched.clone(), now, held) {
+        match cache::store_now(home, identity, fetched.clone(), clock, held) {
             Ok(stored) => return Done::Kept(stored),
-            Err(StoreError::Invalid) => return Done::Failed(Failure::Cache),
+            Err(StoreError::Invalid) => return Done::Failed(Failure::Cache, clock()),
             Err(StoreError::Refused(_) | StoreError::Io(_)) => {}
         }
     }
-    unsaved(home, identity, fetched, now, held)
+    unsaved(home, identity, fetched, clock(), held)
 }
 
 /// What a fetch shows when the cache cannot be written (`unsaved`,
@@ -699,7 +732,7 @@ fn unsaved(
     if merged.valid() {
         Done::Kept(merged)
     } else {
-        Done::Failed(Failure::Cache)
+        Done::Failed(Failure::Cache, now)
     }
 }
 
