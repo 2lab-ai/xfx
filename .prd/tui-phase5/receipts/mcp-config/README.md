@@ -87,10 +87,30 @@ xfx's note is it, `/.fx/` read as `/.xfx/`:
 | every `--project` write goes to a throwaway repository under the run's TMPDIR (asserted outside `CARGO_MANIFEST_DIR`), never the checkout | `scratch_repo()` in each `update` test |
 | atomic: a `create_new` stage beside the file, synced, renamed over it; the stage removed on any failure; nothing written on any error | `an_edit_that_fails_writes_nothing` (Exists, a key twice, bad JSON, 10,000-deep nesting, servers not an object, not UTF-8, read-only, over 1 MiB, a directory, no workspace), directory listings compared |
 | the file keeps its mode (0664 kept; a new one at 0666 less the umask); the profile 0600 in a 0700 directory | `a_project_edit_replaces_the_file_whole_and_keeps_its_mode`, `the_profiles_first_write_creates_its_directory_readable_only_by_its_owner` |
-| a symlink (inside, outside, dangling) or a file with another hard link is refused before it is read, for both files; the file it points to unchanged | `a_linked_config_file_is_never_edited_whether_a_symlink_or_a_hard_link` |
+| a symlink (inside, outside, dangling) or a file with another hard link is refused before it is read, for both files; the file it points to unchanged (one target isn't JSON, so a read through the link would answer `Unreadable`) | `a_linked_config_file_is_never_edited_whether_a_symlink_or_a_hard_link` |
 | names and link targets reach a sentence only through `crate::mcp::terminal_safe` (a note's name cut at 160 bytes, fx's) | `a_name_in_a_note_is_spelled_for_a_terminal_and_cut_at_160_bytes`; the link test's control-character target |
-| a hostile file cannot run the reader out of stack: 127 levels, `serde_json`'s bound, for both readers | `the_reader_and_the_writer_take_the_same_depth` (200,000 deep refused) |
+| a hostile file cannot run the reader out of stack: 127 levels, `serde_json`'s bound, arrays and objects each, for both readers | `the_reader_and_the_writer_take_the_same_depth` (127 taken, 128 and 200,000 refused) |
 | the writer's JSON reader takes what `serde_json` takes, and writes back the same value | `the_writer_reads_json_as_serde_json_does_and_writes_back_the_same_values` (40,000 generated documents) |
+
+## MCP-Cb: the review round
+
+Both engines' findings (`.../p5/MCP-C/reviews/gpt6.md`, opus's in the brief):
+
+| finding | fix | RED (old code) | GREEN |
+|---|---|---|---|
+| `read_bounded` looked at the path, then read it again unbounded and blocking | one descriptor, opened `O_NONBLOCK`, `fstat`ed as a regular file, read through `read_capped` (at most 1 MiB + 1) | with the look-then-read seam (`read_bounded_then`) in the old shape: grown file read 2,097,154 bytes; swapped file read the 2 MiB replacement; FIFO swap blocked, killed at 15 s (exit 137, `timeout -s KILL` in its own process group) | `a_config_that_grows_…`, `a_config_swapped_…`, `a_config_swapped_for_a_fifo_…`, `a_reader_reads_no_more_than_the_cap_…` (`io::repeat`), `a_fifo_where_a_config_should_be_…` |
+| `update` wrote output past the cap | `render` stops at 1 MiB and returns `EditError::TooLarge`; the original stays | with the check removed: `left: Ok(Added)`, `right: Err(TooLarge)` | `an_edit_that_would_leave_a_file_over_the_cap_…` (add and remove; a 127-deep 400,000-zero file writes under 2 MiB before it stops) |
+| object depth cap untested | objects beside arrays in the depth test | object cap removed: fails at 128 deep | `the_reader_and_the_writer_take_the_same_depth` |
+| stage made at 0666 then narrowed; mode from a second `lstat` | stage born at the target's mode, its exact bits after; mode from the descriptor `read_plain` read | | `a_project_edit_replaces_…` (+ no execute bit) |
+| stage guard armed before `create_new` | guard made after; `replace_through` takes the stage name | | `a_stage_name_already_there_is_never_removed` |
+| no failure after the stage exists was forced | `StageStep` seam, test builds only | | `a_write_that_fails_after_its_stage_exists_…` (write, sync, rename) |
+| profile write `Failed` after its rename landed; unreadable link target given the hard-link sentence | the profile goes through `replace_staged` too (dir sync best effort); `EditError::Symlink(None)` has its own sentence, `HardLink` its own | | the link test |
+
+## For other units
+
+- MCP-V: print `Couldn't add X to FILE: <EditError::why()>`; refuse `--header Authorization=…` with `--project` before `update` (xfx's reader skips such a `.mcp.json` entry); delete `render_profile` / `add_profile_server` / `remove_profile_server` once the verbs call `update`.
+- MCP-M: M1's menu calls a profile note a "project MCP configuration error".
+- MCP-S: the `startup` pair's last row, `MCP config has N problem(s) · /mcp list`.
 
 ## Reproduce
 
@@ -102,13 +122,16 @@ FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  
 cargo test --locked --lib mcp::config
 ```
 
-## Gates (this branch, rustc 1.99.1)
+## Gates (this branch after MCP-Cb, rustc 1.99.1)
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 4566 passed, 0 failed, 7 ignored (14 suites) |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 4587 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo test --locked --no-fail-fast` | 4574 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4595 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
+| `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1091 checks, 0 failures |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |

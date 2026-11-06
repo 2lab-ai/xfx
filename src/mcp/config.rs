@@ -953,18 +953,58 @@ impl ProfileLock {
 
 /// A regular file's text, or `None` when there is no file.
 fn read_bounded(path: &Path) -> io::Result<Option<String>> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
+    read_bounded_then(path, || {})
+}
+
+/// [`read_bounded`], `checked` run once the file has been looked at and
+/// before its bytes are read: where its tests grow or swap the file.
+///
+/// The file is opened once, and that descriptor is what is looked at and what
+/// is read: a path swapped after the look is not read, a FIFO or a device is
+/// refused without blocking (`O_NONBLOCK`), and no more than
+/// [`MAX_CONFIG_BYTES`] are read whatever size the file reported.
+fn read_bounded_then(path: &Path, checked: impl FnOnce()) -> io::Result<Option<String>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Never a controlling terminal, if a link names a terminal device.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err),
     };
+    let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "not a readable config",
         ));
     }
-    fs::read_to_string(path).map(Some)
+    checked();
+    let bytes = read_capped(file)?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "not UTF-8"))
+}
+
+/// At most [`MAX_CONFIG_BYTES`] of `reader`, or an error when it holds more:
+/// the size a file reports bounds nothing it holds (one that grew after it was
+/// looked at, a procfs file that says 0).
+fn read_capped(reader: impl io::Read) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    reader.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_CONFIG_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "larger than a config is read",
+        ));
+    }
+    Ok(bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,12 +1251,18 @@ fn parse_with(text: &str, unique_keys: bool) -> Result<Json, EditError> {
 }
 
 /// `value` as `std.json.Stringify` writes it with `.whitespace = .indent_2`,
-/// and a line break after it (`render`, `config_file.zig:224-230@481104fd`).
-fn render(value: &Json) -> String {
+/// and a line break after it (`render`, `config_file.zig:224-230@481104fd`) --
+/// or [`EditError::TooLarge`] when that is over [`MAX_CONFIG_BYTES`], a file
+/// the reader would refuse. Writing stops at the cap: a file of 1 MiB nested
+/// 127 deep would be some 130 MB written out.
+fn render(value: &Json) -> Result<String, EditError> {
     let mut out = String::new();
     write_value(value, 0, &mut out);
     out.push('\n');
-    out
+    if past_cap(&out) {
+        return Err(EditError::TooLarge);
+    }
+    Ok(out)
 }
 
 fn write_value(value: &Json, level: usize, out: &mut String) {
@@ -1231,6 +1277,9 @@ fn write_value(value: &Json, level: usize, out: &mut String) {
         Json::Array(items) => {
             out.push('[');
             for (index, item) in items.iter().enumerate() {
+                if past_cap(out) {
+                    return;
+                }
                 if index > 0 {
                     out.push(',');
                 }
@@ -1243,6 +1292,9 @@ fn write_value(value: &Json, level: usize, out: &mut String) {
         Json::Object(fields) => {
             out.push('{');
             for (index, (key, item)) in fields.iter().enumerate() {
+                if past_cap(out) {
+                    return;
+                }
                 if index > 0 {
                     out.push(',');
                 }
@@ -1255,6 +1307,12 @@ fn write_value(value: &Json, level: usize, out: &mut String) {
             out.push('}');
         }
     }
+}
+
+/// Whether [`render`] has written past what it may return: each item it
+/// starts adds a line, so it stops before the next one.
+fn past_cap(out: &str) -> bool {
+    out.len() as u64 > MAX_CONFIG_BYTES
 }
 
 fn new_line(level: usize, out: &mut String) {
@@ -1372,10 +1430,16 @@ pub enum EditError {
     BothKeys,
     /// The name is already in the file.
     Exists,
-    /// The file is a symbolic link -- to this, as the link reads -- or has
-    /// another hard link (`None`): replacing it would fork the file it
-    /// shares, and following it could write outside the project.
-    Linked(Option<String>),
+    /// The file is a symbolic link -- to this, as the link reads, when it can
+    /// be read: replacing it would fork the file it points to, and following
+    /// it could write outside the project.
+    Symlink(Option<String>),
+    /// The file has another hard link: replacing it would fork the file the
+    /// other name shares.
+    HardLink,
+    /// The edit would leave a file over 1 MiB, which the reader refuses whole
+    /// at the next launch: a compact file grows when it is written two-space.
+    TooLarge,
     /// The file has no write permission.
     ReadOnly,
     /// Another xfx held `mcp.lock` past upstream's two seconds.
@@ -1401,14 +1465,26 @@ impl EditError {
                 "the file has both \"mcp\" and \"mcpServers\"; merge them into one".into()
             }
             Self::Exists => "that name is already in the file; remove it first".into(),
-            Self::Linked(Some(target)) => {
+            Self::Symlink(Some(target)) => {
                 let target = crate::mcp::terminal_safe(target);
                 format!(
                     "it's a link to {target}, and xfx edits only a plain file; edit {target} by hand"
                 )
             }
-            Self::Linked(None) => {
+            // fx says the hard-link sentence here (`whyNot`, `:307`): it is a
+            // link whose target couldn't be read.
+            Self::Symlink(None) => {
+                "it's a link, and xfx edits only a plain file; edit the file it points to by hand"
+                    .into()
+            }
+            Self::HardLink => {
                 "it has another hard link, and xfx edits only a plain file; edit it by hand".into()
+            }
+            // xfx's own: fx writes such a file and its next launch can't read
+            // it (`readFileToEnd(.., 1024 * 1024)`, `config_file.zig:128@481104fd`).
+            Self::TooLarge => {
+                "the file would be over 1 MiB written out, more than xfx reads; make it smaller by hand first"
+                    .into()
             }
             Self::ReadOnly => "permission denied".into(),
             Self::Busy => "another xfx is changing the MCP config; try again".into(),
@@ -1441,7 +1517,7 @@ pub fn add_entry(
         return Err(EditError::Exists);
     }
     servers.push((name.to_string(), entry_value(entry)));
-    Ok(render(&root))
+    render(&root)
 }
 
 /// The file's text without `name`, or `None` when `name` isn't in it
@@ -1463,7 +1539,7 @@ pub fn remove_entry(file: File, text: &str, name: &str) -> Result<Option<Removed
         _ => None,
     };
     Ok(Some(Removed {
-        text: render(&root),
+        text: render(&root)?,
         url,
     }))
 }
@@ -1562,7 +1638,8 @@ fn pairs(list: &[(String, String)]) -> Json {
 /// `profile_path`, which every MCP config write holds, so two xfx processes
 /// can't lose each other's change. The file is read once, edited, and
 /// replaced whole or not at all: on any error nothing is written. A link,
-/// or a file with another hard link, is refused before it is read.
+/// or a file with another hard link, is refused before it is read; an edit
+/// that would leave a file over 1 MiB is refused too ([`EditError::TooLarge`]).
 pub fn update(
     profile_path: &Path,
     file: File,
@@ -1575,51 +1652,59 @@ pub fn update(
         "McpConfigLockTimeout" => EditError::Busy,
         _ => EditError::Failed,
     })?;
-    let text = read_plain(path)?;
+    let read = read_plain(path)?;
     match change {
         Change::Add { name, entry } => {
-            let next = add_entry(file, text.as_deref(), name, entry)?;
-            replace(file, path, &next)?;
+            let text = read.as_ref().map(|plain| plain.text.as_str());
+            let next = add_entry(file, text, name, entry)?;
+            replace(file, path, read.as_ref(), &next)?;
             Ok(Updated::Added)
         }
         Change::Remove(name) => {
-            let Some(text) = text else {
+            let Some(plain) = &read else {
                 return Ok(Updated::Missing);
             };
-            let Some(removed) = remove_entry(file, &text, name)? else {
+            let Some(removed) = remove_entry(file, &plain.text, name)? else {
                 return Ok(Updated::Missing);
             };
-            replace(file, path, &removed.text)?;
+            replace(file, path, Some(plain), &removed.text)?;
             Ok(Updated::Removed { url: removed.url })
         }
     }
 }
 
-/// [`EditError::Linked`] for a link or a file with another hard link.
+/// [`EditError::Symlink`] for a symbolic link, [`EditError::HardLink`] for a
+/// regular file with another name.
 fn refuse_link(path: &Path, metadata: &fs::Metadata) -> Result<(), EditError> {
     if metadata.file_type().is_symlink() {
         let target = fs::read_link(path)
             .ok()
             .map(|target| target.to_string_lossy().into_owned());
-        return Err(EditError::Linked(target));
+        return Err(EditError::Symlink(target));
     }
     // A directory's own links are its entries', not other names for it.
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         if metadata.is_file() && metadata.nlink() > 1 {
-            return Err(EditError::Linked(None));
+            return Err(EditError::HardLink);
         }
     }
     Ok(())
 }
 
-/// The text of the file an edit replaces, or `None` when there is none:
-/// never a link or a file with another hard link, opened without following
-/// one and checked to be the file looked at, at most 1 MiB
+/// A file an edit read: its text, and the permission bits of the descriptor
+/// it was read through.
+struct Plain {
+    text: String,
+    mode: u32,
+}
+
+/// The file an edit replaces, or `None` when there is none: never a link or
+/// a file with another hard link, opened without following one and without
+/// blocking, checked to be the regular file looked at, at most 1 MiB
 /// (`read`, `config_file.zig:121-129@481104fd`).
-fn read_plain(path: &Path) -> Result<Option<String>, EditError> {
-    use std::io::Read as _;
+fn read_plain(path: &Path) -> Result<Option<Plain>, EditError> {
     let looked = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -1636,7 +1721,7 @@ fn read_plain(path: &Path) -> Result<Option<String>, EditError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_NOCTTY);
     }
     let opened = options.open(path).map_err(|_| EditError::Failed)?;
     let metadata = opened.metadata().map_err(|_| EditError::Failed)?;
@@ -1645,48 +1730,52 @@ fn read_plain(path: &Path) -> Result<Option<String>, EditError> {
     }
     refuse_link(path, &metadata)?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
+    let mode = {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         if (metadata.dev(), metadata.ino()) != (looked.dev(), looked.ino()) {
             return Err(EditError::Failed);
         }
-    }
-    let mut bytes = Vec::new();
-    opened
-        .take(MAX_CONFIG_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| EditError::Failed)?;
-    if bytes.len() as u64 > MAX_CONFIG_BYTES {
-        return Err(EditError::Failed);
-    }
+        metadata.permissions().mode() & 0o777
+    };
+    #[cfg(not(unix))]
+    let mode = if metadata.permissions().readonly() {
+        0o444
+    } else {
+        0o644
+    };
+    let bytes = read_capped(opened).map_err(|_| EditError::Failed)?;
     // Text that isn't UTF-8 isn't JSON (`std.json`'s scanner checks it).
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|_| EditError::Unreadable)
+    let text = String::from_utf8(bytes).map_err(|_| EditError::Unreadable)?;
+    Ok(Some(Plain { text, mode }))
 }
+
+/// The profile's permission bits, whatever they were: owner-only.
+const PRIVATE_FILE_MODE: u32 = 0o600;
 
 /// Replaces the file with `text` (`write`, `config_file.zig:157-171@481104fd`):
 /// checked once more not to be a link; the profile owner-only, as every
 /// profile write is; a project's `.mcp.json`, which the repository shares,
-/// keeping its mode.
-fn replace(file: File, path: &Path, text: &str) -> Result<(), EditError> {
+/// keeping the mode `read` had -- one with no write permission refused, as
+/// fx refuses it (`io.zig:595-598@481104fd`) -- and a new one born at the
+/// default mode less the umask, as fx's is.
+fn replace(file: File, path: &Path, read: Option<&Plain>, text: &str) -> Result<(), EditError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => refuse_link(path, &metadata)?,
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(_) => return Err(EditError::Failed),
     }
-    match file {
-        File::Profile => {
-            let dir = path.parent().ok_or(EditError::Failed)?;
-            crate::provider::profile::replace_private_file(dir, path, text.as_bytes())
-                .map_err(|_| EditError::Failed)
-        }
-        File::Project => replace_shared_file(path, text.as_bytes()),
-    }
+    let mode = match (file, read) {
+        (File::Profile, _) => Some(PRIVATE_FILE_MODE),
+        (File::Project, Some(plain)) if plain.mode & 0o222 == 0 => return Err(EditError::ReadOnly),
+        (File::Project, Some(plain)) => Some(plain.mode),
+        (File::Project, None) => None,
+    };
+    replace_staged(path, text.as_bytes(), mode)
 }
 
 /// A staged file that removes itself unless it was renamed into place: an
-/// edit that fails leaves no part of a file behind.
+/// edit that fails leaves no part of a file behind. Made only once the stage
+/// exists, so it never removes a name this edit did not create.
 struct Stage {
     path: PathBuf,
     committed: bool,
@@ -1701,77 +1790,97 @@ impl Drop for Stage {
     }
 }
 
-/// `writeFileAtomic` (`src/core/shared/io.zig:593-615@481104fd`) for a file
-/// the repository shares: a stage beside it -- `create_new`, never through a
-/// name this edit did not create -- given the file's own mode before any
-/// byte is written, synced, and renamed over it, so a reader sees the old
-/// file or the new one and never a part. A file with no write permission is
-/// refused, as fx refuses it; a new file is born at the default mode less the
-/// umask, as fx's is.
-fn replace_shared_file(path: &Path, bytes: &[u8]) -> Result<(), EditError> {
-    use std::io::Write as _;
-    let failed = |_| EditError::Failed;
+/// A step of [`replace_staged`] after its stage exists, which its test can
+/// make fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StageStep {
+    Write,
+    Sync,
+    Rename,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The step [`replace_staged`] fails at on this thread, in its test.
+    static FAIL_AT: std::cell::Cell<Option<StageStep>> = const { std::cell::Cell::new(None) };
+}
+
+/// `Err` at the step a test armed; nothing in a build that is not a test.
+fn stage_step(step: StageStep) -> Result<(), EditError> {
+    #[cfg(test)]
+    if FAIL_AT.with(std::cell::Cell::get) == Some(step) {
+        return Err(EditError::Failed);
+    }
+    let _ = step;
+    Ok(())
+}
+
+/// `writeFileAtomic` (`src/core/shared/io.zig:593-615@481104fd`): a stage
+/// beside the file -- `create_new`, never through a name this edit did not
+/// create -- born no wider than `mode` (the default mode less the umask for a
+/// new file) and given exactly `mode` before any byte is written, synced, and
+/// renamed over the file, so a reader sees the old file or the new one and
+/// never a part. Once the rename has landed the edit is made: flushing the
+/// directory is best effort, as fx does not flush it at all.
+fn replace_staged(path: &Path, bytes: &[u8], mode: Option<u32>) -> Result<(), EditError> {
     let dir = path
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
         .ok_or(EditError::Failed)?;
     let name = path.file_name().ok_or(EditError::Failed)?;
-    let mode = match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            #[cfg(unix)]
-            let mode = {
-                use std::os::unix::fs::PermissionsExt;
-                metadata.permissions().mode() & 0o777
-            };
-            #[cfg(not(unix))]
-            let mode = if metadata.permissions().readonly() {
-                0
-            } else {
-                0o200
-            };
-            if mode & 0o222 == 0 {
-                return Err(EditError::ReadOnly);
-            }
-            Some(mode)
-        }
-        Err(err) if err.kind() == io::ErrorKind::NotFound => None,
-        Err(_) => return Err(EditError::Failed),
-    };
     let nonce: String = crate::session::new_identifier().chars().take(16).collect();
+    let stage_path = dir.join(format!(
+        "{}.{}.{nonce}{}",
+        name.to_string_lossy(),
+        std::process::id(),
+        crate::session::STAGE_SUFFIX
+    ));
+    replace_through(path, dir, stage_path, bytes, mode)
+}
+
+/// [`replace_staged`] through the stage named `stage_path`.
+fn replace_through(
+    path: &Path,
+    dir: &Path,
+    stage_path: PathBuf,
+    bytes: &[u8],
+    mode: Option<u32>,
+) -> Result<(), EditError> {
+    use std::io::Write as _;
+    let failed = |_| EditError::Failed;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options
+            .mode(mode.unwrap_or(0o666))
+            .custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut staged = options.open(&stage_path).map_err(failed)?;
     let mut stage = Stage {
-        path: dir.join(format!(
-            "{}.{}.{nonce}{}",
-            name.to_string_lossy(),
-            std::process::id(),
-            crate::session::STAGE_SUFFIX
-        )),
+        path: stage_path,
         committed: false,
     };
-    {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o666).custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut staged = options.open(&stage.path).map_err(failed)?;
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt;
-            staged
-                .set_permissions(fs::Permissions::from_mode(mode))
-                .map_err(failed)?;
-        }
-        #[cfg(not(unix))]
-        let _ = mode;
-        staged.write_all(bytes).map_err(failed)?;
-        staged.sync_all().map_err(failed)?;
+    // The umask may have narrowed it; widening a stage that holds nothing yet
+    // to the file's own bits shows nothing.
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
+        staged
+            .set_permissions(fs::Permissions::from_mode(mode))
+            .map_err(failed)?;
     }
+    #[cfg(not(unix))]
+    let _ = mode;
+    stage_step(StageStep::Write)?;
+    staged.write_all(bytes).map_err(failed)?;
+    stage_step(StageStep::Sync)?;
+    staged.sync_all().map_err(failed)?;
+    drop(staged);
+    stage_step(StageStep::Rename)?;
     fs::rename(&stage.path, path).map_err(failed)?;
     stage.committed = true;
-    // The edit is in place; flushing its name is best effort, as fx does not
-    // flush it at all.
     #[cfg(unix)]
     if let Ok(directory) = fs::File::open(dir) {
         let _ = directory.sync_all();
@@ -3074,7 +3183,7 @@ mod tests {
         let text = r#"{"s":"\u0000\u001f\u007f\b\f\n\r\t\"\\\/é😀","kA":[{},[]]}"#;
         let root = parse_document(text).unwrap();
         assert_eq!(
-            render(&root),
+            render(&root).unwrap(),
             "{\n  \"s\": \"\\u0000\\u001f\u{7f}\\b\\f\\n\\r\\t\\\"\\\\/é😀\",\n  \"kA\": [\n    {},\n    []\n  ]\n}\n"
         );
     }
@@ -3145,8 +3254,9 @@ mod tests {
                         continue;
                     }
                     let theirs = theirs.unwrap_or_else(|err| panic!("{text:?}: {err}"));
-                    let written: Value = serde_json::from_str(&render(&ours))
-                        .unwrap_or_else(|err| panic!("{text:?} wrote {:?}: {err}", render(&ours)));
+                    let rendered = render(&ours).unwrap();
+                    let written: Value = serde_json::from_str(&rendered)
+                        .unwrap_or_else(|err| panic!("{text:?} wrote {rendered:?}: {err}"));
                     assert_eq!(written, theirs, "{text:?}");
                     accepted += 1;
                 }
@@ -3166,15 +3276,24 @@ mod tests {
 
     #[test]
     fn the_reader_and_the_writer_take_the_same_depth() {
-        let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
-        let deepest = nested(MAX_JSON_DEPTH);
-        assert!(parse_document(&deepest).is_ok());
-        assert!(serde_json::from_str::<Value>(&deepest).is_ok());
-        let deeper = nested(MAX_JSON_DEPTH + 1);
-        assert_eq!(parse_document(&deeper), Err(EditError::Unreadable));
-        assert!(serde_json::from_str::<Value>(&deeper).is_err());
-        // A file a repository could write, past any stack: refused, not a crash.
-        assert_eq!(parse_document(&nested(200_000)), Err(EditError::Unreadable));
+        // Arrays and objects each: the launch reader runs this one before
+        // `serde_json` (`read_json`), so its cap is the only stack guard.
+        let arrays = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let objects = |depth: usize| format!("{}0{}", "{\"a\":".repeat(depth), "}".repeat(depth));
+        for nested in [&arrays as &dyn Fn(usize) -> String, &objects] {
+            let deepest = nested(MAX_JSON_DEPTH);
+            assert!(parse_document(&deepest).is_ok(), "{}", &deepest[..8]);
+            assert!(serde_json::from_str::<Value>(&deepest).is_ok());
+            let deeper = nested(MAX_JSON_DEPTH + 1);
+            assert_eq!(parse_document(&deeper), Err(EditError::Unreadable));
+            assert!(serde_json::from_str::<Value>(&deeper).is_err());
+            assert!(read_json(&deeper).is_none());
+            // A file a repository could write, past any stack: refused, not a
+            // crash.
+            let hostile = nested(200_000);
+            assert_eq!(parse_document(&hostile), Err(EditError::Unreadable));
+            assert!(read_json(&hostile).is_none());
+        }
     }
 
     /// A throwaway repository under the run's TMPDIR -- never the checkout
@@ -3262,6 +3381,7 @@ mod tests {
             "p2"
         ));
         assert_eq!(mode_of(&path) & 0o600, 0o600);
+        assert_eq!(mode_of(&path) & 0o111, 0, "no execute bit");
         assert_eq!(names_in(&repo), [".git", ".mcp.json"]);
     }
 
@@ -3270,69 +3390,89 @@ mod tests {
     fn a_linked_config_file_is_never_edited_whether_a_symlink_or_a_hard_link() {
         // `config_file.zig:338-375@481104fd`, through `update`: refused
         // before it is read, the file it shares as it was, the link a link.
+        // `outside.json` isn't JSON: an edit that read through the link would
+        // say `Unreadable`, so the refusal before the read is what answers.
         let (dir, repo, profile) = scratch_repo();
         let shared = repo.join("shared.json");
         let outside = dir.path().join("outside.json");
         let original = r#"{"mcpServers":{}}"#;
+        let broken = "{nope";
         fs::write(&shared, original).unwrap();
-        fs::write(&outside, original).unwrap();
+        fs::write(&outside, broken).unwrap();
         let path = project_path(&repo);
         let add = Change::Add {
             name: "p2".into(),
             entry: stdio(&[SCRIPT], &[]),
         };
         let remove = Change::Remove("p2".into());
-        for (target, relative) in [(&shared, "shared.json"), (&outside, "../outside.json")] {
+        for (target, relative, text) in [
+            (&shared, "shared.json", original),
+            (&outside, "../outside.json", broken),
+        ] {
             std::os::unix::fs::symlink(relative, &path).unwrap();
             for change in [&add, &remove] {
                 assert_eq!(
                     update(&profile, File::Project, &path, change),
-                    Err(EditError::Linked(Some(relative.to_string())))
+                    Err(EditError::Symlink(Some(relative.to_string())))
                 );
             }
             assert!(fs::symlink_metadata(&path)
                 .unwrap()
                 .file_type()
                 .is_symlink());
-            assert_eq!(fs::read_to_string(target).unwrap(), original);
+            assert_eq!(fs::read_to_string(target).unwrap(), text);
             fs::remove_file(&path).unwrap();
         }
         assert_eq!(
-            EditError::Linked(Some("shared.json".into())).why(),
+            EditError::Symlink(Some("shared.json".into())).why(),
             "it's a link to shared.json, and xfx edits only a plain file; edit shared.json by hand"
+        );
+        assert_eq!(
+            EditError::Symlink(None).why(),
+            "it's a link, and xfx edits only a plain file; edit the file it points to by hand"
         );
         // A link that points nowhere is a link too.
         std::os::unix::fs::symlink("missing.json", &path).unwrap();
         assert_eq!(
             update(&profile, File::Project, &path, &add),
-            Err(EditError::Linked(Some("missing.json".into())))
+            Err(EditError::Symlink(Some("missing.json".into())))
         );
         assert!(!repo.join("missing.json").exists());
+        fs::remove_file(&path).unwrap();
+        // A second name for a file that isn't JSON: refused before the read.
+        fs::hard_link(&outside, &path).unwrap();
+        for change in [&add, &remove] {
+            assert_eq!(
+                update(&profile, File::Project, &path, change),
+                Err(EditError::HardLink)
+            );
+        }
+        assert_eq!(fs::read_to_string(&outside).unwrap(), broken);
+        assert_eq!(fs::read_to_string(&path).unwrap(), broken);
         fs::remove_file(&path).unwrap();
         fs::hard_link(&shared, &path).unwrap();
         assert_eq!(
             update(&profile, File::Project, &path, &add),
-            Err(EditError::Linked(None))
+            Err(EditError::HardLink)
         );
         assert_eq!(fs::read_to_string(&shared).unwrap(), original);
-        assert_eq!(fs::read_to_string(&path).unwrap(), original);
         assert_eq!(
-            EditError::Linked(None).why(),
+            EditError::HardLink.why(),
             "it has another hard link, and xfx edits only a plain file; edit it by hand"
         );
         // A target with a control character is spelled, not sent.
         assert_eq!(
-            EditError::Linked(Some("x\u{1b}]0;t\u{7}".into())).why(),
+            EditError::Symlink(Some("x\u{1b}]0;t\u{7}".into())).why(),
             "it's a link to x\\x1b]0;t\\x07, and xfx edits only a plain file; edit x\\x1b]0;t\\x07 by hand"
         );
         // The profile is held to the same rule.
         fs::create_dir_all(profile.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(&shared, &profile).unwrap();
+        std::os::unix::fs::symlink(&outside, &profile).unwrap();
         assert!(matches!(
             update(&profile, File::Profile, &profile, &add),
-            Err(EditError::Linked(Some(_)))
+            Err(EditError::Symlink(Some(_)))
         ));
-        assert_eq!(fs::read_to_string(&shared).unwrap(), original);
+        assert_eq!(fs::read_to_string(&outside).unwrap(), broken);
         assert_eq!(names_in(&repo), [".git", ".mcp.json", "shared.json"]);
     }
 
@@ -3687,5 +3827,193 @@ mod tests {
             load_workspace(dir.path(), &Choices::default(), &|_| None).issues,
             [".mcp.json server 'unknown' was skipped: xfx can't read it."]
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the launch reader's bound (`read_bounded`)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_config_that_grows_after_it_is_looked_at_is_not_read_past_the_cap() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, "{}").unwrap();
+        let read = read_bounded_then(&path, || {
+            use std::io::Write as _;
+            let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(&vec![b' '; 2 * MAX_CONFIG_BYTES as usize])
+                .unwrap();
+        });
+        assert!(
+            read.is_err(),
+            "read {} bytes",
+            read.map(|t| t.map_or(0, |t| t.len())).unwrap_or(0)
+        );
+    }
+
+    #[test]
+    fn a_config_swapped_after_it_is_looked_at_is_still_the_file_looked_at() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, r#"{"a":1}"#).unwrap();
+        let big = dir.path().join("big.json");
+        fs::write(&big, vec![b' '; 2 * MAX_CONFIG_BYTES as usize]).unwrap();
+        let read = read_bounded_then(&path, || fs::rename(&big, &path).unwrap());
+        assert_eq!(read.unwrap().as_deref(), Some(r#"{"a":1}"#));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_swapped_for_a_fifo_after_it_is_looked_at_does_not_block_the_read() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, r#"{"a":1}"#).unwrap();
+        let read = read_bounded_then(&path, || {
+            fs::remove_file(&path).unwrap();
+            make_fifo(&path);
+        });
+        assert_eq!(read.unwrap().as_deref(), Some(r#"{"a":1}"#));
+    }
+
+    #[cfg(unix)]
+    fn make_fifo(path: &Path) {
+        use std::os::unix::ffi::OsStrExt;
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    }
+
+    #[test]
+    fn a_reader_reads_no_more_than_the_cap_whatever_the_file_reports() {
+        // `std::io::repeat` never ends: a procfs file that says 0 bytes.
+        assert!(read_capped(std::io::repeat(b' ')).is_err());
+        let exact = vec![b' '; MAX_CONFIG_BYTES as usize];
+        assert_eq!(read_capped(exact.as_slice()).unwrap().len(), exact.len());
+        let over = vec![b' '; MAX_CONFIG_BYTES as usize + 1];
+        assert!(read_capped(over.as_slice()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_where_a_config_should_be_is_refused_without_blocking() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        make_fifo(&path);
+        assert!(read_bounded(&path).is_err());
+        assert_eq!(read_config(&path), Err(EditError::Unreadable));
+        let issues = load_workspace(dir.path(), &Choices::default(), &|_| None).issues;
+        assert_eq!(
+            issues,
+            [".mcp.json server 'unknown' was skipped: xfx can't read it."]
+        );
+    }
+
+    /// A compact file under 1 MiB that is over it written two-space: an
+    /// array of `n` zeroes, each a line of its own when written.
+    fn compact_but_large(servers: &str) -> String {
+        let zeroes = vec!["0"; 400_000].join(",");
+        let text = format!(r#"{{"pad":[{zeroes}],"mcpServers":{servers}}}"#);
+        assert!((text.len() as u64) < MAX_CONFIG_BYTES, "{}", text.len());
+        text
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_edit_that_would_leave_a_file_over_the_cap_is_refused_and_writes_nothing() {
+        let (_dir, repo, profile) = scratch_repo();
+        let path = project_path(&repo);
+        for (text, change) in [
+            (
+                compact_but_large("{}"),
+                Change::Add {
+                    name: "p2".into(),
+                    entry: stdio(&[SCRIPT], &[]),
+                },
+            ),
+            (
+                compact_but_large(r#"{"p2":{"command":"x"}}"#),
+                Change::Remove("p2".into()),
+            ),
+        ] {
+            fs::write(&path, &text).unwrap();
+            assert_eq!(
+                update(&profile, File::Project, &path, &change),
+                Err(EditError::TooLarge),
+                "{change:?}"
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+            assert_eq!(names_in(&repo), [".git", ".mcp.json"]);
+        }
+        // The pure edits say the same, and a hostile file nested to the cap
+        // is not written out in full first (some 130 MB): writing stops there.
+        let large = compact_but_large("{}");
+        let entry = stdio(&[SCRIPT], &[]);
+        assert_eq!(
+            add_entry(File::Project, Some(&large), "p2", &entry),
+            Err(EditError::TooLarge)
+        );
+        let deep = format!(
+            "{{\"mcpServers\":{{}},\"pad\":{}{}{}}}",
+            "[".repeat(MAX_JSON_DEPTH - 1),
+            vec!["0"; 400_000].join(","),
+            "]".repeat(MAX_JSON_DEPTH - 1)
+        );
+        assert!((deep.len() as u64) < MAX_CONFIG_BYTES);
+        let root = parse_document(&deep).unwrap();
+        let mut out = String::new();
+        write_value(&root, 0, &mut out);
+        assert!(out.len() < 2 * MAX_CONFIG_BYTES as usize, "{}", out.len());
+        assert_eq!(
+            add_entry(File::Project, Some(&deep), "p2", &entry),
+            Err(EditError::TooLarge)
+        );
+        assert_eq!(
+            EditError::TooLarge.why(),
+            "the file would be over 1 MiB written out, more than xfx reads; make it smaller by hand first"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_that_fails_after_its_stage_exists_leaves_no_stage_and_the_file_as_it_was() {
+        let (_dir, repo, profile) = scratch_repo();
+        let path = project_path(&repo);
+        let before = oracle!("config-work-before.mcp.json");
+        fs::write(&path, before).unwrap();
+        let add = Change::Add {
+            name: "p2".into(),
+            entry: stdio(&[SCRIPT], &[]),
+        };
+        for step in [StageStep::Write, StageStep::Sync, StageStep::Rename] {
+            FAIL_AT.with(|cell| cell.set(Some(step)));
+            let result = update(&profile, File::Project, &path, &add);
+            FAIL_AT.with(|cell| cell.set(None));
+            assert_eq!(result, Err(EditError::Failed), "{step:?}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), before, "{step:?}");
+            assert_eq!(names_in(&repo), [".git", ".mcp.json"], "{step:?}");
+        }
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Ok(Updated::Added)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stage_name_already_there_is_never_removed() {
+        // The guard is made only once `create_new` has made the stage, so a
+        // name this edit did not create -- here, one already at the stage's
+        // name -- stays as it was, and so does the file.
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, "{}").unwrap();
+        let taken = dir.path().join(".mcp.json.taken.staged");
+        fs::write(&taken, "someone else's").unwrap();
+        assert_eq!(
+            replace_through(&path, dir.path(), taken.clone(), b"{\"a\":1}", None),
+            Err(EditError::Failed)
+        );
+        assert_eq!(fs::read_to_string(&taken).unwrap(), "someone else's");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
     }
 }
