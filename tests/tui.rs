@@ -5469,92 +5469,6 @@ fn credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
-/// A turn whose stream named its generation and not its cost is pending
-/// until the Gateway gives the bill by id, asked again while it says it has
-/// not written it yet (`GET {origin}/v1/generation?id=`,
-/// `vercel-labs/fx@c1db9191 src/gateway/client.zig:285-372`, retried as
-/// `generation_usage.zig:58-67` and `session_usage.zig:3322-3423` say), and
-/// not again once it has. (The local ledger U5 retires; `/usage` reads the
-/// provider's report since v0.0.16 and shows none of it.)
-#[test]
-fn a_bill_that_comes_later_is_asked_for_by_generation_until_answered() {
-    const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
-    let deferred = support::fake_gateway::sse_body(&[
-        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
-                "timestamp": iso_utc_minutes_ago(1) }),
-        support::fake_gateway::text_delta("answer_0", "MARKER-DEFERRED"),
-        serde_json::json!({
-            "type": "finish",
-            "finishReason": { "unified": "stop", "raw": "stop" },
-            "usage": {
-                "inputTokens": { "total": 12000, "cacheRead": 4000 },
-                "outputTokens": { "total": 800, "reasoning": 0 }
-            },
-            "providerMetadata": { "gateway": { "generationId": GENERATION } }
-        }),
-    ]);
-    let record = serde_json::json!({ "data": {
-        "id": GENERATION,
-        "model": "fake/model-a",
-        "created_at": iso_utc_minutes_ago(1),
-        "total_cost": 0.0125,
-        "native_tokens_prompt": 8000,
-        "native_tokens_completion": 800,
-        "native_tokens_cached": 4000,
-        "native_tokens_cache_creation": 0,
-        "native_tokens_reasoning": 0,
-        "billable_web_search_calls": 0
-    } });
-    let gateway = FakeGateway::start(vec![
-        support::fake_gateway::Reply::Sse(deferred),
-        // Not written yet, twice: asked again a second apart.
-        support::fake_gateway::Reply::Status(404, "not found".to_string()),
-        support::fake_gateway::Reply::Status(404, "not found".to_string()),
-        support::fake_gateway::Reply::Sse(record.to_string()),
-    ]);
-    let sandbox = Sandbox::new();
-    let pty = Pty::open();
-    pty.resize(40, 120);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
-    session.wait_for(READY);
-
-    session.type_bytes(b"count this\r");
-    session.wait_for("MARKER-DEFERRED");
-    session.wait_for("\u{2191}");
-    // The third ask gets the bill.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    while gateway.request_count() < 4 {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the bill was not asked for again: {:?}",
-            gateway
-                .requests()
-                .iter()
-                .map(|request| request.path.clone())
-                .collect::<Vec<_>>()
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-
-    let asked = gateway.requests();
-    for lookup in &asked[1..] {
-        assert_eq!(
-            (lookup.method.as_str(), lookup.path.as_str()),
-            ("GET", format!("/v1/generation?id={GENERATION}").as_str())
-        );
-        assert_eq!(
-            lookup.header("authorization"),
-            Some(format!("Bearer {}", support::sandbox::TEST_KEY).as_str())
-        );
-    }
-
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
-    // Asked until answered, and not again.
-    assert_eq!(gateway.request_count(), 4);
-}
-
 /// No provider was chosen, so the Gateway's key goes nowhere: not with the
 /// turn, which refuses before it is built (`Bundle::select`), and not beside
 /// it either -- not for the catalog read at launch, not for the title the
@@ -5598,12 +5512,13 @@ fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
     assert!(!session.settled_text().contains(support::sandbox::TEST_KEY));
 }
 
-/// A session holding a bill still to be asked for, resumed under a provider
-/// selection xfx cannot read, asks the Gateway nothing about it: a bill is
-/// asked with the key a turn sends, and no turn can be. Red before: the
-/// resume asked `GET /v1/generation?id=` with the key.
+/// A session whose turn's stream named its generation and no cost, resumed
+/// under a provider selection xfx cannot read, asks the Gateway nothing: no
+/// turn can be sent, and nothing beside one is (a bill was, until US-U5 retired
+/// the ledger: `GET /v1/generation?id=` with the key; none is asked anywhere
+/// now, `tests/ledger_compat.rs`).
 #[test]
-fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
+fn a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing() {
     const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ3";
     let deferred = support::fake_gateway::sse_body(&[
         serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
@@ -5619,8 +5534,8 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
             "providerMetadata": { "gateway": { "generationId": GENERATION } }
         }),
     ]);
-    // "Not written yet" for as long as the first session is open, so it is
-    // left with the bill pending.
+    // Answers for anything asked after the turn, so an ask is counted rather
+    // than refused.
     let mut script = vec![support::fake_gateway::Reply::Sse(deferred)];
     script.extend((0..40).map(|_| support::fake_gateway::Reply::Status(404, "not found".into())));
     let gateway = FakeGateway::start(script);
@@ -5631,16 +5546,12 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
     first.wait_for(READY);
     first.type_bytes(b"count this\r");
     first.wait_for("MARKER-DEFERRED");
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
-    while gateway.request_count() < 2 {
-        assert!(Instant::now() < deadline, "the bill was never asked for");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    wait_for_the_turn_to_conclude(&sandbox);
     first.type_bytes(&[0x04]);
     assert_eq!(first.wait_exit().code(), Some(0));
     let ids = sandbox.session_ids();
     assert_eq!(ids.len(), 1, "{ids:?}");
-    // Counted once the count has held still for half a second, so a lookup
+    // Counted once the count has held still for half a second, so a request
     // the first process sent on its way out is not taken for one the resume
     // sent.
     let mut before = gateway.request_count();
@@ -5663,8 +5574,8 @@ fn a_pending_bill_resumed_under_an_unreadable_provider_is_not_asked_for() {
     let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
     second.wait_for(READY);
     second.wait_for("session resumed:");
-    // A bill is asked the moment its session is opened, before the first
-    // round's second has passed: past it, nothing has been.
+    // A bill was asked the moment its session was opened, before a second
+    // had passed: past it, nothing has been.
     std::thread::sleep(std::time::Duration::from_millis(1500));
     let asked = sent(&gateway.requests()[before..]);
     assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
@@ -11325,25 +11236,28 @@ fn compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it(
         "the kept turn was compacted"
     );
 
-    // What the notes request cost is in the session's `/usage` record, in a
-    // frame of its own just before the checkpoint: it answered no turn, so it
-    // carries no turn's totals (`app_agent_runtime.zig:1127`).
+    // The notes request writes no frame of its own: the local usage ledger
+    // that kept its cost is retired (US-U5), as upstream's is (`a41fc2d4`).
+    // The checkpoint follows the second turn's conclusion, and the log holds
+    // one `usage_recorded` per turn.
     let frames = session_frames(&sandbox);
     let at = frames
         .iter()
         .position(|frame| frame["event"]["kind"] == "context_checkpoint")
         .expect("the checkpoint");
-    let usage = &frames[at - 1]["event"];
-    assert_eq!(usage["kind"], "usage_recorded", "{usage}");
-    assert!(
-        usage.get("input_tokens").is_none_or(Value::is_null),
-        "{usage}"
+    assert_eq!(
+        frames[at - 1]["event"]["kind"],
+        "turn_concluded",
+        "{}",
+        frames[at - 1]
     );
-    let billed = usage["requests"].as_array().expect("requests");
-    assert_eq!(billed.len(), 1, "{usage}");
-    // The sandbox's model (`support::sandbox`), which the request names in a
-    // header rather than its body.
-    assert_eq!(billed[0]["model"], "zai/glm-5.2", "{usage}");
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| frame["event"]["kind"] == "usage_recorded")
+            .count(),
+        2
+    );
 
     // The checkpoint covers the first turn and keeps its exact texts.
     let frame = checkpoints(&sandbox).remove(0);
@@ -12608,12 +12522,14 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
         .iter()
         .position(|frame| frame["event"]["text"] == "second question")
         .expect("the stopped turn's prompt was recorded");
-    // The notes request was stopped after it was sent, so it may have been
-    // billed with nothing to say for how much: the turn's `/usage` record
-    // says so (`ambiguous_delivery`, `session_usage.zig:43-53`).
+    // The notes request was stopped after it was sent, so it may have reached
+    // a model (`ambiguous_delivery`, `session_usage.zig:43-53@c1db9191`): the
+    // turn writes its frame -- no totals, its summary row's output -- and,
+    // with the ledger retired (US-U5), nothing about what it cost.
     let usage = &frames[asked + 1]["event"];
     assert_eq!(usage["kind"], "usage_recorded", "{usage}");
-    assert_eq!(usage["unaccounted"], true, "{usage}");
+    assert!(usage.get("unaccounted").is_none(), "{usage}");
+    assert!(usage["turn_output_tokens"].is_u64(), "{usage}");
     let concluded = &frames[asked + 2]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
