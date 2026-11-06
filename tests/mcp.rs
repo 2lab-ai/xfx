@@ -4,8 +4,9 @@
 //!
 //! The claims are the ones a person and a model can check: the menu names the
 //! configured server and its state, a turn's request carries upstream's servers
-//! block and meta-tools and -- once a search selects it -- the server's own
-//! tool, and the tool's answer is what reaches the next request.
+//! block and meta-tools and -- once a search selects it, or the model calls it
+//! by name -- the server's own tool, and the tool's answer is what reaches the
+//! next request.
 
 #![cfg(unix)]
 
@@ -58,6 +59,26 @@ fn system_texts(body: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Opens `/mcp`, waits for the fixture's row to say it is ready, and closes
+/// the menu again, so a turn typed next finds the server up.
+fn wait_until_ready_in_the_menu(session: &mut Session) {
+    session.type_bytes(b"/mcp\r");
+    session.wait_for("[Servers]");
+    // The row may first be painted `Reloading` while the server starts; the
+    // frame that follows rewrites only the cells that change, `ady    `.
+    session.wait_until("the server row to say Ready", |text| {
+        text.contains("Ready") || (text.contains("Reloading") && text.contains("ady    "))
+    });
+    session.wait_for("stdio \u{b7} Profile");
+    // Esc closes the menu once it is known to be a lone Esc (50 ms of
+    // quiet); a letter typed before that would make it Alt+letter. The hint
+    // row painted back -- the model's name on it, which the open menu's key
+    // help replaced -- is what says it settled.
+    let shown = session.text().matches(MODEL).count();
+    session.type_bytes(b"\x1b");
+    session.wait_for_count(MODEL, shown + 1);
+}
+
 fn tool_names(body: &Value) -> Vec<String> {
     body["tools"]
         .as_array()
@@ -96,22 +117,7 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
     pty.resize(40, 120);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
     session.wait_for(READY);
-
-    session.type_bytes(b"/mcp\r");
-    session.wait_for("[Servers]");
-    // The row may first be painted `Reloading` while the server starts; the
-    // frame that follows rewrites only the cells that change, `ady    `.
-    session.wait_until("the server row to say Ready", |text| {
-        text.contains("Ready") || (text.contains("Reloading") && text.contains("ady    "))
-    });
-    session.wait_for("stdio \u{b7} Profile");
-    // Esc closes the menu once it is known to be a lone Esc (50 ms of
-    // quiet); a letter typed before that would make it Alt+letter. The hint
-    // row painted back -- the model's name on it, which the open menu's key
-    // help replaced -- is what says it settled.
-    let shown = session.text().matches(MODEL).count();
-    session.type_bytes(b"\x1b");
-    session.wait_for_count(MODEL, shown + 1);
+    wait_until_ready_in_the_menu(&mut session);
 
     session.type_bytes(b"use the echo tool\r");
     session.wait_for("MARKER-MCP-DONE");
@@ -122,16 +128,22 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
     let requests = gateway.requests();
     assert_eq!(requests.len(), 3, "one request per step");
     let first = requests[0].json();
+    // No `tools="1"` yet: fx v0.0.16 names a count only once its catalog has
+    // read the server's list (`p5-mcp-turn`'s bodies).
     assert!(
         system_texts(&first).iter().any(|text| text.ends_with(
-            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n"
+            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" />\n</mcp_servers>\n"
         )),
         "{first:#}"
     );
     let names = tool_names(&first);
-    for meta in ["capability_search", "mcp_select_tool", "mcp_features"] {
+    for meta in ["capability_search", "mcp_select_tool"] {
         assert!(names.iter().any(|name| name == meta), "{names:?}");
     }
+    assert!(
+        !names.iter().any(|name| name == "mcp_features"),
+        "{names:?}"
+    );
     assert!(
         !names.iter().any(|name| name == "mcp_fixture_echo"),
         "advertised before it was selected"
@@ -152,9 +164,88 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
     let third = requests[2].json();
     let wire = third.to_string();
     assert!(
-        wire.contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}]}}"#),
+        wire.contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}],\"isError\":false}}"#),
         "{third:#}"
     );
+}
+
+#[test]
+fn a_tool_the_model_calls_by_name_runs_without_a_search_and_its_count_is_known_next_turn() {
+    // fx v0.0.16 (`0fb5cb8e`, `p5-mcp-direct`): a live tool called with no
+    // search or selection is selected then, judged as any MCP call -- here a
+    // rule admits it in `auto` -- and run; its schema is in the next request,
+    // and the next turn's servers block counts the server's tools.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("e1", "mcp_fixture_echo", json!({"text": "hi"})),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-MCP-DIRECT"])),
+        Reply::Sse(content_only(&["MARKER-MCP-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    profile(
+        &sandbox,
+        &json!({"mcp": {"fixture": {"type": "local", "command": ["/bin/sh", fixture()]}}}),
+        &json!({"permission": {"mcp_fixture_echo": "allow"}}),
+    );
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
+    session.wait_for(READY);
+    wait_until_ready_in_the_menu(&mut session);
+
+    session.type_bytes(b"call the echo tool\r");
+    session.wait_for("MARKER-MCP-DIRECT");
+    session.type_bytes(b"and again\r");
+    session.wait_for("MARKER-MCP-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3, "two steps, then one");
+    let first = requests[0].json();
+    assert!(!tool_names(&first)
+        .iter()
+        .any(|name| name == "mcp_fixture_echo"));
+    let unread = "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" />\n</mcp_servers>\n";
+    assert!(
+        system_texts(&first)
+            .iter()
+            .any(|text| text.ends_with(unread)),
+        "{first:#}"
+    );
+
+    let second = requests[1].json();
+    assert!(
+        tool_names(&second)
+            .iter()
+            .any(|name| name == "mcp_fixture_echo"),
+        "the tool called by name is advertised from the next step on"
+    );
+    assert!(
+        second.to_string().contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}],\"isError\":false}}"#),
+        "{second:#}"
+    );
+    // The block is the turn's, so the second step still has no count.
+    assert!(
+        system_texts(&second)
+            .iter()
+            .any(|text| text.ends_with(unread)),
+        "{second:#}"
+    );
+
+    let next = requests[2].json();
+    assert!(
+        system_texts(&next).iter().any(|text| text.ends_with(
+            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n"
+        )),
+        "{next:#}"
+    );
+    // A new turn starts with nothing selected.
+    assert!(!tool_names(&next)
+        .iter()
+        .any(|name| name == "mcp_fixture_echo"));
 }
 
 #[test]

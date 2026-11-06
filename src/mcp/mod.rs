@@ -6,9 +6,9 @@
 //! (`vercel-labs/fx@c1db9191 src/core/mcp/`): stdio servers and streamable
 //! HTTP servers without OAuth, upstream's legacy `initialize` handshake as its
 //! default, upstream's profile file and project trust, and upstream's
-//! model-facing surface -- a servers block and three meta-tools, with a
-//! server's own tools advertised only once a search or an explicit selection
-//! picks them ([`catalog`]).
+//! model-facing surface -- a servers block and two meta-tools, with a
+//! server's own tools advertised only once a search, an explicit selection
+//! or a direct call picks them ([`catalog`]).
 //!
 //! | piece | what it is |
 //! |---|---|

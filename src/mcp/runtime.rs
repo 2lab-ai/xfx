@@ -370,6 +370,12 @@ pub struct Server {
     /// reload that read it built the server ([`shown_entry`]): every view
     /// shares it rather than spelling the entry again per frame.
     entry: Option<Arc<ShownEntry>>,
+    /// Whether the model's catalog has read its tool list
+    /// ([`crate::mcp::catalog::servers_block`]), as fx's catalog keeps one
+    /// list state per server (`vercel-labs/fx@481104fd
+    /// src/core/mcp_host/model.zig:56-70`): carried with the server by a
+    /// reload that keeps it, and not by one that starts it anew (`:101-125`).
+    tools_known: AtomicBool,
 }
 
 impl Server {
@@ -403,7 +409,19 @@ impl Server {
             stopped: AtomicBool::new(false),
             claimed: AtomicBool::new(false),
             entry,
+            tools_known: AtomicBool::new(false),
         })
+    }
+
+    /// Whether the model's catalog has read its tool list.
+    pub fn tools_known(&self) -> bool {
+        self.tools_known.load(Ordering::Acquire)
+    }
+
+    /// Records what the model's catalog last read of its tool list: the
+    /// list (`true`), or a failure or a needed login (`false`).
+    pub fn set_tools_known(&self, known: bool) {
+        self.tools_known.store(known, Ordering::Release);
     }
 
     fn live(&self) -> std::sync::MutexGuard<'_, Live> {

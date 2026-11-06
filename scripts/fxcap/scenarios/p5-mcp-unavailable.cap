@@ -1,0 +1,16 @@
+# p5 mcp: a search that matches no tool while a server could not start
+# (47154a8f): what the model is told of the server it could not look in.
+# `bad` writes to stderr and exits 3 at start (p5-mcp-fail-profile.json).
+# The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
+# `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+fx: homefile .fx/mcp.json p5-mcp-fail-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-fail-profile.json
+gateway p5-mcp-unavailable-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 13
+type look for a weather forecast tool
+key Enter
+wait 20
+snap turn
+gwlog
