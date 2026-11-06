@@ -53,9 +53,16 @@ server when xfx hangs up, and it does not cause either failure.
   `Trial.wait_for` use, so a wait can no longer return on a frame that the
   next grid will not show.
 - 3b checks the marker and `chunk-0` against `Grid.document_text()`, the
-  screen plus its scrollback.
-- 3d waits for the frame the tick after a recovery owes, asserts that frame,
-  and counts openers and closers only through the rebuild's own close.
+  screen plus its scrollback, and checks that the marker comes first.
+- 3d waits for the frame the tick after a recovery owes, and counts openers
+  and closers only through the rebuild's own close. That forced frame must
+  be one whole frame right behind the rebuild, with no second cleanup vector
+  in between.
+- 3d reads the rebuilt screen only up to the rebuild's close, as 3e does,
+  because the forced frame rewrites every band row. It then requires the
+  forced frame to show the same screen and caret.
+- `oracle_test.py` checks every boundary of `through_closed_frames`, in bytes
+  and in text.
 - `LoopbackHTTPServer.handle_error` no longer prints `ConnectionResetError`
   or `BrokenPipeError`.
 
@@ -91,9 +98,28 @@ its own marker from a raw wait and then asserted it on a complete-frame
 grid: the same cause as 3b. On this branch all five pass.
 
 The full suite on this branch (`scripts/smoke-tui.sh`, the release binary
-and the fault-injection binary) ran 37 scenarios plus the oracle, with 1092
-checks and 0 failures. It wrote helpers byte-identical to the ones the loops
+and the fault-injection binary) ran 37 scenarios plus the oracle with 0
+failures: 1092 checks in the first version, 1105 after the review round. It wrote helpers byte-identical to the ones the loops
 ran, and no scenario log carries a traceback.
+
+## Review round (FLAKE-b)
+
+The first version waited for the forced frame and then read the rebuilt
+screen from the whole capture. That grid always included the forced frame,
+so a rebuild with a wrong row passed. A scratch binary whose rebuild drops
+its last row (never committed) shows the gap:
+
+| helpers | 3d against that binary |
+|---|---|
+| first version (`61760228`) | 0/10 failed: the bad rebuild passed |
+| this round | 10/10 failed: hint, band, composer and forced-frame checks |
+
+The new `oracle_test.py` boundary check reports 7 problems for a cut that
+searches every byte, 4 for a cut at the first opener, and 0 for the real
+cut.
+
+The same table's loops on this round's helpers: 3d with `late:0.02` 0/60,
+3d with `short:256` 0/60, 3b with `short:256` 0/60.
 
 ## Re-run
 
