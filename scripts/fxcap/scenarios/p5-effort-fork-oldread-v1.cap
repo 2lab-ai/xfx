@@ -1,0 +1,27 @@
+fx: env FX_AUTO_UPGRADE=0
+# What an fx without /fork does with a v0.0.16 fork: the store as a
+# v0.0.16 run left it (a source and its fork, both under sessions/v2), and
+# this binary on its default store -- its picker, then `--resume <fork id>`.
+gateway p5-effort-fork-turns.json
+homefile .fx/sessions/v2/index.jsonl p5-effort-fork-v2-index.jsonl
+homefile .fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl p5-effort-fork-v2-source.jsonl
+homefile .fx/sessions/v2/HU7p6L-En72Q/log.jsonl p5-effort-fork-v2-fork.jsonl
+wait 3
+snap launch
+type /resume
+key Enter
+wait 2
+snap picker
+key Tab
+wait 1
+snap picker-all
+key Escape
+wait 0.5
+keep
+type /quit
+key Enter
+wait 2
+relaunch --resume HU7p6L-En72Q
+wait 4
+snap resume-id
+home end

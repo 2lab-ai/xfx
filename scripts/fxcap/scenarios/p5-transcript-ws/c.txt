@@ -1,0 +1,12 @@
+c line 1 of the c file
+c line 2 of the c file
+c line 3 of the c file
+c line 4 of the c file
+c line 5 of the c file
+c line 6 of the c file
+c line 7 of the c file
+c line 8 of the c file
+c line 9 of the c file
+c line 10 of the c file
+c line 11 of the c file
+c line 12 of the c file

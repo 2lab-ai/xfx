@@ -1,0 +1,13 @@
+# p5 usage (v0.0.16): /usage with no credential at all (the harness's
+# AI_GATEWAY_API_KEY blanked; a blank value counts as unset).
+env AI_GATEWAY_API_KEY=
+models models.json
+wait 3
+snap start
+type /usage
+key Enter
+wait 3
+snap open
+key Escape
+wait 0.5
+snap closed

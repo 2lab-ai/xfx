@@ -1,0 +1,55 @@
+# Phase 5 panels: `/status` as a footer panel (fx 8a964aca, 20331680).
+# At launch (a session open, not saved yet), the keys the panel takes and
+# swallows, Enter and Escape closing it, `/status now`, then a turn, the panel
+# after it, and the panel left open while a second turn runs and ends.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-panels-turn.json
+wait 2
+type /status
+wait 0.5
+key Enter
+wait 1.5
+snap open
+key Down
+wait 0.4
+snap down
+type x
+wait 0.4
+snap typed
+key Enter
+wait 0.6
+snap enter-closed
+type /status
+key Enter
+wait 1
+key Escape
+wait 0.6
+snap esc-closed
+type /status now
+key Enter
+wait 1
+snap status-now
+key C-u
+wait 0.3
+type say the marker
+key Enter
+wait 4
+snap turn
+type /status
+key Enter
+wait 1
+snap after-turn
+key Escape
+wait 0.5
+type second turn please
+key Enter
+wait 1.5
+type /status
+key Enter
+wait 1
+snap open-midturn
+wait 7
+snap open-after-midturn
+key Escape
+wait 0.5
+snap closed-final

@@ -1,0 +1,18 @@
+# Phase 5 transcript research: Ctrl-O entry times (c9bc4876): UTC on c1db919,
+# the local zone on v0.0.16. TZ=Asia/Kolkata has no plain abbreviation in
+# fx's table, so v0.0.16 should print the +0530 offset.
+gateway p5-transcript-tz-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+env TZ=Asia/Kolkata
+work p5-transcript-ws
+wait 4
+type read it
+wait 1
+key Enter
+wait 4
+key C-o
+wait 2
+snap full
+key C-o
+wait 1

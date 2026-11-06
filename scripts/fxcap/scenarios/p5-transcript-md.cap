@@ -1,0 +1,25 @@
+# Phase 5 transcript research: an answer with an ordered list of twelve items,
+# a list that starts at 9 (so 9/10/11 differ in width), inline code in prose,
+# in list items and in a bullet, a nested bullet and a code block. Inline
+# code's colour is the change (5e32bce2: 245 -> 255 dark); ordered-number
+# alignment (641f3f45) is post-v0.0.16, so old and new should agree there.
+# Ctrl-O shows the same answer in the full transcript, with its header time.
+gateway p5-transcript-md-turns.json
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type show me the list
+wait 1
+key Enter
+wait 12
+snap answered
+snapfull answered
+key C-o
+wait 2
+snap full
+key PPage
+wait 1
+snap full-pgup
+key C-o
+wait 1
+snap closed
+gwlog

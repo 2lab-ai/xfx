@@ -1,0 +1,26 @@
+# Phase 5 lifecycle: OSC 7501 around a manual /compact. Nothing to compact
+# first (no_op: no report), then a real compaction (working, then done).
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-compactok-turns.json
+work compact-ws
+wait 4
+type /compact
+key Enter
+wait 2
+wire w00-noop
+snap c00-noop
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire w01-answered
+type /compact
+key Enter
+wait 0.6
+wire w02-compacting
+snap c02-compacting
+wait 3.5
+wire w03-compacted
+snap c03-compacted

@@ -1,0 +1,68 @@
+fx: env FX_AUTO_UPGRADE=0
+# /fork's refusals and edges: at launch, with an argument, mid-turn; an
+# edit closing the menu; a fork before the first prompt (an empty session),
+# /status and /resume on it, and /fork in it.
+gateway p5-effort-fork-slow-turns.json
+wait 3
+type /fork
+key Enter
+wait 1
+snap at-launch
+paste /fork 2
+wait 0.4
+key Enter
+wait 1
+snap with-arg
+type slow turn please
+key Enter
+wait 1.5
+type /fork
+key Enter
+wait 1
+snap midturn
+wait 9
+type quick second
+key Enter
+wait 3
+type /fork
+key Enter
+wait 1
+snap menu
+type x
+wait 0.5
+snap edit-closes
+key C-u
+wait 0.3
+type /fork
+key Enter
+wait 1
+key Up
+wait 0.3
+key Enter
+wait 3
+snap forked-first
+snapfull forked-first
+key C-u
+wait 0.3
+type /status
+key Enter
+wait 1
+snap status-empty
+key Escape
+wait 0.5
+type /fork
+key Enter
+wait 1
+snap fork-of-empty
+type /resume
+key Enter
+wait 2
+snap resume
+key Escape
+wait 0.5
+keep
+type /quit
+key Enter
+wait 2
+snap quit
+home end

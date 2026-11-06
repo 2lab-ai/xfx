@@ -1,0 +1,97 @@
+"on":
+  push:
+    branches: [main]
+    paths: [.github/preview-epoch]
+  workflow_dispatch:
+
+name: Sweep (full)
+
+# Every scenario on fx v0.0.16 and on xfx, at each epic's preview: the same
+# path filter preview.yml publishes on, so the scoreboard that goes with a
+# preview is measured on the commit it publishes. Also by hand.
+#
+# Report-only: the scoreboard is the program's measured number
+# (.prd/07-fx-parity-program.md, Measurement), uploaded as an artifact and
+# written into the run's summary. The job fails only when the sweep could not
+# be made -- an fx whose sha256 is not the pin, a refused sweep -- never on the
+# numbers. The per-change gate is sweep.yml.
+#
+# No secret and no write access, as sweep.yml.
+
+concurrency:
+  group: sweep-full-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  full:
+    name: full sweep (fx v0.0.16, macOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Confirm the checkout
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "${GITHUB_SHA}" ]; then
+            echo "checked out $actual, expected ${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          echo "sweeping $actual"
+
+      - name: Fetch fx v0.0.16 and bun, each checked by sha256
+        run: |
+          set -euo pipefail
+          ./scripts/fxcap/ci-fetch.sh "$RUNNER_TEMP/tools"
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Install tmux
+        run: |
+          set -euo pipefail
+          brew install tmux
+          tmux -V
+          python3 -c 'import sys, tomllib; print("python", sys.version.split()[0])'
+
+      - name: Install the toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Build xfx
+        run: |
+          set -euo pipefail
+          cargo build --locked
+          target/debug/xfx --version
+
+      - name: Sweep every scenario
+        run: |
+          set -euo pipefail
+          ./scripts/fxcap/ci-sweep.sh --full \
+            --fx "$RUNNER_TEMP/tools/bin/fx" --pin v0.0.16 \
+            --xfx "$PWD/target/debug/xfx" \
+            --jobs 3 --tmp "$RUNNER_TEMP" --out "$RUNNER_TEMP/sweep"
+
+      - name: Keep the scoreboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-full-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/sweep/full/scoreboard.md
+            ${{ runner.temp }}/sweep/full/scoreboard.json
+            ${{ runner.temp }}/sweep/full/summary.md
+            ${{ runner.temp }}/sweep/full/inventory.json
+          if-no-files-found: ignore
+          retention-days: 90

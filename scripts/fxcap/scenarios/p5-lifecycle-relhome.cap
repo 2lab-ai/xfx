@@ -1,0 +1,13 @@
+# Phase 5 lifecycle: a relative HOME (21a55a45 treats it as unset). `fx
+# sessions` from inside the run's workspace, then what the workspace holds.
+env HOME=relative/home
+keep
+wait 3
+snap h00-launch
+type /quit
+key Enter
+wait 2
+relaunch sessions
+wait 4
+snapfull h01-sessions
+workls h02

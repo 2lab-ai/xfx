@@ -1,0 +1,34 @@
+# Phase 5 input cluster: /model over a catalog with -fast ids and Fast-mode
+# rows (25607a8f/b9a75a90 are post-release; v0.0.16 should equal c1db919
+# there), then fuzzy search (f9ddaff8).
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-models.json
+wait 4
+type /model
+key Enter
+wait 2
+snap model
+type cs45
+wait 0.8
+snap q-cs45
+key C-u
+type anthropic opus
+wait 0.8
+snap q-anthropic-opus
+key C-u
+type sonnet45
+wait 0.8
+snap q-sonnet45
+key C-u
+type z.ai glm
+wait 0.8
+snap q-zai-glm
+key C-u
+type grok fast
+wait 0.8
+snap q-grok-fast
+key Escape
+wait 0.6
+type /model gpt6
+wait 1
+snap inline-gpt6

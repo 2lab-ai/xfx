@@ -1,0 +1,20 @@
+# Phase 5 lifecycle: Ctrl-Z after a finished turn. The pane runs fx with no
+# job-control shell, so its process group is orphaned and SIGTSTP does not
+# stop it [unverified until captured]: the wire shows the suspend restore
+# (with the OSC 7501 clear) and what fx writes when it carries on.
+env FX_AUTO_UPGRADE=0
+gateway p5-lifecycle-one-turn.json
+wait 4
+type first question
+key Enter
+wait 3
+wire w00-done
+key C-z
+wait 2
+wire w01-after-ctrlz
+snap z01-after-ctrlz
+type second question
+key Enter
+wait 3
+wire w02-next-turn
+snap z02-next-turn

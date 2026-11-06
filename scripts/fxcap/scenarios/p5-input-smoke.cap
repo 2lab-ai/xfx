@@ -1,0 +1,3 @@
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+snap start

@@ -1,15 +1,44 @@
 "on":
   push:
     branches: [main]
+    paths: [.github/preview-epoch]
 
 # There is deliberately no `workflow_dispatch` and no `pull_request`. This
 # workflow is handed a deploy key with write access to another repository, and
 # both of those triggers run the version of the workflow that exists on the ref
 # being dispatched or proposed -- so anyone who can push a branch could rewrite
 # the steps that key is given to. A push to `main` has been through review.
+#
+# The trigger governs only this file. Any other workflow file, pushed on any
+# branch, runs that branch's own steps and could ask for a repository secret
+# just the same. So the key is not a repository secret: it lives in the
+# `preview` environment, whose deployment branch policy is `main` only. A job
+# reads it only by naming that environment, and GitHub admits a job to it only
+# in a run on `main`, so a workflow pushed on another branch cannot read it.
+# `publish` is the one job here that names the environment, because it is the
+# one job that pushes the tap.
+#
 # A publication that failed halfway is retried with GitHub's own re-run of that
 # same trusted event, which is why the run attempt is part of the tag and of the
 # Homebrew version: a re-run is a strictly newer build, not a collision.
+#
+# Not every push to `main` publishes: only one that changes
+# `.github/preview-epoch`, a one-line file naming the epic the preview closes.
+# Units of an epic merge to `main` one PR at a time, and a preview cut between
+# two of them would ship half an epic to everyone on the tap; the program's
+# rule is a preview per epic, at epic done, never mid-epic. Two things hold it:
+# the path filter above, and the epoch gate in `preflight`, which reads the
+# push's own diff again and skips `build` and `publish` unless that diff names
+# the file. The gate exists because the filter has documented exceptions
+# (GitHub's workflow syntax reference,
+# `on.<push|pull_request|pull_request_target>.<paths|paths-ignore>`, "Git diff
+# comparisons"). A push of more than 1,000 commits, or one whose diff times
+# out, always runs the workflow; the gate makes such a run publish nothing
+# unless the epoch file really changed. The third exception is out of the
+# gate's reach: when a diff has more than 3,000 files and the matched file is
+# not among the first 3,000, the workflow does not run at all. So the bump
+# lands in a small merge -- its own PR, or the epic's last unit -- and never in
+# a long branch's merge (the Phase 4 plan merge changed over 6,000 files).
 
 name: Preview
 
@@ -38,6 +67,7 @@ jobs:
       version: ${{ steps.identity.outputs.version }}
       commit: ${{ steps.identity.outputs.commit }}
       sha12: ${{ steps.identity.outputs.sha12 }}
+      publish: ${{ steps.epoch.outputs.publish }}
     steps:
       - name: Check out the exact commit
         uses: actions/checkout@v4
@@ -45,10 +75,52 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      # The epoch gate. The path filter decides whether GitHub starts this
+      # workflow; this step decides whether it publishes, from the same two-dot
+      # diff the filter reads, so a run the filter let through by exception
+      # (see the top of this file) publishes only a real epoch bump. A push
+      # with no previous commit -- a `before` of all zeros -- closes no epoch.
+      # Both "no" answers are decisions: the rest of the workflow is skipped
+      # and the run stays green. A `before` that is not a commit, cannot be
+      # fetched, or cannot be diffed is an error instead, and fails the run:
+      # that publishes nothing either, and it leaves a red run to re-run rather
+      # than an epoch bump that silently never reached the tap. Inputs come in
+      # through the environment, so the script the contract check executes is
+      # the script that runs here.
+      - name: Publish only if this push bumps the preview epoch
+        id: epoch
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          epoch=.github/preview-epoch
+          if [[ "$BEFORE" =~ ^0{40}$ ]]; then
+            echo "publish=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::this push has no previous commit, so it closes no epoch; nothing is published"
+            exit 0
+          fi
+          if ! [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "the push's previous commit is not a commit sha: '$BEFORE'" >&2
+            exit 1
+          fi
+          # The checkout is one commit deep, so the previous commit has to be
+          # fetched before there is anything to diff it against.
+          git fetch --no-tags --depth=1 origin "$BEFORE"
+          range="${BEFORE:0:12}..${GITHUB_SHA:0:12}"
+          changed="$(git diff --no-renames --name-only "$BEFORE" "$GITHUB_SHA" -- "$epoch")"
+          if [ "$changed" = "$epoch" ]; then
+            echo "publish=true" >>"$GITHUB_OUTPUT"
+            echo "$epoch changed in $range; publishing"
+          else
+            echo "publish=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::$epoch did not change in $range; nothing is published"
+          fi
+
       # Everything downstream is named after this commit and stamped into the
       # binary. A checkout that silently landed somewhere else would publish a
       # revision nobody can check out, and the formula would then promise it.
       - name: Confirm the checkout is the commit being published
+        if: steps.epoch.outputs.publish == 'true'
         run: |
           set -eu
           actual="$(git rev-parse HEAD)"
@@ -67,6 +139,7 @@ jobs:
       # what stops the tap being rolled back by a slow job.
       - name: Name this build after the run that produced it
         id: identity
+        if: steps.epoch.outputs.publish == 'true'
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
@@ -110,6 +183,7 @@ jobs:
       # Once per publication rather than once per runner: linting the same four
       # files on four machines proves the same thing four times.
       - name: Lint the workflows
+        if: steps.epoch.outputs.publish == 'true'
         run: |
           set -euo pipefail
           # `go install` at a pinned tag rather than piping the project's
@@ -130,11 +204,15 @@ jobs:
           "$(go env GOPATH)/bin/actionlint" -color
 
       - name: The preview publication contract holds
+        if: steps.epoch.outputs.publish == 'true'
         run: ./scripts/check-preview-contract.sh
 
   build:
     name: build (${{ matrix.asset }})
     needs: preflight
+    # Only what the epoch gate passed is built, and only what it passed is
+    # published: a push it turned away ends here, skipped and green.
+    if: needs.preflight.outputs.publish == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -298,6 +376,11 @@ jobs:
   publish:
     name: publish
     needs: [preflight, build]
+    if: needs.preflight.outputs.publish == 'true'
+    # The tap key is a secret of the `preview` environment, so only a job that
+    # names that environment can read it -- this one, and no other. See the
+    # top of this file for why that is where it lives.
+    environment: preview
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

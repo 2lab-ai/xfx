@@ -1,0 +1,39 @@
+[
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "status": 502,
+  "body": "{\"error\":{\"message\":\"Synthetic bad gateway\"}}"
+ },
+ {
+  "chunks": [
+   "AFTER-ESC."
+  ]
+ }
+]
