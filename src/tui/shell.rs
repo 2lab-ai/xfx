@@ -14798,6 +14798,16 @@ mod tests {
     /// which is how often a real session gives the pacer its clock.
     const TICK_MILLIS: u64 = 8;
 
+    /// How long a case waits for work on a thread of its own to arrive --
+    /// the file index's `git ls-files`, a usage read starting -- before it
+    /// fails: the integration suites' `WAIT` (`tests/support/pty.rs`). A start
+    /// of `git` is milliseconds here, under the whole suite too, and was
+    /// seconds on a CI runner: in the macOS x86_64 preview build of 2026-11-06
+    /// the work-tree case, four starts of `git`, took about 17 s, and two
+    /// cases that gave the index 5 s failed beside it. No case here is about
+    /// how fast a child starts.
+    const PATIENCE: Duration = Duration::from_secs(20);
+
     use crate::config::Environment;
 
     /// A configuration with nothing in it, from a home and a workspace that
@@ -31523,8 +31533,9 @@ mod tests {
 
     /// Turns of the loop until the picker has rows or says why it has none --
     /// the index is built on a worker thread, and a turn is what hears it land.
+    /// For [`PATIENCE`], because that worker's first act is to start `git`.
     fn listed(shell: &mut Fixture) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + PATIENCE;
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if shell
@@ -31536,7 +31547,7 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        panic!("the file list never arrived");
+        panic!("the file list never arrived in {PATIENCE:?}");
     }
 
     /// The band rows between the two rules under the composer.
@@ -37486,9 +37497,12 @@ mod tests {
             },
         );
         fixture.route_bytes(b"/usage\r");
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + PATIENCE;
         while !started.load(Ordering::SeqCst) {
-            assert!(Instant::now() < deadline, "the read never started");
+            assert!(
+                Instant::now() < deadline,
+                "the read never started in {PATIENCE:?}"
+            );
             std::thread::sleep(Duration::from_millis(1));
         }
         // The dashboard takes every key while it is up; closed, `/quit`.
