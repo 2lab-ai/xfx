@@ -14798,15 +14798,13 @@ mod tests {
     /// which is how often a real session gives the pacer its clock.
     const TICK_MILLIS: u64 = 8;
 
-    /// How long a case waits for work on a thread of its own to arrive --
-    /// the file index's `git ls-files`, a usage read starting -- before it
-    /// fails: the integration suites' `WAIT` (`tests/support/pty.rs`). A start
-    /// of `git` is milliseconds here, under the whole suite too, and was
-    /// seconds on a CI runner: in the macOS x86_64 preview build of 2026-11-06
-    /// the work-tree case, four starts of `git`, took about 17 s, and two
-    /// cases that gave the index 5 s failed beside it. No case here is about
-    /// how fast a child starts.
+    /// How long a case waits for work on a thread of its own that starts no
+    /// child -- a usage read starting -- before it fails: the integration
+    /// suites' `WAIT` (`tests/support/pty.rs`). Work that starts a child is
+    /// given [`START_PATIENCE`].
     const PATIENCE: Duration = Duration::from_secs(20);
+
+    use crate::process::START_PATIENCE;
 
     use crate::config::Environment;
 
@@ -22488,18 +22486,21 @@ mod tests {
     /// Turns the loop until a `/copy` or a `/trace` that is running on its own
     /// thread has said how it went, and hands back what the document gained.
     ///
-    /// A minute, because the fake tools are fresh scripts and macOS assesses
-    /// one the first time it runs -- 8 to 12 s on a machine at load 35 -- and
-    /// no case here is about how fast a tool starts.
+    /// [`START_PATIENCE`], because the fake tools are fresh scripts and macOS
+    /// assesses one the first time it runs -- 8 to 12 s on a machine at load
+    /// 35 -- and no case here is about how fast a tool starts.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(60);
+        let deadline = Instant::now() + START_PATIENCE;
         loop {
             shell.settle_band(Instant::now());
             let document = shell.document();
             if !document.is_empty() {
                 return document;
             }
-            assert!(Instant::now() < deadline, "the copy never said how it went");
+            assert!(
+                Instant::now() < deadline,
+                "the copy never said how it went in {START_PATIENCE:?}"
+            );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
@@ -31531,9 +31532,12 @@ mod tests {
 
     /// Turns of the loop until the picker has rows or says why it has none --
     /// the index is built on a worker thread, and a turn is what hears it land.
-    /// For [`PATIENCE`], because that worker's first act is to start `git`.
+    /// For [`START_PATIENCE`], because that worker's first act is to start
+    /// `git`: in the macOS x86_64 preview build of 2026-11-06 the work-tree
+    /// case, four starts of `git`, took about 17 s, and two cases that gave
+    /// the index 5 s failed beside it.
     fn listed(shell: &mut Fixture) {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Instant::now() + START_PATIENCE;
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if shell
@@ -31545,7 +31549,7 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        panic!("the file list never arrived in {PATIENCE:?}");
+        panic!("the file list never arrived in {START_PATIENCE:?}");
     }
 
     /// The band rows between the two rules under the composer.
@@ -32175,11 +32179,11 @@ mod tests {
 
     /// Turns of the loop until the selection copies have answered.
     ///
-    /// A minute, as `copy_settled` waits: the fake tool is a fresh script,
-    /// which macOS assesses on its first run -- past ten seconds at load 60,
-    /// where this failed in a fault-injection run.
+    /// [`START_PATIENCE`], as `copy_settled` waits: the fake tool is a fresh
+    /// script, which macOS assesses on its first run -- past ten seconds at
+    /// load 60, where this failed in a fault-injection run.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(60);
+        let deadline = Instant::now() + START_PATIENCE;
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -32187,7 +32191,7 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        panic!("the clipboard never answered");
+        panic!("the clipboard never answered in {START_PATIENCE:?}");
     }
 
     #[test]
@@ -36679,9 +36683,9 @@ mod tests {
     /// Settles the band until the clipboard read has answered: the document
     /// rows it wrote, or none when it put a badge in the draft instead.
     ///
-    /// A minute, for the reason `copies_settled` gives.
+    /// [`START_PATIENCE`], for the reason `copies_settled` gives.
     fn read_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(60);
+        let deadline = Instant::now() + START_PATIENCE;
         let before = shell.editor.text().to_string();
         loop {
             shell.settle_band(Instant::now());
@@ -36694,7 +36698,7 @@ mod tests {
             }
             assert!(
                 Instant::now() < deadline,
-                "the clipboard read never answered"
+                "the clipboard read never answered in {START_PATIENCE:?}"
             );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -36915,9 +36919,9 @@ mod tests {
                 shell.document(),
             ));
         });
-        let fifo = path_rx
-            .recv_timeout(std::time::Duration::from_secs(60))
-            .expect("the shell was built");
+        let fifo = path_rx.recv_timeout(START_PATIENCE).unwrap_or_else(|_| {
+            panic!("the shell and its FIFO were not made in {START_PATIENCE:?}")
+        });
         let Ok(outcome) = done_rx.recv_timeout(std::time::Duration::from_secs(10)) else {
             drop(std::fs::OpenOptions::new().write(true).open(&fifo));
             panic!("a paste naming a FIFO waited for a writer");
