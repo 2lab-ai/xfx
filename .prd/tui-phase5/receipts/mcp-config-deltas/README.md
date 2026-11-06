@@ -5,8 +5,9 @@ Unit MCP-C2 of the 0.0.16 delta: what MCP-C found under fx v0.0.16's
 profile entry's `${VAR}` reads the environment into what a server is started
 or reached with. Base `feat/p5-mcp-config` `9c83b7e9`. Oracle fx v0.0.16
 (`481104fd`, executable sha256 `8e6cda2efddb…`, checked by capture.sh before
-and after every run). xfx: `target/debug/xfx` of this branch, and of the base
-(`x𝒇x v0.1.0-9c83b7e [debug]`).
+and after every run). xfx: `target/debug/xfx` of this branch's code commit
+(`cap/xfx/`, `x𝒇x v0.1.0-68501d2 [debug]`) and of the base (`cap/xfx-base/`,
+`x𝒇x v0.1.0-9c83b7e [debug]`).
 
 ## What changed
 
