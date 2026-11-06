@@ -169,7 +169,7 @@ written, spelled as `approval_view::command_text` spells a command; a row over
 1024 bytes is its first 512 and last 256 bytes with `[N bytes in all;
 .mcp.json has every byte]` between, and such an entry is not approved;
 continuation rows led by `↳ ` when the entry has rows beyond its command or
-address. Values typed into `/mcp add` (`typed`) and a profile's in `list` and
+address (since MCP-Mc every wrapped piece, below). Values typed into `/mcp add` (`typed`) and a profile's in `list` and
 `show` stay unsaid.
 
 | | test | on `8f9104d8` (bounded: 900 s, 4 GiB) | on the head |
