@@ -1,0 +1,35 @@
+# The three new harness tests run against main b8f6994c's capture.sh and fakegw.ts
+# (git show b8f6994c:scripts/fxcap/<file>, staged beside this head's test_capture.py).
+# test_clock: xfx is given no clock file. The key test: a bare 429 on /v1/report answers
+# a 200's {"results":[]}. The loopback test is a guard that already held.
+
+FF.
+======================================================================
+FAIL: test_clock (__main__.Verbs.test_clock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<base-harness>/test_capture.py", line 411, in test_clock
+    self.assertRegex(a, re.escape(shape.format(f="@F@", t=t)).replace("@F@", r"\S+<local-path>"), which)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Regex didn't match: 'clock::\\S+<local-path>' not found in 'The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -s /bin/zsh`.For more details, please visit https://support.apple.com/kb/HT208050.it-3.2$ printf \'clock:%s:%s:%s\\n\' "$FX_E2E_USAGE_CLOCK_FILE" "$XFX_E2E_USAGE_CLOCK_FILE" "$(cat "${FX_E2E_USAGE_CLOCK_FILE:-$XFX_E2E_USAGE_CLOCK_FILE}" 2>/dev/null)"clock:::it-3.2$ printf \'clock:%s:%s:%s\\n\' "$FX_E2E_USAGE_CLOCK_FILE" "$XFX_E2E_USAGE_CLOCK_FILE" "$(cat "${FX_E2E_USAGE_CLOCK_FILE:-$XFX_E2E_USAGE_CLOCK_FILE}" 2>/dev/null)"clock:::it-3.2$ stat -f \'mode:%Lp\' ~/.fxcap-usage-clockmode:600it-3.2$' : xfx
+
+======================================================================
+FAIL: test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body (__main__.FakeGateway.test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<base-harness>/test_capture.py", line 644, in test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body
+    self.assertEqual((status, body), (429, b"fake status 429"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: (429, b'{"results":[]}') != (429, b'fake status 429')
+
+First differing element 1:
+b'{"results":[]}'
+b'fake status 429'
+
+- (429, b'{"results":[]}')
++ (429, b'fake status 429')
+
+----------------------------------------------------------------------
+Ran 3 tests in 8.534s
+
+FAILED (failures=2)

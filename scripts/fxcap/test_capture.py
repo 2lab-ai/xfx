@@ -396,18 +396,25 @@ class Verbs(unittest.TestCase):
         self.assertIn("mode:700 mode:700 mode:600", r.screen("a"))
 
     def test_clock(self):
-        ask = "type printf 'clock:%s:%s\\n' \"$FX_E2E_USAGE_CLOCK_FILE\" \"$(cat \"$FX_E2E_USAGE_CLOCK_FILE\" 2>/dev/null)\"\nkey Enter\nwait 0.5\n"
+        # Each product's variable names the one file, its own name only: fx's
+        # FX_E2E_USAGE_CLOCK_FILE, xfx's XFX_E2E_USAGE_CLOCK_FILE.
+        ask = (
+            "type printf 'clock:%s:%s:%s\\n' \"$FX_E2E_USAGE_CLOCK_FILE\" \"$XFX_E2E_USAGE_CLOCK_FILE\""
+            " \"$(cat \"${FX_E2E_USAGE_CLOCK_FILE:-$XFX_E2E_USAGE_CLOCK_FILE}\" 2>/dev/null)\"\nkey Enter\nwait 0.5\n"
+        )
         cap = "clock 1791819000000\nwait 1\n" + ask + "clock 1791905400000\n" + ask + "type stat -f 'mode:%Lp' ~/.fxcap-usage-clock\nkey Enter\nwait 0.5\nsnap a\n"
-        r = capture(cap)
-        self.assertEqual(r.code, 0, r.stdout + r.stderr)
-        a = r.screen("a")
-        self.assertRegex(a, r"clock:\S+/home/\.fxcap-usage-clock:1791819000000")
-        self.assertRegex(a, r"clock:\S+/home/\.fxcap-usage-clock:1791905400000")
-        self.assertIn("mode:600", a)
-        # xfx reads no usage and is given nothing.
-        r = capture(cap, which="xfx")
-        self.assertEqual(r.code, 0, r.stdout + r.stderr)
-        self.assertIn("clock::", r.screen("a"))
+        for which, shape in (("fx", "clock:{f}::{t}"), ("xfx", "clock::{f}:{t}")):
+            r = capture(cap, which=which)
+            self.assertEqual(r.code, 0, r.stdout + r.stderr)
+            a = r.screen("a")
+            for t in ("1791819000000", "1791905400000"):
+                self.assertRegex(a, re.escape(shape.format(f="@F@", t=t)).replace("@F@", r"\S+/home/\.fxcap-usage-clock"), which)
+            self.assertIn("mode:600", a)
+        # No `clock` line: neither product is given a clock file.
+        for which in ("fx", "xfx"):
+            r = capture("wait 1\n" + ask + "snap a\n", which=which)
+            self.assertEqual(r.code, 0, r.stdout + r.stderr)
+            self.assertIn("clock:::", r.screen("a"))
 
     def test_usage_is_in_place_at_launch_and_swapped_on_cue(self):
         get = "type curl -s -w ' status:%{http_code}\\n' \"$FX_GATEWAY_BASE_URL/v1/report?start_date=2026-10-12&end_date=2026-10-12\"\nkey Enter\nwait 0.7\n"
@@ -511,7 +518,9 @@ class FakeGateway(unittest.TestCase):
         os.makedirs(os.path.join(d, "bodies"))
         clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_MODELS2_MS", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE")}
         clean.update(env)
-        return Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
+        s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
+        s.bodies = os.path.join(d, "bodies")
+        return s
 
     def test_every_request_is_a_line_unknown_gets_too_and_never_a_header_value(self):
         g = self.gw()
@@ -608,6 +617,54 @@ class FakeGateway(unittest.TestCase):
         os.remove(usage)
         self.assertEqual(get("/v1/report?start_date=2026-10-12&end_date=2026-10-12"), (404, "not found"))
         self.assertEqual(get("/ai-gateway/usage-report"), (404, "not found"))
+
+    def test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body(self):
+        # A key in the harness's own style (capture.sh's AI_GATEWAY_API_KEY is
+        # `fake-key-not-real`) and a team, on every path that reads or names a
+        # bearer: the report answered, held and refused, the budget, the
+        # catalog, the credits, a generation, the Codex catalog, an unknown
+        # path, and a completion.
+        key, team = "fake-key-h3-not-real", "team-h3-not-real"
+        d = scratch()
+        usage = os.path.join(d, "usage.json")
+        write(usage, json.dumps({
+            "/v1/report": {"byRange": {"2026-10-12..2026-10-12": [{"model": "m", "request_count": 1, "total_cost": 0.5}]}, "delayMs": 200},
+            "/ai-gateway/usage-report": {"status": 401},
+        }))
+        g = self.gw([{"chunks": ["ok"]}], FAKEGW_USAGE=usage)
+        sent = {"authorization": "Bearer " + key, "x-vercel-ai-gateway-team": team}
+        today = "/v1/report?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self"
+        self.assertEqual(g.ask("GET", today, headers=sent)[0], 200)
+        self.assertEqual(g.ask("GET", "/ai-gateway/usage-report?teamId=t&scope=user", headers=sent)[0], 401)
+        for path in ("/coding-agent/v1/models", "/coding-agent/v1/credits", "/v1/generation?id=g", "/codex/models", "/unknown?k=v"):
+            g.ask("GET", path, headers=sent)
+        # A bare status is that status and no rows, on the report too.
+        write(usage, json.dumps({"/v1/report": {"status": 429, "delayMs": 100}}))
+        status, _, body = g.ask("GET", today, headers=sent)
+        self.assertEqual((status, body), (429, b"fake status 429"))
+        status, _, _ = g.ask("POST", "/v4/ai/language-model", body=json.dumps({"prompt": []}), headers=dict(sent, **{"content-type": "application/json"}))
+        self.assertEqual(status, 200)
+        time.sleep(0.3)
+        log = g.lines()
+        # Each of the eight GETs is a line naming both headers, never a value.
+        self.assertEqual(len(re.findall(r"request GET \S+ at=\d+ms -> \d+ at=\d+ms headers=authorization,x-vercel-ai-gateway-team\n", log)), 8, log)
+        self.assertRegex(log, r"request GET /v1/report\?start_date=2026-10-12&end_date=2026-10-12&group_by=model&api_key_id=self at=\d+ms -> 200 at=\d+ms headers=authorization,x-vercel-ai-gateway-team\n")
+        self.assertIn("usage /v1/report -> 200 rows=1 held 200ms", log)
+        self.assertIn("usage /v1/report -> 429 held 100ms", log)
+        for value in (key, team, "Bearer"):
+            self.assertNotIn(value, log)
+        kept = glob.glob(os.path.join(g.bodies, "*"))
+        self.assertEqual(len(kept), 1, kept)
+        for path in kept:
+            self.assertNotIn(key, slurp(path))
+            self.assertNotIn(team, slurp(path))
+
+    def test_it_listens_on_loopback_only(self):
+        g = self.gw()
+        lsof = "/usr/sbin/lsof" if os.path.exists("/usr/sbin/lsof") else "lsof"
+        out = subprocess.run([lsof, "-nP", "-a", "-p", str(g.p.pid), "-iTCP", "-sTCP:LISTEN"], capture_output=True, text=True).stdout
+        listening = [line.split()[8] for line in out.splitlines()[1:]]
+        self.assertEqual(listening, ["127.0.0.1:%d" % g.port], out)
 
 
 class McpHttp(unittest.TestCase):
