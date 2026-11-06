@@ -240,8 +240,9 @@ mod tests {
     #[test]
     fn finished_days_are_read_once_per_utc_day() {
         // `policy.zig:133-148@481104fd`, the scope-free lines: the ranges and
-        // the once-a-day rule, here for the `api_key` scope. The member
-        // scope's budget (`:137,143`) and the Codex and Grok plans
+        // the once-a-day rule, here for the `api_key` scope. The budget flags
+        // (`:137,143`) have no field here -- only the member scope reads a
+        // budget, and an API key never does -- and the Codex and Grok plans
         // (`:144-147`) are sign-ins xfx does not have (U9).
         let now: i64 = 1_791_676_800_000 + 3 * HOUR_MS; // 2026-10-11 03:00 UTC
         let today = utc_day(now);

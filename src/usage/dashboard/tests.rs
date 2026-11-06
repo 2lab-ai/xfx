@@ -511,7 +511,7 @@ fn opening_shows_the_cache_at_once_and_fills_it_from_ai_gateway_in_the_backgroun
 
 #[test]
 fn a_dashboard_reads_what_another_process_stored_since() {
-    // `usage.zig:1103-1163@481104fd`.
+    // `usage.zig:1106-1163@481104fd`.
     let rig = rig();
     // The first process fetches on Oct 10, finished days included.
     let first_clock = TestClock::at(20736 * DAY_MS + 23 * HOUR_MS);
@@ -639,7 +639,7 @@ fn a_refused_refresh_keeps_the_cached_numbers_and_says_why() {
 
 #[test]
 fn another_sign_in_never_shows_the_previous_ones_numbers() {
-    // `usage.zig:1398-1432@481104fd`, with a second API key for fx's second
+    // `usage.zig:1398-1433@481104fd`, with a second API key for fx's second
     // member. fx's `no_team` is the member scope's, which xfx has no sign-in
     // for; xfx's unavailable reasons stand in (`report::question`).
     let rig = rig();
@@ -669,7 +669,7 @@ fn another_sign_in_never_shows_the_previous_ones_numbers() {
 
 #[test]
 fn a_clock_corrected_backward_does_not_freeze_usage() {
-    // `usage.zig:1434-1471@481104fd`.
+    // `usage.zig:1435-1473@481104fd`.
     let rig = rig();
     let mut dashboard = rig.dashboard();
     // The clock ran a day ahead when this was fetched and stored.
@@ -701,7 +701,7 @@ fn a_clock_corrected_backward_does_not_freeze_usage() {
 
 #[test]
 fn an_unreadable_cache_file_keeps_the_finished_days_on_screen_and_in_the_file() {
-    // `usage.zig:1473-1512@481104fd`.
+    // `usage.zig:1475-1512@481104fd`.
     let rig = rig();
     let mut dashboard = rig.dashboard();
     dashboard.open(rig.question(KEY_A));
@@ -751,7 +751,7 @@ fn a_cache_that_cannot_be_written_still_shows_what_was_fetched() {
 
 #[test]
 fn a_dashboard_never_shows_less_than_it_had_when_the_file_goes_back() {
-    // `usage.zig:1534-1557@481104fd`.
+    // `usage.zig:1534-1559@481104fd`.
     let rig = rig();
     let mut dashboard = rig.dashboard();
     dashboard.open(rig.question(KEY_A));
@@ -782,7 +782,7 @@ fn a_dashboard_never_shows_less_than_it_had_when_the_file_goes_back() {
 
 #[test]
 fn a_key_switch_fetches_the_new_sign_in_at_once_and_r_works_for_it() {
-    // `usage.zig:1559-1588@481104fd`, a provider switch there; a key switch
+    // `usage.zig:1561-1590@481104fd`, a provider switch there; a key switch
     // here, the only other sign-in xfx's `/usage` reads with.
     let rig = rig();
     let mut dashboard = rig.dashboard();
@@ -808,7 +808,7 @@ fn a_key_switch_fetches_the_new_sign_in_at_once_and_r_works_for_it() {
 
 #[test]
 fn a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once() {
-    // `usage.zig:1590-1621@481104fd`, where the first sign-in's fetch runs on
+    // `usage.zig:1592-1623@481104fd`, where the first sign-in's fetch runs on
     // and the second's is owed until it ends. Here the first is cancelled at
     // once, so the second need not wait, and nothing is owed afterwards.
     let rig = rig();
@@ -843,7 +843,7 @@ fn a_sign_in_that_arrives_during_anothers_fetch_stops_it_and_fetches_at_once() {
 
 #[test]
 fn an_empty_or_relative_home_is_no_home_and_a_fetch_still_shows() {
-    // `usage.zig:1623-1636@481104fd`.
+    // `usage.zig:1625-1636@481104fd`.
     let gateway = Gateway::new();
     for home in ["", "relative/home"] {
         assert_eq!(Home::new(Some(Path::new(home))), None, "{home:?}");
@@ -1122,6 +1122,44 @@ fn no_sign_in_is_asked_more_than_once_a_floor_by_opening_or_the_timer() {
 }
 
 #[test]
+fn the_floor_counts_from_a_failure_as_well_as_a_start() {
+    // S2, `floorClear` (`policy.zig:38-42@481104fd`) through the dashboard:
+    // a fetch that fails 45 s after it started holds opening for a minute
+    // from the failure, not from the start (`usage.zig:603-610@481104fd`).
+    let rig = rig();
+    let mut dashboard = rig.dashboard();
+    rig.gateway.status(500);
+    rig.gateway.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(1);
+    rig.clock.advance(45 * 1000);
+    rig.gateway.hold(false);
+    wait_for_fetch(&mut dashboard);
+    assert_eq!(dashboard.snapshot().status, Status::Failed(Failure::Server));
+    let failed_at = NOW + 45 * 1000;
+
+    rig.gateway.status(200);
+    rig.clock.set(NOW + policy::FLOOR_MS);
+    dashboard.close();
+    dashboard.open(rig.question(KEY_A));
+    rig.clock.set(failed_at + policy::FLOOR_MS - 1);
+    dashboard.close();
+    dashboard.open(rig.question(KEY_A));
+    assert_eq!(rig.workers.fetches(), 1, "the failure holds opening");
+    rig.clock.set(failed_at + policy::FLOOR_MS);
+    dashboard.close();
+    dashboard.open(rig.question(KEY_A));
+    assert_eq!(rig.workers.fetches(), 2);
+    wait_for_fetch(&mut dashboard);
+    // A fetch that succeeds clears the failure, and its floor with it.
+    assert_eq!(dashboard.snapshot().status, Status::Ready);
+    assert_eq!(
+        dashboard.floors[&rig.question(KEY_A).identity()].failed_at_ms,
+        None
+    );
+}
+
+#[test]
 fn the_timer_refreshes_only_while_open_and_only_through_the_floor() {
     // S3: every 15 minutes while open; never while a fetch is in flight;
     // never while closed.
@@ -1153,29 +1191,11 @@ fn the_timer_refreshes_only_while_open_and_only_through_the_floor() {
     }
     assert_eq!(rig.workers.fetches(), 3);
 
-    // A failed fetch holds the timer for a floor as well: the floor is set so
-    // that the timer is due by its start and held by the failure only.
-    rig.gateway.status(500);
-    let failed_at = rig.clock.get();
-    assert!(dashboard.refresh());
-    wait_for_fetch(&mut dashboard);
-    assert_eq!(rig.workers.fetches(), 4);
-    rig.gateway.status(200);
-    dashboard.floors.insert(
-        rig.question(KEY_A).identity(),
-        policy::State {
-            in_flight: false,
-            last_start_ms: Some(failed_at - policy::TIMER_MS),
-            failed_at_ms: Some(failed_at),
-        },
-    );
-    rig.clock.set(failed_at + policy::FLOOR_MS - 1);
-    dashboard.tick();
-    assert_eq!(rig.workers.fetches(), 4, "the failure holds the timer");
-    rig.clock.set(failed_at + policy::FLOOR_MS);
-    dashboard.tick();
-    assert_eq!(rig.workers.fetches(), 5);
-    wait_for_fetch(&mut dashboard);
+    // The timer's floor in use is the fetch in flight: a timer fetch starts
+    // a period after the last start, and a failure comes at most one fetch's
+    // length (three 15 s requests) after its start, so the failure's floor
+    // has always passed by then. The failure's floor is the one `open`
+    // meets (`the_floor_counts_from_a_failure_as_well_as_a_start`).
 
     // Closed, the timer never fires.
     dashboard.close();
@@ -1183,7 +1203,7 @@ fn the_timer_refreshes_only_while_open_and_only_through_the_floor() {
         rig.clock.advance(policy::TIMER_MS);
         dashboard.tick();
     }
-    assert_eq!(rig.workers.fetches(), 5);
+    assert_eq!(rig.workers.fetches(), 3);
 }
 
 #[test]
@@ -1324,4 +1344,34 @@ fn a_sign_in_switch_takes_effect_at_once_and_never_sends_or_keeps_the_old_key() 
         let file = rig.cached(key).unwrap_or_default();
         assert!(!file.contains(KEY_A) && !file.contains(KEY_B));
     }
+}
+
+#[test]
+fn the_same_key_to_another_origin_is_another_sign_in() {
+    // S5: the Gateway origin changes under an open dashboard. The request to
+    // the old origin is dropped at once; the key keeps its own floor, so the
+    // new origin is asked once that floor passes, and the old one never
+    // again.
+    let rig = rig();
+    let elsewhere = Gateway::new();
+    let mut dashboard = rig.dashboard();
+    rig.gateway.hold(true);
+    dashboard.open(rig.question(KEY_A));
+    rig.gateway.wait_for(1);
+    dashboard.open(question_at(&elsewhere.origin, KEY_A));
+    assert!(
+        rig.gateway.hung_up(0),
+        "the old origin's request was not dropped"
+    );
+    assert!(rig.workers.all_ended_within(Duration::from_secs(2)));
+    rig.gateway.hold(false);
+    assert_eq!(elsewhere.count(), 0, "inside the key's floor");
+
+    rig.clock.advance(policy::FLOOR_MS);
+    dashboard.close();
+    dashboard.open(question_at(&elsewhere.origin, KEY_A));
+    wait_for_fetch(&mut dashboard);
+    assert_eq!(elsewhere.count(), 3);
+    assert!(elsewhere.seen().iter().all(|seen| seen.bearer == KEY_A));
+    assert_eq!(rig.gateway.count(), 1);
 }
