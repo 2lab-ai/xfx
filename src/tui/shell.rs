@@ -2415,6 +2415,14 @@ impl Shell {
     /// by one.
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
+        // The blank row above a panel that has taken the composer's, under a
+        // document that does not end on one ([`layout::Geometry::gapped`]):
+        // the band's own, so it is written blank rather than left with
+        // whatever the last frame put there. Never with a turn's row.
+        rows.extend(std::iter::repeat_n(
+            String::new(),
+            usize::from(self.geometry.gap),
+        ));
         // What the turn is doing, with a blank row under it, and only while the
         // geometry says the band owns those rows: the row's presence and its
         // text are one fact settled together ([`Self::tick_activity`]), and a
@@ -4717,10 +4725,11 @@ impl Shell {
                         cols,
                         rows,
                         self.geometry.band_top(),
-                        // The activity row is the only thing `band_rows` puts
-                        // ahead of the panel, so the offset is that one boolean
-                        // and needs no method of its own.
-                        u16::from(self.geometry.activity.is_some()),
+                        // The activity row, or the blank row a band with no
+                        // turn's row may keep above a panel (never both), is
+                        // all `band_rows` puts ahead of the panel, so the
+                        // offset is those two and needs no method of its own.
+                        u16::from(self.geometry.activity.is_some()) + self.geometry.gap,
                     )
                     .disclosure,
             ),
@@ -14113,13 +14122,30 @@ impl Shell {
         self
     }
 
-    /// The band, moved to sit under the document as it now stands.
+    /// The band, moved to sit under the document as it now stands -- and
+    /// given or relieved of the blank row above a panel that has taken the
+    /// composer's, by how the document now ends ([`Self::placed`]): rows that
+    /// landed under a panel are the document's new tail.
     fn refloat(&mut self) {
-        let geometry = self.geometry.floated(self.document_rows);
+        let geometry = self.placed(self.geometry);
         if geometry != self.geometry {
             self.geometry = geometry;
             self.render.request(Reason::Resize);
         }
+    }
+
+    /// `geometry` as this shell places it: with the blank row above a panel
+    /// that has taken the composer's rows exactly when the document does not
+    /// end on a blank row of its own ([`layout::Geometry::gapped`]), and
+    /// floated under the document as it now stands.
+    ///
+    /// Asked of the transcript's record of its tail, queued text included, as
+    /// every block written after the document asks it ([`Transcript::ends_blank`]):
+    /// the rows a frame is about to land are the tail the band sits under.
+    fn placed(&self, geometry: Geometry) -> Geometry {
+        geometry
+            .gapped(self.transcript.ends_blank())
+            .floated(self.document_rows)
     }
 
     /// One step of a walk back through what has been submitted.
@@ -14407,7 +14433,7 @@ impl Shell {
         // `fx-question-40x120-q1`), so the band is solved with none.
         if self.panel.is_some() || self.ask.is_some() || matches!(slot, Some(Slot::Rule(_))) {
             return layout::solve_band(rows, cols, 0, activity, fixed)
-                .map(|geometry| geometry.floated(self.document_rows));
+                .map(|geometry| self.placed(geometry));
         }
         // **So does the `/statusline` picker** (`input_visible` is false under
         // a compact menu, `surface_frame.zig:384-393`), and it is the one
@@ -14430,7 +14456,7 @@ impl Shell {
             return (1..=fixed)
                 .rev()
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
-                .map(|geometry| geometry.floated(self.document_rows));
+                .map(|geometry| self.placed(geometry));
         }
         // **A waiting prompt's rows, under the turn's own** -- only with the
         // turn's row above them, which is the band they are a view of, and
@@ -14473,7 +14499,7 @@ impl Shell {
                         layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
                     })
             })
-            .map(|geometry| geometry.floated(self.document_rows))
+            .map(|geometry| self.placed(geometry))
     }
 
     /// The rows a waiting prompt is shown in, above the composer, without
@@ -41082,6 +41108,88 @@ mod tests {
             document[..2],
             [String::new(), format!("{RAIL} {BOLD}only prompt omega")],
             "{document:?}"
+        );
+    }
+
+    #[test]
+    fn a_panel_over_a_forks_plain_line_keeps_a_blank_row_above_it_until_it_closes() {
+        // `fx-p5-effort-fork-fork-edge-40x120-status-empty`: `/status` over a
+        // fork made before the first prompt -- `original session …`, a blank
+        // row, then the panel's rule; `-fork-of-empty`: once it closes, the
+        // composer is under the line again with nothing between. Upstream's
+        // modal footer asks its frame for one blank row above it
+        // (`top_gap_rows`, `surface_frame.zig:686@481104fd`), which the frame
+        // takes the larger of with the transcript's own (`idle_gap`,
+        // `frame_layout.zig:392`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, vec![fork_point(1, "only prompt omega")]);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 1 });
+        shell.work.give_back();
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("only prompt omega (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        let document = shell.document();
+        shell.document_landed(u32::try_from(document.len()).expect("three rows"));
+        shell.route_bytes(&[0x15]);
+        assert!(shell.editor.is_empty());
+
+        shell.open_info_panel(fx_status_panel());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.gap, 1, "no blank row above the panel");
+        let rows = shell.band_rows();
+        assert_eq!(rows.len(), usize::from(shell.geometry.band_rows()));
+        assert_eq!(rows[0], "", "the band's top is not blank");
+        assert_eq!(rows[1], divider(120), "the panel's rule is not under it");
+        assert_eq!(
+            shell.geometry.band_top(),
+            4,
+            "the blank row is not under the document's three rows"
+        );
+        assert_eq!(
+            shell.geometry.panel_first() - 1,
+            5,
+            "the rule is not a row below the blank"
+        );
+
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert_eq!(shell.geometry.gap, 0, "the blank row outlived the panel");
+        assert_eq!(shell.band_rows()[0], composer_row(""));
+        assert_eq!(shell.geometry.band_top(), 4, "the composer left the line");
+    }
+
+    #[test]
+    fn a_block_that_lands_under_the_panel_ends_the_document_blank_and_takes_the_row_back() {
+        // The two gaps are one: the larger of the band's and the document's
+        // (`@max(transcript_gap, input.footer.top_gap_rows)`,
+        // `frame_layout.zig:392@481104fd`). A notice written while the panel
+        // is up ends the document on its own blank row, so the band's goes.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, vec![fork_point(1, "only prompt omega")]);
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("only prompt omega (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        let landed = shell.document().len();
+        shell.document_landed(u32::try_from(landed).expect("three rows"));
+        shell.open_info_panel(fx_status_panel());
+        assert_eq!(shell.geometry.gap, 1);
+
+        shell.announce(notice::Notice::neutral("system", "said under the panel"));
+        let more = shell.document();
+        assert_eq!(more.last().map(String::as_str), Some(""), "{more:?}");
+        shell.document_landed(u32::try_from(landed + more.len()).expect("rows"));
+        assert_eq!(shell.geometry.gap, 0, "two blank rows over the panel");
+        assert_eq!(shell.band_rows()[0], divider(120));
+        assert_eq!(
+            usize::from(shell.geometry.band_top()),
+            landed + more.len() + 1,
+            "the panel is not under the notice's blank row"
         );
     }
 
