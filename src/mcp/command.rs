@@ -180,7 +180,7 @@ pub fn parse(args: &[String]) -> Parsed {
             "resource" | "prompt" => moved(format!(
                 "{p} {first} is gone: xfx doesn't support MCP resources and prompts yet."
             )),
-            other => usage(None, format!("'{}' isn't a {p} command.", safe(other))),
+            other => usage(None, format!("'{}' isn't a {p} command.", typed(other))),
         };
     };
 
@@ -220,7 +220,7 @@ pub fn parse(args: &[String]) -> Parsed {
         if !allowed {
             return usage(
                 Some(verb),
-                format!("{p} {} has no {} flag.", verb.name(), safe(arg)),
+                format!("{p} {} has no {} flag.", verb.name(), typed(arg)),
             );
         }
         if arg == "--env" || arg == "--header" {
@@ -276,7 +276,7 @@ pub fn parse(args: &[String]) -> Parsed {
                     Some(verb),
                     format!(
                         "'{}' can't be a server name: use letters, digits, '-' and '_'.",
-                        safe(name)
+                        typed(name)
                     ),
                 );
             }
@@ -329,7 +329,7 @@ pub fn parse(args: &[String]) -> Parsed {
                     Some(verb),
                     format!(
                         "'{}' isn't a URL. A stdio server's command goes after --.",
-                        safe(url)
+                        typed(url)
                     ),
                 );
             }
@@ -576,6 +576,14 @@ pub fn safe(raw: &str) -> String {
         }
     }
     out
+}
+
+/// A word someone typed, said back as far as its first `=` and no further --
+/// what follows one is a value, and a value can be a secret (`--env=TOKEN=…`,
+/// `--header=Authorization=…`, a name typed where a pair was meant) -- and
+/// spelled by [`safe`]. A server's name has no `=`, so one is said whole.
+fn typed(word: &str) -> String {
+    safe(word.find('=').map_or(word, |eq| &word[..=eq]))
 }
 
 /// How many cells a spelled text takes (`terminalSafeVisibleWidth`).
@@ -840,7 +848,7 @@ fn list(runtime: &McpRuntime, said: &mut Said) {
 fn missing(name: &str, said: &mut Said) {
     said.err.push_str(&format!(
         "No MCP server named {}. {PROG} list shows them.\n",
-        safe(name)
+        typed(name)
     ));
 }
 
@@ -974,6 +982,14 @@ fn add(runtime: &McpRuntime, name: &str, file: File, entry: &Entry, said: &mut S
             }
         }
     }
+    // And nothing the reader would skip: the reader's own rules over what
+    // would be written -- a header name with a blank in it (` Authorization`
+    // too), a reserved one, a control in a value, a URL that isn't one it
+    // connects to -- refused before the file is touched.
+    if let Some(why) = config::unreadable(file, name, entry) {
+        said.err = format!("Couldn't add {name} to {}: {why}.\n", file.label());
+        return;
+    }
     let change = Change::Add {
         name: name.to_string(),
         entry: entry.clone(),
@@ -1004,7 +1020,7 @@ fn remove(runtime: &McpRuntime, name: &str, only: Option<File>, said: &mut Said)
     let Some((profile, project)) = paths(runtime) else {
         return no_home(said);
     };
-    let shown = safe(name);
+    let shown = typed(name);
     let look = |file: File, path: &Path| -> Result<bool, config::EditError> {
         if only.is_some_and(|only| only != file) {
             return Ok(false);
@@ -1027,28 +1043,36 @@ fn remove(runtime: &McpRuntime, name: &str, only: Option<File>, said: &mut Said)
         );
         return;
     }
-    if !in_profile && !in_project {
+    let not_found = |said: &mut Said| {
         let both = format!("{} or {}", File::Profile.label(), File::Project.label());
         let place = only.map_or(both, |file| file.label().to_string());
         said.err = format!("No MCP server named {shown} in {place}.\n");
-        return;
+    };
+    if !in_profile && !in_project {
+        return not_found(said);
     }
     let (file, path) = if in_profile {
         (File::Profile, &profile)
     } else {
         (File::Project, &project)
     };
-    if let Err(err) = config::update(&profile, file, path, &Change::Remove(name.to_string())) {
-        said.err = format!(
-            "Couldn't remove {shown} from {}: {}.\n",
-            file.label(),
-            err.why()
-        );
-        return;
+    match config::update(&profile, file, path, &Change::Remove(name.to_string())) {
+        Err(err) => {
+            said.err = format!(
+                "Couldn't remove {shown} from {}: {}.\n",
+                file.label(),
+                err.why()
+            );
+        }
+        // Gone between the look and the edit, which takes the lock: nothing
+        // was written, so nothing was removed.
+        Ok(config::Updated::Missing) => not_found(said),
+        Ok(config::Updated::Added | config::Updated::Removed { .. }) => {
+            said.changed = true;
+            // xfx keeps no login, so there is none to delete with it.
+            said.out = format!("Removed {shown} from {}.\n", file.label());
+        }
     }
-    said.changed = true;
-    // xfx keeps no login, so there is none to delete with it.
-    said.out = format!("Removed {shown} from {}.\n", file.label());
 }
 
 /// The server `name` and whether its configuration enables it, or `None`.
@@ -1064,7 +1088,7 @@ fn login(runtime: &McpRuntime, name: &str, said: &mut Said) {
     let Some((view, enabled)) = find(runtime, name) else {
         return missing(name, said);
     };
-    let shown = safe(name);
+    let shown = typed(name);
     if view.transport == Transport::Stdio {
         said.err = format!("{shown} runs a command, so it has no login.\n");
         return;
@@ -1086,7 +1110,7 @@ fn logout(runtime: &McpRuntime, name: &str, said: &mut Said) {
     let Some((view, _)) = find(runtime, name) else {
         return missing(name, said);
     };
-    let shown = safe(name);
+    let shown = typed(name);
     if view.transport == Transport::Stdio {
         said.err = format!("{shown} runs a command, so it has no login.\n");
         return;
@@ -1119,10 +1143,15 @@ fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
         .filter_map(|view| runtime.server(&view.name))
         .collect();
     if project.is_empty() {
+        if let Trust::Approve(name) | Trust::Reject(name) = &choice {
+            if let Some((action, body)) = unparsed(runtime, &choice, name) {
+                return runtime.run(super::runtime::Job::Trust { action, body });
+            }
+        }
         let sentence = match &choice {
             Trust::Approve(name) | Trust::Reject(name) => format!(
                 "No project server named {} in {}.",
-                safe(name),
+                typed(name),
                 File::Project.label()
             ),
             Trust::All => "No project servers are waiting for approval.".into(),
@@ -1153,6 +1182,69 @@ fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
         action,
         body: body.join("\n"),
     });
+}
+
+/// A choice about a `.mcp.json` entry the runtime holds no server for,
+/// because it parses only once it is expanded (`"type": "${T:-stdio}"`,
+/// `"url": "${URL}"`) -- which only an approved entry is -- and the sentence
+/// that announces it; `None` when the file has no such entry, or the name is
+/// a profile server's, whose wins.
+///
+/// An approval is for the entry as it stands in the file now, as the
+/// sentence shows it, and bound to that entry's digest
+/// ([`TrustAction::ApproveShown`]): if the file changes before the choice is
+/// saved, the entry it changed into still asks. fx has no such path -- its
+/// `approve` finds only servers that parse (`verbs.zig:631-646`) -- and xfx
+/// keeps it from c1db9191's `trust approve <name>`.
+fn unparsed(runtime: &McpRuntime, choice: &Trust, name: &str) -> Option<(TrustAction, String)> {
+    if runtime.server(name).is_some() {
+        return None;
+    }
+    let entry = config::project_entry(&runtime.paths().workspace, name)?;
+    if matches!(choice, Trust::Reject(_)) {
+        return Some((
+            TrustAction::Reject(name.to_string()),
+            format!("Rejected {name}. xfx won't start it in this project."),
+        ));
+    }
+    let strings = |value: Option<&serde_json::Value>| -> Option<Vec<String>> {
+        value?
+            .as_array()?
+            .iter()
+            .map(|item| item.as_str().map(str::to_string))
+            .collect()
+    };
+    let command = match entry.get("command") {
+        Some(serde_json::Value::String(command)) => Some(command_line(
+            command,
+            &strings(entry.get("args")).unwrap_or_default(),
+        )),
+        Some(serde_json::Value::Array(_)) => strings(entry.get("command"))
+            .and_then(|words| words.split_first().map(|(c, a)| command_line(c, a))),
+        _ => None,
+    };
+    let url = entry.get("url").and_then(serde_json::Value::as_str);
+    // What it runs or reaches; both when its type, which an expansion
+    // decides, could make it either. Never its `env` or `headers`: a value
+    // there can be a secret. An entry with neither is no server, expanded or
+    // not.
+    let what = match (command, url) {
+        (Some(command), None) => format!("which runs: {}", safe(&command)),
+        (None, Some(url)) => format!("which connects to: {}", safe(url)),
+        (Some(command), Some(url)) => format!(
+            "which runs: {}, or connects to: {}",
+            safe(&command),
+            safe(url)
+        ),
+        (None, None) => return None,
+    };
+    Some((
+        TrustAction::ApproveShown {
+            name: name.to_string(),
+            digest: config::entry_digest(&entry),
+        },
+        format!("Approved {name}, {what}"),
+    ))
 }
 
 #[cfg(test)]

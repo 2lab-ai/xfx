@@ -7412,7 +7412,9 @@ impl Shell {
             self.mcp_args = None;
             return false;
         }
-        if self.mcp_args_dismissed {
+        // Closed over a recalled line until it is edited
+        // (`history_slash_recall_until_edit`), so Up goes on walking.
+        if self.mcp_args_dismissed || self.recalled_slash {
             self.mcp_args = None;
             return true;
         }
@@ -13333,7 +13335,11 @@ impl Shell {
         if !self.dismissed.holds(Trigger::File) {
             self.dismissed.forget();
         }
-        self.recalled_slash = self.completion_kind() == Some(Trigger::Slash);
+        // `/mcp `'s argument completions are the slash popup's kind upstream
+        // (`inlinePickerTriggerKind` says `.slash` for any line that starts
+        // with `/`), so a recalled `/mcp VERB NAME` keeps them closed too.
+        self.recalled_slash = self.completion_kind() == Some(Trigger::Slash)
+            || mcp_args::query_of(self.editor.text()).is_some();
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited(None);
         true
@@ -30866,6 +30872,30 @@ mod tests {
         shell.route_bytes(&[0x15]);
         shell.route_bytes(b"/mcp ");
         assert_eq!(menu(&shell).len(), 6);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_recalled_mcp_line_opens_no_completions_until_it_is_edited() {
+        // MCP-Vb: `history_slash_recall_until_edit` holds for `/mcp `'s
+        // argument too -- the next Up goes on walking rather than moving the
+        // completions' mark, and Enter would have run the marked row.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        submitted(&mut shell, "older");
+        submitted(&mut shell, "/mcp show remote");
+        let _ = shell.document();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "/mcp show remote");
+        assert!(
+            menu(&shell).is_empty(),
+            "a recalled line opened completions"
+        );
+        older(&mut shell);
+        assert_eq!(shell.editor.text(), "older");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(shell.editor.text(), "/mcp show remote");
+        shell.route_bytes(&[0x7f]);
+        assert!(!menu(&shell).is_empty(), "an edit did not give them back");
         runtime.shutdown();
     }
 

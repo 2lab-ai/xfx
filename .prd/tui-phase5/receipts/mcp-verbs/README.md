@@ -46,7 +46,8 @@ which passed 3 times of 3 alone.
   `#[cfg(test)]`, not deleted: `src/mcp/tests.rs` calls them 41 times (37 `add_profile_server`, 4
   `remove_profile_server`) to seed whole `ServerConfig`s, and a parallel MCP-S
   round may add more.
-- Call sites the removed verbs broke, outside this unit's files: `shell.rs`
+- Call sites the removed verbs broke, outside this unit's files (the menu's
+  production call sites were missed here and fixed in MCP-Vb, below): `shell.rs`
   tests (5 `path` probes now `remove nope`, 4 `/mcp reload` now
   `Job::MenuReload`), `src/tui/mcp_menu.rs` tests (3 `reload`), `src/mcp/
   tests.rs` (reload, `auth`, `remove` words, the feature-command test now
@@ -95,6 +96,25 @@ after it changes comments and docs only): `scoreboard-head.md`.
 
 `show` prints an HTTP server's URL as fx does (`verbs.zig:528`), so a URL
 that carries a token is printed by both.
+
+## MCP-Vb: the review round
+
+Both engines' findings (`.../p5/MCP-V/reviews/gpt6.md`, opus's in the brief).
+Each RED is the new test on the code before the fix (`dd53efe2`), run
+bounded (`timeout 900`):
+
+| finding | fix | RED | GREEN |
+|---|---|---|---|
+| the menu's `x`/`z` sent `trust reject NAME` / `trust reset`, which the verbs answer with where `trust` went, so nothing was saved; `d` sent `remove NAME`, refused when `.mcp.json` has the name too | `x`, `z` are `Effect::Trust` (`Reject`, `Reset`); `d` is `remove --profile NAME` (`src/tui/mcp_menu.rs`); no other production call site sends a removed verb (grep of `src/`) | `x`: `disabledMcpjsonServers` `Null`; `z`: the approval still saved; `d`: the profile still holds `dup` | `x_on_a_project_server_rejects_it_through_to_the_settings`, `z_resets_the_workspaces_choices_through_to_the_settings`, `d_removes_the_profile_server_when_the_project_has_one_of_the_same_name` |
+| an unknown flag was said back whole: `--env=TOKEN=…`, `--header=Authorization=…` | every typed word said back stops at its first `=` (`typed`): flags, an unknown verb, a bad name, a non-URL, a name not found | the `=` forms printed the secret | the forms in `a_header_or_env_value_is_never_said_back_and_never_planted_in_the_project` |
+| ` Authorization=…` / `Authorization =…` passed the exact-name refusal and was written into `.mcp.json` | the reader's own rules over the entry `add` would write, before `update` (`config::unreadable`, `parse_entry` over `entry_value`'s JSON); a `${…}` URL left for the expansion | `* Added web to .mcp.json.` | `a_header_the_reader_would_refuse_is_refused_before_anything_is_written` (padded, blank, reserved; bad URLs; `.mcp.json` absent after each) |
+| `approve NAME` of an entry that parses only once expanded found no server | read from `.mcp.json` as the reader reads it (`config::project_entry`), approved as shown, bound to its digest (`ApproveShown`); never its `env`/`headers` | `! No project server named late in .mcp.json.` | `approve_reaches_an_entry_that_parses_only_once_expanded` (`"type":"${…:-stdio}"`, then ready) |
+| a recalled `/mcp VERB NAME` opened the completions, so Up moved their mark | a recalled `/mcp ` line is a recalled slash line (`recalled_slash`), closed until edited | the completions were up | `a_recalled_mcp_line_opens_no_completions_until_it_is_edited` |
+| SHOULD: a refresh kept the mark's index | kept by its line | `/mcp remove proj` marked after `fixture` went | `a_read_that_drops_an_earlier_row_keeps_the_mark_on_its_line` |
+| SHOULD: `Updated::Missing` said `Removed` | not found | (a race between the look and the locked edit; no seam) | code |
+
+`config.rs` takes two additive functions for this (`unreadable`,
+`project_entry`) and one doc comment; nothing in it was moved.
 
 ## Gates
 

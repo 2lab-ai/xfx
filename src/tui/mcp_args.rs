@@ -155,14 +155,30 @@ impl McpArgs {
     }
 
     /// Takes a fresh read of the completions, and says whether what it shows
-    /// changed. The mark stays on its row's index, as fx's does.
+    /// changed. **The mark stays on its line**, not on its index: a server
+    /// that went away above it must not put a destructive line under the mark
+    /// Enter then runs. A line that went away leaves the mark at its index.
     pub(crate) fn refresh(&mut self, entries: Vec<(String, String)>, now: Instant) -> bool {
         self.read_at = now;
         if entries == self.entries {
             return false;
         }
+        let marked = self.chosen().map(str::to_string);
         self.entries = entries;
         self.rematch();
+        if let Some(position) = marked.and_then(|line| {
+            self.matching
+                .iter()
+                .position(|&index| self.entries[index].0 == line)
+        }) {
+            self.selected = position;
+            self.window_start = edge_start(
+                self.window_start,
+                self.matching.len(),
+                self.selected,
+                MOST_ROWS,
+            );
+        }
         true
     }
 
@@ -438,6 +454,29 @@ mod tests {
             plain(args.rows(120, 7, 6, PALETTE))[1],
             "       show remote   retrying"
         );
+    }
+
+    #[test]
+    fn a_read_that_drops_an_earlier_row_keeps_the_mark_on_its_line() {
+        // MCP-Vb: kept by index, the mark moved onto the next server's line,
+        // and Enter would have run that.
+        let now = Instant::now();
+        let mut args = McpArgs::open("/mcp remove ", verbs(), now).unwrap();
+        assert!(args.step_by(1));
+        assert_eq!(args.chosen(), Some("/mcp remove remote"));
+        let entries: Vec<(String, String)> = verbs()
+            .into_iter()
+            .filter(|(full, _)| !full.ends_with(" fixture"))
+            .collect();
+        assert!(args.refresh(entries, now));
+        assert_eq!(args.chosen(), Some("/mcp remove remote"));
+        // A line that went away leaves the mark where the index was.
+        let entries: Vec<(String, String)> = verbs()
+            .into_iter()
+            .filter(|(full, _)| !full.contains("remote") && !full.ends_with(" fixture"))
+            .collect();
+        assert!(args.refresh(entries, now));
+        assert_eq!(args.chosen(), Some("/mcp remove proj"));
     }
 
     #[test]

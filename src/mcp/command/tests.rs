@@ -585,6 +585,19 @@ fn a_header_or_env_value_is_never_said_back_and_never_planted_in_the_project() {
         format!("add --header 'X={secret}' local3 -- /bin/true"),
         format!("add --header 'X={secret}' web https://w.example/mcp"),
         format!("add --header 'X={secret}' 'bad name' https://w.example/mcp"),
+        // MCP-Vb: the `=` forms are no flag of `add`'s, and the refusal said
+        // the whole word back, value and all.
+        format!("add --env=TOKEN={secret} local -- /bin/true"),
+        format!("add --project --header=Authorization={secret} web https://w.example/mcp"),
+        format!("add --header=X={secret} web https://w.example/mcp"),
+        format!("show --token={secret} fixture"),
+        format!("add TOKEN={secret} https://w.example/mcp"),
+        format!("add web w.example/?token={secret}"),
+        format!("TOKEN={secret}"),
+        format!("show TOKEN={secret}"),
+        format!("remove TOKEN={secret}"),
+        format!("approve TOKEN={secret}"),
+        format!("login TOKEN={secret}"),
     ] {
         let answer = said(&runtime, &line);
         assert!(
@@ -592,6 +605,97 @@ fn a_header_or_env_value_is_never_said_back_and_never_planted_in_the_project() {
             "{answer:?}"
         );
     }
+    runtime.shutdown();
+}
+
+#[test]
+fn a_header_the_reader_would_refuse_is_refused_before_anything_is_written() {
+    // MCP-Vb: a padded `Authorization` passed the exact-name refusal and was
+    // written into the repository's `.mcp.json`, which the reader then
+    // refused -- with the token already in a shared file.
+    let scratch = Scratch::new();
+    let runtime = scratch.runtime();
+    let secret = "padded-header-secret";
+    for header in [
+        format!("' Authorization={secret}'"),
+        format!("'Authorization ={secret}'"),
+        format!("'X Key={secret}'"),
+        format!("'Content-Type={secret}'"),
+    ] {
+        let answer = said(
+            &runtime,
+            &format!("add --project --header {header} web https://w.example/mcp"),
+        );
+        assert_eq!(
+            answer,
+            ["! Couldn't add web to .mcp.json: its \"headers\" isn't valid."],
+            "{header}"
+        );
+        assert!(!scratch.project().exists(), "{header}: .mcp.json written");
+    }
+    // The profile's reader holds headers to the same rules.
+    let answer = said(
+        &runtime,
+        &format!("add --header ' Authorization={secret}' web https://w.example/mcp"),
+    );
+    assert_eq!(
+        answer,
+        ["! Couldn't add web to ~/.xfx/mcp.json: its \"headers\" isn't valid."]
+    );
+    assert!(!scratch.profile().exists());
+    // So is a URL: `add` never says `Added` for an entry the reader skips.
+    for url in [
+        "http://example.test/mcp",
+        "https://user:pw@example.test/mcp",
+        "https://example.test/mcp#x",
+    ] {
+        let answer = said(&runtime, &format!("add web {url}"));
+        assert_eq!(
+            answer,
+            ["! Couldn't add web to ~/.xfx/mcp.json: its \"url\" isn't valid."],
+            "{url}"
+        );
+    }
+    assert!(!scratch.profile().exists());
+    // A `${...}` is the reader's to expand, as it does once an entry is
+    // approved: left as written.
+    assert_eq!(
+        said(&runtime, "add --project web 'https://${XFX_MCPV_HOST}/mcp'"),
+        ["* Added web to .mcp.json."]
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn approve_reaches_an_entry_that_parses_only_once_expanded() {
+    // MCP-Vb: `"type": "${T:-stdio}"` is a configuration error until it is
+    // expanded, which only an approved entry is, so it has no server to find
+    // by name; `approve NAME` is the one way to approve it, for the entry as
+    // written -- shown, and bound to its digest.
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    std::fs::write(
+        scratch.project(),
+        format!(
+            r#"{{"mcpServers":{{"late":{{"type":"${{XFX_MCPV_UNSET_TYPE:-stdio}}","command":"/bin/sh","args":["{}"]}}}}}}"#,
+            fixture()
+        ),
+    )
+    .unwrap();
+    let runtime = scratch.runtime();
+    assert!(runtime.server("late").is_none());
+    assert_eq!(
+        said(&runtime, "approve late"),
+        [format!(
+            "* Approved late, which runs: /bin/sh {}",
+            fixture()
+        )]
+    );
+    ready(&runtime, "late");
+    assert_eq!(
+        said(&runtime, "approve nope"),
+        ["! No project server named nope in .mcp.json."]
+    );
     runtime.shutdown();
 }
 

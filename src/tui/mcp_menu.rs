@@ -673,16 +673,32 @@ impl McpMenu {
                     body: "Approving all project MCP servers for this workspace.".to_string(),
                 }
             }
+            // `d` is offered on a profile server only, so its removal says
+            // the file -- a `.mcp.json` entry of the same name is the
+            // repository's, and `remove NAME` refuses to guess. `x` and `z`
+            // are trust choices, handed to the runtime as the prompt's are:
+            // fx v0.0.16's verbs have no `trust`, and answer it with where it
+            // went (MCP-Vb).
             (Screen::Confirm(confirm), KeyAction::Enter) => {
                 let name = self.server(servers).map(|server| server.name.clone());
                 self.screen = Screen::Browse;
-                let command = match (confirm, name) {
-                    (Confirm::Remove, Some(name)) => format!("remove {name}"),
-                    (Confirm::Reject, Some(name)) => format!("trust reject {name}"),
-                    (Confirm::Reset, _) => "trust reset".to_string(),
-                    _ => return Effect::Repaint,
-                };
-                Effect::Command(command)
+                match (confirm, name) {
+                    (Confirm::Remove, Some(name)) => {
+                        Effect::Command(format!("remove --profile {name}"))
+                    }
+                    (Confirm::Reject, Some(name)) => Effect::Trust {
+                        body: format!(
+                            "Rejecting project MCP server '{}'.",
+                            crate::mcp::terminal_safe(&name)
+                        ),
+                        action: crate::mcp::config::TrustAction::Reject(name),
+                    },
+                    (Confirm::Reset, _) => Effect::Trust {
+                        action: crate::mcp::config::TrustAction::Reset,
+                        body: "Resetting project MCP choices for this workspace.".to_string(),
+                    },
+                    _ => Effect::Repaint,
+                }
             }
             (Screen::Confirm(_) | Screen::Details | Screen::Info, KeyAction::Escape) => {
                 self.screen = Screen::Browse;
@@ -1433,7 +1449,7 @@ mod tests {
         );
         assert_eq!(
             menu.key(KeyAction::Enter, &servers, 1),
-            Effect::Command("remove fixture".into())
+            Effect::Command("remove --profile fixture".into())
         );
         assert_eq!(menu.key(KeyAction::Char('s'), &servers, 1), Effect::Repaint);
         let rows = menu.rows(&servers, &[], 120, 3, PALETTE);
@@ -2123,6 +2139,92 @@ mod tests {
         assert_eq!(effect, Effect::Repaint, "{effect:?}");
         assert_eq!(menu.screen(), Screen::Browse);
         assert_eq!(workspace.approved(), serde_json::Value::Null);
+        workspace.runtime.shutdown();
+    }
+
+    /// The workspace's saved choices, whole.
+    fn saved(workspace: &Workspace) -> serde_json::Value {
+        let saved: serde_json::Value = std::fs::read_to_string(&workspace.settings)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        saved["workspaces"][workspace.root.to_str().unwrap()].clone()
+    }
+
+    #[test]
+    fn x_on_a_project_server_rejects_it_through_to_the_settings() {
+        // MCP-Vb: the menu's `x` sent `trust reject NAME`, which fx v0.0.16's
+        // verbs answer with where `trust` went -- and nothing was saved.
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"proj": quiet("p")}));
+        let views = workspace.runtime.views();
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Enter, &views, 5), Effect::Repaint);
+        assert_eq!(menu.key(KeyAction::Char('x'), &views, 5), Effect::Repaint);
+        let effect = menu.key(KeyAction::Enter, &views, 5);
+        workspace.apply(effect);
+        assert_eq!(
+            saved(&workspace)["disabledMcpjsonServers"],
+            serde_json::json!(["proj"]),
+            "{:?}",
+            workspace.notices()
+        );
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
+    fn z_resets_the_workspaces_choices_through_to_the_settings() {
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"proj": quiet("p")}));
+        workspace.apply(Effect::Trust {
+            action: crate::mcp::config::TrustAction::ApproveAll,
+            body: "Approving all project MCP servers for this workspace.".into(),
+        });
+        assert_ne!(workspace.approved(), serde_json::Value::Null);
+        let views = workspace.runtime.views();
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Char('z'), &views, 5), Effect::Repaint);
+        let effect = menu.key(KeyAction::Enter, &views, 5);
+        workspace.apply(effect);
+        assert_eq!(
+            workspace.approved(),
+            serde_json::Value::Null,
+            "{:?}",
+            workspace.notices()
+        );
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
+    fn d_removes_the_profile_server_when_the_project_has_one_of_the_same_name() {
+        // `remove NAME` with no file is refused when both files have it; the
+        // menu's `d` is offered on a profile server only, so it says which.
+        let workspace = Workspace::new();
+        let profile = workspace
+            .root
+            .parent()
+            .unwrap()
+            .join(".xfx")
+            .join("mcp.json");
+        std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        std::fs::write(
+            &profile,
+            serde_json::json!({"mcpServers": {"dup": quiet("profile")}}).to_string(),
+        )
+        .unwrap();
+        workspace.write(serde_json::json!({"dup": quiet("project")}));
+        let views = workspace.runtime.views();
+        assert_eq!(views[0].source, Source::Profile, "{views:?}");
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Enter, &views, 5), Effect::Repaint);
+        assert_eq!(menu.key(KeyAction::Char('d'), &views, 5), Effect::Repaint);
+        let effect = menu.key(KeyAction::Enter, &views, 5);
+        workspace.apply(effect);
+        let left = std::fs::read_to_string(&profile).unwrap();
+        assert!(!left.contains("dup"), "{left} {:?}", workspace.notices());
+        // The project's entry is the repository's: left as it was.
+        let project = std::fs::read_to_string(workspace.root.join(".mcp.json")).unwrap();
+        assert!(project.contains("dup"), "{project}");
         workspace.runtime.shutdown();
     }
 }

@@ -1644,6 +1644,46 @@ fn entry_value(entry: &Entry) -> Json {
     Json::Object(object)
 }
 
+/// Why the reader would skip `entry` as `file`'s entry `name` -- in the
+/// words its note gives ([`entry_problem`]) -- or `None` when it would read
+/// it: the reader's own rules ([`parse_entry`]) over the JSON the writer would
+/// write ([`entry_value`]), so `/mcp add` never says `Added` for an entry the
+/// next load skips -- nor writes a padded `Authorization` header into a
+/// repository's file that the reader then refuses. A `${...}` in a URL is the
+/// reader's to expand once the entry is approved; until then it is checked as
+/// any `https` address.
+pub fn unreadable(file: File, name: &str, entry: &Entry) -> Option<&'static str> {
+    let text = render(&Json::Object(vec![(name.to_string(), entry_value(entry))])).ok()?;
+    let Value::Object(mut wrapped) = read_json(&text)? else {
+        return None;
+    };
+    let mut value = wrapped.remove(name)?;
+    if let Some(Value::String(url)) = value.get_mut("url") {
+        if url.contains("${") {
+            *url = "https://expanded.invalid/".to_string();
+        }
+    }
+    let (source, admission) = match file {
+        File::Profile => (Source::Profile, None),
+        File::Project => (Source::Workspace, Some(Admission::Pending)),
+    };
+    parse_entry(name, &value, source, admission)
+        .err()
+        .map(|err| entry_problem(Some(err)))
+}
+
+/// The workspace's `.mcp.json` entry `name` as the reader reads it -- a
+/// regular file of at most 1 MiB, strict JSON, a valid server name -- or
+/// `None`: what an approval of that name is for ([`entry_digest`]), whether
+/// or not it parses before it is expanded.
+pub fn project_entry(workspace: &Path, name: &str) -> Option<Value> {
+    if !is_valid_server_name(name) {
+        return None;
+    }
+    let text = read_bounded(&project_path(workspace)).ok()??;
+    read_json(&text)?.get("mcpServers")?.get(name).cloned()
+}
+
 /// `pairs` (`:218-222`): a key given twice keeps its first place and its
 /// last value, as `put` does.
 fn pairs(list: &[(String, String)]) -> Json {
@@ -1948,9 +1988,10 @@ impl Choices {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrustAction {
     /// Approve the entry called this as the runtime last read it: the typed
-    /// `/mcp trust approve <name>`, the one way to approve an entry that
-    /// parses only once expanded (`"url": "${URL}"`). The trust prompt and
-    /// the menu's details screen send [`Self::ApproveShown`] instead.
+    /// `/mcp approve NAME` of a server the runtime holds. The trust prompt,
+    /// the menu's details screen and `approve NAME` of an entry that parses
+    /// only once expanded (`"url": "${URL}"`, which has no server to hold)
+    /// send [`Self::ApproveShown`] instead.
     Approve(String),
     /// Approve the entry the trust prompt or the menu's details screen
     /// showed, whose [`entry_digest`] this is: if the file changed after it
