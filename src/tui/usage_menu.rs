@@ -42,9 +42,9 @@
 //!   `usage_presentation.zig:496`).
 
 use crate::usage::dashboard::{Snapshot, Status};
-use crate::usage::fixed;
 use crate::usage::report::{month_day, Failure, ModelRow, Totals, Unavailable};
 use crate::usage::view::Period;
+use crate::usage::{fixed, grouped};
 
 use super::input::Action;
 use super::picker::cells;
@@ -313,7 +313,7 @@ impl Screen {
         if models <= area.min(MAX_MODEL_ROWS) {
             return models.max(1);
         }
-        area.saturating_sub(1).min(MAX_MODEL_ROWS).max(1)
+        area.saturating_sub(1).clamp(1, MAX_MODEL_ROWS)
     }
 
     /// Which rows the dashboard draws in `visible` rows (`layout`,
@@ -1161,19 +1161,6 @@ fn money(value: f64) -> String {
     // infinity saturates rather than wraps.
     let cents = (value * 100.0).round() as u64;
     format!("${}.{:02}", grouped(cents / 100), cents % 100)
-}
-
-/// `3,665` (`grouped`, `:1591-1604`).
-fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
 }
 
 /// `950`, `12K`, `6.9M`, `1.2B` (`compact`, `:1607-1625`).

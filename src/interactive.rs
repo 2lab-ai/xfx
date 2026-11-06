@@ -3387,16 +3387,14 @@ mod tests {
                 token: "/cost".to_string()
             }
         );
-        for (alias, command) in [("/balance", Slash::Credits)] {
-            assert_eq!(
-                classify(alias),
-                Submitted::Command {
-                    command,
-                    argument: String::new()
-                }
-            );
-            assert!(!SLASH_COMMANDS.contains(&alias), "{alias}");
-        }
+        assert_eq!(
+            classify("/balance"),
+            Submitted::Command {
+                command: Slash::Credits,
+                argument: String::new()
+            }
+        );
+        assert!(!SLASH_COMMANDS.contains(&"/balance"));
         // Upstream's order: `/copy` before `/credits` before `/statusline`
         // (`commands.zig:484-494`).
         let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
