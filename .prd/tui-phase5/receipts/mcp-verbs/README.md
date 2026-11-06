@@ -141,6 +141,13 @@ new test, bounded (`timeout 900`):
 `runtime.rs` gains one accessor (`loaded_digest`); `config.rs` changes only
 inside `unreadable` and a new `template_url_holds` beside it.
 
+Re-run on `b6754835`: 21 / 52 pairs (`p5-mcp-empty` 21 of 24), notices 22 of
+22 and 20 of 24 in order, `mcp.json` after-add and end byte-identical to
+fx's -- as before. Gates on `b6754835`: fmt ok; clippy ok, both feature
+sets; `cargo test` 4651 / 0 and 4674 / 0 (fault-injection); identity, stubs,
+secrets ok; release and faulty release builds ok; `smoke.sh` 46 / 0;
+`smoke-tui.sh` 37 scenarios + the oracle, 1091 / 0.
+
 ## Gates
 
 On `3c09b481` (the head after it changes comments, docs and this
