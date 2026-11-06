@@ -41,9 +41,9 @@
 //!   order and the text of its numbers kept, two-space pretty JSON, an entry
 //!   in Claude's shape (`{"command","args","env"}`,
 //!   `{"type":"http","url","headers"}`). An old `{"mcp":…}` profile keeps its
-//!   `mcp` key. The `/mcp` verbs that call it are a later unit's; until then
-//!   the typed `/mcp add` and `/mcp remove` still go through
-//!   [`add_profile_server`] and [`remove_profile_server`].
+//!   `mcp` key. The `/mcp` verbs call it (`crate::mcp::command`); c1db9191's
+//!   whole-file writers it replaced, `add_profile_server` and
+//!   `remove_profile_server`, are left only for tests to seed a profile with.
 //! - **`--project` edits the workspace's `.mcp.json`**, never through a link
 //!   or a file with another hard link, keeping its mode.
 
@@ -617,10 +617,11 @@ pub fn parse_profile(text: &str) -> Result<Profile, ConfigError> {
     Ok(profile)
 }
 
-/// The profile's servers as the typed `/mcp add` and `/mcp remove` of
-/// [`add_profile_server`] read them: every entry, or the first one's error.
-/// That writer renders the whole profile from what it read, so an entry left
-/// out here would be an entry deleted there.
+/// The profile's servers as c1db9191's whole-file writer, `add_profile_server`,
+/// reads them: every entry, or the first one's error. That writer renders the
+/// whole profile from what it read, so an entry left out here would be an
+/// entry deleted there. Tests only, as the writer is.
+#[cfg(test)]
 fn parse_profile_strictly(text: &str) -> Result<Vec<ServerConfig>, ConfigError> {
     let (servers, _) = profile_servers(text)?;
     servers
@@ -764,8 +765,10 @@ fn whole_file(cause: &str) -> String {
     )
 }
 
-/// The profile file's bytes, in upstream's shape and key order
-/// (`renderConfigJson`, `mcp.zig:1075-1180`).
+/// The profile file's bytes, in c1db9191's shape and key order
+/// (`renderConfigJson`, `mcp.zig:1075-1180@c1db9191`). Tests only: the
+/// `/mcp` verbs write through [`update`], as fx v0.0.16's do.
+#[cfg(test)]
 pub fn render_profile(servers: &[ServerConfig]) -> String {
     let quote = |text: &str| Value::from(text).to_string();
     let mut out = String::from("{\"mcp\":{");
@@ -848,7 +851,9 @@ pub fn render_profile(servers: &[ServerConfig]) -> String {
 }
 
 /// Adds `config` to the profile at `path`, in place of a server of the same
-/// name or after the others, under the profile lock.
+/// name or after the others, under the profile lock: how a test seeds a
+/// profile with a whole [`ServerConfig`], timeouts and all.
+#[cfg(test)]
 pub fn add_profile_server(path: &Path, config: ServerConfig) -> Result<(), ConfigError> {
     edit_profile(path, |servers| {
         match servers
@@ -864,6 +869,7 @@ pub fn add_profile_server(path: &Path, config: ServerConfig) -> Result<(), Confi
 }
 
 /// Removes the profile server called `name`. `Ok(false)` when there is none.
+#[cfg(test)]
 pub fn remove_profile_server(path: &Path, name: &str) -> Result<bool, ConfigError> {
     edit_profile(path, |servers| {
         let before = servers.len();
@@ -874,6 +880,7 @@ pub fn remove_profile_server(path: &Path, name: &str) -> Result<bool, ConfigErro
 
 /// One read-modify-write of the profile under `mcp.lock`; nothing is written
 /// when `edit` says it changed nothing.
+#[cfg(test)]
 fn edit_profile(
     path: &Path,
     edit: impl FnOnce(&mut Vec<ServerConfig>) -> bool,
