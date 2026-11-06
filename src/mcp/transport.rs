@@ -47,7 +47,7 @@ const STDERR_TAIL_BYTES: usize = 4 * 1024;
 const STDERR_SETTLE: Duration = Duration::from_millis(500);
 
 /// How often a waiting call looks at the turn's cancellation.
-const CANCEL_POLL: Duration = Duration::from_millis(20);
+pub(super) const CANCEL_POLL: Duration = Duration::from_millis(20);
 
 /// How long a stopping server is given after `SIGTERM` before `SIGKILL`.
 const STOP_GRACE: Duration = Duration::from_millis(500);
@@ -79,8 +79,14 @@ pub trait Transport: Send + Sync {
         timeout: Duration,
         cancel: Option<&CancelToken>,
     ) -> Result<Value, McpError>;
-    /// Sends a notification, which has no answer.
-    fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError>;
+    /// Sends a notification, which has no answer; given up on once `cancel`
+    /// is set.
+    fn notify(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError>;
     /// Whether the connection can still carry a request.
     fn alive(&self) -> bool;
     /// What the server said on its own way out, when it has gone.
@@ -745,11 +751,16 @@ impl Transport for StdioTransport {
         result
     }
 
-    fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError> {
+    fn notify(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError> {
         self.write(
             &notification_frame(method, params),
             Instant::now() + FRAME_WRITE_TIMEOUT,
-            None,
+            cancel,
         )
     }
 
@@ -775,15 +786,13 @@ impl Transport for StdioTransport {
     fn exit(&self) -> Option<Exit> {
         // A server whose standard error has ended is on its way out: its exit
         // is waited for as briefly as its last words are. One still writing
-        // there is looked at once.
+        // there is looked at once, and one already closed has nothing left.
         let deadline = Instant::now() + STDERR_SETTLE;
         loop {
-            let found = self
-                .child
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .as_mut()
-                .and_then(exit_of);
+            let found = {
+                let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+                exit_of(child.as_mut()?)
+            };
             if found.is_some()
                 || !self.stderr_closed.load(Ordering::Acquire)
                 || Instant::now() >= deadline
@@ -1052,14 +1061,19 @@ impl Transport for HttpTransport {
         result
     }
 
-    fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError> {
+    fn notify(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError> {
         let (reply, receiver) = mpsc::channel();
         self.send(HttpJob {
             body: notification_frame(method, params.or_else(|| Some(json!({})))),
             id: None,
             reply,
         })?;
-        wait(&receiver, Duration::from_secs(10), None).map(|_| ())
+        wait(&receiver, Duration::from_secs(10), cancel).map(|_| ())
     }
 
     fn alive(&self) -> bool {
@@ -2259,7 +2273,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         );
         // Whatever went before this reaches the server before it.
         transport
-            .notify("notifications/sentinel", None)
+            .notify("notifications/sentinel", None, None)
             .expect("the sentinel");
         let sentinel = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/sentinel\"}\n";
         let deadline = Instant::now() + Duration::from_secs(30);
