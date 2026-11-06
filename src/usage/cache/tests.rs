@@ -1348,7 +1348,7 @@ fn spawn_role(role: &str, home: &Path, arg: &str) -> Child {
     if role == "crash" {
         copy.env(fs::KILL_BEFORE_RENAME, "1");
     }
-    copy.spawn().expect("a copy of this test binary")
+    crate::process::spawn(&mut copy).expect("a copy of this test binary")
 }
 
 /// Waits for `child` at most `limit`, killing it by its pid after that, and
