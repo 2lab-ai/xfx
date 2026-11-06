@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-2fbc088 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mfirst prompt alpha[0m
+
+  ALPHA answer.
+
+[38;5;245m  0s (↑6 ↓40)[39m
+
+[38;5;255m┃[39m [1msecond prompt beta[0m
+
+  BETA answer.
+
+[38;5;245m  0s (↑5 ↓40)[39m
+
+[38;5;255m┃[39m [1mthird prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to[0m
+[38;5;255m┃[39m [1mcut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven[0m
+[38;5;255m┃[39m [1meight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth[0m
+[38;5;255m┃[39m [1mand a fifth line at a hundred and twenty columns, sixteen seventeen eighteen nineteen twenty twenty-one twenty-two[0m
+[38;5;255m┃[39m [1mtwenty-three twenty-four[0m
+
+  GAMMA answer.
+
+[38;5;245m  0s (↑128 ↓40)[39m
+
+[38;5;255m┃[39m /fo
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mCommands 1[39m
+
+[1m[38;5;255m  /fork   [38;5;245mfork the session before a prompt                                                                      Session[0m
+
+
+
+
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+

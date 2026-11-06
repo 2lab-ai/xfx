@@ -1659,6 +1659,10 @@ struct Runtime {
     /// The store refused the last session this runtime asked it for, so
     /// `/status` says this shell can't save sessions until one opens.
     session_refused: bool,
+    /// The session this runtime's conversation was opened from the store as --
+    /// a `/resume`, a `/fork`, a launch's `--resume` -- whose log is on disk
+    /// from the open, turns or none ([`Runtime::resumable`]).
+    opened: Option<crate::session::SessionId>,
     /// The directories `/workspace` saved for this workspace, each as the real
     /// path it was when it was read: at launch, from the profile, and after
     /// each change, from what the change read back.
@@ -1751,6 +1755,7 @@ impl Runtime {
             unrecorded_resume: None,
             next_session,
             session_refused: false,
+            opened: None,
             workspace,
             fixed_tokens: Arc::new(AtomicUsize::new(0)),
         }
@@ -2335,8 +2340,17 @@ impl Runtime {
     }
 
     /// What a `/resume` picker lists, read now: both scopes, newest first,
-    /// without the session this runtime is in and without sessions that hold
-    /// no turn (`hasResumableContent`, `session_store_types.zig:71-73`).
+    /// without the session this runtime is in.
+    ///
+    /// **A session with no turn is listed when it has a title**, at one turn:
+    /// upstream's store lists every session it keeps at `@max(turns, 1)`
+    /// (`summaryOf`, `vercel-labs/fx@481104fd
+    /// src/core/session/session_adapter.zig:4632`), and the sessions xfx keeps
+    /// with no turn are titled ones -- a `/rename` before the first prompt, or
+    /// a `/fork` before it (`SessionStore::fork`) -- so a zero-turn fork is
+    /// `<title> (fork)  … · 1 turn` on both (`fx-p5-effort-fork-fork-empty-…
+    /// -resume`). One with neither a turn nor a title is nothing to come back
+    /// to, and is not listed.
     ///
     /// `None` when either listing could not be read, which the picker says as
     /// upstream's does (`Unable to load sessions.`).
@@ -2355,14 +2369,14 @@ impl Runtime {
             |list: crate::session::SessionList| -> Vec<super::session_picker::ListedSession> {
                 list.sessions
                     .into_iter()
-                    .filter(|summary| summary.history_turns > 0)
+                    .filter(|summary| summary.history_turns > 0 || summary.title.is_some())
                     .filter(|summary| active.as_deref() != Some(summary.id.as_str()))
                     .map(|summary| super::session_picker::ListedSession {
                         id: summary.id,
                         title: summary.title,
                         workspace: summary.workspace_root,
                         updated_at_ms: summary.updated_at_ms,
-                        turns: summary.history_turns,
+                        turns: summary.history_turns.max(1),
                     })
                     .collect()
             };
@@ -2414,10 +2428,131 @@ impl Runtime {
                 crate::session::SessionError::Busy { .. } => ResumeFailure::OpenElsewhere,
                 _ => ResumeFailure::Unavailable,
             })?;
-        let resumption = Resumption {
-            session: resumed.session,
-            scope,
+        Ok(self.switch_to(
+            Resumption {
+                session: resumed.session,
+                scope,
+            },
+            mirror,
+        ))
+    }
+
+    /// What a `/fork` can start before (`openForkMenu` and `forkPoints`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_session_runtime.zig:2072-2096`,
+    /// `src/core/session/session_adapter.zig:2388-2416`): each turn of the
+    /// conversation that ended -- finished or stopped -- with what was typed
+    /// for it, oldest first, as upstream takes one point per `assistant` or
+    /// `interrupted` turn.
+    ///
+    /// Only where the store would make the fork: before turn `n`, turn `n - 1`
+    /// has to have ended too (`SessionStore::fork`, which refuses a kept turn
+    /// that has not), so a turn after one whose conclusion never reached the
+    /// log is not offered -- the menu does not list a fork that would only
+    /// fail. No conversation is nothing asked yet: no point, which is
+    /// upstream's `nothing to fork yet` at launch. A log that stopped taking
+    /// what it was given is not what the screen shows, and is upstream's
+    /// `/fork needs a saved session` ([`ForkPoints::Unsaved`]).
+    ///
+    /// Read from the conversation's own state, which is its log as published:
+    /// every commit publishes ([`crate::session::SessionRecorder::commit`]).
+    fn fork_points(&self) -> super::fork_menu::ForkPoints {
+        use super::fork_menu::{ForkPoint, ForkPoints};
+        let Some(conversation) = self.conversation.as_ref() else {
+            return ForkPoints::Points(Vec::new());
         };
+        if conversation.recorder.failure().is_some() {
+            return ForkPoints::Unsaved;
+        }
+        let turns = &conversation.recorder.state().turns;
+        let ended = |index: usize| turns.get(index).is_some_and(|turn| turn.outcome.is_some());
+        ForkPoints::Points(
+            turns
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| ended(*index) && (*index == 0 || ended(index - 1)))
+                .map(|(index, turn)| ForkPoint {
+                    turn: index + 1,
+                    prompt: turn.user.clone(),
+                })
+                .collect(),
+        )
+    }
+
+    /// `/fork`'s Enter (`forkBeforeSelectedPrompt`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_session_runtime.zig:2098-2127`):
+    /// a fork of the conversation before its turn `before_turn`, made the
+    /// conversation, and what it replays as -- with the id of the session it
+    /// was forked from.
+    ///
+    /// **In this order, and only in this order:**
+    ///
+    /// 1. **The fork is made and opened** while the conversation it is made
+    ///    from is still this runtime's, its lock held
+    ///    ([`crate::session::SessionStore::fork`], which reads the source's
+    ///    published log without that lock and never writes it). The scope the
+    ///    fork's tools will run in is settled before, so nothing after the fork
+    ///    exists can fail; a log that has stopped taking events since the menu
+    ///    opened is refused before either. Anything that fails up to here
+    ///    leaves the conversation exactly as it was: it was never let go of.
+    /// 2. **The source is let go of**, as a resume lets the session it
+    ///    replaces go: its log closes and its lock is released
+    ///    ([`Self::switch_to`]). The fork opened first, as upstream's does
+    ///    (D41, `app_session_runtime.zig:2116-2120`).
+    /// 3. **The fork is installed** by the resume's own path, and replays as a
+    ///    resume does.
+    ///
+    /// The fork continues on what a resume of it would: the provider and the
+    /// model the log recorded as of the cut, unless `XFX_MODEL` outranks it
+    /// ([`Resumption::selection`]), and the effort and switches it recorded.
+    /// **Its permissions are the fork's own**: the mode is the one in force,
+    /// never the one the log recorded, as a resume's is; the grants are the
+    /// ones the fork's log holds, which the store has already brought into
+    /// line with what the source still grants -- an "always" the source took
+    /// back after the cut is not the fork's ([`bind_conversation`] seeds the
+    /// conversation's ledger from the fork's state alone, and a turn records
+    /// only what that ledger holds). No child process is the conversation's
+    /// to move: the MCP servers are this runtime's and the shell tool's
+    /// commands end with their calls.
+    fn fork(
+        &mut self,
+        before_turn: usize,
+        mirror: &CancelToken,
+    ) -> Option<(super::hydration::Hydration, SessionId)> {
+        let conversation = self.conversation.as_ref()?;
+        // A commit that failed since the menu opened: the log is not what the
+        // screen shows, and nothing is forked from it, as the menu would not
+        // have opened ([`Self::fork_points`]).
+        if conversation.recorder.failure().is_some() {
+            return None;
+        }
+        let source = conversation.recorder.id().clone();
+        let scope = conversation_scope(&self.config).ok()?;
+        let fork = self
+            .store
+            .fork(&source, before_turn, &self.config.workspace_root)
+            .ok()?;
+        let replay = self.switch_to(
+            Resumption {
+                session: fork,
+                scope,
+            },
+            mirror,
+        );
+        Some((replay, source))
+    }
+
+    /// Makes `resumption` the conversation, and answers what it replays as:
+    /// the second half of every switch to a saved session -- `/resume`'s
+    /// ([`Self::resume_by_id`]) and `/fork`'s ([`Self::fork`]).
+    ///
+    /// The session is open already and its lock held; nothing here can fail.
+    /// The conversation it replaces is dropped here, after the open, which
+    /// closes that one's log and releases its lock.
+    fn switch_to(
+        &mut self,
+        resumption: Resumption,
+        mirror: &CancelToken,
+    ) -> super::hydration::Hydration {
         // The selection this session was configured with, before the resume
         // moves it: what a restored Fast binding is judged against
         // ([`Resumption::keeps_fast_binding`]).
@@ -2472,7 +2607,7 @@ impl Runtime {
         self.resume(resumption, mirror);
         self.publish_reply();
         self.publish();
-        Ok(replay)
+        replay
     }
 
     /// The model this session's next turn is held in.
@@ -2599,6 +2734,7 @@ impl Runtime {
             mirror,
         );
         self.unrecorded_resume = Some(conversation.recorder.id().clone());
+        self.opened = Some(conversation.recorder.id().clone());
         // A resumed session's clock is its own: from when it was created.
         self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
@@ -2607,18 +2743,26 @@ impl Runtime {
     }
 
     /// The session this runtime's conversation is recorded in, when it holds
-    /// one with at least one turn in it.
+    /// one with at least one turn in it, or was opened from the store.
     ///
     /// Upstream's test for a resume handoff is "not pristine"
     /// (`shouldCreateResumeHandoff`, `app_session_runtime.zig:350-354`;
     /// pristine is no history, `session_store.zig:4498-4509`), and a turn is
-    /// the history a log holds. A conversation `/new` dropped is not this
-    /// runtime's any more, so its session is not named either: what is named
-    /// is the one the next prompt would have gone to.
+    /// the history a log holds. Since fx v0.0.16 it is whether the log is on
+    /// disk, which a resumed or forked session's is from its open, turns or
+    /// none (D90, `vercel-labs/fx@481104fd
+    /// tests/tla/session_manager/system-design.md:1536-1560`): a fork made
+    /// before the first prompt holds no turn and is named
+    /// (`fx-p5-effort-fork-fork-edge-…-quit`). A conversation `/new` dropped
+    /// is not this runtime's any more, so its session is not named either:
+    /// what is named is the one the next prompt would have gone to.
     fn resumable(&self) -> Option<SessionId> {
         self.conversation
             .as_ref()
-            .filter(|conversation| !conversation.recorder.state().turns.is_empty())
+            .filter(|conversation| {
+                !conversation.recorder.state().turns.is_empty()
+                    || self.opened.as_ref() == Some(conversation.recorder.id())
+            })
             .map(|conversation| conversation.recorder.id().clone())
     }
 
@@ -3300,6 +3444,22 @@ async fn turn_loop(
                 bridge::send_terminal(events, answer).await;
                 Ended::Turn
             }
+            TurnWork::ForkPoints => {
+                let points = state.fork_points();
+                bridge::send_terminal(events, UiEvent::ForkPoints(points)).await;
+                Ended::Turn
+            }
+            TurnWork::Fork { before_turn } => {
+                let answer = match state.fork(before_turn, &cancel.mirror()) {
+                    Some((replay, source)) => UiEvent::Forked {
+                        replay,
+                        source: source.to_string(),
+                    },
+                    None => UiEvent::ForkFailed,
+                };
+                bridge::send_terminal(events, answer).await;
+                Ended::Turn
+            }
             TurnWork::Workspace(action) => {
                 let answer = state.change_workspace(&action);
                 bridge::send_terminal(events, answer).await;
@@ -3377,6 +3537,7 @@ async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, throug
     // A resume whose selection was still to be written down goes with it: the
     // next conversation's log starts with the selection in force.
     state.unrecorded_resume = None;
+    state.opened = None;
     state.bills.forget();
     // The band moved the title lineage on at the keystroke
     // ([`WorkHandle::new_title_lineage`]): what was asked about this
@@ -14539,5 +14700,513 @@ mod tests {
             ),
             "{log}"
         );
+    }
+
+    // --- `/fork` (P5-FK2) ---------------------------------------------------
+
+    /// The conversation's log as it stands on disk.
+    fn log_of(state: &Runtime, id: &SessionId) -> String {
+        std::fs::read_to_string(
+            state
+                .store
+                .sessions_dir()
+                .join(id.as_str())
+                .join(crate::session::store::EVENTS_FILE),
+        )
+        .expect("the log")
+    }
+
+    fn conversation_id(state: &Runtime) -> SessionId {
+        state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .id()
+            .clone()
+    }
+
+    fn points(state: &Runtime) -> Vec<(usize, String)> {
+        match state.fork_points() {
+            super::super::fork_menu::ForkPoints::Points(points) => points
+                .into_iter()
+                .map(|point| (point.turn, point.prompt))
+                .collect(),
+            super::super::fork_menu::ForkPoints::Unsaved => panic!("unsaved"),
+        }
+    }
+
+    #[test]
+    fn a_fork_is_offered_before_each_prompt_whose_turn_and_the_one_before_it_ended() {
+        // `forkPoints` (`session_adapter.zig:2388-2416@481104fd`): one point
+        // per turn that ended, oldest first, with what was typed. Nothing asked
+        // yet is no point at all -- upstream's `nothing to fork yet`.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let state = Runtime::new(config, store, a_prompter(), a_questioner());
+        assert_eq!(points(&state), Vec::new());
+
+        let (_home, _workspace, mut state) = recording();
+        assert_eq!(points(&state), Vec::new(), "an open log with no turn");
+        assert!(matches!(
+            one_turn_of(&mut state, "first\nprompt", "A"),
+            Ended::Turn
+        ));
+        assert!(matches!(
+            one_turn_of(&mut state, "second prompt", "B"),
+            Ended::Turn
+        ));
+        assert_eq!(
+            points(&state),
+            vec![
+                (1, "first\nprompt".to_string()),
+                (2, "second prompt".to_string())
+            ]
+        );
+        // A turn whose conclusion never reached the log -- a crash mid-turn --
+        // is not offered, and neither is the one after it: the store refuses a
+        // fork that would keep it.
+        let conversation = state.conversation.as_mut().expect("open");
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "cut off".to_string(),
+        });
+        assert_eq!(points(&state).len(), 2);
+    }
+
+    #[test]
+    fn a_log_that_stopped_taking_events_has_no_fork_to_offer() {
+        // Upstream's `/fork needs a saved session`: the log is not what the
+        // screen shows once a commit failed.
+        let (home, _workspace, mut state) = recording();
+        assert!(matches!(one_turn_of(&mut state, "first", "A"), Ended::Turn));
+        let id = conversation_id(&state);
+        let dir = home.path().join(".xfx").join("sessions").join(id.as_str());
+        let log = dir.join(crate::session::store::EVENTS_FILE);
+        // Another writer: the next append finds the log longer than it left
+        // it, and the recorder stops.
+        std::io::Write::write_all(
+            &mut std::fs::OpenOptions::new()
+                .append(true)
+                .open(&log)
+                .expect("the log opens"),
+            b"\n",
+        )
+        .expect("a byte from elsewhere");
+        state
+            .conversation
+            .as_mut()
+            .expect("open")
+            .recorder
+            .commit(SessionEvent::UserMessage {
+                text: "lost".to_string(),
+            });
+        assert!(state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .failure()
+            .is_some());
+        assert_eq!(
+            state.fork_points(),
+            super::super::fork_menu::ForkPoints::Unsaved
+        );
+    }
+
+    /// Every session folder the store holds, staged forks included.
+    fn folders(home: &std::path::Path) -> (Vec<String>, Vec<String>) {
+        let list = |dir: std::path::PathBuf| {
+            let mut names: Vec<String> = std::fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let profile = home.join(".xfx");
+        (
+            list(profile.join("sessions")),
+            // Where the store builds a fork before it is renamed into
+            // `sessions` (`store::fork::FORK_STAGE_DIR`).
+            list(profile.join("sessions.staged")),
+        )
+    }
+
+    /// Whether this runtime still holds `id`'s lock: another opener is
+    /// refused it without waiting.
+    fn held_here(state: &Runtime, id: &SessionId) -> bool {
+        let other = open_store(&state.config).expect("a store");
+        matches!(
+            other.resume_without_waiting(
+                &crate::session::Selector::Id(id.clone()),
+                &state.config.workspace_root,
+            ),
+            Err(crate::session::SessionError::Busy { .. })
+        )
+    }
+
+    #[test]
+    fn a_fork_asked_after_the_log_stopped_taking_events_is_refused() {
+        // The menu opened on a log that took everything; a commit failed
+        // before Enter. The fork is refused as the menu would have been
+        // (`Self::fork_points`' `Unsaved`), the source is the conversation
+        // still, its lock held, its log as the failure left it, and no fork
+        // was made.
+        let (home, _workspace, mut state) = recording();
+        assert!(matches!(one_turn_of(&mut state, "first", "A"), Ended::Turn));
+        assert!(matches!(
+            one_turn_of(&mut state, "second", "B"),
+            Ended::Turn
+        ));
+        assert_eq!(points(&state).len(), 2, "the menu opens");
+        let source = conversation_id(&state);
+        // A frame past the log's 64 MiB limit: refused before a byte is
+        // written, and the recorder stops (`SessionStore::append`).
+        state
+            .conversation
+            .as_mut()
+            .expect("open")
+            .recorder
+            .commit(SessionEvent::UserMessage {
+                text: "x".repeat(64 * 1024 * 1024),
+            });
+        assert!(state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .failure()
+            .is_some());
+        let before = (log_of(&state, &source), folders(home.path()));
+
+        assert!(
+            state.fork(2, &CancelToken::new()).is_none(),
+            "a fork was made from a log that stopped"
+        );
+        assert_eq!(conversation_id(&state), source);
+        assert_eq!((log_of(&state, &source), folders(home.path())), before);
+        assert!(held_here(&state, &source), "the source's lock was let go");
+    }
+
+    #[test]
+    fn a_fork_whose_scope_cannot_be_settled_leaves_the_source_whole() {
+        // `conversation_scope` fails -- the workspace is gone -- before the
+        // store is asked for anything: the conversation, its lock, the
+        // configuration, its permissions and its log are what they were.
+        let (home, workspace, mut state) = recording();
+        assert!(matches!(one_turn_of(&mut state, "first", "A"), Ended::Turn));
+        {
+            let conversation = state.conversation.as_mut().expect("open");
+            conversation
+                .tools
+                .permissions()
+                .grant(Grant::new("edit_file", "a.txt".to_string()));
+            record_grants(conversation);
+        }
+        assert!(matches!(
+            one_turn_of(&mut state, "second", "B"),
+            Ended::Turn
+        ));
+        let source = conversation_id(&state);
+        let ledger = |state: &Runtime| {
+            let conversation = state.conversation.as_ref().expect("open");
+            let grants = conversation.tools.permissions().grants().to_vec();
+            let mode = conversation.tools.permissions().mode();
+            (grants, mode)
+        };
+        let before = (
+            log_of(&state, &source),
+            folders(home.path()),
+            format!("{:?}", state.config),
+            ledger(&state),
+        );
+        std::fs::remove_dir_all(workspace.path()).expect("the workspace goes");
+        assert!(conversation_scope(&state.config).is_err());
+
+        assert!(state.fork(2, &CancelToken::new()).is_none());
+        std::fs::create_dir(workspace.path()).expect("the workspace is back");
+        assert_eq!(conversation_id(&state), source);
+        let after = (
+            log_of(&state, &source),
+            folders(home.path()),
+            format!("{:?}", state.config),
+            ledger(&state),
+        );
+        assert!(before.0 == after.0, "the source's log was written");
+        assert_eq!(before.1, after.1, "a session folder was made");
+        assert!(before.2 == after.2, "the configuration moved");
+        assert_eq!(before.3, after.3, "the permission ledger moved");
+        assert!(held_here(&state, &source), "the source's lock was let go");
+    }
+
+    #[test]
+    fn a_fork_opens_before_the_source_lets_go_and_replays_only_the_kept_turns() {
+        // `forkBeforeSelectedPrompt` (`app_session_runtime.zig:2098-2127@481104fd`):
+        // the fork is made from the conversation while it is still this
+        // runtime's, then the conversation is the fork, replayed as a resume
+        // is, with the source's id for the line that resumes it. The source's
+        // log is not written -- not by the fork, not by the switch.
+        let (home, _workspace, mut state) = recording();
+        assert!(matches!(
+            one_turn_of(&mut state, "first prompt alpha", "A"),
+            Ended::Turn
+        ));
+        assert!(matches!(
+            one_turn_of(&mut state, "second prompt beta", "B"),
+            Ended::Turn
+        ));
+        let source = conversation_id(&state);
+        let before = log_of(&state, &source);
+
+        let (replay, forked_from) = state.fork(2, &CancelToken::new()).expect("forked");
+        assert_eq!(forked_from, source);
+        let fork = conversation_id(&state);
+        assert_ne!(fork, source);
+        assert_eq!(replay.title.as_deref(), Some("first prompt alpha (fork)"));
+        assert_eq!(
+            replay
+                .turns
+                .iter()
+                .map(|turn| turn.sent.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first prompt alpha"]
+        );
+        assert_eq!(log_of(&state, &source), before, "the source was written");
+        // Its lock went with it: another opener takes it at once.
+        let other = open_store(&state.config).expect("a store");
+        drop(
+            other
+                .resume_without_waiting(
+                    &crate::session::Selector::Id(source.clone()),
+                    &state.config.workspace_root,
+                )
+                .expect("the source is free"),
+        );
+        // The fork is the conversation the next prompt goes to, and the one
+        // the exit line names; the source is the picker's to list.
+        assert_eq!(state.resumable(), Some(fork.clone()));
+        let listed = state.sessions().expect("reads");
+        assert_eq!(
+            listed
+                .current
+                .iter()
+                .map(|row| row.id.clone())
+                .collect::<Vec<_>>(),
+            vec![source.to_string()]
+        );
+        let mut on_disk = sessions_in(home.path());
+        on_disk.sort();
+        let mut expected = vec![source.to_string(), fork.to_string()];
+        expected.sort();
+        assert_eq!(on_disk, expected);
+        // The fork goes on: its next request is the kept turn and the prompt.
+        assert!(matches!(
+            one_turn_of(&mut state, "second prompt beta", "C"),
+            Ended::Turn
+        ));
+        let turns = &state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .turns;
+        assert_eq!(
+            turns
+                .iter()
+                .map(|turn| turn.user.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first prompt alpha", "second prompt beta"]
+        );
+        assert_eq!(log_of(&state, &source), before);
+    }
+
+    #[test]
+    fn a_fork_that_cannot_be_made_leaves_the_conversation_exactly_as_it_was() {
+        // `Unable to fork the session.`: a point the store refuses -- turn 0,
+        // a turn the session does not have -- makes nothing, closes nothing,
+        // writes nothing.
+        let (home, _workspace, mut state) = recording();
+        assert!(matches!(one_turn_of(&mut state, "only", "A"), Ended::Turn));
+        let source = conversation_id(&state);
+        let before = log_of(&state, &source);
+        for before_turn in [0, 3] {
+            assert!(state.fork(before_turn, &CancelToken::new()).is_none());
+            assert_eq!(conversation_id(&state), source);
+            assert_eq!(log_of(&state, &source), before);
+            assert_eq!(sessions_in(home.path()), vec![source.to_string()]);
+        }
+        // And no conversation is no fork.
+        state.conversation = None;
+        assert!(state.fork(1, &CancelToken::new()).is_none());
+    }
+
+    #[test]
+    fn a_fork_holds_its_own_grants_and_the_mode_in_force_through_its_next_turn() {
+        // FK1b keeps an "always" the source withdrew after the cut withdrawn
+        // in the fork's log; the conversation's ledger is seeded from that log
+        // alone ([`bind_conversation`]), so the fork's next turn records
+        // nothing the source holds and the fork does not -- not `b`, withdrawn
+        // after the cut, nor `c`, granted after it. The mode is the one in
+        // force, never the one the log recorded as of the cut, as a resume's.
+        let (_home, _workspace, mut state) = recording();
+        let a = Grant::new("edit_file", "a.txt".to_string());
+        let b = Grant::new("edit_file", "b.txt".to_string());
+        let c = Grant::new("edit_file", "c.txt".to_string());
+        assert!(matches!(one_turn_of(&mut state, "first", "A"), Ended::Turn));
+        {
+            // Answered "always" in the first turn: written down after it, as
+            // every turn's approvals are ([`record_grants`]) -- before the
+            // second prompt, so inside what a fork before the third keeps.
+            // And the mode moved, which the log records there too.
+            let conversation = state.conversation.as_mut().expect("open");
+            for grant in [&a, &b] {
+                conversation.tools.permissions().grant(grant.clone());
+            }
+            record_grants(conversation);
+            conversation.set_permission_mode(PermissionMode::Yolo, false);
+        }
+        assert!(matches!(
+            one_turn_of(&mut state, "second", "B"),
+            Ended::Turn
+        ));
+        {
+            // After the cut: `b` withdrawn (a reset, `a` answered again), `c`
+            // granted, and the mode moved again.
+            let conversation = state.conversation.as_mut().expect("open");
+            conversation.set_permission_mode(PermissionMode::Ask, true);
+            for grant in [&a, &c] {
+                conversation.tools.permissions().grant(grant.clone());
+            }
+            record_grants(conversation);
+        }
+        assert!(matches!(one_turn_of(&mut state, "third", "C"), Ended::Turn));
+        let source = conversation_id(&state);
+        let source_grants = |state: &Runtime| {
+            let mut held = state
+                .store
+                .detail(
+                    &crate::session::Selector::Id(source.clone()),
+                    &state.config.workspace_root,
+                )
+                .expect("the source reads")
+                .state
+                .grants;
+            held.sort_by(|x, y| x.target.cmp(&y.target));
+            held
+        };
+        assert_eq!(source_grants(&state), vec![a.clone(), c.clone()]);
+        state.config.permission_mode = PermissionMode::Auto;
+
+        state
+            .fork(3, &CancelToken::new())
+            .expect("forked before the third");
+        let held = |state: &Runtime| {
+            let conversation = state.conversation.as_ref().expect("open");
+            let logged = conversation.recorder.state().grants.clone();
+            // One lock at a time: the ledger's guard is a temporary.
+            let ledger = conversation.tools.permissions().grants().to_vec();
+            let mode = conversation.tools.permissions().mode();
+            (logged, ledger, mode)
+        };
+        assert_eq!(
+            held(&state),
+            (vec![a.clone()], vec![a.clone()], PermissionMode::Auto)
+        );
+        assert!(matches!(one_turn_of(&mut state, "third", "D"), Ended::Turn));
+        let (log, ledger, mode) = held(&state);
+        assert_eq!(
+            log,
+            vec![a.clone()],
+            "the fork's log took a grant it never had"
+        );
+        assert_eq!(ledger, vec![a.clone()]);
+        assert_eq!(mode, PermissionMode::Auto);
+        assert_eq!(state.granted().len(), 1, "{:?}", state.granted());
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .recorder
+                .state()
+                .permission_mode,
+            PermissionMode::Auto,
+            "the turn writes down the mode it ran under"
+        );
+        assert_eq!(source_grants(&state), vec![a, c]);
+    }
+
+    #[test]
+    fn a_fork_before_the_first_prompt_is_listed_at_one_turn_and_named_at_the_exit() {
+        // `summaryOf`'s `@max(turns, 1)` (`session_adapter.zig:4632@481104fd`)
+        // and D90's exit line: a zero-turn fork is titled and on disk from the
+        // fork. A session with neither a turn nor a title is still not listed.
+        let (home, workspace, mut state) = recording();
+        assert!(matches!(
+            one_turn_of(&mut state, "only prompt omega", "A"),
+            Ended::Turn
+        ));
+        let source = conversation_id(&state);
+        state
+            .fork(1, &CancelToken::new())
+            .expect("forked before the first");
+        let fork = conversation_id(&state);
+        assert!(state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .turns
+            .is_empty());
+        assert_eq!(state.resumable(), Some(fork.clone()));
+
+        // From a runtime in neither, both are listed, the fork at one turn.
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let untitled = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("an untitled session with no turn");
+        let untitled = untitled.recorder.id().clone();
+        let other = Runtime::new(config, store, a_prompter(), a_questioner());
+        let listed = other.sessions().expect("reads");
+        let rows: Vec<(String, Option<String>, u64)> = listed
+            .current
+            .iter()
+            .map(|row| (row.id.clone(), row.title.clone(), row.turns))
+            .collect();
+        assert!(
+            rows.contains(&(
+                fork.to_string(),
+                Some("only prompt omega (fork)".to_string()),
+                1
+            )),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&(source.to_string(), Some("only prompt omega".to_string()), 1)),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.0 == untitled.to_string()),
+            "{rows:?}"
+        );
+        // A reset lets the fork go: the next conversation is not named.
+        state.conversation = None;
+        state.opened = None;
+        assert_eq!(state.resumable(), None);
     }
 }

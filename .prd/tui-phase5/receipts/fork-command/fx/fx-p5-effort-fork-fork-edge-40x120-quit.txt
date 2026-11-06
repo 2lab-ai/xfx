@@ -1,0 +1,40 @@
+
+original session fx --resume Dfajl5wnjolA
+
+* session: nothing to fork yet
+
+
+Continue session with: fx --resume A3Bplfa6Uk1Y
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Nov  4 09:07:04 2026)

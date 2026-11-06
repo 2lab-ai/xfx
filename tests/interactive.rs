@@ -621,6 +621,28 @@ fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
 }
 
 #[test]
+fn slash_fork_says_where_the_menu_is_and_forks_nothing() {
+    // fx v0.0.16's `/fork` is a menu in its footer and a session it switches
+    // to with the prompt back in its composer; this shell has neither, so it
+    // says where the menu is -- after a turn too, with a session to fork --
+    // and writes nothing: no second session, no line in the first.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/fork");
+    let text = session.wait_for("has no menu");
+    assert!(
+        text.contains(
+            "xfx: /fork picks the prompt to fork the session before in the full-screen shell"
+        ),
+        "{text}"
+    );
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_rename_titles_a_session_before_any_prompt_and_slash_resume_says_where_the_picker_is() {
     // The line shell has no picker; it says where one is rather than resuming
     // something nobody picked.

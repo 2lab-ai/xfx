@@ -771,15 +771,18 @@ mod tests {
         // `/status` by its summary's "session ID" (`commands.zig:455@481104fd`).
         assert_eq!(
             found("SESSION"),
-            ["/status", "/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
+            [
+                "/status", "/new", "/reset", "/resume", "/rename", "/fork", "/undo", "/copy",
+                "/compact"
+            ]
         );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
         assert_eq!(
             found("ses"),
             [
-                "/clear", "/status", "/new", "/reset", "/resume", "/rename", "/undo", "/copy",
-                "/compact"
+                "/clear", "/status", "/new", "/reset", "/resume", "/rename", "/fork", "/undo",
+                "/copy", "/compact"
             ]
         );
         assert_eq!(found("/version"), ["/version"]);

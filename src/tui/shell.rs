@@ -89,6 +89,7 @@ use super::editor::{self, Editor, Lent, Step as EditorStep};
 use super::entity::{Entities, EntityKind, Span};
 use super::file_index::Files;
 use super::file_picker::{self, FilePicker};
+use super::fork_menu::{self, ForkAction, ForkMenu, ForkPoints};
 use super::frame::Caret;
 use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -225,6 +226,23 @@ const UNTITLED_SESSION: &str = session_picker::UNTITLED;
 /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2595`): a
 /// neutral notice under `session`.
 const RESUME_BUSY: &str = "resume is unavailable until the response finishes";
+
+/// What `/fork` says while a turn is in hand, rather than opening its menu
+/// (`openForkMenu`, `vercel-labs/fx@481104fd
+/// src/core/app/app_session_runtime.zig:2077-2081`): neutral, under `session`.
+const FORK_BUSY: &str = "/fork is available once the current turn finishes";
+
+/// What `/fork` says when nothing has been asked that a fork could start
+/// before (`:2083-2089`): neutral, under `session`.
+const NOTHING_TO_FORK: &str = "nothing to fork yet";
+
+/// What `/fork` says when the conversation's log is not what the screen
+/// shows (`:2073-2076`): a warning, under `session`.
+const FORK_UNSAVED: &str = "/fork needs a saved session";
+
+/// What a fork that could not be made says (`submitForkMenuSelection`,
+/// `app_input_runtime.zig:1670-1678@481104fd`): an error, under `session`.
+const FORK_FAILED: &str = "Unable to fork the session.";
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -1110,6 +1128,30 @@ pub(crate) struct Shell {
     /// `/model` reached from the catalog closes the catalog on the way -- and
     /// no completion menu opens while it is ([`Self::reconcile_picker`]).
     model_menu: Option<ModelMenu>,
+    /// `/fork`'s menu, while it is up ([`super::fork_menu`]).
+    ///
+    /// The slot's occupant upstream ranks after the session picker and before
+    /// `/model`'s menu (`show_fork_menu`, `surface_frame.zig:406@481104fd`),
+    /// opened with the composer emptied once the runtime has said what can be
+    /// forked ([`UiEvent::ForkPoints`]). Not a view of the composer: any edit
+    /// to it closes the menu ([`Self::amended`]).
+    fork_menu: Option<ForkMenu>,
+    /// Whether a `/fork` is waiting for the runtime's answer, so that answer
+    /// opens the menu. An edit to the composer in the meantime closes the
+    /// menu before it opens, as an edit closes the open one, and a reset
+    /// drops the question with the conversation it was about.
+    fork_asked: bool,
+    /// The prompt a fork the runtime has been handed was made before, to go
+    /// back into the composer once the fork is the conversation
+    /// (`submitForkMenuSelection`'s `replace`, `app_input_runtime.zig:1686`).
+    fork_prompt: Option<String>,
+    /// Whether the document ends on a fork's plain `original session …` line
+    /// ([`Shell::forked`]), which upstream ends with its line break alone: the
+    /// block written after it opens with the blank row a block is separated
+    /// by -- a notice always does ([`queue_notice`]), and a card does when
+    /// this says so ([`Shell::write_card`]); the composer under it does not
+    /// (`fx-p5-effort-fork-fork-empty-…-forked`, `-fork-continue-…-continued`).
+    raw_gap: bool,
     /// What `/model`'s menu says about a Gateway catalog under its rows
     /// ([`crate::provider::model::gateway_catalog_note`]), asked once of the
     /// credential this session launched with: a provider switch re-reads the
@@ -1980,6 +2022,17 @@ const RESET: &str = "\u{1b}[0m";
 
 /// What the band's elastic slot is holding.
 ///
+/// What opened a saved session the screen replays ([`Shell::hydrate_as`]):
+/// what its first lines say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Reopened {
+    /// `/resume`, or a launch's `--resume`: `* session resumed: <title>`.
+    Resumed,
+    /// `/fork`: `* session forked: <title>` and the line that resumes the
+    /// session it was forked from, `source`.
+    Forked { source: String },
+}
+
 /// A borrow rather than a state: which of the two it is follows from the fields
 /// ([`Shell::slot`]), so there is no third answer for a flag to drift into.
 #[derive(Debug, Clone, Copy)]
@@ -2019,6 +2072,9 @@ enum Slot<'a> {
     /// `/model`'s menu, the catalog's kind: rows, and the composer as its
     /// search.
     Models(&'a ModelMenu),
+    /// `/fork`'s menu: rows only. The composer is not its search, and an edit
+    /// to it closes the menu.
+    Fork(&'a ForkMenu),
     /// `/model`'s inline column, under the argument of a `/model ` line. Like
     /// the completion menu it owns nothing but rows: the typing goes on into
     /// the composer, whose text is what it is a view of.
@@ -2238,6 +2294,10 @@ impl Shell {
             sessions: None,
             wipe: false,
             model_menu: None,
+            fork_menu: None,
+            fork_asked: false,
+            fork_prompt: None,
+            raw_gap: false,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
@@ -2485,6 +2545,11 @@ impl Shell {
                 Some(Slot::Sessions(sessions)) => {
                     sessions.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same (`composeForkMenuRow` is handed `menuRowCount`'s
+                // answer, `paint_plan.zig:776-787@481104fd`).
+                Some(Slot::Fork(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // The same: one layout answers its height and its rows
                 // (`composeModelMenuRow` is handed `menuRowCount`'s answer).
                 Some(Slot::Models(menu)) => {
@@ -2628,6 +2693,16 @@ impl Shell {
             Some(Slot::Models(_)) => self.painted(
                 self.palette.dim(),
                 model_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // `/fork`'s, in the same grey -- or, while a Ctrl-C would leave,
+            // that in the statusline grey instead (`composeForkMenuHintRow`,
+            // `input_presentation.zig:704-735@481104fd`).
+            Some(Slot::Fork(_)) if self.exit_armed => {
+                self.painted(self.palette.statusline(), EXIT_ARMED.to_string())
+            }
+            Some(Slot::Fork(_)) => self.painted(
+                self.palette.dim(),
+                fork_menu::key_help(self.geometry.cols).to_string(),
             ),
             // And the `/statusline` picker's, in the same grey
             // (`composeCompactCommandMenuHintRow`, `input_presentation.zig:766-790`).
@@ -2987,6 +3062,13 @@ impl Shell {
         if let Some(sessions) = self.sessions.as_ref() {
             return Some(Slot::Sessions(sessions));
         }
+        // After the session picker and before `/model`'s menu, as upstream
+        // ranks it (`show_fork_menu`, `surface_frame.zig:406@481104fd`) --
+        // though, as with the menus above it, the ranking decides nothing:
+        // opening it closes them.
+        if let Some(menu) = self.fork_menu.as_ref() {
+            return Some(Slot::Fork(menu));
+        }
         if let Some(menu) = self.model_menu.as_ref() {
             return Some(Slot::Models(menu));
         }
@@ -3274,6 +3356,41 @@ impl Shell {
         }
     }
 
+    /// Says that this session is a fork of another, as upstream's fork does
+    /// (`installResumedV2Session`'s `.fork`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_session_runtime.zig:3948-3958`): a neutral notice
+    /// under `session forked` whose body is the fork's title, then **a plain
+    /// line**, no glyph and no colour, so the command in it copies whole:
+    /// `original session xfx --resume <id>`, this product's own resume
+    /// spelling. The title is the window's from here on, as [`Self::resumed`]
+    /// makes a resumed one's.
+    ///
+    /// `source` is the id the runtime forked from, its own conversation's;
+    /// it is read again as a session id before it is written, and a string
+    /// that is not one writes no line.
+    fn forked(&mut self, title: Option<String>, source: &str) {
+        let title = title
+            .map(|title| super::bridge::inert(&title).trim().to_string())
+            .filter(|title| !title.is_empty());
+        let body = title
+            .clone()
+            .unwrap_or_else(|| UNTITLED_SESSION.to_string());
+        self.announce(notice::Notice::neutral("session forked", body));
+        if let Ok(source) = crate::session::SessionId::parse(source) {
+            let line = format!("original session xfx --resume {source}");
+            // An entry of the session's record, as upstream's raw line is one
+            // of its transcript's (`appendRaw`, a `raw_bytes` entry,
+            // `resume_projection.zig:106-128@481104fd`).
+            self.full.block(std::slice::from_ref(&line));
+            self.write_raw_rows(&line);
+            self.raw_gap = true;
+        }
+        if title.is_some() {
+            self.session_title = title;
+            self.retitle();
+        }
+    }
+
     /// Replays a saved session onto the screen, as upstream's resume does
     /// (`hydrateResumedSession`, `app_session_runtime.zig:2368-2470`): the
     /// resume notice, then every turn as the live one was shown -- the card,
@@ -3293,6 +3410,12 @@ impl Shell {
     /// Written straight into the transcript rather than through the pacer: a
     /// conversation that already happened is not streamed again.
     pub(crate) fn hydrate(&mut self, replay: Hydration, wipe: bool) {
+        self.hydrate_as(replay, wipe, Reopened::Resumed);
+    }
+
+    /// [`Self::hydrate`], headed by what opened the session: a resume's
+    /// notice, or a fork's two lines ([`Self::forked`]).
+    fn hydrate_as(&mut self, replay: Hydration, wipe: bool, opened: Reopened) {
         // What a held save's announcement says first: upstream's was written
         // when the command ran, so it is above the replay -- and, under a
         // wipe, erased with the rest, as upstream's terminal reset erases it.
@@ -3310,6 +3433,7 @@ impl Shell {
         self.group = ToolGroup::default();
         self.trailer.clear();
         self.abandoned.clear();
+        self.raw_gap = false;
         self.prompts.clear();
         self.tally = Tally::default();
         self.context_used = None;
@@ -3370,7 +3494,10 @@ impl Shell {
         // summary carries the one before's conclusion.
         let mut stamp = self.full.now();
         self.full.stamp_with(Some(stamp));
-        self.resumed(replay.title);
+        match opened {
+            Reopened::Resumed => self.resumed(replay.title),
+            Reopened::Forked { source } => self.forked(replay.title, &source),
+        }
         for turn in replay.turns {
             stamp = self.replay_turn(turn, stamp);
         }
@@ -4107,6 +4234,15 @@ impl Shell {
                     self.render.request(Reason::Modal);
                 }
             }
+            // What `/fork` can start before, if the `/fork` still waits.
+            UiEvent::ForkPoints(points) => self.fork_points(points),
+            // The runtime is in the fork.
+            UiEvent::Forked { replay, source } => self.forked_into(replay, source),
+            // The fork was not made; the conversation is the one it was.
+            UiEvent::ForkFailed => {
+                self.fork_prompt = None;
+                self.write_notice(&notice::Notice::error("session", FORK_FAILED));
+            }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
             UiEvent::Fatal(message) => {
@@ -4841,6 +4977,7 @@ impl Shell {
         self.model_menu = None;
         self.sessions = None;
         self.provider_picker = None;
+        self.fork_menu = None;
         self.skills_menu = Some(menu);
         self.refit();
         self.render.request(Reason::Modal);
@@ -5771,6 +5908,138 @@ impl Shell {
         }
     }
 
+    /// Offers one keystroke to `/fork`'s menu, and says whether it was taken.
+    ///
+    /// The keys [`ForkAction::of`] names, and nothing else: Up and Down stop
+    /// at the oldest and the newest, a page moves by the composer's row cap
+    /// and stops the same way, Enter forks before the selected prompt -- the
+    /// menu closed first (`forkBeforeSelectedPrompt`'s `menu.* = .{}`,
+    /// `app_session_runtime.zig:2104`) -- and Escape closes it. Anything else
+    /// goes on to the composer, where an edit closes it too
+    /// ([`Self::amended`]).
+    fn offer_to_fork(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = ForkAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.fork_menu.as_mut() else {
+            return false;
+        };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            ForkAction::Up => -1,
+            ForkAction::Down => 1,
+            ForkAction::Page(true) => page,
+            ForkAction::Page(false) => -page,
+            ForkAction::Close => {
+                self.fork_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+                return true;
+            }
+            ForkAction::Fork => {
+                let point = menu.selected().clone();
+                self.fork_menu = None;
+                self.refit();
+                self.fork_at(point);
+                self.render.request(Reason::Modal);
+                return true;
+            }
+        };
+        let budget = ForkMenu::budget(
+            self.geometry.rows,
+            self.geometry.input_rows().saturating_sub(1),
+        );
+        if menu.step_by(delta, self.geometry.cols, budget) {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
+    /// Hands the runtime the fork before `point` (`forkBeforeSelectedPrompt`,
+    /// `app_session_runtime.zig:2098-2127@481104fd`), and keeps the prompt for
+    /// the composer, which takes it once the fork is the conversation
+    /// ([`UiEvent::Forked`]).
+    ///
+    /// A switch, as a resume is ([`super::worker::WorkHandle::submit_switch`]):
+    /// a prompt typed before the runtime has made it waits for it before it
+    /// asks about its title. Refused while a turn is in hand, with the
+    /// command's own words: the conversation a fork replaces is the one that
+    /// turn writes into.
+    fn fork_at(&mut self, point: fork_menu::ForkPoint) {
+        if self.provider_work_busy() {
+            self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
+            return;
+        }
+        match self.work.submit_switch(TurnWork::Fork {
+            before_turn: point.turn,
+        }) {
+            Ok(()) => self.fork_prompt = Some(point.prompt),
+            Err(rejected) => self.refused(rejected),
+        }
+    }
+
+    /// What the runtime said a `/fork` can start before
+    /// ([`UiEvent::ForkPoints`]), when the `/fork` is still waiting for it:
+    /// the menu, the newest prompt selected, with what shares its slot
+    /// closed -- or upstream's sentence for why there is none
+    /// (`openForkMenu`, `app_session_runtime.zig:2072-2096@481104fd`).
+    fn fork_points(&mut self, points: ForkPoints) {
+        if !std::mem::take(&mut self.fork_asked) {
+            return;
+        }
+        let points = match points {
+            ForkPoints::Unsaved => {
+                self.write_notice(&notice::Notice::warning("session", FORK_UNSAVED));
+                return;
+            }
+            ForkPoints::Points(points) => points,
+        };
+        let Some(menu) = ForkMenu::open(points) else {
+            self.write_notice(&notice::Notice::neutral("session", NOTHING_TO_FORK));
+            return;
+        };
+        self.picker = None;
+        self.file_picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.skills_menu = None;
+        self.settings_menu = None;
+        self.provider_picker = None;
+        self.statusline_menu = None;
+        self.usage_menu = None;
+        self.workspace_menu = None;
+        self.fork_menu = Some(menu);
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The runtime is in the fork: the screen and its scrollback reset, the
+    /// fork's two lines and its turns replayed as a resume's are
+    /// ([`Self::forked`]), and the prompt it was made before back in the
+    /// composer, unsent (`submitForkMenuSelection`,
+    /// `app_input_runtime.zig:1681-1689@481104fd`) -- unless the composer was
+    /// written in since the Enter, whose text is the user's, or the prompt
+    /// is past what the composer holds, which upstream leaves out too.
+    fn forked_into(&mut self, replay: Hydration, source: String) {
+        self.fork_menu = None;
+        self.hydrate_as(replay, true, Reopened::Forked { source });
+        if let Some(prompt) = self.fork_prompt.take() {
+            if self.editor.is_empty() {
+                self.edit_history.boundary();
+                if self
+                    .editor
+                    .set_text(&super::bridge::inert(&prompt), Entities::new())
+                {
+                    self.edited(None);
+                }
+            }
+        }
+    }
+
     /// Takes the picker down, and its search with it when `clear_query`.
     ///
     /// Escape clears it, as upstream's `cancelSessionMenu` does
@@ -6235,11 +6504,14 @@ impl Shell {
             self.close_models();
             return;
         }
+        // Nor over `/fork`'s menu, which owns the keyboard as the picker does
+        // (`modelPickerShortcutBlocked`, `app_input_runtime.zig:1965-1967@481104fd`).
         if self.help_menu.is_some()
             || self.settings_menu.is_some()
             || self.statusline_menu.is_some()
             || self.workspace_menu.is_some()
             || self.sessions.is_some()
+            || self.fork_menu.is_some()
             || self.full.is_open()
         {
             return;
@@ -9977,6 +10249,7 @@ impl Shell {
                         || self.asking()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
+                        || self.fork_menu.is_some()
                         || self.picker.is_some()
                         || self.full.is_open()
                         || self.ghost_dismissible()
@@ -10065,6 +10338,7 @@ impl Shell {
                 && self.sessions.is_none()
                 && self.help_menu.is_none()
                 && self.model_menu.is_none()
+                && self.fork_menu.is_none()
                 && self.offer_to_trust_prompt(&event)
             {
                 continue;
@@ -10078,6 +10352,9 @@ impl Shell {
                 continue;
             }
             if self.offer_to_sessions(&event) {
+                continue;
+            }
+            if self.offer_to_fork(&event) {
                 continue;
             }
             if self.offer_to_catalog(&event) {
@@ -11346,6 +11623,9 @@ impl Shell {
     /// The card [`Mark::Card`] asks for.
     fn write_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns) {
         self.finish_document_line();
+        if std::mem::take(&mut self.raw_gap) && !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
         if self.transcript.queue_gutter(Gutter::Rail) {
             self.owed();
         }
@@ -11653,6 +11933,7 @@ impl CommandHandlers for Shell {
         self.picker = None;
         self.file_picker = None;
         self.sessions = None;
+        self.fork_menu = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
         // a band with no catalog in it.
@@ -11701,12 +11982,35 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
+        self.fork_menu = None;
         self.sessions = Some(SessionPicker::open(
             self.editor.text(),
             session_picker::page_for(self.geometry.rows),
         ));
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// `/fork` (`commandForkSession` -> `openForkMenu`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_commands.zig:455-466`,
+    /// `app_session_runtime.zig:2072-2096`).
+    ///
+    /// **Refused while a response is in hand**, with upstream's notice, at
+    /// once: `/resume`'s rule ([`Self::resume`]), since what a fork replaces is
+    /// the conversation that turn writes into. Otherwise the runtime is asked
+    /// what can be forked, as the picker asks it for the sessions: the
+    /// conversation is the runtime's, and its answer opens the menu
+    /// ([`Self::fork_points`]) -- unless the composer was edited first, which
+    /// closes it before it opens.
+    fn fork(&mut self) {
+        if self.provider_work_busy() {
+            self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
+            return;
+        }
+        match self.work.submit(TurnWork::ForkPoints) {
+            Ok(()) => self.fork_asked = true,
+            Err(rejected) => self.refused(rejected),
+        }
     }
 
     /// `/rename <title>` (`handleRenameCommand`, `app_commands.zig:3815-3858`).
@@ -11790,6 +12094,7 @@ impl CommandHandlers for Shell {
             .usage_read
             .as_ref()
             .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms));
+        self.fork_menu = None;
         self.usage_menu = Some(Dashboard::open(scope, cached));
         self.read_usage(scope);
         // [`Self::run_command`] re-solved the band before routing here, for a
@@ -11912,6 +12217,7 @@ impl CommandHandlers for Shell {
                     self.settings_menu = None;
                     self.usage_menu = None;
                     self.info_panel = None;
+                    self.fork_menu = None;
                     self.rule_confirm = Some(RuleConfirm::new(confirmation));
                     self.refit();
                     self.render.request(Reason::Modal);
@@ -11979,6 +12285,7 @@ impl CommandHandlers for Shell {
             self.help_menu = None;
             self.workspace_menu = None;
             self.info_panel = None;
+            self.fork_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -12058,6 +12365,7 @@ impl CommandHandlers for Shell {
                 self.usage_menu = None;
                 self.settings_menu = None;
                 self.info_panel = None;
+                self.fork_menu = None;
                 self.workspace_menu = Some(workspace_menu::Menu::open());
                 self.refit();
                 self.render.request(Reason::Modal);
@@ -12100,6 +12408,7 @@ impl CommandHandlers for Shell {
             self.settings_menu = None;
             self.workspace_menu = None;
             self.info_panel = None;
+            self.fork_menu = None;
             self.mcp_menu = Some(super::mcp_menu::McpMenu::open());
             self.refit();
             self.render.request(Reason::Modal);
@@ -12183,6 +12492,7 @@ impl CommandHandlers for Shell {
         self.file_picker = None;
         self.workspace_menu = None;
         self.info_panel = None;
+        self.fork_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
         // The effort and speed rows are the catalog's answer for the model in
         // force, which upstream's menu reads from a cache filled at launch
@@ -12591,6 +12901,7 @@ impl Shell {
                 ModelMenu::loading(query)
             }
         };
+        self.fork_menu = None;
         self.model_menu = Some(menu);
         self.refit();
         self.render.request(Reason::Modal);
@@ -13080,6 +13391,12 @@ impl Shell {
         self.prompts.clear();
         self.work.drop_steers();
         self.steers.clear();
+        // A `/fork` about the conversation being dropped: its menu, the
+        // answer it waits for, the prompt it would put back.
+        self.fork_menu = None;
+        self.fork_asked = false;
+        self.fork_prompt = None;
+        self.raw_gap = false;
         self.forget_session_title();
         self.tally = Tally::default();
         self.activity.end();
@@ -13221,11 +13538,19 @@ impl Shell {
             // An undo the runtime did on the way past a reset: the file did
             // change, or was refused, and saying nothing would make it a change
             // nobody was told of.
+            // What a `/fork` asked of the conversation the reset dropped: a
+            // menu of that one's prompts, on a screen that is not about it.
+            UiEvent::ForkPoints(_) => {
+                self.fork_asked = false;
+                true
+            }
             UiEvent::Fresh { .. }
             | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
+            | UiEvent::Forked { .. }
+            | UiEvent::ForkFailed
             | UiEvent::RenameUnsaved(_)
             | UiEvent::Renamed(_)
             | UiEvent::Workspace { .. }
@@ -13507,6 +13832,18 @@ impl Shell {
     fn amended(&mut self, delta: Option<Delta>) {
         // An edit went through: the next refusal is a new run, and is said.
         self.over_limit = false;
+        // `/fork`'s menu reads no search, so an edit closes it -- and one on
+        // its way from the runtime, before it opens -- and the edit stands
+        // (`dismissActiveMenusForComposerEdit`,
+        // `app_input_runtime.zig:1984-1990@481104fd`). A prompt waiting to go
+        // back into the composer after a fork stays out of it: what was typed
+        // is the user's.
+        self.fork_asked = false;
+        self.fork_prompt = None;
+        if self.fork_menu.take().is_some() {
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
         self.history.leave();
         self.recalled_slash = false;
         self.edited(delta);
@@ -13623,6 +13960,7 @@ impl Shell {
             | Some(Slot::Mcp(_))
             | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
+            | Some(Slot::Fork(_))
             | Some(Slot::Models(_))
             | Some(Slot::Skills(_))
             | Some(Slot::Provider(_))
@@ -13641,6 +13979,7 @@ impl Shell {
                 menu.height(&snapshot, rows, input_rows.saturating_sub(1))
             }
             Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Fork(menu)) => menu.height(cols, rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Skills(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
@@ -21390,6 +21729,22 @@ mod tests {
                     "/resume wrote to the document: {document:?}"
                 );
                 assert_eq!(shell.picks_up(), TurnWork::Sessions);
+            } else if *name == "/fork" {
+                // What can be forked is the runtime's to say: asked of it,
+                // nothing written until it answers -- and with nothing asked
+                // yet, its answer is upstream's notice
+                // (`fx-p5-effort-fork-fork-edge-40x120-at-launch`).
+                assert!(
+                    document.is_empty(),
+                    "/fork wrote to the document: {document:?}"
+                );
+                assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+                shell.apply(UiEvent::ForkPoints(ForkPoints::Points(Vec::new())));
+                assert_eq!(
+                    shell.document(),
+                    said(notice::Notice::neutral("session", NOTHING_TO_FORK))
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/usage" {
                 // The dashboard, in the band, in place of the composer
                 // (`fx-usage-40x120-empty`).
@@ -31662,8 +32017,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 9,
-            "/clear, /status, /new, /reset, /resume, /rename, /undo, /copy and /compact"
+            2 + 10,
+            "/clear, /status, /new, /reset, /resume, /rename, /fork, /undo, /copy and /compact"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -39357,5 +39712,357 @@ mod tests {
             line.contains("/w/\\u{001B}[2J\\u{001B}]0;owned\\u{0007}"),
             "{line:?}"
         );
+    }
+
+    // --- `/fork` (P5-FK2) ---------------------------------------------------
+
+    fn fork_point(turn: usize, prompt: &str) -> fork_menu::ForkPoint {
+        fork_menu::ForkPoint {
+            turn,
+            prompt: prompt.to_string(),
+        }
+    }
+
+    /// The `fx-p5-effort-fork-fork` session's three prompts.
+    const LONG_PROMPT: &str = "third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth and a fifth line at a hundred and twenty columns, sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four";
+
+    fn three_points() -> Vec<fork_menu::ForkPoint> {
+        vec![
+            fork_point(1, "first prompt alpha"),
+            fork_point(2, "second prompt beta"),
+            fork_point(3, LONG_PROMPT),
+        ]
+    }
+
+    /// `/fork` typed and answered with `points`, the runtime's slot given back.
+    fn forked_menu(shell: &mut Fixture, points: Vec<fork_menu::ForkPoint>) {
+        shell.route_bytes(b"/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(points)));
+    }
+
+    #[test]
+    fn a_fork_menu_lists_the_prompts_three_rows_each_with_the_newest_selected() {
+        // `fx-p5-effort-fork-fork-40x120-menu`: no title, two cells in, the
+        // long prompt cut at its third row with `…`, every row of the selected
+        // one bold, the rest dim, and the fork's own key help.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        assert!(matches!(shell.slot(), Some(Slot::Fork(_))));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "  first prompt alpha",
+                "  second prompt beta",
+                "  third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to",
+                "  cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven",
+                "  eight nine ten eleven twelve thirteen fourteen fifteen and then a good deal more so that the prompt needs a fourth an\u{2026}",
+            ]
+        );
+        let painted = menu(&shell);
+        assert!(
+            painted[0].starts_with(&format!("  {}", PALETTE.dim())),
+            "{:?}",
+            painted[0]
+        );
+        assert!(
+            painted[4].starts_with(&format!("  {}", PALETTE.subtitle())),
+            "{:?}",
+            painted[4]
+        );
+        assert_eq!(
+            visible_text(&shell.band_rows()[shell.band_rows().len() - 1]),
+            "\u{2191}\u{2193} navigate     enter fork     esc close"
+        );
+        // Nothing is written for opening it.
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn the_fork_menus_keys_stop_at_either_end_and_escape_closes_it_writing_nothing() {
+        // `-up1`, `-up2`, `-up3-clamp`, `-down`, `-esc`: Up three times stops
+        // on the oldest rather than wrapping, as the page keys and `C-k` do.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        let selected = |shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn);
+        assert_eq!(selected(&shell), Some(3));
+        for expected in [2, 1, 1] {
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(selected(&shell), Some(expected));
+        }
+        down(&mut shell, 1);
+        assert_eq!(selected(&shell), Some(2));
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(selected(&shell), Some(3), "a page down past the newest");
+        shell.route_bytes(b"\x0b");
+        assert_eq!(selected(&shell), Some(2), "C-k");
+        escape(&mut shell);
+        assert!(shell.fork_menu.is_none());
+        assert!(shell.document().is_empty());
+        assert!(shell.sent.try_recv().is_err(), "Escape forked");
+    }
+
+    #[test]
+    fn an_edit_closes_the_fork_menu_and_the_one_on_its_way_and_the_edit_stands() {
+        // `fx-p5-effort-fork-fork-edge-40x120-edit-closes`: `x` closes it and
+        // is in the composer (`dismissActiveMenusForComposerEdit`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"x");
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(shell.editor.text(), "x");
+        // Typed while the runtime was still answering: the answer opens
+        // nothing.
+        shell.route_bytes(b"\x15/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.route_bytes(b"y");
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(shell.editor.text(), "y");
+    }
+
+    #[test]
+    fn fork_says_why_it_cannot_and_takes_no_argument() {
+        // `fx-p5-effort-fork-fork-edge-40x120-at-launch`, `-with-arg`,
+        // `-midturn` and `-fork-of-empty`; `/fork needs a saved session` is
+        // upstream's warning (`openForkMenu`, `app_session_runtime.zig:2073`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, Vec::new());
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", NOTHING_TO_FORK))
+        );
+        shell.route_bytes(b"/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Unsaved));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::warning("session", FORK_UNSAVED))
+        );
+        // An answer nobody is waiting for opens nothing and says nothing.
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none());
+        assert!(shell.document().is_empty());
+
+        shell.route_bytes(b"/fork 2\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/fork 2 reached the runtime"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+
+        // A prompt in hand: refused at once, nothing asked.
+        shell.route_bytes(b"slow turn please\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/fork\r");
+        assert!(shell.sent.try_recv().is_err(), "a fork was asked mid-turn");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", FORK_BUSY))
+        );
+    }
+
+    #[test]
+    fn enter_forks_before_the_selected_prompt_and_the_fork_replays_with_its_two_lines() {
+        // `fx-p5-effort-fork-fork-40x120-forked` and `.title`: the screen and
+        // scrollback reset, `* session forked: <title>`, the plain line that
+        // resumes the source, the kept turn, the prompt back in the composer
+        // unsent, and the window called the fork.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\x1b[A\r");
+        assert!(shell.fork_menu.is_none());
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 2 });
+        shell.work.give_back();
+        assert!(
+            shell.editor.is_empty(),
+            "the composer filled before the fork"
+        );
+        let source = "1793751392050-7d3ce346fd20313d";
+        shell.apply(UiEvent::Forked {
+            replay: replay(
+                Some("first prompt alpha (fork)"),
+                vec![saved(
+                    "first prompt alpha",
+                    vec![HydratedStep::Text("ALPHA answer.".to_string())],
+                    0,
+                    Some(40),
+                )],
+            ),
+            source: source.to_string(),
+        });
+        assert!(shell.owes_wipe());
+        let document = shell.document();
+        assert_eq!(
+            document[..5],
+            [
+                "* session forked: first prompt alpha (fork)".to_string(),
+                String::new(),
+                format!("original session xfx --resume {source}"),
+                String::new(),
+                format!("{RAIL} {BOLD}first prompt alpha"),
+            ],
+            "{document:?}"
+        );
+        assert_eq!(shell.editor.text(), "second prompt beta");
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(
+            shell.take_title().as_deref(),
+            Some("first prompt alpha (fork)")
+        );
+    }
+
+    #[test]
+    fn a_fork_before_the_first_prompt_leaves_its_line_over_the_composer_and_a_card_under_a_gap() {
+        // `fx-p5-effort-fork-fork-empty-40x120-forked`: nothing under the
+        // plain line but the composer; `-fork-continue-…-continued`: a blank
+        // row between it and the card the next prompt writes.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, vec![fork_point(1, "only prompt omega")]);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 1 });
+        shell.work.give_back();
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("only prompt omega (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        let document = shell.document();
+        assert_eq!(document.len(), 3, "{document:?}");
+        assert_eq!(
+            document[2],
+            "original session xfx --resume 1793751463125-512691a6e5611d2f"
+        );
+        assert_eq!(shell.editor.text(), "only prompt omega");
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        let document = shell.document();
+        assert_eq!(
+            document[..2],
+            [String::new(), format!("{RAIL} {BOLD}only prompt omega")],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn a_fork_that_failed_says_so_and_a_typed_composer_is_not_refilled() {
+        // `Unable to fork the session.` (`app_input_runtime.zig:1670-1678@481104fd`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Fork { before_turn: 3 });
+        shell.work.give_back();
+        shell.apply(UiEvent::ForkFailed);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("session", FORK_FAILED))
+        );
+        assert!(shell.editor.is_empty());
+        // What was typed while the fork was being made is the user's.
+        forked_menu(&mut shell, three_points());
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.route_bytes(b"mine");
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("t (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        assert_eq!(shell.editor.text(), "mine");
+    }
+
+    #[test]
+    fn a_fork_writes_nothing_a_terminal_would_obey() {
+        // A prompt, a title and an id are read back off a log: the channel
+        // spells them inert, and the shell holds without it. An id that is not
+        // one writes no line at all.
+        let hostile = "evil\u{1b}]2;owned\u{7}\u{1b}[2J\u{9b}31m";
+        // Applied as written, past the channel's own spelling
+        // (`bridge`'s `a_forks_prompts_title_and_source_id_are_made_inert`):
+        // the shell's rows hold on their own.
+        let event = UiEvent::ForkPoints(ForkPoints::Points(vec![fork_point(
+            1,
+            &format!("p {hostile}"),
+        )]));
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/fork\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(event);
+        for row in menu(&shell) {
+            assert!(
+                !visible_text(&row).contains(['\u{1b}', '\u{7}', '\u{9b}']),
+                "{row:?}"
+            );
+        }
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let forked = UiEvent::Forked {
+            replay: replay(Some(&format!("t {hostile} (fork)")), Vec::new()),
+            source: format!("1793751463125-512691a6e5611d2f{hostile}"),
+        };
+        shell.apply(forked);
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .all(|row| !row.contains(['\u{1b}', '\u{7}', '\u{9b}'])),
+            "{document:?}"
+        );
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.starts_with("original session")),
+            "{document:?}"
+        );
+        assert!(!shell.editor.text().contains(['\u{1b}', '\u{7}', '\u{9b}']));
+        assert!(shell
+            .take_title()
+            .is_some_and(|title| !title.contains(['\u{1b}', '\u{7}', '\u{9b}'])));
+    }
+
+    #[test]
+    fn the_fork_menu_stays_under_a_first_ctrl_c_and_says_the_next_one_leaves() {
+        // `composeForkMenuHintRow`'s `ctrl_c_pending`
+        // (`input_presentation.zig:704-712@481104fd`).
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.settle_band(now);
+        assert!(shell.fork_menu.is_some(), "a first Ctrl-C closed the menu");
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{EXIT_ARMED}{}",
+                PALETTE.statusline(),
+                PALETTE.reset()
+            ))
+        );
+        assert!(!shell.leaving());
+    }
+
+    #[test]
+    fn a_reset_drops_a_fork_menu_and_the_answer_it_waits_for() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/fork\r");
+        assert_eq!(shell.picks_up(), TurnWork::ForkPoints);
+        shell.work.give_back();
+        shell.route_bytes(b"/new\r");
+        let _ = shell.controlled();
+        shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(shell.fork_menu.is_none());
     }
 }
