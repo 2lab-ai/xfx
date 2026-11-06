@@ -277,6 +277,15 @@ impl Readiness {
     pub(crate) fn undisclosed(&self) -> bool {
         self.undisclosed
     }
+
+    /// The terminal row the pending composition says its last control is on,
+    /// for a case that checks it against the row the band really paints it on.
+    #[cfg(test)]
+    pub(crate) fn pending_control_row(&self) -> Option<u16> {
+        self.pending
+            .as_ref()
+            .map(|intent| intent.disclosure.last_control_row)
+    }
 }
 
 #[cfg(test)]

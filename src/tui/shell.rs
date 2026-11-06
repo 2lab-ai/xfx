@@ -4731,12 +4731,12 @@ impl Shell {
                     .compose(
                         cols,
                         rows,
-                        self.geometry.band_top(),
-                        // The activity row, or the blank row a band with no
-                        // turn's row may keep above a panel (never both), is
-                        // all `band_rows` puts ahead of the panel, so the
-                        // offset is those two and needs no method of its own.
-                        u16::from(self.geometry.activity.is_some()) + self.geometry.gap,
+                        // The row the band paints the panel from, read from the
+                        // geometry rather than counted from the band's top: the
+                        // rule that heads it is above it, and the blank row
+                        // above a panel over a document that does not end on
+                        // one ([`layout::Geometry::gapped`]) above that.
+                        self.geometry.panel_first(),
                     )
                     .disclosure,
             ),
@@ -41382,6 +41382,95 @@ mod tests {
             usize::from(shell.geometry.band_top()),
             landed + more.len() + 1,
             "the panel is not under the notice's blank row"
+        );
+    }
+
+    /// A fork before the first prompt, landed: the document ends on its plain
+    /// `original session …` line, with no blank row under it.
+    fn forked_before_the_first_prompt(shell: &mut Fixture) -> usize {
+        forked_menu(shell, vec![fork_point(1, "only prompt omega")]);
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(UiEvent::Forked {
+            replay: replay(Some("only prompt omega (fork)"), Vec::new()),
+            source: "1793751463125-512691a6e5611d2f".to_string(),
+        });
+        let landed = shell.document().len();
+        shell.document_landed(u32::try_from(landed).expect("three rows"));
+        shell.route_bytes(&[0x15]);
+        assert!(!shell.transcript.ends_blank(), "the plain line ended blank");
+        landed
+    }
+
+    #[test]
+    fn a_question_over_a_forks_plain_line_keeps_the_blank_row_and_names_its_controls_row() {
+        // An approval, a model's question and a rule's confirmation take the
+        // composer's rows like the panel, so upstream's footer asks the same
+        // blank row above them (`modal_active`, `surface_frame.zig:392-395`,
+        // `:686@481104fd`). And the row the readiness receipt names for the
+        // last choice is the row the band really paints it on.
+        let mut shell = shell(40, 120);
+        let landed = forked_before_the_first_prompt(&mut shell);
+        shell.apply(UiEvent::Approval(question(asked())));
+        assert!(matches!(shell.slot(), Some(Slot::Question(_))));
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.gap, 1, "no blank row above the question");
+        let rows = uncoloured_rows(&shell.band_rows());
+        assert_eq!(rows.len(), usize::from(shell.geometry.band_rows()));
+        assert_eq!(rows[0], "", "the band's top is not blank: {rows:?}");
+        assert_eq!(
+            rows[1],
+            uncoloured(&divider(120)),
+            "the rule is not under it"
+        );
+        assert_eq!(
+            usize::from(shell.geometry.band_top()),
+            landed + 1,
+            "the blank row is not under the plain line"
+        );
+        let painted = rows
+            .iter()
+            .rposition(|row| row.contains("3  Don't apply"))
+            .expect("the refusal is a row of the band");
+        shell.intend_approval();
+        assert_eq!(
+            shell.readiness.pending_control_row(),
+            Some(shell.geometry.band_top() + u16::try_from(painted).expect("a small index")),
+            "the receipt names a row the last choice is not on"
+        );
+        assert_eq!(
+            shell.geometry.panel_first(),
+            shell.geometry.band_top() + 2,
+            "the panel is not under the blank row and the rule"
+        );
+    }
+
+    #[test]
+    fn a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row() {
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        let landed = forked_before_the_first_prompt(&mut shell);
+        // The runtime has made the fork: the two pieces of work it took, the
+        // `/fork`'s question and the switch.
+        let _ = shell.work.title_desk().worked_through(2);
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        assert!(
+            matches!(shell.slot(), Some(Slot::Rule(_))),
+            "no confirmation: {:?}",
+            shell.document()
+        );
+        assert_eq!(shell.geometry.gap, 1, "no blank row above the confirmation");
+        let rows = confirmation_rows(&shell);
+        assert_eq!(rows[0], "", "{rows:?}");
+        assert!(rows[1].starts_with('\u{2500}'), "{rows:?}");
+        assert_eq!(usize::from(shell.geometry.band_top()), landed + 1);
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.geometry.gap, 0,
+            "the blank row outlived the confirmation"
         );
     }
 
