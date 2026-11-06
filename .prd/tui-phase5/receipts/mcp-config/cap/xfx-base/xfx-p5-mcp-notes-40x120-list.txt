@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+
+! mcp: MCP configuration could not be reloaded. Your existing MCP servers are still active. Check the configuration and
+  run /mcp list for details before trying again.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 0  [Servers]  Tools  Resources  Prompts
+
+  No MCP servers configured.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

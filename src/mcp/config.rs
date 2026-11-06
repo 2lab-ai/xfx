@@ -28,6 +28,24 @@
 //! rule for rule, with its error names, because those names are what a person
 //! reads: `/mcp add` says `Failed to save MCP server config: <name>.`
 //! (`mcp.zig:296-300`).
+//!
+//! fx v0.0.16 (`481104fd`) changed three things here, and this file has them:
+//!
+//! - **An entry xfx can't read is skipped with a note** in fx's words, rather
+//!   than the whole profile refused (`parseProfileServerMap`,
+//!   `src/core/mcp/project_config.zig:373-401@481104fd`;
+//!   `renderWorkspaceDiagnostic`, `:161-215`): [`Profile::notes`],
+//!   [`WorkspaceServers::issues`].
+//! - **Both files are edited in place** ([`update`]; `config_file.zig@481104fd`):
+//!   one entry added to or removed from the file's JSON, every other key, its
+//!   order and the text of its numbers kept, two-space pretty JSON, an entry
+//!   in Claude's shape (`{"command","args","env"}`,
+//!   `{"type":"http","url","headers"}`). An old `{"mcp":…}` profile keeps its
+//!   `mcp` key. The `/mcp` verbs that call it are a later unit's; until then
+//!   the typed `/mcp add` and `/mcp remove` still go through
+//!   [`add_profile_server`] and [`remove_profile_server`].
+//! - **`--project` edits the workspace's `.mcp.json`**, never through a link
+//!   or a file with another hard link, keeping its mode.
 
 use std::fmt;
 use std::fs;
@@ -280,7 +298,9 @@ fn parse_entry(
     };
     let transport = match kind {
         "sse" => Transport::Sse,
-        "http" => Transport::Http,
+        // Other clients' files spell Streamable HTTP out
+        // (`project_config.zig:1029-1033@481104fd`).
+        "http" | "streamable-http" => Transport::Http,
         "local" | "stdio" => Transport::Stdio,
         _ => return Err(ConfigError("McpConfigInvalidType")),
     };
@@ -344,6 +364,11 @@ fn parse_entry(
         )
         .map_err(|()| ConfigError("McpConfigInvalidRestartLimit"))?
             as u8;
+        // The usual mistake: a remote server copied without its type
+        // (`project_config.zig:1104-1105@481104fd`).
+        if !object.contains_key("type") && object.contains_key("url") {
+            return Err(ConfigError("McpConfigUrlWithoutType"));
+        }
         let (command, args) = command_spec(object).ok_or(ConfigError("McpConfigInvalidCommand"))?;
         config.command = command;
         config.args = args;
@@ -541,6 +566,10 @@ fn valid_static_headers(headers: &[(String, String)]) -> bool {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Profile {
     pub servers: Vec<ServerConfig>,
+    /// One sentence per entry left out, in fx v0.0.16's words: an entry xfx
+    /// can't read, or one under `mcpServers` beside an `mcp` that is read
+    /// instead. They come before the workspace's.
+    pub notes: Vec<String>,
 }
 
 /// `mcp.json` in `profile_dir`.
@@ -548,7 +577,10 @@ pub fn profile_path(profile_dir: &Path) -> PathBuf {
     profile_dir.join(PROFILE_FILE)
 }
 
-/// Reads the profile's servers. A file that is not there is an empty profile.
+/// Reads the profile's servers. A file that is not there is an empty profile;
+/// an entry that can't be read is left out with a note
+/// (`loadNativeConfigs`, `src/builtins/mcp.zig:45-56@481104fd`). A file that
+/// can't be read, or isn't a JSON object of servers, is still an error.
 pub fn load_profile(path: &Path) -> Result<Profile, ConfigError> {
     let Some(text) = read_bounded(path).map_err(|_| ConfigError("McpConfigUnreadable"))? else {
         return Ok(Profile::default());
@@ -556,25 +588,180 @@ pub fn load_profile(path: &Path) -> Result<Profile, ConfigError> {
     parse_profile(&text)
 }
 
-/// `parseProfileDocument` (`project_config.zig:241-288`): the `mcp` map, or
-/// the `mcpServers` alias when there is no `mcp`.
+/// `parseProfileDocument` (`project_config.zig:303-371@481104fd`): the `mcp`
+/// map, or the `mcpServers` alias when there is no `mcp`, each entry that
+/// can't be read skipped with a note (`parseProfileServerMap`, `:373-401`).
 pub fn parse_profile(text: &str) -> Result<Profile, ConfigError> {
-    let document: Value =
-        serde_json::from_str(text).map_err(|_| ConfigError("McpConfigInvalidJson"))?;
-    let object = document
-        .as_object()
-        .ok_or(ConfigError("McpConfigRootMustBeObject"))?;
-    let Some(servers) = object.get("mcp").or_else(|| object.get("mcpServers")) else {
-        return Ok(Profile::default());
-    };
-    let servers = servers
-        .as_object()
-        .ok_or(ConfigError("McpConfigServersMustBeObject"))?;
-    let servers = servers
+    let (servers, alias) = profile_servers(text)?;
+    let mut profile = Profile::default();
+    for (name, value) in &servers {
+        match parse_entry(name, value, Source::Profile, None) {
+            Ok(config) => profile.servers.push(config),
+            Err(err) => profile
+                .notes
+                .push(skipped(Source::Profile, name, Some(err))),
+        }
+    }
+    // fx reads only `mcp`, so each name only `mcpServers` has is a note
+    // (`noteIgnoredAlias`, `:403-418`).
+    for name in alias.iter().flat_map(Map::keys) {
+        if !servers.contains_key(name) {
+            profile.notes.push(format!(
+                "{} server '{}' was skipped: the file has both \"mcp\" and \"mcpServers\", \
+                 and xfx reads only \"mcp\"; merge them into one.",
+                Source::Profile.file(),
+                note_name(name)
+            ));
+        }
+    }
+    Ok(profile)
+}
+
+/// The profile's servers as the typed `/mcp add` and `/mcp remove` of
+/// [`add_profile_server`] read them: every entry, or the first one's error.
+/// That writer renders the whole profile from what it read, so an entry left
+/// out here would be an entry deleted there.
+fn parse_profile_strictly(text: &str) -> Result<Vec<ServerConfig>, ConfigError> {
+    let (servers, _) = profile_servers(text)?;
+    servers
         .iter()
         .map(|(name, value)| parse_entry(name, value, Source::Profile, None))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(Profile { servers })
+        .collect()
+}
+
+/// A file's map of server names to entries.
+type ServerMap = Map<String, Value>;
+
+/// The server map the profile reads, and the `mcpServers` beside an `mcp`
+/// it doesn't.
+fn profile_servers(text: &str) -> Result<(ServerMap, Option<ServerMap>), ConfigError> {
+    let document = read_json(text).ok_or(ConfigError("McpConfigInvalidJson"))?;
+    let Value::Object(mut object) = document else {
+        return Err(ConfigError("McpConfigRootMustBeObject"));
+    };
+    let canonical = object.shift_remove("mcp");
+    let alias = object.shift_remove("mcpServers");
+    let (servers, ignored) = match (canonical, alias) {
+        (Some(servers), alias) => (servers, alias),
+        (None, Some(servers)) => (servers, None),
+        (None, None) => return Ok((Map::new(), None)),
+    };
+    let Value::Object(servers) = servers else {
+        return Err(ConfigError("McpConfigServersMustBeObject"));
+    };
+    let ignored = match ignored {
+        Some(Value::Object(alias)) => Some(alias),
+        _ => None,
+    };
+    Ok((servers, ignored))
+}
+
+/// `text` as a JSON value, when it is one by fx's reading: no key twice in
+/// an object (`std.json`'s default `duplicate_field_behavior`), which
+/// `serde_json` would take as its last. The same reading [`update`] edits by,
+/// so a file the writer refuses is not one the reader takes some other way.
+fn read_json(text: &str) -> Option<Value> {
+    parse_document(text).ok()?;
+    serde_json::from_str(text).ok()
+}
+
+// ---------------------------------------------------------------------------
+// notes
+// ---------------------------------------------------------------------------
+
+impl Source {
+    /// How a note names the file (`diagnosticFile`,
+    /// `project_config.zig:237-239@481104fd`).
+    pub fn file(self) -> &'static str {
+        match self {
+            Self::Profile => "~/.xfx/mcp.json",
+            Self::Workspace => WORKSPACE_FILE,
+        }
+    }
+}
+
+/// The most of a server's name a note carries (`renderWorkspaceDiagnostic`'s
+/// `encodeTerminalSafe(.., 160)`, `project_config.zig:165-169@481104fd`).
+const MAX_NOTE_NAME_BYTES: usize = 160;
+
+/// A name from the file, spelled for a terminal row by
+/// [`crate::mcp::terminal_safe`], one character at a time, and cut as it cuts
+/// to [`MAX_NOTE_NAME_BYTES`].
+fn note_name(name: &str) -> String {
+    const MARKER: &str = "...";
+    let mut out = String::new();
+    let mut boundary = 0;
+    let mut buf = [0u8; 4];
+    for character in name.chars() {
+        let token = crate::mcp::terminal_safe(character.encode_utf8(&mut buf));
+        if out.len() + token.len() > MAX_NOTE_NAME_BYTES {
+            out.truncate(boundary);
+            out.push_str(MARKER);
+            return out;
+        }
+        out.push_str(&token);
+        if out.len() <= MAX_NOTE_NAME_BYTES - MARKER.len() {
+            boundary = out.len();
+        }
+    }
+    out
+}
+
+/// Why an entry was skipped, by the error that refused it (`entryProblem`,
+/// `project_config.zig:121-140@481104fd`, in `renderWorkspaceDiagnostic`'s
+/// words, `:198-206`), `fx` spelled `xfx`. `None` is a file that could not be
+/// read at all (`invalidResult`, `workspace_config.zig:57-62@481104fd`).
+fn entry_problem(err: Option<ConfigError>) -> &'static str {
+    match err.map(|err| err.0) {
+        Some("McpConfigServerMustBeObject") => "it isn't a JSON object",
+        Some("McpConfigUrlWithoutType") => {
+            "it has a \"url\" but no \"type\"; add \"type\": \"http\""
+        }
+        Some("McpConfigInvalidCommand") => "it needs a \"command\", with any \"args\" as strings",
+        Some("McpConfigInvalidType") => "its \"type\" isn't valid",
+        Some("McpConfigMissingUrl" | "McpConfigInvalidUrl") => "its \"url\" isn't valid",
+        Some("McpConfigInvalidHeaders") => "its \"headers\" isn't valid",
+        Some("McpConfigInvalidOAuth") => "its \"oauth\" isn't valid",
+        Some("McpConfigInvalidEnvironment") => "its \"env\" isn't valid",
+        Some("McpConfigInvalidBearerEnvironment") => "its \"bearer_token_env\" isn't valid",
+        Some("McpConfigInvalidEnabled") => "its \"enabled\" isn't valid",
+        Some("McpConfigInvalidRequired") => "its \"required\" isn't valid",
+        Some("McpConfigInvalidStartupTimeout") => "its \"startup_timeout_ms\" isn't valid",
+        Some("McpConfigInvalidOperationTimeout") => "its \"operation_timeout_ms\" isn't valid",
+        Some("McpConfigInvalidRestartLimit") => "its \"restart_limit\" isn't valid",
+        // A `${...}` that isn't a variable (`.variable`).
+        Some(VARIABLE_PROBLEM) => "a ${...} in it isn't valid",
+        // A name a terminal can't show as is (`.name`, `skipUnprintableNames`,
+        // `src/builtins/mcp.zig:99-116@481104fd`).
+        Some(NAME_PROBLEM) => "its name has a character xfx won't print",
+        _ => "xfx can't read it",
+    }
+}
+
+/// [`entry_problem`]'s key for a `${...}` that isn't a variable.
+const VARIABLE_PROBLEM: &str = "variable";
+/// [`entry_problem`]'s key for a name a terminal can't show as is.
+const NAME_PROBLEM: &str = "name";
+
+/// `<file> server '<name>' was skipped: <why>.` (`:211-214@481104fd`).
+fn skipped(source: Source, name: &str, err: Option<ConfigError>) -> String {
+    format!(
+        "{} server '{}' was skipped: {}.",
+        source.file(),
+        note_name(name),
+        entry_problem(err)
+    )
+}
+
+/// What fx says when a whole `.mcp.json` is refused: its cause's own name
+/// where a server's would be (`renderWorkspaceDiagnostic` with no server and
+/// no problem, `:207-214@481104fd`), as `.mcp.json server 'unknown' was
+/// skipped: invalid_json.`
+fn whole_file(cause: &str) -> String {
+    format!(
+        "{} server 'unknown' was skipped: {cause}.",
+        Source::Workspace.file()
+    )
 }
 
 /// The profile file's bytes, in upstream's shape and key order
@@ -694,11 +881,14 @@ fn edit_profile(
     let dir = path.parent().ok_or(ConfigError("McpConfigPathInvalid"))?;
     create_private_dir(dir).map_err(|_| ConfigError("McpConfigPathInvalid"))?;
     let _lock = ProfileLock::acquire(&dir.join(PROFILE_LOCK))?;
-    let mut profile = load_profile(path)?;
-    if !edit(&mut profile.servers) {
+    let mut servers = match read_bounded(path).map_err(|_| ConfigError("McpConfigUnreadable"))? {
+        Some(text) => parse_profile_strictly(&text)?,
+        None => Vec::new(),
+    };
+    if !edit(&mut servers) {
         return Ok(false);
     }
-    let bytes = render_profile(&profile.servers);
+    let bytes = render_profile(&servers);
     crate::provider::profile::replace_private_file(dir, path, bytes.as_bytes())
         .map_err(|_| ConfigError("McpConfigWriteFailed"))?;
     Ok(true)
@@ -763,18 +953,956 @@ impl ProfileLock {
 
 /// A regular file's text, or `None` when there is no file.
 fn read_bounded(path: &Path) -> io::Result<Option<String>> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
+    read_bounded_then(path, |_| {})
+}
+
+/// Where [`read_bounded_then`] is between its looks: its tests grow, swap or
+/// record the file there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadStep {
+    /// The path has been looked at; the file is about to be opened.
+    Opening,
+    /// The open file has been looked at; its bytes are about to be read.
+    Reading,
+}
+
+/// [`read_bounded`], `step` told where it is.
+///
+/// A path that is not a regular file, through any links, is refused before
+/// it is opened: a cloned repository's `.mcp.json -> /dev/<device>` is never
+/// opened at all. The file is then opened once, and that descriptor decides:
+/// it is what is looked at and what is read, so a path swapped after the
+/// first look is not read, a FIFO or a device swapped in is refused without
+/// blocking (`O_NONBLOCK`), and no more than [`MAX_CONFIG_BYTES`] are read
+/// whatever size the file reported.
+fn read_bounded_then(path: &Path, mut step: impl FnMut(ReadStep)) -> io::Result<Option<String>> {
+    let refused = || io::Error::new(io::ErrorKind::InvalidData, "not a readable config");
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return Err(refused()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
+    }
+    step(ReadStep::Opening);
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Never a controlling terminal, if a link names a terminal device.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err),
     };
+    let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
+        return Err(refused());
+    }
+    step(ReadStep::Reading);
+    let bytes = read_capped(file)?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "not UTF-8"))
+}
+
+/// At most [`MAX_CONFIG_BYTES`] of `reader`, or an error when it holds more:
+/// the size a file reports bounds nothing it holds (one that grew after it was
+/// looked at, a procfs file that says 0).
+fn read_capped(reader: impl io::Read) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    reader.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_CONFIG_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "not a readable config",
+            "larger than a config is read",
         ));
     }
-    fs::read_to_string(path).map(Some)
+    Ok(bytes)
+}
+
+// ---------------------------------------------------------------------------
+// the files' JSON, as an edit reads and writes it
+// ---------------------------------------------------------------------------
+
+/// One JSON value as a file wrote it: an object's keys in the file's order,
+/// and a number as its own text (`.parse_numbers = false`,
+/// `config_file.zig:176@481104fd`), so an edit to one entry leaves what every
+/// other key says as written. Strings are decoded and written back in
+/// `std.json`'s spelling, as fx's are.
+#[derive(Debug, Clone, PartialEq)]
+enum Json {
+    Null,
+    Bool(bool),
+    Number(String),
+    String(String),
+    Array(Vec<Json>),
+    Object(Vec<(String, Json)>),
+}
+
+/// The most objects and arrays one inside another before a file is not read:
+/// `serde_json`'s bound for the reader ([`read_json`]), so the reader and the
+/// writer take the same files. fx's `std.json` has none; this one keeps a
+/// file a repository wrote from running a recursive reader out of stack.
+const MAX_JSON_DEPTH: usize = 127;
+
+/// A strict reader of RFC 8259 JSON, as `std.json`'s scanner is: no comment,
+/// trailing comma, leading zero or bare control byte; a `\u` high surrogate
+/// only with its low half; no key twice in one object.
+struct Reader<'a> {
+    text: &'a str,
+    at: usize,
+    /// Refuse a key twice in one object: always, but in the test that checks
+    /// this reader against `serde_json`, which takes the last.
+    unique_keys: bool,
+}
+
+impl Reader<'_> {
+    fn peek(&self) -> Option<u8> {
+        self.text.as_bytes().get(self.at).copied()
+    }
+
+    fn skip_space(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.at += 1;
+        }
+    }
+
+    fn eat(&mut self, word: &str) -> Option<()> {
+        let found = self.text.as_bytes()[self.at..].starts_with(word.as_bytes());
+        found.then(|| self.at += word.len())
+    }
+
+    fn value(&mut self, depth: usize) -> Option<Json> {
+        match self.peek()? {
+            b'{' => self.object(depth + 1),
+            b'[' => self.array(depth + 1),
+            b'"' => self.string().map(Json::String),
+            b't' => self.eat("true").map(|()| Json::Bool(true)),
+            b'f' => self.eat("false").map(|()| Json::Bool(false)),
+            b'n' => self.eat("null").map(|()| Json::Null),
+            b'-' | b'0'..=b'9' => self.number().map(Json::Number),
+            _ => None,
+        }
+    }
+
+    fn object(&mut self, depth: usize) -> Option<Json> {
+        if depth > MAX_JSON_DEPTH {
+            return None;
+        }
+        self.at += 1;
+        let mut fields: Vec<(String, Json)> = Vec::new();
+        let mut keys = std::collections::HashSet::new();
+        self.skip_space();
+        if self.eat("}").is_some() {
+            return Some(Json::Object(fields));
+        }
+        loop {
+            self.skip_space();
+            if self.peek()? != b'"' {
+                return None;
+            }
+            let key = self.string()?;
+            if !keys.insert(key.clone()) && self.unique_keys {
+                return None;
+            }
+            self.skip_space();
+            self.eat(":")?;
+            self.skip_space();
+            let value = self.value(depth)?;
+            fields.push((key, value));
+            self.skip_space();
+            if self.eat("}").is_some() {
+                return Some(Json::Object(fields));
+            }
+            self.eat(",")?;
+        }
+    }
+
+    fn array(&mut self, depth: usize) -> Option<Json> {
+        if depth > MAX_JSON_DEPTH {
+            return None;
+        }
+        self.at += 1;
+        let mut items = Vec::new();
+        self.skip_space();
+        if self.eat("]").is_some() {
+            return Some(Json::Array(items));
+        }
+        loop {
+            self.skip_space();
+            items.push(self.value(depth)?);
+            self.skip_space();
+            if self.eat("]").is_some() {
+                return Some(Json::Array(items));
+            }
+            self.eat(",")?;
+        }
+    }
+
+    /// `-? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?`, kept as written.
+    fn number(&mut self) -> Option<String> {
+        let start = self.at;
+        let _ = self.eat("-");
+        match self.peek()? {
+            b'0' => self.at += 1,
+            b'1'..=b'9' => self.digits(),
+            _ => return None,
+        }
+        if self.eat(".").is_some() {
+            if !self.peek()?.is_ascii_digit() {
+                return None;
+            }
+            self.digits();
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.at += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.at += 1;
+            }
+            if !self.peek()?.is_ascii_digit() {
+                return None;
+            }
+            self.digits();
+        }
+        Some(self.text[start..self.at].to_string())
+    }
+
+    fn digits(&mut self) {
+        while self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
+            self.at += 1;
+        }
+    }
+
+    fn string(&mut self) -> Option<String> {
+        self.at += 1;
+        let mut out = String::new();
+        loop {
+            // A run up to the next quote, backslash or control byte: each of
+            // them ASCII, so the run ends on a character boundary.
+            let start = self.at;
+            while self
+                .peek()
+                .is_some_and(|byte| byte != b'"' && byte != b'\\' && byte >= 0x20)
+            {
+                self.at += 1;
+            }
+            out.push_str(&self.text[start..self.at]);
+            match self.peek()? {
+                b'"' => {
+                    self.at += 1;
+                    return Some(out);
+                }
+                b'\\' => {
+                    self.at += 1;
+                    out.push(self.escape()?);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    fn escape(&mut self) -> Option<char> {
+        let byte = self.peek()?;
+        self.at += 1;
+        Some(match byte {
+            b'"' => '"',
+            b'\\' => '\\',
+            b'/' => '/',
+            b'b' => '\u{8}',
+            b'f' => '\u{c}',
+            b'n' => '\n',
+            b'r' => '\r',
+            b't' => '\t',
+            b'u' => match self.hex4()? {
+                high @ 0xD800..=0xDBFF => {
+                    self.eat("\\u")?;
+                    let low = self.hex4()?;
+                    if !(0xDC00..=0xDFFF).contains(&low) {
+                        return None;
+                    }
+                    char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))?
+                }
+                0xDC00..=0xDFFF => return None,
+                unit => char::from_u32(unit)?,
+            },
+            _ => return None,
+        })
+    }
+
+    fn hex4(&mut self) -> Option<u32> {
+        let digits = self.text.get(self.at..self.at + 4)?;
+        if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        self.at += 4;
+        u32::from_str_radix(digits, 16).ok()
+    }
+}
+
+/// A file's text as an edit reads it; a blank one is an empty object
+/// (`parse`, `config_file.zig:173-180@481104fd`).
+fn parse_document(text: &str) -> Result<Json, EditError> {
+    parse_with(text, true)
+}
+
+fn parse_with(text: &str, unique_keys: bool) -> Result<Json, EditError> {
+    if text.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+        return Ok(Json::Object(Vec::new()));
+    }
+    let mut reader = Reader {
+        text,
+        at: 0,
+        unique_keys,
+    };
+    reader.skip_space();
+    let value = reader.value(0).ok_or(EditError::Unreadable)?;
+    reader.skip_space();
+    if reader.at != text.len() {
+        return Err(EditError::Unreadable);
+    }
+    Ok(value)
+}
+
+/// `value` as `std.json.Stringify` writes it with `.whitespace = .indent_2`,
+/// and a line break after it (`render`, `config_file.zig:224-230@481104fd`) --
+/// or [`EditError::TooLarge`] when that is over [`MAX_CONFIG_BYTES`], a file
+/// the reader would refuse. Writing stops at the cap: a file of 1 MiB nested
+/// 127 deep would be some 130 MB written out.
+fn render(value: &Json) -> Result<String, EditError> {
+    let mut out = String::new();
+    write_value(value, 0, &mut out);
+    out.push('\n');
+    if past_cap(&out) {
+        return Err(EditError::TooLarge);
+    }
+    Ok(out)
+}
+
+fn write_value(value: &Json, level: usize, out: &mut String) {
+    match value {
+        Json::Null => out.push_str("null"),
+        Json::Bool(true) => out.push_str("true"),
+        Json::Bool(false) => out.push_str("false"),
+        Json::Number(text) => out.push_str(text),
+        Json::String(text) => write_string(text, out),
+        Json::Array(items) if items.is_empty() => out.push_str("[]"),
+        Json::Object(fields) if fields.is_empty() => out.push_str("{}"),
+        Json::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if past_cap(out) {
+                    return;
+                }
+                if index > 0 {
+                    out.push(',');
+                }
+                new_line(level + 1, out);
+                write_value(item, level + 1, out);
+            }
+            new_line(level, out);
+            out.push(']');
+        }
+        Json::Object(fields) => {
+            out.push('{');
+            for (index, (key, item)) in fields.iter().enumerate() {
+                if past_cap(out) {
+                    return;
+                }
+                if index > 0 {
+                    out.push(',');
+                }
+                new_line(level + 1, out);
+                write_string(key, out);
+                out.push_str(": ");
+                write_value(item, level + 1, out);
+            }
+            new_line(level, out);
+            out.push('}');
+        }
+    }
+}
+
+/// Whether [`render`] has written past what it may return: each item it
+/// starts adds a line, so it stops before the next one.
+fn past_cap(out: &str) -> bool {
+    out.len() as u64 > MAX_CONFIG_BYTES
+}
+
+fn new_line(level: usize, out: &mut String) {
+    out.push('\n');
+    for _ in 0..level {
+        out.push_str("  ");
+    }
+}
+
+/// `encodeJsonString` without `escape_unicode` (`std/json/Stringify.zig`):
+/// the quote, the backslash, and every byte below `0x20` -- five by letter,
+/// the rest `\u00xx` -- and nothing else.
+fn write_string(text: &str, out: &mut String) {
+    use std::fmt::Write as _;
+    out.push('"');
+    for character in text.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            control if u32::from(control) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(control));
+            }
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+}
+
+// ---------------------------------------------------------------------------
+// editing a file in place
+// ---------------------------------------------------------------------------
+
+/// Which file an edit is for (`File`, `config_file.zig:12-14@481104fd`): the
+/// profile keeps its servers under `mcp` or `mcpServers`, a project's
+/// `.mcp.json` only under `mcpServers`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum File {
+    Profile,
+    Project,
+}
+
+impl File {
+    /// How a sentence names it (`fileLabel`, `verbs.zig:338-343@481104fd`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Profile => Source::Profile.file(),
+            Self::Project => WORKSPACE_FILE,
+        }
+    }
+}
+
+/// The workspace's `.mcp.json`, the file a `--project` edit is for.
+pub fn project_path(workspace: &Path) -> PathBuf {
+    workspace.join(WORKSPACE_FILE)
+}
+
+/// One server as an edit writes it, in Claude's shape (`Entry`,
+/// `config_file.zig:18-21@481104fd`, written by `entryValue`, `:197-216`):
+/// `{"command", "args", "env"}`, or `{"type": "http", "url", "headers"}`,
+/// each list only when it has something in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Entry {
+    Stdio {
+        command: String,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+    },
+    Http {
+        url: String,
+        headers: Vec<(String, String)>,
+    },
+}
+
+/// One edit (`Change`, `:84-87`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    Add { name: String, entry: Entry },
+    Remove(String),
+}
+
+/// What an edit did (`Updated`, `:89-94`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Updated {
+    Added,
+    /// The removed entry's `url`, which keys an HTTP server's sign-in.
+    Removed {
+        url: Option<String>,
+    },
+    /// The name was not in the file, or there is no file: nothing written.
+    Missing,
+}
+
+/// A file with one entry fewer (`Removed`, `:46-56`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removed {
+    pub text: String,
+    /// The entry's `url`, when it had one.
+    pub url: Option<String>,
+}
+
+/// Why an edit wrote nothing (`Error`, `:23-32`, and the errors `update`
+/// meets on the way).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditError {
+    /// Not JSON, a key twice in one object, or nested past [`MAX_JSON_DEPTH`].
+    Unreadable,
+    /// The file's top level, or its server list, isn't an object.
+    NotAnObject,
+    /// A profile with both `mcp` and `mcpServers`.
+    BothKeys,
+    /// The name is already in the file.
+    Exists,
+    /// The file is a symbolic link -- to this, as the link reads, when it can
+    /// be read: replacing it would fork the file it points to, and following
+    /// it could write outside the project.
+    Symlink(Option<String>),
+    /// The file has another hard link: replacing it would fork the file the
+    /// other name shares.
+    HardLink,
+    /// The edit would leave a file over 1 MiB, which the reader refuses whole
+    /// at the next launch: a compact file grows when it is written two-space.
+    TooLarge,
+    /// The file has no write permission.
+    ReadOnly,
+    /// Another xfx held `mcp.lock` past upstream's two seconds.
+    Busy,
+    /// Anything else: an I/O error, a file over 1 MiB or not a regular file.
+    Failed,
+}
+
+impl EditError {
+    /// Why, in fx's words (`whyNot` and `describe`,
+    /// `verbs.zig:302-327@481104fd`) with `fx` spelled `xfx`: what follows
+    /// `Couldn't add <name> to <file>: `. A link's target is from the disk,
+    /// so it is spelled by [`crate::mcp::terminal_safe`].
+    pub fn why(&self) -> String {
+        match self {
+            Self::Unreadable => {
+                "the file isn't valid JSON, or repeats a key; fix it by hand first".into()
+            }
+            Self::NotAnObject => {
+                "the file's servers aren't a JSON object; fix it by hand first".into()
+            }
+            Self::BothKeys => {
+                "the file has both \"mcp\" and \"mcpServers\"; merge them into one".into()
+            }
+            Self::Exists => "that name is already in the file; remove it first".into(),
+            Self::Symlink(Some(target)) => {
+                let target = crate::mcp::terminal_safe(target);
+                format!(
+                    "it's a link to {target}, and xfx edits only a plain file; edit {target} by hand"
+                )
+            }
+            // fx says the hard-link sentence here (`whyNot`, `:307`): it is a
+            // link whose target couldn't be read.
+            Self::Symlink(None) => {
+                "it's a link, and xfx edits only a plain file; edit the file it points to by hand"
+                    .into()
+            }
+            Self::HardLink => {
+                "it has another hard link, and xfx edits only a plain file; edit it by hand".into()
+            }
+            // xfx's own: fx writes such a file and its next launch can't read
+            // it (`readFileToEnd(.., 1024 * 1024)`, `config_file.zig:128@481104fd`).
+            Self::TooLarge => {
+                "the file would be over 1 MiB written out, more than xfx reads; make it smaller by hand first"
+                    .into()
+            }
+            Self::ReadOnly => "permission denied".into(),
+            Self::Busy => "another xfx is changing the MCP config; try again".into(),
+            Self::Failed => "something went wrong".into(),
+        }
+    }
+}
+
+impl fmt::Display for EditError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.why())
+    }
+}
+
+impl std::error::Error for EditError {}
+
+/// The file's text with `name` added (`add`, `config_file.zig:34-44@481104fd`);
+/// `text` is `None` when there is no file yet.
+pub fn add_entry(
+    file: File,
+    text: Option<&str>,
+    name: &str,
+    entry: &Entry,
+) -> Result<String, EditError> {
+    let mut root = parse_document(text.unwrap_or(""))?;
+    let Some(servers) = servers_of(file, &mut root, true)? else {
+        return Err(EditError::NotAnObject);
+    };
+    if servers.iter().any(|(key, _)| key == name) {
+        return Err(EditError::Exists);
+    }
+    servers.push((name.to_string(), entry_value(entry)));
+    render(&root)
+}
+
+/// The file's text without `name`, or `None` when `name` isn't in it
+/// (`remove`, `:58-73`).
+pub fn remove_entry(file: File, text: &str, name: &str) -> Result<Option<Removed>, EditError> {
+    let mut root = parse_document(text)?;
+    let Some(servers) = servers_of(file, &mut root, false)? else {
+        return Ok(None);
+    };
+    let Some(index) = servers.iter().position(|(key, _)| key == name) else {
+        return Ok(None);
+    };
+    let (_, old) = servers.remove(index);
+    let url = match old {
+        Json::Object(fields) => fields.into_iter().find_map(|(key, value)| match value {
+            Json::String(url) if key == "url" => Some(url),
+            _ => None,
+        }),
+        _ => None,
+    };
+    Ok(Some(Removed {
+        text: render(&root)?,
+        url,
+    }))
+}
+
+/// A config file's text for [`defines`], or `None` when there is none
+/// (`read`, `config_file.zig:121-129@481104fd`): a regular file of at most
+/// 1 MiB, read through a link as fx reads it -- only to answer whether a name
+/// is there; [`update`] refuses to write through one.
+pub fn read_config(path: &Path) -> Result<Option<String>, EditError> {
+    read_bounded(path).map_err(|err| match err.kind() {
+        io::ErrorKind::InvalidData => EditError::Unreadable,
+        _ => EditError::Failed,
+    })
+}
+
+/// Whether the file defines `name`; false for one that can't be read
+/// (`has`, `:75-82`).
+pub fn defines(file: File, text: &str, name: &str) -> bool {
+    let Ok(mut root) = parse_document(text) else {
+        return false;
+    };
+    matches!(servers_of(file, &mut root, false), Ok(Some(servers)) if servers.iter().any(|(key, _)| key == name))
+}
+
+/// The server list an edit changes (`serversOf`, `:182-195`): `mcpServers`,
+/// or in the profile an existing `mcp` -- an old profile keeps the key it
+/// has -- and with `create` a new `mcpServers` after the file's other keys.
+fn servers_of(
+    file: File,
+    root: &mut Json,
+    create: bool,
+) -> Result<Option<&mut Vec<(String, Json)>>, EditError> {
+    let Json::Object(top) = root else {
+        return Err(EditError::NotAnObject);
+    };
+    let current = top.iter().position(|(key, _)| key == "mcpServers");
+    let old = match file {
+        File::Profile => top.iter().position(|(key, _)| key == "mcp"),
+        File::Project => None,
+    };
+    let index = match (current, old) {
+        (Some(_), Some(_)) => return Err(EditError::BothKeys),
+        (Some(index), None) | (None, Some(index)) => index,
+        (None, None) if create => {
+            top.push(("mcpServers".to_string(), Json::Object(Vec::new())));
+            top.len() - 1
+        }
+        (None, None) => return Ok(None),
+    };
+    match &mut top[index].1 {
+        Json::Object(servers) => Ok(Some(servers)),
+        _ => Err(EditError::NotAnObject),
+    }
+}
+
+/// `entryValue` (`:197-216`).
+fn entry_value(entry: &Entry) -> Json {
+    let mut object: Vec<(String, Json)> = Vec::new();
+    match entry {
+        Entry::Stdio { command, args, env } => {
+            object.push(("command".into(), Json::String(command.clone())));
+            if !args.is_empty() {
+                let args = args.iter().cloned().map(Json::String).collect();
+                object.push(("args".into(), Json::Array(args)));
+            }
+            if !env.is_empty() {
+                object.push(("env".into(), pairs(env)));
+            }
+        }
+        Entry::Http { url, headers } => {
+            object.push(("type".into(), Json::String("http".into())));
+            object.push(("url".into(), Json::String(url.clone())));
+            if !headers.is_empty() {
+                object.push(("headers".into(), pairs(headers)));
+            }
+        }
+    }
+    Json::Object(object)
+}
+
+/// `pairs` (`:218-222`): a key given twice keeps its first place and its
+/// last value, as `put` does.
+fn pairs(list: &[(String, String)]) -> Json {
+    let mut object: Vec<(String, Json)> = Vec::new();
+    for (key, value) in list {
+        match object.iter_mut().find(|(seen, _)| seen == key) {
+            Some(field) => field.1 = Json::String(value.clone()),
+            None => object.push((key.clone(), Json::String(value.clone()))),
+        }
+    }
+    Json::Object(object)
+}
+
+/// Applies `change` to the file at `path` (`update`,
+/// `config_file.zig:96-119@481104fd`), under the profile's `mcp.lock` beside
+/// `profile_path`, which every MCP config write holds, so two xfx processes
+/// can't lose each other's change. The file is read once, edited, and
+/// replaced whole or not at all: on any error nothing is written. A link,
+/// or a file with another hard link, is refused before it is read; an edit
+/// that would leave a file over 1 MiB is refused too ([`EditError::TooLarge`]).
+pub fn update(
+    profile_path: &Path,
+    file: File,
+    path: &Path,
+    change: &Change,
+) -> Result<Updated, EditError> {
+    let dir = profile_path.parent().ok_or(EditError::Failed)?;
+    create_private_dir(dir).map_err(|_| EditError::Failed)?;
+    let _lock = ProfileLock::acquire(&dir.join(PROFILE_LOCK)).map_err(|err| match err.0 {
+        "McpConfigLockTimeout" => EditError::Busy,
+        _ => EditError::Failed,
+    })?;
+    let read = read_plain(path)?;
+    match change {
+        Change::Add { name, entry } => {
+            let text = read.as_ref().map(|plain| plain.text.as_str());
+            let next = add_entry(file, text, name, entry)?;
+            replace(file, path, read.as_ref(), &next)?;
+            Ok(Updated::Added)
+        }
+        Change::Remove(name) => {
+            let Some(plain) = &read else {
+                return Ok(Updated::Missing);
+            };
+            let Some(removed) = remove_entry(file, &plain.text, name)? else {
+                return Ok(Updated::Missing);
+            };
+            replace(file, path, Some(plain), &removed.text)?;
+            Ok(Updated::Removed { url: removed.url })
+        }
+    }
+}
+
+/// [`EditError::Symlink`] for a symbolic link, [`EditError::HardLink`] for a
+/// regular file with another name.
+fn refuse_link(path: &Path, metadata: &fs::Metadata) -> Result<(), EditError> {
+    if metadata.file_type().is_symlink() {
+        let target = fs::read_link(path)
+            .ok()
+            .map(|target| target.to_string_lossy().into_owned());
+        return Err(EditError::Symlink(target));
+    }
+    // A directory's own links are its entries', not other names for it.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.is_file() && metadata.nlink() > 1 {
+            return Err(EditError::HardLink);
+        }
+    }
+    Ok(())
+}
+
+/// A file an edit read: its text, and the permission bits of the descriptor
+/// it was read through.
+struct Plain {
+    text: String,
+    mode: u32,
+}
+
+/// The file an edit replaces, or `None` when there is none: never a link or
+/// a file with another hard link, opened without following one and without
+/// blocking, checked to be the regular file looked at, at most 1 MiB
+/// (`read`, `config_file.zig:121-129@481104fd`).
+fn read_plain(path: &Path) -> Result<Option<Plain>, EditError> {
+    let looked = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(EditError::Failed),
+    };
+    refuse_link(path, &looked)?;
+    if !looked.is_file() {
+        return Err(EditError::Failed);
+    }
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    // Non-blocking too: a FIFO swapped in after the look must not hold the
+    // edit open (it is then not the file looked at, and refused).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_NOCTTY);
+    }
+    let opened = options.open(path).map_err(|_| EditError::Failed)?;
+    let metadata = opened.metadata().map_err(|_| EditError::Failed)?;
+    if !metadata.is_file() {
+        return Err(EditError::Failed);
+    }
+    refuse_link(path, &metadata)?;
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if (metadata.dev(), metadata.ino()) != (looked.dev(), looked.ino()) {
+            return Err(EditError::Failed);
+        }
+        metadata.permissions().mode() & 0o777
+    };
+    #[cfg(not(unix))]
+    let mode = if metadata.permissions().readonly() {
+        0o444
+    } else {
+        0o644
+    };
+    let bytes = read_capped(opened).map_err(|_| EditError::Failed)?;
+    // Text that isn't UTF-8 isn't JSON (`std.json`'s scanner checks it).
+    let text = String::from_utf8(bytes).map_err(|_| EditError::Unreadable)?;
+    Ok(Some(Plain { text, mode }))
+}
+
+/// The profile's permission bits, whatever they were: owner-only.
+const PRIVATE_FILE_MODE: u32 = 0o600;
+
+/// Replaces the file with `text` (`write`, `config_file.zig:157-171@481104fd`):
+/// checked once more not to be a link; the profile owner-only, as every
+/// profile write is; a project's `.mcp.json`, which the repository shares,
+/// keeping the mode `read` had -- one with no write permission refused, as
+/// fx refuses it (`io.zig:595-598@481104fd`) -- and a new one born at the
+/// default mode less the umask, as fx's is.
+fn replace(file: File, path: &Path, read: Option<&Plain>, text: &str) -> Result<(), EditError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => refuse_link(path, &metadata)?,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => return Err(EditError::Failed),
+    }
+    let mode = match (file, read) {
+        (File::Profile, _) => Some(PRIVATE_FILE_MODE),
+        (File::Project, Some(plain)) if plain.mode & 0o222 == 0 => return Err(EditError::ReadOnly),
+        (File::Project, Some(plain)) => Some(plain.mode),
+        (File::Project, None) => None,
+    };
+    replace_staged(path, text.as_bytes(), mode)
+}
+
+/// A staged file that removes itself unless it was renamed into place: an
+/// edit that fails leaves no part of a file behind. Made only once the stage
+/// exists, so it never removes a name this edit did not create.
+struct Stage {
+    path: PathBuf,
+    committed: bool,
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        if !self.committed {
+            // Only this edit's own, uniquely named stage.
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// A step of [`replace_staged`] after its stage exists, which its test can
+/// make fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StageStep {
+    Write,
+    Sync,
+    Rename,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The step [`replace_staged`] fails at on this thread, in its test.
+    static FAIL_AT: std::cell::Cell<Option<StageStep>> = const { std::cell::Cell::new(None) };
+}
+
+/// `Err` at the step a test armed; nothing in a build that is not a test.
+fn stage_step(step: StageStep) -> Result<(), EditError> {
+    #[cfg(test)]
+    if FAIL_AT.with(std::cell::Cell::get) == Some(step) {
+        return Err(EditError::Failed);
+    }
+    let _ = step;
+    Ok(())
+}
+
+/// `writeFileAtomic` (`src/core/shared/io.zig:593-615@481104fd`): a stage
+/// beside the file -- `create_new`, never through a name this edit did not
+/// create -- born no wider than `mode` (the default mode less the umask for a
+/// new file) and given exactly `mode` before any byte is written, synced, and
+/// renamed over the file, so a reader sees the old file or the new one and
+/// never a part. Once the rename has landed the edit is made: flushing the
+/// directory is best effort, as fx does not flush it at all.
+fn replace_staged(path: &Path, bytes: &[u8], mode: Option<u32>) -> Result<(), EditError> {
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .ok_or(EditError::Failed)?;
+    let name = path.file_name().ok_or(EditError::Failed)?;
+    let nonce: String = crate::session::new_identifier().chars().take(16).collect();
+    let stage_path = dir.join(format!(
+        "{}.{}.{nonce}{}",
+        name.to_string_lossy(),
+        std::process::id(),
+        crate::session::STAGE_SUFFIX
+    ));
+    replace_through(path, dir, stage_path, bytes, mode)
+}
+
+/// [`replace_staged`] through the stage named `stage_path`.
+fn replace_through(
+    path: &Path,
+    dir: &Path,
+    stage_path: PathBuf,
+    bytes: &[u8],
+    mode: Option<u32>,
+) -> Result<(), EditError> {
+    use std::io::Write as _;
+    let failed = |_| EditError::Failed;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options
+            .mode(mode.unwrap_or(0o666))
+            .custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut staged = options.open(&stage_path).map_err(failed)?;
+    let mut stage = Stage {
+        path: stage_path,
+        committed: false,
+    };
+    // The umask may have narrowed it; widening a stage that holds nothing yet
+    // to the file's own bits shows nothing.
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
+        staged
+            .set_permissions(fs::Permissions::from_mode(mode))
+            .map_err(failed)?;
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    stage_step(StageStep::Write)?;
+    staged.write_all(bytes).map_err(failed)?;
+    stage_step(StageStep::Sync)?;
+    staged.sync_all().map_err(failed)?;
+    drop(staged);
+    stage_step(StageStep::Rename)?;
+    fs::rename(&stage.path, path).map_err(failed)?;
+    stage.committed = true;
+    #[cfg(unix)]
+    if let Ok(directory) = fs::File::open(dir) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -927,27 +2055,29 @@ pub fn load_workspace(
     environment: &dyn Fn(&str) -> Option<String>,
 ) -> WorkspaceServers {
     let path = root.join(WORKSPACE_FILE);
+    // A whole file refused is one note, in fx's words
+    // (`parseWorkspaceJsonInternal`, `project_config.zig:543-559@481104fd`;
+    // `invalidResult`, `workspace_config.zig:57-62@481104fd`).
+    let refused = |issue: String| WorkspaceServers {
+        issues: vec![issue],
+        ..WorkspaceServers::default()
+    };
     let text = match read_bounded(&path) {
         Ok(Some(text)) => text,
         Ok(None) => return WorkspaceServers::default(),
-        Err(_) => {
-            return WorkspaceServers {
-                issues: vec![".mcp.json: McpConfigUnreadable".to_string()],
-                ..WorkspaceServers::default()
-            }
-        }
+        Err(_) => return refused(skipped(Source::Workspace, "unknown", None)),
     };
-    let document: Value = match serde_json::from_str(&text) {
-        Ok(document) => document,
-        Err(_) => {
-            return WorkspaceServers {
-                issues: vec![".mcp.json: McpConfigInvalidJson".to_string()],
-                ..WorkspaceServers::default()
-            }
-        }
+    let Some(document) = read_json(&text) else {
+        return refused(whole_file("invalid_json"));
     };
-    let Some(servers) = document.get("mcpServers").and_then(Value::as_object) else {
+    let Value::Object(document) = document else {
+        return refused(whole_file("root_must_be_object"));
+    };
+    let Some(servers) = document.get("mcpServers") else {
         return WorkspaceServers::default();
+    };
+    let Some(servers) = servers.as_object() else {
+        return refused(whole_file("servers_must_be_object"));
     };
     let lookup = |variable: &str| {
         if is_credential_variable(variable) {
@@ -959,7 +2089,17 @@ pub fn load_workspace(
     let mut result = WorkspaceServers::default();
     for (name, value) in servers {
         if !is_valid_server_name(name) {
-            result.issues.push(format!("{name}: McpInvalidServerName"));
+            // fx skips only a name a terminal can't show (`.name`); xfx's
+            // names are the ones `/mcp add` takes, since a tool is named by
+            // its server's (`mcp_<server>_<tool>`), and the rest are notes in
+            // fx's general words.
+            let printable = name.chars().all(|character| {
+                crate::mcp::terminal_safe(&character.to_string()) == character.to_string()
+            });
+            let problem = (!printable).then_some(ConfigError(NAME_PROBLEM));
+            result
+                .issues
+                .push(skipped(Source::Workspace, name, problem));
             continue;
         }
         let digest = entry_digest(value);
@@ -981,7 +2121,9 @@ pub fn load_workspace(
                 Some((field, variable)) => result.issues.push(withheld(name, field, variable)),
                 None => result.servers.push(config),
             },
-            Err(err) => result.issues.push(format!("{name}: {err}")),
+            Err(err) => result
+                .issues
+                .push(skipped(Source::Workspace, name, Some(err))),
         }
     }
     result
@@ -1038,10 +2180,15 @@ enum Unresolved {
 }
 
 impl Unresolved {
-    /// What the menu says (`renderWorkspaceDiagnostic`, `:146-183`).
+    /// What the menu says (`renderWorkspaceDiagnostic`, `:146-183`; an
+    /// invalid `${...}` as `.variable`, `:645-650@481104fd`).
     fn issue(&self, server: &str) -> String {
         let Self::Missing { field, variable } = self else {
-            return format!(".mcp.json server '{server}' was skipped: invalid_entry.");
+            return skipped(
+                Source::Workspace,
+                server,
+                Some(ConfigError(VARIABLE_PROBLEM)),
+            );
         };
         if is_credential_variable(variable) {
             return withheld(server, field, variable);
@@ -1463,11 +2610,23 @@ mod tests {
             (r#"{"mcp":{"a":{"command":3}}}"#, "McpConfigInvalidCommand"),
             (r#"{"mcp":{"a":{"type":"http"}}}"#, "McpConfigMissingUrl"),
             (
+                r#"{"mcp":{"a":{"command":"x","url":"https://example.test/mcp"}}}"#,
+                "McpConfigUrlWithoutType",
+            ),
+            (
+                r#"{"mcp":{"a":{"command":"x"},"a":{"command":"y"}}}"#,
+                "McpConfigInvalidJson",
+            ),
+            (
                 r#"{"mcp":{"a":{"type":"http","url":"http://example.test/mcp"}}}"#,
                 "McpConfigInvalidUrl",
             ),
         ] {
-            assert_eq!(parse_profile(text), Err(ConfigError(expected)), "{text}");
+            assert_eq!(
+                parse_profile_strictly(text).err(),
+                Some(ConfigError(expected)),
+                "{text}"
+            );
         }
     }
 
@@ -1491,8 +2650,8 @@ mod tests {
             r#""header_env":{"X-A":"ONE","x-a":"TWO"}"#,
         ] {
             assert_eq!(
-                parse_profile(&remote(fields)),
-                Err(ConfigError("McpConfigInvalidHeaders")),
+                parse_profile_strictly(&remote(fields)).err(),
+                Some(ConfigError("McpConfigInvalidHeaders")),
                 "{fields}"
             );
         }
@@ -1770,5 +2929,1374 @@ mod tests {
         assert!(remove_profile_server(&path, "a").unwrap());
         assert!(!remove_profile_server(&path, "nope").unwrap());
         assert!(dir.path().join("p").join(PROFILE_LOCK).exists());
+    }
+
+    // -----------------------------------------------------------------------
+    // fx v0.0.16's writer (`src/core/mcp_host/config_file.zig@481104fd`)
+    // -----------------------------------------------------------------------
+
+    /// What fx v0.0.16 left on disk in a capture, as the receipt keeps it
+    /// (`.prd/tui-phase5/receipts/mcp-config/oracle/`): the bytes its `home`
+    /// or `workls` printed, the machine's `bun` and scenario directory written
+    /// as `<bun>` and `<scenarios>`.
+    macro_rules! oracle {
+        ($name:literal) => {
+            include_str!(concat!(
+                "../../.prd/tui-phase5/receipts/mcp-config/oracle/",
+                $name
+            ))
+        };
+    }
+
+    /// A scenario file with its placeholders written as the oracle writes them.
+    fn placeholders(text: &str) -> String {
+        text.replace("@BUN@", "<bun>")
+            .replace("@SCENARIOS@", "<scenarios>")
+    }
+
+    const SCRIPT: &str = "<scenarios>/p5-mcp-stdio.ts";
+
+    fn stdio(args: &[&str], env: &[(&str, &str)]) -> Entry {
+        Entry::Stdio {
+            command: "<bun>".into(),
+            args: args.iter().map(|arg| arg.to_string()).collect(),
+            env: env
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        }
+    }
+
+    fn http(url: &str, headers: &[(&str, &str)]) -> Entry {
+        Entry::Http {
+            url: url.into(),
+            headers: headers
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_verbs_scenario_leaves_fx_v0_0_16s_bytes() {
+        // `p5-mcp-verbs`: the seeded `mcpServers` profile, `add two -- …`,
+        // `add web2 URL`, then `remove two`, `remove three`, `remove web2`.
+        let before = placeholders(include_str!(
+            "../../scripts/fxcap/scenarios/p5-mcp-profile.json"
+        ));
+        let two = add_entry(File::Profile, Some(&before), "two", &stdio(&[SCRIPT], &[])).unwrap();
+        let after = add_entry(
+            File::Profile,
+            Some(&two),
+            "web2",
+            &http("http://127.0.0.1:9/web2", &[]),
+        )
+        .unwrap();
+        assert_eq!(after, oracle!("verbs-after-add.mcp.json"));
+        let removed = remove_entry(File::Profile, &after, "two").unwrap().unwrap();
+        assert_eq!(removed.url, None);
+        assert_eq!(
+            remove_entry(File::Profile, &removed.text, "three"),
+            Ok(None)
+        );
+        let end = remove_entry(File::Profile, &removed.text, "web2")
+            .unwrap()
+            .unwrap();
+        assert_eq!(end.url.as_deref(), Some("http://127.0.0.1:9/web2"));
+        assert_eq!(end.text, oracle!("verbs-end.mcp.json"));
+    }
+
+    #[test]
+    fn an_old_profile_keeps_its_mcp_key_and_every_other_byte_fx_keeps() {
+        // `p5-mcp-config`: an old `{"mcp":…}` profile with keys, numbers and
+        // escapes fx doesn't know -- the migration case.
+        let before = oracle!("config-before.mcp.json");
+        assert_eq!(
+            before,
+            placeholders(include_str!(
+                "../../scripts/fxcap/scenarios/p5-mcp-config-profile.json"
+            ))
+        );
+        let mut text = before.to_string();
+        for (name, entry) in [
+            ("two", stdio(&[SCRIPT], &[])),
+            (
+                "three",
+                stdio(&[SCRIPT, "--flag"], &[("K", "v"), ("Z", "1")]),
+            ),
+            ("web", http("http://127.0.0.1:9/web", &[("X-Team", "core")])),
+        ] {
+            text = add_entry(File::Profile, Some(&text), name, &entry).unwrap();
+        }
+        assert_eq!(text, oracle!("config-after-add.mcp.json"));
+        // The reader takes a Claude-shape entry under `mcp`, as fx v0.0.16
+        // does (its `/mcp list` showed `two` ready, `p5-mcp-config-…-list`).
+        let profile = parse_profile(&text).expect("reads");
+        assert!(profile.notes.is_empty(), "{:?}", profile.notes);
+        let names: Vec<&str> = profile.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["old", "two", "three", "web"]);
+        assert_eq!(
+            (
+                profile.servers[1].command.as_str(),
+                &profile.servers[1].args
+            ),
+            ("<bun>", &vec![SCRIPT.to_string()])
+        );
+        assert_eq!(
+            profile.servers[2].env,
+            [("K".into(), "v".into()), ("Z".into(), "1".into())]
+        );
+        assert_eq!(
+            profile.servers[3].headers,
+            [("X-Team".into(), "core".into())]
+        );
+        for name in ["old", "three", "web"] {
+            text = remove_entry(File::Profile, &text, name)
+                .unwrap()
+                .unwrap()
+                .text;
+        }
+        assert_eq!(text, oracle!("config-end.mcp.json"));
+    }
+
+    #[test]
+    fn a_project_file_is_edited_as_fx_edits_it() {
+        let before = oracle!("config-work-before.mcp.json");
+        let after = add_entry(File::Project, Some(before), "p2", &stdio(&[SCRIPT], &[])).unwrap();
+        assert_eq!(after, oracle!("config-work-after-add.mcp.json"));
+        let end = remove_entry(File::Project, &after, "p2").unwrap().unwrap();
+        assert_eq!(end.text, oracle!("config-work-end.mcp.json"));
+    }
+
+    #[test]
+    fn add_keeps_every_key_it_doesnt_know_in_order_with_numbers_as_written() {
+        // fx's own case (`config_file.zig:234-267@481104fd`).
+        let before = r#"{"theme":"dark","mcpServers":{"a":{"command":"x","environment":{"K":"v"},"startup_timeout_ms":1.50,"extra":[1,2]}},"zz":true}"#;
+        let after = add_entry(
+            File::Profile,
+            Some(before),
+            "web",
+            &http("https://mcp.example/mcp", &[("X-Key", "${KEY}")]),
+        )
+        .unwrap();
+        assert_eq!(
+            after,
+            "{\n  \"theme\": \"dark\",\n  \"mcpServers\": {\n    \"a\": {\n      \"command\": \"x\",\n      \"environment\": {\n        \"K\": \"v\"\n      },\n      \"startup_timeout_ms\": 1.50,\n      \"extra\": [\n        1,\n        2\n      ]\n    },\n    \"web\": {\n      \"type\": \"http\",\n      \"url\": \"https://mcp.example/mcp\",\n      \"headers\": {\n        \"X-Key\": \"${KEY}\"\n      }\n    }\n  },\n  \"zz\": true\n}\n"
+        );
+    }
+
+    #[test]
+    fn add_writes_a_stdio_server_into_a_new_file_under_mcp_servers() {
+        // `config_file.zig:269-289@481104fd`.
+        let after = add_entry(
+            File::Project,
+            None,
+            "local",
+            &Entry::Stdio {
+                command: "node".into(),
+                args: vec!["server.js".into(), "--x".into()],
+                env: vec![("A".into(), "1".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            after,
+            "{\n  \"mcpServers\": {\n    \"local\": {\n      \"command\": \"node\",\n      \"args\": [\n        \"server.js\",\n        \"--x\"\n      ],\n      \"env\": {\n        \"A\": \"1\"\n      }\n    }\n  }\n}\n"
+        );
+    }
+
+    #[test]
+    fn an_older_profile_keeps_its_mcp_key_and_a_project_file_never_uses_it() {
+        // `config_file.zig:291-303@481104fd`.
+        let old = r#"{"mcp":{"a":{"command":"x"}}}"#;
+        let y = Entry::Stdio {
+            command: "y".into(),
+            args: vec![],
+            env: vec![],
+        };
+        let profile = add_entry(File::Profile, Some(old), "b", &y).unwrap();
+        assert!(!profile.contains("\"mcpServers\""), "{profile}");
+        assert!(defines(File::Profile, &profile, "b"));
+        let project = add_entry(File::Project, Some(old), "b", &y).unwrap();
+        assert!(defines(File::Project, &project, "b"));
+        assert!(!defines(File::Project, &project, "a"));
+        assert!(project.contains("\"mcp\": {"), "{project}");
+    }
+
+    #[test]
+    fn add_refuses_what_it_cant_edit_safely() {
+        // `config_file.zig:305-317@481104fd`, and what this reader adds.
+        let y = Entry::Stdio {
+            command: "y".into(),
+            args: vec![],
+            env: vec![],
+        };
+        for (text, expected) in [
+            (r#"{"mcpServers":{"b":{}}}"#, EditError::Exists),
+            (r#"{"mcp":{},"mcpServers":{}}"#, EditError::BothKeys),
+            (
+                r#"{"mcpServers":{},"mcpServers":{}}"#,
+                EditError::Unreadable,
+            ),
+            (
+                r#"{"mcpServers":{"a":{"k":1,"k":2}}}"#,
+                EditError::Unreadable,
+            ),
+            ("{nope", EditError::Unreadable),
+            ("[]", EditError::NotAnObject),
+            (r#"{"mcpServers":[]}"#, EditError::NotAnObject),
+            (r#"{"a":01}"#, EditError::Unreadable),
+            (r#"{"a":1,}"#, EditError::Unreadable),
+            (r#"{"a":1.}"#, EditError::Unreadable),
+            (r#"{"a":"\ud800"}"#, EditError::Unreadable),
+            (r#"{"a":"\udc00"}"#, EditError::Unreadable),
+            ("{\"a\":\"\u{1}\"}", EditError::Unreadable),
+            ("\u{feff}{}", EditError::Unreadable),
+            ("{} // note", EditError::Unreadable),
+            ("{} {}", EditError::Unreadable),
+        ] {
+            assert_eq!(
+                add_entry(File::Profile, Some(text), "b", &y),
+                Err(expected),
+                "{text}"
+            );
+        }
+        let blank = add_entry(File::Profile, Some(" \n"), "b", &y).unwrap();
+        assert!(defines(File::Profile, &blank, "b"));
+    }
+
+    #[test]
+    fn remove_drops_one_entry_keeps_the_rest_in_order_and_returns_its_url() {
+        // `config_file.zig:319-336@481104fd`.
+        let before = r#"{"x":1,"mcpServers":{"a":{"command":"x"},"web":{"type":"http","url":"https://w/mcp"},"c":{"command":"z"}}}"#;
+        let removed = remove_entry(File::Profile, before, "web").unwrap().unwrap();
+        assert_eq!(removed.url.as_deref(), Some("https://w/mcp"));
+        assert!(!defines(File::Profile, &removed.text, "web"));
+        let a = removed.text.find("\"a\"").unwrap();
+        let c = removed.text.find("\"c\"").unwrap();
+        assert!(a < c);
+        assert!(removed.text.contains("\"x\": 1"));
+        assert_eq!(
+            remove_entry(File::Profile, before, "a")
+                .unwrap()
+                .unwrap()
+                .url,
+            None
+        );
+        assert_eq!(remove_entry(File::Profile, before, "missing"), Ok(None));
+        assert_eq!(
+            remove_entry(File::Project, r#"{"mcp":{"a":{}}}"#, "a"),
+            Ok(None)
+        );
+        assert!(!defines(File::Profile, "{nope", "a"));
+    }
+
+    #[test]
+    fn strings_are_written_back_in_std_jsons_spelling() {
+        // `encodeJsonStringChars` without `escape_unicode`: five controls by
+        // letter, the rest `\u00xx`, `/` and anything past ASCII as they are
+        // -- the capture's `"café \/ \u001f 😀 tab\t"` came
+        // back `"café / \u001f 😀 tab\t"`.
+        let text = r#"{"s":"\u0000\u001f\u007f\b\f\n\r\t\"\\\/é😀","kA":[{},[]]}"#;
+        let root = parse_document(text).unwrap();
+        assert_eq!(
+            render(&root).unwrap(),
+            "{\n  \"s\": \"\\u0000\\u001f\u{7f}\\b\\f\\n\\r\\t\\\"\\\\/é😀\",\n  \"kA\": [\n    {},\n    []\n  ]\n}\n"
+        );
+    }
+
+    #[test]
+    fn the_writer_reads_json_as_serde_json_does_and_writes_back_the_same_values() {
+        // A differential check over many small documents, some well formed and
+        // most not: the writer's reader takes exactly what `serde_json` takes
+        // (but a key twice, which it refuses, and a blank file, which is an
+        // empty object to fx), and what it writes reads back as the same value.
+        const PIECES: [&str; 32] = [
+            "{",
+            "}",
+            "[",
+            "]",
+            ",",
+            ":",
+            " ",
+            "\n",
+            "\"a\"",
+            "\"b\"",
+            "\"\\u00e9\"",
+            "\"\\ud83d\\ude00\"",
+            "\"\\ud800\"",
+            "\"\\/\\t\"",
+            "\"\u{1}\"",
+            "0",
+            "-0",
+            "01",
+            "1.5",
+            "1.",
+            "-",
+            "1e5",
+            "1E+2",
+            "2e",
+            "true",
+            "false",
+            "null",
+            "nul",
+            "\"é😀\"",
+            "\"\\x\"",
+            "\t",
+            "\u{feff}",
+        ];
+        let mut seed: u64 = 0x2026_1106;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (seed >> 33) as usize
+        };
+        let mut accepted = 0;
+        for _ in 0..40_000 {
+            let mut text = String::new();
+            for _ in 0..(next() % 12) + 1 {
+                text.push_str(PIECES[next() % PIECES.len()]);
+            }
+            let theirs = serde_json::from_str::<Value>(&text);
+            // `serde_json` reads a number into an `f64`, so one past its range
+            // is no JSON to it; `std.json`'s `.parse_numbers = false`, and
+            // this reader, keep its text.
+            if matches!(&theirs, Err(err) if err.to_string().contains("number out of range")) {
+                continue;
+            }
+            match parse_document(&text) {
+                Ok(ours) => {
+                    if text.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+                        continue;
+                    }
+                    let theirs = theirs.unwrap_or_else(|err| panic!("{text:?}: {err}"));
+                    let rendered = render(&ours).unwrap();
+                    let written: Value = serde_json::from_str(&rendered)
+                        .unwrap_or_else(|err| panic!("{text:?} wrote {rendered:?}: {err}"));
+                    assert_eq!(written, theirs, "{text:?}");
+                    accepted += 1;
+                }
+                // Refused: `serde_json` refuses it too, or a key is there twice.
+                Err(EditError::Unreadable) => assert!(
+                    theirs.is_err() || parse_with(&text, false).is_ok(),
+                    "{text:?} refused, and serde_json took it"
+                ),
+                Err(other) => panic!("{text:?}: {other:?}"),
+            }
+        }
+        assert!(
+            accepted > 1_000,
+            "only {accepted} documents were well formed"
+        );
+    }
+
+    #[test]
+    fn the_reader_and_the_writer_take_the_same_depth() {
+        // Arrays and objects each: the launch reader runs this one before
+        // `serde_json` (`read_json`), so its cap is the only stack guard.
+        let arrays = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let objects = |depth: usize| format!("{}0{}", "{\"a\":".repeat(depth), "}".repeat(depth));
+        for nested in [&arrays as &dyn Fn(usize) -> String, &objects] {
+            let deepest = nested(MAX_JSON_DEPTH);
+            assert!(parse_document(&deepest).is_ok(), "{}", &deepest[..8]);
+            assert!(serde_json::from_str::<Value>(&deepest).is_ok());
+            let deeper = nested(MAX_JSON_DEPTH + 1);
+            assert_eq!(parse_document(&deeper), Err(EditError::Unreadable));
+            assert!(serde_json::from_str::<Value>(&deeper).is_err());
+            assert!(read_json(&deeper).is_none());
+            // A file a repository could write, past any stack: refused, not a
+            // crash.
+            let hostile = nested(200_000);
+            assert_eq!(parse_document(&hostile), Err(EditError::Unreadable));
+            assert!(read_json(&hostile).is_none());
+        }
+    }
+
+    /// A throwaway repository under the run's TMPDIR -- never the checkout
+    /// these tests are built from -- and a profile path beside it.
+    fn scratch_repo() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().expect("dir");
+        let checkout = fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap();
+        let scratch = fs::canonicalize(dir.path()).unwrap();
+        assert!(!scratch.starts_with(&checkout), "{scratch:?}");
+        assert!(
+            scratch.starts_with(fs::canonicalize(std::env::temp_dir()).unwrap()),
+            "{scratch:?}"
+        );
+        let repo = scratch.join("repo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(repo.join(".git").join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let profile = scratch.join("home").join(".xfx").join(PROFILE_FILE);
+        (dir, repo, profile)
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_edit_replaces_the_file_whole_and_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, repo, profile) = scratch_repo();
+        let path = project_path(&repo);
+        fs::write(&path, oracle!("config-work-before.mcp.json")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o664)).unwrap();
+        let add = Change::Add {
+            name: "p2".into(),
+            entry: stdio(&[SCRIPT], &[]),
+        };
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Ok(Updated::Added)
+        );
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            oracle!("config-work-after-add.mcp.json")
+        );
+        assert_eq!(mode_of(&path), 0o664);
+        // No stage left beside it, and the profile's lock beside the profile.
+        assert_eq!(names_in(&repo), [".git", ".mcp.json"]);
+        assert_eq!(mode_of(profile.parent().unwrap()), 0o700);
+        assert!(profile.parent().unwrap().join(PROFILE_LOCK).exists());
+        assert!(!profile.exists());
+        let remove = Change::Remove("p2".into());
+        assert_eq!(
+            update(&profile, File::Project, &path, &remove),
+            Ok(Updated::Removed { url: None })
+        );
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            oracle!("config-work-end.mcp.json")
+        );
+        assert_eq!(mode_of(&path), 0o664);
+        assert_eq!(
+            update(&profile, File::Project, &path, &remove),
+            Ok(Updated::Missing)
+        );
+        // A new file: `mcpServers` alone, at the default mode less the umask.
+        fs::remove_file(&path).unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Ok(Updated::Added)
+        );
+        assert!(defines(
+            File::Project,
+            &fs::read_to_string(&path).unwrap(),
+            "p2"
+        ));
+        assert_eq!(mode_of(&path) & 0o600, 0o600);
+        assert_eq!(mode_of(&path) & 0o111, 0, "no execute bit");
+        assert_eq!(names_in(&repo), [".git", ".mcp.json"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_config_file_is_never_edited_whether_a_symlink_or_a_hard_link() {
+        // `config_file.zig:338-375@481104fd`, through `update`: refused
+        // before it is read, the file it shares as it was, the link a link.
+        // `outside.json` isn't JSON: an edit that read through the link would
+        // say `Unreadable`, so the refusal before the read is what answers.
+        let (dir, repo, profile) = scratch_repo();
+        let shared = repo.join("shared.json");
+        let outside = dir.path().join("outside.json");
+        let original = r#"{"mcpServers":{}}"#;
+        let broken = "{nope";
+        fs::write(&shared, original).unwrap();
+        fs::write(&outside, broken).unwrap();
+        let path = project_path(&repo);
+        let add = Change::Add {
+            name: "p2".into(),
+            entry: stdio(&[SCRIPT], &[]),
+        };
+        let remove = Change::Remove("p2".into());
+        for (target, relative, text) in [
+            (&shared, "shared.json", original),
+            (&outside, "../outside.json", broken),
+        ] {
+            std::os::unix::fs::symlink(relative, &path).unwrap();
+            for change in [&add, &remove] {
+                assert_eq!(
+                    update(&profile, File::Project, &path, change),
+                    Err(EditError::Symlink(Some(relative.to_string())))
+                );
+            }
+            assert!(fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(fs::read_to_string(target).unwrap(), text);
+            fs::remove_file(&path).unwrap();
+        }
+        assert_eq!(
+            EditError::Symlink(Some("shared.json".into())).why(),
+            "it's a link to shared.json, and xfx edits only a plain file; edit shared.json by hand"
+        );
+        assert_eq!(
+            EditError::Symlink(None).why(),
+            "it's a link, and xfx edits only a plain file; edit the file it points to by hand"
+        );
+        // A link that points nowhere is a link too.
+        std::os::unix::fs::symlink("missing.json", &path).unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Err(EditError::Symlink(Some("missing.json".into())))
+        );
+        assert!(!repo.join("missing.json").exists());
+        fs::remove_file(&path).unwrap();
+        // A second name for a file that isn't JSON: refused before the read.
+        fs::hard_link(&outside, &path).unwrap();
+        for change in [&add, &remove] {
+            assert_eq!(
+                update(&profile, File::Project, &path, change),
+                Err(EditError::HardLink)
+            );
+        }
+        assert_eq!(fs::read_to_string(&outside).unwrap(), broken);
+        assert_eq!(fs::read_to_string(&path).unwrap(), broken);
+        fs::remove_file(&path).unwrap();
+        fs::hard_link(&shared, &path).unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Err(EditError::HardLink)
+        );
+        assert_eq!(fs::read_to_string(&shared).unwrap(), original);
+        assert_eq!(
+            EditError::HardLink.why(),
+            "it has another hard link, and xfx edits only a plain file; edit it by hand"
+        );
+        // A target with a control character is spelled, not sent.
+        assert_eq!(
+            EditError::Symlink(Some("x\u{1b}]0;t\u{7}".into())).why(),
+            "it's a link to x\\x1b]0;t\\x07, and xfx edits only a plain file; edit x\\x1b]0;t\\x07 by hand"
+        );
+        // The profile is held to the same rule.
+        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside, &profile).unwrap();
+        assert!(matches!(
+            update(&profile, File::Profile, &profile, &add),
+            Err(EditError::Symlink(Some(_)))
+        ));
+        assert_eq!(fs::read_to_string(&outside).unwrap(), broken);
+        assert_eq!(names_in(&repo), [".git", ".mcp.json", "shared.json"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_edit_that_fails_writes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, repo, profile) = scratch_repo();
+        let path = project_path(&repo);
+        let add = Change::Add {
+            name: "b".into(),
+            entry: stdio(&[SCRIPT], &[]),
+        };
+        let deep = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
+        for (text, expected) in [
+            (r#"{"mcpServers":{"b":{"command":"x"}}}"#, EditError::Exists),
+            (
+                r#"{"mcpServers":{},"mcpServers":{}}"#,
+                EditError::Unreadable,
+            ),
+            ("{nope", EditError::Unreadable),
+            (deep.as_str(), EditError::Unreadable),
+            (r#"{"mcpServers":[]}"#, EditError::NotAnObject),
+        ] {
+            fs::write(&path, text).unwrap();
+            assert_eq!(
+                update(&profile, File::Project, &path, &add),
+                Err(expected),
+                "{text}"
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+            assert_eq!(names_in(&repo), [".git", ".mcp.json"]);
+        }
+        // Not UTF-8 is not JSON.
+        fs::write(&path, b"{\"a\":\"\xff\"}").unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Err(EditError::Unreadable)
+        );
+        // A file with no write permission is refused, as fx refuses it.
+        fs::write(&path, "{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Err(EditError::ReadOnly)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        // Past 1 MiB is not read.
+        let big = format!("{{\"pad\":\"{}\"}}", "x".repeat(MAX_CONFIG_BYTES as usize));
+        fs::write(&path, &big).unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Err(EditError::Failed)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), big);
+        // A directory where the file should be.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Err(EditError::Failed)
+        );
+        fs::remove_dir(&path).unwrap();
+        // A workspace that isn't there.
+        let gone = project_path(&repo.join("no-dir"));
+        assert_eq!(
+            update(&profile, File::Project, &gone, &add),
+            Err(EditError::Failed)
+        );
+        assert_eq!(names_in(&repo), [".git"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_profiles_first_write_creates_its_directory_readable_only_by_its_owner() {
+        // `config_file.zig:377-391@481104fd`.
+        let (_dir, _repo, profile) = scratch_repo();
+        let add = Change::Add {
+            name: "two".into(),
+            entry: stdio(&[SCRIPT], &[]),
+        };
+        assert_eq!(
+            update(&profile, File::Profile, &profile, &add),
+            Ok(Updated::Added)
+        );
+        assert_eq!(mode_of(profile.parent().unwrap()), 0o700);
+        assert_eq!(mode_of(&profile), 0o600);
+        assert_eq!(
+            fs::read_to_string(&profile).unwrap(),
+            "{\n  \"mcpServers\": {\n    \"two\": {\n      \"command\": \"<bun>\",\n      \"args\": [\n        \"<scenarios>/p5-mcp-stdio.ts\"\n      ]\n    }\n  }\n}\n"
+        );
+        assert_eq!(
+            names_in(profile.parent().unwrap()),
+            [PROFILE_FILE, PROFILE_LOCK]
+        );
+        assert_eq!(
+            update(&profile, File::Profile, &profile, &add),
+            Err(EditError::Exists)
+        );
+        assert_eq!(
+            update(
+                &profile,
+                File::Profile,
+                &profile,
+                &Change::Remove("two".into())
+            ),
+            Ok(Updated::Removed { url: None })
+        );
+        assert_eq!(mode_of(&profile), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_profile_is_owner_only_after_an_edit_whatever_mode_it_had() {
+        // The profile is the person's own and may hold credentials
+        // (`headers`, `env`): an edit leaves it 0600 even when it was wider,
+        // where a project's `.mcp.json` keeps its mode.
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, _repo, profile) = scratch_repo();
+        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        for (mode, change) in [
+            (
+                0o644,
+                Change::Add {
+                    name: "two".into(),
+                    entry: stdio(&[SCRIPT], &[]),
+                },
+            ),
+            (0o666, Change::Remove("two".into())),
+        ] {
+            if !profile.exists() {
+                fs::write(&profile, r#"{"mcpServers":{}}"#).unwrap();
+            }
+            fs::set_permissions(&profile, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(matches!(
+                update(&profile, File::Profile, &profile, &change),
+                Ok(Updated::Added | Updated::Removed { .. })
+            ));
+            assert_eq!(mode_of(&profile), 0o600, "from {mode:o}");
+        }
+    }
+
+    #[test]
+    fn every_edit_error_says_why_in_fxs_words() {
+        assert_eq!(
+            EditError::Unreadable.why(),
+            "the file isn't valid JSON, or repeats a key; fix it by hand first"
+        );
+        assert_eq!(
+            EditError::NotAnObject.why(),
+            "the file's servers aren't a JSON object; fix it by hand first"
+        );
+        assert_eq!(
+            EditError::BothKeys.why(),
+            "the file has both \"mcp\" and \"mcpServers\"; merge them into one"
+        );
+        assert_eq!(
+            EditError::Exists.why(),
+            "that name is already in the file; remove it first"
+        );
+        assert_eq!(EditError::ReadOnly.why(), "permission denied");
+        assert_eq!(
+            EditError::Busy.why(),
+            "another xfx is changing the MCP config; try again"
+        );
+        assert_eq!(EditError::Failed.why(), "something went wrong");
+        assert_eq!(File::Profile.label(), "~/.xfx/mcp.json");
+        assert_eq!(File::Project.label(), ".mcp.json");
+    }
+
+    // -----------------------------------------------------------------------
+    // notes (`renderWorkspaceDiagnostic`, `project_config.zig:161-215@481104fd`)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_profile_entry_xfx_cant_read_is_skipped_with_fxs_note() {
+        // `p5-mcp-notes`: fx v0.0.16 starts with `fixture` and says, under
+        // `/mcp list`, `note: ~/.fx/mcp.json server 'broken' was skipped: it
+        // needs a "command", with any "args" as strings.`
+        let profile = parse_profile(&placeholders(include_str!(
+            "../../scripts/fxcap/scenarios/p5-mcp-notes-profile.json"
+        )))
+        .expect("the file reads");
+        let names: Vec<&str> = profile.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["fixture"]);
+        assert_eq!(
+            profile.notes,
+            ["~/.xfx/mcp.json server 'broken' was skipped: it needs a \"command\", with any \"args\" as strings."]
+        );
+        // The sentence is the one fx v0.0.16 printed, read off its capture
+        // with `/.fx/` read as `/.xfx/`, as `scripts/fxcap/cells.py` reads it.
+        let captured = include_str!(
+            "../../.prd/tui-phase5/receipts/mcp-config/cap/fx/fx-p5-mcp-notes-40x120-list.txt"
+        )
+        .lines()
+        .find_map(|row| row.split_once("! mcp: note: "))
+        .map(|(_, note)| note.trim_end().replace("/.fx/", "/.xfx/"))
+        .expect("fx's note row");
+        assert_eq!(profile.notes, [captured]);
+        // A file that isn't a JSON object of servers is still refused whole.
+        for (text, expected) in [
+            ("{", "McpConfigInvalidJson"),
+            (r#"{"mcp":{},"mcp":{}}"#, "McpConfigInvalidJson"),
+            ("[]", "McpConfigRootMustBeObject"),
+            (r#"{"mcp":[]}"#, "McpConfigServersMustBeObject"),
+        ] {
+            assert_eq!(parse_profile(text), Err(ConfigError(expected)), "{text}");
+        }
+    }
+
+    #[test]
+    fn each_reason_an_entry_is_skipped_is_fxs_sentence() {
+        let note = |entry: &str| {
+            let profile = parse_profile(&format!(r#"{{"mcp":{{"s":{entry}}}}}"#)).unwrap();
+            assert!(profile.servers.is_empty(), "{entry}");
+            let prefix = "~/.xfx/mcp.json server 's' was skipped: ";
+            let [note] = profile.notes.as_slice() else {
+                panic!("{entry}: {:?}", profile.notes)
+            };
+            note.strip_prefix(prefix).unwrap().to_string()
+        };
+        for (entry, why) in [
+            ("1", "it isn't a JSON object."),
+            (
+                r#"{"command":"x","url":"https://a.test/mcp"}"#,
+                "it has a \"url\" but no \"type\"; add \"type\": \"http\".",
+            ),
+            (
+                r#"{"command":3}"#,
+                "it needs a \"command\", with any \"args\" as strings.",
+            ),
+            (r#"{"type":"ws"}"#, "its \"type\" isn't valid."),
+            (r#"{"type":"http"}"#, "its \"url\" isn't valid."),
+            (
+                r#"{"type":"http","url":"http://a.test/mcp"}"#,
+                "its \"url\" isn't valid.",
+            ),
+            (
+                r#"{"type":"http","url":"https://a.test/mcp","headers":{"Host":"h"}}"#,
+                "its \"headers\" isn't valid.",
+            ),
+            (
+                r#"{"type":"http","url":"https://a.test/mcp","oauth":1}"#,
+                "its \"oauth\" isn't valid.",
+            ),
+            (
+                r#"{"command":"x","env":{"1":"v"}}"#,
+                "its \"env\" isn't valid.",
+            ),
+            (
+                r#"{"type":"http","url":"https://a.test/mcp","bearer_token_env":"no way"}"#,
+                "its \"bearer_token_env\" isn't valid.",
+            ),
+            (
+                r#"{"command":"x","enabled":1}"#,
+                "its \"enabled\" isn't valid.",
+            ),
+            (
+                r#"{"command":"x","required":1}"#,
+                "its \"required\" isn't valid.",
+            ),
+            (
+                r#"{"command":"x","startup_timeout_ms":0}"#,
+                "its \"startup_timeout_ms\" isn't valid.",
+            ),
+            (
+                r#"{"command":"x","operation_timeout_ms":-1}"#,
+                "its \"operation_timeout_ms\" isn't valid.",
+            ),
+            (
+                r#"{"command":"x","restart_limit":256}"#,
+                "its \"restart_limit\" isn't valid.",
+            ),
+        ] {
+            assert_eq!(note(entry), why, "{entry}");
+        }
+        // Other clients' spelling of Streamable HTTP is HTTP.
+        let profile =
+            parse_profile(r#"{"mcp":{"s":{"type":"streamable-http","url":"https://a.test/mcp"}}}"#)
+                .unwrap();
+        assert_eq!(profile.servers[0].transport, Transport::Http);
+    }
+
+    #[test]
+    fn a_name_in_a_note_is_spelled_for_a_terminal_and_cut_at_160_bytes() {
+        let hostile = "\u{1b}]0;owned\u{7}\u{202e}live";
+        let profile =
+            parse_profile(&serde_json::json!({"mcp": {hostile: {"command": 3}}}).to_string())
+                .unwrap();
+        assert_eq!(
+            profile.notes,
+            [
+                r#"~/.xfx/mcp.json server '\x1b]0;owned\x07\u{202e}live' was skipped: it needs a "command", with any "args" as strings."#
+            ]
+        );
+        let long = "n".repeat(400);
+        let profile =
+            parse_profile(&serde_json::json!({"mcp": {&long: {"command": 3}}}).to_string())
+                .unwrap();
+        let name = &profile.notes[0]["~/.xfx/mcp.json server '".len()..];
+        let name = &name[..name.find('\'').unwrap()];
+        assert_eq!(name, format!("{}...", "n".repeat(157)));
+    }
+
+    #[test]
+    fn a_name_under_mcp_servers_beside_mcp_is_a_note() {
+        // `noteIgnoredAlias` (`project_config.zig:403-418@481104fd`): a name
+        // under both loads from `mcp`, and gets none.
+        let profile = parse_profile(
+            r#"{"mcp":{"a":{"command":"x"}},"mcpServers":{"a":{"command":"y"},"b":{"command":"z"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(profile.servers.len(), 1);
+        assert_eq!(profile.servers[0].command, "x");
+        assert_eq!(
+            profile.notes,
+            ["~/.xfx/mcp.json server 'b' was skipped: the file has both \"mcp\" and \"mcpServers\", and xfx reads only \"mcp\"; merge them into one."]
+        );
+        let empty = parse_profile(r#"{"mcp":{"a":{"command":"x"}},"mcpServers":{}}"#).unwrap();
+        assert!(empty.notes.is_empty());
+    }
+
+    #[test]
+    fn the_typed_add_never_drops_an_entry_it_cannot_read() {
+        // `add_profile_server` writes the whole profile from what it read:
+        // an entry the reader would skip must stop it instead.
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join("p").join(PROFILE_FILE);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = r#"{"mcp":{"broken":{"command":123}}}"#;
+        fs::write(&path, text).unwrap();
+        assert_eq!(
+            add_profile_server(&path, ServerConfig::local("a", "x", &[])),
+            Err(ConfigError("McpConfigInvalidCommand"))
+        );
+        assert_eq!(
+            remove_profile_server(&path, "broken"),
+            Err(ConfigError("McpConfigInvalidCommand"))
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn a_workspace_file_xfx_cant_read_is_one_note_in_fxs_words() {
+        let dir = tempfile::tempdir().expect("dir");
+        let issues = |text: &str| {
+            fs::write(dir.path().join(WORKSPACE_FILE), text).unwrap();
+            load_workspace(dir.path(), &Choices::default(), &|_| None).issues
+        };
+        assert_eq!(
+            issues("{"),
+            [".mcp.json server 'unknown' was skipped: invalid_json."]
+        );
+        assert_eq!(
+            issues(r#"{"mcpServers":{"a":{},"a":{}}}"#),
+            [".mcp.json server 'unknown' was skipped: invalid_json."]
+        );
+        assert_eq!(
+            issues("[]"),
+            [".mcp.json server 'unknown' was skipped: root_must_be_object."]
+        );
+        assert_eq!(
+            issues(r#"{"mcpServers":[]}"#),
+            [".mcp.json server 'unknown' was skipped: servers_must_be_object."]
+        );
+        assert!(issues(r#"{"other":1}"#).is_empty());
+        assert_eq!(
+            issues(
+                r#"{"mcpServers":{"bad.name":{"command":"x"},"t":{"type":7},"ok":{"command":"x"}}}"#
+            ),
+            [
+                ".mcp.json server 'bad.name' was skipped: xfx can't read it.",
+                ".mcp.json server 't' was skipped: its \"type\" isn't valid.",
+            ]
+        );
+        fs::write(
+            dir.path().join(WORKSPACE_FILE),
+            "x".repeat(MAX_CONFIG_BYTES as usize + 1),
+        )
+        .unwrap();
+        assert_eq!(
+            load_workspace(dir.path(), &Choices::default(), &|_| None).issues,
+            [".mcp.json server 'unknown' was skipped: xfx can't read it."]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the launch reader's bound (`read_bounded`)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_config_that_grows_after_it_is_looked_at_is_not_read_past_the_cap() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, "{}").unwrap();
+        let read = read_bounded_then(&path, |step| {
+            if step == ReadStep::Reading {
+                use std::io::Write as _;
+                let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+                file.write_all(&vec![b' '; 2 * MAX_CONFIG_BYTES as usize])
+                    .unwrap();
+            }
+        });
+        assert!(
+            read.is_err(),
+            "read {} bytes",
+            read.map(|t| t.map_or(0, |t| t.len())).unwrap_or(0)
+        );
+    }
+
+    #[test]
+    fn a_config_swapped_after_it_is_looked_at_is_still_the_file_looked_at() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, r#"{"a":1}"#).unwrap();
+        let big = dir.path().join("big.json");
+        fs::write(&big, vec![b' '; 2 * MAX_CONFIG_BYTES as usize]).unwrap();
+        let read = read_bounded_then(&path, |step| {
+            if step == ReadStep::Reading {
+                fs::rename(&big, &path).unwrap();
+            }
+        });
+        assert_eq!(read.unwrap().as_deref(), Some(r#"{"a":1}"#));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_swapped_for_a_fifo_after_it_is_looked_at_does_not_block_the_read() {
+        // Swapped after the open: the descriptor is the file looked at.
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, r#"{"a":1}"#).unwrap();
+        let read = within_seconds(&path, 10, {
+            let path = path.clone();
+            move || {
+                read_bounded_then(&path, |step| {
+                    if step == ReadStep::Reading {
+                        fs::remove_file(&path).unwrap();
+                        make_fifo(&path);
+                    }
+                })
+                .map_err(|err| err.kind())
+            }
+        });
+        assert_eq!(read.unwrap().as_deref(), Some(r#"{"a":1}"#));
+        // Swapped after the path was looked at and before the open: the FIFO
+        // is what is opened, and `O_NONBLOCK` is what keeps that open from
+        // waiting for a writer that never comes. Refused, not blocked.
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, r#"{"a":1}"#).unwrap();
+        let read = within_seconds(&path, 10, {
+            let path = path.clone();
+            move || {
+                read_bounded_then(&path, |step| {
+                    if step == ReadStep::Opening {
+                        fs::remove_file(&path).unwrap();
+                        make_fifo(&path);
+                    }
+                })
+                .map_err(|err| err.kind())
+            }
+        });
+        assert_eq!(read, Err(io::ErrorKind::InvalidData));
+    }
+
+    /// `read` on a thread of its own, its answer within `seconds`, or the
+    /// test fails -- rather than hangs, when a read blocks on the FIFO at
+    /// `fifo`. A read that panics fails the test with its own panic, at once.
+    /// One past its time is let go by opening the FIFO for writing without
+    /// blocking (no reader there is `ENXIO`, not a wait), given `seconds`
+    /// more, and joined; one still running then is named in the failure, the
+    /// only way a thread that never returns can be accounted for.
+    #[cfg(unix)]
+    fn within_seconds<T: Send + 'static>(
+        fifo: &Path,
+        seconds: u64,
+        read: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc::RecvTimeoutError;
+        let (sent, answer) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = sent.send(read());
+        });
+        let wait = Duration::from_secs(seconds);
+        match answer.recv_timeout(wait) {
+            Ok(answer) => {
+                let _ = worker.join();
+                answer
+            }
+            // The answer is gone because the thread is: it panicked.
+            Err(RecvTimeoutError::Disconnected) => match worker.join() {
+                Err(panic) => std::panic::resume_unwind(panic),
+                Ok(()) => panic!("the read ended without an answer"),
+            },
+            Err(RecvTimeoutError::Timeout) => {
+                // Held until the read has answered: a reader woken by a
+                // writer that is already gone may go back to waiting.
+                let release = fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(fifo);
+                let let_go = answer.recv_timeout(wait).is_ok();
+                drop(release);
+                if let_go {
+                    let _ = worker.join();
+                    panic!("the read blocked on {fifo:?} for {seconds} s");
+                }
+                panic!(
+                    "the read blocked on {fifo:?} for {seconds} s, and was still running \
+                     {seconds} s after it was let go: its thread is left behind"
+                );
+            }
+        }
+    }
+
+    /// A payload's text, when a panic carried one.
+    fn panic_text(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
+        payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_that_panics_fails_its_test_at_once_with_its_own_panic() {
+        // The read made the FIFO and then panicked: the answer is gone, and
+        // no reader will ever open it. The test fails now, with that panic.
+        let dir = tempfile::tempdir().expect("dir");
+        let fifo = dir.path().join("fifo");
+        let started = std::time::Instant::now();
+        let caught = std::panic::catch_unwind(|| {
+            within_seconds(&fifo, 10, {
+                let fifo = fifo.clone();
+                move || -> () {
+                    make_fifo(&fifo);
+                    panic!("the read's own panic");
+                }
+            })
+        });
+        let payload = caught.expect_err("the read's panic reaches the test");
+        assert_eq!(panic_text(&*payload), Some("the read's own panic"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_blocked_on_the_fifo_is_let_go_joined_and_reported() {
+        let dir = tempfile::tempdir().expect("dir");
+        let fifo = dir.path().join("fifo");
+        make_fifo(&fifo);
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let caught = std::panic::catch_unwind(|| {
+            within_seconds(&fifo, 1, {
+                let (fifo, done) = (fifo.clone(), std::sync::Arc::clone(&done));
+                move || {
+                    // A blocking open: it waits for a writer.
+                    let opened = fs::File::open(&fifo).is_ok();
+                    done.store(true, std::sync::atomic::Ordering::SeqCst);
+                    opened
+                }
+            })
+        });
+        let payload = caught.expect_err("a blocked read fails its test");
+        assert!(
+            panic_text(&*payload).is_some_and(|text| text.contains("blocked")),
+            "{:?}",
+            panic_text(&*payload)
+        );
+        // Let go, and joined before the helper returned.
+        assert!(done.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_read_with_no_reader_on_the_fifo_does_not_block_the_release() {
+        // Nothing has the FIFO open: a release that waited for a reader would
+        // wait for ever. It doesn't, and the read is still accounted for.
+        let dir = tempfile::tempdir().expect("dir");
+        let fifo = dir.path().join("fifo");
+        make_fifo(&fifo);
+        let started = std::time::Instant::now();
+        let caught = std::panic::catch_unwind(|| {
+            within_seconds(&fifo, 1, || {
+                std::thread::sleep(Duration::from_millis(1_500))
+            })
+        });
+        let payload = caught.expect_err("a read past its time fails its test");
+        assert!(
+            panic_text(&*payload).is_some_and(|text| text.contains("blocked")),
+            "{:?}",
+            panic_text(&*payload)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    /// The paths [`read_bounded_then`] reached its open with.
+    fn opened_by_the_reader(path: &Path) -> (io::Result<Option<String>>, bool) {
+        let mut opened = false;
+        let read = read_bounded_then(path, |step| opened |= step == ReadStep::Opening);
+        (read, opened)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_linked_to_a_device_is_refused_without_being_opened() {
+        // A cloned repository can carry `.mcp.json -> /dev/<device>`, and the
+        // launch reads it: a device is never opened, whatever opening it does.
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        for device in ["/dev/null", "/dev/zero", "/dev/tty"] {
+            if !Path::new(device).exists() {
+                continue;
+            }
+            std::os::unix::fs::symlink(device, &path).unwrap();
+            let (read, opened) = opened_by_the_reader(&path);
+            assert!(read.is_err(), "{device}");
+            assert!(!opened, "{device} was opened");
+            assert_eq!(read_config(&path), Err(EditError::Unreadable), "{device}");
+            assert_eq!(
+                load_workspace(dir.path(), &Choices::default(), &|_| None).issues,
+                [".mcp.json server 'unknown' was skipped: xfx can't read it."],
+                "{device}"
+            );
+            fs::remove_file(&path).unwrap();
+        }
+        // A FIFO, a directory, and a link to either: not opened either.
+        let fifo = dir.path().join("fifo");
+        make_fifo(&fifo);
+        let sub = dir.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        for target in [&fifo, &sub] {
+            std::os::unix::fs::symlink(target, &path).unwrap();
+            let (read, opened) = opened_by_the_reader(&path);
+            assert!(read.is_err() && !opened, "{target:?}");
+            fs::remove_file(&path).unwrap();
+            let (read, opened) = opened_by_the_reader(target);
+            assert!(read.is_err() && !opened, "{target:?}");
+        }
+        // A plain file, and a link to one, are opened and read.
+        fs::write(dir.path().join("plain.json"), "{}").unwrap();
+        std::os::unix::fs::symlink("plain.json", &path).unwrap();
+        let (read, opened) = opened_by_the_reader(&path);
+        assert_eq!((read.unwrap().as_deref(), opened), (Some("{}"), true));
+        let (read, opened) = opened_by_the_reader(&dir.path().join("none.json"));
+        assert_eq!((read.unwrap(), opened), (None, false));
+    }
+
+    #[cfg(unix)]
+    fn make_fifo(path: &Path) {
+        use std::os::unix::ffi::OsStrExt;
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    }
+
+    #[test]
+    fn a_reader_reads_no_more_than_the_cap_whatever_the_file_reports() {
+        // `std::io::repeat` never ends: a procfs file that says 0 bytes.
+        assert!(read_capped(std::io::repeat(b' ')).is_err());
+        let exact = vec![b' '; MAX_CONFIG_BYTES as usize];
+        assert_eq!(read_capped(exact.as_slice()).unwrap().len(), exact.len());
+        let over = vec![b' '; MAX_CONFIG_BYTES as usize + 1];
+        assert!(read_capped(over.as_slice()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_where_a_config_should_be_is_refused_without_blocking() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        make_fifo(&path);
+        let (read, config, issues) = within_seconds(&path, 10, {
+            let root = dir.path().to_path_buf();
+            move || {
+                let path = root.join(WORKSPACE_FILE);
+                (
+                    read_bounded(&path).is_err(),
+                    read_config(&path),
+                    load_workspace(&root, &Choices::default(), &|_| None).issues,
+                )
+            }
+        });
+        assert!(read);
+        assert_eq!(config, Err(EditError::Unreadable));
+        assert_eq!(
+            issues,
+            [".mcp.json server 'unknown' was skipped: xfx can't read it."]
+        );
+    }
+
+    /// A compact file under 1 MiB that is over it written two-space: an
+    /// array of `n` zeroes, each a line of its own when written.
+    fn compact_but_large(servers: &str) -> String {
+        let zeroes = vec!["0"; 400_000].join(",");
+        let text = format!(r#"{{"pad":[{zeroes}],"mcpServers":{servers}}}"#);
+        assert!((text.len() as u64) < MAX_CONFIG_BYTES, "{}", text.len());
+        text
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_edit_that_would_leave_a_file_over_the_cap_is_refused_and_writes_nothing() {
+        let (_dir, repo, profile) = scratch_repo();
+        let path = project_path(&repo);
+        for (text, change) in [
+            (
+                compact_but_large("{}"),
+                Change::Add {
+                    name: "p2".into(),
+                    entry: stdio(&[SCRIPT], &[]),
+                },
+            ),
+            (
+                compact_but_large(r#"{"p2":{"command":"x"}}"#),
+                Change::Remove("p2".into()),
+            ),
+        ] {
+            fs::write(&path, &text).unwrap();
+            assert_eq!(
+                update(&profile, File::Project, &path, &change),
+                Err(EditError::TooLarge),
+                "{change:?}"
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+            assert_eq!(names_in(&repo), [".git", ".mcp.json"]);
+        }
+        // The pure edits say the same, and a hostile file nested to the cap
+        // is not written out in full first (some 130 MB): writing stops there.
+        let large = compact_but_large("{}");
+        let entry = stdio(&[SCRIPT], &[]);
+        assert_eq!(
+            add_entry(File::Project, Some(&large), "p2", &entry),
+            Err(EditError::TooLarge)
+        );
+        let deep = format!(
+            "{{\"mcpServers\":{{}},\"pad\":{}{}{}}}",
+            "[".repeat(MAX_JSON_DEPTH - 1),
+            vec!["0"; 400_000].join(","),
+            "]".repeat(MAX_JSON_DEPTH - 1)
+        );
+        assert!((deep.len() as u64) < MAX_CONFIG_BYTES);
+        let root = parse_document(&deep).unwrap();
+        let mut out = String::new();
+        write_value(&root, 0, &mut out);
+        assert!(out.len() < 2 * MAX_CONFIG_BYTES as usize, "{}", out.len());
+        assert_eq!(
+            add_entry(File::Project, Some(&deep), "p2", &entry),
+            Err(EditError::TooLarge)
+        );
+        assert_eq!(
+            EditError::TooLarge.why(),
+            "the file would be over 1 MiB written out, more than xfx reads; make it smaller by hand first"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_that_fails_after_its_stage_exists_leaves_no_stage_and_the_file_as_it_was() {
+        let (_dir, repo, profile) = scratch_repo();
+        let path = project_path(&repo);
+        let before = oracle!("config-work-before.mcp.json");
+        fs::write(&path, before).unwrap();
+        let add = Change::Add {
+            name: "p2".into(),
+            entry: stdio(&[SCRIPT], &[]),
+        };
+        for step in [StageStep::Write, StageStep::Sync, StageStep::Rename] {
+            FAIL_AT.with(|cell| cell.set(Some(step)));
+            let result = update(&profile, File::Project, &path, &add);
+            FAIL_AT.with(|cell| cell.set(None));
+            assert_eq!(result, Err(EditError::Failed), "{step:?}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), before, "{step:?}");
+            assert_eq!(names_in(&repo), [".git", ".mcp.json"], "{step:?}");
+        }
+        assert_eq!(
+            update(&profile, File::Project, &path, &add),
+            Ok(Updated::Added)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stage_name_already_there_is_never_removed() {
+        // The guard is made only once `create_new` has made the stage, so a
+        // name this edit did not create -- here, one already at the stage's
+        // name -- stays as it was, and so does the file.
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        fs::write(&path, "{}").unwrap();
+        let taken = dir.path().join(".mcp.json.taken.staged");
+        fs::write(&taken, "someone else's").unwrap();
+        assert_eq!(
+            replace_through(&path, dir.path(), taken.clone(), b"{\"a\":1}", None),
+            Err(EditError::Failed)
+        );
+        assert_eq!(fs::read_to_string(&taken).unwrap(), "someone else's");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
     }
 }

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  command: <bun>
+↳ <scenarios>/p5-mcp-stdio.ts
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+┃ <local-path>
+
+* mcp: Approving all project MCP servers for this workspace.
+
+* mcp: MCP configuration reloaded successfully.
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+* mcp: Saved MCP server '--env'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+! mcp: MCP configuration reloaded, but server '--env' is unavailable. Run /mcp list for details.
+
+* mcp: Saved MCP server '--header'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+! mcp: MCP configuration reloaded, but 2 servers are unavailable: '--env', '--header'. Run /mcp list for details.
+
+* mcp: Saved MCP server '--project'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+! mcp: MCP configuration reloaded, but 3 servers are unavailable: '--env', '--header', '--project'. Run /mcp list for
+  details.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
