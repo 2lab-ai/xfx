@@ -818,8 +818,13 @@ pub(crate) const KEY_RUN: usize = 12;
 /// is, in hex in any letter case, and in base64, standard and URL-safe, at
 /// each of the three byte alignments -- by the characters that encode only
 /// that run's bytes, so the run is found wherever it sits in a longer
-/// encoding. Other encodings (percent-escapes, base32, a reversal) are not
-/// looked for.
+/// encoding. A run shifted by one or two bytes keeps only its whole base64
+/// groups, so the shortest run looked for in base64 is 9 bytes. Other
+/// encodings (percent-escapes, base32, a reversal) are not looked for.
+///
+/// It guards against an accidental echo, not a hostile Gateway: the
+/// configured Gateway is trusted with the key, and the session log keeps its
+/// reply text anyway (`SessionEvent::AssistantMessage`).
 pub(crate) struct KeySpellings {
     /// Compared byte for byte.
     exact: Vec<Vec<u8>>,
@@ -1806,6 +1811,29 @@ mod tests {
         let (_, hung_up) = server.join().expect("the server");
         stop.store(true, Ordering::SeqCst);
         assert!(hung_up, "the connection outlived the fetch");
+    }
+
+    #[test]
+    fn a_url_safe_base64_echo_is_caught_where_it_differs_from_standard() {
+        // `KEY` has no byte whose low six bits are 62 or 63 (`>`, `?`, `~`)
+        // at a group's third byte, so its URL-safe base64 is its standard
+        // base64. This key has `~` at every third byte, so every 3-byte
+        // group of it ends in `+` in standard base64 and `-` in URL-safe,
+        // and only the URL-safe spellings can find its URL-safe echo.
+        const TILDES: &str = "fa~ke~ke~y-~Zq~7v~K2~mP~x9~Lw~R4~tY~8n~B3~no~t-~re~al~";
+        let standard = String::from_utf8(base64(TILDES.as_bytes())).expect("ASCII");
+        let url_safe = standard.replace('+', "-").replace('/', "_");
+        assert_ne!(standard, url_safe, "the control: the two spellings differ");
+        assert!(standard.matches('+').count() >= TILDES.len() / 3);
+        let spellings = KeySpellings::of(TILDES);
+        assert!(spellings.found_in(format!("m/{standard}").as_bytes()));
+        assert!(spellings.found_in(format!("m/{url_safe}").as_bytes()));
+        // And shifted by one byte, where only part of each run is whole groups.
+        let shifted = String::from_utf8(base64(format!("x{TILDES}").as_bytes()))
+            .expect("ASCII")
+            .replace('+', "-")
+            .replace('/', "_");
+        assert!(spellings.found_in(shifted.as_bytes()), "{shifted}");
     }
 
     #[test]

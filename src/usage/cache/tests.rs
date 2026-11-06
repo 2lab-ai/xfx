@@ -1194,6 +1194,34 @@ fn only_a_private_directory_this_user_owns_is_kept() {
     assert!(fs::private_dir_problem(FileType::RegularFile, me, private, me).is_some());
 }
 
+#[test]
+fn a_directory_another_user_owns_is_refused_for_its_owner() {
+    // End to end through `verify_private_dir`, so the owner compared against
+    // is this process's effective uid and not the directory's own: `/` is
+    // root's, and 0755, so a check fed the directory's uid for the user's
+    // would pass the owner and refuse the mode instead.
+    let me = rustix::process::geteuid().as_raw();
+    if me == 0 {
+        // As root, `/` is this user's; the pure rule test covers the owner.
+        return;
+    }
+    let root_dir = rustix::fs::open(
+        "/",
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY,
+        rustix::fs::Mode::empty(),
+    )
+    .expect("/");
+    assert_eq!(rustix::fs::fstat(&root_dir).expect("a stat").st_uid, 0);
+    let refused = fs::verify_private_dir(&root_dir);
+    assert!(
+        matches!(
+            refused,
+            Err(StoreError::Refused("a directory another user owns"))
+        ),
+        "{refused:?}"
+    );
+}
+
 // -- S4: two processes, and a crash --------------------------------------------
 
 /// The variables that tell a copy of this binary which part to play.
@@ -1841,4 +1869,27 @@ fn days_and_stamps_no_clock_wrote_are_refused() {
         decode(&api_key_id(), wire(&last).as_bytes()).is_some(),
         "the last day"
     );
+}
+
+#[test]
+fn a_load_reads_no_further_than_the_cap_when_the_file_grows_under_it() {
+    // The file grows after `load` checked its size and before it reads, so
+    // only the capped read stands between it and the whole file.
+    let (root, home) = home();
+    let id = api_key_id();
+    store(&home, &id, small_fetch(), TEST_NOW, None).expect("a store");
+    let path = file(root.path(), &id, ".json");
+    fs::seam::on_after_stat(move || {
+        let mut grower = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("the file");
+        std::io::Write::write_all(&mut grower, &vec![b' '; MAX_FILE_BYTES as usize + 65536])
+            .expect("growth");
+    });
+    assert_eq!(read(&home, &id), None);
+    assert_eq!(fs::seam::last_read(), Some(MAX_FILE_BYTES as usize + 1));
+    // The size check is what refuses it from then on, without a read.
+    assert_eq!(read(&home, &id), None);
+    assert_eq!(fs::seam::last_read(), None);
 }
