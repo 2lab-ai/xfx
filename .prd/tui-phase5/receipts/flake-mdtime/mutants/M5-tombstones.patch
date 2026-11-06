@@ -1,0 +1,41 @@
+diff --git a/src/markdown/inline_render.rs b/src/markdown/inline_render.rs
+index 3993bcc9..7a08ffa6 100644
+--- a/src/markdown/inline_render.rs
++++ b/src/markdown/inline_render.rs
+@@ -426,6 +426,7 @@ fn single_codepoint(bytes: &[u8]) -> Option<u32> {
+ struct StackEntry {
+     token: u32,
+     seq: u32,
++    dead: bool,
+ }
+ 
+ /// CommonMark "process emphasis" over an explicit stack of open delimiters.
+@@ -463,6 +464,9 @@ fn match_delimiters(tokens: &mut [Token<'_>], matches: &mut Vec<Match>) {
+                 if entry.seq <= *bottom {
+                     break;
+                 }
++                if entry.dead {
++                    continue; // MUTANT M5: consumed entries stay and are re-walked
++                }
+                 let Token::Delimiter(opener) = &mut before[entry.token as usize] else {
+                     continue;
+                 };
+@@ -505,7 +509,9 @@ fn match_delimiters(tokens: &mut [Token<'_>], matches: &mut Vec<Match>) {
+                 } else {
+                     depth + 1
+                 };
+-                stack.truncate(keep);
++                for dead in &mut stack[keep..] {
++                    dead.dead = true;
++                }
+                 depth = stack.len();
+                 matched_in_search = closer.remaining == 0;
+             }
+@@ -520,6 +526,7 @@ fn match_delimiters(tokens: &mut [Token<'_>], matches: &mut Vec<Match>) {
+             stack.push(StackEntry {
+                 token: token_index as u32,
+                 seq: next_seq,
++                dead: false,
+             });
+             next_seq += 1;
+         }
