@@ -99,6 +99,9 @@ named when it was written (found by that line's text at the commit that
 wrote it; each had one match): all 23 `docs/parity.md` citations and 9 of
 the 15 code ones moved. `ledger.py` loads the result; the classifier reads
 no citation (`_sources` checks only that the file holds the line).
+**Corrected in INT2b:** this pass read `src/` and `docs/parity.md` only and
+missed a bare second row (`sound-max`'s `:109, :114`); INT2b re-reads every
+citation, `.prd/` and `scripts/` included (below).
 
 ## Receipts
 
@@ -253,6 +256,101 @@ or xfx test binary was running on the machine.
 ## Not resolved
 
 Nothing. No unit's behaviour had to change for the merge to hold.
+
+## INT2b: the reviews' three SHOULDs, on `1c761e50`
+
+The dispatcher merged `origin/main` `d314549e` (#61 FLAKE-MDTIME, #57 usage
+U1-U3) into this branch as `1c761e50`, clean. Then, from the reviews of the
+merge (opus SHOULDs 1-3):
+
+1. **No inline column under `/mcp`'s menu** (`14274af9`).
+   `offer_to_column` skipped the catalog, the model menu and the settings
+   menu, whose search the draft is, but not `/mcp`'s menu, which passes Tab
+   and a space on to the composer (`offer_to_mcp`) and is drawn in the slot
+   over any column (`slot`). Tab on a bare `/effort` filter opened the
+   `/effort ` column and wrote `/effort ` into the filter; Tab and a space on
+   `/effort ` or `/model ` went to a column nobody could see. The MCP side
+   had the `/model ` half before the merge. Fix: `mcp_menu.is_some()` joins
+   the skip (`src/tui/shell.rs:6594`).
+   - RED, a `git clone --no-local` at `1c761e50` with the new tests only:
+     `a_column_line_typed_into_the_mcp_filter_is_the_filter_not_a_column`
+     (`:33915`) fails on all five cases, `[("/effort", "\t", "/effort "),
+     ("/effort ", "\t", "/effort default"), ("/effort ", " ", "/effort "),
+     ("/model ", "\t", "/model openai/gpt-6-astra"), ("/model ", " ",
+     "/model ")]`. GREEN on the head; with the menu closed, the same Tab still
+     opens the column.
+2. **A fork that lands under a search waits for it** (`14274af9`). The fork
+   is the runtime's, so a command recalled and sent between the Enter that
+   chose it and the fork landing opens its surface first; upstream forks in
+   the Enter's own call (`forkBeforeSelectedPrompt`,
+   `app_session_runtime.zig:2101-2127@481104fd`, then `replace`,
+   `app_input_runtime.zig:1686`), so it has no such window. `forked_into`
+   wrote the prompt into the empty composer, which was `/mcp`'s filter (or
+   the catalog's search), and Escape cleared it. Now the prompt is held
+   while a surface's search has the composer (`composer_searched`, `:6441`:
+   `/mcp`'s menu, the catalog, the settings, the model menu, the session
+   picker, `/skills`' search -- the surfaces `reconcile_picker` hands the
+   draft to) and goes into the composer, if it is empty, once none has it
+   (`settle_fork_prompt`, `:6421`, after every input as `settle_model_draft`
+   is, `:10815`, `:10992`, and when the fork lands, `:6412`). Unchanged: an
+   edit drops it, a search's text included, as one before the fork lands
+   already did (`amended`, `:14596`), and a reset drops it (`:14124`).
+   - RED, the same clone:
+     `a_fork_that_lands_under_the_mcp_menu_keeps_its_prompt_out_of_the_filter`
+     (`:42544`) fails with `/mcp: the fork's prompt went into the search`
+     (`left: "second prompt beta"`), and with the `/mcp` case taken out,
+     `/help: the fork's prompt went into the search`. GREEN on the head: the
+     composer stays empty under each, the prompt is there once Escape closes
+     it, nothing is sent, and a search typed into after the fork landed
+     leaves the prompt out.
+3. **The ledger's notes** (`0802caaa`). `banner`'s `why` says
+   `src/tui/shell.rs:185`, as its `source` does; `sound-max`'s
+   `docs/parity.md:109, :116` (`/settings`, `/sound`). Then every citation
+   of the ledger -- `source`, the `xfx` keys and the prose, `.prd/` and
+   `scripts/` included -- was read against the line it named in the commit
+   that wrote it into that entry (by the entry's id; a parity row by its
+   first cell, any other line by its text), and the 17 that no longer named
+   it were re-pointed, each to its one match: #57's three new parity rows
+   (`:207` -> `:209`, `:212` -> `:215`, `:234` -> `:237`), the two shell.rs
+   lines this round moved (`:1569` -> `:1575`, `:36659` -> `:36757`), and
+   older drift (`capture.sh` `:155-157`/`:193`/`:420` -> `:252-254`/`:416`/
+   `:756`, `.prd/07-fx-parity-program.md` `:43`/`:55` -> `:45`/`:57`,
+   `src/session/store.rs:1044` -> `:1059`, `src/image.rs:95` -> `:101`,
+   `src/tools/mcp.rs:601-607` -> `:422-428`). The same read on the head
+   finds none. One it cannot place is left: the `c1db919` pin's `note`
+   cites `.prd/07-fx-parity-program.md:19`, the "reference binary was
+   replaced in place" item that the program no longer holds. The note is
+   not read by `ledger.py`.
+
+**Pairs** (the INT2b build, debug, 40x120): the scenarios the two fixes
+come nearest, every pair at the count above -- `p5-effort-fork-fork` 15 / 1
+/ 16, `-fork-edge` 10 / 1 / 11, `-fork-empty` 4 / 0 / 4, `-fork-continue`
+2 / 0 / 2, `-effort-column` 17 / 0 / 17, `-effort-menu` 18 / 0 / 18,
+`p5-mcp-menu-new` 22 / 1 / 34, `p5-mcp-empty` 24 / 0 / 24, `p5-input-mcp`
+9 / 0 / 9, `p5-mcp-verbs` 1 / 0 / 28. No scenario opens `/mcp` over a
+column line or forks under a search, so no pair moves.
+
+**Gates** on `0802caaa`'s code (the receipt commit after it changes this
+directory only), `TMPDIR=/private/tmp/claude-501/ep2`, each full suite
+started only when no `cargo test` or xfx test binary was running (by name,
+anchored):
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy … --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 5,021 passed, 0 failed, 7 ignored |
+| `cargo test … --features fault-injection --no-fail-fast` | 5,058 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/check-tui-preflight-cost.sh` | ok (every case under budget) |
+| `scripts/check-usage-clock.sh` | ok |
+
+No test failed, so none was re-run.
 
 ## The scenarios this receipt names for the sweep
 
