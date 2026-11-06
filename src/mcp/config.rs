@@ -953,17 +953,37 @@ impl ProfileLock {
 
 /// A regular file's text, or `None` when there is no file.
 fn read_bounded(path: &Path) -> io::Result<Option<String>> {
-    read_bounded_then(path, || {})
+    read_bounded_then(path, |_| {})
 }
 
-/// [`read_bounded`], `checked` run once the file has been looked at and
-/// before its bytes are read: where its tests grow or swap the file.
+/// Where [`read_bounded_then`] is between its looks: its tests grow, swap or
+/// record the file there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadStep {
+    /// The path has been looked at; the file is about to be opened.
+    Opening,
+    /// The open file has been looked at; its bytes are about to be read.
+    Reading,
+}
+
+/// [`read_bounded`], `step` told where it is.
 ///
-/// The file is opened once, and that descriptor is what is looked at and what
-/// is read: a path swapped after the look is not read, a FIFO or a device is
-/// refused without blocking (`O_NONBLOCK`), and no more than
-/// [`MAX_CONFIG_BYTES`] are read whatever size the file reported.
-fn read_bounded_then(path: &Path, checked: impl FnOnce()) -> io::Result<Option<String>> {
+/// A path that is not a regular file, through any links, is refused before
+/// it is opened: a cloned repository's `.mcp.json -> /dev/<device>` is never
+/// opened at all. The file is then opened once, and that descriptor decides:
+/// it is what is looked at and what is read, so a path swapped after the
+/// first look is not read, a FIFO or a device swapped in is refused without
+/// blocking (`O_NONBLOCK`), and no more than [`MAX_CONFIG_BYTES`] are read
+/// whatever size the file reported.
+fn read_bounded_then(path: &Path, mut step: impl FnMut(ReadStep)) -> io::Result<Option<String>> {
+    let refused = || io::Error::new(io::ErrorKind::InvalidData, "not a readable config");
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return Err(refused()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
+    }
+    step(ReadStep::Opening);
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -979,12 +999,9 @@ fn read_bounded_then(path: &Path, checked: impl FnOnce()) -> io::Result<Option<S
     };
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "not a readable config",
-        ));
+        return Err(refused());
     }
-    checked();
+    step(ReadStep::Reading);
     let bytes = read_capped(file)?;
     String::from_utf8(bytes)
         .map(Some)
@@ -3585,6 +3602,37 @@ mod tests {
         assert_eq!(mode_of(&profile), 0o600);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_profile_is_owner_only_after_an_edit_whatever_mode_it_had() {
+        // The profile is the person's own and may hold credentials
+        // (`headers`, `env`): an edit leaves it 0600 even when it was wider,
+        // where a project's `.mcp.json` keeps its mode.
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, _repo, profile) = scratch_repo();
+        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        for (mode, change) in [
+            (
+                0o644,
+                Change::Add {
+                    name: "two".into(),
+                    entry: stdio(&[SCRIPT], &[]),
+                },
+            ),
+            (0o666, Change::Remove("two".into())),
+        ] {
+            if !profile.exists() {
+                fs::write(&profile, r#"{"mcpServers":{}}"#).unwrap();
+            }
+            fs::set_permissions(&profile, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(matches!(
+                update(&profile, File::Profile, &profile, &change),
+                Ok(Updated::Added | Updated::Removed { .. })
+            ));
+            assert_eq!(mode_of(&profile), 0o600, "from {mode:o}");
+        }
+    }
+
     #[test]
     fn every_edit_error_says_why_in_fxs_words() {
         assert_eq!(
@@ -3838,11 +3886,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let path = dir.path().join(WORKSPACE_FILE);
         fs::write(&path, "{}").unwrap();
-        let read = read_bounded_then(&path, || {
-            use std::io::Write as _;
-            let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
-            file.write_all(&vec![b' '; 2 * MAX_CONFIG_BYTES as usize])
-                .unwrap();
+        let read = read_bounded_then(&path, |step| {
+            if step == ReadStep::Reading {
+                use std::io::Write as _;
+                let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+                file.write_all(&vec![b' '; 2 * MAX_CONFIG_BYTES as usize])
+                    .unwrap();
+            }
         });
         assert!(
             read.is_err(),
@@ -3858,21 +3908,126 @@ mod tests {
         fs::write(&path, r#"{"a":1}"#).unwrap();
         let big = dir.path().join("big.json");
         fs::write(&big, vec![b' '; 2 * MAX_CONFIG_BYTES as usize]).unwrap();
-        let read = read_bounded_then(&path, || fs::rename(&big, &path).unwrap());
+        let read = read_bounded_then(&path, |step| {
+            if step == ReadStep::Reading {
+                fs::rename(&big, &path).unwrap();
+            }
+        });
         assert_eq!(read.unwrap().as_deref(), Some(r#"{"a":1}"#));
     }
 
     #[cfg(unix)]
     #[test]
     fn a_config_swapped_for_a_fifo_after_it_is_looked_at_does_not_block_the_read() {
+        // Swapped after the open: the descriptor is the file looked at.
         let dir = tempfile::tempdir().expect("dir");
         let path = dir.path().join(WORKSPACE_FILE);
         fs::write(&path, r#"{"a":1}"#).unwrap();
-        let read = read_bounded_then(&path, || {
-            fs::remove_file(&path).unwrap();
-            make_fifo(&path);
+        let read = within_seconds(&path, 10, {
+            let path = path.clone();
+            move || {
+                read_bounded_then(&path, |step| {
+                    if step == ReadStep::Reading {
+                        fs::remove_file(&path).unwrap();
+                        make_fifo(&path);
+                    }
+                })
+                .map_err(|err| err.kind())
+            }
         });
         assert_eq!(read.unwrap().as_deref(), Some(r#"{"a":1}"#));
+        // Swapped after the path was looked at and before the open: the FIFO
+        // is what is opened, and `O_NONBLOCK` is what keeps that open from
+        // waiting for a writer that never comes. Refused, not blocked.
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, r#"{"a":1}"#).unwrap();
+        let read = within_seconds(&path, 10, {
+            let path = path.clone();
+            move || {
+                read_bounded_then(&path, |step| {
+                    if step == ReadStep::Opening {
+                        fs::remove_file(&path).unwrap();
+                        make_fifo(&path);
+                    }
+                })
+                .map_err(|err| err.kind())
+            }
+        });
+        assert_eq!(read, Err(io::ErrorKind::InvalidData));
+    }
+
+    /// `read` on a thread of its own, its answer within `seconds`, or the
+    /// test fails -- rather than hangs, when a read blocks on the FIFO at
+    /// `fifo`. A blocked read is let go by opening the FIFO for writing.
+    #[cfg(unix)]
+    fn within_seconds<T: Send + 'static>(
+        fifo: &Path,
+        seconds: u64,
+        read: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        let (sent, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sent.send(read());
+        });
+        match answer.recv_timeout(Duration::from_secs(seconds)) {
+            Ok(answer) => answer,
+            Err(_) => {
+                let _ = fs::OpenOptions::new().write(true).open(fifo);
+                panic!("the read blocked on {fifo:?} for {seconds} s");
+            }
+        }
+    }
+
+    /// The paths [`read_bounded_then`] reached its open with.
+    fn opened_by_the_reader(path: &Path) -> (io::Result<Option<String>>, bool) {
+        let mut opened = false;
+        let read = read_bounded_then(path, |step| opened |= step == ReadStep::Opening);
+        (read, opened)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_linked_to_a_device_is_refused_without_being_opened() {
+        // A cloned repository can carry `.mcp.json -> /dev/<device>`, and the
+        // launch reads it: a device is never opened, whatever opening it does.
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join(WORKSPACE_FILE);
+        for device in ["/dev/null", "/dev/zero", "/dev/tty"] {
+            if !Path::new(device).exists() {
+                continue;
+            }
+            std::os::unix::fs::symlink(device, &path).unwrap();
+            let (read, opened) = opened_by_the_reader(&path);
+            assert!(read.is_err(), "{device}");
+            assert!(!opened, "{device} was opened");
+            assert_eq!(read_config(&path), Err(EditError::Unreadable), "{device}");
+            assert_eq!(
+                load_workspace(dir.path(), &Choices::default(), &|_| None).issues,
+                [".mcp.json server 'unknown' was skipped: xfx can't read it."],
+                "{device}"
+            );
+            fs::remove_file(&path).unwrap();
+        }
+        // A FIFO, a directory, and a link to either: not opened either.
+        let fifo = dir.path().join("fifo");
+        make_fifo(&fifo);
+        let sub = dir.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        for target in [&fifo, &sub] {
+            std::os::unix::fs::symlink(target, &path).unwrap();
+            let (read, opened) = opened_by_the_reader(&path);
+            assert!(read.is_err() && !opened, "{target:?}");
+            fs::remove_file(&path).unwrap();
+            let (read, opened) = opened_by_the_reader(target);
+            assert!(read.is_err() && !opened, "{target:?}");
+        }
+        // A plain file, and a link to one, are opened and read.
+        fs::write(dir.path().join("plain.json"), "{}").unwrap();
+        std::os::unix::fs::symlink("plain.json", &path).unwrap();
+        let (read, opened) = opened_by_the_reader(&path);
+        assert_eq!((read.unwrap().as_deref(), opened), (Some("{}"), true));
+        let (read, opened) = opened_by_the_reader(&dir.path().join("none.json"));
+        assert_eq!((read.unwrap(), opened), (None, false));
     }
 
     #[cfg(unix)]
@@ -3899,9 +4054,19 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let path = dir.path().join(WORKSPACE_FILE);
         make_fifo(&path);
-        assert!(read_bounded(&path).is_err());
-        assert_eq!(read_config(&path), Err(EditError::Unreadable));
-        let issues = load_workspace(dir.path(), &Choices::default(), &|_| None).issues;
+        let (read, config, issues) = within_seconds(&path, 10, {
+            let root = dir.path().to_path_buf();
+            move || {
+                let path = root.join(WORKSPACE_FILE);
+                (
+                    read_bounded(&path).is_err(),
+                    read_config(&path),
+                    load_workspace(&root, &Choices::default(), &|_| None).issues,
+                )
+            }
+        });
+        assert!(read);
+        assert_eq!(config, Err(EditError::Unreadable));
         assert_eq!(
             issues,
             [".mcp.json server 'unknown' was skipped: xfx can't read it."]

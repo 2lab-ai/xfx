@@ -106,6 +106,14 @@ Both engines' findings (`.../p5/MCP-C/reviews/gpt6.md`, opus's in the brief):
 | no failure after the stage exists was forced | `StageStep` seam, test builds only | | `a_write_that_fails_after_its_stage_exists_…` (write, sync, rename) |
 | profile write `Failed` after its rename landed; unreadable link target given the hard-link sentence | the profile goes through `replace_staged` too (dir sync best effort); `EditError::Symlink(None)` has its own sentence, `HardLink` its own | | the link test |
 
+## MCP-Cc: the last round
+
+| finding | fix | RED | GREEN |
+|---|---|---|---|
+| MCP-Cb opened a `.mcp.json -> /dev/<device>` before refusing it (b2b8c037 refused it unopened) | `fs::metadata` through the links before the open; the descriptor's `fstat` still decides | on ea9eac60's logic with the seam (`ReadStep::Opening`): `/dev/null was opened` | `a_config_linked_to_a_device_is_refused_without_being_opened` (`/dev/null`, `/dev/zero`, `/dev/tty`, a FIFO, a directory, links to them; a plain file and a link to one still read) |
+| the profile's 0600 after an edit was unpinned | test | `Some(plain.mode)` for the profile: `from 644` fails | `a_profile_is_owner_only_after_an_edit_whatever_mode_it_had` (0644 and 0666 before) |
+| an `O_NONBLOCK` revert would hang the FIFO tests | both run on a thread with `recv_timeout(10 s)`, a blocked read let go by a writer; the swap now also lands between the first look and the open, where only `O_NONBLOCK` keeps the open from waiting | `O_NONBLOCK` removed: `the read blocked on … for 10 s`, exit 101 in 13 s | `a_config_swapped_for_a_fifo_…`, `a_fifo_where_a_config_should_be_…` |
+
 ## For other units
 
 - MCP-V: print `Couldn't add X to FILE: <EditError::why()>`; refuse `--header Authorization=…` with `--project` before `update` (xfx's reader skips such a `.mcp.json` entry); delete `render_profile` / `add_profile_server` / `remove_profile_server` once the verbs call `update`.
@@ -122,15 +130,15 @@ FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  
 cargo test --locked --lib mcp::config
 ```
 
-## Gates (this branch after MCP-Cb, rustc 1.99.1)
+## Gates (this branch after MCP-Cc, rustc 1.99.1)
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 4574 passed, 0 failed, 7 ignored (14 suites) |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 4595 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo test --locked --no-fail-fast` | 4576 passed, 0 failed, 7 ignored (14 suites) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4597 passed, 0 failed, 7 ignored (14 suites) |
 | `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
 | `scripts/smoke.sh target/release/xfx` | 46 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1091 checks, 0 failures |
