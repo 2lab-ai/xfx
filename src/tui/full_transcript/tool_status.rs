@@ -32,7 +32,6 @@
 //! between them). The continuation row opens with upstream's own reset, so the
 //! cells are the same.
 
-use crate::markdown::display_width as dw;
 use crate::tui::blocks::CellSgr;
 
 const ESC: u8 = 0x1b;
@@ -96,7 +95,7 @@ pub(super) fn wrap(text: &str, cols: u16, prefix: &str) -> Vec<String> {
         return vec![String::new()];
     }
     let cols = usize::from(cols);
-    let prefix_width = dw::visible_width_ignoring_ansi(prefix.as_bytes());
+    let prefix_width = usize::from(crate::tui::wrap::width(prefix));
     let prefix = if prefix_width < cols { prefix } else { "" };
     let mut style = CellSgr::default();
     let mut styled = false;
@@ -110,7 +109,7 @@ pub(super) fn wrap(text: &str, cols: u16, prefix: &str) -> Vec<String> {
         } else {
             0
         };
-        let line = scan(bytes, start, cols - indent);
+        let line = scan(text, start, cols - indent);
         if continuation {
             if styled {
                 row.extend_from_slice(RESET);
@@ -134,7 +133,7 @@ pub(super) fn wrap(text: &str, cols: u16, prefix: &str) -> Vec<String> {
             line.end
         } else {
             row.push(b'?');
-            start + dw::display_unit_at(bytes, start).byte_len.max(1)
+            start + unit_at(text, start).0
         };
         if track(&mut style, &bytes[start..next]) {
             styled = true;
@@ -149,20 +148,64 @@ pub(super) fn wrap(text: &str, cols: u16, prefix: &str) -> Vec<String> {
     rows.into_iter().map(into_string).collect()
 }
 
+// ---------------------------------------------------------------------------
+// The measure
+//
+// Upstream measures a row with its own `display_width` (ported as
+// `crate::markdown::display_width`). This screen's frame clips a row, and its
+// grid places one, by `crate::tui::wrap::width` -- grapheme clusters and
+// `unicode-width` -- and the two disagree on some characters: a Khmer sign
+// (U+17D8, one cell to the port and three to the screen), a skin-tone
+// modifier standing alone (none and two), combining marks newer than the
+// port's table. A row the port measured as fitting can be wider than the
+// screen by the screen's measure, and the frame would cut it. So the cells of
+// a character are the screen's here, and an escape is the frame's tokenizer's
+// (`crate::tui::pacer::escape_at`), which never ends one inside a character.
+// Everything else -- what breaks a row, and where -- is upstream's.
+// ---------------------------------------------------------------------------
+
+/// The bytes and the cells of the character at `index`: one grapheme cluster
+/// as the screen measures it.
+fn unit_at(text: &str, index: usize) -> (usize, usize) {
+    let cluster = text
+        .get(index..)
+        .and_then(crate::tui::wrap::first_cluster)
+        .unwrap_or("");
+    if cluster.is_empty() {
+        return (1, 0);
+    }
+    (
+        cluster.len(),
+        usize::from(crate::tui::wrap::cluster_width(cluster)),
+    )
+}
+
+/// Where the escape at `index` ends.
+fn escape_end(text: &str, index: usize) -> usize {
+    let len = text
+        .get(index..)
+        .and_then(crate::tui::pacer::escape_at)
+        .unwrap_or(1);
+    index + len.max(1)
+}
+
 /// Folds every SGR sequence in `text` into `style`; whether there was one
 /// (`trackToolStatusStyle`, `transcript_blocks.zig:960-975@481104fd`).
 fn track<'a>(style: &mut CellSgr<'a>, text: &'a [u8]) -> bool {
     let mut styled = false;
+    let Ok(text_str) = std::str::from_utf8(text) else {
+        return false;
+    };
     let mut index = 0;
     while let Some(offset) = text[index..].iter().position(|&byte| byte == ESC) {
         let escape = index + offset;
-        let end = dw::ansi_sequence_end(text, escape);
+        let end = escape_end(text_str, escape);
         let sequence = &text[escape..end];
         if sequence.len() > 2 && sequence[1] == b'[' && sequence[sequence.len() - 1] == b'm' {
             styled = true;
             style.apply(sequence);
         }
-        index = end.max(escape + 1);
+        index = end;
     }
     styled
 }
@@ -179,20 +222,17 @@ fn skip_whitespace(text: &[u8], start: usize) -> usize {
 /// Whether the word at `start` is wider than a whole row, so a row breaks
 /// inside it rather than before it (`toolStatusTokenExceedsWidth`,
 /// `transcript_blocks.zig:483-509@481104fd`).
-fn token_exceeds_width(text: &[u8], start: usize, max_width: usize) -> bool {
+fn token_exceeds_width(text: &str, start: usize, max_width: usize) -> bool {
     if max_width == 0 {
         return false;
     }
+    let bytes = text.as_bytes();
     let mut index = start;
     let mut width = 0;
-    while index < text.len() {
-        let byte = text[index];
+    while index < bytes.len() {
+        let byte = bytes[index];
         if byte == ESC {
-            let end = dw::ansi_sequence_end(text, index);
-            if end <= index {
-                return false;
-            }
-            index = end;
+            index = escape_end(text, index);
             continue;
         }
         if matches!(byte, b' ' | b'\t' | b'\n' | b'\r') {
@@ -202,12 +242,12 @@ fn token_exceeds_width(text: &[u8], start: usize, max_width: usize) -> bool {
             index += 1;
             continue;
         }
-        let unit = dw::display_unit_at(text, index);
-        if width + unit.cell_width > max_width {
+        let (len, cells) = unit_at(text, index);
+        if width + cells > max_width {
             return true;
         }
-        width += unit.cell_width;
-        index += unit.byte_len.max(1);
+        width += cells;
+        index += len;
     }
     false
 }
@@ -216,29 +256,35 @@ fn token_exceeds_width(text: &[u8], start: usize, max_width: usize) -> bool {
 /// (`scanToolStatusLine`, `transcript_blocks.zig:511-573@481104fd`): broken at
 /// the last blank that fits, inside a word only when the word is wider than a
 /// row, and at a line break wherever there is one.
-fn scan(text: &[u8], start: usize, max_width: usize) -> StatusLine {
-    if start >= text.len() || max_width == 0 {
+///
+/// One difference in cost, none in result: upstream finds the end of a run of
+/// blanks again at every byte of the run, and a tab takes no cells, so a run
+/// of tabs never breaks the row and every tab reads the rest of the run. The
+/// end found for the run's first byte is the end for all of them, so it is
+/// found once.
+fn scan(text: &str, start: usize, max_width: usize) -> StatusLine {
+    scan_with(text, start, max_width, true)
+}
+
+fn scan_with(text: &str, start: usize, max_width: usize, keep_run_end: bool) -> StatusLine {
+    let bytes = text.as_bytes();
+    if start >= bytes.len() || max_width == 0 {
         return StatusLine::at(start, start);
     }
     let mut index = start;
     let mut width = 0;
     let mut last_wrap_end: Option<usize> = None;
     let mut last_wrap_next = start;
-    while index < text.len() {
-        let byte = text[index];
+    // The end of the run of blanks `index` is in, once found.
+    let mut run_end = start;
+    while index < bytes.len() {
+        let byte = bytes[index];
         if byte == ESC {
-            let end = dw::ansi_sequence_end(text, index);
-            if end <= index {
-                return StatusLine {
-                    omitted_rune: true,
-                    ..StatusLine::at(index, text.len())
-                };
-            }
-            index = end;
+            index = escape_end(text, index);
             continue;
         }
         if byte == b'\n' || byte == b'\r' {
-            let next = if byte == b'\r' && text.get(index + 1) == Some(&b'\n') {
+            let next = if byte == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
                 index + 2
             } else {
                 index + 1
@@ -249,7 +295,12 @@ fn scan(text: &[u8], start: usize, max_width: usize) -> StatusLine {
             };
         }
         if byte == b' ' || byte == b'\t' {
-            let next = skip_whitespace(text, index);
+            let next = if keep_run_end && index < run_end {
+                run_end
+            } else {
+                run_end = skip_whitespace(bytes, index);
+                run_end
+            };
             let cell_width = usize::from(byte == b' ');
             if width + cell_width > max_width {
                 return StatusLine::at(index, next);
@@ -264,8 +315,8 @@ fn scan(text: &[u8], start: usize, max_width: usize) -> StatusLine {
             index += 1;
             continue;
         }
-        let unit = dw::display_unit_at(text, index);
-        if width + unit.cell_width > max_width {
+        let (len, cells) = unit_at(text, index);
+        if width + cells > max_width {
             if let Some(end) = last_wrap_end {
                 if token_exceeds_width(text, last_wrap_next, max_width) {
                     return StatusLine::at(index, index);
@@ -275,13 +326,13 @@ fn scan(text: &[u8], start: usize, max_width: usize) -> StatusLine {
             if width == 0 {
                 return StatusLine {
                     omitted_rune: true,
-                    ..StatusLine::at(index, index + unit.byte_len.max(1))
+                    ..StatusLine::at(index, index + len)
                 };
             }
             return StatusLine::at(index, index);
         }
-        width += unit.cell_width;
-        index += unit.byte_len.max(1);
+        width += cells;
+        index += len;
     }
     StatusLine::at(index, index)
 }
@@ -303,6 +354,7 @@ mod tests {
     //! crate's grid ([`crate::tui::grid::Grid`]).
 
     use super::*;
+    use crate::markdown::display_width as dw;
     use crate::tui::grid::{Cell, Grid};
     use crate::tui::pacer::SgrState;
 
@@ -476,5 +528,297 @@ mod tests {
                 "\x1b[0m  \x1b[38;5;250mccc\x1b[39m",
             ]
         );
+    }
+
+    // -- review round (T-U1U2b) -------------------------------------------
+
+    /// Graphemes `crate::markdown::display_width` counts narrower than the
+    /// screen's own measure ([`crate::tui::wrap::width`], which the frame
+    /// clips by and the grid places by): a Khmer sign, a skin-tone modifier
+    /// standing alone, a combining mark Unicode added after the port's table.
+    const NARROWER_IN_THE_PORT: [&str; 3] = ["\u{17d8}", "\u{1f3fb}", "\u{1ade}"];
+
+    #[test]
+    fn no_row_is_wider_than_the_screen_by_the_screens_own_measure() {
+        for glyph in NARROWER_IN_THE_PORT {
+            let text = format!("\u{2514} Ran echo {}", format!("{glyph}x ").repeat(30));
+            for cols in [8u16, 13, 20, 41] {
+                for row in wrap(&text, cols, "  ") {
+                    assert!(
+                        crate::tui::wrap::width(&row) <= cols,
+                        "{glyph:?} at {cols}: {row:?} is {} cells",
+                        crate::tui::wrap::width(&row)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_run_of_tabs_is_scanned_once() {
+        // `skipToolStatusWrapWhitespace` (`transcript_blocks.zig:477-481,
+        // 533-543@481104fd`) is asked again at every byte of a run, and a tab
+        // is no cells, so a run of them never breaks a row: every byte reads
+        // the rest of the run. 200 000 tabs are 2e10 reads that way.
+        let text = format!("\u{2514} Ran a{}b", "\t".repeat(200_000));
+        let started = std::time::Instant::now();
+        let rows = wrap(&text, 40, "  ");
+        let elapsed = started.elapsed();
+        assert_eq!(rows.len(), 1, "a tab takes no cells");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "{elapsed:?} for a run of 200 000 tabs"
+        );
+    }
+
+    #[test]
+    fn a_malformed_escape_before_a_multibyte_character_is_neither_a_panic_nor_a_wider_row() {
+        // `ESC` then a non-ASCII byte is no sequence: the escape travels
+        // alone and the character after it is text (`crate::tui::pacer`'s
+        // `escape`), so no row is cut inside the character.
+        for text in [
+            "\x1b\u{20ac}uro after a lone escape and more words",
+            "\u{2514} Ran \x1b\u{65e5}\u{672c}\u{8a9e} words words words",
+            "\x1b[38;5;250m\x1b\u{20ac}\u{20ac}\u{20ac} tail\x1b[39m",
+        ] {
+            assert_eq!(continuation_prefix(text), "  ");
+            for cols in 1u16..=12 {
+                let rows = wrap(text, cols, "\u{2502} ");
+                for row in &rows {
+                    assert!(!row.contains('\u{fffd}'), "{cols}: {row:?}");
+                    assert!(crate::tui::wrap::width(row) <= cols, "{cols}: {row:?}");
+                }
+                let plain: String = rows
+                    .iter()
+                    .map(|row| super::super::unpainted(row))
+                    .collect();
+                // A wide character a row with one column of room cannot hold
+                // is `?`; a continuation's room is the columns past `│ `.
+                for character in text.chars().filter(|c| !c.is_ascii() && cols >= 4) {
+                    assert!(
+                        plain.contains(character),
+                        "{cols}: {character:?} lost in {rows:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_mark_that_takes_no_cells_stays_on_the_row_that_is_full() {
+        // A zero-width cluster at the margin is not a cell past it: it joins
+        // the character in front of it, on that row.
+        let rows = wrap("abcd\u{301} efgh", 4, "  ");
+        assert_eq!(rows, ["abcd\u{301}", "  ef", "  gh"]);
+        let rows = wrap("ab\u{200b}cd ef", 4, "");
+        assert_eq!(rows[0], "ab\u{200b}cd");
+        for row in &rows {
+            assert!(crate::tui::wrap::width(row) <= 4, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn an_attribute_with_no_colour_is_reopened_on_its_own() {
+        // Bold and underline, no foreground: the continuation reopens exactly
+        // the attributes (`writeOpens`, `pacer.zig:142-152@481104fd`).
+        let rows = wrap("\x1b[1m\x1b[4mbold under words\x1b[24m\x1b[22m", 7, "  ");
+        assert_eq!(
+            rows,
+            [
+                "\x1b[1m\x1b[4mbold\x1b[0m",
+                "\x1b[0m  \x1b[1m\x1b[4munder\x1b[0m",
+                "\x1b[0m  \x1b[1m\x1b[4mwords\x1b[24m\x1b[22m",
+            ]
+        );
+    }
+
+    /// A small deterministic generator, so a failing input is the same input
+    /// on every run.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn text(&mut self, alphabet: &[&str], len: usize) -> String {
+            (0..len)
+                .map(|_| alphabet[(self.next() % alphabet.len() as u64) as usize])
+                .collect()
+        }
+    }
+
+    /// Every start a row can begin at: a character boundary.
+    fn starts(text: &str) -> impl Iterator<Item = usize> + '_ {
+        (0..text.len()).filter(|&index| text.is_char_boundary(index))
+    }
+
+    #[test]
+    fn keeping_the_end_of_a_run_of_blanks_changes_no_break() {
+        // The run's end, found once, against upstream's find at every byte.
+        let alphabet = [
+            "a",
+            "bc",
+            " ",
+            "  ",
+            "\t",
+            "\t\t\t",
+            "\n",
+            "\r\n",
+            "\x1b[1m",
+            "\x1b[38;5;250m",
+            "\x1b[0m",
+            "\u{65e5}",
+            "\u{1f600}",
+            "e\u{301}",
+            "\u{17d8}",
+            "\x1b",
+            "-",
+        ];
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        for _ in 0..400 {
+            let len = 1 + (rng.next() % 40) as usize;
+            let text = rng.text(&alphabet, len);
+            for start in starts(&text) {
+                for max_width in 0..14 {
+                    assert_eq!(
+                        scan_with(&text, start, max_width, true),
+                        scan_with(&text, start, max_width, false),
+                        "{text:?} from {start} at {max_width}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The scanner as the first round shipped it: upstream's display units
+    /// for a character's cells and upstream's escape end
+    /// (`scanToolStatusLine`, `transcript_blocks.zig:511-573@481104fd`).
+    fn first_round_scan(text: &[u8], start: usize, max_width: usize) -> StatusLine {
+        if start >= text.len() || max_width == 0 {
+            return StatusLine::at(start, start);
+        }
+        let (mut index, mut width) = (start, 0);
+        let mut last_wrap_end: Option<usize> = None;
+        let mut last_wrap_next = start;
+        while index < text.len() {
+            let byte = text[index];
+            if byte == ESC {
+                index = dw::ansi_sequence_end(text, index);
+                continue;
+            }
+            if byte == b'\n' || byte == b'\r' {
+                let next = if byte == b'\r' && text.get(index + 1) == Some(&b'\n') {
+                    index + 2
+                } else {
+                    index + 1
+                };
+                return StatusLine {
+                    hard_break: true,
+                    ..StatusLine::at(index, next)
+                };
+            }
+            if byte == b' ' || byte == b'\t' {
+                let next = skip_whitespace(text, index);
+                let cell_width = usize::from(byte == b' ');
+                if width + cell_width > max_width {
+                    return StatusLine::at(index, next);
+                }
+                last_wrap_end = Some(index);
+                last_wrap_next = next;
+                width += cell_width;
+                index += 1;
+                continue;
+            }
+            if byte < 32 {
+                index += 1;
+                continue;
+            }
+            let unit = dw::display_unit_at(text, index);
+            if width + unit.cell_width > max_width {
+                if let Some(end) = last_wrap_end {
+                    let mut probe = last_wrap_next;
+                    let mut probe_width = 0;
+                    let mut exceeds = false;
+                    while probe < text.len() {
+                        let byte = text[probe];
+                        if byte == ESC {
+                            probe = dw::ansi_sequence_end(text, probe);
+                            continue;
+                        }
+                        if matches!(byte, b' ' | b'\t' | b'\n' | b'\r') {
+                            break;
+                        }
+                        if byte < 32 {
+                            probe += 1;
+                            continue;
+                        }
+                        let unit = dw::display_unit_at(text, probe);
+                        if probe_width + unit.cell_width > max_width {
+                            exceeds = true;
+                            break;
+                        }
+                        probe_width += unit.cell_width;
+                        probe += unit.byte_len.max(1);
+                    }
+                    if exceeds {
+                        return StatusLine::at(index, index);
+                    }
+                    return StatusLine::at(end, last_wrap_next);
+                }
+                if width == 0 {
+                    return StatusLine {
+                        omitted_rune: true,
+                        ..StatusLine::at(index, index + unit.byte_len.max(1))
+                    };
+                }
+                return StatusLine::at(index, index);
+            }
+            width += unit.cell_width;
+            index += unit.byte_len.max(1);
+        }
+        StatusLine::at(index, index)
+    }
+
+    #[test]
+    fn where_the_two_measures_agree_every_break_is_the_first_rounds() {
+        // Text, blanks, line breaks, colours, wide and composed characters:
+        // the screen's measure and upstream's port count each of these the
+        // same, so the scanner breaks where the first round's did.
+        let alphabet = [
+            "a",
+            "word",
+            " ",
+            "  ",
+            "\t",
+            "\n",
+            "\x1b[1m",
+            "\x1b[38;5;250m",
+            "\x1b[39m",
+            "\u{65e5}",
+            "\u{1f600}",
+            "\u{e9}",
+            "e\u{301}",
+            "\u{2502}",
+            "-",
+            "/",
+        ];
+        let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+        for _ in 0..400 {
+            let len = 1 + (rng.next() % 40) as usize;
+            let text = rng.text(&alphabet, len);
+            for start in starts(&text) {
+                for max_width in 0..14 {
+                    assert_eq!(
+                        scan(&text, start, max_width),
+                        first_round_scan(text.as_bytes(), start, max_width),
+                        "{text:?} from {start} at {max_width}"
+                    );
+                }
+            }
+        }
     }
 }

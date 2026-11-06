@@ -1,0 +1,4 @@
+[
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Which of the two storage engines should the nightly import job write its staging tables into before it runs the checks?","options":[{"label":"Postgres with the write-ahead log kept on the fast local disk","description":"Relational, strong consistency"},{"label":"SQLite"}]}]}}},
+ {"delayMs":100,"chunks":["Got ","it."]}
+]

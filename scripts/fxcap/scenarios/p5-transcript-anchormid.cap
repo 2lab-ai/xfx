@@ -4,6 +4,11 @@
 # a `* network:` record lands above the view and the answer lands below; row
 # 1 of `full-pgup` and `full-pgup-after` says whether the view held. `end` is
 # Ctrl-O again at the tail, where the settled `Ran` heading fits one row.
+# `full-pgup-up` (Up: three rows) and `full-pgup-back` (Down) are taken
+# while the command still runs: fx's page counted from the tail starts two
+# rows later than xfx's (fx's command has two argument rows xfx's has not),
+# and the rows three above it are what lets every row of xfx's `full-pgup`
+# be compared with one of fx's.
 # fx's `shell`/`run` is xfx's `terminal`/`exec`; TZ=UTC on both (T-U5).
 fx: gateway p5-transcript-anchor-turns.json
 xfx: gateway p5-transcript-anchor-xfx.json
@@ -24,6 +29,12 @@ snap full-running
 key PPage
 wait 1
 snap full-pgup
+key Up
+wait 0.5
+snap full-pgup-up
+key Down
+wait 0.5
+snap full-pgup-back
 wait 10
 snap full-pgup-after
 key C-o

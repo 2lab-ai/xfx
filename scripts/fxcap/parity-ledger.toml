@@ -553,10 +553,21 @@ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bo
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:231). The tool list's second row is matched at any width (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools` 40x80)."
 
 [[cause]]
+id = "transcript-page-offset"
+kind = "defect"
+owner = "unowned (follows tool-schema)"
+scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize"]
+snaps = ["full-*"]
+rows = ["1-2", "35-37"]
+xfx = ["src/tui/approval_view.rs:685"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
+why = "A Ctrl-O page counted from the tail starts two rows later on fx than on xfx, because fx's command entry below it has two argument rows xfx's `terminal` has not (`tool-schema`): the two rows at the top of xfx's page and at the bottom of fx's (and the footer's blank row under it) have no partner on the other side's screen. Only those row numbers; every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+
+[[cause]]
 id = "full-transcript-shift"
 kind = "defect"
 owner = "unowned (follows session-record and tool-schema)"
-scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout", "p5-transcript-tools", "p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize"]
+scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
 xfx = ["src/tui/shell.rs:32298", "src/tui/approval_view.rs:685"]
