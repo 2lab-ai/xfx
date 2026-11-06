@@ -1434,6 +1434,7 @@ No credential and no network: it binds `127.0.0.1:0`.
 
 import json
 import select
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socketserver import TCPServer
@@ -1783,6 +1784,21 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
         TCPServer.server_bind(self)
         self.server_name = "127.0.0.1"
         self.server_port = self.server_address[1]
+
+    def handle_error(self, request, client_address):
+        """A client that hung up is not a fixture failure, and not printed as one.
+
+        A session that leaves -- `/quit` mid-stream, or an exit with a
+        keep-alive connection still open -- resets its socket, and
+        `socketserver` printed a `ConnectionResetError` traceback into the
+        scenario's log for it. It reached the log of a passing scenario as
+        often as a failing one (11 to 16 passing logs a run), and printed above
+        a failure it read as that failure's cause. Every other error is still
+        printed.
+        """
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
 
 # Where the Gateway publishes its model catalog (`src/provider/model.rs`'s
