@@ -1,0 +1,24 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_GATEWAY_API_KEY)                             updated just now
+
+period        spent  requests  tokens
+today       $0.4735        16    110K
+7d           $42.47        62    4.3M
+month        $78.47       202    8.0M
+
+  model (month)                            spent   share  requests  tokens
+  vendor-04/model-with-a-long-name-04      $8.00   10.2%        14    805K
+  vendor-05/model-with-a-long-name-05      $7.00    8.9%        15    705K
+  vendor-06/model-with-a-long-name-06      $6.00    7.6%        16    605K
+  vendor-07/model-with-a-long-name-07      $5.00    6.4%        17    505K
+  vendor-08/model-with-a-long-name-08      $4.00    5.1%        18    405K
+  vendor-09/model-with-a-long-name-09      $3.00    3.8%        19    305K
+  vendor-10/model-with-a-long-name-10      $2.00    2.5%        20    205K
+  vendor-11/model-with-a-long-name-11      $1.00    1.3%        21    105K
+  anthropic/claude-opus-5                $0.4610    0.6%        13     93K
+❯ fake/model-a                           $0.0125    0.0%         3     17K
+
+────────────────────────────────────────────────────────────────────────────────
+↑↓ model     enter detail     tab period     r refresh     esc close

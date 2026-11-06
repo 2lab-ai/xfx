@@ -1,0 +1,50 @@
+=== ~/.fx/backups/settings.json.backup.1793980002397-0000000000000001-b27eb104cbf6b49e9295e1f9a0068cd7 (32 bytes)
+{"statusLine":{"context":true}}
+
+=== ~/.fx/history.jsonl (1469 bytes)
+{"schema_version":1,"timestamp_ms":1793980001384,"workspace_root":"<scratch>/work","text":"/statusline context"}
+{"schema_version":1,"timestamp_ms":1793980002397,"workspace_root":"<scratch>/work","text":"/statusline session"}
+{"schema_version":1,"timestamp_ms":1793980003467,"workspace_root":"<scratch>/work","text":"first question"}
+{"schema_version":1,"timestamp_ms":1793980008486,"workspace_root":"<scratch>/work","text":"second question"}
+{"schema_version":1,"timestamp_ms":1793980014237,"workspace_root":"<scratch>/work","text":"/usage"}
+{"schema_version":1,"timestamp_ms":1793980034697,"workspace_root":"<scratch>/work","text":"/cost"}
+{"schema_version":1,"timestamp_ms":1793980036768,"workspace_root":"<scratch>/work","text":"/usage 7d"}
+{"schema_version":1,"timestamp_ms":1793980039122,"workspace_root":"<scratch>/work","text":"/stats"}
+{"schema_version":1,"timestamp_ms":1793980040143,"workspace_root":"<scratch>/work","text":"/credits"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/hnpmr5cyQnTF/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/hnpmr5cyQnTF/log.jsonl (4428 bytes)
+{"v":1,"seq":1,"ts":1793980003492,"kind":"session_created","id":"hnpmr5cyQnTF","workspace":"<scratch>/work","role":"root","host":"app","crc":"d533c7f9"}
+{"v":1,"seq":2,"ts":1793979998854,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"7866025d"}
+{"v":1,"seq":3,"ts":1793979998854,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"c725b7d8"}
+{"v":1,"seq":4,"ts":1793979998854,"kind":"set","key":"language","value":"und","crc":"b697c55c"}
+{"v":1,"seq":5,"ts":1793980003492,"kind":"turn_started","turn":1,"crc":"a9a1e83e"}
+{"v":1,"seq":6,"ts":1793980003492,"kind":"item","turn":1,"type":"user","data":{"text":"first question","images":[],"work_id":null},"crc":"b4442994"}
+{"v":1,"seq":7,"ts":1793980003492,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-06\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"e7191ad3"}
+{"v":1,"seq":8,"ts":1793980003618,"kind":"set","key":"usage","value":{"input_tokens":12000,"output_tokens":800,"cache_read_tokens":4000,"cache_write_tokens":0,"reasoning_tokens":0},"crc":"e87d4b7b"}
+{"v":1,"seq":9,"ts":1793980003620,"kind":"item","turn":1,"type":"assistant","data":{"text":"First billed answer.","provider_replay":null,"standalone_response":false},"crc":"0d97d5dd"}
+{"v":1,"seq":10,"ts":1793980003620,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793980003471,"completed_at_ms":1793980003620,"thinking_duration_ms":30,"turn_duration_ms":149,"token_progress":{"input_tokens":4,"output_tokens":800,"input_exact":false,"output_exact":true}}},"crc":"524a25a8"}
+{"v":1,"seq":11,"ts":1793980003620,"kind":"turn_committed","turn":1,"crc":"20db5d37"}
+{"v":1,"seq":12,"ts":1793980003620,"kind":"set","key":"language","value":"und-Latn","crc":"fc0d7fbb"}
+{"v":1,"seq":13,"ts":1793980003620,"kind":"set","key":"title","value":"first question","crc":"61a430bd"}
+{"v":1,"seq":14,"ts":1793980008487,"kind":"turn_started","turn":2,"crc":"d8b1fc00"}
+{"v":1,"seq":15,"ts":1793980008487,"kind":"item","turn":2,"type":"user","data":{"text":"second question","images":[],"work_id":null},"crc":"89cec5fb"}
+{"v":1,"seq":16,"ts":1793980008498,"kind":"set","key":"usage","value":{"input_tokens":64000,"output_tokens":3900,"cache_read_tokens":34000,"cache_write_tokens":0,"reasoning_tokens":900},"crc":"b064aa01"}
+{"v":1,"seq":17,"ts":1793980008503,"kind":"item","turn":2,"type":"assistant","data":{"text":"Second billed answer.","provider_replay":null,"standalone_response":false},"crc":"5a5d95
+=== ~/.fx/sessions/v2/index.jsonl (562 bytes)
+{"op":"put","id":"hnpmr5cyQnTF","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793980003492,"updated":1793980003492,"turns":0,"opened":[1793980003492,0,0,0,0],"crc":"85fc39a9"}
+{"op":"put","id":"hnpmr5cyQnTF","role":"root","host":"app","workspace":"<scratch>/work","title":"first question","language":"und-Latn","created":1793980003492,"updated":1793980003620,"turns":1,"opened":[0,0,0,0,0],"crc":"f980bab3"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/settings.json (47 bytes)
+{"statusLine":{"context":true,"session":true}}
+
+=== ~/.fx/settings.lock (0 bytes)
+=== ~/.fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json (1770 bytes)
+{"schema_version":2,"identity":"c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e","today":{"day":20738,"at_ms":1791819000000,"models":[{"model":"anthropic/claude-opus-5","totals":{"request_count":1,"input_tokens":22000,"output_tokens":3100,"cache_read_tokens":30000,"cache_write_tokens":0,"reasoning_tokens":900,"total_cost":0.421,"cache_hit_requests":1,"failed_requests":0,"ttft_weighted":1840,"ttft_requests":1,"tps_weighted":61,"tps_requests":1}},{"model":"fake/model-a","totals":{"request_count":1,"input_tokens":8000,"output_tokens":800,"cache_read_tokens":4000,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":0.0125,"cache_hit_requests":1,"failed_requests":0,"ttft_weighted":920,"ttft_requests":1,"tps_weighted":88,"tps_requests":1}}]},"finished":{"day":20738,"at_ms":1791819000000,"days_7":[{"model":"fake/model-a","totals":{"request_count":4,"input_tokens":30000,"output_tokens":2000,"cache_read_tokens":6000,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":0.05,"cache_hit_requests":1,"failed_requests":0,"ttft_weighted":0,"ttft_requests":0,"tps_weighted":0,"tps_requests":0}}],"month":[{"model":"fake/model-a","totals":{"request_count":9,"input_tokens":70000,"output_tokens":4500,"cache_read_tokens":12000,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":0.11,"cache_hit_requests":1.998,"failed_requests":0,"ttft_weighted":0,"ttft_requests":0,"tps_weighted":0,"tps_requests":0}},{"model":"openai/gpt-6-astra","totals":{"request_count":2,"input_tokens":15000,"output_tokens":900,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":0.039,"cache_hit_requests":0,"failed_requests":0,"ttft_weighted":0,"ttft_requests":0,"tps_weighted":0,"tps_requests":0}}]},"budget":null,"codex":null,"grok":null}
+=== ~/.fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.lock (0 bytes)
+=== ~/.fxcap-usage-clock (14 bytes)
+1791819000000
+
