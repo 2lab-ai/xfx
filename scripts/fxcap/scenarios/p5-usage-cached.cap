@@ -1,15 +1,26 @@
-# p5 usage (v0.0.16 only): /usage with a usage cache already on disk for the
-# harness's fake key (scope api_key, identity sha256 of
-# "fx-usage-cache-v1\\0api_key\\0fake-key-not-real\\0", src/usage/cache.zig:25-35@481104fd),
-# written for today's UTC day by p5-usage-mkcache.py (rerun it on another UTC day); the open's fetch gets 404. Table,
-# selection, detail screen, next model, periods (Tab, Right, Left, Shift-Tab),
-# C-j/C-k, r.
+# p5 usage (v0.0.16): /usage with a usage cache already on disk for the
+# harness's fake key, under the pinned clock (2026-10-12 15:30 UTC, fx's own e2e
+# time), so it reads the same on any day. The cache (p5-usage-mkcache.py) holds
+# today and today's finished days, stamped five minutes before the clock, so
+# opening it reads today alone: GET /v1/report?start_date=2026-10-12&end_date=
+# 2026-10-12&group_by=model&api_key_id=self (policy.zig:57-89@481104fd), held 3 s
+# (updating..., then the report's today). Then the table, selection, detail
+# screen, next model, periods (Tab, Right, Left, Shift-Tab), C-j/C-k, and r
+# against each failure fx names (usage.zig:889-896@481104fd): 429, 401, 500, a
+# body that is no report, and the report again. Both products' caches use fx's
+# identity, sha256("fx-usage-cache-v1\0api_key\0fake-key-not-real\0")
+# (cache.zig:22-35@481104fd); xfx's is ~/.xfx/usage-cache.
+clock 1791819000000
 fx: homefile .fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache.json
+xfx: homefile .xfx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json p5-usage-cache.json
+usage p5-usage-report.json
 models models.json
 wait 2.5
 type /usage
 key Enter
-wait 3
+wait 1
+snap updating
+wait 3.5
 snap open
 key Down
 wait 0.5
@@ -47,8 +58,27 @@ snap cj
 key C-k
 wait 0.5
 snap ck
+usage p5-usage-report-429.json
 key r
-wait 2
+wait 1.5
+snap r-429
+usage p5-usage-report-401.json
+key r
+wait 1.5
+snap r-401
+usage p5-usage-report-500.json
+key r
+wait 1.5
+snap r-500
+usage p5-usage-report-bad.json
+key r
+wait 1.5
+snap r-bad
+usage p5-usage-report.json
+key r
+wait 1
+snap r-updating
+wait 3.5
 snap r
 key Escape
 wait 0.5

@@ -1,0 +1,24 @@
+┃ first question
+
+  First billed answer.
+
+  0s (↑4 ↓800)
+
+┃ second question
+
+  Second billed answer.
+
+  0s (↑4 ↓3.1k)
+
+────────────────────────────────────────────────────────────────────────────────
+usage: API key (AI_G…EWAY_API_KEY)  usage reports aren't available for this team
+
+  (press r to retry)
+────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+

@@ -36,6 +36,8 @@ use std::path::Path;
 
 use crate::session::{RecordedUsage, RequestUsage};
 
+pub mod clock;
+
 /// Where the profile keeps the moment `/usage` began counting, beside
 /// `settings.json`.
 pub const COVERAGE_FILE: &str = "usage.json";

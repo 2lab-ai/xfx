@@ -1,0 +1,64 @@
+{
+ "/v1/report": {
+  "byRange": {
+   "2026-10-12..2026-10-12": [
+    {
+     "model": "anthropic/claude-opus-5",
+     "request_count": 1,
+     "input_tokens": 22000,
+     "output_tokens": 3100,
+     "cached_input_tokens": 30000,
+     "cache_creation_input_tokens": 0,
+     "reasoning_tokens": 900,
+     "total_cost": 0.421,
+     "cache_hit_pct": 100,
+     "p90_ttft_ms": 1840,
+     "p90_tps": 61
+    },
+    {
+     "model": "fake/model-a",
+     "request_count": 1,
+     "input_tokens": 8000,
+     "output_tokens": 800,
+     "cached_input_tokens": 4000,
+     "cache_creation_input_tokens": 0,
+     "reasoning_tokens": 0,
+     "total_cost": 0.0125,
+     "cache_hit_pct": 100,
+     "p90_ttft_ms": 920,
+     "p90_tps": 88
+    }
+   ],
+   "2026-10-06..2026-10-11": [
+    {
+     "model": "fake/model-a",
+     "request_count": 4,
+     "input_tokens": 30000,
+     "output_tokens": 2000,
+     "cached_input_tokens": 6000,
+     "total_cost": 0.05,
+     "cache_hit_pct": 25
+    }
+   ],
+   "2026-10-01..2026-10-11": [
+    {
+     "model": "fake/model-a",
+     "request_count": 9,
+     "input_tokens": 70000,
+     "output_tokens": 4500,
+     "cached_input_tokens": 12000,
+     "total_cost": 0.11,
+     "cache_hit_pct": 22.2
+    },
+    {
+     "model": "openai/gpt-6-astra",
+     "request_count": 2,
+     "input_tokens": 15000,
+     "output_tokens": 900,
+     "total_cost": 0.039
+    }
+   ]
+  },
+  "delayMs": 1500
+ }
+}

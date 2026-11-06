@@ -1,0 +1,6 @@
+{
+ "/v1/report": {
+  "status": 500,
+  "body": "internal error"
+ }
+}
