@@ -367,8 +367,9 @@ pub enum Origin {
 /// Something the UI has to show.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// A notice: neutral or a warning, under `mcp` or, for a usage line, no
-    /// topic at all (`noticeTopicForBody`, `app_commands.zig:1851-1853`).
+    /// A notice under `mcp`, neutral or a warning -- a usage line too, as fx
+    /// v0.0.16 files a verb's output (`collectMcpHostFacts`,
+    /// `src/core/app/app_commands.zig:340-354@481104fd`).
     Notice { warning: bool, body: String },
     /// The trust prompt is up for this server, showing the entry whose
     /// [`config::entry_digest`] this is: what `1` approves. `listed` is every
@@ -864,7 +865,7 @@ impl McpRuntime {
             .push_back(event);
     }
 
-    /// A notice under `mcp`, or under no topic when it is a usage line.
+    /// A notice under `mcp`.
     pub fn notice(&self, warning: bool, body: impl Into<String>) {
         self.say(Event::Notice {
             warning,
