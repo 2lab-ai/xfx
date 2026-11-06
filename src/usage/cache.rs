@@ -26,16 +26,29 @@
 //!   (`identityOf`, `cache.zig:21-35`), the formula and the prefix fx's own,
 //!   so a fixture seeded for fx's cache seeds this one. [`Identity`] is the
 //!   only thing this module is given; the key stays in
-//!   [`super::report::Question`].
+//!   [`super::report::Question`], which also refuses a report whose model name
+//!   spells the key (`report::KeySpellings`), so no row stored here carries it.
+//!   **This assumes a high-entropy key**: the digest is unsalted and its
+//!   prefix public, so a short key could be guessed offline from a file name.
 //! - **Server text as text.** A model name is the Gateway's string
 //!   ([`ModelRow::model`]): written as an escaped JSON string, read back as
 //!   the same string, and never part of a path -- every name below the
 //!   profile is the identity's hex.
-//! - **Owner-only, never through a link.** The directory is `0700` and every
-//!   file `0600`, set on the descriptor after it is made, so the umask cannot
-//!   widen or narrow them. `usage-cache` and every file in it are opened
-//!   without following a link, and a link, a hard-linked file, or anything that
-//!   is not a regular file where one belongs is refused and left as it is.
+//! - **Owner-only, never through a link.** `~/.xfx` and `usage-cache` are
+//!   opened without following a link and must be directories this user owns
+//!   with nothing granted to group or other -- the session store's rule
+//!   (`session::store`'s `verify_store_dir`) -- or the cache is refused, on
+//!   read and on write, rather than repaired. One this module makes is `0700`
+//!   and every file `0600`, set on the descriptor after it is made, so the
+//!   umask cannot widen or narrow them. Every file is opened without following
+//!   a link, and a link, a hard-linked file, or anything that is not a regular
+//!   file where one belongs is refused and left as it is.
+//! - **A trusted directory, cooperating writers.** The lock is advisory: it
+//!   orders xfx processes, and nothing stops another process of this user
+//!   writing the directory -- it could, for one, put something else in the
+//!   stage's place between its write and its rename. Its deadline
+//!   ([`store`]) is the wait for another holder, not a bound on a whole
+//!   store.
 //! - **Bounded, whole or not at all.** A file over [`MAX_FILE_BYTES`], from
 //!   another schema or identity, or with one number or name fx would refuse
 //!   reads as absent (`decode`, `cache.zig:197-236`); it is never partly used.
@@ -51,7 +64,7 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::report::{utc_day, ModelRow, Totals, MAX_MODELS, MAX_MODEL_NAME_BYTES};
+use super::report::{utc_day, ModelRow, Totals, MAX_DAY, MAX_MODELS, MAX_MODEL_NAME_BYTES};
 
 /// The cache's directory under the profile (`dir_name`, `cache.zig:17`).
 pub const DIR_NAME: &str = "usage-cache";
@@ -131,6 +144,7 @@ impl fmt::Debug for Identity {
 pub struct Today {
     pub day: i64,
     pub at_ms: i64,
+    #[serde(deserialize_with = "bounded_rows")]
     pub models: Vec<ModelRow>,
 }
 
@@ -141,7 +155,9 @@ pub struct Today {
 pub struct Finished {
     pub day: i64,
     pub at_ms: i64,
+    #[serde(deserialize_with = "bounded_rows")]
     pub days_7: Vec<ModelRow>,
+    #[serde(deserialize_with = "bounded_rows")]
     pub month: Vec<ModelRow>,
 }
 
@@ -185,6 +201,25 @@ impl Entry {
                 return false;
             }
         }
+        // Days and stamps a clock could have written, so no caller's day or
+        // age arithmetic overflows on one read from a file.
+        let days = [
+            self.today.as_ref().map(|t| t.day),
+            self.finished.as_ref().map(|f| f.day),
+        ];
+        let stamps = [
+            self.today.as_ref().map(|t| t.at_ms),
+            self.finished.as_ref().map(|f| f.at_ms),
+            self.budget.as_ref().map(|b| b.at_ms),
+        ];
+        if !days
+            .into_iter()
+            .flatten()
+            .all(|day| (0..=MAX_DAY).contains(&day))
+            || !stamps.into_iter().flatten().all(|at_ms| at_ms >= 0)
+        {
+            return false;
+        }
         // Today alone, and each finished window with today (`view.zig:84`).
         parts.iter().enumerate().all(|(i, rows)| {
             let mut sum = Totals::default();
@@ -201,6 +236,38 @@ fn valid_rows(rows: &[ModelRow]) -> bool {
         && rows.iter().all(|row| {
             !row.model.is_empty() && row.model.len() <= MAX_MODEL_NAME_BYTES && row.totals.valid()
         })
+}
+
+/// A list of rows, refused at its 257th, before the rest are read: a struct can
+/// be read from a JSON array, so a row can take as little as nine bytes, and a
+/// 4 MiB file would otherwise become half a million of them before
+/// [`Entry::valid`] counted.
+fn bounded_rows<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<ModelRow>, D::Error> {
+    struct Rows;
+
+    impl<'de> de::Visitor<'de> for Rows {
+        type Value = Vec<ModelRow>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "at most {MAX_MODELS} model rows")
+        }
+
+        fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut rows = Vec::new();
+            while rows.len() < MAX_MODELS {
+                match seq.next_element()? {
+                    Some(row) => rows.push(row),
+                    None => return Ok(rows),
+                }
+            }
+            match seq.next_element::<de::IgnoredAny>()? {
+                None => Ok(rows),
+                Some(_) => Err(de::Error::custom("more than 256 models")),
+            }
+        }
+    }
+
+    deserializer.deserialize_seq(Rows)
 }
 
 fn valid_money(value: f64) -> bool {
@@ -488,38 +555,83 @@ mod fs {
         )
     }
 
-    /// `~/.xfx`, followed as every other profile store follows it.
-    fn open_profile(home: &OwnedFd) -> Result<OwnedFd, Errno> {
-        rustix::fs::openat(
-            home,
-            PROFILE,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-    }
-
-    /// `usage-cache` itself, never through a link: `ELOOP` on Linux and
+    /// A directory under `parent`, never through a link: `ELOOP` on Linux and
     /// `ENOTDIR` on macOS for one, `ENOTDIR` for a file.
-    fn open_dir_at(profile: &OwnedFd) -> Result<OwnedFd, StoreError> {
+    fn open_dir_in(
+        parent: &OwnedFd,
+        name: &str,
+        refusal: &'static str,
+    ) -> Result<OwnedFd, StoreError> {
         rustix::fs::openat(
-            profile,
-            DIR_NAME,
+            parent,
+            name,
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::empty(),
         )
         .map_err(|err| match err {
-            Errno::LOOP | Errno::NOTDIR => {
-                StoreError::Refused("usage-cache is a link or not a directory")
-            }
+            Errno::LOOP | Errno::NOTDIR => StoreError::Refused(refusal),
             other => io_err(other),
         })
     }
 
-    /// The cache directory for reading, if there is one.
+    /// `~/.xfx`, as the session store takes it: never through a link.
+    fn open_profile(home: &OwnedFd) -> Result<OwnedFd, StoreError> {
+        open_dir_in(home, PROFILE, "~/.xfx is a link or not a directory")
+    }
+
+    /// `usage-cache` itself.
+    fn open_dir_at(profile: &OwnedFd) -> Result<OwnedFd, StoreError> {
+        open_dir_in(
+            profile,
+            DIR_NAME,
+            "usage-cache is a link or not a directory",
+        )
+    }
+
+    /// What is wrong with a directory of `file_type`, owned by `uid` with
+    /// `mode`, for this user `euid` to keep the cache in: the session store's
+    /// rule (`verify_store_dir`), a directory this user owns with nothing
+    /// granted to group or other.
+    pub(super) fn private_dir_problem(
+        file_type: FileType,
+        uid: u32,
+        mode: Mode,
+        euid: u32,
+    ) -> Option<&'static str> {
+        if file_type != FileType::Directory {
+            Some("not a directory")
+        } else if uid != euid {
+            Some("a directory another user owns")
+        } else if !(mode & (Mode::RWXG | Mode::RWXO)).is_empty() {
+            Some("a directory open to group or other")
+        } else {
+            None
+        }
+    }
+
+    /// Refuses the directory `fd` unless it is private to this user.
+    fn verify_private_dir(fd: &OwnedFd) -> Result<(), StoreError> {
+        let stat = rustix::fs::fstat(fd).map_err(io_err)?;
+        match private_dir_problem(
+            FileType::from_raw_mode(stat.st_mode),
+            stat.st_uid,
+            Mode::from_raw_mode(stat.st_mode),
+            rustix::process::geteuid().as_raw(),
+        ) {
+            Some(problem) => Err(StoreError::Refused(problem)),
+            None => Ok(()),
+        }
+    }
+
+    /// The cache directory for reading, if there is one this user keeps
+    /// privately.
     pub(super) fn open_cache_dir(home: &Home) -> Result<OwnedFd, StoreError> {
         let home = open_home(home).map_err(io_err)?;
-        let profile = open_profile(&home).map_err(io_err)?;
-        open_dir_at(&profile)
+        let profile = open_profile(&home)?;
+        verify_private_dir(&profile)?;
+        let dir = open_dir_at(&profile)?;
+        verify_private_dir(&dir)?;
+        Ok(dir)
     }
 
     /// Sets `fd`'s permission bits to exactly `wanted`, whatever the umask
@@ -590,42 +702,51 @@ mod fs {
         if u64::try_from(stat.st_size).map_or(true, |size| size > MAX_FILE_BYTES) {
             return Load::Unusable;
         }
-        // Bounded again as it is read, in case it grows in between.
-        let mut bytes = Vec::new();
-        if File::from(fd)
-            .take(MAX_FILE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .is_err()
-        {
+        let Ok(bytes) = read_capped(File::from(fd)) else {
             return Load::Unusable;
-        }
+        };
         decode(identity, &bytes).map_or(Load::Unusable, Load::Found)
     }
 
-    /// The profile directory, made owner-only when it is missing.
-    fn open_or_create_profile(home: &Home) -> Result<OwnedFd, StoreError> {
-        let home = open_home(home).map_err(io_err)?;
-        match rustix::fs::mkdirat(&home, PROFILE, DIR_MODE) {
-            Ok(()) => {
-                let profile = open_profile(&home).map_err(io_err)?;
-                private(&profile, DIR_MODE)?;
-                Ok(profile)
-            }
-            // Somebody's profile: not this module's to retighten.
-            Err(Errno::EXIST) => open_profile(&home).map_err(io_err),
-            Err(err) => Err(io_err(err)),
-        }
+    /// At most one byte past [`MAX_FILE_BYTES`] of `file`: bounded again as it
+    /// is read, in case it grew after its size was looked at.
+    pub(super) fn read_capped(file: File) -> io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+        Ok(bytes)
     }
 
-    /// The cache directory, made if missing, and `0700` either way.
+    /// The profile directory, made owner-only when it is missing, and refused
+    /// -- not repaired -- when one that is there is not private.
+    fn open_or_create_profile(home: &Home) -> Result<OwnedFd, StoreError> {
+        let home = open_home(home).map_err(io_err)?;
+        let made = match rustix::fs::mkdirat(&home, PROFILE, DIR_MODE) {
+            Ok(()) => true,
+            Err(Errno::EXIST) => false,
+            Err(err) => return Err(io_err(err)),
+        };
+        let profile = open_profile(&home)?;
+        if made {
+            private(&profile, DIR_MODE)?;
+        }
+        verify_private_dir(&profile)?;
+        Ok(profile)
+    }
+
+    /// The cache directory, made `0700` if missing; one that is there must
+    /// already be private.
     fn open_or_create_dir(home: &Home) -> Result<OwnedFd, StoreError> {
         let profile = open_or_create_profile(home)?;
-        match rustix::fs::mkdirat(&profile, DIR_NAME, DIR_MODE) {
-            Ok(()) | Err(Errno::EXIST) => {}
+        let made = match rustix::fs::mkdirat(&profile, DIR_NAME, DIR_MODE) {
+            Ok(()) => true,
+            Err(Errno::EXIST) => false,
             Err(err) => return Err(io_err(err)),
-        }
+        };
         let dir = open_dir_at(&profile)?;
-        private(&dir, DIR_MODE)?;
+        if made {
+            private(&dir, DIR_MODE)?;
+        }
+        verify_private_dir(&dir)?;
         Ok(dir)
     }
 

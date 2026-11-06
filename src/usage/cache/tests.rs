@@ -75,9 +75,15 @@ fn small_fetch() -> Entry {
 /// profile normally is.
 fn home() -> (tempfile::TempDir, Home) {
     let dir = tempfile::tempdir().expect("a home");
-    std::fs::create_dir(dir.path().join(".xfx")).expect("a profile");
+    private_dir(&dir.path().join(".xfx"));
     let home = Home::new(Some(dir.path())).expect("an absolute home");
     (dir, home)
+}
+
+/// A directory made `0700`, as the session store and this cache keep theirs.
+fn private_dir(path: &Path) {
+    std::fs::create_dir(path).expect("a directory");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).expect("0700");
 }
 
 fn cache_dir(root: &Path) -> PathBuf {
@@ -569,30 +575,14 @@ fn no_absolute_home_means_no_cache() {
 
 // -- S1: the key never reaches the disk ---------------------------------------
 
-/// Every way the key, or any part of it long enough to read back, could be
-/// spelled in bytes: each run of [`WINDOW`] of its bytes as is and in hex
-/// either case, and the whole key in base64 (standard and URL-safe) at each of
-/// the three byte alignments, by the characters that encode only its bytes.
-fn key_spellings(key: &str) -> Vec<String> {
-    let mut spellings = Vec::new();
-    for part in key.as_bytes().windows(WINDOW) {
-        let hex: String = part.iter().map(|b| format!("{b:02x}")).collect();
-        spellings.push(String::from_utf8(part.to_vec()).expect("ASCII"));
-        spellings.push(hex.to_uppercase());
-        spellings.push(hex);
-    }
-    for prefix in ["", "x", "xx"] {
-        let encoded = base64(format!("{prefix}{key}").as_bytes());
-        let interior = &encoded[4..encoded.len() - 4];
-        spellings.push(interior.to_string());
-        spellings.push(interior.replace('+', "-").replace('/', "_"));
-    }
-    spellings
+/// Whether `bytes` carry the key in any spelling the report refuses: the same
+/// predicate, so the refusal and this scan cannot drift apart.
+fn scan_finds_key(bytes: &[u8]) -> bool {
+    crate::usage::report::KeySpellings::of(KEY).found_in(bytes)
 }
 
-/// The shortest run of the key's bytes the scan looks for.
-const WINDOW: usize = 12;
-
+/// Standard base64 with padding: the test's own encoder, written apart from
+/// the one the predicate uses.
 fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
@@ -610,15 +600,6 @@ fn base64(bytes: &[u8]) -> String {
         }
     }
     out
-}
-
-/// The spelling of the key `bytes` holds, if any.
-fn spelled_in<'a>(bytes: &[u8], spellings: &'a [String]) -> Option<&'a str> {
-    let text = String::from_utf8_lossy(bytes);
-    spellings
-        .iter()
-        .find(|spelling| text.contains(spelling.as_str()))
-        .map(String::as_str)
 }
 
 /// Every entry under `root`, links not followed, with each file's bytes.
@@ -645,24 +626,14 @@ fn everything_under(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 
 #[test]
 fn the_key_never_reaches_the_disk() {
-    let spellings = key_spellings(KEY);
     // The control: the scan finds the key however it is embedded.
-    for prefix in ["", "a", "ab", "abc"] {
-        let embedded = format!("{prefix}{KEY}-");
-        let hex: String = embedded.bytes().map(|b| format!("{b:02X}")).collect();
-        for sample in [embedded.clone(), base64(embedded.as_bytes()), hex] {
-            assert!(
-                spelled_in(format!("<{sample}>").as_bytes(), &spellings).is_some(),
-                "the scan missed {sample}"
-            );
-        }
+    for (form, sample) in key_echoes() {
+        assert!(
+            scan_finds_key(format!("<{sample}>").as_bytes()),
+            "the scan missed {form}: {sample}"
+        );
     }
-    // And a part of it: any run of `WINDOW` bytes, in hex.
-    let part: String = KEY.as_bytes()[20..20 + WINDOW]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    assert!(spelled_in(part.as_bytes(), &spellings).is_some());
+    assert!(!scan_finds_key(b"anthropic/claude-opus-5.5"));
 
     let (root, home) = home();
     let id = Identity::of(API_KEY_SCOPE, KEY, "");
@@ -699,12 +670,118 @@ fn the_key_never_reaches_the_disk() {
     );
     for (path, bytes) in &everything {
         let name = path.to_string_lossy();
-        assert_eq!(
-            spelled_in(name.as_bytes(), &spellings),
-            None,
-            "{name} names the key"
-        );
-        assert_eq!(spelled_in(bytes, &spellings), None, "{name} holds the key");
+        assert!(!scan_finds_key(name.as_bytes()), "{name} names the key");
+        assert!(!scan_finds_key(bytes), "{name} holds the key");
+    }
+}
+
+/// The key as a Gateway could echo it inside a model name: in hex either case,
+/// in base64 at each byte alignment and URL-safe, and a 12-byte run of it as is
+/// and in hex.
+fn key_echoes() -> Vec<(&'static str, String)> {
+    let hex: String = KEY.bytes().map(|b| format!("{b:02x}")).collect();
+    let fragment = &KEY[20..32];
+    let fragment_hex: String = fragment.bytes().map(|b| format!("{b:02X}")).collect();
+    vec![
+        ("hex", format!("m/{hex}")),
+        ("upper-case hex", hex.to_uppercase()),
+        ("base64", format!("m/{}", base64(KEY.as_bytes()))),
+        ("base64 one byte in", base64(format!("x{KEY}").as_bytes())),
+        ("base64 two bytes in", base64(format!("xy{KEY}").as_bytes())),
+        (
+            "URL-safe base64",
+            base64(format!("?{KEY}").as_bytes())
+                .replace('+', "-")
+                .replace('/', "_"),
+        ),
+        ("a 12-byte run", format!("vendor/{fragment}-model")),
+        ("a 12-byte run in hex", format!("m-{fragment_hex}")),
+    ]
+}
+
+#[test]
+fn a_report_that_echoes_the_key_encoded_is_refused_and_nothing_is_stored() {
+    use crate::usage::report::{question, DayRange, Fetch, Outcome};
+    let workspace = tempfile::tempdir().expect("a workspace");
+    let config = crate::config::RuntimeConfig::load_with(
+        &crate::config::Environment::new(
+            Some(workspace.path().to_path_buf()),
+            [("AI_GATEWAY_API_KEY".to_string(), KEY.to_string())]
+                .into_iter()
+                .collect(),
+        ),
+        workspace.path(),
+    )
+    .expect("a configuration");
+    for (form, model) in key_echoes() {
+        assert!(model.len() <= 256, "{form} fits a model name");
+        let gateway = crate::test_net::Listener::answering(crate::test_net::json_answer(&format!(
+            r#"{{"results":[{{"model":"{model}","request_count":1,"total_cost":1}}]}}"#
+        )));
+        let endpoint = crate::gateway::Endpoint::resolve(Some(&format!(
+            "{}/v4/ai/language-model",
+            gateway.origin()
+        )))
+        .expect("loopback");
+        let asked = question(&config, &endpoint).expect("a key is asked");
+        let id = asked.identity();
+        let day = 20737;
+        let mut fetch = Fetch::start(
+            asked,
+            vec![DayRange {
+                first: day,
+                last: day,
+            }],
+            |job| std::thread::Builder::new().spawn(job).map(drop),
+        )
+        .expect("a fetch");
+        let started = Instant::now();
+        let outcome = loop {
+            if let Some(outcome) = fetch.try_outcome() {
+                break outcome;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "{form}: no answer"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        gateway.finish();
+
+        // What the dashboard (U3) does with a fetch: store what came back.
+        let (root, home) = home();
+        match outcome {
+            Outcome::Fetched(mut reports) => {
+                let models = reports.remove(0);
+                let fetched = Entry {
+                    today: Some(Today {
+                        day,
+                        at_ms: day * DAY_MS,
+                        models,
+                    }),
+                    ..Entry::default()
+                };
+                store(&home, &id, fetched, day * DAY_MS, None).expect("a store");
+                for (path, bytes) in everything_under(root.path()) {
+                    assert!(
+                        !scan_finds_key(&bytes),
+                        "{form}: {} holds the key",
+                        path.display()
+                    );
+                }
+                panic!("{form}: a report naming the key was accepted");
+            }
+            Outcome::Failed(failed) => {
+                assert_eq!(failed.failure, crate::usage::report::Failure::BadResponse);
+                assert!(
+                    failed.detail.contains("holds the key"),
+                    "{form}: {failed:?}"
+                );
+                // Nothing to store, and nothing written.
+                assert_eq!(everything_under(root.path()).len(), 1, "{form}");
+            }
+            Outcome::Cancelled => panic!("{form}: cancelled"),
+        }
     }
 }
 
@@ -799,12 +876,12 @@ fn modes_are_owner_only_even_under_a_permissive_umask() {
     assert_eq!(mode_of(&file(root.path(), &id, ".json")), 0o600);
     assert_eq!(mode_of(&file(root.path(), &id, ".lock")), 0o600);
 
-    // A directory and files left wider by something else are made private.
+    // Files left wider by something else are made private: the lock on its
+    // descriptor, the entry by the rename that replaces it.
     let (root, home) = home();
     let id = api_key_id();
     let dir = cache_dir(root.path());
-    std::fs::create_dir(&dir).expect("a directory");
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("0755");
+    private_dir(&dir);
     for suffix in [".json", ".lock"] {
         let path = file(root.path(), &id, suffix);
         std::fs::write(&path, "").expect("a file");
@@ -872,7 +949,7 @@ fn a_link_where_a_cache_file_belongs_is_refused_not_followed() {
     // A symbolic link and a hard link where the entry's file belongs.
     for hard in [false, true] {
         let (root, home) = home();
-        std::fs::create_dir(cache_dir(root.path())).expect("a directory");
+        private_dir(&cache_dir(root.path()));
         let (decoy_path, decoy_bytes) = decoy(root.path(), &id);
         let json = file(root.path(), &id, ".json");
         if hard {
@@ -898,7 +975,7 @@ fn a_link_where_a_cache_file_belongs_is_refused_not_followed() {
     // A link where the lock belongs, to a file and to nowhere.
     for dangling in [false, true] {
         let (root, home) = home();
-        std::fs::create_dir(cache_dir(root.path())).expect("a directory");
+        private_dir(&cache_dir(root.path()));
         let target = root.path().join("lock-target");
         if !dangling {
             std::fs::write(&target, "theirs").expect("a target");
@@ -917,9 +994,26 @@ fn a_link_where_a_cache_file_belongs_is_refused_not_followed() {
         assert!(!file(root.path(), &id, ".json").exists());
     }
 
+    // A hard link where the lock belongs: refused before its mode is touched,
+    // so the other name keeps its own.
+    let (root, linked_home) = home();
+    private_dir(&cache_dir(root.path()));
+    let theirs = root.path().join("lock-theirs");
+    std::fs::write(&theirs, "theirs").expect("a file");
+    std::fs::set_permissions(&theirs, std::fs::Permissions::from_mode(0o644)).expect("0644");
+    std::fs::hard_link(&theirs, file(root.path(), &id, ".lock")).expect("a hard link");
+    let stored = store(&linked_home, &id, small_fetch(), TEST_NOW, None);
+    assert!(
+        matches!(stored, Err(StoreError::Refused(_))),
+        "a hard-linked lock: {stored:?}"
+    );
+    assert_eq!(mode_of(&theirs), 0o644, "the other name's mode was changed");
+    assert_eq!(std::fs::read(&theirs).expect("the file"), b"theirs");
+    assert!(!file(root.path(), &id, ".json").exists());
+
     // A link where the stage goes is removed, never written through.
     let (root, home) = home();
-    std::fs::create_dir(cache_dir(root.path())).expect("a directory");
+    private_dir(&cache_dir(root.path()));
     let target = root.path().join("stage-target");
     std::fs::write(&target, "theirs").expect("a target");
     std::os::unix::fs::symlink(&target, file(root.path(), &id, ".tmp")).expect("a link");
@@ -950,7 +1044,7 @@ fn something_that_is_not_a_regular_file_is_refused() {
         (".tmp", "dir"),
     ] {
         let (root, home) = home();
-        std::fs::create_dir(cache_dir(root.path())).expect("a directory");
+        private_dir(&cache_dir(root.path()));
         let path = file(root.path(), &id, suffix);
         if kind == "dir" {
             std::fs::create_dir(&path).expect("a directory");
@@ -985,6 +1079,110 @@ fn something_that_is_not_a_regular_file_is_refused() {
             assert!(!file(root.path(), &id, ".json").exists());
         }
     }
+}
+
+#[test]
+fn a_linked_profile_is_refused_and_nothing_is_made_where_it_points() {
+    let root = tempfile::tempdir().expect("a home");
+    let elsewhere = root.path().join("elsewhere");
+    private_dir(&elsewhere);
+    std::os::unix::fs::symlink(&elsewhere, root.path().join(".xfx")).expect("a link");
+    let home = Home::new(Some(root.path())).expect("an absolute home");
+    let id = api_key_id();
+    let stored = store(&home, &id, small_fetch(), TEST_NOW, None);
+    assert!(matches!(stored, Err(StoreError::Refused(_))), "{stored:?}");
+    assert!(
+        names_in(&elsewhere).is_empty(),
+        "something was made through the link"
+    );
+    assert_eq!(read(&home, &id), None);
+
+    // Even with a cache already there to read.
+    private_dir(&elsewhere.join(DIR_NAME));
+    let (decoy_path, _) = decoy(root.path(), &id);
+    std::fs::copy(
+        decoy_path,
+        elsewhere
+            .join(DIR_NAME)
+            .join(format!("{}.json", id.as_str())),
+    )
+    .expect("a copy");
+    assert_eq!(read(&home, &id), None, "the cache behind the link was read");
+}
+
+#[test]
+fn a_directory_that_is_not_private_is_refused_not_repaired() {
+    let id = api_key_id();
+    for (which, mode) in [
+        (".xfx", 0o755),
+        (".xfx", 0o750),
+        (".xfx", 0o701),
+        ("usage-cache", 0o755),
+        ("usage-cache", 0o770),
+    ] {
+        let (root, home) = home();
+        private_dir(&cache_dir(root.path()));
+        // An entry to read, so a refused read is not just an empty one.
+        std::fs::write(
+            file(root.path(), &id, ".json"),
+            encode(&id, &small_fetch()).unwrap(),
+        )
+        .expect("an entry");
+        assert_eq!(read(&home, &id), Some(small_fetch()), "the control");
+        let dir = if which == ".xfx" {
+            root.path().join(".xfx")
+        } else {
+            cache_dir(root.path())
+        };
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).expect("a mode");
+        assert_eq!(read(&home, &id), None, "{which} {mode:o} was read");
+        let stored = store(
+            &home,
+            &id,
+            Entry {
+                today: today(5, 9, 9.0),
+                ..Entry::default()
+            },
+            TEST_NOW,
+            None,
+        );
+        assert!(
+            matches!(stored, Err(StoreError::Refused(_))),
+            "{which} {mode:o}: {stored:?}"
+        );
+        assert_eq!(mode_of(&dir), mode, "{which} was repaired");
+        assert_eq!(
+            decode(
+                &id,
+                &std::fs::read(file(root.path(), &id, ".json")).unwrap()
+            ),
+            Some(small_fetch()),
+            "{which} {mode:o}: the entry was written"
+        );
+    }
+}
+
+#[test]
+fn only_a_private_directory_this_user_owns_is_kept() {
+    // The owner half cannot be made without root, so the rule is pinned here;
+    // the mode and link halves go through the same call above.
+    use rustix::fs::{FileType, Mode};
+    let me = 501;
+    let private = Mode::from_bits_truncate(0o700);
+    assert_eq!(
+        fs::private_dir_problem(FileType::Directory, me, private, me),
+        None
+    );
+    assert!(fs::private_dir_problem(FileType::Directory, 0, private, me).is_some());
+    assert!(fs::private_dir_problem(FileType::Directory, me + 1, private, me).is_some());
+    for bits in [0o740, 0o710, 0o704, 0o701, 0o777] {
+        assert!(
+            fs::private_dir_problem(FileType::Directory, me, Mode::from_bits_truncate(bits), me)
+                .is_some(),
+            "{bits:o}"
+        );
+    }
+    assert!(fs::private_dir_problem(FileType::RegularFile, me, private, me).is_some());
 }
 
 // -- S4: two processes, and a crash --------------------------------------------
@@ -1043,8 +1241,18 @@ fn a_copy_of_this_binary_plays_its_role() {
             let mut last = i64::MIN;
             for n in 0..STORES {
                 let at_ms = BASE_MS + n * WRITERS + i;
-                let stored = store(&home, &writer_id(), writer_fetch(at_ms), WRITER_NOW, None)
-                    .expect("every store succeeds");
+                // A long lock wait: this test is about tearing and going back,
+                // and a slow disk must not turn a fair wait into a failure.
+                // The production deadline has its own test.
+                let stored = fs::store_within(
+                    &home,
+                    &writer_id(),
+                    writer_fetch(at_ms),
+                    WRITER_NOW,
+                    None,
+                    Duration::from_secs(60),
+                )
+                .expect("every store succeeds");
                 let now_at = stored.today.expect("today").at_ms;
                 assert!(
                     now_at >= at_ms && now_at >= last,
@@ -1321,6 +1529,31 @@ fn a_lock_held_past_the_deadline_is_a_failure_not_a_wait() {
     store(&home, &id, small_fetch(), TEST_NOW, None).expect("a store once it is free");
 }
 
+#[test]
+fn a_store_waits_five_seconds_for_the_lock_and_no_longer() {
+    use rustix::fs::{flock, FlockOperation};
+    let (root, home) = home();
+    let id = api_key_id();
+    store(&home, &id, small_fetch(), TEST_NOW, None).expect("a first store");
+    let held = std::fs::File::open(file(root.path(), &id, ".lock")).expect("the lock");
+    let started = Instant::now();
+    while flock(&held, FlockOperation::NonBlockingLockExclusive).is_err() {
+        assert!(started.elapsed() < Duration::from_secs(5), "hold the lock");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let started = Instant::now();
+    let refused = store(&home, &id, small_fetch(), TEST_NOW, None);
+    let waited = started.elapsed();
+    assert!(
+        matches!(&refused, Err(StoreError::Io(err)) if err.kind() == std::io::ErrorKind::WouldBlock),
+        "{refused:?}"
+    );
+    assert!(
+        waited >= Duration::from_secs(5) && waited < Duration::from_secs(8),
+        "{waited:?}"
+    );
+}
+
 // -- S5: hostile or oversized files -------------------------------------------
 
 /// A file for [`api_key_id`] with `parts` after its identity.
@@ -1474,7 +1707,7 @@ fn hostile_or_oversized_files_are_refused_whole() {
     for (what, bytes) in hostile {
         assert_eq!(decode(&api_key_id(), &bytes), None, "{what}");
         let (root, home) = home();
-        std::fs::create_dir(cache_dir(root.path())).expect("a directory");
+        private_dir(&cache_dir(root.path()));
         std::fs::write(file(root.path(), &api_key_id(), ".json"), &bytes).expect("a file");
         let shown = read(&home, &api_key_id());
         assert_eq!(shown, None, "{what}");
@@ -1490,4 +1723,113 @@ fn hostile_or_oversized_files_are_refused_whole() {
         assert_eq!(stored, small_fetch(), "{what}");
         assert_eq!(read(&home, &api_key_id()), Some(small_fetch()), "{what}");
     }
+}
+
+#[test]
+fn rows_past_the_cap_are_refused_before_they_are_read() {
+    // The 257th row is not a row at all: refused as the 257th, it is never
+    // parsed. Read first, it would be the error, after 256 rows were built.
+    let rows: Vec<String> = (0..300)
+        .map(|i| {
+            if i == MAX_MODELS {
+                "1".to_string()
+            } else {
+                r#"["m",[]]"#.to_string()
+            }
+        })
+        .collect();
+    let bytes = wire(&format!(
+        r#","today":{{"day":5,"at_ms":800,"models":[{}]}}"#,
+        rows.join(",")
+    ));
+    let err = serde_json::from_slice::<WireIn>(bytes.as_bytes())
+        .err()
+        .expect("refused");
+    assert!(err.to_string().contains("more than 256 models"), "{err}");
+    // A row can be nine bytes: 4 MiB of them is still refused, not built.
+    let compact = vec![r#"["m",[]]"#; (MAX_FILE_BYTES as usize - 200) / 9].join(",");
+    let bytes = wire(&format!(
+        r#","finished":{{"day":5,"at_ms":800,"days_7":[],"month":[{compact}]}}"#
+    ));
+    assert!(bytes.len() as u64 <= MAX_FILE_BYTES);
+    let err = serde_json::from_slice::<WireIn>(bytes.as_bytes())
+        .err()
+        .expect("refused");
+    assert!(err.to_string().contains("more than 256 models"), "{err}");
+}
+
+#[test]
+fn a_file_that_grows_after_its_size_was_read_is_read_no_further_than_the_cap() {
+    let (root, home) = home();
+    let id = api_key_id();
+    store(&home, &id, small_fetch(), TEST_NOW, None).expect("a store");
+    let path = file(root.path(), &id, ".json");
+    let file_now = std::fs::File::open(&path).expect("the file");
+    assert!(
+        file_now.metadata().unwrap().len() < 1024,
+        "small when looked at"
+    );
+    // It grows between the look and the read.
+    let mut grower = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("the file");
+    std::io::Write::write_all(&mut grower, &vec![b' '; MAX_FILE_BYTES as usize + 65536])
+        .expect("growth");
+    let bytes = fs::read_capped(file_now).expect("a read");
+    assert_eq!(bytes.len() as u64, MAX_FILE_BYTES + 1);
+    assert_eq!(read(&home, &id), None);
+}
+
+#[test]
+fn days_and_stamps_no_clock_wrote_are_refused() {
+    // `format_day` takes any day without overflowing.
+    assert_eq!(
+        crate::usage::report::format_day(i64::MAX),
+        crate::usage::report::format_day(crate::usage::report::MAX_DAY)
+    );
+    assert_eq!(crate::usage::report::format_day(i64::MIN), "1970-01-01");
+    let max_day = crate::usage::report::MAX_DAY;
+    for (what, parts) in [
+        (
+            "a day past the last",
+            r#","today":{"day":9223372036854775807,"at_ms":1,"models":[]}"#.to_string(),
+        ),
+        (
+            "a day before 1970",
+            r#","today":{"day":-1,"at_ms":1,"models":[]}"#.to_string(),
+        ),
+        (
+            "a stamp before 1970",
+            r#","today":{"day":5,"at_ms":-1,"models":[]}"#.to_string(),
+        ),
+        (
+            "a finished day past the last",
+            format!(
+                r#","finished":{{"day":{},"at_ms":1,"days_7":[],"month":[]}}"#,
+                max_day + 1
+            ),
+        ),
+        (
+            "a finished stamp at the minimum",
+            r#","finished":{"day":5,"at_ms":-9223372036854775808,"days_7":[],"month":[]}"#
+                .to_string(),
+        ),
+        (
+            "a budget stamp before 1970",
+            r#","budget":{"at_ms":-5,"value":{"limit":1,"spent":0,"period":"monthly"}}"#
+                .to_string(),
+        ),
+    ] {
+        assert_eq!(
+            decode(&api_key_id(), wire(&parts).as_bytes()),
+            None,
+            "{what}"
+        );
+    }
+    let last = format!(r#","today":{{"day":{max_day},"at_ms":0,"models":[]}}"#);
+    assert!(
+        decode(&api_key_id(), wire(&last).as_bytes()).is_some(),
+        "the last day"
+    );
 }

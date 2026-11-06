@@ -40,7 +40,8 @@
 //!   text, and so is what this module reports: a [`Failed`]'s detail is a
 //!   status code or a fixed phrase, never a byte of the response, so a server
 //!   that echoes the key back has nowhere to put it. A report whose model name
-//!   holds the key is refused rather than shown or cached.
+//!   spells the key, or any [`KEY_RUN`]-byte run of it, as is, in hex or in
+//!   base64 ([`KeySpellings`]), is refused rather than shown or cached.
 //! - **The worker lets go when nobody waits**: dropping a [`Fetch`] cancels it,
 //!   so a dashboard that is gone does not keep the key asking.
 
@@ -203,7 +204,8 @@ fn percent_of(part: f64, whole: u64) -> Option<f64> {
 #[serde(deny_unknown_fields)]
 pub struct ModelRow {
     /// **The server's text, untrusted.** Bounded to 1-256 bytes of valid
-    /// UTF-8 and refused when it holds the key, nothing more: an escaped ESC,
+    /// UTF-8 and refused when it spells the key ([`KeySpellings`]), nothing
+    /// more: an escaped ESC,
     /// CR/LF, C1, bidi and zero-width characters all survive decoding. A
     /// renderer spells it through `crate::mcp::terminal_safe` -- not
     /// `crate::tui::bridge::inert` alone, which keeps line breaks and bidi
@@ -239,12 +241,16 @@ pub fn utc_day(ms: i64) -> i64 {
     ms.div_euclid(DAY_MS)
 }
 
+/// The last UTC day an `i64` of milliseconds reaches.
+pub const MAX_DAY: i64 = i64::MAX / DAY_MS;
+
 /// `YYYY-MM-DD` for a UTC day number; a day before the epoch is the epoch, as
-/// fx clamps it (`formatDay`, `report.zig:184-194`).
+/// fx clamps it (`formatDay`, `report.zig:184-194`), and one past [`MAX_DAY`]
+/// is that day, so no day read from a file can overflow the arithmetic.
 pub fn format_day(day: i64) -> String {
     // Howard Hinnant's civil-from-days, the inverse of fx's `civilDay`
     // (`report.zig:133-142`).
-    let z = day.max(0) + 719_468;
+    let z = day.clamp(0, MAX_DAY) + 719_468;
     let era = z.div_euclid(146_097);
     let day_of_era = z - era * 146_097;
     let year_of_era =
@@ -786,13 +792,106 @@ async fn fetch_rows(
         failure: Failure::BadResponse,
         detail: format!("unexpected report: {invalid}"),
     })?;
-    if !secret.is_empty() && rows.iter().any(|row| row.model.contains(secret)) {
+    let spellings = KeySpellings::of(secret);
+    if rows
+        .iter()
+        .any(|row| spellings.found_in(row.model.as_bytes()))
+    {
         return Err(Failed {
             failure: Failure::BadResponse,
             detail: KEY_IN_REPORT.to_string(),
         });
     }
     Ok(rows)
+}
+
+/// The shortest run of the key that counts as the key: long enough that no
+/// model name holds one by chance, short enough that an echo cut down to fit
+/// 256 bytes is still caught.
+pub(crate) const KEY_RUN: usize = 12;
+
+/// Every way a text could carry the key that this module refuses, and that the
+/// usage cache's tests scan its files for -- one definition, so the refusal
+/// and the scan cannot drift apart.
+///
+/// Each run of [`KEY_RUN`] bytes of the key (the whole key when shorter): as
+/// is, in hex in any letter case, and in base64, standard and URL-safe, at
+/// each of the three byte alignments -- by the characters that encode only
+/// that run's bytes, so the run is found wherever it sits in a longer
+/// encoding. Other encodings (percent-escapes, base32, a reversal) are not
+/// looked for.
+pub(crate) struct KeySpellings {
+    /// Compared byte for byte.
+    exact: Vec<Vec<u8>>,
+    /// Lowercase hex, compared against the text lowercased.
+    hex: Vec<Vec<u8>>,
+}
+
+impl KeySpellings {
+    pub(crate) fn of(key: &str) -> Self {
+        let key = key.as_bytes();
+        let mut spellings = Self {
+            exact: Vec::new(),
+            hex: Vec::new(),
+        };
+        if key.is_empty() {
+            return spellings;
+        }
+        for run in key.windows(KEY_RUN.min(key.len())) {
+            spellings.exact.push(run.to_vec());
+            spellings
+                .hex
+                .push(run.iter().flat_map(|b| hex_pair(*b)).collect());
+            for skip in 0..3 {
+                let tail = &run[skip.min(run.len())..];
+                let whole = &tail[..tail.len() / 3 * 3];
+                if whole.is_empty() {
+                    continue;
+                }
+                let standard = base64(whole);
+                let url_safe: Vec<u8> = standard
+                    .iter()
+                    .map(|c| match c {
+                        b'+' => b'-',
+                        b'/' => b'_',
+                        other => *other,
+                    })
+                    .collect();
+                spellings.exact.push(standard);
+                spellings.exact.push(url_safe);
+            }
+        }
+        spellings
+    }
+
+    /// Whether `text` carries the key in one of these spellings.
+    pub(crate) fn found_in(&self, text: &[u8]) -> bool {
+        let lower = text.to_ascii_lowercase();
+        self.exact.iter().any(|spelling| holds(text, spelling))
+            || self.hex.iter().any(|spelling| holds(&lower, spelling))
+    }
+}
+
+fn holds(text: &[u8], part: &[u8]) -> bool {
+    !part.is_empty() && text.windows(part.len()).any(|window| window == part)
+}
+
+fn hex_pair(byte: u8) -> [u8; 2] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    [HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 0x0f)]]
+}
+
+/// Standard base64 of `bytes`, a whole number of 3-byte groups.
+fn base64(bytes: &[u8]) -> Vec<u8> {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::with_capacity(bytes.len() / 3 * 4);
+    for group in bytes.chunks_exact(3) {
+        let n = u32::from(group[0]) << 16 | u32::from(group[1]) << 8 | u32::from(group[2]);
+        for shift in [18, 12, 6, 0] {
+            out.push(ALPHABET[(n >> shift & 63) as usize]);
+        }
+    }
+    out
 }
 
 /// What a failure says when nothing answered within [`DEADLINE`].
