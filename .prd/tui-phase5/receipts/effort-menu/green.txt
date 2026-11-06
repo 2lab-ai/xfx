@@ -32,3 +32,6 @@ SAME effort-nolevels-40x120-level.ansi
 SAME effort-short-12x120-menu-down5.ansi
 SAME effort-short-12x120-menu-down6.ansi
 SAME effort-short-12x120-menu.ansi
+SAME slash-rank-40x120-se.ansi
+SAME slash-rank-40x120-ex.ansi
+SAME slash-rank-40x120-et.ansi

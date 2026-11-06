@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ /se
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 3
+
+  /setup      choose the model provider and how it signs in                                                  Account
+  /settings   browse and update settings                                                                     Appearance
+  /reset      reset the current session context                                                              Session
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -7457,6 +7457,39 @@ def rust_const_block(source, declaration):
     return "\n".join(line for line in lines if not line.strip().startswith("//"))
 
 
+def ranked_completions(registry, typed):
+    """The names the popup offers for `typed`, in its order, read off the registry.
+
+    Upstream's rule (`vercel-labs/fx@481104fd
+    src/core/slash_commands/command_specs.zig:520-565`): a command matches by
+    the best of its name and its aliases -- 0 for the word exactly, 1 for a
+    prefix, 2 for the word after its slash anywhere after the name's (a
+    one-character word has no substring tier) -- the name kept on a tie, and
+    the list is every rank-0 match, then every rank-1, then every rank-2, each
+    in the registry's order, shown under the spelling that matched.
+    """
+
+    def rank(command):
+        if command == typed:
+            return 0
+        if command.startswith(typed):
+            return 1
+        if len(typed) > 1 and len(command) > 1 and typed[1:] in command[1:]:
+            return 2
+        return None
+
+    matches = []
+    for spec in registry:
+        best = None
+        for spelling in [spec.name] + list(spec.aliases):
+            found = rank(spelling)
+            if found is not None and (best is None or found < best[0]):
+                best = (found, spelling)
+        if best is not None:
+            matches.append(best)
+    return [spelling for tier in (0, 1, 2) for found, spelling in matches if found == tier]
+
+
 def slash_registry():
     """`SLASH_REGISTRY` in its own order, checked against the declarations pinned to it.
 
@@ -7601,14 +7634,16 @@ def scenario_16(run):
 
     Item 13 on a real terminal. Five claims, and none of them is "a menu
     appeared": **where** it is (under the composer, in the rows a question
-    would take), **what order** it is in (name-prefix, then alias-prefix, then
-    substring), **who owns the caret** (the composer, always), **what Escape
-    does** (closes it, and keeps it closed while the same word grows), and that
-    a completed command **runs once** rather than being sent to a model.
+    would take), **what order** it is in (an exact name, then a prefix of a
+    name or an alias in the registry's order, then a substring), **who owns the
+    caret** (the composer, always), **what Escape does** (closes it, and keeps
+    it closed while the same word grows), and that a completed command **runs
+    once** rather than being sent to a model.
 
-    `/exit` is what supplies the alias tier: it is a real registry alias for
-    `/quit` rather than a fixture, so the ranking asserted here is the ranking
-    the product has.
+    `/setup` is what supplies the alias: it is a real registry alias for
+    `/provider` rather than a fixture, so the ranking asserted here is the
+    ranking the product has. (It was `/exit` for `/e` until fx v0.0.16's
+    `/effort` took that prefix; see the alias block below.)
 
     **Restated for fx's popup** (`.prd/tui-phase4/receipts/wu-b`). The menu used
     to list every command at once, marked with `> `, and a completed `/model`
@@ -7736,29 +7771,89 @@ def scenario_16(run):
 
     # --- the alias tier outranks the substring tier ------------------------
     #
-    # `/e` names no command, so the only reason `/quit` can be on this list is
-    # the `/exit` alias -- shown under its own name, as upstream's popup shows
-    # an alias that matched (`receipts/wu-b`, `filter-ex`) -- and it must be
-    # above every command that merely has an `e` in it.
+    # `/se` names `/settings`, and `/provider` is on this list for one reason:
+    # its `/setup` alias -- shown under its own name, as upstream's popup shows
+    # an alias that matched (`receipts/wu-b`, `filter-ex`). Upstream ranks an
+    # exact name, then a prefix of a name **or** an alias -- one tier, in the
+    # registry's order -- then a substring, and gives each command the best of
+    # its name and its aliases (`completionCommandMatchRank`,
+    # `bestCompletionCommandMatch`, `nthSlashCommandCompletionMatch`,
+    # `vercel-labs/fx@481104fd src/core/slash_commands/command_specs.zig:520-565`).
+    # So `/setup` is first, `/settings` after it, and `/reset` -- an `se` in
+    # the middle -- last: fx v0.0.16 shows exactly that for `/se`
+    # (`Commands 3`, `/setup`, `/settings`, `/reset`; the EF1g oracle capture).
+    #
+    # **Restated for fx v0.0.16** (EF1g). This used to type `/e`, whose only
+    # prefix was the `/exit` alias. `/effort` (`commands.zig:459@481104fd`) is a
+    # name with that prefix and comes first in the registry, so `/e` now opens
+    # on `/effort` -- in fx v0.0.16 too (`/effort`, `/exit`, then the
+    # substrings) -- and no longer pins an alias above the substrings.
     trial.send(b"\x15")
-    trial.send("/e")
+    trial.send("/se")
     trial.wait_until(
         "the menu to rank the alias above the substrings",
-        lambda _t: offered(trial.peek())[:1] == ["/exit"],
+        lambda _t: offered(trial.peek())[:1] == ["/setup"],
     )
     ranked = trial.grid("menu-alias-ranking")
-    # The substring tier, ties in registry order like every other tie -- which
-    # is the property being asserted, not the length of the list.
-    expected = ["/exit"] + [name for name in canonical if "e" in name[1:]]
-    count = (menu_header(ranked) or (0,))[0]
-    walked, _wrapped = walk_menu(trial, count, "the /e menu")
+    expected = ranked_completions(registry, "/se")
+    substrings = [at for at, name in enumerate(expected) if not name.startswith("/se")]
     run.require(
-        count == len(expected) and [name for name, _category in walked] == expected,
-        "the alias prefix outranks every substring, ties in registry order: %r" % (walked,),
+        expected[:1] == ["/setup"] and bool(substrings),
+        "the registry gives /se an alias first and a substring after it, or this pins nothing: %r"
+        % (expected,),
     )
     run.require(
-        bool(walked) and walked[0][1] == next(spec.category for spec in registry if "/exit" in spec.aliases),
+        expected.index("/setup") < min(substrings),
+        "the alias is above every substring in the expected list: %r" % (expected,),
+    )
+    count = (menu_header(ranked) or (0,))[0]
+    walked, _wrapped = walk_menu(trial, count, "the /se menu")
+    run.require(
+        count == len(expected) and [name for name, _category in walked] == expected,
+        "the alias prefix outranks every substring: %r" % (walked,),
+    )
+    run.require(
+        bool(walked) and walked[0][1] == next(spec.category for spec in registry if "/setup" in spec.aliases),
         "the alias is filed under its command's category: %r" % (walked[:1],),
+    )
+
+    # --- ties in the substring tier keep the registry's order ---------------
+    #
+    # `/et` is all substring: `/reset`, the `/setup` alias, `/settings` -- each
+    # with an `et` after its slash and none starting with it -- and upstream
+    # lists them in the registry's order, the alias under its own name
+    # (`nthSlashCommandCompletionMatch`,
+    # `src/core/slash_commands/command_specs.zig:549-565@481104fd`; fx v0.0.16
+    # shows `/reset`, `/setup`, `/settings`, identical to xfx, in
+    # `.prd/tui-phase5/receipts/effort-menu`). That order is neither the
+    # names' alphabetical one (`/settings` before `/setup`) nor the match's
+    # position (`/setup` before `/reset`), so a menu that sorted its ties
+    # either way would fail here. The old `/e` probe pinned this over some
+    # twenty substrings; `/se`'s tier is one entry and cannot.
+    # Waited for by the draft as well as by the list: `/se`'s menu has as many
+    # entries as this one, so a list read before `/et` is in the composer
+    # would be the last probe's.
+    expected = ranked_completions(registry, "/et")
+    trial.send(b"\x15")
+    trial.send("/et")
+    trial.wait_until(
+        "the menu to list the substrings of /et",
+        lambda _t: composer_text(trial.peek()) == "/et"
+        and (menu_header(trial.peek()) or (0,))[0] == len(expected)
+        and set(offered(trial.peek())) == set(expected[:6]),
+    )
+    tied = trial.grid("menu-substring-ties")
+    run.require(
+        len(expected) >= 2 and not any(name.startswith("/et") for name in expected),
+        "the registry gives /et a substring tier of two or more and nothing else, or this pins "
+        "no tie order: %r" % (expected,),
+    )
+    count = (menu_header(tied) or (0,))[0]
+    walked, _wrapped = walk_menu(trial, count, "the /et menu")
+    run.require(
+        count == len(expected) and [name for name, _category in walked] == expected,
+        "the substring tier keeps the registry's order, an alias under its own name: %r"
+        % (walked,),
     )
 
     # --- a word that names nothing lists nothing ---------------------------

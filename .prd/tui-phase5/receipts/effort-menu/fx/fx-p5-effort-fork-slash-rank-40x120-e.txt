@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ /e
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 23                                                                                                         1–6
+
+  /effort   choose the reasoning effort for the current model                                                   Model
+  /exit     exit the interactive shell                                                                          General
+  /help     show available slash commands                                                                       General
+  /clear    start a fresh conversation while keeping managed processes                                          General
+  /new      start a fresh session                                                                               Session
+  /reset    reset the current session context                                                                   Session
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
