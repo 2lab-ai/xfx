@@ -910,11 +910,12 @@ fn approval_body(row: Row, cols: u16) -> Vec<String> {
 }
 
 #[test]
-fn a_one_row_entry_never_draws_a_wrapped_piece_as_a_row_of_its_own() {
+fn a_one_row_address_never_draws_a_wrapped_piece_as_a_header_row() {
     // opus-B MUST: a command line or an address the width wraps went on four
     // columns in, as a row of the entry's own does, so `.mcp.json` could
     // draw a variable or a header the child is never given. Every piece a
-    // row wraps onto is led by `↳ `, whatever the entry holds.
+    // row wraps onto is led by `↳ `, whatever the entry holds. An address
+    // `validate_endpoint` takes, at any width:
     use crate::mcp::config::ServerConfig;
     let url = format!(
         "https://a.example/mcp?q={}header: X-Team: blue",
@@ -933,6 +934,14 @@ fn a_one_row_entry_never_draws_a_wrapped_piece_as_a_row_of_its_own() {
             );
         }
     }
+}
+
+#[test]
+fn a_one_row_command_line_never_draws_a_wrapped_piece_as_a_variable_row() {
+    // The same for a command line, whose bare words line up with the width:
+    // `/bin/sh server.sh env: PATH=./x` at 22-26 columns is the entry
+    // "`/bin/sh server.sh` with `PATH=./x`" unless its second piece is led.
+    use crate::mcp::config::ServerConfig;
     let mut stdio = pending("proj");
     stdio.entry = shown(&ServerConfig::local(
         "proj",
