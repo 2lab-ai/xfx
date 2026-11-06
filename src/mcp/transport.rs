@@ -1732,6 +1732,28 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[cfg(unix)]
     const DEAF: &str = r#"sleep 120 & echo "$$ $!" > "$1"; exec sleep 120"#;
 
+    /// [`DEAF`], but the server takes the first byte of its input, says so
+    /// in `$1.began`, and only then stops reading. `dd bs=1 count=1` reads
+    /// exactly that byte.
+    #[cfg(unix)]
+    const DEAF_AFTER_A_BYTE: &str = r#"sleep 120 & echo "$$ $!" > "$1"; dd bs=1 count=1 of=/dev/null 2>/dev/null; : > "$1.began"; exec sleep 120"#;
+
+    /// Waits until the [`DEAF_AFTER_A_BYTE`] server of [`deaf_server`]'s
+    /// `dir` has taken the first byte of a frame. That frame is under way
+    /// from then on, whatever the scheduler does: every look that would hold
+    /// it back whole (`Input::take`, and `Input::push` before its first
+    /// write) came before that write, and the write has happened. The rest of
+    /// an [`oversized_call`] waits on the full pipe.
+    #[cfg(unix)]
+    fn await_first_byte(dir: &tempfile::TempDir) {
+        let began = dir.path().join("pids.began");
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !began.exists() {
+            assert!(Instant::now() < deadline, "the frame never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// More than any pipe buffer holds (64 KiB on Linux and macOS).
     #[cfg(unix)]
     fn oversized_call() -> Value {
@@ -1851,7 +1873,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[cfg(unix)]
     #[test]
     fn a_request_to_a_server_that_never_reads_stops_at_its_cancellation() {
-        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
+        let (transport, (leader, grandchild), dir) = deaf_server(DEAF_AFTER_A_BYTE);
         let cancel = CancelToken::new();
         let caller = Arc::clone(&transport);
         let token = cancel.clone();
@@ -1865,7 +1887,11 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             );
             let _ = done.send(result);
         });
-        std::thread::sleep(Duration::from_millis(300));
+        // Cancelled once part of the frame has gone. A fixed wait raced the
+        // frame's serialization, which comes before any of it is written: on
+        // a loaded CI runner the cancellation came first, held the frame back
+        // whole, and left the connection up (2026-11-06).
+        await_first_byte(&dir);
         cancel.cancel();
         let result = finished.recv_timeout(Duration::from_secs(20)).expect(
             "the request outlived its cancellation: its write to the full pipe does not look",
@@ -1885,7 +1911,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[cfg(unix)]
     #[test]
     fn close_stops_a_server_that_never_reads_while_a_write_to_it_is_blocked() {
-        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
+        let (transport, (leader, grandchild), dir) = deaf_server(DEAF_AFTER_A_BYTE);
         let caller = Arc::clone(&transport);
         let (done, finished) = mpsc::channel();
         std::thread::spawn(move || {
@@ -1897,19 +1923,11 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             );
             let _ = done.send(result);
         });
-        // The request is registered, and then a moment for its write to fill
-        // the pipe and block.
-        let deadline = Instant::now() + Duration::from_secs(60);
-        while transport
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_empty()
-        {
-            assert!(Instant::now() < deadline, "the request never started");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        std::thread::sleep(Duration::from_millis(300));
+        // The write is under way, and the writer has the pipe out of the
+        // input for good: the rest of the frame can never fit. A fixed wait
+        // instead could close before the frame was serialized, while no write
+        // held the pipe, and pass without the case it names.
+        await_first_byte(&dir);
         let closer = Arc::clone(&transport);
         let ((), took) = within(Duration::from_secs(20), move || closer.close()).expect(
             "close never returned: it waits for the input a blocked write holds, and the server runs on",
