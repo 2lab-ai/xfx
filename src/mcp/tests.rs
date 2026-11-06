@@ -1878,7 +1878,10 @@ fn a_server_held_mid_handshake_is_gone_before_its_replacement_starts() {
     let (old_pid, verdict) = (home.dir.path().join("old"), home.dir.path().join("verdict"));
     config::add_profile_server(&home.profile(), holding_server("slow", &old_pid)).expect("saved");
     let runtime = home.runtime();
-    runtime.start();
+    // The startup reload over first: a reload asked for while it runs is
+    // folded into it and returns at once, which would read as a stop that
+    // did not wait.
+    runtime.start_and_wait(WAIT);
     let pid = pid_written(&old_pid);
     assert_eq!(runtime.views()[0].connection, Connection::Connecting);
     let mut replacement = ServerConfig::local(
@@ -1917,7 +1920,7 @@ fn a_server_held_mid_handshake_is_gone_when_a_reload_removes_it_or_the_session_e
         .expect("saved");
     config::add_profile_server(&home.profile(), holding_server("ended", &ended)).expect("saved");
     let runtime = home.runtime();
-    runtime.start();
+    runtime.start_and_wait(WAIT);
     let (removed_pid, ended_pid) = (pid_written(&removed), pid_written(&ended));
     assert!(config::remove_profile_server(&home.profile(), "removed").expect("removed"));
     runtime.reload(super::runtime::Origin::Transcript);
@@ -1967,14 +1970,17 @@ fn a_feature_request_during_a_startup_backoff_waits_for_the_next_try() {
         assert!(Instant::now() < deadline, "flaky never retried");
         std::thread::sleep(Duration::from_millis(2));
     }
+    // Both asked during the backoff, each on its own: the prompt read does
+    // not ride on the resource read's wait.
+    let prompts = {
+        let runtime = Arc::clone(&runtime);
+        std::thread::spawn(move || runtime.list_prompts("flaky", None))
+    };
     let resources = runtime
         .list_resources("flaky", false, None)
         .expect("resources");
     assert_eq!(resources.len(), 1, "{resources:?}");
-    assert_eq!(
-        runtime.list_prompts("flaky", None).expect("prompts").len(),
-        1
-    );
+    assert_eq!(prompts.join().expect("joined").expect("prompts").len(), 1);
     runtime.shutdown();
 }
 
@@ -2012,6 +2018,16 @@ fn an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not(
     let deadline = Instant::now() + WAIT;
     while tries() < 16 {
         assert!(Instant::now() < deadline, "the reload started nothing");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
+    // And the menu's `r`, the same reload.
+    runtime.run(Job::MenuReload);
+    while tries() < 24 {
+        assert!(
+            Instant::now() < deadline,
+            "the menu's reload started nothing"
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
@@ -2127,4 +2143,207 @@ fn a_servers_hostile_stderr_reaches_capability_search_spelled_and_bounded() {
     );
     assert!(tail.len() <= 240, "{}", tail.len());
     runtime.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// MCP-Sc: a failed handshake's own teardown is the stop's to wait for
+// ---------------------------------------------------------------------------
+
+/// A server that writes its pid, ignores `SIGTERM` (an ignored signal stays
+/// ignored across `exec`) and never answers: its try fails at a 200 ms
+/// startup timeout and then reads its stderr, waits for its exit and closes
+/// it -- a close that has to wait out the grace and kill it. Gone by itself
+/// after 20 s.
+fn stubborn_server(name: &str, pid: &Path) -> ServerConfig {
+    let mut server = ServerConfig::local(
+        name,
+        "/bin/sh",
+        &[
+            "-c".into(),
+            "trap '' TERM; echo $$ > \"$1\"; exec sleep 20".into(),
+            "sh".into(),
+            pid.to_string_lossy().into_owned(),
+        ],
+    );
+    server.startup_timeout_ms = 200;
+    server
+}
+
+/// One try only, so the failed one is not followed by another.
+const ONE_TRY: Retry = Retry {
+    attempts: 1,
+    first: Duration::from_millis(1),
+    cap: Duration::from_millis(1),
+};
+
+#[test]
+fn a_reload_during_a_failed_handshakes_teardown_returns_only_once_the_child_is_gone() {
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), stubborn_server("slow", &pid_file)).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    // Past the 200 ms timeout, inside the teardown that follows it.
+    std::thread::sleep(Duration::from_millis(350));
+    assert!(config::remove_profile_server(&home.profile(), "slow").expect("removed"));
+    runtime.reload(super::runtime::Origin::Transcript);
+    assert!(
+        !running(pid),
+        "the reload returned with the old child alive"
+    );
+    assert!(!group_left(pid), "its group outlived the reload");
+    runtime.shutdown();
+}
+
+#[test]
+fn the_end_of_a_session_during_a_failed_handshakes_teardown_waits_for_the_child() {
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), stubborn_server("slow", &pid_file)).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    std::thread::sleep(Duration::from_millis(350));
+    runtime.shutdown();
+    assert!(!running(pid), "the session ended with the child alive");
+    assert!(!group_left(pid), "its group outlived the session");
+}
+
+#[test]
+fn an_explicit_reload_starts_again_a_ready_server_whose_process_died() {
+    // Every surface reads a ready server whose connection has gone as
+    // failed (`observedConnection`); `/mcp reload` restarts it as one.
+    let home = Home::new();
+    let log = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), logged_server("fixture", &log, "one"))
+        .expect("saved");
+    let runtime = home.runtime();
+    runtime.start_and_wait(WAIT);
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    let first = pid_in(&log);
+    rustix::process::kill_process(
+        rustix::process::Pid::from_raw(first).expect("pid"),
+        rustix::process::Signal::KILL,
+    )
+    .expect("killed");
+    let deadline = Instant::now() + WAIT;
+    while settled(&runtime, "fixture").status() != Status::Failed {
+        assert!(Instant::now() < deadline, "its death was never seen");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    runtime.run(Job::Command("reload".into()));
+    while pid_in(&log) == first || settled(&runtime, "fixture").status() != Status::Ready {
+        assert!(
+            Instant::now() < deadline,
+            "the reload did not start it again"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    runtime.shutdown();
+}
+
+/// A hook that holds every try at `point` until released, and says when one
+/// got there.
+#[cfg(feature = "fault-injection")]
+#[allow(clippy::type_complexity)]
+fn holding_at(
+    point: super::runtime::Hold,
+) -> (
+    impl Fn(super::runtime::Hold) + Send + Sync + 'static,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let (reached, arrived) = std::sync::mpsc::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (reached, released) = (Mutex::new(reached), Mutex::new(released));
+    let hook = move |at: super::runtime::Hold| {
+        if at == point {
+            let _ = reached.lock().unwrap().send(());
+            let _ = released.lock().unwrap().recv_timeout(WAIT);
+        }
+    };
+    (hook, arrived, release)
+}
+
+/// `runtime.shutdown()` on a thread of its own, and a way to know it ended.
+#[cfg(feature = "fault-injection")]
+fn shutting_down(runtime: &Arc<McpRuntime>) -> std::sync::mpsc::Receiver<()> {
+    let (done, ended) = std::sync::mpsc::channel();
+    let runtime = Arc::clone(runtime);
+    std::thread::spawn(move || {
+        runtime.shutdown();
+        let _ = done.send(());
+    });
+    ended
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_stop_waits_for_a_try_held_before_its_hand_over_which_then_closes_its_own_process() {
+    // The window between starting a process and handing it to the server: a
+    // stop there finds nothing to close, waits for the try (`Live::opening`),
+    // and the try, finding the server stopped, closes its own
+    // (`Server::hand_over`).
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    config::add_profile_server(&home.profile(), holding_server("slow", &pid_file)).expect("saved");
+    let runtime = home.runtime();
+    let (hook, arrived, release) = holding_at(super::runtime::Hold::BeforeHandOver);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    arrived
+        .recv_timeout(WAIT)
+        .expect("the try reached its hand-over");
+    let pid = pid_written(&pid_file);
+    let ended = shutting_down(&runtime);
+    assert!(
+        ended.recv_timeout(Duration::from_millis(400)).is_err(),
+        "the stop did not wait for the try"
+    );
+    release.send(()).expect("released");
+    // At once: the try closes its own process rather than going on to a
+    // handshake only its 20-second timeout would end.
+    ended
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the stop ended with the try's own close");
+    assert!(
+        !running(pid) && !group_left(pid),
+        "the try's process outlived the stop"
+    );
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_stop_waits_for_a_failed_try_closing_its_own_process() {
+    // A failed try has taken its process back and is about to close it: a
+    // stop then finds nothing to close and waits for that close.
+    let home = Home::new();
+    let pid_file = home.dir.path().join("pid");
+    let mut server = holding_server("slow", &pid_file);
+    server.startup_timeout_ms = 200;
+    config::add_profile_server(&home.profile(), server).expect("saved");
+    let runtime = home.runtime();
+    runtime.set_retry(ONE_TRY);
+    let (hook, arrived, release) = holding_at(super::runtime::Hold::BeforeOwnClose);
+    runtime.set_hold(hook);
+    runtime.start_and_wait(WAIT);
+    let pid = pid_written(&pid_file);
+    arrived
+        .recv_timeout(WAIT)
+        .expect("the try failed and took its process back");
+    let ended = shutting_down(&runtime);
+    assert!(
+        ended.recv_timeout(Duration::from_millis(400)).is_err(),
+        "the stop did not wait for the try's own close"
+    );
+    assert!(running(pid), "closed before the try was released");
+    release.send(()).expect("released");
+    ended.recv_timeout(WAIT).expect("the stop ended");
+    assert!(
+        !running(pid) && !group_left(pid),
+        "the try's process outlived the stop"
+    );
 }

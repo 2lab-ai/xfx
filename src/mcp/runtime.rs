@@ -113,25 +113,45 @@ impl Retry {
     }
 }
 
-/// The longest a stop waits for a try that was handing its process over:
-/// that try closes the process itself, a group signal and a grace period.
-const STOP_WAIT: Duration = Duration::from_millis(3_500);
+/// The longest a stop waits for a try to end. A stop closes the connection
+/// a try has handed over, which ends its handshake at once; what is left is
+/// the try's own close of a process it still holds -- the group's grace
+/// (0.5 s) and, for a `docker run`, its container's removal (15 s,
+/// [`super::docker`]) -- the same close a stop of a ready server waits for.
+const STOP_WAIT: Duration = Duration::from_secs(20);
 
-/// A try under way ([`Live::opening`]): marked when it begins and cleared,
-/// with whoever waits on it told, however it ends.
+/// A try under way ([`Live::opening`]), from before it starts a process
+/// until it has published that process or closed it: marked when it begins
+/// and cleared, with whoever waits on it told, however it ends.
 struct Opening<'a>(&'a Server);
 
 impl<'a> Opening<'a> {
-    /// Marks a try on `server`, unless it was stopped.
+    /// Marks a try on `server`, unless it was stopped or another try is
+    /// under way (a call's restart beside another): one try at a time owns
+    /// the server's process.
     fn begin(server: &'a Server) -> Option<Self> {
         let mut live = server.live();
-        if server.stopped.load(Ordering::Acquire) {
+        if server.stopped.load(Ordering::Acquire) || live.opening || live.starting.is_some() {
             return None;
         }
         live.opening = true;
         Some(Self(server))
     }
 }
+
+/// Where a test may hold a try (the tests of a `fault-injection` build only;
+/// no binary carries it): just before
+/// its process is handed over, and once a failed one has its process back
+/// and is about to close it itself.
+#[cfg(all(test, feature = "fault-injection"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hold {
+    BeforeHandOver,
+    BeforeOwnClose,
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+type HoldHook = Arc<dyn Fn(Hold) + Send + Sync>;
 
 impl Drop for Opening<'_> {
     fn drop(&mut self) {
@@ -513,14 +533,18 @@ impl Server {
         self.live.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn view(&self, reloading: bool) -> ServerView {
-        let live = self.live();
-        // A ready server whose connection has gone is a failed one
-        // (`observedConnection`, `health.zig:16-22`).
-        let connection = match (&live.transport, live.connection) {
+    /// Its state as every surface reads it: a ready server whose connection
+    /// has gone is a failed one (`observedConnection`, `health.zig:16-22`).
+    fn observed(live: &Live) -> Connection {
+        match (&live.transport, live.connection) {
             (Some(transport), Connection::Ready) if !transport.alive() => Connection::Failed,
             (_, connection) => connection,
-        };
+        }
+    }
+
+    fn view(&self, reloading: bool) -> ServerView {
+        let live = self.live();
+        let connection = Self::observed(&live);
         ServerView {
             name: self.config.name.clone(),
             source: self.config.source,
@@ -714,6 +738,10 @@ pub struct McpRuntime {
     /// How many tries a server gets in a row, and how long it waits between
     /// them ([`Retry`]).
     retry: Mutex<Retry>,
+    /// Set by [`Self::shutdown`]: no reload starts a server after it.
+    closed: AtomicBool,
+    #[cfg(all(test, feature = "fault-injection"))]
+    hold: Mutex<Option<HoldHook>>,
     /// What the environment says, for a workspace server's `${VAR}` and an
     /// HTTP server's `header_env` and `bearer_token_env`. A workspace server
     /// never gets xfx's own credentials from it: `config::load_workspace`
@@ -751,6 +779,9 @@ impl McpRuntime {
             generation: AtomicU64::new(0),
             started: Mutex::new(None),
             retry: Mutex::new(Retry::FX),
+            closed: AtomicBool::new(false),
+            #[cfg(all(test, feature = "fault-injection"))]
+            hold: Mutex::new(None),
             environment: Box::new(|name| std::env::var(name).ok()),
         })
     }
@@ -774,6 +805,24 @@ impl McpRuntime {
 
     fn retry(&self) -> Retry {
         *self.retry.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Holds every try at the [`Hold`] points through `hook`.
+    #[cfg(all(test, feature = "fault-injection"))]
+    pub(crate) fn set_hold(&self, hook: impl Fn(Hold) + Send + Sync + 'static) {
+        *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(hook));
+    }
+
+    #[cfg(all(test, feature = "fault-injection"))]
+    fn held(&self, at: Hold) {
+        let hook = self
+            .hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook(at);
+        }
     }
 
     /// A runtime that reads no file: a test's, or a session with no profile.
@@ -1068,6 +1117,9 @@ impl McpRuntime {
     /// Reads both files again and connects what changed, telling `origin`
     /// how it went. A reload asked for while one runs runs after it.
     pub fn reload(self: &Arc<Self>, origin: Origin) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         {
             let mut state = self.state();
             if state.reloading {
@@ -1085,8 +1137,8 @@ impl McpRuntime {
             self.reload_once(origin);
             let mut state = self.state();
             match state.again.take() {
-                Some(next) => origin = next,
-                None => {
+                Some(next) if !self.closed.load(Ordering::Acquire) => origin = next,
+                _ => {
                     state.reloading = false;
                     break;
                 }
@@ -1131,7 +1183,7 @@ impl McpRuntime {
             let kept = current.iter().find(|server| {
                 server.config == config
                     && !server.stopped.load(Ordering::Acquire)
-                    && !(reconnect && server.live().connection == Connection::Failed)
+                    && !(reconnect && Server::observed(&server.live()) == Connection::Failed)
             });
             let server = match kept {
                 Some(server) => Arc::clone(server),
@@ -1162,6 +1214,10 @@ impl McpRuntime {
         self.generation.fetch_add(1, Ordering::AcqRel);
         self.present_prompt();
         self.say(Event::Changed);
+        // None once the session is ending: what it stops is what is in force.
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         // Each on a thread of its own, tried until it is up or out of tries;
         // nobody waits for them.
         for server in connecting {
@@ -1242,28 +1298,37 @@ impl McpRuntime {
             ),
             Kind::Sse => return Err(started(McpError::Named("McpTransportUnsupported"))),
         };
+        #[cfg(all(test, feature = "fault-injection"))]
+        self.held(Hold::BeforeHandOver);
         if !server.hand_over(&transport) {
             return Ok(());
         }
-        drop(_opening);
+        // `_opening` is held to the end of the try, its own teardown
+        // included: a stop that finds nothing to close waits for it.
         let result = self.handshake(server, &transport, &left);
         let (version, capabilities, instructions, tools) = match result {
             Ok(found) => found,
             Err((step, error)) => {
-                // A stop closed it, and is the reason: nothing to tell.
-                if server.take_back().is_none() || server.stopped.load(Ordering::Acquire) {
-                    transport.close();
+                // What a stdio server said on its way out, and how it ended,
+                // read while the connection is still the server's: a stop now
+                // closes it itself, and these end at once. An HTTP server has
+                // neither.
+                let (stderr, exit) =
+                    if config.transport == Kind::Stdio && !server.stopped.load(Ordering::Acquire) {
+                        (transport.diagnostic(), transport.exit())
+                    } else {
+                        (None, None)
+                    };
+                // `None`: a stop took it and closed it, and is the reason.
+                let mine = server.take_back().is_some();
+                #[cfg(all(test, feature = "fault-injection"))]
+                if mine {
+                    self.held(Hold::BeforeOwnClose);
+                }
+                transport.close();
+                if !mine || server.stopped.load(Ordering::Acquire) {
                     return Ok(());
                 }
-                // What a stdio server said on its way out, and how it ended,
-                // both read before it is stopped: a stop would end it itself.
-                // An HTTP server has neither.
-                let (stderr, exit) = if config.transport == Kind::Stdio {
-                    (transport.diagnostic(), transport.exit())
-                } else {
-                    (None, None)
-                };
-                transport.close();
                 return Err(Box::new(Failed::new(step, error, exit, stderr.as_deref())));
             }
         };
@@ -1674,31 +1739,37 @@ impl McpRuntime {
     /// A ready server's connection, started again when it has gone and a
     /// restart is left.
     fn transport(&self, server: &Arc<Server>) -> Result<Arc<dyn Transport>, McpError> {
-        let (transport, restarts) = {
-            let live = server.live();
-            (live.transport.clone(), live.restarts)
+        // Looked at and, for a restart, counted under one lock: two calls
+        // that find it gone spend one restart, and one try runs
+        // ([`Opening::begin`]).
+        let (transport, restart) = {
+            let mut live = server.live();
+            let transport = live.transport.clone();
+            let restart = transport
+                .as_ref()
+                .is_some_and(|transport| !transport.alive())
+                && server.config.transport == Kind::Stdio
+                && live.restarts < server.config.restart_limit;
+            if restart {
+                live.restarts += 1;
+            }
+            (transport, restart)
         };
         match transport {
             Some(transport) if transport.alive() => Ok(transport),
-            Some(_)
-                if server.config.transport == Kind::Stdio
-                    && restarts < server.config.restart_limit =>
-            {
-                server.live().restarts = restarts + 1;
-                match self.open(server) {
-                    Ok(()) => server
-                        .live()
-                        .transport
-                        .clone()
-                        .ok_or(McpError::Named("McpConnectionClosed")),
-                    Err(failed) => {
-                        let mut live = server.live();
-                        live.connection = Connection::Failed;
-                        live.failure = Some(failed.words);
-                        Err(McpError::Restart(failed.error.to_string()))
-                    }
+            Some(_) if restart => match self.open(server) {
+                Ok(()) => server
+                    .live()
+                    .transport
+                    .clone()
+                    .ok_or(McpError::Named("McpConnectionClosed")),
+                Err(failed) => {
+                    let mut live = server.live();
+                    live.connection = Connection::Failed;
+                    live.failure = Some(failed.words);
+                    Err(McpError::Restart(failed.error.to_string()))
                 }
-            }
+            },
             Some(_) => Err(McpError::Restart(
                 server
                     .live()
@@ -1974,10 +2045,21 @@ impl McpRuntime {
 
     /// Stops every server. What the session does on its way out.
     pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
         self.jobs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
+        // A reload under way puts its set in force, and stops what it
+        // dropped, before the servers in force are stopped; it starts none
+        // once `closed` is set.
+        let deadline = Instant::now() + STOP_WAIT;
+        while Instant::now() < deadline && {
+            let state = self.state();
+            state.reloading
+        } {
+            std::thread::sleep(Duration::from_millis(5));
+        }
         let servers = std::mem::take(&mut self.state().servers);
         for server in servers {
             server.stop();
