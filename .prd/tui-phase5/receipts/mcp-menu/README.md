@@ -527,6 +527,18 @@ on `8c422be9` (the first fix) the 40-column case answers,
 `Run(Remove { name: "", file: Profile })` beside a 29-cell question in a room
 of 28.
 
+MCP-Mf gates on `12bb81ac`, one run (the receipt commit after it changes
+this directory only): fmt ok; clippy ok, both feature sets; `cargo test` 4699
+/ 0 (lib 3816 and 7 ignored, 3823 as MCP-Me's count; `tui::mcp_menu` 33,
+`mcp::tests` 45, `mcp::config::tests` 59, `tests/mcp.rs` 5);
+`--features fault-injection` 4728 / 0 (lib 3831 and 7 ignored, `mcp::tests`
+53); identity, stubs, secrets ok (7301 files); release and faulty release
+builds ok; `smoke.sh` 46 / 0; `smoke-tui.sh` 37 scenarios + the oracle,
+1091 / 0; `tests/permissions.rs`
+`a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out`
+alone 3 of 3 (0.30-0.31 s). No pairs run: the change bites under 44 columns
+only, which no `p5-mcp-*` scenario at 40x120 draws.
+
 ## smoke-tui and the pty cases
 
 `scripts/smoke-tui.sh` has no scenario that meets the trust prompt (it opens
