@@ -173,3 +173,55 @@ At `22abd5c0` (the code and tests; later commits touch only this receipt), on
 The first full run at `f36ad428` failed four `tests/tui.rs` cases that still
 held the ledger (two bill tests, two compaction frames); `22abd5c0` updates
 them (above), and the table is the run after.
+
+## US-U5b: the review round's SHOULDs (tests only)
+
+Both engines approved `28e61d81` with no MUST. Tests only, at `205db24f`:
+
+- **The lost-request pin** (opus SHOULD 1). The base pinned
+  `assert!(*unaccounted, "the lost one may have been billed")`; the rewrite
+  ran a completed step first, so `may_have_billed` → `spent`
+  (`src/agent/machine.rs`, the step's error arm) and a steer's `sent` →
+  `spent` (the `Stepped::Steered` arm) had no test of their own.
+  `tests/tool_loop.rs` `a_turn_whose_only_request_was_lost_after_it_was_sent_writes_its_frame`
+  (a broken stream after part of the answer, and a stop: the frame is
+  `{None, None, Some(3)}`) and `a_request_a_steer_cut_off_makes_a_refused_turns_frame_due`
+  (the steer cuts call 1 after `PARTIAL `, call 2 is a `400`: the frame is
+  still written). Mutants M9 (the error arm's `self.spent = true` removed) and
+  M10 (the steer arm's) on a clone at `205db24f`: `mutants.txt`.
+- **The replay assertion** (gpt6 SHOULD 1). `the_ledger_builds_session_resumes_replays_and_appends_without_its_fields`
+  now reads the request's `prompt` message by message: 12 messages, roles
+  `user/assistant` x4, the cut turn's `<turn_aborted>` user message, then
+  `user/assistant/user`; texts exact, `LEDGER-THREE rejected later` included,
+  and the cut answer as `LEDGER-FOUR cut short` + the ended-early sentence.
+  `session --json`'s `total_input_tokens` and `total_output_tokens` are
+  15600 and 920 exactly.
+- **Bounded CLI runs** (gpt6 SHOULD 2). Every `xfx` run in
+  `tests/ledger_compat.rs` goes through `run`: 60 s, then the test's own
+  child is killed and reaped and the test fails; both pipes drained on
+  threads. (The repo has no shared helper for a non-pty child; the pty
+  sessions already have `WAIT`.)
+- **Optional** (opus). The old out-of-turn compaction frame (null totals and
+  `requests`; and `requests: []` with `unaccounted`) decodes as nothing
+  (`a_usage_frame_the_ledger_wrote_reads_as_its_totals`) and, applied after
+  the fixture's last turn, adds nothing and changes no turn
+  (`a_session_the_ledger_build_wrote_replays_its_turns_and_totals`). The two
+  stale "spend `/usage` counts" comments in `tests/tool_loop.rs` are
+  reworded.
+
+### US-U5b gates
+
+At `205db24f` (tests and this receipt only since `22abd5c0`: the `src/` edits
+are inside `#[cfg(test)]` modules), short `TMPDIR`, `FX_AUTO_UPGRADE=0`.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`, and `--features fault-injection` | ok; ok, ok |
+| `cargo test --locked --no-fail-fast` | 15 result lines ok: 4829 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4857 passed, 1 failed: `tui::worker::tests::a_switch_to_ask_mid_turn_gates_that_turns_next_tool_call` (*auto did not admit both writes*), a file this unit does not touch; alone, three times: 1 passed each (0.61 s, 0.61 s, 0.44 s). It passed in the `22abd5c0` run (4856/0) |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok (9389 files), ok, ok |
+| release and faulty builds; `scripts/smoke.sh target/release/xfx` | ok, ok; 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+| `scripts/check-usage-clock.sh` | ok |
+| mutants (`mutants.txt`) | 10 of 10 killed at `205db24f` |
+| `tests/ledger_compat.rs` alone | 5 passed, three runs |

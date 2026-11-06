@@ -61,6 +61,18 @@ MUTANTS = {
           "        if let Err(err) = outcome {\n            self.failure = Some(format!(\"cannot record the `{kind}` session event: {err}\"));\n        } else if kind == \"usage_recorded\" {\n            let path = self.store.profile_dir().join(\"usage.json\");\n            if std::fs::symlink_metadata(&path).is_ok() {\n                let _ = std::fs::write(&path, \"{\\\"tracking_started_at_ms\\\":1}\\n\");\n            }\n        }\n")],
         [["--test", "ledger_compat", "an_old_usage_json_is_left_as_it_was"]],
     ),
+    "M9-lost-request-not-spent": (
+        [("src/agent/machine.rs",
+          "                        if may_have_billed(&err) {\n                            self.spent = true;\n                        }\n",
+          "                        let _ = may_have_billed(&err);\n")],
+        [["--test", "tool_loop", "a_turn_whose_only_request_was_lost_after_it_was_sent_writes_its_frame"]],
+    ),
+    "M10-steered-request-not-spent": (
+        [("src/agent/machine.rs",
+          "                    if sent {\n                        self.spent = true;\n                    }\n",
+          "                    let _ = sent;\n")],
+        [["--test", "tool_loop", "a_request_a_steer_cut_off_makes_a_refused_turns_frame_due"]],
+    ),
 }
 
 

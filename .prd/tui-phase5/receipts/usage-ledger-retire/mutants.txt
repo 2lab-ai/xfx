@@ -1,6 +1,6 @@
-# Eight mutants, one at a time, on a `git clone --no-local` at 270e0a09
-# (scratch), each reverted with `git checkout -- .` before the next; the
-# driver is mutants.py beside this file. KILLED = the named test failed.
+# US-U5: eight mutants, one at a time, on a `git clone --no-local` at
+# 270e0a09 (scratch), each reverted with `git checkout -- .` before the next;
+# the driver is mutants.py beside this file. KILLED = the named test failed.
 
 M1-completed-step-not-spent [('a_turn_that_failed_after_a_request_still_writes_its_summary_frame', 'KILLED')]
 M2-compaction-not-spent [('a_turn_a_compaction_spent_on_writes_its_frame_though_its_request_is_refused', 'KILLED')]
@@ -10,3 +10,16 @@ M5-variant-denies-unknown-fields [('a_frame_the_ledger_wrote_decodes_and_encodes
 M6-binary-holds-the-bill-route [('the_binary_holds_no_bill_route_and_no_ledger_file_name', 'KILLED')]
 M7-commit-writes-usage-json [('a_saved_turn_records_its_tokens_and_no_usage_ledger', 'KILLED'), ('the_binary_holds_no_bill_route_and_no_ledger_file_name', 'KILLED')]
 M8-commit-rewrites-an-old-usage-json [('an_old_usage_json_is_left_as_it_was', 'KILLED')]
+
+# US-U5b: all ten (M9, M10 new) on the same clone moved to 205db24f.
+
+M1-completed-step-not-spent [('a_turn_that_failed_after_a_request_still_writes_its_summary_frame', 'KILLED')]
+M2-compaction-not-spent [('a_turn_a_compaction_spent_on_writes_its_frame_though_its_request_is_refused', 'KILLED')]
+M3-frame-only-on-success [('a_turn_that_failed_after_a_request_still_writes_its_summary_frame', 'KILLED'), ('a_turn_a_compaction_spent_on_writes_its_frame_though_its_request_is_refused', 'KILLED')]
+M4-lost-notes-request-not-spent [('a_notes_request_answered_or_lost_is_spent_and_one_refused_is_not', 'KILLED')]
+M5-variant-denies-unknown-fields [('a_frame_the_ledger_wrote_decodes_and_encodes_without_the_ledger', 'KILLED'), ('a_session_the_ledger_build_wrote_replays_its_turns_and_totals', 'KILLED'), ('the_ledger_builds_session_resumes_replays_and_appends_without_its_fields', 'KILLED')]
+M6-binary-holds-the-bill-route [('the_binary_holds_no_bill_route_and_no_ledger_file_name', 'KILLED')]
+M7-commit-writes-usage-json [('a_saved_turn_records_its_tokens_and_no_usage_ledger', 'KILLED'), ('the_binary_holds_no_bill_route_and_no_ledger_file_name', 'KILLED')]
+M8-commit-rewrites-an-old-usage-json [('an_old_usage_json_is_left_as_it_was', 'KILLED')]
+M9-lost-request-not-spent [('a_turn_whose_only_request_was_lost_after_it_was_sent_writes_its_frame', 'KILLED')]
+M10-steered-request-not-spent [('a_request_a_steer_cut_off_makes_a_refused_turns_frame_due', 'KILLED')]
