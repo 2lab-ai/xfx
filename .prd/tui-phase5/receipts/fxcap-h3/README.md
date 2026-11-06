@@ -90,8 +90,14 @@ check-usage-clock: release, fault injection: ignored (release)
 check-usage-clock: ok
 ```
 
-(`Finished `release` profile [optimized]`, `target/release/deps/xfx-…` for
-the release half.) The gate's mutant is in "Mutant" below.
+(The release half runs `target/release/deps/xfx-…`, `Finished release
+profile [optimized]`.)
+
+**Mutant** (`red-clock-mutant.txt`): every `#[cfg(debug_assertions)]` removed
+from `src/usage/clock.rs`, in a `git clone --no-local` copy with its own target
+directory. `check-usage-clock.sh` there: debug still `honoured`; release and
+release + fault-injection fail at `clock.rs:114`, `a release build ignores
+XFX_E2E_USAGE_CLOCK_FILE: read 1791819000000`; `2 problem(s) found`, exit 1.
 
 ## RED on the base harness
 
@@ -134,7 +140,37 @@ usage line. That is US-U4's RED.
 
 ## CI sweep
 
-See "Gates".
+`sweep-report.md`: `scripts/fxcap/ci-sweep.sh --base b8f6994c --fx <fx v0.0.16>
+--pin v0.0.16 --xfx <this head, debug> --base-xfx <b8f6994c, debug> --jobs 2`,
+run here as sweep.yml runs it. 15 scenarios (the 10 core, and the five
+p5-usage ones as changed, used and named by this receipt), 117 snap pairs at
+40x120: 50 pass at the head, 14 new, **0 regressions**, exit 0. The p5-usage
+pairs that do not pass did not pass at the base either (or are new labels):
+US-U4's RED. `p5-usage-turns`'s `arg`, `cost`, `cost-typed`, `credits`, `esc`
+and `stats` were re-run 3 times on each build (a ledger `nondeterminism`
+cause covers them) and fail on both.
+
+## Gates
+
+Run once at `5a2f4c2d` (this head before the receipt-only commit), `TMPDIR` a
+short path under the harness temp folder.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 14 result lines ok: 4556 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 14 ok: 4577 passed, 0 failed |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
+| `scripts/check-usage-clock.sh` (new) | ok: debug honoured, release and release + fault-injection ignored |
+| `cargo build --locked --release`; `… --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 46 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios + the oracle, 1107 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/fxcap/test-capture.sh` | 36 tests OK |
+| `scripts/fxcap/test-sweep.sh` | 24 tests OK |
+| `scripts/fxcap/ci-sweep.sh` vs fx v0.0.16 | 0 regressions (above) |
 
 ## Files
 
@@ -144,5 +180,6 @@ See "Gates".
   not kept. Snaps and listings were copied only if they held no local path
   (none did); the logs went through `scripts/fxcap/redact.py`.
 - `runs.txt`: the 30 runs, each `exit=0`.
+- `sweep-report.md`: the CI sweep's report (redacted by ci_sweep.py).
 - `pairs.txt`: each pair's differing row count.
-- `red-harness.txt`: the RED above.
+- `red-harness.txt`, `red-clock-mutant.txt`: the REDs above.
