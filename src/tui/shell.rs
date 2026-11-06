@@ -7763,6 +7763,15 @@ impl Shell {
         self.usage = dashboard;
     }
 
+    /// Stands in for the runtime's publication of what `/usage` asks with.
+    #[cfg(test)]
+    pub(crate) fn publish_usage_question(
+        &self,
+        question: Result<crate::usage::report::Question, crate::usage::report::Unavailable>,
+    ) {
+        self.work.publish_usage(question);
+    }
+
     /// Turns one footer segment on or off, keeps it in the profile, and --
     /// when `announce` -- says both (`applyStatuslineItem`,
     /// `app_commands.zig:3905-3929`).
@@ -9431,9 +9440,16 @@ impl Shell {
     /// arriving during the drain must not overwrite the one the user caused.
     fn leave_by(&mut self, why: Leaving) {
         self.leaving.get_or_insert(why);
-        // `/usage` asks nothing more: its fetch in flight is cancelled and
-        // its key let go of now, not when the shell is dropped after the
-        // restore (`Dashboard::deinit`, `usage.zig:265-278@481104fd`).
+        self.quit_usage();
+    }
+
+    /// `/usage` asks nothing more: its fetch in flight is cancelled and its
+    /// key let go of now, not when the shell is dropped after the restore
+    /// (`Dashboard::deinit`, `usage.zig:265-278@481104fd`). Every exit comes
+    /// through here -- a quit by [`Self::leave_by`], and any exit, an error
+    /// one included, by the loop's `shut_down` before it drains -- so an event
+    /// the drain applies cannot open the runtime again.
+    pub(crate) fn quit_usage(&mut self) {
         self.usage.quit();
     }
 
@@ -37400,7 +37416,8 @@ mod tests {
 
     /// S1, the switch: a provider switch landing while `/usage` is closed
     /// cancels the fetch the old key has in flight -- run afterwards, it
-    /// connects to nobody -- and a resume onto another provider does the same.
+    /// connects to nobody -- and one landing with it up opens it again on the
+    /// new sign-in. (A resume onto another provider is the next case.)
     #[test]
     fn a_sign_in_switch_cancels_the_fetch_the_old_key_has_in_flight() {
         let mut shell = shell(40, 120);
@@ -37445,6 +37462,41 @@ mod tests {
         assert!(shell.usage_menu.is_some());
         assert_eq!(rig.started(), 2);
         assert!(usage_band(&shell)[1].starts_with("usage: API key (AI_GATEWAY_API_KEY)"));
+    }
+
+    /// S1, the resume: a session resumed onto another provider -- the replay's
+    /// `provider` -- with `/usage` closed cancels the fetch the old key has in
+    /// flight, as a switch does (`hydrate_as` -> `usage_sign_in_changed`).
+    #[test]
+    fn a_resume_onto_another_provider_cancels_the_fetch_the_old_key_has_in_flight() {
+        let mut shell = shell(40, 120);
+        let rig = UsageRig::put_in(&mut shell);
+        let (origin, counted) = counting_port(Duration::from_secs(2));
+        shell
+            .work
+            .publish_usage(Ok(usage_question_at(&origin, USAGE_KEY)));
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(rig.started(), 1);
+        escape(&mut shell);
+        assert!(shell.usage_menu.is_none());
+        // The runtime publishes the resumed session's sign-in, then the band
+        // hydrates it.
+        shell
+            .work
+            .publish_usage(Err(crate::usage::report::Unavailable::UnsupportedProvider));
+        let mut resumed = replay(Some("resumed on llmux"), Vec::new());
+        resumed.provider = Some((ProviderId::Llmux, false));
+        shell.apply(UiEvent::Resumed(resumed));
+        assert_eq!(shell.provider, ProviderId::Llmux);
+        rig.run(0);
+        assert_eq!(counted.join().expect("the port"), 0, "the old key was sent");
+        // And the next `/usage` says why it has nothing, asking nobody.
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "usage: this provider's usage isn't shown yet"
+        );
+        assert_eq!(rig.started(), 1);
     }
 
     #[test]

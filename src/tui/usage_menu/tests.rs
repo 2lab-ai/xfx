@@ -469,32 +469,63 @@ fn the_current_model_is_bold_and_colourless() {
     assert!(!selected.contains("[3") && !selected.contains("[4") && !selected.contains(";3"));
 }
 
-/// Model names that would move the cursor, clear the screen, set the
-/// clipboard, reorder text or hide it, and one that spells nothing but is long.
-const HOSTILE: [&str; 7] = [
+/// Model names that would move the cursor, clear or reset the screen, set the
+/// clipboard or the title, ring, back up, reorder text or hide it.
+const HOSTILE: [&str; 14] = [
     "evil/\u{1b}[2Jmodel",
     "evil/\u{1b}]52;c;aGk=\u{7}clip",
+    "evil/\u{1b}]0;title\u{1b}\\st",
     "evil/\u{9b}31mred",
+    "evil/\u{9d}0;c1-osc\u{9c}",
     "evil/\u{202e}edoc",
-    "evil/\u{200b}hidden",
-    "evil/line\nbreak",
+    "evil/\u{2066}isolate\u{2069}",
+    "evil/\u{200b}hidden\u{feff}",
+    "evil/line\nbreak\rback",
     "evil/\u{1b}[1;1H\u{1b}[0Kreset",
+    "evil/\u{1b}cfull-reset",
+    "evil/\u{8}\u{8}backspace\u{7f}",
+    "evil/\u{7}bell",
+    "evil/\u{2028}separator\u{200e}",
 ];
 
-/// What a terminal would obey, or draw as nothing.
-const RAW: [&str; 7] = [
-    "\u{1b}", "\u{7}", "\u{9b}", "\u{202e}", "\u{200b}", "\n", "\r",
-];
+/// What a terminal would obey, or draw as nothing: every control (C0, DEL,
+/// C1) and the bidi, zero-width and separator code points.
+fn obeyed(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            '\u{200b}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{feff}'
+            | '\u{061c}')
+}
+
+/// What is left of a painted row once exactly the palette sequences the
+/// screen paints with are taken out: anything a terminal obeys in it is
+/// foreign -- a cursor move or a clear as much as a raw control.
+fn foreign(row: &str) -> Vec<char> {
+    let mut rest = row.to_string();
+    for sequence in [PALETTE.bold(), PALETTE.dim(), PALETTE.reset()] {
+        rest = rest.replace(sequence, "");
+    }
+    rest.chars().filter(|c| obeyed(*c)).collect()
+}
 
 #[test]
 fn a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen() {
     // fx's `:1954-1980@481104fd`, spelled where fx writes `?`
-    // (`crate::mcp::terminal_safe`).
+    // (`crate::mcp::terminal_safe`). Every row, at every width, on both
+    // screens, holds nothing a terminal obeys but the palette's own
+    // sequences.
     for name in HOSTILE {
         let rows = [row(name, 1.0, 1, 1), row("plain/model", 0.5, 1, 1)];
         let mut screen = screen(snapshot(Status::Ready, false, &rows));
         let spelled = crate::mcp::terminal_safe(name);
         assert_ne!(spelled, name);
+        assert!(spelled.chars().all(|c| !obeyed(c)), "{spelled:?}");
         for detail in [false, true] {
             if detail {
                 assert!(screen.open_detail());
@@ -502,25 +533,20 @@ fn a_hostile_model_name_is_drawn_inert_on_the_table_and_on_the_detail_screen() {
             for width in WIDTHS {
                 let painted = screen.rows(width, 40, PALETTE);
                 for row in &painted {
-                    let text = plain(row);
-                    for raw in RAW {
-                        assert!(!text.contains(raw), "{name:?} at {width}: {row:?}");
-                    }
-                    // Only the palette's own sequences are in the row.
-                    assert_eq!(
-                        row.matches('\u{1b}').count(),
-                        row.matches("\u{1b}[").count(),
-                        "{row:?}"
-                    );
+                    assert!(foreign(row).is_empty(), "{name:?} at {width}: {row:?}");
                 }
-                let texts: Vec<String> = painted.iter().map(|row| plain(row)).collect();
                 if width >= 120 {
                     let at = if detail { 0 } else { screen.table_rows() };
-                    assert!(texts[at].contains(&spelled), "{name:?}: {:?}", texts[at]);
+                    let text = plain(&painted[at]);
+                    assert!(text.contains(&spelled), "{name:?}: {text:?}");
                 }
             }
         }
     }
+    // The check itself: a palette sequence passes, anything else does not.
+    assert!(foreign(&format!("{}x{}", PALETTE.bold(), PALETTE.reset())).is_empty());
+    assert_eq!(foreign("x\u{1b}[2Jy"), ['\u{1b}']);
+    assert_eq!(foreign("x\u{1b}[1;1Hy"), ['\u{1b}']);
 }
 
 #[test]
@@ -542,40 +568,238 @@ fn the_name_column_is_measured_on_the_names_as_drawn() {
     );
 }
 
-#[test]
-fn no_screen_names_the_key() {
-    // The heading names the variable, never its value: every status, both
-    // screens, every width.
-    const KEY: &str = "fake-key-usage-screen-must-not-appear";
-    let statuses = [
-        Status::Ready,
-        Status::Fetching,
-        Status::Failed(Failure::Refused),
-        Status::Unavailable(Unavailable::NoGatewaySignIn),
-        Status::Unavailable(Unavailable::UnsupportedProvider),
-        Status::Unavailable(Unavailable::ProviderRejected),
-    ];
-    for status in statuses {
-        let snapshot = Snapshot::of_views(
-            Period::ALL.map(|period| view(period, &month_models(), true)),
-            status,
-            API_KEY_LABEL,
-            NOW,
+/// The key every case below asks with; neither it nor its first 12 bytes
+/// may be on any screen.
+const SENTINEL: &str = "xfx-sentinel-0d9e3b7a5c1f-key-must-not-appear";
+
+/// What `/usage` asks with `key` for a Gateway at `origin`: the question the
+/// runtime publishes for that configuration.
+fn question_at(origin: &str, key: &str) -> crate::usage::report::Question {
+    let home = tempfile::tempdir().expect("a home");
+    let workspace = tempfile::tempdir().expect("a workspace");
+    let config = crate::config::RuntimeConfig::load_with(
+        &crate::config::Environment::new(
+            Some(home.path().to_path_buf()),
+            std::collections::BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), key.to_string())]),
+        ),
+        workspace.path(),
+    )
+    .expect("load a configuration");
+    let endpoint =
+        crate::gateway::Endpoint::resolve(Some(&format!("{origin}/v4/ai/language-model")))
+            .expect("a loopback endpoint");
+    crate::usage::report::question(&config, &endpoint).expect("a key is asked")
+}
+
+/// A loopback Gateway answering every request with one status and body,
+/// until it is dropped (and for at most 20 s).
+struct Answering {
+    origin: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Answering {
+    fn new(status: u16, body: &str) -> Self {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        listener.set_nonblocking(true).expect("a polled listener");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("an address").port()
         );
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopped = std::sync::Arc::clone(&stop);
+        let answer = format!(
+            "HTTP/1.1 {status} Fake\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let thread = std::thread::spawn(move || {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !stopped.load(std::sync::atomic::Ordering::SeqCst)
+                && std::time::Instant::now() < until
+            {
+                let Ok((mut connection, _)) = listener.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    continue;
+                };
+                let _ = connection.set_nonblocking(false);
+                let _ = connection.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 1024];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") && request.len() < 65536 {
+                    match connection.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let _ = connection.write_all(answer.as_bytes());
+                let _ = connection.shutdown(std::net::Shutdown::Write);
+            }
+        });
+        Self {
+            origin,
+            stop,
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Ticks `dashboard` until its fetch has ended (at most 20 s).
+fn settled(dashboard: &mut crate::usage::dashboard::Dashboard) -> Snapshot {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        dashboard.tick();
+        let snapshot = dashboard.snapshot();
+        if snapshot.status != Status::Fetching {
+            return snapshot;
+        }
+        assert!(std::time::Instant::now() < until, "the fetch never ended");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn no_screen_the_runtime_reaches_names_the_key() {
+    // S3 through the production path: a question carrying a sentinel key,
+    // the runtime driven into each state it has -- fetching, ready, every
+    // failure a Gateway can cause (an echo of the key among them), and each
+    // unavailable sign-in -- and every row drawn from its snapshot, both
+    // screens, every width, escapes and all.
+    use crate::usage::dashboard::Dashboard;
+    let spawn = || -> crate::usage::dashboard::Spawn {
+        Box::new(|job| {
+            std::thread::Builder::new()
+                .name("usage-screen-test".to_string())
+                .spawn(job)
+        })
+    };
+    let mut reached: Vec<(String, Snapshot)> = Vec::new();
+
+    // Fetching: a worker that has not answered.
+    let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let holding = std::sync::Arc::clone(&held);
+    let mut fetching = Dashboard::new(
+        None,
+        crate::usage::dashboard::wall_clock(),
+        Box::new(move |job| {
+            holding.lock().expect("the jobs").push(job);
+            std::thread::Builder::new().spawn(|| {})
+        }),
+    );
+    fetching.open(question_at("http://127.0.0.1:9", SENTINEL));
+    let snapshot = fetching.snapshot();
+    assert_eq!(snapshot.status, Status::Fetching);
+    reached.push(("fetching".to_string(), snapshot));
+    fetching.quit();
+
+    let report = r#"{"results":[{"model":"anthropic/claude-opus-5","request_count":2,"input_tokens":10,"total_cost":0.5}]}"#;
+    let echo = |name: &str| {
+        format!(r#"{{"results":[{{"model":"{name}","request_count":1,"total_cost":0.1}}]}}"#)
+    };
+    let cases: [(&str, Option<(u16, String)>, Status); 9] = [
+        ("ready", Some((200, report.to_string())), Status::Ready),
+        (
+            "401",
+            Some((401, "{}".to_string())),
+            Status::Failed(Failure::Refused),
+        ),
+        (
+            "404",
+            Some((404, "{}".to_string())),
+            Status::Failed(Failure::NotAvailable),
+        ),
+        (
+            "429",
+            Some((429, "{}".to_string())),
+            Status::Failed(Failure::RateLimited),
+        ),
+        (
+            "500",
+            Some((500, "{}".to_string())),
+            Status::Failed(Failure::Server),
+        ),
+        (
+            "not json",
+            Some((200, "not json".to_string())),
+            Status::Failed(Failure::BadResponse),
+        ),
+        (
+            "the key echoed",
+            Some((200, echo(SENTINEL))),
+            Status::Failed(Failure::BadResponse),
+        ),
+        (
+            "its first 12 bytes echoed",
+            Some((200, echo(&SENTINEL[..12]))),
+            Status::Failed(Failure::BadResponse),
+        ),
+        ("no answer", None, Status::Failed(Failure::Network)),
+    ];
+    for (name, answer, expected) in cases {
+        let gateway = answer.map(|(status, body)| Answering::new(status, &body));
+        let origin = gateway
+            .as_ref()
+            .map_or_else(|| "http://127.0.0.1:9".to_string(), |g| g.origin.clone());
+        let mut dashboard = Dashboard::new(None, crate::usage::dashboard::wall_clock(), spawn());
+        dashboard.open(question_at(&origin, SENTINEL));
+        let snapshot = settled(&mut dashboard);
+        assert_eq!(snapshot.status, expected, "{name}");
+        reached.push((name.to_string(), snapshot));
+        dashboard.quit();
+    }
+    for reason in [
+        Unavailable::NoGatewaySignIn,
+        Unavailable::UnsupportedProvider,
+        Unavailable::ProviderRejected,
+    ] {
+        let mut dashboard = Dashboard::new(None, crate::usage::dashboard::wall_clock(), spawn());
+        dashboard.open(question_at("http://127.0.0.1:9", SENTINEL));
+        dashboard.open_unavailable(reason);
+        reached.push((format!("{reason:?}"), dashboard.snapshot()));
+        dashboard.quit();
+    }
+
+    let prefix = &SENTINEL[..12];
+    for (name, snapshot) in reached {
+        assert!(!format!("{snapshot:?}").contains(prefix), "{name}");
         for detail in [false, true] {
-            let mut screen = screen(snapshot.clone());
+            let mut screen = Screen::open(Period::Month, snapshot.clone());
             if detail {
                 screen.open_detail();
             }
             for width in WIDTHS {
-                let rows = draw(&screen, width, 40);
-                assert!(rows.iter().all(|row| !row.contains(KEY)));
-                if width >= 120 && !matches!(status, Status::Unavailable(_)) && !detail {
-                    assert!(rows[0].contains(API_KEY_LABEL), "{}", rows[0]);
+                for row in screen.rows(width, 40, PALETTE) {
+                    assert!(
+                        !row.contains(SENTINEL) && !row.contains(prefix),
+                        "{name} at {width}: {row:?}"
+                    );
                 }
+                assert!(!screen.key_help(width).contains(prefix));
+            }
+            if heading_is_the_label(&screen) {
+                assert!(
+                    plain(&screen.rows(120, 40, PALETTE)[0]).contains(API_KEY_LABEL),
+                    "{name}"
+                );
             }
         }
     }
+}
+
+/// Whether the screen's heading is the sign-in's label: the tables of a
+/// sign-in that can be asked.
+fn heading_is_the_label(screen: &Screen) -> bool {
+    !screen.detail && !matches!(screen.shown().status, Status::Unavailable(_))
 }
 
 #[test]
