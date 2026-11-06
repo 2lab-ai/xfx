@@ -1,0 +1,5 @@
+# mutant 5 (the stage's cleanup removed: Stage::drop's remove_dir_all): the seed-failure test
+test session::store::fork::tests::a_fork_whose_rules_cannot_be_written_is_refused_and_its_stage_is_gone ... FAILED
+thread 'session::store::fork::tests::a_fork_whose_rules_cannot_be_written_is_refused_and_its_stage_is_gone' (237142639) panicked at src/session/store/fork/tests.rs:1749:9:
+a file: the stage was left behind
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3839 filtered out; finished in 0.09s

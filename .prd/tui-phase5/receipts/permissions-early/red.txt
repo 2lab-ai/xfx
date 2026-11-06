@@ -1,0 +1,46 @@
+# RED captures: xfx at 9c6f4a1d (daff4834 with P-permissions merged, the branch's base before the
+# fix; banner v0.1.0-9c6f4a1) against fx v0.0.16 (sha256 8e6cda2e...), its sides in red/.
+# pairs.py run from the base's tree, so with the base's ledger: the causes named are the three this
+# branch retires. cells.py rows (row 1 not compared): RED -> GREEN.
+
+p5-panels-permissions-40x120-after-grant             unresolved-defect                  saved-rules-before-first-prompt
+p5-panels-permissions-40x120-after-revoke            unresolved-defect                  saved-rules-before-first-prompt,tool-schema
+p5-panels-permissions-40x120-approval                unresolved-defect                  saved-rules-before-first-prompt,tool-schema,approval-grant-scope
+p5-panels-permissions-40x120-grants                  unresolved-defect                  saved-rules-before-first-prompt,tool-schema,saved-rules-before-first-prompt-shift
+p5-panels-permissions-40x120-remember-done           unresolved-defect                  saved-rules-before-first-prompt
+p5-panels-permissions-40x120-remember-prompt         unresolved-defect                  saved-rules-before-first-prompt-band,saved-rules-before-first-prompt
+p5-panels-permissions-40x120-revoke-done             unresolved-defect                  saved-rules-before-first-prompt
+p5-panels-permissions-40x120-revoke-prompt           unresolved-defect                  saved-rules-before-first-prompt,saved-rules-before-first-prompt-band
+p5-panels-permissions-40x120-saved                   unresolved-defect                  saved-rules-before-first-prompt
+p5-panels-permissions-40x120-status-grants           unresolved-defect                  saved-rules-before-first-prompt
+p5-permissions-early-40x120-after-revoke             unresolved-defect                  ?
+p5-permissions-early-40x120-denied                   unresolved-defect                  ?
+p5-permissions-early-40x120-held                     unresolved-defect                  ?
+p5-permissions-early-40x120-remember-allow           unresolved-defect                  ?
+p5-permissions-early-40x120-remember-deny            unresolved-defect                  ?
+p5-permissions-early-40x120-remembered               unresolved-defect                  ?
+p5-permissions-early-40x120-revoke-again             unresolved-defect                  ?
+p5-permissions-early-40x120-revoke-prompt            unresolved-defect                  ?
+p5-permissions-early-40x120-revoked                  unresolved-defect                  ?
+p5-permissions-early-40x120-saved                    unresolved-defect                  ?
+
+p5-panels-permissions    remember-prompt     10 -> 0
+p5-panels-permissions    remember-done        1 -> 0
+p5-panels-permissions    saved                8 -> 0
+p5-panels-permissions    after-grant          1 -> 0
+p5-panels-permissions    status-grants        9 -> 8
+p5-panels-permissions    revoke-prompt       11 -> 0
+p5-panels-permissions    revoke-done          2 -> 0
+p5-panels-permissions    grants              34 -> 1
+p5-panels-permissions    after-revoke         3 -> 1
+p5-permissions-early     remember-allow      10 -> 0
+p5-permissions-early     remember-deny       11 -> 0
+p5-permissions-early     remembered           2 -> 0
+p5-permissions-early     held                10 -> 0
+p5-permissions-early     revoke-prompt       12 -> 0
+p5-permissions-early     revoked              3 -> 0
+p5-permissions-early     revoke-again         4 -> 0
+p5-permissions-early     after-revoke        11 -> 0
+p5-permissions-early     denied               6 -> 0
+p5-permissions-early     saved               13 -> 0
+p5-permissions-early     new-forgets          0 -> 0

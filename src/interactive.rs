@@ -67,6 +67,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/reset",
     "/resume",
     "/rename",
+    "/fork",
     "/provider",
     "/stats",
     "/usage",
@@ -74,6 +75,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/image",
     "/images",
     "/model",
+    "/effort",
     "/permissions",
     "/allowlist",
     "/undo",
@@ -214,6 +216,18 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: true,
     },
     SlashSpec {
+        command: Slash::Fork,
+        name: "/fork",
+        aliases: &[],
+        // fx v0.0.16's row (`vercel-labs/fx@481104fd
+        // src/builtins/commands.zig:449`, commit `e4348723`): after `/rename`,
+        // and nothing after the name -- `/fork 2` is not the command
+        // (`command_router.zig:253-256`).
+        summary: "fork the session before a prompt",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Setup,
         name: "/provider",
         // Upstream's own alias for the same command
@@ -248,7 +262,9 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         command: Slash::Status,
         name: "/status",
         aliases: &[],
-        summary: "show runtime configuration",
+        // Upstream's summary since the panel shows the session
+        // (`commands.zig:455@481104fd`).
+        summary: "show runtime configuration and the session ID",
         category: "General",
         has_args: false,
     },
@@ -275,6 +291,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         name: "/model",
         aliases: &[],
         summary: "show the model, or `/model <id>` to use another one from now on",
+        category: "Model",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Effort,
+        name: "/effort",
+        aliases: &[],
+        // Upstream's row, after `/model` (`vercel-labs/fx@481104fd
+        // src/builtins/commands.zig:459`): bare, the menu of the current
+        // model's levels; with a word, that level.
+        summary: "choose the reasoning effort for the current model",
         category: "Model",
         has_args: true,
     },
@@ -608,6 +635,20 @@ pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session i
      shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
      full-screen one, and `xfx --resume <last|ID>` opens it on a session";
 
+/// What `/fork` says on this surface.
+///
+/// Upstream's `/fork` is a menu of the session's prompts in its footer, and
+/// what it forks to is a session it switches to with the chosen prompt back in
+/// its composer (`openForkMenu`, `forkBeforeSelectedPrompt`,
+/// `vercel-labs/fx@481104fd src/core/app/app_session_runtime.zig:2072-2127`).
+/// This shell has no footer for the menu and no draft to put a prompt back
+/// into: it reads a finished line at a time. It says where the menu is, as
+/// `/resume` says where its picker is, rather than forking at a point the user
+/// did not pick; it writes nothing.
+pub const FORK_ON_THE_LINE_SHELL: &str = "xfx: /fork picks the prompt to fork the session \
+     before in the full-screen shell, and this line-oriented shell has no menu; without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
 /// What `/fast` and `/ultrafast` say on this surface.
 ///
 /// They choose the speed a turn asks the provider for, and only the
@@ -616,6 +657,18 @@ pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session i
 /// says where the counters are, rather than accepting a switch that would
 /// change nothing.
 pub const SPEED_ON_THE_LINE_SHELL: &str = "xfx: /fast and /ultrafast set the speed the \
+     full-screen shell asks for, and this line-oriented shell asks for none; without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/effort` says on this surface, bare or with a level.
+///
+/// The level is the reasoning effort the full-screen shell asks the provider
+/// for, and this shell asks for none (see [`SPEED_ON_THE_LINE_SHELL`]); nor has
+/// it a footer for upstream's menu (`commandHandleEffort`,
+/// `vercel-labs/fx@481104fd src/core/app/app_commands.zig:570-586`). It says
+/// where the effort is chosen rather than saving one this shell would never
+/// send.
+pub const EFFORT_ON_THE_LINE_SHELL: &str = "xfx: /effort chooses the reasoning effort the \
      full-screen shell asks for, and this line-oriented shell asks for none; without \
      XFX_TUI=0, xfx opens the full-screen one";
 
@@ -780,7 +833,17 @@ pub enum Slash {
     /// first prompt would give it (`handleRenameCommand`,
     /// `app_commands.zig:3815-3858`).
     Rename,
+    /// Start a new session from before one of this one's prompts: a menu of
+    /// them in the TUI, the fork made and switched to with the prompt back in
+    /// the composer (`openForkMenu`, `forkBeforeSelectedPrompt`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_session_runtime.zig:2072-2127`;
+    /// [`crate::session::SessionStore::fork`]).
+    Fork,
     Model,
+    /// The reasoning effort for the current model: bare, a menu of the levels
+    /// the catalog lists for it; with a word, that level (`handleEffort`,
+    /// `vercel-labs/fx@481104fd src/core/session/session_commands.zig:1000-1037`).
+    Effort,
     /// Switch the provider a turn talks to, and record the choice.
     ///
     /// The only command in the palette that writes to `~/.xfx/settings.json`
@@ -1252,10 +1315,58 @@ pub(crate) fn open_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
-    let scope = conversation_scope(config)?;
+    open_conversation_as(
+        store,
+        SessionId::generate(),
+        config,
+        model,
+        permissions,
+        None,
+        questioner,
+        cancel,
+    )
+    .map_err(|failure| failure.message)
+}
+
+/// Why [`open_conversation_as`] opened nothing: the sentence to say, and
+/// whether it was the store that refused the session -- not the scope it
+/// would have run in -- which the TUI's `/status` says as a shell that cannot
+/// save sessions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenFailure {
+    pub(crate) message: String,
+    pub(crate) store_refused: bool,
+}
+
+/// [`open_conversation`], into the session `id` names: the TUI allocates
+/// its id at launch, in memory, so `/status` can show it before the first
+/// prompt writes anything (`docs/parity.md`, `/status`).
+///
+/// `held_rules` are the saved-session rules the TUI held for this session
+/// before it existed: written into its directory before its log is, so the
+/// session is never seen without them, and a session they cannot be written
+/// into is not opened ([`SessionStore::create_with`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn open_conversation_as(
+    store: &SessionStore,
+    id: SessionId,
+    config: &RuntimeConfig,
+    model: &str,
+    permissions: PermissionSession,
+    held_rules: Option<&crate::permission::session_rules::State>,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Result<Conversation, OpenFailure> {
+    let scope = conversation_scope(config).map_err(|message| OpenFailure {
+        message,
+        store_refused: false,
+    })?;
+    // Why the rules could not be written, in the words a failed confirmation
+    // uses (`session_rules::update`), rather than the directory's.
+    let mut unwritten = None;
     let session = store
-        .create(
-            SessionId::generate(),
+        .create_with(
+            id,
             NewSession {
                 origin_workspace_root: config.workspace_root.clone(),
                 workspace_root: config.workspace_root.clone(),
@@ -1265,8 +1376,21 @@ pub(crate) fn open_conversation(
                 permission_mode: permissions.mode(),
                 provider: Some(config.provider),
             },
+            |dir| match held_rules {
+                Some(state) => crate::permission::session_rules::seed(dir, state)
+                    .inspect_err(|err| unwritten = Some(err.to_string())),
+                None => Ok(()),
+            },
         )
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| OpenFailure {
+            message: match unwritten.take() {
+                Some(reason) => {
+                    format!("the saved-session permission rules cannot be written: {reason}")
+                }
+                None => err.to_string(),
+            },
+            store_refused: true,
+        })?;
     Ok(bind_conversation(
         store,
         session,
@@ -1481,8 +1605,14 @@ pub async fn run(
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Fork => {
+                        writeln!(io::stderr(), "{FORK_ON_THE_LINE_SHELL}")?;
+                    }
                     Slash::Fast | Slash::Ultrafast => {
                         writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Effort => {
+                        writeln!(io::stderr(), "{EFFORT_ON_THE_LINE_SHELL}")?;
                     }
                     Slash::Image | Slash::Images | Slash::Paste => {
                         writeln!(io::stderr(), "{IMAGES_ON_THE_LINE_SHELL}")?;
@@ -2724,9 +2854,11 @@ mod tests {
         // `/paste`, twenty-five since `/allowlist`, twenty-six since
         // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
         // `/fast` and `/ultrafast`, thirty since `/mcp`, thirty-one since
-        // `/skills`, and thirty-two since `/alias`; `/provider` took `/setup`'s
-        // place rather than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 32);
+        // `/skills`, thirty-two since `/alias`, thirty-three since `/fork`,
+        // and thirty-four since `/effort` (fx 0.0.16); `/provider` took
+        // `/setup`'s place rather than adding one, and `/models` stays
+        // deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 34);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -3019,12 +3151,15 @@ mod tests {
         // space; every argument it is given is its usage line, since
         // upstream's only form names a setting xfx does not have. `/alias` is
         // declared to take one as upstream's row is (`commands.zig:489`), and
-        // answers every form with the same sentence. Every other name is the
-        // whole command -- `/fast` among them, a toggle (`commands.zig:492`).
+        // answers every form with the same sentence. `/effort [level]` takes
+        // a level or opens the menu bare (`vercel-labs/fx@481104fd
+        // commands.zig:459`). Every other name is the whole command -- `/fast`
+        // among them, a toggle (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
                 "/model"
+                    | "/effort"
                     | "/provider"
                     | "/permissions"
                     | "/allowlist"
@@ -3100,7 +3235,12 @@ mod tests {
                 status.category,
                 status.has_args
             ),
-            ("/status", "show runtime configuration", "General", false)
+            (
+                "/status",
+                "show runtime configuration and the session ID",
+                "General",
+                false
+            )
         );
         // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
         // `/model` (`commands.zig:472-478`).

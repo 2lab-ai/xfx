@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-6b01fb4 [debug] · Run /help for commands
+
+* effort: HIGH is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh
+
+* Reasoning effort set to default for openai/gpt-6-astra
+
+┃
+
+auto · gpt-6-astra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

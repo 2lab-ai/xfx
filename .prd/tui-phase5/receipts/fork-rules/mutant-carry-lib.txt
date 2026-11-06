@@ -1,0 +1,17 @@
+# mutant 1 (the carry removed): cargo test --lib session::store::fork::tests::a_fork
+test session::store::fork::tests::a_fork_origin_xfx_would_not_have_written_is_refused ... ok
+test session::store::fork::tests::a_forks_title_takes_no_control_character_c1_included ... ok
+test session::store::fork::tests::a_fork_carries_the_sources_remembered_denies_and_no_allow ... FAILED
+test session::store::fork::tests::a_fork_holds_its_own_lock_until_it_is_dropped ... ok
+test session::store::fork::tests::a_fork_of_a_fork_is_marked_once ... ok
+test session::store::fork::tests::a_fork_belongs_to_the_workspace_it_is_made_in ... ok
+test session::store::fork::tests::a_fork_of_a_session_with_no_deny_has_no_rules_file ... ok
+test session::store::fork::tests::a_fork_replays_as_the_source_did_before_the_prompt_it_was_made_at ... ok
+test session::store::fork::tests::a_forks_folders_are_private_from_creation_under_any_umask ... ok
+test session::store::fork::tests::a_fork_is_private_and_links_its_images_from_inside_the_store ... ok
+test session::store::fork::tests::a_fork_before_the_first_prompt_is_empty_and_there_is_no_turn_zero ... ok
+test session::store::fork::tests::a_fork_is_titled_by_the_source_as_it_is_called_now_and_fits_the_title_limit ... ok
+test session::store::fork::tests::a_fork_whose_source_rules_cannot_be_read_or_are_a_link_is_refused_and_leaves_nothing ... ok
+test session::store::fork::tests::a_fork_whose_source_image_is_gone_or_not_its_own_is_refused_and_leaves_nothing ... ok
+thread 'session::store::fork::tests::a_fork_carries_the_sources_remembered_denies_and_no_allow' (235260439) panicked at src/session/store/fork/tests.rs:1534:9:
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 3825 filtered out; finished in 2.75s

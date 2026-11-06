@@ -1,0 +1,30 @@
+=== ~/.fx/history.jsonl (1045 bytes)
+{"schema_version":1,"timestamp_ms":1793786846350,"workspace_root":"<scratch>/work","text":"/permissions remember allow write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
+{"schema_version":1,"timestamp_ms":1793786848916,"workspace_root":"<scratch>/work","text":"/permissions remember deny read_file {\"path\":\"a.txt\"}"}
+{"schema_version":1,"timestamp_ms":1793786851485,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786853038,"workspace_root":"<scratch>/work","text":"/permissions revoke 1"}
+{"schema_version":1,"timestamp_ms":1793786856663,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1793786858221,"workspace_root":"<scratch>/work","text":"read it"}
+{"schema_version":1,"timestamp_ms":1793786861264,"workspace_root":"<scratch>/work","text":"/permissions"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/index.jsonl (493 bytes)
+{"op":"put","id":"tc1A0jkohNJE","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793786858222,"updated":1793786858222,"turns":0,"opened":[1793786858222,0,0,0,0],"crc":"4015edeb"}
+{"op":"put","id":"tc1A0jkohNJE","role":"root","host":"app","workspace":"<scratch>/work","title":"read it","language":"und-Latn","created":1793786858222,"updated":1793786858553,"turns":1,"opened":[0,0,0,0,0],"crc":"ff4ad48c"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/sessions/v2/tc1A0jkohNJE/blobs/57a3ca25c3e69471b029040053f96b12d041685f233ea221d48220e04aee4ae6 (292 bytes)
+{"error":{"type":"tool_permission_denied","tool_name":"read_file","message":"Tool access was denied by configured policy","reason":"policy_denied","denied":true,"suggestion":"The tool did not run. Do not retry unchanged; explain the configured policy blocker or use an allowed alternative."}}
+=== ~/.fx/sessions/v2/tc1A0jkohNJE/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/tc1A0jkohNJE/log.jsonl (8204 bytes)
+{"v":1,"seq":1,"ts":1793786858222,"kind":"session_created","id":"tc1A0jkohNJE","workspace":"<scratch>/work","role":"root","host":"app","crc":"e201104a"}
+{"v":1,"seq":2,"ts":1793786844309,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"aa399f6d"}
+{"v":1,"seq":3,"ts":1793786844309,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"baac36aa"}
+{"v":1,"seq":4,"ts":1793786844309,"kind":"set","key":"language","value":"und","crc":"b556b4cf"}
+{"v":1,"seq":5,"ts":1793786847894,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":2,"rules":[{"id":1,"kind":"file_mutation","canonical":{"encoding":"base64","data":"AAAAAAAAABtmeC1wZXJtaXNzaW9uLXN0YXRlLWZpbGUtdjEAAAAAAAAACndyaXRlX2ZpbGUAAAAAAAAAIPQ1WVFLaCYFsqecTKazK7ZoJqP7desgq1o4/SbJTZBRAAAAAAAAAC8vcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5ucUc2Yk8vd29yay9iLnR4dAAAAAAAAAAFd3JpdGUAAAAAAAAAD3ByZWltYWdlLWFic2VudAAAAAAAAAAgofzkNjhU/4iM/0uOeHXWAMJoI5BBKoz3mzfQsRFIsPoAAAAAAAAALy9wcml2YXRlL3RtcC9jbGF1ZGUtNTAxL2Z4Y2FwLm5xRzZiTy93b3JrL2IudHh0AAAAAAAAAAZ0YXJnZXQAAAAAAAAADHRhcmdldF9lbnRyeQAAAAAAAAAPaWRlbnRpdHktYWJzZW50AAAAAAAAACkvcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5ucUc2Yk8vd29yawAAAAAAAAAGcGFyZW50AAAAAAAAAA9leGlzdGluZ19wYXJlbnQAAAAAAAAACAAAAAABAAARAAAAAAAAAAgAAAAAIa2kngAAAAAAAAAJZGlyZWN0b3J5"},"display_identity":"write_file b.txt preimage=absent after=a1fce4363854ff88","decision":"allow","generation":1}]},"crc":"953627eb"}
+{"v":1,"seq":6,"ts":1793786850435,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":3,"rules":[{"id":1,"kind":"file_mutation","canonical":{"encoding":"base64","data":"AAAAAAAAABtmeC1wZXJtaXNzaW9uLXN0YXRlLWZpbGUtdjEAAAAAAAAACndyaXRlX2ZpbGUAAAAAAAAAIPQ1WVFLaCYFsqecTKazK7ZoJqP7desgq1o4/SbJTZBRAAAAAAAAAC8vcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5ucUc2Yk8vd29yay9iLnR4dAAAAAAAAAAFd3JpdGUAAAAAAAAAD3ByZWltYWdlLWFic2VudAAAAAAAAAAgofzkNjhU/4iM/0uOeHXWAMJoI5BBKoz3mzfQsRFIsPoAAAAAAAAALy9wcml2YXRlL3RtcC9jbGF1ZGUtNTAxL2Z4Y2FwLm5xRzZiTy93b3JrL2IudHh0AAAAAAAAAAZ0YXJnZXQAAAAAAAAADHRhcmdldF9lbnRyeQAAAAAAAAAPaWRlbnRpdHktYWJzZW50AAAAAAAAACkvcHJpdmF0ZS90bXAvY2xhdWRlLTUwMS9meGNhcC5ucUc2Yk8vd29yawAAAAAAAAAGcGFyZW50AAAAAAAAAA9leGlzdGluZ19wYXJlbnQAAAAAAAAACAAAAAABAAARAAAAAAAAAAgAAAAAIa2kngAAAAAAAAAJZGlyZWN0b3J5"},"display_identity":"write_file b.txt preimage=absent after=a1fce4363854ff88","decision":"allow","generation":1},{"id":2,"kind":"structured_tool","canonical":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0016fx-permission-state-v1\u0000\u0000\u0000\u0000\u0000\u0000\u0000\tread_file\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0010{\"path\":\"a.txt\"}\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0006target\u0000\u0000\u0000\u0000\u0000\u0000\u0000/<scratch>/work/a.txt","display_identity":"read_file a.txt","decision":"deny","generation":2}]},"crc":"0673b154"}
+{"v":1,"seq":7,"ts":1793786854558,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":4,"rules":[{"id":2,"kind":"structured_tool","canonical":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0016fx-permission-state-v1\u0000\u0000\u0000\u0000\u0000\u0000\u0000\tread_file\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0010{\"path\":\"a.txt\"}\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0006target\u0000\u0000\u0000\u0000\u0000\u0000\u0000/<scratch>/work/a.txt","display_identity":"read_file a.txt","decision":"deny","generation":2}]},"crc":"85274781"}
+{"v":1,"seq":8,"ts":1793786858222,"kind":"turn_started","turn":1,"crc":"413642cd"}
+{"v":1,"seq":9,"ts":1793786858222,"kind":"item","turn":1,"type":"user","data":{"text":"read it","images":[],"work_id":null},"crc":"7534fc81"}
+{"v":1,"seq":10,"ts":1793786858222,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <local-path>

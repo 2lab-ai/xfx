@@ -1,0 +1,40 @@
+* session forked: first prompt alpha (fork)
+
+original session xfx --resume 1793752921171-5071b35e57f99e1a
+
+┃ first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑6 ↓40)
+
+┃ second prompt beta
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

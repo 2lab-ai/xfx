@@ -1,0 +1,14 @@
+=== ~/.fx/backups/settings.json.backup.1793747762039-0000000000000001-3c4b7426186de24f1283ad3804e45602 (65 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway"}
+
+=== ~/.fx/backups/settings.json.backup.1793747765279-0000000000000002-75ea1d209e65d587450cc40a507d5918 (83 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"medium"}
+
+=== ~/.fx/history.jsonl (128 bytes)
+{"schema_version":1,"timestamp_ms":1793747758466,"workspace_root":"<scratch>/work","text":"/effort"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/settings.json (81 bytes)
+{"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high"}
+
+=== ~/.fx/settings.lock (0 bytes)

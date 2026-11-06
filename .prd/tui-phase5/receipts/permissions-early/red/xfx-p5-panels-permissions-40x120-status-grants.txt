@@ -1,0 +1,40 @@
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared
+
+✗ usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* allowlist: added command: "git *" (scope=local)
+
+✗ permissions: saved-session permission rules require an active saved session
+
+┃ run a command
+
+● 1 tool call · 1 command
+└ Ran echo hi
+
+  Ran it.
+
+  3s (↑4 ↓80)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1793786474395-c5ffa998cfa84b53 · saved
+  Model             fake/model-a
+  Auth              AI_GATEWAY_API_KEY
+  Permissions       ask
+  Sandbox           none
+  Workspace         <tmp>/fxcap.nG2nz5/work
+  Turns             1
+  Session grants    1
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · 9c6f4a1d94ed
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close

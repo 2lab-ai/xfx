@@ -1,0 +1,10 @@
+=== ~/.xfx/settings.json (102 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "effort": "low"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

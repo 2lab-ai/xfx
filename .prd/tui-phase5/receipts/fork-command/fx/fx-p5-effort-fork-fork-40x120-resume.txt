@@ -1,0 +1,40 @@
+* session forked: first prompt alpha (fork)
+
+original session fx --resume 7dOXqJC7FNjB
+
+┃ first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑6 ↓40)
+
+┃ second prompt beta
+
+  DELTA answer.
+
+  0s (↑5 ↓40)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Sessions 1  [Current workspace]  All workspaces
+
+  first prompt alpha    work · now · 3 turns
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

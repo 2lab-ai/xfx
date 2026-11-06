@@ -1,0 +1,40 @@
+
+┃ /fork 2
+
+  SLOW one two
+
+┃ slow turn please
+
+  AFTER answer.
+
+  1s (↑3 ↓43)
+
+✗ command: Unknown command. Try /help.
+
+┃ quick second
+
+  THIRD answer.
+
+  0s (↑4 ↓40)
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+
+Continue session with: xfx --resume 1793750902737-8b644125235d26b2
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Nov  4 09:08:48 2026)

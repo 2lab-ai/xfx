@@ -1,0 +1,39 @@
+=== ~/.xfx/history.jsonl (806 bytes)
+{"schema_version":1,"timestamp_ms":1793778499186,"workspace_root":"<scratch>/work","text":"/effort"}
+{"schema_version":1,"timestamp_ms":1793778507379,"workspace_root":"<scratch>/work","text":"/effort bogus"}
+{"schema_version":1,"timestamp_ms":1793778508823,"workspace_root":"<scratch>/work","text":"/effort max"}
+{"schema_version":1,"timestamp_ms":1793778510268,"workspace_root":"<scratch>/work","text":"/effort two words"}
+{"schema_version":1,"timestamp_ms":1793778514199,"workspace_root":"<scratch>/work","text":"slow turn please"}
+{"schema_version":1,"timestamp_ms":1793778525227,"workspace_root":"<scratch>/work","text":"after the change"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1793778514200-fee6120e007b9b8e/events.jsonl (3445 bytes)
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":1,"event_id":"a4898238382c91b40910b7433fdd8f9a","timestamp_ms":1793778514201,"event":{"kind":"session_started","id":"1793778514200-fee6120e007b9b8e","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"openai/gpt-6-astra","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":2,"event_id":"6e64a29c804d46721c5d3deb6ff9ce72","timestamp_ms":1793778514219,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":3,"event_id":"ceb95c293e8fde8c49acfbb807bad2bb","timestamp_ms":1793778514233,"event":{"kind":"user_message","text":"slow turn please"}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":4,"event_id":"d99ad0b01f1bacd505eaec60d825b687","timestamp_ms":1793778521259,"event":{"kind":"assistant_message","text":"SLOW one two three four five six seven eight nine ten.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":5,"event_id":"8414720f9b1e113abd7c2b84196bfdd0","timestamp_ms":1793778521274,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1793778521259,"duration_ms":7015,"model":"openai/gpt-6-astra","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":6,"event_id":"964b286c9bcc2b797da53c22e3c516c7","timestamp_ms":1793778521292,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":7,"event_id":"501bc3b20761b3959f0a7bdafe82aff7","timestamp_ms":1793778521305,"event":{"kind":"preferences_changed","model":null,"permission_mode":null,"effort":"high","fast_mode":false,"ultrafast_mode":false}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":8,"event_id":"ab085be49f8a8951c7c897c661c1e748","timestamp_ms":1793778525228,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":9,"event_id":"6df30b044891157151185773fc600ce4","timestamp_ms":1793778525256,"event":{"kind":"user_message","text":"after the change"}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":10,"event_id":"ed58e1ef07a738b10f22e14640b94a32","timestamp_ms":1793778525322,"event":{"kind":"assistant_message","text":"AFTER answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":11,"event_id":"ae6ad8d39397c98f25f9f8431f4b7f4f","timestamp_ms":1793778525334,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1793778525322,"duration_ms":53,"model":"openai/gpt-6-astra","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"2f770ff207bf5d364637b476025d527d","seq":12,"event_id":"20fc7ea1c91162cb2216f53bde09b718","timestamp_ms":1793778525346,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1793778514200-fee6120e007b9b8e/session.json (633 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1793778514200-fee6120e007b9b8e","log_generation":"2f770ff207bf5d364637b476025d527d","created_at_ms":1793778514201,"updated_at_ms":1793778525346,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"openai/gpt-6-astra","permission_mode":"auto","title":"slow turn please","history_turns":2,"permission_grants":0,"total_input_tokens":2400,"total_output_tokens":80,"last_event_seq":12,"event_log_bytes":3445,"event_log_sha256":"1c951a55aad9f0e548c872e568b9372c63a6dcfa137eceefcd4fb477999d9985"}
+
+=== ~/.xfx/settings.json (103 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "effort": "high"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1793778521274}
+

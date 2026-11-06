@@ -1,0 +1,14 @@
+## p5-session-early-prefs launch
+0 rows differ in their cells (row 1 not compared)
+## p5-session-early-prefs chosen
+0 rows differ in their cells (row 1 not compared)
+## p5-session-early-prefs answered
+0 rows differ in their cells (row 1 not compared)
+## p5-session-early-prefs resumed
+row 11: fx [(13, ' ', ()), (14, '·', (('fg', 245),)), (15, ' ', ()), (16, 'h', (('fg', 245),))]
+row 11: xfx []
+1 rows differ in their cells (row 1 not compared)
+## p5-session-early-prefs continued
+row 17: fx [(13, ' ', ()), (14, '·', (('fg', 245),)), (15, ' ', ()), (16, 'h', (('fg', 245),))]
+row 17: xfx []
+1 rows differ in their cells (row 1 not compared)

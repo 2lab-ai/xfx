@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e0d97bd [debug] · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+┃ /effort/effort
+
+✗ command: Unknown command. Try /help.
+
+  SLOW one two three four five six seven
+
+┃ /effort high
+
+  AFTER answer.
+
+  4s (↑4 ↓50)
+
+┃
+
+auto · gpt-6-astra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

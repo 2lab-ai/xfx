@@ -1,0 +1,22 @@
+fx: env FX_AUTO_UPGRADE=0
+# Shift-Tab with the /effort menu up: the menu does not bind it, so it cycles
+# the permission mode as it would with no menu up (`.toggle_permission_mode`,
+# `app_input_runtime.zig:1048-1057@481104fd`: the help, settings, session,
+# model and skills menus take it, and nothing else does), and the menu stays.
+# Twice, so the mode goes auto -> full access -> ask, and the status line after
+# Escape reads `ask` with no warning beside it.
+models p5-effort-fork-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+type /effort
+key Enter
+wait 1
+key BTab
+wait 0.5
+snap backtab
+key BTab
+wait 0.5
+key Escape
+wait 0.5
+snap backtab-esc

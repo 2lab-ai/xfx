@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-699acf1 [debug] · Run /help for commands
+
+* permissions: mode set to ask
+
+┃ run a command
+
+● 1 tool call · 1 command
+└ Ran echo hi
+
+  Ran it.
+
+  3s (↑4 ↓80)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

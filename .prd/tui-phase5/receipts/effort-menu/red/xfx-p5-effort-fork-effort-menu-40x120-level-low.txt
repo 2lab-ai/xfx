@@ -1,0 +1,40 @@
+
+✗ command: Unknown command. Try /help.
+
+┃ /effort/effort
+
+✗ command: Unknown command. Try /help.
+
+  SLOW one two three four five six seven
+
+┃ /effort high
+
+  AFTER answer.
+
+  4s (↑4 ↓50)
+
+┃ /effort bogus
+
+  THIRD answer.
+
+  0s (↑4 ↓40)
+
+┃ /effort max
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃ /effort two words
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃ /effort default
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃ /effort low
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃
+
+auto · gpt-6-astra

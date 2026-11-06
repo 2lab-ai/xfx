@@ -1,0 +1,8 @@
+# tests/session_compat.rs at 65fa5a60 on d3bc63d3's tree (git archive d3bc63d3, the one test file replaced),
+# built with XFX_BUILD_REVISION=d3bc63d3...: cargo test --locked --test session_compat -- a_session_the_tui_starts_holds_its_early_settings_in_frames_the_preview_reads
+test a_session_the_tui_starts_holds_its_early_settings_in_frames_the_preview_reads ... FAILED
+thread 'a_session_the_tui_starts_holds_its_early_settings_in_frames_the_preview_reads' (141776769) panicked at tests/session_compat.rs:756:5:
+assertion `left == right` failed: ["session_started", "project_context_recorded", "user_message", "assistant_message", "usage_recorded", "turn_concluded"]
+  left: ["session_started", "project_context_recorded", "user_message", "assistant_message"]
+ right: ["session_started", "preferences_changed", "project_context_recorded", "user_message"]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 1.64s

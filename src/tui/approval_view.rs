@@ -1384,8 +1384,10 @@ pub(crate) fn tamed(line: &str) -> String {
 
 /// One line of text that names what is being granted: [`tamed`], without its
 /// emoji exception -- every default-ignorable code point is named, an emoji's
-/// included. A Hangul syllable's jamo still cross as text.
-fn named(line: &str) -> String {
+/// included. A Hangul syllable's jamo still cross as text. A bare
+/// `/permissions` panel lists what is in force with it too
+/// (`super::info_panel`'s `listed`).
+pub(crate) fn named(line: &str) -> String {
     spelled(line, Emoji::Named)
 }
 

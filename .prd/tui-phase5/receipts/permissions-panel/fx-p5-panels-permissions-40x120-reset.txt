@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* permissions: mode set to auto
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

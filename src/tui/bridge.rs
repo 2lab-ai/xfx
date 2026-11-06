@@ -253,6 +253,14 @@ pub(crate) enum UiEvent {
         /// says nothing more about a change that was accepted.
         announced: bool,
     },
+    /// The reasoning effort alone, as the runtime applied it
+    /// ([`ModelChange::effort_only`]): `/settings`' row or `/effort`. The band
+    /// chose it and said so already; this moves the band's own record back to
+    /// it after a model change applied before it -- one held behind the same
+    /// turn -- moved the band to that change's level.
+    EffortApplied {
+        effort: crate::provider::effort::Effort,
+    },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
     /// One event per load. The load happens on the runtime thread because it
@@ -352,6 +360,28 @@ pub(crate) enum UiEvent {
         id: String,
         failure: super::session_picker::ResumeFailure,
     },
+    /// What `/fork` can start before ([`TurnWork::ForkPoints`]): the
+    /// conversation's prompts, oldest first, or why there are none to offer
+    /// (`openForkMenu`, `vercel-labs/fx@481104fd
+    /// src/core/app/app_session_runtime.zig:2072-2096`). Read on the runtime
+    /// thread because the conversation is the runtime's. Not terminal.
+    ForkPoints(super::fork_menu::ForkPoints),
+    /// The runtime is in a fork of the conversation now
+    /// ([`TurnWork::Fork`]), and this is what it replays as -- with the id of
+    /// the session it was forked from, for the line that resumes that one.
+    ///
+    /// Sent **after** the swap, through `send_terminal`, for
+    /// [`Self::Resumed`]'s reason: the conversation the next prompt goes to
+    /// has already changed.
+    Forked {
+        replay: super::hydration::Hydration,
+        source: String,
+    },
+    /// The fork [`TurnWork::Fork`] asked for could not be made: upstream's
+    /// `Unable to fork the session.` (`submitForkMenuSelection`,
+    /// `app_input_runtime.zig:1667-1680@481104fd`). The conversation is the
+    /// one it was, its log untouched.
+    ForkFailed,
     /// A `/rename` the shell had already applied could not be written into
     /// the session's log, for this reason (`renamed for this process but not
     /// saved`, `app_commands.zig:3833-3846`).
@@ -570,6 +600,17 @@ impl UiEvent {
                     },
                 },
             },
+            // The level's name is one upstream would parse when it is read,
+            // and the channel's rule is held all the same, as for
+            // `ModelAnswered`'s.
+            Self::EffortApplied { effort } => Self::EffortApplied {
+                effort: match effort {
+                    crate::provider::effort::Effort::Named(name) => {
+                        crate::provider::effort::Effort::Named(inert_owned(name))
+                    }
+                    auto => auto,
+                },
+            },
             // **Every string of every row.** A catalog is a document a daemon
             // on a port serves, so its ids, its display names and its effort
             // labels are all text the terminal would obey if it were let
@@ -747,6 +788,31 @@ impl UiEvent {
                 id: inert_owned(id),
                 failure,
             },
+            // Every prompt the session's log holds: what somebody typed, read
+            // back off a disk. Line breaks survive, as a prompt's card keeps
+            // them; the menu lays its rows out of them.
+            Self::ForkPoints(points) => Self::ForkPoints(match points {
+                super::fork_menu::ForkPoints::Unsaved => super::fork_menu::ForkPoints::Unsaved,
+                super::fork_menu::ForkPoints::Points(points) => {
+                    super::fork_menu::ForkPoints::Points(
+                        points
+                            .into_iter()
+                            .map(|point| super::fork_menu::ForkPoint {
+                                turn: point.turn,
+                                prompt: inert_owned(point.prompt),
+                            })
+                            .collect(),
+                    )
+                }
+            }),
+            // A conversation read back off a disk, as a resume's is; the id is
+            // the store's own name for the source's directory, checked by
+            // `SessionId::parse` when it was opened, and spelled inert anyway.
+            Self::Forked { replay, source } => Self::Forked {
+                replay: inert_hydration(replay),
+                source: inert_owned(source),
+            },
+            Self::ForkFailed => Self::ForkFailed,
             // The reason quotes a path and an I/O error, which are the
             // filesystem's words.
             Self::RenameUnsaved(problem) => Self::RenameUnsaved(inert_owned(problem)),
@@ -1150,6 +1216,16 @@ pub(crate) enum TurnWork {
     /// for it is refused while one runs, and the conversation it replaces is
     /// one a turn would be writing into.
     Resume(String),
+    /// Read the prompts a `/fork` can start before
+    /// ([`UiEvent::ForkPoints`]). Work rather than control for
+    /// [`Self::Sessions`]' reason, and because the answer is about the
+    /// conversation the queue has reached: a prompt typed before it is in it.
+    ForkPoints,
+    /// Fork the conversation before its turn `before_turn` (counted from 1)
+    /// and make the fork the conversation ([`UiEvent::Forked`], or
+    /// [`UiEvent::ForkFailed`]): `crate::session::SessionStore::fork`, then
+    /// [`Self::Resume`]'s switch. Work for that one's reason.
+    Fork { before_turn: usize },
     /// Make one `/workspace` change ([`UiEvent::Workspace`]).
     ///
     /// Work rather than control because it changes the scope a turn's tools
@@ -2449,6 +2525,83 @@ mod tests {
                 ..Default::default()
             },
         }
+    }
+
+    #[test]
+    fn a_forks_prompts_title_and_source_id_are_made_inert() {
+        // Each prompt `/fork` lists and the fork's replay are read back off a
+        // log, which is a file: the channel spells them inert, line breaks
+        // kept -- a prompt's rows are laid out of them.
+        use super::super::fork_menu::{ForkPoint, ForkPoints};
+        assert_eq!(
+            UiEvent::ForkPoints(ForkPoints::Points(vec![ForkPoint {
+                turn: 2,
+                prompt: "a\x1b[2Jb\nc\u{9b}d".into(),
+            }]))
+            .made_inert(),
+            UiEvent::ForkPoints(ForkPoints::Points(vec![ForkPoint {
+                turn: 2,
+                prompt: "a [2Jb\nc d".into(),
+            }]))
+        );
+        let replay = |title: &str| super::super::hydration::Hydration {
+            title: Some(title.to_string()),
+            turns: Vec::new(),
+            model: None,
+            settings: None,
+            keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
+            model_replaced: false,
+            next_image: 1,
+        };
+        assert_eq!(
+            UiEvent::Forked {
+                replay: replay("t\x1b]2;x\x07 (fork)"),
+                source: "id\x1b[2J".into(),
+            }
+            .made_inert(),
+            UiEvent::Forked {
+                replay: replay("t ]2;x  (fork)"),
+                source: "id [2J".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn an_effort_the_runtime_applied_is_made_inert_and_the_default_passes() {
+        // `EffortApplied` carries one string, the level -- no model id -- and
+        // a level is a name `Effort::parse` read before it got here; the
+        // channel holds it to the policy anyway, so a forged one comes out
+        // spelled: every control a space, the rest as it was.
+        use crate::provider::effort::Effort;
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Named("hi\x1b]0;x\x07gh\x1b[2J".into()),
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Named("hi ]0;x gh [2J".into()),
+            }
+        );
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Named("high".into()),
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Named("high".into()),
+            }
+        );
+        assert_eq!(
+            UiEvent::EffortApplied {
+                effort: Effort::Auto
+            }
+            .made_inert(),
+            UiEvent::EffortApplied {
+                effort: Effort::Auto
+            }
+        );
     }
 
     #[test]
