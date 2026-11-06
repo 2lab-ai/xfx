@@ -241,9 +241,8 @@ impl StdioTransport {
             use std::os::unix::process::CommandExt;
             builder.process_group(0);
         }
-        let mut child = builder
-            .spawn()
-            .map_err(|_| McpError::Named("McpSpawnFailed"))?;
+        let mut child =
+            crate::process::spawn(&mut builder).map_err(|_| McpError::Named("McpSpawnFailed"))?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr_pipe = child.stderr.take();
@@ -1499,7 +1498,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             .env(SENTINEL_RUNNER, "1")
             .args(["--ignored", "--exact", "--test-threads=1"])
             .args(CASES);
-        let output = runner.output().expect("a runner");
+        let output = crate::process::output(&mut runner).expect("a runner");
         let report = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
@@ -2222,7 +2221,8 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[test]
     fn looking_for_a_leader_s_exit_leaves_it_to_be_collected() {
         // `true` from the path: `/bin/true` is `/usr/bin/true` on macOS.
-        let mut child = crate::process::command("true").spawn().expect("spawned");
+        let mut child =
+            crate::process::spawn(&mut crate::process::command("true")).expect("spawned");
         let leader = rustix::process::Pid::from_raw(child.id() as i32).expect("pid");
         let deadline = Instant::now() + Duration::from_secs(30);
         while !Server(&mut child).exited() {

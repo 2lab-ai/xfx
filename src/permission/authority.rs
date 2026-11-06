@@ -2350,7 +2350,7 @@ mod tests {
             for (name, value) in extra {
                 command.env(name, value);
             }
-            command.status().expect("git runs")
+            crate::process::status(&mut command).expect("git runs")
         }
 
         /// Runs a direct plan as the terminal tool would: its argv, with its
@@ -2588,15 +2588,16 @@ mod tests {
         let source = tempfile::tempdir().expect("a source");
         let source_path = source.path().canonicalize().expect("canonical");
         let in_source = |args: &[&str]| {
-            std::process::Command::new(&fixture.git)
-                .args(args)
-                .current_dir(&source_path)
-                .env_clear()
-                .env("HOME", &fixture.home)
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-                .output()
-                .expect("git runs")
+            crate::process::output(
+                std::process::Command::new(&fixture.git)
+                    .args(args)
+                    .current_dir(&source_path)
+                    .env_clear()
+                    .env("HOME", &fixture.home)
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+            )
+            .expect("git runs")
         };
         assert!(in_source(&["init", "-q"]).status.success());
         for index in 0..300 {
@@ -2658,17 +2659,18 @@ mod tests {
         let source = tempfile::tempdir().expect("a source");
         let source = source.path().canonicalize().expect("canonical");
         let git_in = |dir: &Path, args: &[&str]| {
-            let status = std::process::Command::new(&fixture.git)
-                .args(args)
-                .current_dir(dir)
-                .env_clear()
-                .env("HOME", &fixture.home)
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .expect("git runs");
+            let status = crate::process::status(
+                std::process::Command::new(&fixture.git)
+                    .args(args)
+                    .current_dir(dir)
+                    .env_clear()
+                    .env("HOME", &fixture.home)
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null()),
+            )
+            .expect("git runs");
             assert!(status.success(), "git {args:?}");
         };
         git_in(&source, &["init", "-q"]);
