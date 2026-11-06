@@ -47,10 +47,10 @@
 //!
 //! # Commands are answered in order
 //!
-//! Every `/mcp` command, every menu catalog read and every trust choice goes
-//! to one worker thread in the order it was given, and what it says comes
-//! back as [`Event`]s the UI drains: a resource read that waits on a slow
-//! server cannot be overtaken by the `/mcp path` typed after it, and the UI
+//! Every `/mcp` command, every choice made in its menu and every trust choice
+//! goes to one worker thread in the order it was given, and what it says
+//! comes back as [`Event`]s the UI drains: a `show` that waits on a slow
+//! server cannot be overtaken by the `remove` typed after it, and the UI
 //! thread never waits on a server.
 
 use std::collections::{HashMap, VecDeque};
@@ -250,8 +250,9 @@ pub struct ServerView {
     pub entry: Option<Arc<ShownEntry>>,
 }
 
-/// A project entry as a person is shown it: the rows of [`what_it_runs`],
-/// each whole, and the [`config::entry_digest`] of the entry they came from.
+/// A project entry as it is written, for a person asked about it: its rows
+/// ([`entry_rows`]), each whole, and the [`config::entry_digest`] of the
+/// entry they came from -- what an approval of it is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShownEntry {
     pub rows: Vec<String>,
@@ -360,8 +361,6 @@ pub enum Origin {
     Startup,
     /// A notice in the transcript.
     Transcript,
-    /// The menu's feedback row.
-    Menu,
 }
 
 /// Something the UI has to show.
@@ -371,40 +370,8 @@ pub enum Event {
     /// v0.0.16 files a verb's output (`collectMcpHostFacts`,
     /// `src/core/app/app_commands.zig:340-354@481104fd`).
     Notice { warning: bool, body: String },
-    /// The trust prompt is up for this server, showing the entry whose
-    /// [`config::entry_digest`] this is: what `1` approves. `listed` is every
-    /// pending server as the prompt went up, each with its digest: what `2`
-    /// approves. `whole` is whether every row of the entry fit the prompt
-    /// ([`PROMPT_ROW_MAX_BYTES`]); `1` approves only an entry shown whole.
-    /// `text` is the prompt's rows, upstream's two with what the entry runs
-    /// between them (`presentProjectMcpPrompt`, `main.zig:1818-1832`),
-    /// written into the transcript as they are, with no glyph: one event, so
-    /// the text written last is always the prompt armed. No other event
-    /// writes rows as they are, so none can print a prompt it does not arm.
-    TrustPrompt {
-        name: String,
-        digest: String,
-        listed: Vec<(String, String)>,
-        whole: bool,
-        text: String,
-    },
-    /// The menu's feedback row.
-    MenuFeedback(String),
-    /// What a menu catalog read found, for the read that asked.
-    Catalog {
-        request: u64,
-        result: Result<Catalog, String>,
-    },
     /// The servers changed: the menu repaints.
     Changed,
-}
-
-/// One section's items, for the menu.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Catalog {
-    Tools(Vec<String>),
-    Resources(Vec<Resource>),
-    Prompts(Vec<Prompt>),
 }
 
 /// The files a runtime reads its servers from.
@@ -422,24 +389,12 @@ pub struct Paths {
 pub enum Job {
     /// A `/mcp` command line, without the `/mcp`.
     Command(String),
-    /// A trust choice, and the sentence that announces it.
+    /// A trust choice, and the sentence that announces it; none for a
+    /// choice made in `/mcp`'s menu, which says only what warns.
     Trust { action: TrustAction, body: String },
-    /// A menu catalog read.
-    Catalog {
-        request: u64,
-        section: Section,
-        server: Option<String>,
-    },
-    /// A reload the menu's `r` asked for.
-    MenuReload,
-}
-
-/// The menu's catalog sections that read something.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Section {
-    Tools,
-    Resources,
-    Prompts,
+    /// A choice made in `/mcp`'s menu: a verb and its words, never split
+    /// again, run warnings-only ([`super::command::choose`]).
+    Choice(Vec<String>),
 }
 
 /// A server's live half.
@@ -682,15 +637,6 @@ impl Server {
     }
 }
 
-/// What the trust prompt last went up over: the entry asked about and the
-/// pending set `2` approves.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Prompted {
-    name: String,
-    digest: String,
-    listed: Vec<(String, String)>,
-}
-
 /// Everything the lock covers.
 struct State {
     servers: Vec<Arc<Server>>,
@@ -698,18 +644,12 @@ struct State {
     reloading: bool,
     /// A reload asked for while one was running, and where it is told.
     again: Option<Origin>,
-    prompts_suppressed: bool,
-    /// What the trust prompt is up over, while it is.
-    prompting: Option<Prompted>,
     /// The configuration the last reload read, for one that only changes
     /// trust choices to compare against.
     choices: Choices,
     /// Each `.mcp.json` entry the last read found, with its digest: what an
     /// approval by name is for ([`config::apply_action`]).
     digests: Vec<(String, String)>,
-    /// The next reload starts a failed server again even when its
-    /// configuration is the same ([`McpRuntime::reconnect`]).
-    reconnect: bool,
 }
 
 /// How a workspace server's `${VAR}` is looked up.
@@ -786,11 +726,8 @@ impl McpRuntime {
                 issues: Vec::new(),
                 reloading: false,
                 again: None,
-                prompts_suppressed: false,
-                prompting: None,
                 choices: Choices::default(),
                 digests: Vec::new(),
-                reconnect: false,
             }),
             names: Mutex::new(ToolNames::new(crate::tools::ADVERTISED_TOOLS)),
             events: Mutex::new(VecDeque::new()),
@@ -966,56 +903,7 @@ impl McpRuntime {
         match job {
             Job::Command(line) => super::command::handle(self, &line),
             Job::Trust { action, body } => self.trust(action, &body),
-            Job::Catalog {
-                request,
-                section,
-                server,
-            } => {
-                let result = self.catalog(section, server.as_deref());
-                self.say(Event::Catalog { request, result });
-            }
-            Job::MenuReload => self.reconnect(Origin::Menu),
-        }
-    }
-
-    fn catalog(&self, section: Section, server: Option<&str>) -> Result<Catalog, String> {
-        let failed = |err: McpError| format!("MCP catalog failed: {err}");
-        match section {
-            Section::Tools => {
-                let mut names: Vec<String> = self
-                    .tools()
-                    .into_iter()
-                    .map(|(_, tool)| tool.alias)
-                    .collect();
-                names.sort();
-                Ok(Catalog::Tools(names))
-            }
-            Section::Resources => {
-                let name = server.ok_or_else(|| failed(McpError::Named("McpServerNotFound")))?;
-                match self.list_resources(name, false, None) {
-                    Ok(mut resources) => {
-                        let templates = self.list_resources(name, true, None).map_err(failed)?;
-                        resources.extend(templates);
-                        Ok(Catalog::Resources(resources))
-                    }
-                    // An empty catalog, not a failure (`completeEmptyMenuCatalog`,
-                    // `app_mcp_runtime.zig:1481-1484`).
-                    Err(McpError::Named("McpResourcesUnsupported")) => {
-                        Ok(Catalog::Resources(Vec::new()))
-                    }
-                    Err(err) => Err(failed(err)),
-                }
-            }
-            Section::Prompts => {
-                let name = server.ok_or_else(|| failed(McpError::Named("McpServerNotFound")))?;
-                match self.list_prompts(name, None) {
-                    Ok(prompts) => Ok(Catalog::Prompts(prompts)),
-                    Err(McpError::Named("McpPromptsUnsupported")) => {
-                        Ok(Catalog::Prompts(Vec::new()))
-                    }
-                    Err(err) => Err(failed(err)),
-                }
-            }
+            Job::Choice(args) => super::command::choose(self, &args),
         }
     }
 
@@ -1026,9 +914,10 @@ impl McpRuntime {
     /// The session's first load, on the worker thread.
     ///
     /// The configured servers are put in force before this returns -- each
-    /// `Connecting` or `Disabled`, and the trust prompt up for a pending one
-    /// -- so the session's first frame and its record already name them;
-    /// connecting them is the thread's.
+    /// `Connecting` or `Disabled`, a pending project server held back until
+    /// it is approved in `/mcp`'s menu or by `/mcp approve` (fx v0.0.16 has
+    /// no launch prompt, `ba0ea4a9`) -- so the session's first frame and its
+    /// record already name them; connecting them is the thread's.
     pub fn start(self: &Arc<Self>) {
         if self.paths.profile.is_none() && self.paths.settings.is_none() {
             return;
@@ -1044,8 +933,6 @@ impl McpRuntime {
             state.issues = issues;
             state.choices = choices;
             state.digests = digests;
-            drop(state);
-            self.present_prompt();
         }
         let runtime = Arc::clone(self);
         let _ = std::thread::Builder::new()
@@ -1083,14 +970,6 @@ impl McpRuntime {
             );
             std::thread::sleep(Duration::from_millis(5));
         }
-    }
-
-    /// Whether a reload is running or asked for: a case's way to know the one
-    /// it asked for has put its set in force, now that a reload says nothing.
-    #[cfg(test)]
-    pub(crate) fn reloading(&self) -> bool {
-        let state = self.state();
-        state.reloading || state.again.is_some()
     }
 
     /// What both files say now: the servers, the workspace file's issues, the
@@ -1132,21 +1011,6 @@ impl McpRuntime {
         Ok((servers, issues, choices, workspace.digests))
     }
 
-    /// A reload the person asked for by name -- the menu's `r` -- which also
-    /// starts again a failed server whose configuration is the same. It is
-    /// fx c1db9191's, whose `/mcp reload` and `r` reconnect (`MCP
-    /// reconnection started. …`, `app_commands.zig:1395-1404@c1db9191`);
-    /// fx v0.0.16 has neither (`/mcp reload is gone: fx reloads after add,
-    /// remove, approve, and reject.`, `src/core/mcp_host/verbs.zig:70
-    /// @481104fd`, which `crate::mcp::command` now says), and its reloads keep
-    /// a server by its configuration alone, whatever its state
-    /// ([`Self::reload`]). Until the menu is fx v0.0.16's, `r` keeps doing
-    /// what it says.
-    pub fn reconnect(self: &Arc<Self>, origin: Origin) {
-        self.state().reconnect = true;
-        self.reload(origin);
-    }
-
     /// Reads both files again and connects what changed, telling `origin`
     /// how it went. A reload asked for while one runs runs after it.
     pub fn reload(self: &Arc<Self>, origin: Origin) {
@@ -1178,7 +1042,6 @@ impl McpRuntime {
             }
         }
         self.say(Event::Changed);
-        self.present_prompt();
     }
 
     fn reload_once(self: &Arc<Self>, origin: Origin) {
@@ -1208,16 +1071,13 @@ impl McpRuntime {
         // config is the same (`Engine.reload`, `src/mcp/engine.zig:167-186`)
         // -- and the rest start fresh.
         let current = self.servers();
-        let reconnect = std::mem::take(&mut self.state().reconnect);
         let index = by_name(&digests);
         let mut next: Vec<Arc<Server>> = Vec::with_capacity(configs.len());
         let mut connecting: Vec<Arc<Server>> = Vec::new();
         for config in configs {
-            let kept = current.iter().find(|server| {
-                server.config == config
-                    && !server.stopped.load(Ordering::Acquire)
-                    && !(reconnect && Server::observed(&server.live()) == Connection::Failed)
-            });
+            let kept = current
+                .iter()
+                .find(|server| server.config == config && !server.stopped.load(Ordering::Acquire));
             let server = match kept {
                 Some(server) => Arc::clone(server),
                 None => Server::new(config, &index),
@@ -1245,7 +1105,6 @@ impl McpRuntime {
             server.stop();
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
-        self.present_prompt();
         self.say(Event::Changed);
         // None once the session is ending: what it stops is what is in force.
         if self.closed.load(Ordering::Acquire) {
@@ -1518,21 +1377,6 @@ impl McpRuntime {
     // trust
     // -----------------------------------------------------------------------
 
-    /// The workspace server the trust prompt should ask about next -- the
-    /// first one still pending, unless the person dismissed the prompts --
-    /// with the digest of its entry as read.
-    fn pending_prompt(state: &State) -> Option<(ServerConfig, String)> {
-        if state.prompts_suppressed {
-            return None;
-        }
-        let server = state
-            .servers
-            .iter()
-            .find(|server| server.config.admission == Some(Admission::Pending))?;
-        let digest = server.entry.as_ref()?.digest.clone();
-        Some((server.config.clone(), digest))
-    }
-
     /// Every pending project server the last read found, with the digest of
     /// its entry: what an approve-all binds.
     fn pending_entries(state: &State) -> Vec<(String, String)> {
@@ -1547,166 +1391,31 @@ impl McpRuntime {
             .collect()
     }
 
-    /// Puts the trust prompt up for the next pending server, when one is
-    /// pending and none is up for that entry. Upstream's two rows, with what
-    /// the entry runs or reaches between them ([`what_it_runs`]): the name is
-    /// the repository's to choose, so it says nothing about what would run.
-    fn present_prompt(&self) {
-        // The server asked about and the set `2` approves, from one read of
-        // the state -- and published as one event while that read is held, so
-        // two prompts put up at once (a reload's, a refused `2`'s) reach the
-        // shell in the order the state took them, each with its own text.
-        let mut state = self.state();
-        let Some((config, digest)) = Self::pending_prompt(&state) else {
-            state.prompting = None;
-            return;
-        };
-        let listed = Self::pending_entries(&state);
-        // Sent again whenever the pending set changes, not only the entry
-        // asked about: `2` approves the whole set the prompt went up over.
-        let prompted = Prompted {
-            name: config.name.clone(),
-            digest: digest.clone(),
-            listed: listed.clone(),
-        };
-        if state.prompting.as_ref() == Some(&prompted) {
-            return;
-        }
-        state.prompting = Some(prompted);
-        let name_row = format!(
-            "Project MCP server '{}' is defined in .mcp.json.",
-            prompt_value(&super::terminal_safe(&config.name))
-        );
-        let text = format!(
-            "{name_row}\n  {}\n  {PROMPT_CHOICES}\n",
-            what_it_runs(&config)
-        );
-        let whole = shown_whole(&name_row, &entry_rows(&config));
-        // The state lock, then the event queue's: no path takes them the
-        // other way round.
-        self.say(Event::TrustPrompt {
-            name: config.name,
-            digest,
-            listed,
-            whole,
-            text,
-        });
-    }
-
-    /// The prompt has been answered or overtaken: the next reload may put
-    /// one up again.
-    pub fn prompt_answered(&self) {
-        self.state().prompting = None;
-    }
-
-    /// The prompt again, from the state as it is now: for a `2` that refused
-    /// a set that no longer stands. Whether one went up -- none does when
-    /// nothing is pending or the prompts were dismissed for this process.
-    pub fn prompt_again(&self) -> bool {
-        self.prompt_answered();
-        self.present_prompt();
-        self.state().prompting.is_some()
-    }
-
-    /// Esc at the prompt: no more prompts for this process.
-    pub fn suppress_prompts(&self) {
-        let mut state = self.state();
-        state.prompts_suppressed = true;
-        state.prompting = None;
-    }
-
     /// A trust choice (`applyProjectMcpAction`, `app_commands.zig:1407-1466`):
-    /// saved, announced with `body`, and put in force by a reload.
+    /// saved, announced with `body` -- a menu's choice has none, and says
+    /// only what warns (`.warnings_only`, `app_mcp_runtime.zig:545-560
+    /// @481104fd`) -- and put in force by a reload.
     fn trust(self: &Arc<Self>, action: TrustAction, body: &str) {
-        self.prompt_answered();
         let Some(settings) = self.paths.settings.clone() else {
             self.notice(
                 true,
                 "Project MCP choices were not applied: SettingsUnavailable.",
             );
-            self.present_prompt();
             return;
         };
         // What the runtime holds now, from one read of the state.
-        let (loaded, held) = {
+        let loaded = {
             let state = self.state();
-            let held: HashMap<String, Option<Admission>> = state
-                .servers
-                .iter()
-                .filter(|server| server.config.source == Source::Workspace)
-                .map(|server| (server.config.name.clone(), server.config.admission))
-                .collect();
-            (
-                config::Loaded {
-                    entries: state.digests.clone(),
-                    pending: Self::pending_entries(&state),
-                },
-                held,
-            )
-        };
-        // An approve-all of what was drawn leaves alone each listed entry no
-        // longer pending as listed, and each pending one it did not list; and
-        // says which, and why, of each.
-        let mut left: Vec<String> = Vec::new();
-        if let TrustAction::ApproveListed(listed) = &action {
-            for (name, digest) in listed {
-                if loaded.pending.contains(&(name.clone(), digest.clone())) {
-                    continue;
-                }
-                let shown = super::terminal_safe(name);
-                left.push(match held.get(name) {
-                    Some(Some(Admission::Pending)) => format!(
-                        "Project MCP server '{shown}' changed since it was listed; it is still waiting for approval."
-                    ),
-                    Some(Some(Admission::Approved)) => {
-                        format!("Project MCP server '{shown}' was approved in the meantime.")
-                    }
-                    Some(Some(Admission::Rejected)) => format!(
-                        "Project MCP server '{shown}' was rejected in the meantime; it was not approved."
-                    ),
-                    _ => format!(
-                        "Project MCP server '{shown}' is no longer a server in .mcp.json; there was nothing to approve."
-                    ),
-                });
-            }
-            for (name, _) in &loaded.pending {
-                if !listed.iter().any(|(listed, _)| listed == name) {
-                    left.push(format!(
-                        "Project MCP server '{}' was added since the list was drawn; it is still waiting for approval.",
-                        super::terminal_safe(name)
-                    ));
-                }
-            }
-        }
-        let approving = match &action {
-            TrustAction::ApproveListed(listed) => listed
-                .iter()
-                .filter(|entry| loaded.pending.contains(entry))
-                .count(),
-            _ => 1,
-        };
-        let say_left = |runtime: &Self| {
-            for sentence in &left {
-                runtime.notice(true, sentence.clone());
+            config::Loaded {
+                entries: state.digests.clone(),
+                pending: Self::pending_entries(&state),
             }
         };
-        if let TrustAction::ApproveListed(listed) = &action {
-            if listed.is_empty() {
-                // fx v0.0.16's sentence (`mcp_host/verbs.zig:645-650@481104fd`).
-                self.notice(false, "No project servers are waiting for approval.");
-                self.present_prompt();
-                return;
-            }
-            if approving == 0 {
-                say_left(self);
-                self.present_prompt();
-                return;
-            }
-        }
         match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
-                self.notice(false, body);
-                say_left(self);
+                if !body.is_empty() {
+                    self.notice(false, body);
+                }
                 self.reload(Origin::Transcript);
             }
             Err(err) => {
@@ -1717,7 +1426,6 @@ impl McpRuntime {
                         crate::output::safe_one_line(&err.to_string(), 200)
                     ),
                 );
-                self.present_prompt();
             }
         }
     }
@@ -2259,107 +1967,6 @@ fn tail_bytes(text: &str, max: usize) -> &str {
     &text[start..]
 }
 
-/// The trust prompt's rows that say what approving lets run or reach, as the
-/// entry has it: a stdio server's command line and a row for each variable it
-/// sets, or a remote server's address and a row for each header it sends,
-/// every value as written -- a literal, a default with its text, a `${VAR}`
-/// as the name it is, never expanded (a pending entry is not). What the child
-/// is given has to be on the screen: `"PATH": "./x:${PATH}"` makes
-/// `command: node` run `./x/node`, and `NODE_OPTIONS`, `LD_PRELOAD` or
-/// `PYTHONPATH` change what runs as much. The entry is the repository's own
-/// file, so its text shows nothing the file does not; what never reaches
-/// these rows is xfx's environment. Each row is spelled by [`prompt_value`],
-/// and cut only by [`fitted`]. A changed entry is a changed digest
-/// ([`config::entry_digest`]), and these rows are how its prompt differs from
-/// the one already answered.
-fn what_it_runs(config: &ServerConfig) -> String {
-    entry_rows(config)
-        .iter()
-        .map(|row| fitted(row, &config.name))
-        .collect::<Vec<_>>()
-        .join("\n  ")
-}
-
-/// A prompt row longer than this is shown by its two ends: written whole it
-/// would scroll its own beginning off a terminal of ordinary height before
-/// the choices under it are drawn.
-const PROMPT_ROW_MAX_BYTES: usize = 1024;
-
-/// The trust prompt's last row, upstream's choices (`main.zig:1824`).
-const PROMPT_CHOICES: &str =
-    "[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts";
-
-/// The screen a prompt is measured against, rows and columns: 80x24, the
-/// size a terminal opens at unless told otherwise, and the one xfx's own
-/// screen cases are drawn at.
-const PROMPT_SCREEN: (usize, u16) = (24, 80);
-
-/// The band's rows on [`PROMPT_SCREEN`] with nothing running: the composer,
-/// the rule under it and the hint row.
-const PROMPT_SCREEN_BAND_ROWS: usize = 3;
-
-/// Whether the prompt shows the entry whole, which is what `1` approves: no
-/// row of it was cut ([`fitted`]), and on [`PROMPT_SCREEN`] with nothing
-/// running the name row, every row of the entry and the choices are all on
-/// the screen once the choices are drawn -- 21 rows, its 24 less the band's
-/// three, the entry's rows two columns in. Each variable and header is a row
-/// of its own, so a long list of short ones would otherwise push the command
-/// row above the top unseen; such a prompt sends the person to the details
-/// and `v`, as one with a row cut does.
-fn shown_whole(name_row: &str, rows: &[String]) -> bool {
-    let (height, cols) = PROMPT_SCREEN;
-    let indented = cols - 2;
-    let drawn = screen_rows(name_row, cols)
-        + rows
-            .iter()
-            .map(|row| screen_rows(row, indented))
-            .sum::<usize>()
-        + screen_rows(PROMPT_CHOICES, indented);
-    rows.iter().all(|row| row.len() <= PROMPT_ROW_MAX_BYTES)
-        && drawn <= height - PROMPT_SCREEN_BAND_ROWS
-}
-
-/// The screen rows `row` takes `cols` wide, wrapped as the transcript wraps
-/// it (the transcript's `Gutter::Shown`).
-#[cfg(unix)]
-fn screen_rows(row: &str, cols: u16) -> usize {
-    crate::tui::wrap::wrap(row, cols).len()
-}
-
-/// Where there is no TUI, a row's characters over the width.
-#[cfg(not(unix))]
-fn screen_rows(row: &str, cols: u16) -> usize {
-    row.chars().count().div_ceil(usize::from(cols)).max(1)
-}
-
-/// `row` whole, or -- past [`PROMPT_ROW_MAX_BYTES`] -- its head and tail with
-/// how long it is and where it is shown whole, so a long command is never cut
-/// without saying so. Cut on a character boundary; `row` is already spelled,
-/// so no escape it carries is split from the code point it names.
-fn fitted(row: &str, name: &str) -> String {
-    if row.len() <= PROMPT_ROW_MAX_BYTES {
-        return row.to_string();
-    }
-    let floor = |at: usize| {
-        (0..=at)
-            .rev()
-            .find(|&at| row.is_char_boundary(at))
-            .unwrap_or(0)
-    };
-    let ceil = |at: usize| {
-        (at..=row.len())
-            .find(|&at| row.is_char_boundary(at))
-            .unwrap_or(row.len())
-    };
-    let head = &row[..floor(PROMPT_ROW_MAX_BYTES / 2)];
-    let tail = &row[ceil(row.len() - PROMPT_ROW_MAX_BYTES / 4)..];
-    format!(
-        "{head} \u{2026} [{} bytes in all; in /mcp, Enter on '{}' then v writes every byte] \u{2026} {tail}",
-        row.len(),
-        super::terminal_safe(name)
-    )
-}
-
 /// The last read's digests by entry name, for one lookup per server rather
 /// than a scan.
 fn by_name(digests: &[(String, String)]) -> HashMap<&str, &str> {
@@ -2383,7 +1990,7 @@ fn shown_entry(config: &ServerConfig, digests: &HashMap<&str, &str>) -> Option<S
     })
 }
 
-/// [`what_it_runs`]' rows, each whole and spelled by [`prompt_value`]: the
+/// An entry's rows, each whole and spelled by [`prompt_value`]: the
 /// command line or the address, then `env: NAME=value` for each variable and
 /// `header: Name: value` for each header -- its `headers` as written, a
 /// `header_env` header as the `${VAR}` it is sent from, and
@@ -2428,13 +2035,13 @@ pub(crate) fn entry_rows(config: &ServerConfig) -> Vec<String> {
     rows.iter().map(|row| prompt_value(row)).collect()
 }
 
-/// One value of the trust prompt as the approval view spells a command it
+/// One value of an entry's rows as the approval view spells a command it
 /// asks about ([`crate::tui::approval_view::command_text`]): nothing a
 /// terminal would obey, and nothing it would hide or reorder -- a
 /// bidirectional override, a zero-width or invisible code point -- left as it
-/// is, so the prompt cannot show a command other than the one that runs. One
-/// row: a line break is `\x0a` here, where the approval view keeps it as a
-/// row break, so a value cannot draw rows of its own under the prompt's.
+/// is, so a row cannot show a command other than the one that runs. One row:
+/// a line break is `\x0a` here, where the approval view keeps it as a row
+/// break, so a value cannot draw rows of its own.
 #[cfg(unix)]
 fn prompt_value(text: &str) -> String {
     crate::tui::approval_view::command_text(&text.replace('\n', "\\x0a"))
@@ -2479,6 +2086,11 @@ fn shell_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An entry's rows as one text, one row a line: what these cases read.
+    fn what_it_runs(config: &ServerConfig) -> String {
+        entry_rows(config).join("\n  ")
+    }
 
     #[test]
     fn a_failure_quotes_the_last_three_stderr_lines_joined_and_cut_from_the_front() {
@@ -2703,40 +2315,6 @@ mod tests {
         let shown = what_it_runs(&config);
         assert!(!shown.contains('\u{ad}'), "{shown:?}");
         assert!(shown.contains(r"\u{00ad}"), "{shown:?}");
-    }
-
-    #[test]
-    fn a_row_too_long_for_the_screen_shows_both_ends_its_size_and_where_it_is_whole() {
-        let middle = "m".repeat(3000);
-        let config = ServerConfig::local(
-            "p",
-            "/bin/sh",
-            &["-c".into(), format!("HEAD-MARK {middle} TAIL-MARK")],
-        );
-        let whole = &entry_rows(&config)[0];
-        assert!(whole.len() > PROMPT_ROW_MAX_BYTES);
-        assert!(whole.ends_with("TAIL-MARK'"), "{whole}");
-        let shown = what_it_runs(&config);
-        assert!(shown.len() < PROMPT_ROW_MAX_BYTES, "{}", shown.len());
-        assert!(
-            shown.starts_with("command: /bin/sh -c 'HEAD-MARK mmm"),
-            "{shown}"
-        );
-        assert!(shown.ends_with("mmm TAIL-MARK'"), "{shown}");
-        assert!(
-            shown.contains(&format!(
-                "\u{2026} [{} bytes in all; in /mcp, Enter on 'p' then v writes every byte] \u{2026}",
-                whole.len()
-            )),
-            "{shown}"
-        );
-        // The name it points to is spelled as every name is.
-        let named = fitted(whole, "p\u{1b}[2J");
-        assert!(named.contains(r"Enter on 'p\x1b[2J'"), "{named}");
-        assert!(!named.contains('\u{1b}'), "{named}");
-        // A row that fits is whole.
-        let short = ServerConfig::local("p", "/bin/true", &[]);
-        assert_eq!(what_it_runs(&short), "command: /bin/true");
     }
 
     #[test]

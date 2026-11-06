@@ -270,21 +270,16 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     .unwrap();
     let runtime = home.runtime();
     runtime.start_and_wait(WAIT);
-    let events = runtime.take_events();
-    let digest = config::entry_digest(&entry);
+    // Nothing asks: fx v0.0.16 has no launch prompt (`ba0ea4a9`); the
+    // server waits for `/mcp`'s menu or `/mcp approve`, and nothing is said.
     assert!(
-        events.contains(&Event::TrustPrompt {
-            name: "proj".into(),
-            digest: digest.clone(),
-            listed: vec![("proj".into(), digest.clone())],
-            whole: true,
-            text: format!(
-                "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-                fixture().display()
-            ),
-        }),
-        "{events:?}"
+        !runtime
+            .take_events()
+            .iter()
+            .any(|event| matches!(event, Event::Notice { .. })),
+        "something was said at launch"
     );
+    let digest = config::entry_digest(&entry);
     let view = settled(&runtime, "proj");
     assert_eq!(view.state_label(), "Pending trust");
     assert_eq!(
@@ -333,10 +328,10 @@ fn an_approval_an_older_xfx_saved_by_name_alone_asks_once_more() {
     let runtime = home.runtime();
     runtime.start();
     assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
-    assert!(runtime
-        .take_events()
-        .iter()
-        .any(|event| matches!(event, Event::TrustPrompt { name, .. } if name == "proj")));
+    assert!(settled(&runtime, "proj")
+        .entry
+        .is_some_and(|entry| entry.digest
+            == config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}))));
     runtime.shutdown();
 }
 
@@ -369,140 +364,6 @@ fn a_pending_entry_is_spelled_once_per_read_and_shared_by_every_view() {
             .expect("a pending entry is shown")
     };
     assert!(Arc::ptr_eq(&entry(&runtime), &entry(&runtime)));
-    runtime.shutdown();
-}
-
-#[test]
-fn a_change_to_a_non_first_pending_server_sends_the_prompt_again_unasked() {
-    // The prompt is about the first pending server and its `2` about all of
-    // them: a reload that changes only the second sends it again, with no
-    // key pressed; a reload that changes nothing sends nothing.
-    let home = Home::new();
-    let quiet = |mark: &str| json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]});
-    let write = |b: &str| {
-        std::fs::write(
-            home.workspace().join(".mcp.json"),
-            json!({"mcpServers": {"a": quiet("a1"), "b": quiet(b)}}).to_string(),
-        )
-        .unwrap()
-    };
-    write("b1");
-    let runtime = home.runtime();
-    runtime.start_and_wait(WAIT);
-    settled(&runtime, "a");
-    let prompts = |events: Vec<Event>| -> Vec<Vec<(String, String)>> {
-        events
-            .into_iter()
-            .filter_map(|event| match event {
-                Event::TrustPrompt { listed, .. } => Some(listed),
-                _ => None,
-            })
-            .collect()
-    };
-    let _ = runtime.take_events();
-    bounded_run(&runtime, Job::MenuReload);
-    assert_eq!(
-        prompts(runtime.take_events()),
-        Vec::<Vec<(String, String)>>::new()
-    );
-    write("b2");
-    bounded_run(&runtime, Job::MenuReload);
-    assert_eq!(
-        prompts(runtime.take_events()),
-        [vec![
-            ("a".to_string(), config::entry_digest(&quiet("a1"))),
-            ("b".to_string(), config::entry_digest(&quiet("b2"))),
-        ]]
-    );
-    runtime.shutdown();
-}
-
-#[test]
-fn approving_a_listed_set_saves_only_the_entries_still_pending_as_listed() {
-    // What persistence does with a list some of which no longer stands: of
-    // what was listed one entry is unchanged, one rewritten, one removed, one
-    // rejected and one approved in the meantime, and one entry was added --
-    // only the unchanged one is approved, and each other is named with what
-    // became of it.
-    let home = Home::new();
-    let quiet = |mark: &str| json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]});
-    let write = |servers: Value| {
-        std::fs::write(
-            home.workspace().join(".mcp.json"),
-            json!({"mcpServers": servers}).to_string(),
-        )
-        .unwrap()
-    };
-    write(json!({
-        "same": quiet("s"), "rewritten": quiet("r1"), "gone": quiet("g"),
-        "refused": quiet("f"), "taken": quiet("t"),
-    }));
-    let runtime = home.runtime();
-    runtime.start_and_wait(WAIT);
-    settled(&runtime, "same");
-    let listed: Vec<(String, String)> = [
-        ("same", "s"),
-        ("rewritten", "r1"),
-        ("gone", "g"),
-        ("refused", "f"),
-        ("taken", "t"),
-    ]
-    .into_iter()
-    .map(|(name, mark)| (name.to_string(), config::entry_digest(&quiet(mark))))
-    .collect();
-    write(json!({
-        "same": quiet("s"), "rewritten": quiet("r2"), "refused": quiet("f"),
-        "taken": quiet("t"), "added": quiet("a"),
-    }));
-    bounded_run(&runtime, Job::MenuReload);
-    let deadline = Instant::now() + WAIT;
-    while !runtime.views().iter().any(|view| view.name == "added") {
-        assert!(
-            Instant::now() < deadline,
-            "the reload never read the new file"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    for action in [
-        TrustAction::Reject("refused".into()),
-        TrustAction::Approve("taken".into()),
-    ] {
-        bounded_run(
-            &runtime,
-            Job::Trust {
-                action,
-                body: "In the meantime.".into(),
-            },
-        );
-    }
-    let _ = runtime.take_events();
-    bounded_run(
-        &runtime,
-        Job::Trust {
-            action: TrustAction::ApproveListed(listed),
-            body: "Approving all project MCP servers for this workspace.".into(),
-        },
-    );
-    let document: Value =
-        serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
-    assert_eq!(
-        document["workspaces"][home.workspace().to_str().unwrap()]["enabledMcpjsonServerDigests"],
-        json!({
-            "taken": config::entry_digest(&quiet("t")),
-            "same": config::entry_digest(&quiet("s")),
-        })
-    );
-    let said = notices(&runtime);
-    for expected in [
-        "Approving all project MCP servers for this workspace.",
-        "Project MCP server 'rewritten' changed since it was listed; it is still waiting for approval.",
-        "Project MCP server 'gone' is no longer a server in .mcp.json; there was nothing to approve.",
-        "Project MCP server 'refused' was rejected in the meantime; it was not approved.",
-        "Project MCP server 'taken' was approved in the meantime.",
-        "Project MCP server 'added' was added since the list was drawn; it is still waiting for approval.",
-    ] {
-        assert!(said.iter().any(|body| body == expected), "{expected}: {said:?}");
-    }
     runtime.shutdown();
 }
 
@@ -622,38 +483,30 @@ fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it
     let wrote = write(PermissionMode::Auto, rules);
     assert!(wrote.ok, "{wrote:?}");
 
-    bounded_run(&runtime, Job::MenuReload);
+    runtime.reload(super::runtime::Origin::Transcript);
     let view = settled(&runtime, "proj");
     assert!(
         !ran.exists(),
-        "the rewritten entry ran without a new prompt"
+        "the rewritten entry ran without being approved again"
     );
     assert_eq!(
         view.state_label(),
         "Pending trust",
         "the rewritten entry kept the approval: {view:?}"
     );
-    // The prompt names what would run, not only the name.
-    let events = runtime.take_events();
-    let shown = format!(
-        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c ': > \"$0\"; exec /bin/sh \"$1\"' {} {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-        ran.display(),
-        fixture().display()
+    // The entry shown for approval is what would run, not only the name.
+    let entry = view.entry.expect("a pending entry is shown");
+    assert_eq!(
+        entry.rows,
+        [format!(
+            "command: /bin/sh -c ': > \"$0\"; exec /bin/sh \"$1\"' {} {}",
+            ran.display(),
+            fixture().display()
+        )]
     );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, Event::TrustPrompt { text, .. } if *text == shown)),
-        "{events:?}"
-    );
-    let Some(Event::TrustPrompt { digest, .. }) = events
-        .iter()
-        .find(|event| matches!(event, Event::TrustPrompt { .. }))
-    else {
-        panic!("no prompt: {events:?}")
-    };
-    // An answer to a prompt that showed the old entry approves the old entry,
-    // which is no longer there.
+    let digest = &entry.digest;
+    // An approval of a screen that showed the old entry approves the old
+    // entry, which is no longer there.
     let first = config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}));
     assert_ne!(*digest, first);
     bounded_run(
@@ -752,7 +605,7 @@ fn a_hostile_name_is_spelled_out_and_cut_at_upstreams_256_bytes() {
 }
 
 #[test]
-fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it() {
+fn a_hostile_command_is_named_in_its_entry_as_the_approval_view_names_it() {
     let home = Home::new();
     std::fs::write(
         home.workspace().join(".mcp.json"),
@@ -765,53 +618,14 @@ fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it(
     .unwrap();
     let runtime = home.runtime();
     runtime.start();
-    let events = runtime.take_events();
-    let prompt = events
-        .iter()
-        .find_map(|event| match event {
-            Event::TrustPrompt { text, .. } => Some(text.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("no prompt: {events:?}"));
+    let entry = settled(&runtime, "proj")
+        .entry
+        .expect("a pending entry is shown");
     assert_eq!(
-        prompt,
-        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c 'true \\u{202e}hs.live cexe\\u{200b}'\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+        entry.rows,
+        ["command: /bin/sh -c 'true \\u{202e}hs.live cexe\\u{200b}'"]
     );
     runtime.shutdown();
-}
-
-#[test]
-fn an_entry_that_would_push_its_command_row_off_the_screen_is_not_shown_whole() {
-    // Each variable is a row of its own: none is too long, but enough of them
-    // push the command row above an 80x24 screen before the choices are
-    // drawn. `1` approves only an entry shown whole, so such a prompt sends
-    // the person to the details and `v`.
-    let whole = |count: usize| -> bool {
-        let home = Home::new();
-        let env: serde_json::Map<String, Value> = (0..count)
-            .map(|at| (format!("V{at}"), json!("x")))
-            .collect();
-        std::fs::write(
-            home.workspace().join(".mcp.json"),
-            json!({"mcpServers": {"proj": {"command": "node", "env": env}}}).to_string(),
-        )
-        .unwrap();
-        let runtime = home.runtime();
-        runtime.start();
-        let events = runtime.take_events();
-        runtime.shutdown();
-        events
-            .iter()
-            .find_map(|event| match event {
-                Event::TrustPrompt { whole, .. } => Some(*whole),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("no prompt: {events:?}"))
-    };
-    // The name row, the command row, 18 variables and the choices: the 21
-    // rows the screen's 24 leave over the band's three.
-    assert!(whole(18));
-    assert!(!whole(19));
 }
 
 /// Every entry of the workspace file in `root` approved as it is written --
@@ -2453,10 +2267,10 @@ fn a_feature_request_during_a_startup_backoff_waits_for_the_next_try() {
 }
 
 #[test]
-fn an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not() {
-    // The menu's `r` is c1db9191's and reconnects; fx v0.0.16 has no such
-    // reload -- its `/mcp reload` is gone -- and its reloads keep a server by
-    // its configuration alone (`src/core/mcp_host/verbs.zig:70`,
+fn a_config_reload_does_not_start_a_failed_server_again_and_nothing_else_does() {
+    // fx v0.0.16 has no reload of its own -- its `/mcp reload` is gone, and
+    // so is c1db9191's menu `r` that reconnected -- and its reloads keep a
+    // server by its configuration alone (`src/core/mcp_host/verbs.zig:70`,
     // `src/mcp/engine.zig:167-186@481104fd`).
     let home = Home::new();
     let attempts = home.dir.path().join("attempts");
@@ -2490,16 +2304,6 @@ fn an_explicit_reload_starts_a_failed_server_again_and_a_config_reload_does_not(
         ["/mcp reload is gone: xfx reloads after add, remove, approve, and reject."]
     );
     assert_eq!(tries(), 8, "a verb that is gone started a server");
-    let deadline = Instant::now() + WAIT;
-    // The menu's `r`, c1db9191's until the menu is v0.0.16's, does.
-    runtime.run(Job::MenuReload);
-    while tries() < 16 {
-        assert!(
-            Instant::now() < deadline,
-            "the menu's reload started nothing"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
     assert_eq!(settled(&runtime, "broken").status(), Status::Failed);
     runtime.shutdown();
 }
@@ -2680,39 +2484,6 @@ fn the_end_of_a_session_during_a_failed_handshakes_teardown_waits_for_the_child(
     runtime.shutdown();
     assert!(!running(pid), "the session ended with the child alive");
     assert!(!group_left(pid), "its group outlived the session");
-}
-
-#[test]
-fn an_explicit_reload_starts_again_a_ready_server_whose_process_died() {
-    // Every surface reads a ready server whose connection has gone as
-    // failed (`observedConnection`); `/mcp reload` restarts it as one.
-    let home = Home::new();
-    let log = home.dir.path().join("pid");
-    config::add_profile_server(&home.profile(), logged_server("fixture", &log, "one"))
-        .expect("saved");
-    let runtime = home.runtime();
-    runtime.start_and_wait(WAIT);
-    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
-    let first = pid_in(&log);
-    rustix::process::kill_process(
-        rustix::process::Pid::from_raw(first).expect("pid"),
-        rustix::process::Signal::KILL,
-    )
-    .expect("killed");
-    let deadline = Instant::now() + WAIT;
-    while settled(&runtime, "fixture").status() != Status::Failed {
-        assert!(Instant::now() < deadline, "its death was never seen");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    runtime.run(Job::MenuReload);
-    while pid_in(&log) == first || settled(&runtime, "fixture").status() != Status::Ready {
-        assert!(
-            Instant::now() < deadline,
-            "the reload did not start it again"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    runtime.shutdown();
 }
 
 /// A hook that holds every try at `point` until released, and says when one

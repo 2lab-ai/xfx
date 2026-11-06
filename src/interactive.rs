@@ -675,7 +675,7 @@ pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes
      opens the full-screen one";
 
 /// `/mcp` on the line shell. The MCP client runs in the full-screen shell's
-/// session -- its servers, its menu, its trust prompt -- and this shell starts
+/// session -- its servers and its menu -- and this shell starts
 /// no server, so it says where they are rather than managing a profile it
 /// would never connect to.
 pub const MCP_ON_THE_LINE_SHELL: &str = "xfx: /mcp manages MCP servers in the full-screen \

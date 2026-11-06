@@ -2024,15 +2024,14 @@ impl Choices {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrustAction {
     /// Approve the entry called this as the runtime last read it: the typed
-    /// `/mcp approve NAME` of a server the runtime holds. The trust prompt,
-    /// the menu's details screen and `approve NAME` of an entry that parses
-    /// only once expanded (`"url": "${URL}"`, which has no server to hold)
-    /// send [`Self::ApproveShown`] instead.
+    /// `/mcp approve NAME` of a server the runtime holds. `/mcp`'s approval
+    /// screen and `approve NAME` of an entry that parses only once expanded
+    /// (`"url": "${URL}"`, which has no server to hold) send
+    /// [`Self::ApproveShown`] instead.
     Approve(String),
-    /// Approve the entry the trust prompt or the menu's details screen
-    /// showed, whose [`entry_digest`] this is: if the file changed after it
-    /// was drawn, the approval is for an entry no longer there, and the new
-    /// one asks.
+    /// Approve the entry `/mcp`'s approval screen showed, whose
+    /// [`entry_digest`] this is: if the file changed after it was drawn, the
+    /// approval is for an entry no longer there, and the new one waits.
     ApproveShown {
         name: String,
         digest: String,
@@ -2042,12 +2041,6 @@ pub enum TrustAction {
     /// servers there now, not ones added later, as fx v0.0.16 does
     /// (`CHANGELOG.md:165@481104fd`, `src/core/mcp_host/verbs.zig:641-655@481104fd`).
     ApproveAll,
-    /// Approve these entries, each by its name and the [`entry_digest`] it
-    /// had when a prompt or the menu's confirmation drew it -- the
-    /// approve-all a person was shown. An entry that is no longer pending
-    /// with that digest is left as it is.
-    ApproveListed(Vec<(String, String)>),
-    Reset,
 }
 
 /// The workspace's servers and the entries it could not read.
@@ -2509,16 +2502,6 @@ pub fn apply_action(current: &Choices, action: &TrustAction, loaded: &Loaded) ->
             }
             reduced
         }
-        TrustAction::ApproveListed(listed) => {
-            for (name, digest) in listed {
-                if loaded.pending.contains(&(name.clone(), digest.clone()))
-                    && !current.rejected.contains(name)
-                {
-                    approve(&mut next, name, Some(digest));
-                }
-            }
-            false
-        }
         TrustAction::ApproveAll => {
             for (name, digest) in &loaded.pending {
                 if !current.rejected.contains(name) {
@@ -2526,11 +2509,6 @@ pub fn apply_action(current: &Choices, action: &TrustAction, loaded: &Loaded) ->
                 }
             }
             false
-        }
-        TrustAction::Reset => {
-            let reduced = !current.approved.is_empty();
-            next = Choices::default();
-            reduced
         }
     };
     (next, reduced)
@@ -2560,7 +2538,7 @@ pub fn save_action(
     crate::provider::profile::edit_document::<io::Error>(settings, |document| {
         let current = choices_in(document, root);
         let (next, _) = apply_action(&current, action, loaded);
-        if next == current && !matches!(action, TrustAction::Reset) {
+        if next == current {
             return Ok(false);
         }
         let workspaces = document
@@ -2792,8 +2770,6 @@ mod tests {
         let (next, reduced) = apply_action(&next, &TrustAction::Approve("b".into()), &loaded);
         assert!(!reduced);
         assert_eq!(next.admission("b", "sha256:b"), Admission::Approved);
-        let (next, _) = apply_action(&next, &TrustAction::Reset, &loaded);
-        assert_eq!(next, Choices::default());
     }
 
     #[test]
@@ -2887,7 +2863,7 @@ mod tests {
         assert_eq!(next.admission("no", "sha256:no"), Admission::Rejected);
         assert_eq!(next.admission("later", "sha256:later"), Admission::Pending);
         assert_eq!(next.admission("unparsed", "sha256:u"), Admission::Pending);
-        // The prompt's approval is for what it showed, whatever was read since.
+        // An approval of what a screen showed is for that, whatever was read since.
         let shown = TrustAction::ApproveShown {
             name: "a".into(),
             digest: "sha256:shown".into(),
@@ -2942,8 +2918,6 @@ mod tests {
                 "enabledMcpjsonServerDigests": {"proj": "sha256:p"},
             }}})
         );
-        save_action(&settings, root, &TrustAction::Reset, &loaded).expect("saved");
-        assert_eq!(read(), json!({}));
         // The switch an older xfx wrote leaves at the next write.
         fs::write(
             &settings,

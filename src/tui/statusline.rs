@@ -675,7 +675,7 @@ fn startup_settled(views: &[ServerView], since_start: Duration) -> bool {
 /// Whether a server waits on the person: the servers the status line counts
 /// (`needsAttention`, `menu.zig:540-545@481104fd`). A server switched off or
 /// rejected was the person's own choice, so it does not.
-fn needs_attention(view: &ServerView) -> bool {
+pub(crate) fn needs_attention(view: &ServerView) -> bool {
     view.admission != Some(Admission::Rejected)
         && !(view.connection == Connection::Disabled && view.admission != Some(Admission::Pending))
         && attention(view).is_some()

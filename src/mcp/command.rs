@@ -553,19 +553,28 @@ fn control_len(chars: &[char], start: usize) -> Option<usize> {
 /// control, an invisible or a bidirectional code point written out -- and
 /// cut at a whole token to 240 bytes, ending `...`.
 pub fn safe(raw: &str) -> String {
+    safe_within(raw, SAFE_MAX_BYTES)
+}
+
+/// [`safe`] with its cut at `max` bytes: fx's own menu rows spell what they
+/// show with `encodeTerminalSafeInline(.., 4096)` and cut it to the row
+/// (`appendTerminalSafeSingleLine`, `src/ui/footer/row_text.zig:127-134
+/// @481104fd`), which `/mcp`'s menu does with this.
+pub(crate) fn safe_within(raw: &str, max: usize) -> String {
     const MARKER: &str = "...";
+    let max = max.max(MARKER.len());
     let flat = raw
         .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
         .filter(|word| !word.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    let content_limit = SAFE_MAX_BYTES - MARKER.len();
+    let content_limit = max - MARKER.len();
     let mut out = String::new();
     let mut boundary = 0;
     let mut buf = [0u8; 4];
     for character in flat.chars() {
         let token = super::terminal_safe(character.encode_utf8(&mut buf));
-        if out.len() + token.len() > SAFE_MAX_BYTES {
+        if out.len() + token.len() > max {
             out.truncate(boundary);
             out.push_str(MARKER);
             return out;
@@ -583,7 +592,7 @@ pub fn safe(raw: &str) -> String {
 /// `--header=Authorization=…`, a name typed where a pair was meant) -- and
 /// spelled by [`safe`]. A name `/mcp add` takes has no `=`, so one is said
 /// whole; a profile written by hand can hold one with it, and is cut too.
-fn typed(word: &str) -> String {
+pub(crate) fn typed(word: &str) -> String {
     safe(word.find('=').map_or(word, |eq| &word[..=eq]))
 }
 
@@ -722,10 +731,27 @@ pub fn handle(runtime: &Arc<McpRuntime>, rest: &str) {
     let Some(args) = tokenize(rest) else {
         return runtime.notice(true, UNMATCHED);
     };
-    let said = run(runtime, &args);
+    report(runtime, run(runtime, &args), true);
+}
+
+/// A choice made in `/mcp`'s menu: `args`, the verb and its words as the
+/// menu has them -- never split again, so a name is one word whatever it
+/// holds -- run as the typed verb runs, and only its warnings and errors
+/// said: the menu shows its result in the row's status
+/// (`.warnings_only`, `VerbJob.run`, `app_mcp_runtime.zig:545-560`,
+/// `:609-614@481104fd`).
+pub fn choose(runtime: &Arc<McpRuntime>, args: &[String]) {
+    report(runtime, run(runtime, args), false);
+}
+
+/// Says what a verb did -- its output (unless only its warnings are
+/// wanted) one neutral notice, its errors one warning, in that order -- and
+/// then, after a change to either file, the reload that puts the change in
+/// force, in place and silent unless the files can't be read again.
+fn report(runtime: &Arc<McpRuntime>, said: Said, output: bool) {
     for (text, warning) in [(&said.out, false), (&said.err, true)] {
         let text = text.trim_end_matches('\n');
-        if !text.is_empty() {
+        if !text.is_empty() && (warning || output) {
             runtime.notice(warning, text);
         }
     }
@@ -942,7 +968,7 @@ fn show(runtime: &McpRuntime, name: &str, said: &mut Said) {
 
 /// A tool's description, first line only, blanks trimmed (`toolDescription`,
 /// `verbs.zig:568-575`).
-fn first_line(description: &str) -> &str {
+pub(crate) fn first_line(description: &str) -> &str {
     description
         .split('\n')
         .next()
@@ -1132,7 +1158,7 @@ enum Trust {
 /// servers the choice is about -- the one named, or for `--all` every one
 /// not rejected -- each said with what it runs or reaches, so the person
 /// sees what they trust. The choice is kept under the settings keys the
-/// trust prompt keeps it under, the entry the runtime last read approved,
+/// menu's choices keep it under, the entry the runtime last read approved,
 /// and the servers reload once it is.
 fn trust(runtime: &Arc<McpRuntime>, choice: Trust) {
     let project: Vec<Arc<super::runtime::Server>> = runtime
