@@ -1,0 +1,21 @@
+# mutant 3 (the deny filter removed, fork.rs carried_rules): run A, both pinning tests
+test session::store::fork::tests::a_fork_carries_the_sources_remembered_denies_and_no_allow ... FAILED
+test session::store::fork::tests::a_fork_of_a_session_with_no_deny_has_no_rules_file ... FAILED
+thread 'session::store::fork::tests::a_fork_carries_the_sources_remembered_denies_and_no_allow' (236873165) panicked at src/session/store/fork/tests.rs:1536:9:
+assertion `left == right` failed: an allow
+  left: Allow
+ right: Unresolved
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+thread 'session::store::fork::tests::a_fork_of_a_session_with_no_deny_has_no_rules_file' (236873166) panicked at src/session/store/fork/tests.rs:1605:9:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3837 filtered out; finished in 0.27s
+error: test failed, to rerun pass `--lib`
+# run A, the second panic's message
+allows only
+
+# run B: the same mutant, with tests.rs:1536 (the `ls` assertion) set aside on the clone so the next one is reached
+test session::store::fork::tests::a_fork_carries_the_sources_remembered_denies_and_no_allow ... FAILED
+thread 'session::store::fork::tests::a_fork_carries_the_sources_remembered_denies_and_no_allow' (236886384) panicked at src/session/store/fork/tests.rs:1545:9:
+assertion `left == right` failed
+  left: [(1, 1), (2, 2), (4, 4)]
+ right: [(1, 1), (4, 4)]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3838 filtered out; finished in 0.13s

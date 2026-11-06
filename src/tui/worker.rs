@@ -2077,10 +2077,7 @@ impl Runtime {
         let Some(conversation) = self.conversation.as_ref() else {
             return;
         };
-        if self.config.provider != crate::provider::ProviderId::Gateway {
-            return;
-        }
-        let Some(credential) = self.config.credential.as_ref() else {
+        let Some(credential) = gateway_credential(&self.config) else {
             return;
         };
         let state = conversation.recorder.state();
@@ -2119,10 +2116,7 @@ impl Runtime {
     /// place here -- names none), at the endpoint every turn goes to
     /// (`Bundle::select`).
     fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
-        if self.config.provider != ProviderId::Gateway {
-            return None;
-        }
-        let credential = self.config.credential.clone()?;
+        let credential = gateway_credential(&self.config)?.clone();
         let endpoint = crate::gateway::Endpoint::from_process().ok()?;
         Some((endpoint, credential))
     }
@@ -2542,7 +2536,10 @@ impl Runtime {
     /// line with what the source still grants -- an "always" the source took
     /// back after the cut is not the fork's ([`bind_conversation`] seeds the
     /// conversation's ledger from the fork's state alone, and a turn records
-    /// only what that ledger holds). No child process is the conversation's
+    /// only what that ledger holds); the saved-session rules are the fork's
+    /// own file, which the store wrote with each deny the source remembered
+    /// and no allow, and which every decision of the fork reads
+    /// ([`bind_conversation`] points the authority at it). No child process is the conversation's
     /// to move: the MCP servers are this runtime's and the shell tool's
     /// commands end with their calls.
     fn fork(
@@ -4104,6 +4101,19 @@ fn feedback_of(failure: Failure) -> Feedback {
         Failure::Cancelled => Feedback::Cancelled,
         Failure::Summary(_) => Feedback::Failed,
     }
+}
+
+/// The Gateway key a question beside the turn -- a bill, a title -- is asked
+/// with, or `None` when no turn here would send it: on another provider, with
+/// no key, or **where no provider was chosen**. A selection xfx could not read
+/// leaves `provider` on the compiled default and poisons every turn
+/// ([`Bundle::select`]); the default is not a choice to send the key to beside
+/// it either.
+fn gateway_credential(config: &RuntimeConfig) -> Option<&crate::config::Credential> {
+    if config.provider_rejected.is_some() || config.provider != ProviderId::Gateway {
+        return None;
+    }
+    config.credential.as_ref()
 }
 
 /// Starts the background read of the catalog, if the session holds none and
@@ -8106,6 +8116,78 @@ mod tests {
             .detail(&crate::session::Selector::Id(session), workspace.path())
             .expect("the log reads back");
         assert_eq!(detail.state.usage.requests[0], *settled);
+    }
+
+    /// A pending bill is asked for with the key a turn sends, so it is not
+    /// asked for where no turn can be: a provider selection xfx could not
+    /// read (`Bundle::select`). It stays pending for a session that can.
+    #[test]
+    fn a_pending_bill_is_not_asked_for_when_no_provider_was_validly_chosen() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        config.provider_rejected = Some(crate::config::ProviderRejection {
+            key: "provider",
+            value: "not-a-provider".to_string(),
+        });
+        assert_eq!(config.provider, ProviderId::Gateway);
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ4";
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counts = Arc::clone(&asked);
+        state.bills = super::super::reconcile::Reconciler::answering(
+            move |_origin, _secret, _id| {
+                counts.fetch_add(1, Ordering::SeqCst);
+                crate::gateway::generation::Lookup::Retry
+            },
+            Duration::from_millis(1),
+        );
+        let recorder = &mut state.conversation.as_mut().expect("opened").recorder;
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            turn_output_tokens: None,
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: None,
+                generation_id: Some(ID.to_string()),
+                origin: Some("http://127.0.0.1:4100".to_string()),
+            }],
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        });
+
+        state.ask_for_bills();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(asked.load(Ordering::SeqCst), 0, "the bill was asked for");
     }
 
     /// `signals::release`'s argument is that no handler runs off the UI
@@ -15114,6 +15196,27 @@ mod tests {
         assert_eq!(record.status, crate::trace::TitleStatus::Failed);
         assert_eq!(record.detail.as_deref(), Some("server_error"));
         assert_eq!(record.session.as_deref(), Some(id.as_str()));
+    }
+
+    #[test]
+    fn the_desk_asks_nothing_when_no_provider_was_validly_chosen() {
+        // A provider selection xfx could not read poisons the turn
+        // (`Bundle::select`), and a title is asked with the key the turn
+        // would send -- and the prompt: neither goes to the compiled default
+        // the rejected setting stands on.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Asked"));
+        assert!(state.title_asker().is_some());
+        state.config.provider_rejected = Some(crate::config::ProviderRejection {
+            key: "provider",
+            value: "not-a-provider".to_string(),
+        });
+        assert_eq!(state.config.provider, ProviderId::Gateway);
+        state.publish();
+        assert!(state.title_asker().is_none());
+        assert!(
+            !state.titles.ask("fix the renderer"),
+            "asked with a provider nobody chose"
+        );
     }
 
     #[test]

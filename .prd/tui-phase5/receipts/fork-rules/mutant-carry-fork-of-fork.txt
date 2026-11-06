@@ -1,0 +1,7 @@
+# mutant 4 (the carry removed): the fork-of-a-fork pty test
+test a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation ... FAILED
+panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["Revoke this saved-session permission rule?"] on the screen, [] off it
+# the screen at the time: `/permissions revoke 1` in the fork of the fork answered
+! permissions: saved-session permission rule not found
+# (no rule 1 there: the deny never reached it)

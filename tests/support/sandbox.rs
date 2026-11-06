@@ -31,6 +31,10 @@ pub const CONTROLLED_VARS: &[&str] = &[
 /// A test secret that must never appear on the terminal.
 pub const TEST_KEY: &str = "xfx-test-interactive-key-must-not-appear";
 
+/// A profile whose provider xfx cannot read, which poisons every turn
+/// (`RuntimeConfig::provider_rejected`); [`Sandbox::write_profile`] writes it.
+pub const UNREADABLE_PROVIDER: &str = r#"{"provider":"not-a-provider"}"#;
+
 pub struct Sandbox {
     _root: TempDir,
     pub home: PathBuf,
@@ -147,6 +151,21 @@ impl Sandbox {
         command.env("AI_GATEWAY_API_KEY", TEST_KEY);
         command.env("XFX_GATEWAY_URL", gateway.chat_url());
         command
+    }
+
+    /// Writes `json` as this sandbox's profile, in a directory only its owner
+    /// can open -- a looser one is refused before any key in it is read, and
+    /// a case about a key would then be about the directory.
+    pub fn write_profile(&self, json: &str) {
+        let dir = self.home.join(".xfx");
+        fs::create_dir_all(&dir).expect("create the profile dir");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+                .expect("tighten the profile dir");
+        }
+        fs::write(dir.join("settings.json"), json).expect("write the profile");
     }
 
     /// The settings file this sandbox's profile lives in.

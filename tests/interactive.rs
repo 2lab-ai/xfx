@@ -25,10 +25,12 @@ use rustix::termios::{ControlModes, InputModes, LocalModes, OutputModes};
 use serde_json::{json, Value};
 
 use support::fake_clipboard::FakeClipboard;
-use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
+use support::fake_gateway::{content_only, sent, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
-use support::sandbox::{edit_then_finish, edit_then_finish_called, with_notes, Sandbox, TEST_KEY};
+use support::sandbox::{
+    edit_then_finish, edit_then_finish_called, with_notes, Sandbox, TEST_KEY, UNREADABLE_PROVIDER,
+};
 
 /// The prompt the shell writes before reading a line.
 const PROMPT: &str = "> ";
@@ -518,6 +520,60 @@ fn slash_credits_with_no_credential_or_on_llmux_asks_nobody() {
     session.type_line("/credits");
     session.wait_for("[credits] error: Credits are unavailable for the selected provider.");
     assert!(daemon.requests().is_empty(), "{:?}", daemon.requests());
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_with_an_unreadable_provider_asks_nobody_and_says_why() {
+    // No provider was chosen, so the Gateway's key has nowhere to go: a turn
+    // refuses before it is built (`Bundle::select`), and `/credits` refuses
+    // with the turn's words rather than asking the compiled default's
+    // endpoint with the key. Red before: the shell sent the key to
+    // `GET /coding-agent/v1/credits` and printed the balance.
+    let gateway = FakeGateway::start(vec![Reply::Sse(
+        r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string(),
+    )]);
+    let sandbox = Sandbox::new();
+    sandbox.write_profile(UNREADABLE_PROVIDER);
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/credits");
+    let text = session.wait_until("a credits answer", |text| {
+        text.contains("[credits] plan=pro") || text.contains("endpoint you did not choose")
+    });
+    let asked = sent(&gateway.requests());
+    assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
+    assert!(
+        text.contains(
+            "[credits] error: provider=rejected: the `provider` setting is `not-a-provider`, \
+             which xfx cannot read; set it to `gateway` or `llmux`."
+        ),
+        "{text}"
+    );
+    assert!(
+        !text.contains(TEST_KEY),
+        "the credential reached the terminal"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_with_an_unreadable_provider_reads_no_catalog_with_the_key() {
+    // The catalog is read with the bearer a turn sends (`GatewayCatalog`), so
+    // it is read only where a turn could be sent. Red before: `/model` asked
+    // `GET /coding-agent/v1/models` with the key.
+    let gateway = FakeGateway::start(Vec::new());
+    let sandbox = Sandbox::new();
+    sandbox.write_profile(UNREADABLE_PROVIDER);
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/model");
+    session.wait_until("the catalog line", |text| text.contains("[shell] catalog="));
+    let asked = sent(&gateway.catalog_requests());
+    assert!(asked.is_empty(), "the catalog was asked: {asked:?}");
+    assert_eq!(gateway.request_count(), 0);
     assert_eq!(session.quit().code(), Some(0));
 }
 

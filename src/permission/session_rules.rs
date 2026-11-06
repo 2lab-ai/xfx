@@ -579,7 +579,19 @@ fn seed_with(
 /// store -- which a decision treats as a refusal, as upstream's failed
 /// snapshot fails the call.
 pub fn load(path: &Path) -> Result<State, String> {
-    let file = match open_regular(path) {
+    load_opened(open_regular(path, true))
+}
+
+/// [`load`], refusing a link at `path` itself (`O_NOFOLLOW`), dangling or
+/// not: for a reader that carries the store somewhere else -- a fork
+/// ([`crate::session::SessionStore::fork`]) -- which takes only a file that
+/// is the session's own, as it takes each of the session's images.
+pub fn load_not_through_a_link(path: &Path) -> Result<State, String> {
+    load_opened(open_regular(path, false))
+}
+
+fn load_opened(opened: io::Result<fs::File>) -> Result<State, String> {
+    let file = match opened {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(State::default()),
         Err(err) => {
@@ -602,14 +614,26 @@ pub fn load(path: &Path) -> Result<State, String> {
 /// thread that holds the terminal -- and `O_NOCTTY`, so a terminal there
 /// never becomes this process's. Then judged by its own `fstat`, so what is
 /// refused is what was opened, and made blocking again (`src/image.rs`'s
-/// `open_regular` opens a vision source the same way).
+/// `open_regular` opens a vision source the same way). Unless `follow`, a
+/// link at `path` is refused rather than opened (`O_NOFOLLOW`).
 #[cfg(unix)]
-fn open_regular(path: &Path) -> io::Result<fs::File> {
+fn open_regular(path: &Path, follow: bool) -> io::Result<fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+    let no_follow = if follow { 0 } else { libc::O_NOFOLLOW };
     let file = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
-        .open(path)?;
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY | no_follow)
+        .open(path)
+        .map_err(|err| {
+            if !follow && err.raw_os_error() == Some(libc::ELOOP) {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "it is a link, which xfx will not follow",
+                )
+            } else {
+                err
+            }
+        })?;
     if !file.metadata()?.is_file() {
         return Err(not_regular());
     }
@@ -621,8 +645,13 @@ fn open_regular(path: &Path) -> io::Result<fs::File> {
 /// Without `O_NONBLOCK`, the path's own metadata is what keeps a special
 /// file from being opened.
 #[cfg(not(unix))]
-fn open_regular(path: &Path) -> io::Result<fs::File> {
-    if !fs::metadata(path)?.is_file() {
+fn open_regular(path: &Path, follow: bool) -> io::Result<fs::File> {
+    let metadata = if follow {
+        fs::metadata(path)?
+    } else {
+        fs::symlink_metadata(path)?
+    };
+    if !metadata.is_file() {
         return Err(not_regular());
     }
     fs::File::open(path)

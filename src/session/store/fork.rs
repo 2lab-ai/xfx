@@ -22,8 +22,8 @@
 //! its frames' times, so both mean in the fork what they meant in the source.
 //!
 //! **Built aside, then renamed into place**, as upstream stages under
-//! `.tmp/{id}` (`stage`, `session.zig:541-580`): the log, its manifest and its
-//! images are written in [`FORK_STAGE_DIR`], beside `sessions` rather than in
+//! `.tmp/{id}` (`stage`, `session.zig:541-580`): the log, its manifest, its
+//! images and its saved-session rules are written in [`FORK_STAGE_DIR`], beside `sessions` rather than in
 //! it -- a listing counts every name in `sessions` that is not a session -- and
 //! the folder is renamed to `sessions/<id>` only once it is whole. A fork that
 //! fails is removed with its stage; a reader never sees one half made.
@@ -41,6 +41,7 @@ use super::{
     verify_private, workspace_key, DurableState, SessionError, SessionId, SessionStore, TurnStep,
     WritableSession, EVENTS_FILE, IMAGES_DIR, MAX_EVENT_LOG_BYTES, MAX_RENAMED_TITLE_BYTES,
 };
+use crate::permission::session_rules;
 use crate::session::event::{
     new_identifier, EventEnvelope, ForkOrigin, SessionEvent, TitleSource, EVENT_SCHEMA_VERSION,
 };
@@ -86,6 +87,20 @@ impl SessionStore {
     ///   private file of this account ([`carry_image`]); each is checked
     ///   against what its frame recorded first. One missing or damaged refuses
     ///   the fork, as upstream stops at a missing blob (`session.zig:1803-1809`).
+    /// - **Its saved-session rules: the source's remembered denies, and no
+    ///   allow.** Upstream's rules are `set permissions` lines in its log
+    ///   (`setPermissions`, `session_adapter.zig:2205-2208`), so its fork holds
+    ///   them as they stood at the cut, allows and denies, among the lines
+    ///   2..S it copies (`session.zig:1744-1747`). xfx keeps them beside the
+    ///   log in `permissions.json` ([`session_rules`]), which says only what
+    ///   they are now. So the fork carries what never widens what it may do:
+    ///   each deny the source holds now, with its id and generation, and the
+    ///   source's next generation, so no id is given twice. An allow is not
+    ///   carried, since nothing shows it was in force at the cut -- as an
+    ///   "always" given after the cut is not the fork's -- and the fork asks
+    ///   again. Read not through a link ([`session_rules::load_not_through_a_link`])
+    ///   and written into the stage owner-only with the rest; a store that
+    ///   cannot be read refuses the fork.
     /// - **The source is never written.** It is read as `detail` reads it --
     ///   its published boundary, cross-checked, without its lock, which the
     ///   session being forked is normally holding.
@@ -124,6 +139,14 @@ impl SessionStore {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|err| corrupt(err.to_string()))?;
         let images = kept_images(&replay.state, kept);
+        // Before anything is made: a store that cannot be read refuses the
+        // fork, as it refuses every call the source makes -- a deny in it
+        // must not lapse in the fork because its file broke.
+        let rules = carried_rules(&self.session_dir(source)).map_err(|reason| {
+            corrupt(format!(
+                "its saved-session permission rules cannot be forked: {reason}"
+            ))
+        })?;
 
         let id = SessionId::generate();
         let destination = self.session_dir(&id);
@@ -261,6 +284,17 @@ impl SessionStore {
             sync_directory(&ours)?;
         }
 
+        // In the stage, so the fork is never seen without them: owner-only,
+        // published with `link(2)` and read back ([`session_rules::seed`]).
+        if let Some(rules) = &rules {
+            // A test's hand in the stage just before the rules are written
+            // there; compiled out of every other build.
+            #[cfg(test)]
+            tests::before_rules(&stage.path);
+            session_rules::seed(&stage.path, rules)
+                .map_err(|err| io_error(&session_rules::path_in(&stage.path), err))?;
+        }
+
         let log_path = stage.path.join(EVENTS_FILE);
         let mut file = create_private_file(&log_path)?;
         // Held from the start, as `create` holds a new session's.
@@ -328,6 +362,23 @@ fn fork_point(state: &DurableState, kept: usize) -> Result<u64, String> {
         )),
         Some(turn) => Ok(turn.seqs.last),
     }
+}
+
+/// The saved-session rules a fork of the session in `source_dir` holds: each
+/// deny of its store as it stands, its id and generation kept, under its next
+/// generation; `None` when it has no store or no deny in it, and why when its
+/// store cannot be read or is a link.
+fn carried_rules(source_dir: &Path) -> Result<Option<session_rules::State>, String> {
+    let held = session_rules::load_not_through_a_link(&session_rules::path_in(source_dir))?;
+    let denies: Vec<_> = held
+        .rules
+        .into_iter()
+        .filter(|rule| rule.decision == session_rules::Decision::Deny)
+        .collect();
+    Ok((!denies.is_empty()).then_some(session_rules::State {
+        next_generation: held.next_generation,
+        rules: denies,
+    }))
 }
 
 /// Every image the first `kept` turns name: its copy's name, digest and size,
