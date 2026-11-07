@@ -58,6 +58,12 @@
 # work; and the remedy the index-bit refusal names. And the nested run of
 # test-check-no-secrets.sh below is CI's only full run of it.
 #
+# Round 2c adds: the vendored copy reached by a path git's own discovery
+# does not compare as the script gives it -- through a symlink, with a `:`
+# in it, or (on a case-insensitive file system) in another case -- and an
+# own checkout reached the first and last ways, which must still be scanned.
+# And an index entry with both bits.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -489,6 +495,13 @@ for bit in skip-worktree assume-unchanged; do
 	printf 'bin\000ary\n' >"$ilock/Cargo.lock"
 	refuses "identity-$bit" "$message" "$ilock/scripts/check-xfx-identity.sh"
 done
+# Both bits on one entry (`ls-files -v` tags it `s`): `git sparse-checkout
+# disable` leaves the assume-unchanged one, so the refusal names both
+# remedies. One update-index call with both options sets only the last.
+new_ilock
+sg -C "$ilock" update-index --skip-worktree Cargo.lock
+sg -C "$ilock" update-index --assume-unchanged Cargo.lock
+refuses identity-both-bits "git update-index --no-assume-unchanged" "$ilock/scripts/check-xfx-identity.sh"
 # A copy with no repository of its own, inside one that tracks it: a vendored
 # subtree. The parent tracks vendor/xfx/Cargo.lock with the residue, and this
 # script at vendor/xfx/scripts/. Git finds the parent's repository; under
@@ -501,6 +514,25 @@ printf 'name = "%s-core"\n' "$retired" >"$vendored/vendor/xfx/Cargo.lock"
 sg -C "$vendored" init -q
 sg -C "$vendored" add -A
 refuses identity-vendored "not a git checkout of its own" "$vendored/vendor/xfx/scripts/check-xfx-identity.sh"
+# The same copy reached through a symlink to its root: the script's own idea
+# of its root, and of the root's parent, is the link's.
+ln -s "$vendored/vendor/xfx" "$work/xfx-link"
+refuses identity-vendored-symlink "not a git checkout of its own" "$work/xfx-link/scripts/check-xfx-identity.sh"
+# A parent repository whose path has a `:` in it.
+colon="$work/vend:ored"
+mkdir -p "$colon/vendor/xfx/scripts"
+cp scripts/check-xfx-identity.sh "$colon/vendor/xfx/scripts/"
+printf 'name = "%s-core"\n' "$retired" >"$colon/vendor/xfx/Cargo.lock"
+sg -C "$colon" init -q
+sg -C "$colon" add -A
+refuses identity-vendored-colon "not a git checkout of its own" "$colon/vendor/xfx/scripts/check-xfx-identity.sh"
+# The copy invoked by a path in another case, where the file system folds
+# case (macOS's default); elsewhere there is no such path to give.
+if [ "$vendored" -ef "$work/VENDORED" ]; then
+	refuses identity-vendored-miscased "not a git checkout of its own" "$work/VENDORED/vendor/xfx/scripts/check-xfx-identity.sh"
+else
+	printf 'test-gate-env: skip %-28s %s\n' identity-vendored-miscased "this file system does not fold case"
+fi
 # A linked worktree, whose `.git` is a file: its own checkout, and scanned.
 new_ilock
 sg -C "$ilock" -c user.name=i -c user.email=i@example.invalid -c commit.gpgsign=false commit -q -m ilock
@@ -508,6 +540,15 @@ sg -C "$ilock" worktree add -q "$work/ilock-linked" -b linked
 refuses identity-linked-worktree "$content_found" "$work/ilock-linked/scripts/check-xfx-identity.sh"
 rm -rf "${work:?}/ilock-linked"
 new_ilock
+# An own checkout reached through a symlink to its root, or by a path in
+# another case: still its own, and scanned.
+ln -s "$ilock" "$work/ilock-link"
+refuses identity-own-symlink "$content_found" "$work/ilock-link/scripts/check-xfx-identity.sh"
+if [ "$ilock" -ef "$work/ILOCK" ]; then
+	refuses identity-own-miscased "$content_found" "$work/ILOCK/scripts/check-xfx-identity.sh"
+else
+	printf 'test-gate-env: skip %-28s %s\n' identity-own-miscased "this file system does not fold case"
+fi
 
 # A HOME config that runs programs: the gates refuse their violations and run
 # none of them.
