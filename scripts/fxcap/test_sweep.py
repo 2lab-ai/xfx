@@ -185,6 +185,8 @@ class Normalize(unittest.TestCase):
             ("Pane is dead (status 0, Tue Nov  3 21:51:45 2026)", "Pane is dead (status 1, Tue Nov  3 21:52:01 2026)"),
             ("Continue session with: fx --resume 9yclcdoOjcsQ", "Continue session with: xfx --resume 9yclcdoOjcsQ"),
             ("~ Generating (3s) (↑4 ↓6)", "~ Thinking (3s) (↑4 ↓6)"),
+            # The out count of a turn still streaming: a held stream makes it the same on both.
+            ("• Generating (3s) (↑4 ↓61)", "  Generating (4s) (↑4 ↓63)"),
             # The clock is the run's; the zone after it is the product's.
             ("  2026-11-03 21:45:01.234 KST · Tool", "  2026-11-03 12:46:11.004 UTC · Tool"),
             ("  2026-11-03 18:15:01.234 IST · Tool", "  2026-11-03 18:16:11.004 +0530 · Tool"),

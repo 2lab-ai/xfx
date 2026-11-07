@@ -1,0 +1,52 @@
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml (m1)
+@@ -113,6 +113,14 @@
+ replace = '\1<s>\2'
+ why = "The activity row's seconds count from when that run's turn started, so a snap taken at the same point of the script reads `3s` on one run and `4s` on the next. After activity-pulse (whose `~` it matches); the counts after it are compared."
+ source = [".prd/tui-phase4/receipts/d2c/README.md:91"]
++
++[[normalization]]
++id = "mutant-live-out-count"
++fx = '( \(↑\d+ ↓)\d+(\))$'
++xfx = '( \(↑\d+ ↓)\d+(\))$'
++replace = '\1<n>\2'
++why = "mutant"
++source = ["scripts/fxcap/capture.sh:1"]
+ 
+ [[normalization]]
+ id = "trace-file-name"
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml (m1b)
+@@ -121,6 +121,14 @@
+ mask = "X"
+ why = "`/trace` names its report for the moment it was written and twelve random hex digits (`xfx-trace-YYYY-MM-DD-HHMMSS-<12 hex>.md`); masked to the same length."
+ source = ["docs/parity.md:107"]
++
++[[normalization]]
++id = "mutant-live-out-count"
++fx = '^(~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓)\d+(\))$'
++xfx = '^(~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓)\d+(\))$'
++replace = '\1<n>\2'
++why = "mutant"
++source = ["scripts/fxcap/capture.sh:1"]
+ 
+ [[normalization]]
+ id = "network-ms"
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml (m2)
+@@ -753,3 +753,15 @@
+ fx_row = '^└ Failed mcp_web_echo: MCP protocol error '
+ xfx_row = '^└ Failed mcp_web_echo: \{"server":'
+ why = "A failed MCP call's row ends with the tool's result, what the model is told: fx v0.0.16 sends `MCP protocol error -32603: fixture refuses`, xfx its `{server, tool, error: {kind, message}}` envelope (src/tools/mcp.rs:422-428). The row's words before the reason are the same."
++
++[[cause]]
++id = "stream-position"
++kind = "nondeterminism"
++owner = "scenario"
++scenarios = ["*"]
++snaps = ["*"]
++fx_row = '^~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓\d+\)$|^  line \d+ of the streamed answer$|^  MARKER-HEAD |^  <wall> \(↑\d+ ↓\d+\)$'
++xfx_row = '^~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓\d+\)$|^  line \d+ of the streamed answer$|^  MARKER-HEAD |^  <wall> \(↑\d+ ↓\d+\)$'
++fix = "the turns file delivers its chunks with no delay and holds the finish (`hangMs`), and a snap that shows streamed lines waits out both pacers, so a snap or a keystroke mid-turn meets the same text on both; or a capture.sh `waitfor <text>` verb (not a scenario file). Applied to interrupt (interrupt-words.json) and interrupt2 (interrupt-lines.json, its mid snap at 6 s): two retakes each give the same verdicts. Not applied to interrupt-steer, provider, rename-midturn, resume-empty (slow-line-turn.json), which time a keystroke against the stream on purpose and need their own check"
++why = "The fake gateway streams a chunk every `delayMs`; a snap or an Escape at a fixed second lands at a different chunk on each binary (`↑4 ↓31` / `↑4 ↓43`, line 18 or 17 at the cancel, word 13 or 11 at the steer)."
++

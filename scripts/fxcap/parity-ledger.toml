@@ -683,16 +683,14 @@ whole_snap = true
 fix = "one Down count for both binaries (fx's): xfx's /settings has fx's 14 rows since the speed rows landed, so `xfx: key Down` x7 and x8 mark Fast mode and Ultra mode where fx marks Permission mode and Sound level"
 why = "The per-binary Down counts predate xfx's Fast and Ultra rows: xfx's Right moved another row, so neither the notice (`! permissions: mode set to …`, `* sound: on`) nor the footer's mode follows."
 
-[[cause]]
-id = "stream-position"
-kind = "nondeterminism"
-owner = "scenario"
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '^~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓\d+\)$|^  line \d+ of the streamed answer$|^  MARKER-HEAD |^  <wall> \(↑\d+ ↓\d+\)$'
-xfx_row = '^~ (?:Generating|Running|Thinking|Compacting) \(<s>\) \(↑\d+ ↓\d+\)$|^  line \d+ of the streamed answer$|^  MARKER-HEAD |^  <wall> \(↑\d+ ↓\d+\)$'
-fix = "the turns file delivers its chunks with no delay and holds the finish (`hangMs`), and a snap that shows streamed lines waits out both pacers, so a snap or a keystroke mid-turn meets the same text on both; or a capture.sh `waitfor <text>` verb (not a scenario file). Applied to interrupt (interrupt-words.json) and interrupt2 (interrupt-lines.json, its mid snap at 6 s): two retakes each give the same verdicts. Not applied to interrupt-steer, provider, rename-midturn, resume-empty (slow-line-turn.json), which time a keystroke against the stream on purpose and need their own check"
-why = "The fake gateway streams a chunk every `delayMs`; a snap or an Escape at a fixed second lands at a different chunk on each binary (`↑4 ↓31` / `↑4 ↓43`, line 18 or 17 at the cancel, word 13 or 11 at the steer)."
+# No cause for where a stream stands. A snap or a keystroke at a fixed second
+# into a paced stream landed at a different chunk on each binary (`streaming`
+# mid on PR #74: fx/xfx 59/63, 63/61, 63/61, 61/59), and a cause for it covered
+# every token count of every scenario, a settled turn's too. Each scenario that
+# snaps or types mid-stream now holds the stream at a fixed event (a turn's
+# `holdAt`, fakegw.ts; capture.sh's `held` and `release`); interrupt and
+# interrupt2 deliver at once and hold the finish (`hangMs`). A count that
+# differs is a difference, on its first run (test_ci_sweep.py `TokenCounts`).
 
 [[cause]]
 id = "session-age"
