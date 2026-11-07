@@ -1,0 +1,17 @@
+--- a/src/mcp/transport.rs
++++ b/src/mcp/transport.rs
+@@ -545,14 +545,6 @@
+ fn abandon(child: &Mutex<Option<Child>>, alive: &AtomicBool, pending: &Pending) {
+     alive.store(false, Ordering::Release);
+     fail_all(pending, "McpConnectionClosed");
+-    let mut child = child.lock().unwrap_or_else(PoisonError::into_inner);
+-    if let Some(child) = child.as_mut() {
+-        #[cfg(unix)]
+-        if let Some(group) = rustix::process::Pid::from_raw(child.id() as i32) {
+-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+-        }
+-        let _ = child.kill();
+-    }
+ }
+ 
+ /// Tells every caller waiting on `pending` that its answer will not come.
