@@ -28,6 +28,7 @@ redactor = Redactor({
     str(scratch): "<scratch>",
     "<copy>": "<copy>",
     "<copy>": "<copy>",
+    "<copy>": "<copy>",
 })
 
 files = {
@@ -50,6 +51,16 @@ files = {
     "inventory.sh": scratch / "tools/inventory.sh",
     "gates.sh": scratch / "tools/gates.sh",
     "publish.py": scratch / "publish.py",
+    # round 2
+    "runs-r2-macos.txt": scratch / "runs-r2-macos.log",
+    "runs-r2-linux.txt": scratch / "runs-r2-linux.log",
+    "r2-base-macos.txt": scratch / "r2-base-macos.log",
+    "regression-epoch-gate.txt": scratch / "regression-epoch-gate.log",
+    "mutants-r2.txt": scratch / "mutants-r2.out",
+    "mutants-r2-first.txt": scratch / "mutants-r2-first.out",
+    "runs-r2.sh": scratch / "tools/runs-r2.sh",
+    "r2-probes.sh": scratch / "tools/r2-probes.sh",
+    "mutants-r2.py": scratch / "tools/mutants-r2.py",
 }
 for name, source in files.items():
     if only and name not in only:

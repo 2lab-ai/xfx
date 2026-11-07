@@ -1,0 +1,224 @@
+docker run rust:1.99-bookworm; root installs ruby, then su to uid 1000
+== platform
+Linux aarch64
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+grep (GNU grep) 3.8
+git version 2.39.5
+ruby 3.1.2p20 (2022-04-12 revision 4491bb740a) [aarch64-linux-gnu]
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+uid 1000
+
+== scripts/test-gate-env.sh at 692aea34
+test-gate-env: this grep ignores GREP_OPTIONS (grep (GNU grep) 3.8): each case below proves only its plant
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok identity-git-dir               the retired product name is still in tracked path names
+test-gate-env: ok identity-git-dir-work-tree     the retired product name is still in tracked path names
+test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
+test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-trace                 the retired product name is still in tracked path names
+test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
+test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-git-dir             possible OpenAI-style key:
+test-gate-env: ok preview-git-dir                does not document the qualified install command
+test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
+test-gate-env: ok preview-object-dir             does not document the qualified install command
+test-gate-env: ok preview-common-dir             does not document the qualified install command
+test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
+test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
+test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
+test-gate-env: ok attributes-info                the retired product name is still in tracked content
+test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: identity-grep.patternType: the gate exited 0, expected 1; its last lines:
+fatal: bad grep.patterntype argument: bogus
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-grep.extendedRegexp: the gate exited 0, expected 1; its last lines:
+fatal: bad boolean config value 'notabool' for 'grep.extendedregexp'
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-grep.threads: the gate exited 0, expected 1; its last lines:
+fatal: bad numeric config value 'x' for 'grep.threads': invalid unit
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-core.quotePath: the gate failed, but not with 'git cannot open it'; its last lines:
+check-xfx-identity: not a git checkout; this check can only speak about tracked files
+test-gate-env: identity-index-corrupt: the gate exited 128, expected 1; its last lines:
+fatal: .git/index: index file smaller than expected
+test-gate-env: identity-core.quotePath-home: the gate exited 128, expected 1; its last lines:
+fatal: bad boolean config value 'notabool' for 'core.quotepath'
+test-gate-env: identity-unreadable: the gate exited 0, expected 1; its last lines:
+error: failed to stat 'Cargo.lock': Permission denied
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-core.worktree: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-skip-worktree: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-assume-unchanged: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-home-programs: a program from config ran: fsmonitor
+test-gate-env: no-secrets-home-programs: a program from config ran: fsmonitor
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: workflow-steps: a step runs git before it drops GIT_*:
+.github/workflows/ci.yml gate: Confirm the checkout is the commit under test
+.github/workflows/preview.yml preflight: Publish only if this push bumps the preview epoch
+.github/workflows/preview.yml preflight: Confirm the checkout is the commit being published
+.github/workflows/preview.yml preflight: Name this build after the run that produced it
+.github/workflows/preview.yml build: Confirm the checkout is the commit being published
+.github/workflows/preview.yml publish: Check the tap is reachable, before anything is published
+.github/workflows/preview.yml publish: Put this preview in the Homebrew tap
+.github/workflows/sweep-full.yml full: Confirm the checkout
+.github/workflows/sweep.yml sweep: Confirm the checkout and find the base
+.github/workflows/sweep.yml sweep: Build xfx at the base and at the head
+test-gate-env: ci-checkout-assertion: the gate exited 0, expected 1; its last lines:
+gate is running on 2b2b436686d42dfca4b3414cf276f090d67da854
+test-gate-env: build-script: it stamped '2b2b436686d4', which is not the checkout's HEAD 79ab4e408a5c
+test-gate-env: test-check-no-secrets: a program from config ran: fsmonitor
+test-gate-env: 16 problem(s), 29 case(s) passed
+-> exit 1, 64 s
+
+== scripts/test-gate-env.sh at fff83c06
+test-gate-env: this grep ignores GREP_OPTIONS (grep (GNU grep) 3.8): each case below proves only its plant
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok identity-git-dir               the retired product name is still in tracked path names
+test-gate-env: ok identity-git-dir-work-tree     the retired product name is still in tracked path names
+test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
+test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-trace                 the retired product name is still in tracked path names
+test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
+test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-git-dir             possible OpenAI-style key:
+test-gate-env: ok preview-git-dir                does not document the qualified install command
+test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
+test-gate-env: ok preview-object-dir             does not document the qualified install command
+test-gate-env: ok preview-common-dir             does not document the qualified install command
+test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
+test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
+test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
+test-gate-env: ok attributes-info                the retired product name is still in tracked content
+test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: ok identity-grep.patternType      git grep could not search
+test-gate-env: ok identity-grep.extendedRegexp   git grep could not search
+test-gate-env: ok identity-grep.threads          git grep could not search
+test-gate-env: ok identity-core.quotePath        git cannot open it
+test-gate-env: ok identity-index-corrupt         git ls-files could not list
+test-gate-env: ok identity-core.quotePath-home   the path scan could not run in its own control
+test-gate-env: ok identity-unreadable            git grep could not search
+test-gate-env: ok identity-core.worktree         the retired product name is still in tracked content
+test-gate-env: ok identity-skip-worktree         marked skip-worktree or assume-unchanged
+test-gate-env: ok identity-assume-unchanged      marked skip-worktree or assume-unchanged
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (1439747b0f45)
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 6959 tracked names past
+test-gate-env: ok (45 cases)
+-> exit 0, 67 s
+
+== r2-probes.sh at 2c8fbc64
+== platform
+head 2c8fbc64
+Linux aarch64
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+git version 2.39.5
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+
+== ci.yml: the checkout assertion step, run as extracted, in a scratch checkout
+extracted 7 lines
+plain, COMMIT_UNDER_TEST=<the decoy's HEAD>                exit 1   checked out a1ecb42c6a530cf1a17877d2801653b5e712b6bc, expected 3525fba3ab98514905822fb3380
+GIT_DIR=decoy GIT_TRACE=<file>, COMMIT_UNDER_TEST=<decoy HEAD> exit 0   gate is running on 3525fba3ab98514905822fb338037c8b5406e59e; trace file: WRITTEN
+
+== build.rs: compiled alone, run in a scratch checkout
+plain                                                      exit 0   revision = 'a1ecb42c6a53'; trace file: absent
+GIT_DIR                                                    exit 0   revision = '3525fba3ab98'; trace file: absent
+GIT_TRACE                                                  exit 0   revision = 'a1ecb42c6a53'; trace file: WRITTEN
+
+== check-xfx-identity.sh: the checkout carries the failure, its controls do not
+.git/config grep.patternType=bogus                         exit 0   fatal: bad grep.patterntype argument: bogus
+.git/config grep.extendedRegexp=notabool                   exit 0   fatal: bad boolean config value 'notabool' for 'grep.extendedregexp'
+.git/config grep.threads=x                                 exit 0   fatal: bad numeric config value 'x' for 'grep.threads': invalid unit
+.git/config core.quotePath=notabool                        exit 1   
+Cargo.lock (the residue) unreadable, mode 000              exit 0   error: failed to stat 'Cargo.lock': Permission denied
+.git/config core.worktree=<a clean tree, same names>       exit 0   check-xfx-identity: ok (2 tracked file(s) scanned)
+Cargo.lock marked skip-worktree, a working copy with a NUL exit 0   check-xfx-identity: ok (2 tracked file(s) scanned)
+Cargo.lock marked assume-unchanged, a working copy with a NUL exit 0   check-xfx-identity: ok (2 tracked file(s) scanned)
+.git/index cut to 4 bytes                                  exit 128 fatal: .git/index: index file smaller than expected
+
+== config from HOME that runs a program: core.fsmonitor and core.hooksPath
+check-xfx-identity.sh, HOME=<that config>                  exit 1   check-xfx-identity: the retired product name is still in tracked content:; ran: fsmonitor-ran 
+check-no-secrets.sh, HOME=<that config>                    exit 1   check-no-secrets: possible OpenAI-style key:; ran: fsmonitor-ran 
+check-preview-contract.sh, HOME=<that config>              exit 1   check-preview-contract: <copy>fx-r2.nOGzA1/readme/README.md ; ran: nothing ran
+test-gate-env.sh, HOME=<that config>                       exit 0   test-gate-env: ok (26 cases); ran: fsmonitor-ran hook-ran-commit-msg hook-ran-post-commit hook-ran-pre-commit 
+test-check-no-secrets.sh, HOME=<that config> GIT_TRACE=<file> exit 0   test-check-no-secrets: ok (13 cases; 6959 tracked ; ran: fsmonitor-ran ; trace file: WRITTEN
+
+== check-no-secrets.sh: GIT_DIR at a decoy that tracks the fixture's clean files
+GIT_DIR=<decoy tracking a.txt and the script>              exit 1   check-no-secrets: possible OpenAI-style key:
+
+== check-no-secrets.sh: a checkout-local core.worktree naming a clean tree with the same names
+.git/config core.worktree=<a clean tree, same names>       exit 1   check-no-secrets: possible OpenAI-style key:
+-> exit 0, 70 s
+
+== r2-probes.sh at fff83c06
+== platform
+head fff83c06
+Linux aarch64
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+git version 2.39.5
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+
+== ci.yml: the checkout assertion step, run as extracted, in a scratch checkout
+extracted 9 lines
+plain, COMMIT_UNDER_TEST=<the decoy's HEAD>                exit 1   checked out 7052a5df636eba3df6c7d9832973a861b601426f, expected c51c8e973f5604a2df118d5db9d
+GIT_DIR=decoy GIT_TRACE=<file>, COMMIT_UNDER_TEST=<decoy HEAD> exit 1   checked out 7052a5df636eba3df6c7d9832973a861b601426f, expected c51c8e973f5604a2df118d5db9d; trace file: absent
+
+== build.rs: compiled alone, run in a scratch checkout
+plain                                                      exit 0   revision = '7052a5df636e'; trace file: absent
+GIT_DIR                                                    exit 0   revision = '7052a5df636e'; trace file: absent
+GIT_TRACE                                                  exit 0   revision = '7052a5df636e'; trace file: absent
+
+== check-xfx-identity.sh: the checkout carries the failure, its controls do not
+.git/config grep.patternType=bogus                         exit 1   check-xfx-identity: git grep could not search . (status 128):
+.git/config grep.extendedRegexp=notabool                   exit 1   check-xfx-identity: git grep could not search . (status 128):
+.git/config grep.threads=x                                 exit 1   check-xfx-identity: git grep could not search . (status 128):
+.git/config core.quotePath=notabool                        exit 1   check-xfx-identity: not a git checkout, or git cannot open it; this check can only speak a
+Cargo.lock (the residue) unreadable, mode 000              exit 1   check-xfx-identity: git grep could not search . (status 1):
+.git/config core.worktree=<a clean tree, same names>       exit 1   check-xfx-identity: the retired product name is still in tracked content:
+Cargo.lock marked skip-worktree, a working copy with a NUL exit 1   check-xfx-identity: tracked files marked skip-worktree or assume-unchanged, whose content 
+Cargo.lock marked assume-unchanged, a working copy with a NUL exit 1   check-xfx-identity: tracked files marked skip-worktree or assume-unchanged, whose content 
+.git/index cut to 4 bytes                                  exit 1   check-xfx-identity: git ls-files could not list this checkout:
+
+== config from HOME that runs a program: core.fsmonitor and core.hooksPath
+check-xfx-identity.sh, HOME=<that config>                  exit 1   check-xfx-identity: the retired product name is still in tracked content:; ran: nothing ran
+check-no-secrets.sh, HOME=<that config>                    exit 1   check-no-secrets: possible OpenAI-style key:; ran: nothing ran
+check-preview-contract.sh, HOME=<that config>              exit 1   check-preview-contract: <copy>fx-r2.AGLkx3/readme/README.md ; ran: nothing ran
+test-gate-env.sh, HOME=<that config>                       exit 0   test-gate-env: ok (45 cases); ran: nothing ran
+test-check-no-secrets.sh, HOME=<that config> GIT_TRACE=<file> exit 0   test-check-no-secrets: ok (13 cases; 6959 tracked ; ran: nothing ran; trace file: absent
+
+== check-no-secrets.sh: GIT_DIR at a decoy that tracks the fixture's clean files
+GIT_DIR=<decoy tracking a.txt and the script>              exit 1   check-no-secrets: possible OpenAI-style key:
+
+== check-no-secrets.sh: a checkout-local core.worktree naming a clean tree with the same names
+.git/config core.worktree=<a clean tree, same names>       exit 1   check-no-secrets: possible OpenAI-style key:
+-> exit 0, 126 s
+
+== the clone afterwards
+clean
+docker exit=0

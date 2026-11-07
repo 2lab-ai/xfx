@@ -1,27 +1,41 @@
-head 5d33c5df
+head fff83c06
 Darwin arm64
 GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
 git version 2.54.0 (Apple Git-157)
 rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
 TMPDIR=<tmp>
 
-== what changed since 45d99f52
- scripts/check-no-secrets.sh       |  20 +++++
- scripts/check-preview-contract.sh |  20 ++++-
- scripts/check-xfx-identity.sh     |  33 +++++++-
- scripts/fxcap/ci_sweep.py         |   7 +-
- scripts/fxcap/sweep.py            |  12 ++-
- scripts/fxcap/test_ci_sweep.py    |  40 +++++++++
- scripts/fxcap/test_sweep.py       |  26 ++++++
- scripts/test-gate-env.sh          | 173 +++++++++++++++++++++++++++++++++++++-
- 8 files changed, 323 insertions(+), 8 deletions(-)
+== what changed since 2c8fbc64
+ .github/workflows/ci.yml          |   2 +
+ .github/workflows/preview.yml     |  12 ++
+ .github/workflows/sweep-full.yml  |   2 +
+ .github/workflows/sweep.yml       |   4 +
+ build.rs                          |  25 ++-
+ scripts/check-no-secrets.sh       |  26 +++-
+ scripts/check-preview-contract.sh |  21 ++-
+ scripts/check-xfx-identity.sh     | 145 +++++++++++++++---
+ scripts/fxcap/test_sweep.py       |   9 +-
+ scripts/test-check-no-secrets.sh  |  31 ++--
+ scripts/test-gate-env.sh          | 309 ++++++++++++++++++++++++++++++++++----
+ 11 files changed, 505 insertions(+), 81 deletions(-)
 
 == cargo fmt --check
 -> exit 0, 1 s
 
+== cargo build --locked
+   Compiling rustix v1.1.4
+   Compiling xfx v0.1.0 (<local-path>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.29s
+-> exit 0, 13 s
+
+== cargo clippy --locked --all-targets -- -D warnings
+   Compiling xfx v0.1.0 (<local-path>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.83s
+-> exit 0, 7 s
+
 == ./scripts/check-no-secrets.sh
-check-no-secrets: ok (12111 tracked file(s) scanned)
--> exit 0, 28 s
+check-no-secrets: ok (12131 tracked file(s) scanned)
+-> exit 0, 24 s
 
 == ./scripts/check-no-stubs.sh
 check-no-stubs: ok
@@ -29,44 +43,44 @@ check-no-stubs: ok
 
 == ./scripts/check-preview-contract.sh
 check-preview-contract: ok (.github/workflows/preview.yml)
--> exit 0, 2 s
+-> exit 0, 6 s
 
 == ./scripts/check-tui-preflight-cost.sh
-preflight 200x300 sparse: 27 bytes in 472.41µs mean, 451.625µs min, 470.75µs median, 493.208µs max (budget 32 ms)
-preflight 200x300 full: 61292 bytes in 972.993µs mean, 931.667µs min, 954.458µs median, 1.150667ms max (budget 32 ms)
-preflight 200x300 scroll: 9 bytes in 512.956µs mean, 478.625µs min, 492.084µs median, 657.875µs max (budget 32 ms)
-preflight 200x300 update: 85420 bytes in 671.758µs mean, 626.875µs min, 646.25µs median, 816.291µs max (budget 32 ms)
-replay 24x80 1000 rows: 26000 bytes in 380.086µs mean, 332µs min, 344.5µs median, 589.459µs max (budget 8 ms)
-replay 200x300 1000 rows: 28000 bytes in 1.310411ms mean, 1.198709ms min, 1.247ms median, 1.633125ms max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 476.347µs mean, 451.416µs min, 479.958µs median, 484.958µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 953.091µs mean, 930.458µs min, 954.917µs median, 980.792µs max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 490.152µs mean, 484.375µs min, 489.166µs median, 512.792µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 718.804µs mean, 634.833µs min, 641.792µs median, 1.134083ms max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 345.863µs mean, 338.167µs min, 344.709µs median, 360.625µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.251575ms mean, 1.237334ms min, 1.247833ms median, 1.293167ms max (budget 32 ms)
 check-tui-preflight-cost: measuring (fault injection)
-preflight 24x80 unchanged: 0 bytes in 20.273µs mean, 16.042µs min, 16.292µs median, 95µs max (budget 8 ms)
-preflight 24x80 sparse: 26 bytes in 16.162µs mean, 15.833µs min, 16µs median, 17.666µs max (budget 8 ms)
-preflight 24x80 full: 2055 bytes in 34.889µs mean, 34.041µs min, 34.292µs median, 39.209µs max (budget 8 ms)
-preflight 24x80 scroll: 8 bytes in 16.818µs mean, 16.5µs min, 16.667µs median, 18.625µs max (budget 8 ms)
-preflight 24x80 update: 2815 bytes in 21.71µs mean, 21.208µs min, 21.375µs median, 25.75µs max (budget 8 ms)
-preflight 200x300 unchanged: 0 bytes in 459.468µs mean, 448.041µs min, 452.583µs median, 600.625µs max (budget 32 ms)
-preflight 200x300 sparse: 27 bytes in 480.001µs mean, 459.375µs min, 472.5µs median, 530.208µs max (budget 32 ms)
-preflight 200x300 full: 61292 bytes in 981.241µs mean, 972µs min, 976.625µs median, 1.024917ms max (budget 32 ms)
-preflight 200x300 scroll: 9 bytes in 477.46µs mean, 468.209µs min, 471.875µs median, 526.333µs max (budget 32 ms)
-preflight 200x300 update: 85420 bytes in 688.787µs mean, 682µs min, 688.417µs median, 696.625µs max (budget 32 ms)
-replay 24x80 1000 rows: 26000 bytes in 350.286µs mean, 347.708µs min, 350.167µs median, 355.125µs max (budget 8 ms)
-replay 200x300 1000 rows: 28000 bytes in 1.218663ms mean, 1.203833ms min, 1.214667ms median, 1.245708ms max (budget 32 ms)
+preflight 24x80 unchanged: 0 bytes in 20.904µs mean, 16.416µs min, 16.667µs median, 101.042µs max (budget 8 ms)
+preflight 24x80 sparse: 26 bytes in 17.154µs mean, 16.583µs min, 17µs median, 18.833µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 33.677µs mean, 32.542µs min, 33.042µs median, 37.5µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 16.599µs mean, 16.25µs min, 16.458µs median, 18.583µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 21.895µs mean, 21.5µs min, 21.583µs median, 26.458µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 513.783µs mean, 499.75µs min, 504.833µs median, 689.167µs max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 555.462µs mean, 491.916µs min, 503.125µs median, 705.084µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.180308ms mean, 1.107917ms min, 1.151417ms median, 1.2895ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 529.183µs mean, 522.875µs min, 528.75µs median, 547.459µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 783.777µs mean, 773.459µs min, 784.584µs median, 797.125µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 399.102µs mean, 391.291µs min, 394.25µs median, 427.5µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.420958ms mean, 1.397083ms min, 1.412833ms median, 1.445708ms max (budget 32 ms)
 check-tui-preflight-cost: ok
--> exit 0, 91 s
+-> exit 0, 83 s
 
 == ./scripts/check-usage-clock.sh
 check-usage-clock: debug: honoured (debug assertions)
 check-usage-clock: release: ignored (release)
 check-usage-clock: release, fault injection: ignored (release)
 check-usage-clock: ok
--> exit 0, 43 s
+-> exit 0, 6 s
 
 == ./scripts/check-xfx-identity.sh
-check-xfx-identity: ok (12111 tracked file(s) scanned)
--> exit 0, 2 s
+check-xfx-identity: ok (12131 tracked file(s) scanned)
+-> exit 0, 1 s
 
 == ./scripts/test-check-no-secrets.sh
-test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): ./scripts/test-check-no-secrets.sh: line 178: /usr/bin/env: Argument list too long
+test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): ./scripts/test-check-no-secrets.sh: line 189: /usr/bin/env: Argument list too long
 test-check-no-secrets: 3468 names carry a tab, a newline and U+00E9; this filesystem refuses a name that is not UTF-8
 test-check-no-secrets: ok clean              exit 0
 test-check-no-secrets: ok first-batch        exit 1
@@ -82,30 +96,30 @@ test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
 test-check-no-secrets: ok nothing-tracked    exit 1
 test-check-no-secrets: ok only-a-symlink     exit 1
 test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
--> exit 0, 90 s
+-> exit 0, 95 s
 
 == ./scripts/test-gate-env.sh
-test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
-test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
-test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
-test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
-test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
-test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
-test-gate-env: ok preview-git-dir                does not document the qualified install command
-test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
-test-gate-env: ok preview-object-dir             does not document the qualified install command
-test-gate-env: ok preview-common-dir             does not document the qualified install command
-test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
-test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
-test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
-test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
-test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
-test-gate-env: ok attributes-info                the retired product name is still in tracked content
-test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
 test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
 test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
-test-gate-env: ok (26 cases)
--> exit 0, 89 s
+test-gate-env: ok identity-grep.patternType      git grep could not search
+test-gate-env: ok identity-grep.extendedRegexp   git grep could not search
+test-gate-env: ok identity-grep.threads          git grep could not search
+test-gate-env: ok identity-core.quotePath        git cannot open it
+test-gate-env: ok identity-index-corrupt         git ls-files could not list
+test-gate-env: ok identity-core.quotePath-home   the path scan could not run in its own control
+test-gate-env: ok identity-unreadable            git grep could not search
+test-gate-env: ok identity-core.worktree         the retired product name is still in tracked content
+test-gate-env: ok identity-skip-worktree         marked skip-worktree or assume-unchanged
+test-gate-env: ok identity-assume-unchanged      marked skip-worktree or assume-unchanged
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (4122910e158c)
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (45 cases)
+-> exit 0, 396 s
 
 == ./scripts/test-preview-contract.sh
 test-preview-contract: caught gate-removed                 preflight has no epoch gate
@@ -128,21 +142,41 @@ test-preview-contract: caught epoch-absent                 there is no .github/p
 test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
 test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
 test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
--> exit 0, 54 s
+-> exit 0, 96 s
 
 == ./scripts/fxcap/test-sweep.sh
 ...................................................
 ----------------------------------------------------------------------
-Ran 51 tests in 5.101s
+Ran 51 tests in 5.331s
 
 OK
 ...........................
 ----------------------------------------------------------------------
-Ran 27 tests in 33.569s
+Ran 27 tests in 9.510s
 
 OK
--> exit 0, 40 s
+-> exit 0, 15 s
 
-== actionlint .github/workflows/ci.yml .github/workflows/sweep.yml
+== actionlint -verbose
+Linting .github/workflows/preview.yml
+verbose: Using project at <local-path>
+verbose: Linting .github/workflows/release.yml
+verbose: Using project at <local-path>
+verbose: Found 0 parse errors in 0 ms for .github/workflows/sweep.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/ci.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/sweep-full.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/release.yml
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found 0 parse errors in 3 ms for .github/workflows/preview.yml
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 40 ms for .github/workflows/sweep.yml
+verbose: Found total 0 errors in 52 ms for .github/workflows/sweep-full.yml
+verbose: Found total 0 errors in 77 ms for .github/workflows/ci.yml
+verbose: Found total 0 errors in 77 ms for .github/workflows/release.yml
+verbose: Found total 0 errors in 125 ms for .github/workflows/preview.yml
+verbose: Found 0 errors in 5 files
 -> exit 0, 0 s
-gates exit=0
+exit=0

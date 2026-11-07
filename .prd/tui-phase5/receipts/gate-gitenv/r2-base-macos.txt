@@ -1,0 +1,32 @@
+== platform
+head 45d99f52
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+
+== ci.yml: the checkout assertion step, run as extracted, in a scratch checkout
+extracted 7 lines
+plain, COMMIT_UNDER_TEST=<the decoy's HEAD>                exit 1   checked out 2979f56e5cdb1f4dac9874a072578f1ae3f49e0f, expected 1c1a1e768585f2e2d2d9f661fe7
+GIT_DIR=decoy GIT_TRACE=<file>, COMMIT_UNDER_TEST=<decoy HEAD> exit 0   gate is running on 1c1a1e768585f2e2d2d9f661fe77ef619b3b2020; trace file: WRITTEN
+
+== build.rs: compiled alone, run in a scratch checkout
+plain                                                      exit 0   revision = '2979f56e5cdb'; trace file: absent
+GIT_DIR                                                    exit 0   revision = '1c1a1e768585'; trace file: absent
+GIT_TRACE                                                  exit 0   revision = '2979f56e5cdb'; trace file: WRITTEN
+
+== check-xfx-identity.sh: the checkout carries the failure, its controls do not
+.git/config grep.patternType=bogus                         exit 0   fatal: bad grep.patterntype argument: bogus
+.git/config grep.extendedRegexp=notabool                   exit 0   fatal: bad boolean config value 'notabool' for 'grep.extendedregexp'
+.git/config grep.threads=x                                 exit 0   fatal: bad numeric config value 'x' for 'grep.threads' in file .git/config: invalid unit
+.git/config core.quotePath=notabool                        exit 1   
+Cargo.lock (the residue) unreadable, mode 000              exit 0   error: failed to stat 'Cargo.lock': Permission denied
+.git/config core.worktree=<a clean tree, same names>       exit 0   check-xfx-identity: ok (2 tracked file(s) scanned)
+
+== config from HOME that runs a program: core.fsmonitor and core.hooksPath
+check-xfx-identity.sh, HOME=<that config>                  exit 1   check-xfx-identity: the retired product name is still in tracked content:; ran: fsmonitor-ran 
+check-no-secrets.sh, HOME=<that config>                    exit 1   check-no-secrets: possible OpenAI-style key:; ran: fsmonitor-ran 
+check-preview-contract.sh, HOME=<that config>              exit 1   check-preview-contract: <tmp>/; ran: nothing ran
+
+== check-no-secrets.sh: GIT_DIR at a decoy that tracks the fixture's clean files
+GIT_DIR=<decoy tracking a.txt and the script>              exit 0   check-no-secrets: ok (2 tracked file(s) scanned)

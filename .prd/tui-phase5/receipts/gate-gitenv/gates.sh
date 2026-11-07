@@ -9,6 +9,12 @@ cd "$1" || exit 1
 base=$2
 shift 2
 unset GREP_OPTIONS
+for name in "${!GIT_@}"; do
+	case "$name" in
+	*[!A-Za-z0-9_]*) ;;
+	*) unset "$name" ;;
+	esac
+done
 printf 'head %s\n' "$(git rev-parse --short HEAD)"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
 	echo "gates.sh: tracked files differ from the head; the gates would not be the head's"
@@ -29,12 +35,14 @@ gate() {
 	printf -- '-> exit %d, %d s\n' "$status" $(($(date +%s) - start))
 }
 if [ "$#" -eq 0 ]; then
-	set -- fmt no-secrets no-stubs preview-contract tui-preflight-cost usage-clock identity \
+	set -- fmt build clippy no-secrets no-stubs preview-contract tui-preflight-cost usage-clock identity \
 		test-check-no-secrets test-gate-env test-preview-contract test-sweep actionlint
 fi
 for g in "$@"; do
 	case "$g" in
 	fmt) gate cargo fmt --check ;;
+	build) gate cargo build --locked ;;
+	clippy) gate cargo clippy --locked --all-targets -- -D warnings ;;
 	no-secrets) gate ./scripts/check-no-secrets.sh ;;
 	no-stubs) gate ./scripts/check-no-stubs.sh ;;
 	preview-contract) gate ./scripts/check-preview-contract.sh ;;
@@ -45,6 +53,6 @@ for g in "$@"; do
 	test-gate-env) gate ./scripts/test-gate-env.sh ;;
 	test-preview-contract) gate ./scripts/test-preview-contract.sh ;;
 	test-sweep) gate ./scripts/fxcap/test-sweep.sh ;;
-	actionlint) gate actionlint .github/workflows/ci.yml .github/workflows/sweep.yml ;;
+	actionlint) gate actionlint -verbose ;;
 	esac
 done
