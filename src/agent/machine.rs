@@ -326,8 +326,10 @@ pub async fn run_turn_with_skills(
 /// the log saved of it in `saved` when it saved one.
 ///
 /// Each image is named by xfx's own copy of it: the session's, in `saved`,
-/// when the log kept one; otherwise a paste's own copy, which an attached
-/// file does not have. Never the file it was attached from, as upstream names
+/// when the log kept one; otherwise its own copy outside a session
+/// ([`crate::image::Image::own_copy`]: a paste's, or an unsaved session's
+/// temporary copy of an attached file). Never the file it was attached from,
+/// as upstream names
 /// only its own copy (`savedImagePath`, `noteAttachmentLocations`,
 /// `src/core/images/image_attachments.zig:1050-1062@481104fd`) -- and as the
 /// history names each on every later turn

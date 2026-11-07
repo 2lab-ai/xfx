@@ -1200,6 +1200,48 @@ fn with_no_usable_home_a_tool_runs_under_the_session_authority_alone() {
 }
 
 #[test]
+fn with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir() {
+    // An unsaved session copies an attached file to a private temporary
+    // directory under upstream's root, the real `/tmp`
+    // (`createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+    // not under `$TMPDIR` as given: a relative `TMPDIR` naming a folder the
+    // project holds would put the copy in the working tree.
+    let sandbox = Sandbox::new();
+    seed_relative_profile(&sandbox.workspace);
+    std::fs::write(
+        sandbox.workspace.join("shot.png"),
+        include_bytes!("../scripts/fxcap/scenarios/image-ws/shot.png"),
+    )
+    .expect("a picture");
+    std::fs::create_dir_all(sandbox.workspace.join("relative-tmp"))
+        .expect("the folder TMPDIR names");
+    let root = sandbox
+        .workspace
+        .parent()
+        .expect("the sandbox root")
+        .to_path_buf();
+    let before = tree(&root);
+    let pty = Pty::open();
+    pty.resize(30, 120);
+    let mut command = tui(&sandbox);
+    command
+        .env("HOME", "relative/home")
+        .env("TMPDIR", "relative-tmp");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image shot.png\r");
+    on_screen(
+        &session,
+        (30, 120),
+        &["* images: attached image: shot.png"],
+        &[],
+    );
+    session.type_bytes(b"\x15/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(tree(&root), before, "the copy landed in the sandbox");
+}
+
+#[test]
 fn with_no_usable_home_a_resume_has_nothing_to_continue() {
     // fx's launch, asked to resume with no store, prints `fx: HomeNotSet`
     // and exits 1 (`p5-lifecycle-relhome-resume`); nothing is made.

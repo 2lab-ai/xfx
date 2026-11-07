@@ -9793,20 +9793,46 @@ impl Shell {
     /// The insertion is a boundary of the edit history rather than an entry
     /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
     /// an undo does not take an attachment back -- deleting its badge does.
-    fn attach(&mut self, mut image: crate::image::Image) -> bool {
-        // An unsaved session keeps no copy of a file the user named, so one
-        // is made now, beside the paste copies (owner-only, removed with the
-        // session), as upstream captures every attachment into its
-        // temporary folder (`captureImageAttachment`,
-        // `app_session_runtime.zig:1331-1344@481104fd`): the note for an
-        // image a request leaves out names that copy, never the file. One
-        // that cannot be written leaves none, and the note names nothing.
+    /// `image`, a file the user named, ready to attach: in a session that
+    /// keeps no copy of its own (an unsaved one), with its temporary copy
+    /// made now beside the paste copies ([`super::clipboard_image::PasteCopies`]),
+    /// as upstream captures every attachment into its temporary folder before
+    /// it is admitted (`captureImageAttachment`,
+    /// `app_session_runtime.zig:1331-1344@481104fd`) -- on every route a file
+    /// is attached by: `/image`, a pasted or dropped path, a path typed into
+    /// the prompt. The note for an image a request leaves out names that copy,
+    /// never the file.
+    ///
+    /// A copy that cannot be written refuses the attachment, as upstream's
+    /// capture refuses it (`captureImageAttachmentForAdmission`,
+    /// `src/core/images/image_attachments.zig:328-347@481104fd`), in its
+    /// words for a file it cannot attach (`failed to attach image: <name>`,
+    /// `image_commands.zig:38`).
+    fn captured(
+        &mut self,
+        mut image: crate::image::Image,
+    ) -> Result<crate::image::Image, notice::Notice> {
         if self.unsaved && !image.copied && image.copy.is_none() {
-            image.copy = self
+            match self
                 .paste_copies
                 .write(&image.snapshot_name(), &image.bytes)
-                .ok();
+            {
+                Ok(copy) => image.copy = Some(copy),
+                Err(err) => {
+                    return Err(notice::Notice::error(
+                        crate::image::TOPIC,
+                        format!(
+                            "failed to attach image: {}",
+                            crate::image::io_name(err.kind())
+                        ),
+                    ))
+                }
+            }
         }
+        Ok(image)
+    }
+
+    fn attach(&mut self, image: crate::image::Image) -> bool {
         let id = image.id;
         let Some(next) = id.checked_add(1) else {
             return false;
@@ -9886,6 +9912,21 @@ impl Shell {
             else {
                 continue;
             };
+            // A path whose copy cannot be made stays words, and says why, as
+            // upstream's rejected capture does (`continue`,
+            // `input_paste_runtime.zig:490-493@481104fd`).
+            let image = match self.captured(crate::image::Image::new(
+                id,
+                path,
+                media_type,
+                std::sync::Arc::from(bytes),
+            )) {
+                Ok(image) => image,
+                Err(refused) => {
+                    self.announce(refused);
+                    continue;
+                }
+            };
             replacement.push_str(&text[cut..word.range.start]);
             let start = replacement.len();
             replacement.push_str(&crate::image::badge(id));
@@ -9894,12 +9935,7 @@ impl Shell {
                 end: replacement.len(),
                 kind: EntityKind::Image {
                     token: std::sync::Arc::from(crate::image::token(id)),
-                    image: std::sync::Arc::new(crate::image::Image::new(
-                        id,
-                        path,
-                        media_type,
-                        std::sync::Arc::from(bytes),
-                    )),
+                    image: std::sync::Arc::new(image),
                 },
             });
             cut = word.range.end;
@@ -10025,18 +10061,40 @@ impl Shell {
         if found.is_empty() {
             return Typed::Nothing;
         }
+        // Every image made ready before the draft is touched: a copy that
+        // cannot be made refuses the prompt, as upstream's rejected capture
+        // rejects the submission and discards the copies it made
+        // (`captureImageAttachmentsForAdmission`,
+        // `image_attachments.zig:348-367@481104fd`).
+        let mut ready = Vec::with_capacity(found.len());
+        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate() {
+            let image = crate::image::Image::new(
+                first + index as u32,
+                path,
+                media_type,
+                std::sync::Arc::from(bytes),
+            );
+            match self.captured(image) {
+                Ok(image) => ready.push((range, image)),
+                Err(refused) => {
+                    for (_, made) in &ready {
+                        let made: &crate::image::Image = made;
+                        if let Some(copy) = &made.copy {
+                            self.paste_copies.discard(copy);
+                        }
+                    }
+                    self.announce(refused);
+                    return Typed::Refused;
+                }
+            }
+        }
         let before = self.draft_before();
         // From the last to the first, so each range is still where it was.
-        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate().rev() {
-            let id = first + index as u32;
+        for (range, image) in ready.into_iter().rev() {
+            let id = image.id;
             let kind = EntityKind::Image {
                 token: std::sync::Arc::from(crate::image::token(id)),
-                image: std::sync::Arc::new(crate::image::Image::new(
-                    id,
-                    path,
-                    media_type,
-                    std::sync::Arc::from(bytes),
-                )),
+                image: std::sync::Arc::new(image),
             };
             let placed = self
                 .editor
@@ -13108,12 +13166,18 @@ impl CommandHandlers for Shell {
                 problem.to_string(),
             )),
             Ok((path, media_type, bytes)) => {
-                let image = crate::image::Image::new(
+                let image = match self.captured(crate::image::Image::new(
                     self.images_next,
                     path,
                     media_type,
                     std::sync::Arc::from(bytes),
-                );
+                )) {
+                    Ok(image) => image,
+                    Err(refused) => {
+                        self.announce(refused);
+                        return;
+                    }
+                };
                 let name = image.name();
                 let body = if self.attach(image) {
                     format!("attached image: {name}")
@@ -37423,6 +37487,118 @@ mod tests {
             .expect("an image");
         assert_eq!(image.copy, None);
         assert_eq!(saved.paste_copies.dir(), None);
+    }
+
+    /// The temporary copy an unsaved session made of `image`, checked: beside
+    /// the paste copies, owner-only, the bytes the image holds, and never the
+    /// file it was attached from.
+    fn checked_copy(shell: &Fixture, image: &crate::image::Image) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let copy = image
+            .copy
+            .clone()
+            .unwrap_or_else(|| panic!("image #{} has no temporary copy", image.id));
+        assert_ne!(copy, image.path, "the source is not a copy");
+        assert_eq!(copy.parent(), shell.paste_copies.dir());
+        assert_eq!(std::fs::read(&copy).expect("the copy"), &image.bytes[..]);
+        assert_eq!(
+            std::fs::metadata(&copy).expect("mode").permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(image.own_copy(), Some(copy.as_path()));
+        copy
+    }
+
+    // Upstream captures on each route a file is attached by: the `/image`
+    // command (`insertImageAtCursor`, `src/core/images/image_commands.zig:137-140`),
+    // a pasted or dropped path (`input_paste_runtime.zig:490-493`) and a path
+    // typed into the prompt (`captureExtractedImages`,
+    // `input_submit_runtime.zig:1218-1223@481104fd`). An unsaved session's
+    // copy is made on each of them.
+
+    /// [`attaching`], in a session that keeps no copy of its own.
+    fn attaching_unsaved() -> Attaching {
+        let mut shell = attaching();
+        shell.unsaved = true;
+        shell
+    }
+
+    #[test]
+    fn an_unsaved_slash_image_makes_the_files_copy() {
+        let mut shell = attaching_unsaved();
+        shell.route_bytes(b"/image shot.png\r");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        checked_copy(&shell, &image);
+    }
+
+    #[test]
+    fn an_unsaved_pasted_or_dropped_path_makes_the_files_copy() {
+        let mut shell = attaching_unsaved();
+        pasted(&mut shell, "shot.png describe this");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        checked_copy(&shell, &image);
+    }
+
+    #[test]
+    fn an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent() {
+        let mut shell = attaching_unsaved();
+        shell.route_bytes(b"inspect shot.png,\r");
+        match shell.picks_up() {
+            TurnWork::Attached { images, .. } => {
+                assert_eq!(images.len(), 1, "{images:?}");
+                checked_copy(&shell, &images[0]);
+            }
+            other => panic!("not a prompt with an image: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route() {
+        // Upstream refuses an attachment its capture fails for
+        // (`captureImageAttachmentForAdmission`,
+        // `src/core/images/image_attachments.zig:328-347@481104fd`): `/image`
+        // says why and puts no badge in, a pasted path stays words, and a
+        // typed path stops the prompt with the draft kept.
+        let refusal = said(notice::Notice::error(
+            crate::image::TOPIC,
+            "failed to attach image: FileNotFound",
+        ));
+        let unwritable = |shell: &mut Attaching| {
+            let gone = shell.workspace.join("no-such-directory");
+            shell.paste_copies = super::super::clipboard_image::PasteCopies::at(gone);
+        };
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.document(), refusal);
+        assert_eq!(shell.editor.text(), "");
+        assert!(attached_ids(&shell).is_empty());
+
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        pasted(&mut shell, "shot.png describe this");
+        assert_eq!(shell.editor.text(), "shot.png describe this");
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.document(), refusal);
+
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        shell.route_bytes(b"inspect shot.png,\r");
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(shell.editor.text(), "inspect shot.png,");
+        assert_eq!(shell.document(), refusal);
     }
 
     #[test]

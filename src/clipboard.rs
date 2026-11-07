@@ -480,11 +480,38 @@ impl Clipboard {
 }
 
 /// A new directory only this user can enter, under the system's temporary
-/// directory, named `<prefix>-<random>`: one clipboard read's, or a session's
-/// pasted images' (`crate::tui`'s paste copies).
+/// directory (`$TMPDIR`), named `<prefix>-<random>`: one clipboard read's.
 pub(crate) fn private_directory(prefix: &str) -> std::io::Result<std::path::PathBuf> {
+    private_directory_in(&std::env::temp_dir(), prefix)
+}
+
+/// Where a session's image copies go (`crate::tui`'s paste copies, and an
+/// unsaved session's copy of an attached file): the real path of `/tmp`, as
+/// upstream's (`createTempSnapshotDir`,
+/// `src/core/images/image_attachments.zig:246-273@481104fd`, which takes
+/// `realpath("/tmp")`), never `$TMPDIR` as given -- a relative or in-project
+/// `TMPDIR` would put them in the working tree.
+pub(crate) fn snapshot_root() -> std::io::Result<std::path::PathBuf> {
+    std::fs::canonicalize("/tmp")
+}
+
+/// [`private_directory`] under `base`, which must be an absolute path: a
+/// relative one names somewhere under whatever folder xfx is in, and no
+/// directory is made there.
+pub(crate) fn private_directory_in(
+    base: &std::path::Path,
+    prefix: &str,
+) -> std::io::Result<std::path::PathBuf> {
     use std::os::unix::fs::DirBuilderExt;
-    let base = std::env::temp_dir();
+    if !base.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "the temporary directory {} is not an absolute path",
+                base.display()
+            ),
+        ));
+    }
     let mut last = None;
     for _ in 0..16 {
         let dir = base.join(format!("{prefix}-{}", crate::session::new_identifier()));

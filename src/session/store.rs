@@ -2628,10 +2628,11 @@ impl SessionRecorder {
         if images.is_empty() || self.failure.is_some() {
             return None;
         }
-        // An unsaved session keeps no copies: the turn holds the bytes it
-        // was handed, so every later request sends them again, each named by
-        // where it came from -- an attached file, or a paste's own copy
-        // (`crate::tui::clipboard_image::PasteCopies`). Upstream's turn keeps
+        // An unsaved session keeps no copies of its own: the turn holds the
+        // bytes it was handed, so every later request sends them again, each
+        // named by xfx's copy outside the session -- a paste's, or an attached
+        // file's temporary one (`crate::image::Image::own_copy`) -- and never
+        // by the file it was attached from. Upstream's turn keeps
         // the bytes whether or not the session is saved (D44,
         // `src/core/session/session_store.zig:43-50@481104fd`; captured for
         // every session, inlined only into a saved one,
@@ -5184,9 +5185,10 @@ mod tests {
     fn an_unsaved_sessions_images_are_sent_again_on_every_later_turn() {
         // A turn's images go out again with each later request, as a saved
         // session's do from their copies (the next test): an unsaved
-        // session has no copy, so it holds the bytes it was handed -- an
-        // attached file's, a paste's, a tool's -- and names each by the path
-        // it came from.
+        // session keeps no copy of its own, so it holds the bytes it was
+        // handed -- an attached file's, a paste's, a tool's -- and names
+        // each only by a copy xfx keeps outside it (`Image::own_copy`): this
+        // attached file has none here, so it is named by nothing.
         let store = SessionStore::unsaved();
         let session = store
             .create(
