@@ -84,18 +84,29 @@ spelling. That closed the security hole, and T-U6b replaces it.
 
 ### Elsewhere
 
-- **The ledger** (`scripts/fxcap/parity-ledger.toml`, pin v0.0.16, each with
-  an owner, a resolution and the expiry `date:2026-12-04`):
+- **The ledger** (`scripts/fxcap/parity-ledger.toml`, pin v0.0.16). The two
+  approved divergences each carry an owner, a resolution and the expiry
+  `date:2026-12-04`:
   - `review-diff-spelling` (unsafe-to-copy, owner T-U6b). The review keeps
     xfx's injective spelling, because fx's lossy form cannot be copied
     safely on a decision screen: a CR-only or trailing-CR change would read
     identical to the person approving it.
-  - `ctrl-o-arabic-letter-mark` (unsafe-to-copy, owner T-U6b). Ctrl-O names
-    U+061C, which fx writes as itself. It reorders the text around it, as
-    the U+200E/U+200F marks fx names do. No scenario holds one.
-  - `submit-multi-card-whole` (user-decision, owner `user decision
-    multi-line card preview`). xfx writes a multi-line card whole in the
-    first frame, where fx previews its last line for one frame.
+  - `ctrl-o-arabic-letter-mark` (unsafe-to-copy, owner T-U6b). fx writes
+    U+061C raw, and it reorders the text around it as the U+200E/U+200F
+    marks fx does escape. Ctrl-O names it, `\u{061c}`. It is resolved when
+    fx escapes it, at this pin's line or in a later pin. No scenario holds
+    one.
+  - `submit-multi-card-whole` is **not** an approved divergence: no user
+    decided it, so it approves nothing.
+    - `ledger.py` has no `awaiting-decision` class (its classes are
+      user-decision, unsafe-to-copy, replaced-in-next-pin and
+      platform-limit). The nearest honest form is a `[[cause]]` of kind
+      `decision`, which the sweep prints as "a = awaiting a user decision".
+    - Its question, for the epic-4 preview: copy fx's one-frame last-line
+      preview of a multi-line card on a full screen, or keep the card whole
+      from the first frame?
+    - The owner is `user decision multi-line card preview`. Until the user
+      answers, xfx keeps the whole card, the dispatcher's interim choice.
 - **`docs/parity.md`:**
   - the full-screen TUI row: the submit frame, the tall prompt, and the
     review's spelling against fx's;
@@ -250,7 +261,7 @@ Two mutants check this:
   - xfx's frame 1 writes all three.
   - aligned at the card, fx's frame 2 and xfx's frame 1 are the same.
   - `filled`, `second` and `second.full` are identical.
-  - Ledger: `submit-multi-card-whole`.
+  - Ledger: the cause `submit-multi-card-whole` (awaiting the user).
 
 ### T8: a tall first prompt reaches scrollback whole (433464dd)
 

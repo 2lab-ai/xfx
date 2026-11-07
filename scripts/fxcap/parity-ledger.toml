@@ -348,7 +348,8 @@ expires = "pin:v0.0.16"
 source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 
 # v0.0.16 transcript (T-U6, T-U6b): a change's bytes on the review and in
-# Ctrl-O, and the frame that writes a submitted prompt's card.
+# Ctrl-O. (The frame that writes a submitted prompt's card is a cause
+# awaiting the user: `submit-multi-card-whole`, under the causes.)
 
 [[divergence]]
 id = "review-diff-spelling"
@@ -371,24 +372,11 @@ pins = ["v0.0.16"]
 scenarios = ["*"]
 snaps = ["*"]
 xfx_row = '^  │ +\d+ [ +-] .*\\u\{061c\}'
-reason = "Ctrl-O's diff rows write a file's bytes as fx v0.0.16 does (T-U6b) but for one code point: the Arabic letter mark U+061C, which fx writes as itself (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`, has no arm for it), is written `\\u{061c}`. It reorders the text around it as the left-to-right and right-to-left marks fx names do (U+200E, U+200F), so the line shown would not read as the file does; xfx's review names it too (`approval_view` `reorders`). No scenario holds one."
+reason = "fx v0.0.16 writes the Arabic letter mark U+061C raw in a diff row (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`, has no arm for it), and it reorders the text around it as the left-to-right and right-to-left marks fx does escape (U+200E, U+200F): copied, a file's line would not read on the screen as the file holds it. So Ctrl-O's diff rows, otherwise fx's byte for byte (T-U6b), write it `\\u{061c}`, as xfx's review names it (`approval_view` `reorders`). No scenario holds one. Decided by the dispatcher 2026-11-07."
 owner = "T-U6b"
-resolution = "fx names U+061C in a later pin, so the rows are the same, or the user takes fx's"
+resolution = "fx escapes U+061C (its `isNonPrintingCodepoint` gains it), at this pin's line or in a later pin, so the rows are the same"
 expires = "date:2026-12-04"
 source = ["src/tui/approval_view.rs:971-976", "docs/parity.md:238"]
-
-[[divergence]]
-id = "submit-multi-card-whole"
-class = "user-decision"
-pins = ["v0.0.16"]
-scenarios = ["p5-transcript-submit-multi"]
-snaps = ["frame1"]
-rows = ["32-34"]
-reason = "A prompt of several lines submitted on a full screen: fx v0.0.16's first frame after Enter previews only its last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs). One frame, a few milliseconds; every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). Decided by the dispatcher 2026-11-07, reversible, the user's to keep or drop."
-owner = "user decision multi-line card preview"
-resolution = "the user keeps the whole card (written as a lasting difference) or takes fx's one-frame preview"
-expires = "date:2026-12-04"
-source = ["docs/parity.md:237", "src/tui/shell.rs:11812"]
 
 # --- causes -----------------------------------------------------------------
 #
@@ -398,6 +386,15 @@ source = ["docs/parity.md:237", "src/tui/shell.rs:11812"]
 # .prd/tui-phase4/receipts/sweep/ has the table.
 
 # (b) units in flight, the specific rows first.
+
+[[cause]]
+id = "submit-multi-card-whole"
+kind = "decision"
+owner = "user decision multi-line card preview"
+scenarios = ["p5-transcript-submit-multi"]
+snaps = ["frame1"]
+rows = ["32-36"]
+why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:11812). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
 
 [[cause]]
 id = "cancelled-marker"
