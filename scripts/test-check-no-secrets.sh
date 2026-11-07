@@ -108,9 +108,9 @@ while [ "$i" -lt "$count" ]; do
 	fi
 	i=$((i + 1))
 done
-# Git orders names bytewise: `+` before `-` before the digits' `d` before
-# `scripts/` before `zz`. So the first operand is `+first-batch`, the second
-# `-n`, and the last `zz-last-batch`.
+# Git orders names bytewise: `+` before `-` before `d` before `scripts/`
+# before `zz`. So the first operand is `+first-batch`, the second `-n`, and
+# the last `zz-last-batch`.
 printf 'clean\n' >"$big/+first-batch"
 printf 'clean\n' >"$big/-n"
 printf 'clean\n' >"$big/zz-last-batch"
@@ -133,16 +133,21 @@ if [ "${names[0]}" != "+first-batch" ] || [ "${names[1]}" != "-n" ] ||
 fi
 
 # The precondition: all of these names, as operands, do not fit on one command
-# line here. Without it a passing run below could be a tree the old single
-# `grep` would have read in one go.
+# line here -- the shell's `exec` fails with E2BIG, which it reports as
+# "Argument list too long" in the C locale. Not by its status: bash 5 says 126,
+# but bash 3.2 under `set -e` says 1. Without it a passing run below could be a
+# tree the old single `grep` would have read in one go.
 operands=()
 for name in "${names[@]}"; do
 	operands+=("./$name")
 done
 status=0
-(cd "$big" && env true "${operands[@]}") 2>"$work/e2big" </dev/null || status=$?
+(LC_ALL=C && cd "$big" && env true "${operands[@]}") 2>"$work/e2big" </dev/null || status=$?
 if [ "$status" -eq 0 ]; then
 	problem "$tracked names of $per_file bytes each fit in ARG_MAX ($arg_max); the tree proves nothing"
+	exit 1
+elif ! grep -q -F -e "Argument list too long" "$work/e2big"; then
+	problem "exec with every name failed with status $status, but not with E2BIG: $(sed -n '1p' "$work/e2big")"
 	exit 1
 fi
 printf 'test-check-no-secrets: %d tracked names overflow ARG_MAX (%d): %s\n' \
