@@ -7,7 +7,8 @@ nomodel
 wait 2.5
 type say something
 key Enter
-wait 1.2
+held
+wait 1
 type /model grok
 wait 0.5
 key Escape
@@ -15,6 +16,7 @@ wait 0.4
 key Enter
 wait 0.8
 snap during
+release
 wait 7
 snap after
 home end

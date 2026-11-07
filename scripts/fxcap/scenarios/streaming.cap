@@ -1,8 +1,16 @@
+# One streamed answer. `mid` is taken while the fake gateway holds the stream
+# after its first 30 events (slow-line-turn.json's `holdAt`: MARKER-HEAD and
+# word0 to word28), so both binaries have read the same text and the activity
+# row's out count is the same; `end` once the stream is let go and the turn
+# has settled. A snap at a fixed second after Enter read a different chunk on
+# each binary under load (PR #74's sweep, fx/xfx: 59/63, 63/61, 63/61, 61/59).
 gateway slow-line-turn.json
 wait 2
 type stream please
 key Enter
-wait 3
+held
+wait 1
 snap mid
+release
 wait 6
 snap end

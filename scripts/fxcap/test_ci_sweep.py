@@ -715,6 +715,26 @@ class CiFetch(unittest.TestCase):
         self.assertIn(pin["note"].split("whose sha256 is ")[1][:64], text)
 
 
+class TokenCounts(unittest.TestCase):
+    def test_no_nondeterminism_cause_of_the_repos_ledger_covers_a_token_count(self):
+        # A snap mid-stream is taken while fakegw holds the stream (a turn's `holdAt`, capture.sh's
+        # `held`), so its out count is the same on both binaries: neither it nor a settled turn's
+        # summary is a row known to vary, and a pair that differs in one fails on its first run
+        # with no re-run to pass it (PR #74: `streaming` mid, fx/xfx 59/63 ... 61/59).
+        led = test_sweep.ledgermod.load(test_sweep.LEDGER, test_sweep.REPO)
+        causes = [c for c in led["causes"] if "nondeterminism" in c["kind"]]
+        for scenario, label, fx, xfx in (
+            ("streaming", "mid", "~ Generating (<s>) (↑4 ↓59)", "~ Generating (<s>) (↑4 ↓63)"),
+            ("streaming", "end", "  <wall> (↑4 ↓40)", "  <wall> (↑4 ↓41)"),
+            ("notice-midstream", "version", "~ Generating (<s>) (↑8 ↓87)", "~ Generating (<s>) (↑8 ↓85)"),
+            ("credits-busy", "during", "~ Generating (<s>) (↑6 ↓21)", "~ Generating (<s>) (↑6 ↓23)"),
+            ("h1-reset", "after", "  <wall> (↑4 ↓45)", "  <wall> (↑4 ↓44)"),
+        ):
+            pair = {"scenario": scenario, "label": label, "rows": [{"row": 5, "fx": fx, "xfx": xfx}]}
+            with self.subTest(scenario=scenario, label=label):
+                self.assertFalse(ci_sweep.varies(pair, causes))
+
+
 class ReceiptNames(unittest.TestCase):
     def test_only_a_receipts_own_spellings_name_a_scenario(self):
         text = (

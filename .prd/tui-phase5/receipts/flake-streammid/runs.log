@@ -1,0 +1,29 @@
+# GREEN: `streaming` at 3ed24db2 (harness, scenario, and the xfx binary built there: banner
+# v0.1.0-3ed24db), the pair run one after the other by capture.sh at 40x120, ten spinning
+# processes beside the machine's own work. `mid` row 5's out count; load is the 1-minute
+# average when the run ended. Every run's capture log, fx's and xfx's, has
+# `[fakegw] hold 1 after 30 event(s)`.
+run  1  load   9.8  fx ↓61  xfx ↓61  same
+run  2  load  11.4  fx ↓61  xfx ↓61  same
+run  3  load  12.1  fx ↓61  xfx ↓61  same
+run  4  load  16.7  fx ↓61  xfx ↓61  same
+run  5  load  17.2  fx ↓61  xfx ↓61  same
+run  6  load  25.4  fx ↓61  xfx ↓61  same
+run  7  load  24.1  fx ↓61  xfx ↓61  same
+run  8  load  25.9  fx ↓61  xfx ↓61  same
+run  9  load  21.0  fx ↓61  xfx ↓61  same
+run 10  load  18.0  fx ↓61  xfx ↓61  same
+# 10 of 10 the same: MARKER-HEAD and word0 to word28, 3 + 2 x 29 = 61.
+#
+# The same scenario before its commit (the hold in place, the binary still fd3f5f0):
+run  1  load  11.0  fx ↓61  xfx ↓61  same
+run  2  load  13.3  fx ↓61  xfx ↓61  same
+run  3  load  12.8  fx ↓61  xfx ↓61  same
+run  4  load  13.5  fx ↓61  xfx ↓61  same
+run  5  load  13.4  fx ↓61  xfx ↓61  same
+run  6  load  13.1  fx ↓61  xfx ↓61  same
+run  7  load  13.6  fx ↓61  xfx ↓61  same
+run  8  load  18.0  fx ↓61  xfx ↓61  same
+run  9  load  16.0  fx ↓61  xfx ↓61  same
+run 10  load  16.0  fx ↓61  xfx ↓61  same
+# 10 of 10 the same.

@@ -85,6 +85,15 @@
 #                          <height> and nothing else, in the workspace -- an
 #                          image over a pixel limit, as fx's own tests make one
 #   wait <seconds>
+#   held                   waits until the fake gateway holds a stream (a
+#                          turn's `holdAt`, fakegw.ts) -- the next hold this
+#                          run has not waited for -- up to 30 s, and fails the
+#                          run (exit 1) if none comes: a point in the stream,
+#                          not a moment on the clock, so a snap after it reads
+#                          the same events on fx and xfx whatever the load
+#   release                lets a held stream go on, the holds in the order
+#                          they were made: a line in the file fakegw.ts reads
+#                          as FAKEGW_RELEASE
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
 #   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
@@ -518,6 +527,7 @@ main() {
         case $dest in ''|/*|..|../*|*/..|*/../*) echo "rehomefile takes a relative path inside HOME, not $dest" >&2; exit 2 ;; esac
         [[ -n $from && -f $scenarios/$from ]] || { echo "rehomefile takes <path> <file in $scenarios>, not ${line#rehomefile }" >&2; exit 2; } ;;
       jobctl\ *) echo "jobctl takes no argument, not ${line#jobctl }" >&2; exit 2 ;;
+      held\ *|release\ *) echo "${line%% *} takes no argument, not ${line#* }" >&2; exit 2 ;;
       modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets)
         echo "$line takes an argument: see the verbs at the top of capture.sh" >&2; exit 2 ;;
     esac
@@ -528,7 +538,10 @@ main() {
   # The usage answers are a file fakegw reads on every request, so a `usage`
   # line later in the script swaps them; absent, those paths are unknown there.
   [[ -n $usage && $usage != off ]] && cp "$scenarios/$usage" "$run/usage.json"
-  FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$models2 FAKEGW_MODELS2_MS=$models2ms FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  # A held stream (a turn's `holdAt`) goes on once this file has a line for
+  # it: `release` writes one, `held` waits for the hold in the gateway's log.
+  local holds=0
+  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$models2 FAKEGW_MODELS2_MS=$models2ms FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   gateway=$!
   sock=$run/s
   trap cleanup EXIT
@@ -695,6 +708,15 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     case $verb in
       ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|models2|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
+      held)
+        holds=$((holds + 1))
+        tries=0
+        until grep -q "^\[fakegw\] hold $holds after " "$run/gateway.log" 2>/dev/null; do
+          (( ++tries < 600 )) || { echo "held: the fake gateway made no hold $holds in 30 s (a turn's holdAt; its log: $(grep -m1 'holdAt' "$run/gateway.log" || echo 'no holdAt line'))" >&2; exit 1; }
+          sleep 0.05
+        done
+        grep -m1 "^\[fakegw\] hold $holds after " "$run/gateway.log" ;;
+      release) echo release >> "$run/gw-release" ;;
       type) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" send-keys -t cap -l "$filled" ;;
       paste) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$filled")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
       pastex)
