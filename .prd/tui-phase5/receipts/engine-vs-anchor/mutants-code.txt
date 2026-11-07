@@ -1,0 +1,94 @@
+# a throwaway clone (git clone --no-local) at 05752b03; mutants.py code <clone> <out>, TMPDIR short
+# unchanged: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 4253 filtered out; finished in 0.01s
+
+# mutant: no anchor: put_unit never writes CHA (src/tui/grid.rs)
+caught: yes
+  FAILED tui::grid::tests::a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it
+  FAILED tui::grid::tests::a_narrow_glyph_with_a_selector_clears_nothing_and_still_puts_the_cursor_back
+  FAILED tui::check::tests::a_cleared_and_reanchored_selector_glyph_is_accepted
+  FAILED tui::grid::tests::a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it
+  FAILED tui::grid::tests::the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end
+  FAILED tui::frame::tests::the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too
+  FAILED tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph
+  FAILED tui::frame::tests::the_full_transcripts_read_row_lands_x_where_upstream_does
+
+# mutant: the anchor one column early (src/tui/grid.rs)
+caught: yes
+  FAILED tui::grid::tests::a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it
+  FAILED tui::grid::tests::a_narrow_glyph_with_a_selector_clears_nothing_and_still_puts_the_cursor_back
+  FAILED tui::grid::tests::the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end
+  FAILED tui::grid::tests::a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it
+  FAILED tui::frame::tests::the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too
+  FAILED tui::check::tests::a_cleared_and_reanchored_selector_glyph_is_accepted
+  FAILED tui::check::tests::an_anchor_inside_a_link_is_accepted
+  FAILED tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph
+  FAILED tui::frame::tests::the_full_transcripts_read_row_lands_x_where_upstream_does
+
+# mutant: no clear: put_unit never writes ECH 2 (src/tui/grid.rs)
+caught: yes
+  FAILED tui::frame::tests::the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too
+  FAILED tui::grid::tests::a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it
+  FAILED tui::grid::tests::a_selector_glyph_with_nothing_after_it_is_not_anchored
+  FAILED tui::grid::tests::a_wide_selector_glyph_at_the_margin_is_written_with_autowrap_on_and_not_anchored
+  FAILED tui::check::tests::an_anchor_inside_a_link_is_accepted
+  FAILED tui::grid::tests::a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it
+  FAILED tui::frame::tests::a_band_row_ending_in_a_suffixed_wide_unit_at_the_margin_is_guarded_and_accepted
+  FAILED tui::grid::tests::the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end
+  FAILED tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph
+
+# mutant: U+FE0F not a selector (src/tui/grid.rs)
+caught: yes
+  FAILED tui::grid::tests::a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it
+
+# mutant: no margin guard (src/tui/grid.rs)
+caught: yes
+  FAILED tui::grid::tests::a_wide_unit_with_any_suffix_at_the_margin_is_written_with_autowrap_on
+  FAILED tui::grid::tests::a_wide_selector_glyph_at_the_margin_is_written_with_autowrap_on_and_not_anchored
+  FAILED tui::frame::tests::a_band_row_ending_in_a_suffixed_wide_unit_at_the_margin_is_guarded_and_accepted
+
+# mutant: the guard only for a selector, not any suffix (src/tui/grid.rs)
+caught: yes
+  FAILED tui::grid::tests::a_wide_unit_with_any_suffix_at_the_margin_is_written_with_autowrap_on
+
+# mutant: the diff's EL does not count as following (src/tui/grid.rs)
+caught: yes
+  FAILED tui::grid::tests::the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end
+
+# mutant: a row written whole anchors after its last unit too (src/tui/grid.rs)
+caught: yes
+  FAILED tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph
+
+# mutant: the alternate plane's paint writes the row raw (src/tui/frame.rs)
+caught: yes
+  FAILED tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph
+  FAILED tui::frame::tests::the_full_transcripts_read_row_lands_x_where_upstream_does
+
+# mutant: the band's whole repaint and the return from the other plane write the row raw (src/tui/frame.rs)
+caught: yes
+  FAILED tui::frame::tests::the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too
+  FAILED tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph
+  FAILED tui::frame::tests::the_full_transcripts_read_row_lands_x_where_upstream_does
+
+# mutant: a document row anchored as a frame's row is (src/tui/frame.rs)
+caught: yes
+  FAILED tui::frame::tests::a_document_row_is_written_as_it_stands_as_upstreams_document_append_is
+
+# mutant: check: CHA refused under a link (src/tui/check.rs)
+caught: yes
+  FAILED tui::check::tests::an_anchor_inside_a_link_is_accepted
+
+# mutant: check: any ?7h/?7l pair gives the mode back (src/tui/check.rs)
+caught: yes
+  FAILED tui::check::tests::an_autowrap_bracket_around_anything_else_is_a_mode_change
+
+# mutant: check: ECH takes no half of a wide cluster (src/tui/check.rs)
+caught: yes
+  FAILED tui::check::tests::a_clear_takes_the_whole_of_a_wide_cluster_it_covers_half_of
+
+# mutant: check: ECH past the last column accepted (src/tui/check.rs)
+caught: yes
+  FAILED tui::check::tests::a_clear_past_the_margin_or_from_nowhere_is_refused
+
+# mutant: check: CHA off the screen accepted (src/tui/check.rs)
+caught: yes
+  FAILED tui::check::tests::an_anchor_off_the_screen_or_from_nowhere_is_refused

@@ -1,0 +1,19 @@
+unchanged: no problem
+caught mutant: CHA unmodelled
+    the painter's anchor was rejected: [b'\x1b[5G']
+    the anchor did not set the column
+    an anchor under the cell's link was rejected: [b'\x1b[4G']
+    '\x1b[1G' was rejected
+    '\x1b[20G' was rejected
+caught mutant: ECH unmodelled
+    the painter's anchor was rejected: [b'\x1b[2X']
+    an anchor under the cell's link was rejected: [b'\x1b[2X']
+    a clear left half a cluster: '한b한'
+    the margin bracket: [b'\x1b[2X']
+    '\x1b[1;19H\x1b[2X' was rejected
+caught mutant: CHA past the last column accepted
+    '\x1b[0G' passed the oracle unremarked
+    '\x1b[21G' passed the oracle unremarked
+caught mutant: ECH keeps half a cluster
+    a clear left half a cluster: '한'
+every mutant caught

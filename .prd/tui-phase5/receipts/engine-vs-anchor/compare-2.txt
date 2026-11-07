@@ -1,0 +1,7 @@
+base: 6 pairs, pass 4; normalized-identical 4, unresolved-defect 2
+head: 6 pairs, pass 4; normalized-identical 4, unresolved-defect 2
+verdicts moved: 0
+fx screens not the same in the two sweeps: 0
+xfx screens not the same in the two sweeps: 0
+passed on the base, not on the head: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

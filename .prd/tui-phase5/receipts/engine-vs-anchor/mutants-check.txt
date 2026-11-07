@@ -1,0 +1,13 @@
+caught mutant: xfx's read row without the anchor (x three cells left, as red)
+    FAIL anchor p5-transcript-diffwide2 full (fx / xfx)
+    read row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx '́ul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz' -- every cell the same: FAIL, not so
+    FAIL aligned p5-transcript-diffwide2 full (fx / xfx)
+    FAIL rows with a variation selector one side holds alone: ['│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+caught mutant: fx's diff row without the gap
+    FAIL anchor p5-transcript-diffwide2 full (fx / xfx)
+    diff row: fx '́ul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' -- every cell the same: FAIL, not so
+    FAIL aligned p5-transcript-diffwide2 full (fx / xfx)
+    FAIL rows with a variation selector one side holds alone: ['  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz'
+caught mutant: an edited row changed
+    FAIL inline p5-transcript-diffwide2 edited
+every mutant caught
