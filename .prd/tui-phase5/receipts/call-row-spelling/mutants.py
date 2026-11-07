@@ -54,13 +54,43 @@ MUTANTS = {
     "no-text-flag": ("src/tui/full_transcript.rs", """                Value::String(text) => (
                     text.clone(),
                     crate::tools::question::terminal_safe(text).len() == text.len()
-                        && !text.contains('\\u{061c}'),
+                        && !text.contains('\\u{061c}')
+                        && status
+                            .as_deref()
+                            .is_none_or(|status| status.contains(text.as_str())),
                 ),""", """                // MUTANT no-text-flag: every string value may be shown already.
-                Value::String(text) => (text.clone(), true),"""),
+                Value::String(text) => {
+                    let _ = &status;
+                    (text.clone(), true)
+                }"""),
     # Ctrl-O looks for the value in the whole heading, not fx's 120-byte status.
-    "no-status-bound": ("src/tui/full_transcript.rs", """                    && first_line.contains(argument.value.as_str())
-                    && super::toolgroup::status_shows(&call.shown, &argument.value);""", """                    // MUTANT no-status-bound: the whole heading is searched.
-                    && first_line.contains(argument.value.as_str());"""),
+    "no-status-bound": ("src/tui/full_transcript.rs", """                        && !text.contains('\\u{061c}')
+                        && status
+                            .as_deref()
+                            .is_none_or(|status| status.contains(text.as_str())),""", """                        // MUTANT no-status-bound: no status phrase looked in.
+                        && !text.contains('\\u{061c}')
+                        && status.as_deref().map_or(true, |_| true),"""),
+    # The status phrase made from the channel's spelling, as round 1 made it.
+    "status-from-spelled": ("src/tui/full_transcript.rs", """        .and_then(|spec| super::toolgroup::status(&spec.shown(input)));""", """        // MUTANT status-from-spelled: the bound applied to the spelled call.
+        .and_then(|spec| {
+            let mut shown = spec.shown(input);
+            let activity = shown.presentation.activity;
+            shown.target = shown
+                .target
+                .map(|target| super::toolgroup::spelled(&target, activity));
+            super::toolgroup::status(&shown)
+        });"""),
+    # The source bound stops with no marker again, as fx's does.
+    "no-source-cut-marker": ("src/tui/toolgroup.rs", """            {
+                spelling.cut = true;
+            }
+            break;""", """            {
+                // MUTANT no-source-cut-marker: nothing said of the tail.
+            }
+            break;"""),
+    # The channel blanks the reason again.
+    "reason-blanked": ("src/tui/bridge.rs", """                detail: super::toolgroup::flattened(&detail),""", """                // MUTANT reason-blanked: the reason crosses blanked.
+                detail: inert_owned(detail),"""),
 }
 if name == "restore":
     subprocess.run(["git", "-C", clone, "checkout", "--", "src/"], check=True)

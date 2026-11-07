@@ -1,16 +1,16 @@
 
-  2026-11-07 03:52:43.556 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 154ms
+  2026-11-07 04:31:13.146 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 128ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:52:43.140 UTC · Prompt
+  2026-11-07 04:31:12.940 UTC · Prompt
 ┃ show the file
 
-  2026-11-07 03:52:43.286 UTC · Response
+  2026-11-07 04:31:12.966 UTC · Response
   Showing the file.
 
-  2026-11-07 03:52:43.286 UTC · Tool
+  2026-11-07 04:31:12.966 UTC · Tool
 ● 2 tool calls · 1 read · 1 command
 ├ Ran printf '%s\n'
 │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
@@ -23,16 +23,16 @@
 │ a‮b​c﻿de\u{009b}f        g
 │ X
 
-  2026-11-07 03:52:43.370 UTC · Tool
+  2026-11-07 04:31:13.014 UTC · Tool
 └ Read safe.txt
 │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x
 │  0d
 │  2    over\x0dX
 
-  2026-11-07 03:52:43.557 UTC · Response
+  2026-11-07 04:31:13.146 UTC · Response
   Shown.
 
-  2026-11-07 03:52:43.554 UTC · Usage
+  2026-11-07 04:31:13.140 UTC · Usage
   0s (↑3 ↓80)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

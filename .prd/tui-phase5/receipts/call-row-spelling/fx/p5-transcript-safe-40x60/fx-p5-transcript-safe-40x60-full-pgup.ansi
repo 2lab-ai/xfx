@@ -1,6 +1,6 @@
 [1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
 
-[38;5;245m  2026-11-07 03:52:38.101 UTC · Notice[39m
+[38;5;245m  2026-11-07 04:31:07.903 UTC · Notice[39m
 [38;5;250m* session: provider: gateway · model: fake/model-a · effort:
 [39m  [38;5;250mauto[39m
   [38;5;250msystem prompt: ready · 6249 bytes[39m
@@ -10,23 +10,23 @@
   [38;5;250mskills: loading[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-11-07 03:52:43.286 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 28ms[39m
+[38;5;245m  2026-11-07 04:31:12.966 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 11ms[39m
   [38;5;250mfinish: tool_calls[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 03:52:43.556 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 154ms[39m
+[38;5;245m  2026-11-07 04:31:13.146 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 128ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 03:52:43.140 UTC · Prompt[39m
+[38;5;245m  2026-11-07 04:31:12.940 UTC · Prompt[39m
 [38;5;255m┃[39m [1mshow the file
 
-[0m[38;5;245m  2026-11-07 03:52:43.286 UTC · Response[39m
+[0m[38;5;245m  2026-11-07 04:31:12.966 UTC · Response[39m
   Showing the file.
 
-[38;5;245m  2026-11-07 03:52:43.286 UTC · Tool[39m
+[38;5;245m  2026-11-07 04:31:12.966 UTC · Tool[39m
 [38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
 ├ Ran [38;5;252mprintf[39m [38;5;250m'%s\n'[39m
 │ [38;5;250m'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'[39m

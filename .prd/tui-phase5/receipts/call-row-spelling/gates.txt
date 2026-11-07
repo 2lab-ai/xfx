@@ -1,9 +1,9 @@
-# The gate list at 29e8f8d3 (the code of c3ac7120; this receipt adds only .prd/ files), each step one
-# at a time with TMPDIR=<tmp>: fmt --check; clippy --all-targets -D warnings, without and with
-# fault-injection; cargo test --no-fail-fast, without and with fault-injection; check-xfx-identity,
-# check-no-stubs, check-no-secrets; fxcap's test-sweep; release and faulty release builds; smoke.sh
-# and smoke-tui.sh (--faulty) on them.
-head 29e8f8d3
+# The gate list at 57af20f1 (the code of 1789e2a6; this receipt adds only .prd/ files), each step one at a
+# time with TMPDIR=<tmp>: fmt --check; clippy --all-targets -D warnings, without and with fault-injection;
+# cargo test --no-fail-fast, without and with fault-injection; check-xfx-identity, check-no-stubs,
+# check-no-secrets; fxcap's test-sweep; release and faulty release builds; smoke.sh and smoke-tui.sh
+# (--faulty) on them.
+head 57af20f1
 fmt exit=0
 clippy exit=0
 clippy-faults exit=0
@@ -13,28 +13,15 @@ identity exit=0
 stubs exit=0
 secrets exit=0
 test-sweep exit=0
-test passed 4949 failed 0 ignored 7
-test-faults passed 4978 failed 0 ignored 7
+test passed 4952 failed 0 ignored 7
+test-faults passed 4981 failed 0 ignored 7
 done
-head 29e8f8d3 (release, smoke)
+head 57af20f1 (release, smoke)
 release exit=0
 faulty exit=0
 smoke exit=0
 smoke-tui exit=0
 47 check(s), 0 failure(s)
-evidence: <tmp>/ev/smoke
+evidence: <tmp>/ev2/smoke
 smoke-tui: 37 scenarios + the oracle, 1111 checks, 0 failures
-evidence: <tmp>/ev/tui
-done2
-
-# This unit's ten tests in the full run:
-test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... ok
-test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... ok
-test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
-test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
-test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
-test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... ok
-test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
-test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
-test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
-test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
+evidence: <tmp>/ev2/tui

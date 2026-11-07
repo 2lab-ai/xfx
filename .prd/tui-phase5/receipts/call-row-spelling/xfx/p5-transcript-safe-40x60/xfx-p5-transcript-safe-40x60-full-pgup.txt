@@ -1,6 +1,6 @@
-x𝒇x v0.1.0-29e8f8d [debug] · Run /help for commands
+x𝒇x v0.1.0-1789e2a [debug] · Run /help for commands
 
-  2026-11-07 03:52:53.703 UTC · Notice
+  2026-11-07 04:31:23.041 UTC · Notice
 * session: provider: gateway · model: fake/model-a · effort:
   auto
   tools: 13 advertised (list_files, glob_files, grep_files,
@@ -8,23 +8,23 @@ x𝒇x v0.1.0-29e8f8d [debug] · Run /help for commands
   +5 more)
   mcp: none
 
-  2026-11-07 03:52:59.238 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 48ms
+  2026-11-07 04:31:28.155 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:52:59.571 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 86ms
+  2026-11-07 04:31:28.277 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 62ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:52:58.699 UTC · Prompt
+  2026-11-07 04:31:28.084 UTC · Prompt
 ┃ show the file
 
-  2026-11-07 03:52:59.324 UTC · Response
+  2026-11-07 04:31:28.191 UTC · Response
   Showing the file.
 
-  2026-11-07 03:52:59.324 UTC · Tool
+  2026-11-07 04:31:28.191 UTC · Tool
 ● 2 tool calls · 1 read · 1 command
 ├ Ran printf '%s\n'
 │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'

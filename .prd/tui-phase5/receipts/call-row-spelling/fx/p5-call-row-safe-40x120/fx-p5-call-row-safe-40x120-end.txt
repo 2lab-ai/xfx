@@ -5,7 +5,7 @@
   Looking.
 
 ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
-├ Ran printf '%s' 'A\u{202e}B\u{2066}C؜D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+├ Ran printf '%s' 'A\u{202e}B\u{2066}CD\x1b[2JE F\x09G\u{009b}H' >/dev/null
 ├ Matched n‮o⁦p؜q7rst
 └ Failed m‮n⁦o؜p[2Jqrs   )
 

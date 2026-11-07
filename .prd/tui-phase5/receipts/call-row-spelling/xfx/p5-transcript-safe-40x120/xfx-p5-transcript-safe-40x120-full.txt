@@ -1,38 +1,38 @@
   +5 more)
   mcp: none
 
-  2026-11-07 03:51:26.803 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 1ms
+  2026-11-07 04:29:36.915 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 2ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:51:26.926 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 63ms
+  2026-11-07 04:29:37.057 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 67ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:51:26.735 UTC · Prompt
+  2026-11-07 04:29:36.842 UTC · Prompt
 ┃ show the file
 
-  2026-11-07 03:51:26.838 UTC · Response
+  2026-11-07 04:29:36.949 UTC · Response
   Showing the file.
 
-  2026-11-07 03:51:26.838 UTC · Tool
+  2026-11-07 04:29:36.949 UTC · Tool
 ● 2 tool calls · 1 read · 1 command
 ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
 │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
 │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
 │ X
 
-  2026-11-07 03:51:26.854 UTC · Tool
+  2026-11-07 04:29:36.969 UTC · Tool
 └ Read safe.txt
 │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d
 │  2    over\x0dX
 
-  2026-11-07 03:51:26.962 UTC · Response
+  2026-11-07 04:29:37.088 UTC · Response
   Shown.
 
-  2026-11-07 03:51:26.962 UTC · Usage
+  2026-11-07 04:29:37.088 UTC · Usage
   0s (↑3 ↓80)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

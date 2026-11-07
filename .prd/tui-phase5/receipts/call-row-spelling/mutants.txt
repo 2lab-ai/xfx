@@ -1,13 +1,13 @@
-# Mutants, each applied alone to a throwaway `git clone --no-local` of 29e8f8d3 (code of c3ac7120)
-# by mutants.py (beside this file), then `cargo test --locked --lib` over this unit's ten tests; the clone
-# put back between them. Each mutant's diff, then the tests' results:
+# Mutants, each applied alone to a throwaway `git clone --no-local` of 1789e2a6 by mutants.py (beside this
+# file), then `cargo test --locked --lib` over this unit's thirteen tests; the clone put back between them.
+# Each mutant's diff, then the tests' results:
 
 applied no-mark-naming to src/tui/toolgroup.rs
 diff --git a/src/tui/toolgroup.rs b/src/tui/toolgroup.rs
-index 4252dc7f..75506f0d 100644
+index bd7b7edd..90ef03fb 100644
 --- a/src/tui/toolgroup.rs
 +++ b/src/tui/toolgroup.rs
-@@ -733,12 +733,16 @@ impl Spelling {
+@@ -751,12 +751,16 @@ impl Spelling {
  
      /// Writes `character`'s token, or answers `false` once it does not fit.
      fn push(&mut self, character: char) -> bool {
@@ -31,22 +31,25 @@ index 4252dc7f..75506f0d 100644
 test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... FAILED
 test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
 test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... FAILED
-test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... FAILED
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... FAILED
 test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
 test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... ok
-test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... FAILED
+test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... FAILED
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
 test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... FAILED
 test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... FAILED
 test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... FAILED
-test result: FAILED. 4 passed; 6 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.02s
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+test result: FAILED. 6 passed; 7 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
 error: test failed, to rerun pass `--lib`
 == no-mark-naming done
 applied no-control-spelling to src/tui/toolgroup.rs
 diff --git a/src/tui/toolgroup.rs b/src/tui/toolgroup.rs
-index 4252dc7f..3618f44c 100644
+index bd7b7edd..0eb30bac 100644
 --- a/src/tui/toolgroup.rs
 +++ b/src/tui/toolgroup.rs
-@@ -733,6 +733,10 @@ impl Spelling {
+@@ -751,6 +751,10 @@ impl Spelling {
  
      /// Writes `character`'s token, or answers `false` once it does not fit.
      fn push(&mut self, character: char) -> bool {
@@ -58,24 +61,27 @@ index 4252dc7f..3618f44c 100644
              return self.token("\\u{061c}");
          }
 test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... FAILED
-test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... FAILED
 test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... FAILED
+test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... FAILED
 test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
 test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
-test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... FAILED
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
 test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
+test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... FAILED
 test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... ok
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... FAILED
 test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... FAILED
 test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... FAILED
-test result: FAILED. 4 passed; 6 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.03s
+test result: FAILED. 6 passed; 7 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
 error: test failed, to rerun pass `--lib`
 == no-control-spelling done
 applied bridge-blanks to src/tui/bridge.rs
 diff --git a/src/tui/bridge.rs b/src/tui/bridge.rs
-index 09efa36f..72f825a0 100644
+index b53dca9e..8959e292 100644
 --- a/src/tui/bridge.rs
 +++ b/src/tui/bridge.rs
-@@ -955,9 +955,11 @@ fn spelled_shown(shown: Shown) -> Shown {
+@@ -956,9 +956,11 @@ fn spelled_shown(shown: Shown) -> Shown {
      let activity = shown.presentation.activity;
      Shown {
          presentation: shown.presentation,
@@ -91,34 +97,43 @@ index 09efa36f..72f825a0 100644
  }
  
 test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... FAILED
-test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
 test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
-test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
+test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
 test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
-test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... FAILED
+test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
 test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
+test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... FAILED
 test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... ok
 test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... FAILED
 test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
-test result: FAILED. 7 passed; 3 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.02s
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+test result: FAILED. 10 passed; 3 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
 error: test failed, to rerun pass `--lib`
 == bridge-blanks done
 applied no-text-flag to src/tui/full_transcript.rs
 diff --git a/src/tui/full_transcript.rs b/src/tui/full_transcript.rs
-index 01dcbac7..78e351f2 100644
+index 7fd6ec5d..b35648bc 100644
 --- a/src/tui/full_transcript.rs
 +++ b/src/tui/full_transcript.rs
-@@ -619,11 +619,8 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
-             let (value, text) = match value {
-                 // Shown by the heading only as written, never once it spelled
-                 // a control or a mark (`super::toolgroup::spelled`).
+@@ -626,14 +626,11 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
+                 // a control or a mark (`super::toolgroup::spelled`), and only
+                 // where fx's status phrase holds it as written
+                 // (`super::toolgroup::status`, made from the raw call).
 -                Value::String(text) => (
 -                    text.clone(),
 -                    crate::tools::question::terminal_safe(text).len() == text.len()
--                        && !text.contains('\u{061c}'),
+-                        && !text.contains('\u{061c}')
+-                        && status
+-                            .as_deref()
+-                            .is_none_or(|status| status.contains(text.as_str())),
 -                ),
 +                // MUTANT no-text-flag: every string value may be shown already.
-+                Value::String(text) => (text.clone(), true),
++                Value::String(text) => {
++                    let _ = &status;
++                    (text.clone(), true)
++                }
                  other => (other.to_string(), false),
              };
              Argument {
@@ -128,39 +143,146 @@ test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_c
 test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
 test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... ok
 test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... FAILED
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
 test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... FAILED
 test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
 test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... FAILED
 test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
-test result: FAILED. 8 passed; 2 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.03s
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+test result: FAILED. 10 passed; 3 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.05s
 error: test failed, to rerun pass `--lib`
 == no-text-flag done
 applied no-status-bound to src/tui/full_transcript.rs
 diff --git a/src/tui/full_transcript.rs b/src/tui/full_transcript.rs
-index 01dcbac7..d3227e33 100644
+index 7fd6ec5d..990183b8 100644
 --- a/src/tui/full_transcript.rs
 +++ b/src/tui/full_transcript.rs
-@@ -1884,8 +1884,8 @@ impl FullTranscript {
-                 let shown_already = argument.text
-                     && !argument.value.is_empty()
-                     && heading_fits
--                    && first_line.contains(argument.value.as_str())
--                    && super::toolgroup::status_shows(&call.shown, &argument.value);
-+                    // MUTANT no-status-bound: the whole heading is searched.
-+                    && first_line.contains(argument.value.as_str());
-                 let exec = call.shown.presentation.activity == Activity::Command
-                     && argument.name == "action"
-                     && argument.value == "exec";
+@@ -629,10 +629,9 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
+                 Value::String(text) => (
+                     text.clone(),
+                     crate::tools::question::terminal_safe(text).len() == text.len()
++                        // MUTANT no-status-bound: no status phrase looked in.
+                         && !text.contains('\u{061c}')
+-                        && status
+-                            .as_deref()
+-                            .is_none_or(|status| status.contains(text.as_str())),
++                        && status.as_deref().map_or(true, |_| true),
+                 ),
+                 other => (other.to_string(), false),
+             };
 test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... ok
-test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
 test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
+test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
 test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... ok
 test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
-test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
 test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
 test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... FAILED
 test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... FAILED
 test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
-test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.02s
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+test result: FAILED. 11 passed; 2 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
 error: test failed, to rerun pass `--lib`
 == no-status-bound done
+applied status-from-spelled to src/tui/full_transcript.rs
+diff --git a/src/tui/full_transcript.rs b/src/tui/full_transcript.rs
+index 7fd6ec5d..1a33827b 100644
+--- a/src/tui/full_transcript.rs
++++ b/src/tui/full_transcript.rs
+@@ -616,7 +616,15 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
+     names.extend(map.keys().filter(|name| !declared.contains(&name.as_str())));
+     let status = Registry::builtin()
+         .spec(tool)
+-        .and_then(|spec| super::toolgroup::status(&spec.shown(input)));
++        // MUTANT status-from-spelled: the bound applied to the spelled call.
++        .and_then(|spec| {
++            let mut shown = spec.shown(input);
++            let activity = shown.presentation.activity;
++            shown.target = shown
++                .target
++                .map(|target| super::toolgroup::spelled(&target, activity));
++            super::toolgroup::status(&shown)
++        });
+     names
+         .into_iter()
+         .map(|name| {
+test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... ok
+test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
+test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
+test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
+test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... ok
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
+test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... FAILED
+test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
+error: test failed, to rerun pass `--lib`
+== status-from-spelled done
+applied no-source-cut-marker to src/tui/toolgroup.rs
+diff --git a/src/tui/toolgroup.rs b/src/tui/toolgroup.rs
+index bd7b7edd..25510e2f 100644
+--- a/src/tui/toolgroup.rs
++++ b/src/tui/toolgroup.rs
+@@ -652,7 +652,7 @@ fn command_spelled(target: &str, max: usize) -> String {
+                 .chars()
+                 .any(|left| !matches!(left, ' ' | '\t' | '\r' | '\n'))
+             {
+-                spelling.cut = true;
++                // MUTANT no-source-cut-marker: nothing said of the tail.
+             }
+             break;
+         }
+test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... ok
+test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
+test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... FAILED
+test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
+test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... ok
+test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... ok
+test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... ok
+test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
+error: test failed, to rerun pass `--lib`
+== no-source-cut-marker done
+applied reason-blanked to src/tui/bridge.rs
+diff --git a/src/tui/bridge.rs b/src/tui/bridge.rs
+index b53dca9e..95c967fd 100644
+--- a/src/tui/bridge.rs
++++ b/src/tui/bridge.rs
+@@ -512,7 +512,8 @@ impl UiEvent {
+                 // argument and which can quote the argument back: spelled as
+                 // that row spells it (`super::toolgroup::flattened`, fx's
+                 // `encodeTerminalSafeInline`), not blanked.
+-                detail: super::toolgroup::flattened(&detail),
++                // MUTANT reason-blanked: the reason crosses blanked.
++                detail: inert_owned(detail),
+                 outcome,
+                 changes,
+             },
+test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... ok
+test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... ok
+test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... FAILED
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... ok
+test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... ok
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
+test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... FAILED
+test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... ok
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... ok
+test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... ok
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... FAILED
+test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
+test result: FAILED. 10 passed; 3 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.04s
+error: test failed, to rerun pass `--lib`
+== reason-blanked done

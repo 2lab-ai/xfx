@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
+
+[38;5;245m  2026-11-07 03:52:38.101 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort:
+[39m  [38;5;250mauto[39m
+  [38;5;250msystem prompt: ready · 6249 bytes[39m
+  [38;5;250mtools: 14 advertised (read_file, glob_files, grep_files,[39m
+  [38;5;250medit_file, write_file, shell, subagent, capability_search,
+[39m  [38;5;250m+6 more)[39m
+  [38;5;250mskills: loading[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-07 03:52:43.286 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 28ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 03:52:43.556 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 154ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 03:52:43.140 UTC · Prompt[39m
+[38;5;255m┃[39m [1mshow the file
+
+[0m[38;5;245m  2026-11-07 03:52:43.286 UTC · Response[39m
+  Showing the file.
+
+[38;5;245m  2026-11-07 03:52:43.286 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
+├ Ran [38;5;252mprintf[39m [38;5;250m'%s\n'[39m
+│ [38;5;250m'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'[39m
+│ [38;5;252m>[39m/dev/null[38;5;252m;[39m [38;5;252mcat[39m safe.txt [38;5;245m#[39m
+│[38;5;245m  action: run[39m
+│[38;5;245m  command: printf '%s\n'[39m
+│[38;5;245m  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m
