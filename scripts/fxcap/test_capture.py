@@ -161,6 +161,7 @@ class Refusals(unittest.TestCase):
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
             ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
+            ("nodraw please\nsnap a\n", "nodraw takes no argument, not please"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
             ("until\nsnap a\n", "until takes an argument"),
@@ -369,7 +370,7 @@ class Verbs(unittest.TestCase):
 
     # A dead pane's signal is named by number or, by tmux 3.7, by name.
     def test_signal_stop_continue_and_end_under_jobctl(self):
-        r = capture("jobctl\nkeep\nwait 1\nsignal SIGTSTP\nsignal SIGCONT\ntype hello\nkey Enter\nwait 0.5\nsnap a\nsignal HUP\nwait 0.3\nsnap b\n",
+        r = capture("nodraw\njobctl\nkeep\nwait 1\nsignal SIGTSTP\nsignal SIGCONT\ntype hello\nkey Enter\nwait 0.5\nsnap a\nsignal HUP\nwait 0.3\nsnap b\n",
                     binary="/bin/cat")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertRegex(r.stdout, r"signal SIGTSTP -> pid \d+: T")
@@ -388,7 +389,7 @@ class Verbs(unittest.TestCase):
         self.assertRegex(r.file("a"), r"Pane is dead \(status 0, ")
 
     def test_a_stop_is_discarded_without_jobctl_and_a_term_ends_it(self):
-        r = capture("keep\nwait 1\nsignal TSTP\nsignal SIGTERM\nwait 0.3\nsnap a\n", binary="/bin/cat")
+        r = capture("nodraw\nkeep\nwait 1\nsignal TSTP\nsignal SIGTERM\nwait 0.3\nsnap a\n", binary="/bin/cat")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         # The pane's session leader's group is orphaned: the stop never lands.
         self.assertRegex(r.stdout, r"signal SIGTSTP -> pid \d+: [^T]")
@@ -398,14 +399,18 @@ class Verbs(unittest.TestCase):
         # A wrapper that execs /bin/cat: the pane's pid runs /bin/sh until the
         # exec lands, and /bin/cat after. Once at once, and once with the exec
         # 4 s late, as a loaded machine made it (registry #19, 16th sighting:
-        # still /bin/sh after `wait 1` and binary_pid's 2 s of looks).
+        # still /bin/sh after `wait 1` and binary_pid's 2 s of looks). So the
+        # scenario waits for the exec, not for a second count: the wrapper
+        # turns the terminal's echo off and says `armed`, and a line typed
+        # after that is on the screen only once cat has read it and written
+        # it back -- once the pid runs /bin/cat.
         for late in ("", "sleep 4\n"):
             with self.subTest(late=late):
                 d = scratch()
                 script = os.path.join(d, "wrapper")
-                write(script, "#!/bin/sh\n%sexec /bin/cat\n" % late)
+                write(script, "#!/bin/sh\nstty -echo\nprintf 'armed\\n'\n%sexec /bin/cat\n" % late)
                 os.chmod(script, 0o755)
-                r = capture("wait 1\nsignal SIGTERM\nsnap a\n", binary=script)
+                r = capture("until shown armed\ntype ready\nkey Enter\nuntil shown ready\nsignal SIGTERM\nsnap a\n", binary=script)
                 self.assertEqual(r.code, 1, r.stdout + r.stderr)
                 self.assertIn("no pid runs %s: pane" % os.path.realpath(script), r.stderr)
                 self.assertIn("executable /bin/cat", r.stderr)
@@ -704,6 +709,13 @@ class LaunchWait(unittest.TestCase):
         self.assertIn("up: the pane is gone", gone.stderr)
         self.assertFalse(os.path.exists(os.path.join(gone.out, "fx-t-30x200-a.txt")))
         self.assertIn("guards:", gone.stdout, "the guards still ran")
+
+    def test_nodraw_runs_a_stub_that_draws_nothing_at_once(self):
+        r = capture("nodraw\nkeep\nsnap a\nrelaunch\nsnap b\n", binary="/bin/cat")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("up: not waited for (nodraw)\n", r.stdout)
+        self.assertNotIn("up: a first frame", r.stdout)
+        self.assertEqual(r.file("b").strip(), "")
 
 
 class Server:

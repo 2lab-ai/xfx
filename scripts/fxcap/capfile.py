@@ -131,11 +131,16 @@ class Timer:
     lasts. Such a line inside the window is refused as a snap is; one before
     it stops the check's clock too (`races`).
 
-    `settle` is how long after arming the row is surely on the screen if it
-    was armed: an `absent` sooner than that says nothing of it, since the
-    binary may not have drawn it yet."""
+    `settle`, for a timer `keys` arm, is how long after the key an `absent`
+    must wait before its word counts: sooner, the binary may not have drawn
+    the row yet. It is a measured allowance (the longest key-to-row time seen,
+    with room for a loaded machine), not a bound either binary promises. A
+    timer only a launch arms has none: the check knows it is armed, so an
+    `absent` that passes there looked before it was drawn (or the binary
+    failed to arm it, which a snap pair shows), and only the screen showing
+    the row (`until shown`) and then not counts it gone (`races`)."""
 
-    def __init__(self, name, seconds, text, xfx, fx, launch=None, keys=(), disarms=False, pauses=None, settle=1.0):
+    def __init__(self, name, seconds, text, xfx, fx, launch=None, keys=(), disarms=False, pauses=None, settle=None):
         self.name, self.seconds, self.text, self.xfx, self.fx = name, seconds, text, xfx, fx
         self.launch, self.keys, self.disarms, self.pauses = launch, keys, disarms, pauses
         self.settle = settle
@@ -163,9 +168,6 @@ TIMERS = (
         # and its clock runs only while it is on it (permissions.rs:409-437;
         # app_permission_runtime.zig:41-67@481104fd).
         pauses=re.compile(r"^key .*\b(?:C-c|C-o|Escape)\b|^type /"),
-        # A launch's first frame came 2.13 s after it on a binary's first run
-        # (receipts/flake-hint4/r2/launch-probe.txt).
-        settle=3.0,
     ),
     # Every Ctrl-C arms it but one over a running turn with a draft, one a
     # question answers (src/ui/input/runtime.zig:63@481104fd), and fx's in its
@@ -182,9 +184,12 @@ TIMERS = (
         "src/core/input/gesture_state.zig:3@481104fd",
         keys=("C-c",),
         disarms=True,
-        # An `until shown` right after a Ctrl-C saw the hint within 0.03 s in
-        # every round-2 head sweep (receipts/flake-hint4/r2/until-waits.txt);
-        # a second leaves room for a loaded runner.
+        # A measured allowance, not a bound: an `until shown` right after a
+        # Ctrl-C saw the hint within 0.03 s in every FLAKE-HINT4 round-2 head
+        # sweep (receipts/flake-hint4/r2/until-waits.txt), and the LAUNCH-SETTLE
+        # sweeps measured it again over every scenario
+        # (receipts/launch-settle/README.md, "settle"); the rest of the second
+        # is room for a loaded machine.
         settle=1.0,
     ),
 )
@@ -192,7 +197,9 @@ TIMERS = (
 # A snap is inside a timer's window when it may be taken later than BEFORE
 # seconds before the timer runs out and earlier than AFTER seconds after it.
 # Measured (receipts/flake-hint4/calib.txt): the warning goes 4.04 to 4.12 s
-# after launch at load 20 to 33, a launch's first frame 0.02 to 0.14 s.
+# after launch at load 20 to 33, a launch's first frame 0.02 to 0.14 s. Since
+# LAUNCH-SETTLE a scenario's clock starts at the first frame (capture.sh's
+# launch wait), not at the launch, so a late first frame no longer eats AFTER.
 BEFORE = 1.0
 AFTER = 3.0
 
@@ -241,8 +248,14 @@ def races(reading):
     - `until gone <text>` and `absent <text>`: the row is not up, so nothing
       is armed until it is armed again -- `absent` fails the run when it is.
       Not while the row is paused (below): gone then is hidden, not spent.
-      And an `absent` only from the timer's `settle` on: right after the key
-      that arms it, the row may not be drawn yet.
+      An `absent` counts only where the row would be drawn by now if it were
+      armed: once an `until shown` has seen it, or from the timer's `settle`
+      on after the key that armed it -- and never over a row a launch armed
+      that no `until shown` has seen since. capture.sh starts a scenario's
+      clock at the binary's first frame, which the full-access warning's own
+      clock starts at too, so an `until gone` there waits it out; an `absent`
+      would only say the row was not on one look, which is what a look
+      taken before the binary drew it says too.
 
     A line the timer `pauses` on, before its window, takes the row while it
     is surely up, for a time the .cap does not say: from there lo stops
@@ -262,6 +275,9 @@ def races(reading):
         clock = (0.0, 0.0) if at_launch else None
         # Whether a line before the window took the row: lo stops growing.
         frozen = False
+        # How the running clock was armed: an `until shown` saw the row
+        # (`seen`), or a key armed it (`by_key`); neither is a launch's.
+        seen = by_key = False
         # The seconds since the binary was last handed input, or launched.
         since_input = (0.0, 0.0)
         for line in reading.lines:
@@ -270,16 +286,16 @@ def races(reading):
             names = (verb == "until" and said == timer.text) or (verb == "absent" and rest == timer.text)
             pauses = bool(timer.pauses and timer.pauses.search(line))
             if verb == "relaunch":
-                clock, frozen = (0.0, 0.0) if at_launch else None, False
+                clock, frozen, seen, by_key = (0.0, 0.0) if at_launch else None, False, False, False
             elif verb == "key" and any(k in timer.keys for k in rest.split()):
-                clock, frozen = (0.0, 0.0), False
+                clock, frozen, seen, by_key = (0.0, 0.0), False, False, True
             elif timer.disarms and (verb == "type" or (verb == "key" and not rest.startswith("-H "))):
                 clock = None
             elif names and verb == "until" and cond == "shown":
-                clock, frozen = (0.0, clock[1] if clock else since_input[1]), False
+                clock, frozen, seen = (0.0, clock[1] if clock else since_input[1]), False, True
             elif clock is None:
                 pass
-            elif names and not frozen and (verb != "absent" or clock[0] >= timer.settle):
+            elif names and not frozen and (verb != "absent" or seen or (by_key and clock[0] >= timer.settle)):
                 clock = None
             elif verb in ("wait",) or verb in SPENDS:
                 clock = _spend(clock, verb, rest, frozen)

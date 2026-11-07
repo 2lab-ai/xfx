@@ -106,19 +106,23 @@
 #                          full-access warning's 4 s; capfile.py TIMERS lists
 #                          them, and refuses a snap inside one's window that
 #                          no `until` precedes). Prints how long it waited and
-#                          how long since the binary was launched (or last
-#                          relaunched) -- and, for a `gone` whose text no
-#                          `until` of this run has seen on the screen, `never
-#                          seen`: nothing showed it came and went.
+#                          how long since the binary was up ("since launch":
+#                          its first frame, at launch or at the last
+#                          `relaunch`, below) -- and, for a `gone` whose text
+#                          no `until` has seen on the screen since that
+#                          launch, `never seen`: nothing showed it came and
+#                          went.
 #   absent <text>          fails the run (exit 1), with the screen, if <text>
 #                          is on the pane's screen now: a row that must not
 #                          be there at all (the exit hint after a Ctrl-C a
 #                          question answers), checked at a moment rather
 #                          than waited away
 #   expect <label> <text>  fails the run (exit 1) unless the snap <label>
-#                          already written holds <text> on one of its rows:
-#                          the frame itself shows the row the snap is for,
-#                          not only a look taken before it
+#                          this run already wrote holds <text> on one of its
+#                          rows: the frame itself shows the row the snap is
+#                          for, not only a look taken before it. A `snapfull`
+#                          label is <label>.full. A frame of that name an
+#                          earlier run left in the out directory is not read.
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
 #   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
@@ -134,6 +138,9 @@
 #                          <bin>-<scenario>-<size>-<label>.cursor
 #   keep                   keeps the pane after the program exits, so a title
 #                          or a screen can still be read once it has
+#   nodraw                 the binary draws nothing until it reads input (a
+#                          stub: /bin/cat), so the run does not wait for its
+#                          first frame (below), at launch or at a `relaunch`
 #   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
 #   home <label>           every file under the run's HOME, as it stands now,
@@ -263,6 +270,23 @@
 #                          pid) to <bin>-<scenario>-<size>-<label>.sockets, and
 #                          fails the run loudly if one is connected to any
 #                          address but 127.0.0.1 or ::1
+#
+# A scenario's first line runs once the binary is up, and so does the line
+# after each `relaunch`: the run waits for the binary's first frame -- anything
+# but blanks on the pane's screen -- looking every 0.05 s for 30 s of elapsed
+# time, and fails the run (exit 1) if none comes. Both binaries make the
+# terminal raw before they draw anything (xfx src/tui/mod.rs:213, fx
+# src/core/app/app_lifecycle.zig:880@481104fd), and raw takes ISIG away, so a
+# key after the first frame reaches the binary as a key; a Ctrl-C before it is
+# SIGINT and ends it (a freshly copied binary's first frame came 2.13 s after
+# its launch, and `interrupt`'s Ctrl-C at 2 s ended xfx so:
+# .prd/tui-phase5/receipts/flake-hint4/r2/launch-probe.txt; the wait's own
+# evidence is .prd/tui-phase5/receipts/launch-settle/). Under `keep`, a pane
+# whose binary has already ended is a final state, and the scenario goes on
+# to read it; without `keep`, a pane gone before its first frame fails the
+# run. The wait prints one `up:` line. Where it returns is what `until` and
+# `absent` count "since launch" from -- the moment the full-access warning's
+# own clock starts (xfx src/tui/permissions.rs `observe`). `nodraw` skips it.
 #
 # fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
 # the PATH shims below do not reach, and FX_SOUND=0 only sets the level at
@@ -433,6 +457,41 @@ since() {
   /usr/bin/perl -MTime::HiRes=stat,time -e 'printf "%.2f", time - (stat $ARGV[0])[9]' "$1"
 }
 
+# Waits until the binary just launched (or relaunched) is up: its first frame
+# on the pane's screen, or, under `keep`, its pane dead. Fails the run (exit
+# 1) if the pane is gone, if it is dead without `keep`, or if nothing is on
+# the screen after 30 s of elapsed time. Then stamps `$run/launched`, the
+# moment `until` and `absent` count from.
+await_up() {
+  local sock=$1 run=$2 keep=$3 began=$SECONDS looks=0 dead screen
+  : > "$run/up"
+  while :; do
+    looks=$((looks + 1))
+    # The screen, then whether the pane is dead: a kept dead pane says so in
+    # a row of its own, which tmux writes as it marks the pane dead, so a
+    # screen read first that holds that row is never read as a frame.
+    screen=$(tmux -f /dev/null -S "$sock" capture-pane -p -t cap 2>/dev/null) &&
+      dead=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_dead}' 2>/dev/null) ||
+      { echo "up: the pane is gone after $(since "$run/up") s ($looks looks): the binary ended before its first frame, and no \`keep\` held the pane" >&2; exit 1; }
+    if [[ $dead == 1 ]]; then
+      [[ -n $keep ]] || { echo "up: the pane is dead after $(since "$run/up") s ($looks looks), and no \`keep\` holds it" >&2; exit 1; }
+      echo "up: the pane is dead after $(since "$run/up") s ($looks looks)"
+      break
+    fi
+    if [[ $screen == *[![:space:]]* ]]; then
+      echo "up: a first frame after $(since "$run/up") s ($looks looks)"
+      break
+    fi
+    # Elapsed time, whole seconds (bash's own clock), as `until` counts it.
+    if (( SECONDS - began >= 30 )); then
+      echo "up: nothing on the screen after $(since "$run/up") s ($looks looks): the binary never drew a frame" >&2
+      exit 1
+    fi
+    sleep 0.05
+  done
+  : > "$run/launched"
+}
+
 main() {
   local which=${1:?fx or xfx} scenario=${2:?scenario} size=${3:?rowsxcols}
   local here root out
@@ -473,7 +532,7 @@ main() {
   bin_real=$(realpath "$bin")
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
-  local jobctl='' clock='' usage='' mcpmode='' keep=''
+  local jobctl='' clock='' usage='' mcpmode='' keep='' nodraw=''
   # The directories `work` and `dir` copied into, whose files get the
   # placeholders too; and whether a line the run fills names `@MCPPORT@`.
   local copied=() names_mcpport=''
@@ -489,6 +548,7 @@ main() {
     esac
     [[ $line == gateway\ * ]] && turns=$(cat "$scenarios/${line#gateway }")
     [[ $line == keep ]] && keep=1
+    [[ $line == nodraw ]] && nodraw=1
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
     # Owner-only, as each product keeps its own profile: xfx refuses to read
     # a profile directory anyone else can reach.
@@ -562,6 +622,7 @@ main() {
         case $dest in ''|/*|..|../*|*/..|*/../*) echo "rehomefile takes a relative path inside HOME, not $dest" >&2; exit 2 ;; esac
         [[ -n $from && -f $scenarios/$from ]] || { echo "rehomefile takes <path> <file in $scenarios>, not ${line#rehomefile }" >&2; exit 2; } ;;
       jobctl\ *) echo "jobctl takes no argument, not ${line#jobctl }" >&2; exit 2 ;;
+      nodraw\ *) echo "nodraw takes no argument, not ${line#nodraw }" >&2; exit 2 ;;
       held\ *|release\ *) echo "${line%% *} takes no argument, not ${line#* }" >&2; exit 2 ;;
       until\ *)
         local cond=${line#until } text
@@ -747,10 +808,18 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     ${hold[@]+"${hold[@]}"} \
     new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
     pipe-pane -o -t cap "cat >> $run/wire"
-  # When the binary was launched (or last relaunched), for `until`'s line;
-  # and the texts an `until` of this run has seen on the screen.
-  : > "$run/launched"
+  # The texts an `until` has seen on the screen since the binary was last
+  # launched, and the labels this run's snaps wrote (`expect` reads no other).
   : > "$run/seen"
+  : > "$run/snapped"
+  # When the binary was up (its first frame), for `until`'s and `absent`'s
+  # lines: the scenario's first line waits for it (the launch wait, above).
+  if [[ -n $nodraw ]]; then
+    echo "up: not waited for (nodraw)"
+    : > "$run/launched"
+  else
+    await_up "$sock" "$run" "$keep"
+  fi
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -759,7 +828,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|jobctl|nomodel|nodraw|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       held)
         holds=$((holds + 1))
@@ -802,7 +871,10 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       expect)
         local label=${rest%% *} text=${rest#* } frame
         frame=$out/$which-$scenario-$size-$label.txt
-        [[ -f $frame ]] || { echo "expect $label: no snap $label was written before it" >&2; exit 1; }
+        # This run's snap, by its label, not a file of that name: the out
+        # directory keeps what earlier runs wrote.
+        grep -qxF -- "$label" "$run/snapped" && [[ -f $frame ]] ||
+          { echo "expect $label: no snap $label was written before it in this run" >&2; exit 1; }
         if ! grep -qF -- "$text" "$frame"; then
           echo "expect $label '$text': the snap does not hold it; its rows that are not blank:" >&2
           grep -v '^[[:space:]]*$' "$frame" | sed 's/^/  | /' >&2 || true
@@ -822,12 +894,14 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" capture-pane -p -t cap > "$name.txt"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$name.ansi"
+        printf '%s\n' "$rest" >> "$run/snapped"
         echo "$name.txt"
         ;;
       snapfull)
         local name=$out/$which-$scenario-$size-$rest.full
         tmux -f /dev/null -S "$sock" capture-pane -p -S - -t cap > "$name.txt"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.ansi"
+        printf '%s\n' "$rest.full" >> "$run/snapped"
         echo "$name.txt"
         ;;
       gwlog)
@@ -906,7 +980,14 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       relaunch)
         fill_text "$port" "$run/home" "$mcpport" "$rest"
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
-        : > "$run/launched"
+        # A new binary on a cleared screen: what an `until` saw before says
+        # nothing of what this one showed.
+        : > "$run/seen"
+        if [[ -n $nodraw ]]; then
+          : > "$run/launched"
+        else
+          await_up "$sock" "$run" "$keep"
+        fi
         ;;
       reseed)
         can_fill "$mcpport" "$scenarios/$rest"

@@ -7,13 +7,19 @@
 # on a loaded one, which the fixed switch would have answered with the second
 # catalog before the first `/model`. fx asks again at the second `/model`,
 # xfx at launch only, and no binary asks between the two, so this line gives
-# each ask what the unloaded runs gave it.
+# each ask what the unloaded runs gave it. The first `/model` waits for the
+# launch's ask to be answered -- its menu says `Models 0` and `Loading
+# models…` until then, and lists the one-model catalog from then on, open or
+# not -- so that ask is answered before the `models2` line in every run, in
+# order rather than by a margin of seconds (LAUNCH-SETTLE, opus r2 SHOULD 2).
 models h1-models-one.json
 wait 4
 type /model
 key Enter
+until shown Models 1  [All]
 wait 2
 snap before
+expect before Models 1  [All]
 key Escape
 wait 6
 models2 h1-models-two.json
