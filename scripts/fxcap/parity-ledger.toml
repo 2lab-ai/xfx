@@ -347,6 +347,49 @@ resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
 source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 
+# v0.0.16 transcript (T-U6, T-U6b): a change's bytes on the review and in
+# Ctrl-O, and the frame that writes a submitted prompt's card.
+
+[[divergence]]
+id = "review-diff-spelling"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^ +\d+ [ +-] .*\\(?:x[0-9a-f]{2}|u\{[0-9a-f]{4,}\})'
+xfx_row = '^ +\d+ [ +-] .*\\(?:u\{[0-9A-F]{4,}\}|[tr\\])'
+reason = "The permission question's review of a change keeps xfx's injective spelling of a file's bytes (a control by its code point, `\\u{001B}`; a tab and a carriage return by name, `\\t`, `\\r`; a backslash doubled), where fx v0.0.16's review writes `\\x1b`, keeps a tab, drops a line's trailing carriage return and leaves a backslash single (`appendTerminalSafeLine`, `text_utils.zig:419-442@481104fd`). fx's lossy form cannot be copied safely on a decision screen: a CR-only or trailing-CR change would read identical to the person approving it. Ctrl-O, which decides nothing, writes fx's form (T-U6b). Decided by the dispatcher 2026-11-07."
+owner = "T-U6b"
+resolution = "fx's review shows a change of a carriage return, a tab or a backslash as a change (an injective spelling) in a later pin and xfx takes its form, or the user takes fx's lossy form for the review"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:237", "src/permission/authority.rs:737"]
+
+[[divergence]]
+id = "ctrl-o-arabic-letter-mark"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["*"]
+snaps = ["*"]
+xfx_row = '^  │ +\d+ [ +-] .*\\u\{061c\}'
+reason = "Ctrl-O's diff rows write a file's bytes as fx v0.0.16 does (T-U6b) but for one code point: the Arabic letter mark U+061C, which fx writes as itself (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`, has no arm for it), is written `\\u{061c}`. It reorders the text around it as the left-to-right and right-to-left marks fx names do (U+200E, U+200F), so the line shown would not read as the file does; xfx's review names it too (`approval_view` `reorders`). No scenario holds one."
+owner = "T-U6b"
+resolution = "fx names U+061C in a later pin, so the rows are the same, or the user takes fx's"
+expires = "date:2026-12-04"
+source = ["src/tui/approval_view.rs:971-976", "docs/parity.md:238"]
+
+[[divergence]]
+id = "submit-multi-card-whole"
+class = "user-decision"
+pins = ["v0.0.16"]
+scenarios = ["p5-transcript-submit-multi"]
+snaps = ["frame1"]
+rows = ["32-34"]
+reason = "A prompt of several lines submitted on a full screen: fx v0.0.16's first frame after Enter previews only its last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs). One frame, a few milliseconds; every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). Decided by the dispatcher 2026-11-07, reversible, the user's to keep or drop."
+owner = "user decision multi-line card preview"
+resolution = "the user keeps the whole card (written as a lasting difference) or takes fx's one-frame preview"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:237", "src/tui/shell.rs:11812"]
+
 # --- causes -----------------------------------------------------------------
 #
 # Why each row that stays unresolved is unresolved, and whose fix it is. These
