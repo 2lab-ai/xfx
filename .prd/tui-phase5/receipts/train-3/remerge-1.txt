@@ -1,0 +1,8 @@
+# git show --remerge-diff b095ffe7
+# The body below is git's own: a merge commit's remerge-diff shows how the commit differs
+# from what git's automatic merge produces. Empty (no diff after the header) = git's result taken unchanged.
+
+commit b095ffe7e03d2228fbedf2a0df79dd255cb59c28
+parents e51685d60a068b64ba492cebaed1c8bde61296cd 82442e289bde863afd0cec619f4b7f15ba2c35ed
+
+    Merge feat/p5-ctrlo-diff-wrap @ 82442e28 (DIFF-WRAP + b/c/d: Ctrl-O diff rows reflow as fx's walker) into the 2026-11-07 train 3

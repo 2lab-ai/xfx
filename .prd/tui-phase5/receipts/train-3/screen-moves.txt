@@ -1,0 +1,21 @@
+## <diff-wrap's own head sweep> against <the train head's sweep>
+snaps whose screen differs only in clock-like text: 107; otherwise: 4
+   ('xfx', 'p5-transcript-diffask', 'ask', [24], [('ume-id 1794049376830-ac5379a35281d95e` of this saved session', 'ume-id 1794059245658-578aa25991225ee6` of this saved session')])
+   ('xfx', 'p5-transcript-diffwide2', 'full', [9, 23], [('   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz', 'fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz'), ('   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz', 'fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz')])
+   ('xfx', 'p5-transcript-records', 'start', [5], [('         Full access enabled: xfx permission checks disabled', 'full access · model-a')])
+   ('xfx', 'p5-transcript-resize', 'start', [5], [('full access · model-a', '         Full access enabled: xfx permission checks disabled')])
+
+## <engine-vs-anchor's own head sweep> against <the train head's sweep>
+snaps whose screen differs only in clock-like text: 2; otherwise: 2
+   ('xfx', 'p5-transcript-diffwide', 'full', [2, 3, 4, 5, 6, 7], [('  finish: tool_calls', '  tokens: 1200 in · 40 out'), ('  tokens: 1200 in · 40 out', '')])
+   ('xfx', 'p5-transcript-diffwide2', 'full', [2, 3, 5, 6, 7, 8], [('  2026-11-07 19:24:13.167 KST · Prompt', '  2026-11-07 22:50:24.810 KST · Response'), ('┃ edit the file', '  Editing the file.')])
+
+## <toolgroup-redraw's own head sweep> against <the train head's sweep>
+snaps whose screen differs only in clock-like text: 126; otherwise: 3
+   ('xfx', 'p5-transcript-diffask', 'ask', [24], [('ume-id 1794049929205-8d89b88ffc258556` of this saved session', 'ume-id 1794059245658-578aa25991225ee6` of this saved session')])
+   ('xfx', 'p5-transcript-diffwide', 'full', [2, 3, 4, 5, 6, 7], [('  finish: tool_calls', '  tokens: 1200 in · 40 out'), ('  tokens: 1200 in · 40 out', '')])
+   ('xfx', 'p5-transcript-diffwide2', 'full', [2, 3, 5, 6, 7, 8], [('  2026-11-07 20:14:12.844 KST · Prompt', '  2026-11-07 22:50:24.810 KST · Response'), ('┃ edit the file', '  Editing the file.')])
+
+## <toolgroup-ctrlo-r3's own head sweep> against <the train head's sweep>
+snaps whose screen differs only in clock-like text: 12; otherwise: 0
+

@@ -1,0 +1,190 @@
+# The train-3 gates at b4e0d06e (the receipt directory untracked beside it), one at a time,
+# TMPDIR a short scratch directory, as they ran (the gate runner printed each command, its exit
+# and a filtered tail of its log; local paths written <worktree> / <tmp>). Totals below the run.
+
+# gates at b4e0d06e, 2026-11-07T13:10:27Z; git status --short: 1 entries
+## fmt
+$ cargo fmt --check
+exit 0, 2 s
+
+## clippy
+$ cargo clippy --locked --all-targets -- -D warnings
+exit 0, 14 s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.79s
+
+## clippy fault-injection
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit 0, 37 s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 36.52s
+
+## cargo test
+$ cargo test --locked --no-fail-fast
+exit 0, 140 s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+test a_read_that_resolved_and_failed_is_upstreams_envelope_and_its_row_says_nothing_more ... ok
+test a_request_a_steer_cut_off_makes_a_refused_turns_frame_due ... ok
+test a_root_that_is_not_a_directory_is_refused_when_the_scope_is_built ... ok
+test a_retried_attempt_counts_what_it_streamed_before_it_failed ... ok
+test a_relative_escape_above_the_workspace_is_refused ... ok
+test a_fatal_turn_journals_every_sentence_even_when_the_stream_refuses_the_first ... ok
+test a_sink_that_refuses_an_amendment_ends_the_turn_rather_than_swallowing_it ... ok
+test a_search_over_a_file_searches_it_and_one_the_system_refuses_is_upstreams_failure ... ok
+test a_turn_that_failed_after_a_request_still_writes_its_summary_frame ... ok
+test a_turn_the_endpoint_refused_writes_no_usage_frame ... ok
+test a_symlink_that_escapes_the_workspace_is_refused_and_never_read ... ok
+test a_refused_call_goes_back_as_a_refusal_live_and_on_resume ... ok
+test an_empty_or_blank_path_is_refused ... ok
+test an_absolute_path_outside_every_root_is_refused_before_it_is_read ... ok
+test an_interrupted_turn_records_whether_it_was_stopped_or_failed ... ok
+test list_files_reports_a_missing_directory_as_a_failed_result ... ok
+test malformed_arguments_are_answered_with_a_failed_result_and_the_turn_continues ... ok
+test read_file_refuses_in_upstreams_words ... ok
+test read_file_reports_a_missing_path_as_a_failed_result_rather_than_a_dead_turn ... ok
+test ask_refuses_a_path_outside_the_workspace_when_no_directory_was_added ... ok
+test read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it ... ok
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+test a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken ... ok
+test a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken ... ok
+test a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request ... ok
+test a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_nothing ... ok
+test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... ok
+test a_refusal_in_the_band_leaves_the_file_alone ... ok
+test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... ok
+test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... ok
+test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... ok
+test a_terminal_too_small_for_a_band_is_refused_with_a_reason ... ok
+test a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused ... ok
+test an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses ... ok
+test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.19s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+## cargo test fault-injection
+$ cargo test --locked --features fault-injection --no-fail-fast
+exit 0, 195 s
+test a_fatal_turn_journals_every_sentence_even_when_the_stream_refuses_the_first ... ok
+test a_retried_attempt_counts_what_it_streamed_before_it_failed ... ok
+test a_relative_escape_above_the_workspace_is_refused ... ok
+test a_root_that_is_not_a_directory_is_refused_when_the_scope_is_built ... ok
+test a_turn_the_endpoint_refused_writes_no_usage_frame ... ok
+test a_turn_that_failed_after_a_request_still_writes_its_summary_frame ... ok
+test a_sink_that_refuses_an_amendment_ends_the_turn_rather_than_swallowing_it ... ok
+test a_search_over_a_file_searches_it_and_one_the_system_refuses_is_upstreams_failure ... ok
+test an_empty_or_blank_path_is_refused ... ok
+test a_refused_call_goes_back_as_a_refusal_live_and_on_resume ... ok
+test a_symlink_that_escapes_the_workspace_is_refused_and_never_read ... ok
+test an_absolute_path_outside_every_root_is_refused_before_it_is_read ... ok
+test an_interrupted_turn_records_whether_it_was_stopped_or_failed ... ok
+test ask_refuses_a_path_outside_the_workspace_when_no_directory_was_added ... ok
+test list_files_reports_a_missing_directory_as_a_failed_result ... ok
+test malformed_arguments_are_answered_with_a_failed_result_and_the_turn_continues ... ok
+test read_file_reports_a_missing_path_as_a_failed_result_rather_than_a_dead_turn ... ok
+test read_file_refuses_in_upstreams_words ... ok
+test read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it ... ok
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+test a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken ... ok
+test a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken ... ok
+test a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request ... ok
+test a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_nothing ... ok
+test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... ok
+test a_refusal_in_the_band_leaves_the_file_alone ... ok
+test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... ok
+test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... ok
+test a_terminal_too_small_for_a_band_is_refused_with_a_reason ... ok
+test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... ok
+test a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused ... ok
+test an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses ... ok
+test faults::an_update_torn_inside_its_rows_with_its_cleanup_refused_is_closed_by_the_exit ... ok
+test faults::a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted ... ok
+test faults::a_torn_repaint_of_the_question_whose_cleanup_is_refused_ends_the_session_reported_as_partial ... ok
+test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test result: ok. 190 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.85s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+## identity
+$ scripts/check-xfx-identity.sh
+exit 0, 1 s
+check-xfx-identity: ok (12495 tracked file(s) scanned)
+
+## stubs
+$ scripts/check-no-stubs.sh
+exit 0, 22 s
+
+## preview contract
+$ scripts/check-preview-contract.sh
+exit 0, 4 s
+
+## preview contract mutants
+$ scripts/test-preview-contract.sh
+exit 0, 219 s
+
+## secrets
+$ scripts/check-no-secrets.sh
+exit 1, 59 s
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+
+## test-sweep
+$ scripts/fxcap/test-sweep.sh
+exit 0, 63 s
+OK
+OK
+
+## test-capture
+$ scripts/fxcap/test-capture.sh
+exit 0, 181 s
+OK
+
+## preflight cost
+$ scripts/check-tui-preflight-cost.sh
+exit 0, 203 s
+
+## usage clock
+$ scripts/check-usage-clock.sh
+exit 0, 1 s
+
+## release build
+$ cargo build --locked --release
+exit 0, 36 s
+    Finished `release` profile [optimized] target(s) in 36.26s
+
+## faulty build
+$ cargo build --locked --release --features fault-injection --target-dir target/faulty
+exit 0, 49 s
+    Finished `release` profile [optimized] target(s) in 48.97s
+
+## smoke
+$ scripts/smoke.sh target/release/xfx <tmp>
+exit 0, 3 s
+  ok    doctor checks the session store
+  ok    doctor checks the permission mode
+  ok    the destructive command was refused
+  ok    the refused command did not delete the file
+  ok    the shell greeted, answered, refused an unknown command, and quit cleanly
+
+## smoke-tui
+$ scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <tmp>
+exit 0, 78 s
+smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures
+
+# done 2026-11-07T13:32:14Z
+
+# Totals, from the full logs:
+#   cargo_test.log: 15 test binaries, 5226 passed, 0 failed, 7 ignored
+#   cargo_test_fault-injection.log: 15 test binaries, 5263 passed, 0 failed, 7 ignored
+#   test-sweep: Ran 50 tests in 13.001s Ran 26 tests in 45.038s 
+#   test-capture: Ran 42 tests in 177.025s
+#   smoke: 47 check(s), 0 failure(s)
+#   preflight cost: preflight 200x300 full: 61292 bytes 1.37021ms mean, budget 32 ms);preflight 200x300 update: 85420 bytes 1.008564ms mean, budget 32 ms);
+#   secrets: E2BIG, 9 times (one per pattern); the batched supplement is secrets-batched.txt

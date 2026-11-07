@@ -1,0 +1,178 @@
+# The units' own capture checkers on the train head's sweep captures (b4e0d06e, 40x120), each run from the train's worktree
+# with the train's ledger: $R = .prd/tui-phase5/receipts. Commands: $R/engine-vs-anchor/check.py <repo> <dir> xfx,
+# $R/ctrlo-diff-wrap-c/check.py <repo> <dir> xfx, $R/toolgroup-redraw/toolrows.py and ctrlo_records.py <cells.py dir> <fx.ansi> <xfx.ansi>.
+
+# ENGINE-VS-ANCHOR's check.py (.prd/tui-phase5/receipts/engine-vs-anchor/check.py ... xfx), on the train head's captures
+ok   anchor p5-transcript-diffwide2 full (fx / xfx)
+       read row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' -- every cell the same
+       diff row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' -- every cell the same
+ok   aligned p5-transcript-diffwide2 full (fx / xfx)
+       37 rows the same; 8 rows one side holds alone
+       fx row 14 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L': filler-modifier-count
+       fx row 15 '│  5678': filler-modifier-count
+       fx row 28 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L': filler-modifier-count
+       fx row 29 '  │     5678': filler-modifier-count
+       xfx row 14 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽': filler-modifier-count
+       xfx row 15 '│  🏽🏽TAIL5678': filler-modifier-count
+       xfx row 28 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽': filler-modifier-count
+       xfx row 29 '  │     🏽🏽TAIL5678': filler-modifier-count
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+4 claims, 4 hold, 0 fail
+
+# DIFF-WRAP-c's check.py (.prd/tui-phase5/receipts/ctrlo-diff-wrap-c/check.py ... xfx), on the train head's captures
+ok   full p5-transcript-diffwide (fx / xfx)
+       41 rows, 41 the same
+ok   rows p5-transcript-diffwide (fx / xfx)
+       fx 5 rows / xfx 5 rows
+ok   margin p5-transcript-diffwide xfx
+       no cell past column 120
+ok   inline p5-transcript-diffwide edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide closed
+       all 41 rows the same
+FAIL full p5-transcript-diffwide2 (fx / xfx)
+       row 14 ['filler-modifier-count']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       row 15 ['filler-modifier-count']: fx '│  5678' / xfx '│  🏽🏽TAIL5678'
+       row 28 ['filler-modifier-count']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       row 29 ['filler-modifier-count']: fx '  │     5678' / xfx '  │     🏽🏽TAIL5678'
+       41 rows, 37 the same
+ok   rows p5-transcript-diffwide2 (fx / xfx)
+       fx 10 rows / xfx 10 rows
+       line 5 apart (named): fx 'wwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       line 5 apart (named): fx '  │     5678' / xfx '  │     🏽🏽TAIL5678'
+ok   margin p5-transcript-diffwide2 xfx
+       no cell past column 120
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+ok   full p5-transcript-diffwrap (fx / xfx)
+       41 rows, 41 the same
+ok   rows p5-transcript-diffwrap (fx / xfx)
+       fx 19 rows / xfx 19 rows
+ok   margin p5-transcript-diffwrap xfx
+       no cell past column 120
+ok   inline p5-transcript-diffwrap edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwrap closed
+       all 41 rows the same
+ok   full p5-transcript-diffwrap2 (fx / xfx)
+       41 rows, 41 the same
+ok   rows p5-transcript-diffwrap2 (fx / xfx)
+       fx 29 rows / xfx 29 rows
+ok   margin p5-transcript-diffwrap2 xfx
+       no cell past column 120
+ok   inline p5-transcript-diffwrap2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwrap2 closed
+       all 41 rows the same
+20 claims, 19 hold, 1 fail
+
+# TG-REDRAW's toolrows.py: each Ctrl-O page's tool-group header and call, fx against xfx, cell by cell (ramp reading)
+## p5-toolgroup-ctrlo full-dark-again
+same    '● 1 tool call · 1 command'
+same    '└ Ran echo "hi" 42 | grep hi # note'
+exit 0
+## p5-toolgroup-ctrlo full-dark
+same    '● 1 tool call · 1 command'
+same    '└ Ran echo "hi" 42 | grep hi # note'
+exit 0
+## p5-toolgroup-ctrlo full-light
+same    '● 1 tool call · 1 command'
+same    '└ Ran echo "hi" 42 | grep hi # note'
+exit 0
+## p5-toolgroup-ctrlo-tc full-dark-again
+same    '● 1 tool call · 1 command'
+same    '└ Ran echo "hi" 42 | grep hi # note'
+exit 0
+## p5-toolgroup-ctrlo-tc full-dark
+same    '● 1 tool call · 1 command'
+same    '└ Ran echo "hi" 42 | grep hi # note'
+exit 0
+## p5-toolgroup-ctrlo-tc full-light
+same    '● 1 tool call · 1 command'
+same    '└ Ran echo "hi" 42 | grep hi # note'
+exit 0
+
+# TG-REDRAW's ctrlo_records.py: the -tc Ctrl-O pages' rows of truecolor-grey-notation's shapes, cell by cell
+## p5-toolgroup-ctrlo-tc full-dark-again
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+## p5-toolgroup-ctrlo-tc full-dark
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+## p5-toolgroup-ctrlo-tc full-light
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
