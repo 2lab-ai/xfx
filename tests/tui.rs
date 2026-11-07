@@ -2794,9 +2794,18 @@ fn the_band_is_painted_under_the_welcome_inside_one_synchronized_frame() {
     // update, where upstream writes a title -- by a write of its own between
     // two frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`)
     // -- and not inside it. Upstream's `fx v<version> | <workspace>` before the
-    // session has a title of its own.
+    // session has a title of its own. Then the launch's program status, which
+    // upstream writes after the title its bootstrap set and ahead of the
+    // first frame (`osc/w00-start`), and nothing else.
     let title_at = text[..begins].rfind("\u{1b}]2;").expect("a window title");
-    let title = &text[title_at..begins];
+    let title = text[title_at..begins]
+        .strip_suffix(STATUS_IDLE)
+        .unwrap_or_else(|| {
+            panic!(
+                "the launch's report does not lead the first update: {:?}",
+                &text[..begins]
+            )
+        });
     assert!(
         title.starts_with(&format!("\u{1b}]2;xfx v{} | ", env!("CARGO_PKG_VERSION")))
             && title.ends_with('\u{7}')
