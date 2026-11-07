@@ -99,6 +99,15 @@ pub(crate) fn hold_every_start() -> MutexGuard<'static, ()> {
 #[cfg(all(test, unix))]
 pub(crate) use tests::has_arrived;
 
+/// How long a case elsewhere waits for work that starts a child before it
+/// fails: a minute. A start takes [`SPAWNING`], so on a loaded machine it
+/// waits out the starts in flight as well as its own `fork` and `exec`; on
+/// the macOS x86_64 preview build of 2026-11-06 a start of `git` took
+/// seconds, and macOS assesses a fresh script on its first run. No case is
+/// about how fast a child starts.
+#[cfg(all(test, unix))]
+pub(crate) const START_PATIENCE: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// `command` started, under the lock every start of xfx's takes
 /// ([`SPAWNING`]). The start alone is held -- a child that runs for an hour
 /// holds nothing -- and a start never waits for more than another start.
