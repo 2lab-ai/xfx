@@ -10751,7 +10751,7 @@ impl Shell {
 
     /// What a theme report says, applied to the palette.
     ///
-    /// Three ways this changes nothing, and each of them is a decision rather
+    /// Two ways this changes nothing, and each of them is a decision rather
     /// than an omission:
     ///
     /// * **A locked session.** `XFX_THEME` outranks the terminal at launch
@@ -10760,9 +10760,6 @@ impl Shell {
     /// * **The mode it already has.** A terminal may re-report the same mode,
     ///   and an answer to [`super::theme::MODE_QUERY`] after a resume usually
     ///   is one; repainting the band for it would be a frame per report.
-    /// * **The depth.** How exactly a colour may be asked for is a property of
-    ///   the terminal program (`super::theme::depth_from_env`), and a
-    ///   background that changed is not a terminal that changed.
     ///
     /// Otherwise the band is owed a frame, and the panel above it is owed one
     /// too when there is a panel: the palette paints the divider, the hint row
@@ -15689,7 +15686,6 @@ mod tests {
     /// undecided terminal really gets.
     const PALETTE: Palette = Palette {
         mode: super::super::theme::Mode::Dark,
-        depth: super::super::theme::Depth::Ansi256,
     };
 
     /// When a read that failed began, long enough ago that a `/model` asks
@@ -21762,7 +21758,6 @@ mod tests {
         // (`theme.zig:122,129`).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::Ansi256,
         };
         assert_eq!(
             cancelled_line(light),
@@ -22172,7 +22167,6 @@ mod tests {
         // for the cue).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::Ansi256,
         };
         let mut shell = shell_with(24, 80, light, false);
         shell.escape_armed = true;
@@ -26512,7 +26506,6 @@ mod tests {
         // The light theme's dim grey (`theme.zig:128`).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
-            ..PALETTE
         };
         assert_eq!(
             resume_handoff(id, 120, light),
@@ -36835,7 +36828,6 @@ mod tests {
     /// session started in.
     const LIGHT: Palette = Palette {
         mode: super::super::theme::Mode::Light,
-        depth: super::super::theme::Depth::Ansi256,
     };
 
     /// The bytes a terminal with mode 2031 sends when its background goes
@@ -36977,32 +36969,6 @@ mod tests {
                 "the session stopped recolouring the document for good"
             );
         }
-    }
-
-    #[test]
-    fn a_background_that_changed_is_not_a_terminal_that_changed() {
-        // The depth is a property of the terminal *program* -- whether it
-        // renders `38;2` or quantizes it (`theme::depth_from_env`) -- and a
-        // background going light is not a new terminal. A retint that rebuilt
-        // the whole palette from a default would silently downgrade a
-        // truecolor session to 256 colours, which is the same five greys and
-        // therefore invisible to every case that only reads the mode.
-        let direct = Palette {
-            mode: super::super::theme::Mode::Dark,
-            depth: super::super::theme::Depth::TrueColor,
-        };
-        let mut shell = shell_with(24, 80, direct, false);
-        shell.route_bytes(WENT_LIGHT);
-
-        let wanted = Palette {
-            mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::TrueColor,
-        };
-        assert!(
-            shell.band_rows()[0].starts_with(wanted.hint()),
-            "the flip lost the terminal's colour depth: {:?}",
-            shell.band_rows()[0]
-        );
     }
 
     #[test]

@@ -350,12 +350,9 @@ fn clipped(text: &str, budget: usize) -> &str {
 mod tests {
     use super::*;
 
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     /// `selected_completion_style` (`core/shared/theme.zig:97`): the
     /// capture's `\e[1m\e[38;5;255m`, as one sequence.

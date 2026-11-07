@@ -2327,11 +2327,6 @@ mod tests {
 
     /// [`shell`] on a screen of `rows` x `cols`.
     fn shell_of(rows: u16, cols: u16) -> Fixture {
-        shell_at(rows, cols, crate::tui::theme::Depth::Ansi256)
-    }
-
-    /// [`shell_of`] on a terminal of the colour depth given.
-    fn shell_at(rows: u16, cols: u16, depth: crate::tui::theme::Depth) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A workspace with the same last component in every fixture, because
@@ -2351,7 +2346,6 @@ mod tests {
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth,
                 },
                 false,
                 work,
@@ -5688,16 +5682,16 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in() {
-        // A session whose terminal claims truecolor paints xfx's own greys in
-        // `38;2` (`theme::depth_from_env`) and an answer's inline code and code
-        // block in `markdown::theme`'s `38;5`, as fx's builtins are at every
-        // depth (`theme.zig:75-159@481104fd`) -- and fx recolours those on a
-        // switch whatever the terminal claimed (`store.zig:3784-3800`,
-        // `transcript_blocks.zig:2023-2029`). So here the inline code and the
-        // comment move as in a 256-colour session, still spelt `38;5`, while
-        // the turn's summary moves in the direct notation it was drawn in.
-        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+    fn an_answers_code_and_its_summary_are_spelt_as_upstream_spells_them_across_a_switch() {
+        // fx's builtins are `38;5` literals at every depth, the palette's
+        // greys and the highlighter's alike (`theme.zig:75-159@481104fd`), and
+        // a switch rewrites them through a table that names `38;5` alone
+        // (`store.zig:3784-3800`) or draws a code block again in the new
+        // theme (`transcript_blocks.zig:2023-2029`) -- whatever the terminal
+        // claimed. So every grey here is spelt `38;5`, before and after each
+        // switch: the inline code, the code block's comment and the turn's
+        // summary (read as spelt, so a direct spelling of the same grey fails).
+        let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
         let mut out = screen();
@@ -5721,7 +5715,7 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&landed, "0s (").as_deref(),
-            Some("38;2;138;138;138"),
+            Some("38;5;245"),
             "{landed:?}"
         );
 
@@ -5739,8 +5733,8 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&written, "0s (").as_deref(),
-            Some("38;2;158;158;158"),
-            "the summary left the direct notation it was drawn in: {written:?}"
+            Some("38;5;247"),
+            "the summary was not given the light dim grey as upstream spells it: {written:?}"
         );
 
         shell.route_bytes(WENT_DARK);
@@ -5757,7 +5751,7 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&back, "0s (").as_deref(),
-            Some("38;2;138;138;138"),
+            Some("38;5;245"),
             "{back:?}"
         );
     }
@@ -6283,56 +6277,49 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it() {
-        // Drawn again, a group's rows are what the group draws in the new
-        // mode, whatever notation each grey is spelt in: the statusline as
-        // the palette spells it, the highlighter's words in `38;5`
-        // (`p5-toolgroup-retint-tc`). Nothing here asks which notation the
-        // palette uses, so a palette that spells its greys `38;5` at every
-        // depth draws the same rows.
-        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+    fn a_tool_groups_rows_are_spelt_as_upstream_spells_them_across_a_switch() {
+        // A group's rows drawn again are what the group draws in the new
+        // mode, every grey spelt `38;5` as fx's builtins are at every depth
+        // (`theme.zig:75-159@481104fd`): the statusline grey `245`/`241`
+        // (`:81,124`), the highlighter's string `250`/`241` and comment
+        // `245`/`243` (`:109-111,152-154`) (`p5-toolgroup-retint`, `-tc`).
+        let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
         let mut out = screen();
         let now = Instant::now();
-        let statusline = |shell: &Fixture| {
-            shell
-                .palette()
-                .statusline()
-                .trim_start_matches("\u{1b}[")
-                .trim_end_matches('m')
-                .to_string()
-        };
         a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
         a_command_then_an_answer(&mut shell);
         let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let read = |written: &str| {
+            [
+                fg_spelt(written, "\u{2514} Ran "),
+                fg_spelt(written, "\"hi"),
+                fg_spelt(written, "# note"),
+            ]
+        };
+        let spelt = |wanted: [&str; 3]| wanted.map(|wanted| Some(wanted.to_string()));
         assert_eq!(
-            fg_spelt(&landed, "\u{2514} Ran "),
-            Some(statusline(&shell)),
+            read(&landed),
+            spelt(["38;5;245", "38;5;250", "38;5;245"]),
             "{landed:?}"
         );
-        assert_eq!(fg_spelt(&landed, "\"hi").as_deref(), Some("38;5;250"));
-        assert_eq!(fg_spelt(&landed, "# note").as_deref(), Some("38;5;245"));
 
         shell.route_bytes(WENT_LIGHT);
         let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(
-            fg_spelt(&light, "\u{2514} Ran "),
-            Some(statusline(&shell)),
+            read(&light),
+            spelt(["38;5;241", "38;5;241", "38;5;243"]),
             "{light:?}"
         );
-        assert_eq!(fg_spelt(&light, "\"hi").as_deref(), Some("38;5;241"));
-        assert_eq!(fg_spelt(&light, "# note").as_deref(), Some("38;5;243"));
 
         shell.route_bytes(WENT_DARK);
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(
-            fg_spelt(&back, "\u{2514} Ran "),
-            Some(statusline(&shell)),
+            read(&back),
+            spelt(["38;5;245", "38;5;250", "38;5;245"]),
             "{back:?}"
         );
-        assert_eq!(fg_spelt(&back, "\"hi").as_deref(), Some("38;5;250"));
-        assert_eq!(fg_spelt(&back, "# note").as_deref(), Some("38;5;245"));
     }
 
     #[test]
@@ -13135,7 +13122,6 @@ mod tests {
                 crate::tui::layout::solve(24, 80, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth: crate::tui::theme::Depth::Ansi256,
                 },
                 false,
                 work.with_mcp(std::sync::Arc::clone(&runtime)),

@@ -946,12 +946,9 @@ fn contains_ignoring_case(haystack: &str, needle: &str) -> bool {
 mod tests {
     use super::*;
     use crate::provider::model::ModelFacts;
-    use crate::tui::theme::{Depth, Mode};
+    use crate::tui::theme::Mode;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     fn entry(id: &str, efforts: &[&str]) -> CatalogEntry {
         CatalogEntry {
