@@ -1,0 +1,76 @@
+# capfile.py at ba24235 over the base's scenarios (24a6b912): every snap or keystroke it refuses
+approvals (fx): `snap after-cc-cmd-ask` is 2.5 to 2.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+approvals (xfx): `snap after-cc-cmd-ask` is 2.5 to 2.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt (fx): `snap idle-cc-expired` is 3.8 to 3.8 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt (fx): `snap cc-3.5` is 3.5 to 3.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt (xfx): `snap idle-cc-expired` is 3.8 to 3.8 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt (xfx): `snap cc-3.5` is 3.5 to 3.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-cmd (fx): `snap cmd-running` is 4.5 to 4.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-cmd (fx): `key C-c` is 4.5 to 4.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+interrupt-cmd (fx): `snap cmd-cc` is 4.9 to 4.9 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-cmd (fx): `snap cmd-cc-2` is 6.4 to 6.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-cmd (fx): `snap cmd-done` is 5.9 to 5.9 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-cmd (fx): `snapfull end` is 5.9 to 5.9 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-cmd (xfx): `snap cmd-running` is 4.5 to 4.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-cmd (xfx): `key C-c` is 4.5 to 4.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+interrupt-cmd (xfx): `snap cmd-cc` is 4.9 to 4.9 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-cmd (xfx): `snap cmd-cc-2` is 6.4 to 6.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-cmd (xfx): `snap cmd-done` is 5.9 to 5.9 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-cmd (xfx): `snapfull end` is 5.9 to 5.9 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-help (fx): `snap help-cc-expired` is 4.0 to 4.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-help (xfx): `snap help-cc-expired` is 4.0 to 4.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+interrupt-next-cmd (fx): `key C-c` is 4.5 to 4.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+interrupt-next-cmd (xfx): `key C-c` is 4.5 to 4.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+interrupt-recovered (fx): `snap rec-1.4` is 3.4 to 3.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (fx): `snap rec-1.8` is 3.8 to 3.8 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (fx): `snap rec-2.4` is 4.4 to 4.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (fx): `snap rec-3.2` is 5.2 to 5.2 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (xfx): `snap rec-1.4` is 3.4 to 3.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (xfx): `snap rec-1.8` is 3.8 to 3.8 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (xfx): `snap rec-2.4` is 4.4 to 4.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-recovered (xfx): `snap rec-3.2` is 5.2 to 5.2 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer (fx): `snap steer-stream` is 3.4 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer (xfx): `snap steer-stream` is 3.4 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer-retract (fx): `snap steer-wait` is 3.6 to 3.6 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer-retract (fx): `snap steer-up` is 4.0 to 4.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer-retract (fx): `snap steer-again` is 4.4 to 4.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer-retract (xfx): `snap steer-wait` is 3.6 to 3.6 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer-retract (xfx): `snap steer-up` is 4.0 to 4.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+interrupt-steer-retract (xfx): `snap steer-again` is 4.4 to 4.4 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-effort-fork-effort-ctrlc (fx): `snap ctrlc-later` is 2.8 to 2.8 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-effort-fork-effort-ctrlc (xfx): `snap ctrlc-later` is 2.8 to 2.8 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-mcp-live (fx): `snap end` is 3.5 to 3.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-mcp-live (xfx): `snap end` is 3.5 to 3.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-mcp-turn (fx): `snap ready` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-mcp-turn (xfx): `snap ready` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-toolstop-retint (fx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint (fx): `snap dark` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint (xfx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint (xfx): `snap dark` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint-light (fx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint-light (fx): `snap light` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint-light (xfx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint-light (xfx): `snap light` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint-light-tc (fx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint-light-tc (fx): `snap light` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint-light-tc (xfx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint-light-tc (xfx): `snap light` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint-tc (fx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint-tc (fx): `snap dark` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-toolstop-retint-tc (xfx): `key C-c` is 5.5 to 5.5 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-toolstop-retint-tc (xfx): `snap dark` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+p5-transcript-cancel (fx): `snap mid` is 6.0 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-transcript-cancel (fx): `key Escape` is 6.0 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-transcript-cancel (fx): `key Escape` is 6.3 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+p5-transcript-records (fx): `snap start` is 4.0 to 4.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-transcript-records (xfx): `snap start` is 4.0 to 4.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-transcript-resize (fx): `snap start` is 4.0 to 4.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+p5-transcript-resize (xfx): `snap start` is 4.0 to 4.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it
+permissions-midturn (fx): `snap after-refusal` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+permissions-midturn (xfx): `snap after-refusal` is 3.0 to 3.0 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+settings-collapse (fx): `snap later` is 5.5 to 5.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+settings-collapse (xfx): `snap later` is 5.5 to 5.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+races: 71 line(s) in 20 scenario(s)
+scenarios: approvals interrupt interrupt-cmd interrupt-help interrupt-next-cmd interrupt-recovered interrupt-steer interrupt-steer-retract p5-effort-fork-effort-ctrlc p5-mcp-live p5-mcp-turn p5-toolstop-retint p5-toolstop-retint-light p5-toolstop-retint-light-tc p5-toolstop-retint-tc p5-transcript-cancel p5-transcript-records p5-transcript-resize permissions-midturn settings-collapse
+# the same over ba24235's own scenarios:
+races: 0 over 307 scenarios

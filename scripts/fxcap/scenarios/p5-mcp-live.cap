@@ -39,6 +39,9 @@ wait 1.5
 snap cancel
 mcphttp ready
 wait 2
+# Ctrl-C's exit hint stays 3 s (capfile.py TIMERS): the snap below is the
+# screen once it has gone, not a second count against it.
+until gone press ctrl+c again to exit
 snap end
 mcphttp rpcerror
 type and a last time

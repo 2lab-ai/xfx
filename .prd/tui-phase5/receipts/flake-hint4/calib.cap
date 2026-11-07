@@ -1,0 +1,12 @@
+# When the full-access warning comes and goes, since launch: the records
+# scenario's own launch, with nothing typed.
+fx: gateway p5-transcript-anchor-turns.json
+xfx: gateway p5-transcript-anchor-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
+work p5-transcript-ws
+until shown Full access
+until gone Full access
+snap gone

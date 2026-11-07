@@ -1,0 +1,24 @@
+# hint-runs.sh <fx v0.0.16> <xfx built at 24a6b912> 10 p5-transcript-records, the base harness and scenario
+run 1 fx start hint=0 load=36.49
+run 1 xfx start hint=0 load=31.28
+run 2 fx start hint=0 load=23.91
+run 2 xfx start hint=0 load=21.80
+run 3 fx start hint=0 load=15.59
+run 3 xfx start hint=0 load=15.81
+run 4 fx start hint=0 load=16.48
+run 4 xfx start hint=0 load=17.15
+run 5 fx start hint=1 load=12.22
+run 5 xfx start hint=1 load=16.17
+run 6 fx start hint=0 load=20.91
+run 6 xfx start hint=0 load=22.81
+run 7 fx start hint=0 load=25.18
+run 7 xfx start hint=0 load=24.10
+run 8 fx start hint=1 load=18.41
+run 8 xfx start hint=0 load=14.01
+run 9 fx start hint=0 load=11.92
+run 9 xfx start hint=0 load=12.09
+run 10 fx start hint=0 load=15.16
+run 10 xfx start hint=1 load=13.84
+count fx start: hint shown in 2 of 10
+count xfx start: hint shown in 2 of 10
+label start: the two binaries agree in 8 of 10 runs

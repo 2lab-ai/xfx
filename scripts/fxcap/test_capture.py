@@ -150,9 +150,9 @@ class Refusals(unittest.TestCase):
             ("rehomefile .fx/a/../../../x c.json\nsnap a\n", "rehomefile takes a relative path inside HOME"),
             ("rehomefile /etc/x c.json\nsnap a\n", "rehomefile takes a relative path inside HOME, not /etc/x"),
             ("rehomefile .fx/s.json missing.json\nsnap a\n", "rehomefile takes <path> <file in"),
-            ("models2 c.json\nsnap a\n", "models2 takes <catalog.json> <ms>, not c.json"),
-            ("models2 missing.json 10\nsnap a\n", "models2 takes <catalog.json> <ms>"),
-            ("models2 c.json soon\nsnap a\n", "models2 takes <catalog.json> <ms>, not c.json soon"),
+            ("models2 missing.json\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not missing.json"),
+            # The old form, a moment on the gateway's clock: refused, not read as a file name.
+            ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
@@ -160,6 +160,14 @@ class Refusals(unittest.TestCase):
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
+            ("until\nsnap a\n", "until takes an argument"),
+            ("until soon Full access\nsnap a\n", "until takes shown <text> or gone <text>, not soon Full access"),
+            ("until shown\nsnap a\n", "until takes shown <text> or gone <text>, not shown"),
+            ("until gone   \nsnap a\n", "until takes shown <text> or gone <text>, not gone   "),
+            ("absent\nsnap a\n", "absent takes an argument"),
+            ("absent   \nsnap a\n", "absent takes <text>, not   "),
+            ("expect\nsnap a\n", "expect takes an argument"),
+            ("expect a\nsnap a\n", "expect takes <label> <text>, not a"),
             ("homefile ../x c.json\nsnap a\n", "homefile takes a relative path inside HOME, not ../x"),
         ):
             with self.subTest(cap=cap.split("\n")[0]):
@@ -446,10 +454,16 @@ class Verbs(unittest.TestCase):
         self.assertRegex(log, r"request GET /v1/report\?start_date=2026-10-12&end_date=2026-10-12 at=\d+ms -> 404 at=\d+ms headers=-")
 
     def test_models2_and_modelsdelay(self):
-        get = "type curl -s \"$FX_E2E_GATEWAY_MODELS_URL\"; echo\nkey Enter\nwait 0.8\n"
+        # The second catalog from the `models2` line on, by order alone: each
+        # ask's answer is waited for on the screen, so no step races another
+        # however late the shell or the gateway runs (FLAKE-HINT4 r2: row 19,
+        # where the first ask came 9 s after the gateway started, past the
+        # old fixed 5 s, and got the second catalog).
+        get = "type curl -s \"$FX_E2E_GATEWAY_MODELS_URL\"; echo\nkey Enter\nuntil shown %s\n"
+        one, two = '{"data":[{"id":"fake/one"}]}', '{"data":[{"id":"fake/two"}]}'
         r = capture(
-            "models one.json\nmodels2 two.json 5000\nmodelsdelay 200\nwait 0.5\n" + get + "wait 4.5\n" + get + "snap a\ngwlog\n",
-            {"one.json": '{"data":[{"id":"fake/one"}]}\n', "two.json": '{"data":[{"id":"fake/two"}]}\n'},
+            "models one.json\nmodelsdelay 200\nwait 0.5\n" + get % one + "models2 two.json\n" + get % two + "snap a\ngwlog\n",
+            {"one.json": one + "\n", "two.json": two + "\n"},
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         a = r.screen("a")
@@ -512,6 +526,80 @@ class Verbs(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
         self.assertIn("guards:", r.stdout, "the guards still ran")
 
+    # A row the stub's shell puts up for a while and takes away, as a binary's
+    # timer does: `X[1]*Y`, printed a second after Enter and cleared 1.5 s
+    # later. The typed line holds `X[%s]*Y`, never the row itself; and the
+    # row has `[` and `*` in it, which a glob would not match as themselves.
+    ROW_FOR_A_WHILE = "type sleep 1; printf 'X[%s]*Y\\n' 1; sleep 1.5; clear; printf 'after-%s\\n' it\nkey Enter\n"
+
+    def test_until_waits_for_a_row_to_come_and_then_to_go(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nsnap on\nuntil gone X[1]*Y\nsnap off\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("X[1]*Y", r.file("on").split("\n"))
+        self.assertNotIn("X[1]*Y", r.file("off"))
+        shown = re.search(r"until shown 'X\[1\]\*Y': after (\d+\.\d\d) s, (\d+\.\d\d) s since launch\n", r.stdout)
+        gone = re.search(r"until gone 'X\[1\]\*Y': after (\d+\.\d\d) s, (\d+\.\d\d) s since launch\n", r.stdout)
+        self.assertTrue(shown and gone, r.stdout)
+        # Each waited for the screen, not for a second count: the row came
+        # about a second after Enter and went about 1.5 s after that.
+        self.assertGreater(float(shown.group(1)), 0.5)
+        self.assertGreater(float(gone.group(1)), 1.0)
+        self.assertGreater(float(gone.group(2)), float(shown.group(2)))
+
+    def test_until_fails_the_run_when_the_row_never_comes(self):
+        r = capture("wait 0.5\nuntil shown never-on-this-screen\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"until shown 'never-on-this-screen': still not shown after (\d+\.\d\d) s \(\d+ looks\); the screen's rows that are not blank:")
+        # Thirty seconds of elapsed time, however many looks that took.
+        waited = float(re.search(r"still not shown after (\d+\.\d\d) s", r.stderr).group(1))
+        self.assertGreaterEqual(waited, 29.0)
+        self.assertLess(waited, 32.0)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_until_fails_the_run_when_the_row_never_goes(self):
+        r = capture("wait 0.5\ntype printf 'stays-%s\\n' put\nkey Enter\nuntil shown stays-put\nuntil gone stays-put\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"until gone 'stays-put': still shown after \d+\.\d\d s \(\d+ looks\); the screen's rows that are not blank:")
+        self.assertIn("  | stays-put", r.stderr, "the screen it last read")
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_until_gone_says_never_seen_when_its_text_was_not_there_at_all(self):
+        # The row is up for 1.5 s: gone before the `until gone` first looks.
+        # An `until shown` of this run saw it, so it came and went; the other
+        # text no `until` ever saw.
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nwait 2.5\nuntil gone X[1]*Y\nuntil gone not-on-this-screen\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"until gone 'X\[1\]\*Y': after \d+\.\d\d s, \d+\.\d\d s since launch\n")
+        self.assertRegex(r.stdout, r"until gone 'not-on-this-screen': after \d+\.\d\d s, \d+\.\d\d s since launch; never seen\n")
+
+    def test_absent_passes_a_screen_without_its_text_and_fails_one_with_it(self):
+        # The injected hint (FLAKE-HINT4 r2): a stub that puts up the Ctrl-C
+        # exit hint where the scenario says none may be. `absent` fails the
+        # run there, with the screen, and nothing after it is snapped.
+        ok = capture("wait 0.5\nabsent press ctrl+c again to exit\nsnap a\n")
+        self.assertEqual(ok.code, 0, ok.stdout + ok.stderr)
+        self.assertRegex(ok.stdout, r"absent 'press ctrl\+c again to exit': not on the screen, \d+\.\d\d s since launch\n")
+        r = capture("wait 0.5\ntype printf 'press ctrl+c %s to exit\\n' again\nkey Enter\n"
+                    "until shown press ctrl+c again to exit\nabsent press ctrl+c again to exit\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("absent 'press ctrl+c again to exit': it is on the screen", r.stderr)
+        self.assertIn("  | press ctrl+c again to exit", r.stderr, "the screen it read")
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_expect_checks_the_frame_a_snap_wrote(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nsnap on\nexpect on X[1]*Y\nuntil gone X[1]*Y\nsnap off\nexpect off X[1]*Y\nsnap never\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("expect on 'X[1]*Y': the snap holds it", r.stdout)
+        self.assertIn("expect off 'X[1]*Y': the snap does not hold it; its rows that are not blank:", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run went on")
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+        missing = capture("wait 0.5\nexpect nothing X\n")
+        self.assertEqual(missing.code, 1, missing.stdout + missing.stderr)
+        self.assertIn("expect nothing: no snap nothing was written before it", missing.stderr)
+
     def test_sockets(self):
         r = capture("env P=@PORT@\nwait 1\ntype exec 3<>/dev/tcp/127.0.0.1/$P\nkey Enter\nwait 0.5\nsockets s\n")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
@@ -561,7 +649,7 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_MODELS2_MS", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
@@ -690,13 +778,17 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "one.json"), '{"data":[{"id":"fake/one"}]}')
         write(os.path.join(d, "two.json"), '{"data":[{"id":"fake/two"}]}')
-        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS2=os.path.join(d, "two.json"), FAKEGW_MODELS2_MS="1500", FAKEGW_MODELS_DELAY_MS="0")
+        # FAKEGW_MODELS2 names a file not there yet: the first catalog until
+        # it is put in place, the second after, whenever that is.
+        second = os.path.join(d, "models2.json")
+        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS2=second, FAKEGW_MODELS_DELAY_MS="0")
         self.assertIn(b"fake/one", g.ask("GET", "/coding-agent/v1/models")[2])
-        time.sleep(1.6)
+        self.assertIn(b"fake/one", g.ask("GET", "/coding-agent/v1/models")[2])
+        os.rename(os.path.join(d, "two.json"), second)
         self.assertIn(b"fake/two", g.ask("GET", "/coding-agent/v1/models")[2])
         log = g.lines()
         self.assertEqual(log.count("-> second catalog"), 1)
-        self.assertEqual(len(re.findall(r"GET /coding-agent/v1/models bearer=no at=\d+ms", log)), 2)
+        self.assertEqual(len(re.findall(r"GET /coding-agent/v1/models bearer=no at=\d+ms", log)), 3)
 
     def test_the_usage_routes_their_shapes_and_knobs(self):
         d = scratch()
