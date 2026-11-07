@@ -195,7 +195,12 @@ fn a_stdio_server_that_never_answers_the_probe_is_initialized_once_the_probe_tim
     // back to `initialize` (`probe_timer_fired`, `:239-243`).
     let home = Home::new();
     let log = home.dir.path().join("wire.log");
-    config::add_profile_server(&home.profile(), discover_server("silent", &log)).expect("saved");
+    let mut server = discover_server("silent", &log);
+    // Its requests' timeout -- the abandoned probe's -- an hour off, past
+    // every bounded wait of this case, so the probe is still open whenever
+    // it is looked at.
+    server.operation_timeout_ms = 3_600_000;
+    config::add_profile_server(&home.profile(), server).expect("saved");
     let runtime = home.runtime();
     let started = Instant::now();
     runtime.start();
@@ -206,8 +211,8 @@ fn a_stdio_server_that_never_answers_the_probe_is_initialized_once_the_probe_tim
     // (`probe_wait_is_its_timer_cut_to_what_is_left_of_the_start`).
     let took = started.elapsed();
     assert!(took >= Duration::from_millis(9_900), "{took:?}");
-    // The abandoned probe is still in flight, not yet cancelled: fx cancels
-    // it only at its request's idle timeout, 60 s here
+    // The abandoned probe is still in flight, not cancelled at its timer:
+    // fx cancels it only at its request's timeout
     // (`a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout`).
     assert_eq!(runtime.probes_open("probe"), 1);
     assert_eq!(
@@ -228,25 +233,27 @@ fn a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout() {
     // it when the request times out -- after the server's
     // `operation_timeout_ms` (`idle_ms`, `src/mcp/core/request.zig:64-66`;
     // `timerFired`, `:311-318`; `send_cancel`, `src/mcp/server.zig:1986-1995`)
-    // -- with the frame fx writes there.
+    // -- with the frame fx writes there. The server answers nothing and the
+    // start is an hour long, so the connection is open, `initialize` still
+    // waiting, until the cancel goes; nothing else in the case is timed.
     let home = Home::new();
     let log = home.dir.path().join("wire.log");
-    let mut server = discover_server("silent", &log);
+    let mut server = discover_server("mute", &log);
     server.operation_timeout_ms = 2_000;
+    server.startup_timeout_ms = 3_600_000;
     config::add_profile_server(&home.profile(), server).expect("saved");
     let runtime = home.runtime();
+    runtime.set_retry(ONCE);
     runtime.set_probe_timeout(Duration::from_millis(300));
     let started = Instant::now();
     runtime.start();
-    let view = settled(&runtime, "probe");
-    assert_eq!(view.status(), Status::Ready, "{view:?}");
     // fx's frame, byte for byte, as the fixture read it.
     let cancel = r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}"#;
     let deadline = Instant::now() + WAIT;
-    let frames = loop {
+    let text = loop {
         let text = std::fs::read_to_string(&log).unwrap_or_default();
         if text.lines().any(|line| line == cancel) {
-            break wire(&log);
+            break text;
         }
         assert!(Instant::now() < deadline, "never cancelled: {text}");
         std::thread::sleep(Duration::from_millis(20));
@@ -254,12 +261,9 @@ fn a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout() {
     // Not at the probe's timer: at the request's.
     assert!(started.elapsed() >= Duration::from_millis(2_000));
     assert_eq!(
-        frames
-            .iter()
-            .filter(|frame| frame["method"] == "notifications/cancelled")
-            .count(),
-        1,
-        "{frames:?}"
+        methods(&wire(&log))[..2],
+        ["server/discover".to_string(), "initialize".to_string()],
+        "{text}"
     );
     let open = Instant::now() + WAIT;
     while runtime.probes_open("probe") != 0 {
@@ -322,14 +326,13 @@ fn assert_view_inert(view: &ServerView) {
     }
 }
 
-/// Starts a stdio discover server of `mode` on a 10 s start with a probe
-/// timer of `probe`, one try only, and returns how it settled and how long
+/// Starts a stdio discover server of `mode` on the default 30 s start with a
+/// probe timer of `probe`, one try only, and returns how it settled and how long
 /// that took; what `/mcp show` then says is held to [`assert_inert`].
 fn start_once(mode: &str, probe: Duration) -> (ServerView, Duration, Vec<Value>) {
     let home = Home::new();
     let log = home.dir.path().join("wire.log");
-    let mut server = discover_server(mode, &log);
-    server.startup_timeout_ms = 10_000;
+    let server = discover_server(mode, &log);
     config::add_profile_server(&home.profile(), server).expect("saved");
     let runtime = home.runtime();
     runtime.set_retry(ONCE);
@@ -354,8 +357,8 @@ fn a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_s
     // `src/mcp/server.zig:769-790`; an error without an id, `:1159-1160`).
     //
     // Answers the probe reads at once: under a probe timer of ten minutes,
-    // cut to the 10 s start, one that were waited on would eat the start and
-    // end in other words -- or past `settled`'s minute.
+    // cut to the 30 s start, one that were waited on would eat the start and
+    // end in other words.
     let at_once: [(&str, Status, Option<&str>); 10] = [
         ("malformed", Status::Ready, None),
         ("hostile", Status::Failed, Some("it supports no MCP version xfx speaks")),
@@ -911,13 +914,15 @@ fn a_probe_whose_connection_breaks_is_sent_once_more_then_waits_out_its_timer() 
         let http = discover_http(mode);
         let home = Home::new();
         let runtime = http_runtime(&home, http.port);
-        runtime.set_probe_timeout(Duration::from_millis(600));
+        // The resend comes at once; the timer only has to outlast that, and
+        // a later one would take the case longer for nothing.
+        runtime.set_probe_timeout(Duration::from_secs(5));
         let started = Instant::now();
         runtime.start();
         let view = settled(&runtime, "remote");
         let took = started.elapsed();
         assert_eq!(view.status(), Status::Ready, "{view:?}");
-        assert!(took >= Duration::from_millis(550), "{took:?}");
+        assert!(took >= Duration::from_secs(5), "{took:?}");
         assert_eq!(
             http.methods(),
             [
@@ -969,26 +974,47 @@ fn an_http_probe_the_server_holds_open_stays_open_beside_the_requests_after_it()
     });
 }
 
+/// An HTTP transport to `http`, its request timeout an hour off -- past every
+/// bounded wait of a case -- so a probe times out only when the case fires
+/// it ([`HttpTransport::time_out_probes`]).
+fn held_transport(http: &Http) -> crate::mcp::transport::HttpTransport {
+    let url = format!("http://127.0.0.1:{}/mcp", http.port);
+    crate::mcp::transport::HttpTransport::open(&url, &[])
+        .expect("open")
+        .with_idle(Duration::from_secs(3_600))
+}
+
+/// Waits, at most [`WAIT`], until `done` holds.
+fn wait_for(what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + WAIT;
+    while !done() {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session() {
     // fx's request timeout for a probe given up on (`operation_timeout_ms`,
     // `idle_ms`, `src/mcp/core/request.zig:64-66`): with no 2025 session
     // begun, the probe's stream is closed (`stepExchange(l, .cancel)`,
     // `src/mcp/server.zig:1997-2000`); in one, the cancel goes to the
-    // session and the stream stays open until the connection closes.
+    // session and the stream stays open until the connection closes. Each
+    // step waits on what the fixture or the transport has done: the POST
+    // received, then the timeout fired, then dealt with.
     use crate::mcp::era::Meta;
-    use crate::mcp::transport::{HttpTransport, Transport, WireEra};
-    let idle = Duration::from_millis(300);
+    use crate::mcp::transport::{Transport, WireEra};
+    let has_ended = |http: &Http| {
+        http.ended()
+            .iter()
+            .any(|method| method == "server/discover")
+    };
     for session in [false, true] {
         let http = discover_http("hang");
-        let url = format!("http://127.0.0.1:{}/mcp", http.port);
-        let transport = HttpTransport::open(&url, &[])
-            .expect("open")
-            .with_idle(idle);
+        let transport = held_transport(&http);
         if session {
             transport.set_era(WireEra::Initializing);
         }
-        let started = Instant::now();
         let probe = transport.detect(
             "server/discover",
             json!({}),
@@ -1000,34 +1026,33 @@ fn an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session() 
             probe,
             Err(crate::mcp::McpError::Named("McpRequestTimedOut"))
         );
+        wait_for("the probe never reached the server", || {
+            http.methods() == ["server/discover"]
+        });
+        // Past its caller's wait, before its timeout: open.
+        assert_eq!(transport.probes_open(), 1);
+        assert!(!has_ended(&http));
+        transport.time_out_probes();
+        wait_for("the timeout was never dealt with", || {
+            transport.probes_timed_out() == 1
+        });
         if !session {
+            assert_eq!(transport.probes_open(), 0);
             http.wait_ended("the probe outlived its request timeout", |ended| {
                 ended.iter().any(|method| method == "server/discover")
             });
-            assert!(started.elapsed() >= idle, "{:?}", started.elapsed());
-            let deadline = Instant::now() + WAIT;
-            while transport.probes_open() != 0 {
-                assert!(Instant::now() < deadline, "the probe stayed counted");
-                std::thread::sleep(Duration::from_millis(10));
-            }
             assert!(transport.alive());
             transport.close();
             continue;
         }
-        // Well past its timeout, still open: a request sent after that
-        // timeout comes back while the probe's connection has not ended.
-        while started.elapsed() < idle * 3 {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        // Past its timeout, still open: a request sent after it comes back
+        // while the probe's connection has not ended.
+        assert_eq!(transport.probes_open(), 1);
         transport
             .request("tools/list", json!({}), WAIT, None)
             .expect("answered beside the probe");
         assert_eq!(transport.probes_open(), 1);
         assert_eq!(http.methods(), ["server/discover", "tools/list"]);
-        assert!(!http
-            .ended()
-            .iter()
-            .any(|method| method == "server/discover"));
         transport.close();
         http.wait_ended("the close left the probe open", |ended| {
             ended.iter().any(|method| method == "server/discover")
@@ -1036,28 +1061,97 @@ fn an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session() 
 }
 
 #[test]
-fn a_request_whose_caller_stops_waiting_has_its_post_closed() {
-    // Outside a 2025 session fx closes a request's stream when its timeout
-    // fires (`stepExchange(l, .cancel)`, `closeKey`, `src/mcp/server.zig:
-    // 1997-2003`, `:1440-1447`). The fixture holds any `server/discover`
-    // POST; sent here as an operation, it is one the caller waits 200 ms for.
-    use crate::mcp::transport::{HttpTransport, Transport};
+fn a_request_whose_caller_stops_waiting_has_its_post_closed_and_the_next_goes() {
+    // fx closes a cancelled request's stream (`stepExchange(l, .cancel)`,
+    // `closeKey`, `src/mcp/server.zig:1997-2000`, `:1440-1447`). The fixture
+    // holds any `server/discover` POST; sent here as an operation with an
+    // hour's deadline, it is cancelled once the fixture has it, so only the
+    // cancel can end it within the case.
+    use crate::gateway::CancelToken;
+    use crate::mcp::transport::Transport;
     let http = discover_http("hang");
-    let url = format!("http://127.0.0.1:{}/mcp", http.port);
-    let transport = HttpTransport::open(&url, &[]).expect("open");
-    assert_eq!(
-        transport.request(
-            "server/discover",
-            json!({}),
-            Duration::from_millis(200),
-            None
-        ),
-        Err(crate::mcp::McpError::Named("McpRequestTimedOut"))
-    );
-    http.wait_ended("the POST outlived its caller", |ended| {
+    let transport = held_transport(&http);
+    let cancel = CancelToken::new();
+    let result = std::thread::scope(|scope| {
+        let caller = scope.spawn(|| {
+            transport.request(
+                "server/discover",
+                json!({}),
+                Duration::from_secs(3_600),
+                Some(&cancel),
+            )
+        });
+        wait_for("the request never reached the server", || {
+            http.methods() == ["server/discover"]
+        });
+        cancel.cancel();
+        caller.join().expect("the caller")
+    });
+    assert_eq!(result, Err(crate::mcp::McpError::Named("Cancelled")));
+    http.wait_ended("the POST outlived its cancelled caller", |ended| {
         ended.iter().any(|method| method == "server/discover")
     });
-    assert_eq!(transport.probes_open(), 0);
+    transport
+        .request("tools/list", json!({}), WAIT, None)
+        .expect("the next request goes");
+    assert_eq!(http.methods(), ["server/discover", "tools/list"]);
+    transport.close();
+}
+
+#[test]
+fn a_waiting_request_whose_caller_has_gone_never_reaches_the_server() {
+    // fx frees a cancelled request's slot where it waits -- "One still
+    // waiting never went out." (`cancel`, `src/mcp/io/http.zig:252-263`) --
+    // so `startWaiting` (`:243-250`) never starts it. Here 32 probes the
+    // server holds fill the slots, 32 calls wait behind them and their
+    // callers give up, then the probes time out and free the slots. A call
+    // that went out would begin a POST, open a connection of its own, or be
+    // logged.
+    use crate::mcp::era::Meta;
+    use crate::mcp::transport::Transport;
+    use crate::mcp::McpError;
+    let http = discover_http("hang");
+    let transport = held_transport(&http);
+    for _ in 0..32 {
+        let probe = transport.detect(
+            "server/discover",
+            json!({}),
+            &Meta::Modern("2026-07-28"),
+            Duration::from_millis(1),
+            None,
+        );
+        assert_eq!(probe, Err(McpError::Named("McpRequestTimedOut")));
+    }
+    wait_for("the probes never reached the server", || {
+        http.methods().len() == 32
+    });
+    for _ in 0..32 {
+        assert_eq!(
+            transport.request(
+                "tools/call",
+                json!({"name": "echo"}),
+                Duration::from_millis(1),
+                None
+            ),
+            Err(McpError::Named("McpRequestTimedOut"))
+        );
+    }
+    transport.time_out_probes();
+    wait_for("the probes never timed out", || {
+        transport.probes_timed_out() == 32
+    });
+    // Behind the 32, in the order they came: by its answer they are done.
+    transport
+        .request("tools/list", json!({}), WAIT, None)
+        .expect("answered");
+    // The 32 probes and the list began a POST; no call did.
+    assert_eq!(transport.posts_begun(), 33);
+    let methods = http.methods();
+    assert!(
+        !methods.iter().any(|method| method == "tools/call"),
+        "{methods:?}"
+    );
+    assert_eq!(http.opened.load(Ordering::Acquire), 33, "{methods:?}");
     transport.close();
 }
 
@@ -1141,11 +1235,10 @@ fn past_32_exchanges_in_flight_a_message_waits_and_past_32_waiting_it_is_refused
     // `waiting_room`, `claim`, `src/mcp/io/http.zig:26`, `:106-108`,
     // `:218-226`). Here 32 probes the server holds open fill the slots.
     use crate::mcp::era::Meta;
-    use crate::mcp::transport::{HttpTransport, Transport};
+    use crate::mcp::transport::Transport;
     use crate::mcp::McpError;
     let http = discover_http("hang");
-    let url = format!("http://127.0.0.1:{}/mcp", http.port);
-    let transport = HttpTransport::open(&url, &[]).expect("open");
+    let transport = held_transport(&http);
     for _ in 0..32 {
         let probe = transport.detect(
             "server/discover",

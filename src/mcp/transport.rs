@@ -1349,6 +1349,19 @@ struct HttpJob {
     /// How long the exchange may live, and what ends it early.
     life: Life,
     reply: mpsc::Sender<Result<HttpReply, McpError>>,
+    /// Its place among the messages the connection holds, given back when
+    /// the job is dropped -- run, or never run ([`HttpTransport::admit`]).
+    _slot: Place,
+}
+
+/// One of the [`MAX_IN_FLIGHT`] + [`WAITING_ROOM`] places a connection has
+/// for messages, held from the send until the message is done with.
+struct Place(Arc<AtomicUsize>);
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// What an HTTP message is.
@@ -1365,10 +1378,16 @@ enum JobKind {
 enum Life {
     /// Its caller: the exchange ends -- its connection dropped -- at its
     /// deadline, or as soon as the caller stops waiting for it, whichever
-    /// comes first: the caller drops the sender of `stop`. fx closes a
-    /// request's stream when its timeout fires or it is cancelled
-    /// (`stepExchange(l, .cancel)`, `closeKey`, `src/mcp/server.zig:1997-2003`,
-    /// `:1440-1447@481104fd`).
+    /// comes first: the caller drops the sender of `stop`. One whose caller
+    /// has already gone, or whose deadline has passed, when it gets a slot
+    /// never goes out. fx closes a timed-out or cancelled request's stream
+    /// at once only outside a 2025 session (`if (r.legacy == null) ...
+    /// stepExchange(l, .cancel)`, `src/mcp/server.zig:1997-2000@481104fd`);
+    /// in one it first posts `notifications/cancelled` through the session
+    /// (`post_cancel`, `:1402-1411`) and closes the stream when the session
+    /// ends the request (`deliver`, `:1441-1448`). xfx posts no such cancel
+    /// -- unit MCP-SEAMS's (`docs/parity.md`) -- and drops the connection in
+    /// both eras.
     Caller {
         deadline: Instant,
         stop: tokio::sync::oneshot::Receiver<()>,
@@ -1420,6 +1439,18 @@ pub struct HttpTransport {
     idle: Duration,
     /// Probes whose exchange is still open.
     probes: Arc<AtomicUsize>,
+    /// Messages sent and not yet done with: running, waiting for a slot, or
+    /// not yet taken by the thread ([`Self::admit`]).
+    admitted: Arc<AtomicUsize>,
+    /// A test's own request timeout for probes ([`Self::time_out_probes`]).
+    #[cfg(test)]
+    time_out: tokio::sync::watch::Sender<bool>,
+    /// Probes whose request timeout has been dealt with.
+    #[cfg(test)]
+    timed_out: Arc<AtomicUsize>,
+    /// Messages whose POST has begun.
+    #[cfg(test)]
+    begun: Arc<AtomicUsize>,
 }
 
 /// What every request carries besides its body.
@@ -1435,6 +1466,12 @@ struct HttpTarget {
     /// version opened no session, and is sent no `DELETE`.
     incoming_session: Arc<Mutex<Option<String>>>,
     probes: Arc<AtomicUsize>,
+    #[cfg(test)]
+    time_out: tokio::sync::watch::Receiver<bool>,
+    #[cfg(test)]
+    timed_out: Arc<AtomicUsize>,
+    #[cfg(test)]
+    begun: Arc<AtomicUsize>,
 }
 
 impl HttpTarget {
@@ -1453,6 +1490,12 @@ impl HttpTransport {
         let session_id = Arc::new(Mutex::new(None));
         let incoming_session = Arc::new(Mutex::new(None));
         let probes = Arc::new(AtomicUsize::new(0));
+        #[cfg(test)]
+        let (time_out, timed_out, begun) = (
+            tokio::sync::watch::channel(false),
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+        );
         let target = Arc::new(HttpTarget {
             url: url.to_string(),
             headers: headers.to_vec(),
@@ -1460,6 +1503,12 @@ impl HttpTransport {
             session_id: Arc::clone(&session_id),
             incoming_session: Arc::clone(&incoming_session),
             probes: Arc::clone(&probes),
+            #[cfg(test)]
+            time_out: time_out.1,
+            #[cfg(test)]
+            timed_out: Arc::clone(&timed_out),
+            #[cfg(test)]
+            begun: Arc::clone(&begun),
         });
         let thread_alive = Arc::clone(&alive);
         std::thread::Builder::new()
@@ -1477,6 +1526,13 @@ impl HttpTransport {
             incoming_session,
             idle: REQUEST_IDLE,
             probes,
+            admitted: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            time_out: time_out.0,
+            #[cfg(test)]
+            timed_out,
+            #[cfg(test)]
+            begun,
         })
     }
 
@@ -1493,6 +1549,42 @@ impl HttpTransport {
     pub fn with_idle(mut self, idle: Duration) -> Self {
         self.idle = idle;
         self
+    }
+
+    /// A place for one more message, or `McpTooManyInFlight` when the
+    /// connection holds [`MAX_IN_FLIGHT`] + [`WAITING_ROOM`] already: fx's
+    /// client has that many slots, and a send that finds none free fails
+    /// (`claim`, `src/mcp/io/http.zig:218-226@481104fd`). Counted from the
+    /// send, so nothing a caller does queues more than that, wherever it
+    /// waits.
+    fn admit(&self) -> Result<Place, McpError> {
+        if self.admitted.fetch_add(1, Ordering::AcqRel) >= MAX_IN_FLIGHT + WAITING_ROOM {
+            self.admitted.fetch_sub(1, Ordering::AcqRel);
+            return Err(McpError::Named("McpTooManyInFlight"));
+        }
+        Ok(Place(Arc::clone(&self.admitted)))
+    }
+
+    /// Fires every open probe's request timeout now, as its idle timer
+    /// would: a test's clock, so the timeout comes after what the test has
+    /// seen and never before it.
+    #[cfg(test)]
+    pub(crate) fn time_out_probes(&self) {
+        self.time_out.send_replace(true);
+    }
+
+    /// How many probes have had their request timeout dealt with: closed,
+    /// or left open in a 2025 session.
+    #[cfg(test)]
+    pub(crate) fn probes_timed_out(&self) -> usize {
+        self.timed_out.load(Ordering::Acquire)
+    }
+
+    /// How many messages have begun their POST: the first step of one, so a
+    /// message that never went out is never counted.
+    #[cfg(test)]
+    pub(crate) fn posts_begun(&self) -> usize {
+        self.begun.load(Ordering::Acquire)
     }
 
     fn send(&self, job: HttpJob) -> Result<(), McpError> {
@@ -1527,6 +1619,7 @@ impl HttpTransport {
                 stop,
             },
             reply,
+            _slot: self.admit()?,
         })?;
         wait_until(&receiver, Instant::now() + timeout, cancel)
     }
@@ -1584,16 +1677,20 @@ impl Transport for HttpTransport {
         let result = if method == "server/discover" {
             // A probe outlives this wait ([`Life::Probe`]).
             let (reply, receiver) = mpsc::channel();
-            self.send(HttpJob {
-                body,
-                id: Some(id),
-                kind,
-                life: Life::Probe {
-                    idle_until: Instant::now() + self.idle,
-                },
-                reply,
-            })
-            .and_then(|()| wait_until(&receiver, Instant::now() + timeout, cancel))
+            self.admit()
+                .and_then(|slot| {
+                    self.send(HttpJob {
+                        body,
+                        id: Some(id),
+                        kind,
+                        life: Life::Probe {
+                            idle_until: Instant::now() + self.idle,
+                        },
+                        reply,
+                        _slot: slot,
+                    })
+                })
+                .and_then(|()| wait_until(&receiver, Instant::now() + timeout, cancel))
         } else {
             self.exchange(body, Some(id), kind, timeout, cancel)
         };
@@ -1700,22 +1797,20 @@ fn http_loop(
         loop {
             tokio::select! {
                 job = jobs.recv() => match job {
-                    Some(job) => {
-                        if exchanges.len() < MAX_IN_FLIGHT {
-                            exchanges.spawn(run(client.clone(), Arc::clone(&target), job));
-                        } else if waiting.len() < WAITING_ROOM {
-                            waiting.push_back(job);
-                        } else {
-                            let _ = job.reply.send(Err(McpError::Named("McpTooManyInFlight")));
-                        }
-                    }
+                    // At most MAX_IN_FLIGHT + WAITING_ROOM are ever admitted
+                    // (`HttpTransport::admit`), so what waits is bounded too.
+                    Some(job) => waiting.push_back(job),
                     None => break,
                 },
-                Some(_) = exchanges.join_next(), if !exchanges.is_empty() => {
-                    if let Some(job) = waiting.pop_front() {
-                        exchanges.spawn(run(client.clone(), Arc::clone(&target), job));
-                    }
-                }
+                Some(_) = exchanges.join_next(), if !exchanges.is_empty() => {}
+            }
+            // The oldest waiting first, as fx's `startWaiting` starts them
+            // (`src/mcp/io/http.zig:243-250@481104fd`).
+            while exchanges.len() < MAX_IN_FLIGHT {
+                let Some(job) = waiting.pop_front() else {
+                    break;
+                };
+                exchanges.spawn(run(client.clone(), Arc::clone(&target), job));
             }
         }
         // What still waits ends unsent.
@@ -1752,12 +1847,22 @@ async fn run(client: reqwest::Client, target: Arc<HttpTarget>, job: HttpJob) {
         kind,
         life,
         reply,
+        _slot,
     } = job;
-    let work = post(&client, &target, &body, id, &kind);
-    tokio::pin!(work);
+    // Not polled before it may go: polling it is what opens the connection.
+    let mut work = Box::pin(post(&client, &target, &body, id, &kind));
     match life {
         Life::Caller { deadline, mut stop } => {
             let left = deadline.saturating_duration_since(Instant::now());
+            // A message that waited for a slot past its deadline, or whose
+            // caller has gone, never goes out.
+            if left.is_zero() {
+                let _ = reply.send(Err(McpError::Named("McpRequestTimedOut")));
+                return;
+            }
+            if let Err(tokio::sync::oneshot::error::TryRecvError::Closed) = stop.try_recv() {
+                return;
+            }
             tokio::select! {
                 result = tokio::time::timeout(left, &mut work) => {
                     let _ = reply.send(result.unwrap_or(Err(McpError::Named("McpRequestTimedOut"))));
@@ -1769,21 +1874,51 @@ async fn run(client: reqwest::Client, target: Arc<HttpTarget>, job: HttpJob) {
         }
         Life::Probe { idle_until } => {
             target.probes.fetch_add(1, Ordering::AcqRel);
-            let _open = Counted(&target.probes);
-            tokio::select! {
-                result = &mut work => {
-                    let _ = reply.send(result);
-                    return;
+            let open = Counted(&target.probes);
+            // One that waited for a slot past its request timeout has timed
+            // out already.
+            if Instant::now() < idle_until {
+                tokio::select! {
+                    result = &mut work => {
+                        // No longer open by the time its answer is read.
+                        drop(open);
+                        let _ = reply.send(result);
+                        return;
+                    }
+                    _ = tokio::time::sleep_until(tokio::time::Instant::from_std(idle_until)) => {}
+                    _ = timed_out_early(&target) => {}
                 }
-                _ = tokio::time::sleep_until(tokio::time::Instant::from_std(idle_until)) => {}
             }
+            // Its request timed out: outside a 2025 session its stream is
+            // closed (or never opened); in one it is left as it is ([`Life::Probe`]).
             if !target.era().in_session() {
+                drop(work);
+                drop(open);
+                #[cfg(test)]
+                target.timed_out.fetch_add(1, Ordering::AcqRel);
                 return;
             }
+            #[cfg(test)]
+            target.timed_out.fetch_add(1, Ordering::AcqRel);
             let result = work.await;
+            drop(open);
             let _ = reply.send(result);
         }
     }
+}
+
+/// A probe's request timeout fired by the test rather than its idle timer
+/// ([`HttpTransport::time_out_probes`]); outside tests, never.
+async fn timed_out_early(target: &HttpTarget) {
+    #[cfg(test)]
+    {
+        let mut fired = target.time_out.clone();
+        if fired.wait_for(|fired| *fired).await.is_ok() {
+            return;
+        }
+    }
+    let _ = target;
+    std::future::pending::<()>().await
 }
 
 /// The `Accept` every POST carries (`post_accept`,
@@ -1818,6 +1953,8 @@ async fn post(
     id: Option<u64>,
     kind: &JobKind,
 ) -> Result<HttpReply, McpError> {
+    #[cfg(test)]
+    target.begun.fetch_add(1, Ordering::AcqRel);
     let era = target.era();
     let method = body
         .get("method")

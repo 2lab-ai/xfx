@@ -350,9 +350,11 @@ pub fn own_id(raw: Option<&str>) -> Result<Option<u64>, DecodeError> {
     }
 }
 
-/// Plain decimal digits without a leading zero, as the client writes its ids,
-/// up to fx's largest id (`decimal`, `wire.zig:317-326`; `max_request_id`,
-/// `:15-17`).
+/// Plain decimal digits without a leading zero, as the client writes its ids:
+/// a non-negative integer that fits in 64 bits, as fx's `decimal` reads one
+/// (`wire.zig:315-327`). fx's `max_request_id` (2^53 - 1, `:15-17`) bounds the
+/// ids its request table issues (`IdsExhausted`, `src/mcp/core/request.zig:
+/// 233`), not what this reads.
 pub fn decimal(digits: &str) -> Option<u64> {
     if digits.is_empty() || (digits.len() > 1 && digits.starts_with('0')) {
         return None;

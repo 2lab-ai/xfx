@@ -9,6 +9,7 @@
 #               preceded by a `ping` of its own, which a 2026 client leaves
 #               unanswered
 #   silent      never answers discover, then a 2025 server
+#   mute        answers nothing at all
 #   old2024     discover -32601, `initialize` answered with 2024-11-05
 #   malformed   discover answered with a reply that is not valid JSON-RPC (its
 #               result a string of terminal escapes), then a 2025 server
@@ -50,6 +51,7 @@ while IFS= read -r line; do
   if [ -n "${MCP_FIXTURE_LOG:-}" ]; then
     printf '%s\n' "$line" >> "$MCP_FIXTURE_LOG"
   fi
+  [ "$mode" = mute ] && continue
   id=$(printf '%s' "$line" | sed -n 's/^{"jsonrpc":"2.0","id":\([0-9][0-9]*\),.*/\1/p')
   method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
   case "$line" in
