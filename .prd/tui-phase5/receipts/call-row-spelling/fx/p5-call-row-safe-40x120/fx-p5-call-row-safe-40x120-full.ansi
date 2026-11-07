@@ -1,0 +1,40 @@
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 05:34:41.969 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 148ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 05:34:41.740 UTC · Prompt[39m
+[38;5;255m┃[39m [1mlook[0m
+
+[38;5;245m  2026-11-07 05:34:41.772 UTC · Response[39m
+  Looking.
+
+[38;5;245m  2026-11-07 05:34:41.772 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m3 tool calls · 1 read · 1 list · 1 command · 1 failed[39m
+├ Ran [38;5;252mprintf[39m [38;5;250m'%s'[39m [38;5;250m'A\u{202e}B\u{2066}CD\x1b[2JE F\x09G\u{009b}H'[39m [38;5;252m>[39m/dev/null
+│[38;5;245m  action: run[39m
+│[38;5;245m  command: printf '%s' 'A\u{202e}B\u{2066}CD\x1b[2JE\x0dF    G\u{009b}H' >/dev/null[39m
+│[38;5;245m  yield_time_ms: 5000[39m
+
+[38;5;245m  2026-11-07 05:34:41.810 UTC · Tool[39m
+├ Matched n‮o⁦p؜q7rst
+│[38;5;245m  pattern: n\u{202e}o\u{2066}p؜q\x1b7r    s\u{009b}t\x0du*.md[39m
+│[38;5;245m  [glob] no matches for n\u{202e}o\u{2066}p؜q\x1b7r    s\u{009b}t\x0du*.md[39m
+
+
+[38;5;245m  2026-11-07 05:34:41.810 UTC · Tool[39m
+└ Failed m‮n⁦o؜p[2Jqrs
+│[38;5;245m  path: m\u{202e}n\u{2066}o؜p\x1b[2Jq    r\u{009b}s\x0dt.txt
+[39m│[38;5;245m  Path not found: m\u{202e}n\u{2066}o؜p\x1b[2Jq    r\u{009b}s\x0dt.txt[39m
+
+[38;5;245m  2026-11-07 05:34:41.969 UTC · Response[39m
+  Done.
+
+[38;5;245m  2026-11-07 05:34:41.962 UTC · Usage[39m
+[38;5;245m  0s (↑1 ↓80)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

@@ -468,11 +468,13 @@ impl UiEvent {
     }
 
     /// The same event with every control character the terminal would obey
-    /// turned into a space.
+    /// turned into a space -- or, in a call's argument, spelled as its row
+    /// spells it.
     ///
     /// Exhaustive on purpose: a variant added later does not compile until its
-    /// text has been given an answer here.
-    fn made_inert(self) -> Self {
+    /// text has been given an answer here. `pub(crate)` for the shell's tests,
+    /// which hand it events the way the channel does.
+    pub(crate) fn made_inert(self) -> Self {
         match self {
             // No text at all: what it carries is the fact that it arrived.
             Self::TurnStarted => Self::TurnStarted,
@@ -482,8 +484,10 @@ impl UiEvent {
             // the provider's half is exactly why they are not exempt.
             // The target is the model's own argument -- a path, a pattern, a
             // command -- and is about to be painted into a row, so it is the
-            // least exempt string here. The verbs are this crate's `'static`
-            // words and carry nothing to make inert.
+            // least exempt string here: it crosses **spelled** as that row
+            // spells it ([`spelled_shown`]), not blanked, so an `ESC` is still
+            // `\x1b` where the row names it. The verbs are this crate's
+            // `'static` words and carry nothing to make inert.
             Self::ToolStart {
                 call_id,
                 tool,
@@ -491,10 +495,7 @@ impl UiEvent {
             } => Self::ToolStart {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
-                shown: Shown {
-                    presentation: shown.presentation,
-                    target: shown.target.map(inert_owned),
-                },
+                shown: spelled_shown(shown),
             },
             Self::ToolResult {
                 call_id,
@@ -507,7 +508,11 @@ impl UiEvent {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
                 ok,
-                detail: inert_owned(detail),
+                // The tool's reason, which the call's row quotes after its
+                // argument and which can quote the argument back: spelled as
+                // that row spells it (`super::toolgroup::flattened`, fx's
+                // `encodeTerminalSafeInline`), not blanked.
+                detail: super::toolgroup::flattened(&detail),
                 outcome,
                 changes,
             },
@@ -924,10 +929,7 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
         HydratedStep::Text(text) => HydratedStep::Text(inert_owned(text)),
         HydratedStep::ToolStart { id, shown } => HydratedStep::ToolStart {
             id: inert_owned(id),
-            shown: Shown {
-                presentation: shown.presentation,
-                target: shown.target.map(inert_owned),
-            },
+            shown: spelled_shown(shown),
         },
         HydratedStep::ToolResult {
             id,
@@ -942,6 +944,21 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
         },
         HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
         HydratedStep::Steer(text) => HydratedStep::Steer(inert_owned(text)),
+    }
+}
+
+/// A call's argument as its own row spells it (`super::toolgroup::spelled`:
+/// fx's `encodeTerminalSafe`, a command's line breaks one space first): what
+/// that row and Ctrl-O's heading show, with nothing in it a terminal obeys or
+/// that reorders the row. Spelled here rather than blanked, because a blank
+/// is a space no row can name again; and spelled again by the row unchanged.
+fn spelled_shown(shown: Shown) -> Shown {
+    let activity = shown.presentation.activity;
+    Shown {
+        presentation: shown.presentation,
+        target: shown
+            .target
+            .map(|target| super::toolgroup::spelled(&target, activity)),
     }
 }
 
@@ -2399,9 +2416,11 @@ mod tests {
             Some(UiEvent::ToolStart {
                 call_id: " [2Jc".into(),
                 tool: " [2Jt".into(),
+                // The argument spelled as its row spells it, the `ESC`
+                // named rather than blanked.
                 shown: Shown {
                     presentation: crate::tools::terminal::TERMINAL.presentation(),
-                    target: Some(" [2Jls".into()),
+                    target: Some("\\x1b[2Jls".into()),
                 },
             })
         );
@@ -2411,7 +2430,8 @@ mod tests {
                 call_id: " [2Jc".into(),
                 tool: " [2Jt".into(),
                 ok: false,
-                detail: " [2Jd".into(),
+                // Spelled as the call's row spells a reason.
+                detail: "\\x1b[2Jd".into(),
                 outcome: Outcome::Denied,
                 changes: None,
             })
@@ -2937,5 +2957,82 @@ mod tests {
             text.contains('\n'),
             "the channel started flattening text the transcript needs whole: {text:?}"
         );
+    }
+
+    #[test]
+    fn a_calls_argument_crosses_spelled_as_its_own_row_will_show_it() {
+        // CALLROW-SAFE: the argument is the call's row in the transcript and
+        // Ctrl-O's heading, which fx spells with `encodeTerminalSafe`
+        // (`src/core/tooling/tool_presentation.zig:432-447@481104fd`) -- so
+        // it crosses spelled rather than blanked: an `ESC` blanked here is a
+        // space no row can name again. Live and resumed alike, and twice
+        // (a resumed session's crosses the seam again) the same.
+        let command =
+            "printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H' >/dev/null";
+        let spelled =
+            r"printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H' >/dev/null";
+        let shown = crate::tools::terminal::TERMINAL
+            .shown(&serde_json::json!({"action": "exec", "command": command}));
+        let live = UiEvent::ToolStart {
+            call_id: "c".into(),
+            tool: "terminal".into(),
+            shown: shown.clone(),
+        }
+        .made_inert();
+        let UiEvent::ToolStart { shown: crossed, .. } = &live else {
+            panic!("{live:?}");
+        };
+        assert_eq!(crossed.target.as_deref(), Some(spelled));
+        assert_eq!(live.clone().made_inert(), live);
+        let super::super::hydration::HydratedStep::ToolStart { shown: resumed, .. } =
+            inert_step(super::super::hydration::HydratedStep::ToolStart {
+                id: "c".into(),
+                shown,
+            })
+        else {
+            panic!("inert_step changed the variant");
+        };
+        assert_eq!(resumed.target.as_deref(), Some(spelled));
+        // Not a command: no projection, the carriage return named too.
+        let shown = crate::tools::read::READ_FILE
+            .shown(&serde_json::json!({"path": "m\u{202e}n\u{1b}[2Jq\tr\rt.txt"}));
+        let UiEvent::ToolStart { shown, .. } = (UiEvent::ToolStart {
+            call_id: "r".into(),
+            tool: "read_file".into(),
+            shown,
+        })
+        .made_inert() else {
+            panic!("made_inert changed the variant");
+        };
+        assert_eq!(
+            shown.target.as_deref(),
+            Some(r"m\u{202e}n\x1b[2Jq\x09r\x0dt.txt")
+        );
+        // The tool's reason, which the row quotes after the argument, the
+        // same way as `encodeTerminalSafeInline` writes it: white space one
+        // space, the rest spelled, 256 bytes at most (`failureStatusDetail`,
+        // `src/core/agent/runtime/tool_presentation.zig:1445-1493@481104fd`).
+        let reason = |detail: String| {
+            let event = UiEvent::ToolResult {
+                call_id: "r".into(),
+                tool: "read_file".into(),
+                ok: false,
+                detail,
+                outcome: Outcome::Finished,
+                changes: None,
+            }
+            .made_inert();
+            assert_eq!(event.clone().made_inert(), event);
+            let UiEvent::ToolResult { detail, .. } = event else {
+                panic!("made_inert changed the variant");
+            };
+            detail
+        };
+        assert_eq!(
+            reason("Path not found:\n m\u{202e}n\u{1b}[2Jq\tr\u{9b}s\rt.txt ".into()),
+            r"Path not found: m\u{202e}n\x1b[2Jq r\u{009b}s t.txt"
+        );
+        let long = reason("\u{202e}".repeat(100));
+        assert_eq!(long, format!("{}...", r"\u{202e}".repeat(31)));
     }
 }

@@ -1,0 +1,141 @@
+# cargo test --locked --lib on the base 151dde9f (a --no-local clone) with this unit's tests put on it
+# alone (split_tests.py: the test-module hunks of 151dde9f..c3ac7120 -- 8 new tests and the 2 existing
+# ones whose expectations the fix changes), before the fix: all 10 fail.
+
+
+running 10 tests
+test tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it ... FAILED
+test tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them ... FAILED
+test tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands ... FAILED
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... FAILED
+test tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets ... FAILED
+test tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... FAILED
+test tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it ... FAILED
+test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... FAILED
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... FAILED
+test tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript ... FAILED
+
+failures:
+
+---- tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it stdout ----
+
+thread 'tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it' (268880859) panicked at src/tui/bridge.rs:2968:9:
+assertion `left == right` failed
+  left: Some("printf '%s' 'A\u{202e}B\u{2066}C\u{61c}D [2JE\rF G H' >/dev/null")
+ right: Some("printf '%s' 'A\\u{202e}B\\u{2066}C\\u{061c}D\\x1b[2JE F\\x09G\\u{009b}H' >/dev/null")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them stdout ----
+
+thread 'tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them' (268880866) panicked at src/tui/toolgroup.rs:1331:13:
+assertion `left == right` failed: "echo a\n  echo b\r\n\techo c\n"
+  left: "└ Running echo a   echo b   echo c "
+ right: "└ Running echo a echo b echo c"
+
+---- tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands stdout ----
+
+thread 'tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands' (268880865) panicked at src/tui/toolgroup.rs:1291:9:
+assertion `left == right` failed
+  left: ["├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{61c}D [2JE F G H' >/dev/null", "├ Matched n\u{202e}o\u{2066}p\u{61c}q 7r s t u*.md", "└ Failed m\u{202e}n\u{2066}o\u{61c}p [2Jq r s t.txt: Path not found: m\u{202e}n\u{2066}o\u{61c}p [2Jq r s t.txt"]
+ right: ["├ Ran printf '%s' 'A\\u{202e}B\\u{2066}C\\u{061c}D\\x1b[2JE F\\x09G\\u{009b}H' >/dev/null", "├ Matched n\\u{202e}o\\u{2066}p\\u{061c}q\\x1b7r\\x09s\\u{009b}t\\x0du*.md", "└ Failed m\\u{202e}n\\u{2066}o\\u{061c}p\\x1b[2Jq\\x09r\\u{009b}s\\x0dt.txt: Path not found: m\\u{202e}n\\u{2066}o\\u{061c}p\\x1b[2Jq r\\u{009b}s t.txt"]
+
+---- tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape stdout ----
+
+thread 'tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape' (268880867) panicked at src/tui/toolgroup.rs:1360:9:
+assertion `left == right` failed
+  left: 1039
+ right: 14407
+
+---- tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets stdout ----
+
+thread 'tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets' (268880863) panicked at src/tui/full_transcript.rs:3989:9:
+assertion `left == right` failed
+  left: ToolDetail { call_id: "c", detail: Arguments([Argument { name: "path", value: "a    b", text: true }]) }
+ right: ToolDetail { call_id: "c", detail: Arguments([Argument { name: "path", value: "a    b", text: false }]) }
+
+---- tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width stdout ----
+
+thread 'tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width' (268880868) panicked at src/tui/toolgroup.rs:1304:17:
+24: "\u{1b}[38;5;245m├ Ran \u{1b}[38;5;245m\u{1b}[38;5;252mprintf\u{1b}[39m\u{1b}[38;5;245m \u{1b}[38;5;250m'%s'\u{1b}[39m\u{1b}[38;5;245m \u{1b}[38;5;250m'A\u{202e}B\u{2066}C\u{61c}D…\u{1b}[0m"
+
+---- tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it stdout ----
+
+thread 'tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it' (268880860) panicked at src/tui/bridge.rs:2397:9:
+assertion `left == right` failed
+  left: Some(ToolStart { call_id: " [2Jc", tool: " [2Jt", shown: Shown { presentation: Presentation { activity: Command, running: "Running", done: "Ran", default_target: "command" }, target: Some(" [2Jls") } })
+ right: Some(ToolStart { call_id: " [2Jc", tool: " [2Jt", shown: Shown { presentation: Presentation { activity: Command, running: "Running", done: "Ran", default_target: "command" }, target: Some("\\x1b[2Jls") } })
+
+---- tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width stdout ----
+
+thread 'tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width' (268880861) panicked at src/tui/full_transcript.rs:4544:17:
+10: "\u{1b}[0m│ \u{1b}[38;5;250m'A\u{202e}B\u{2066}C\u{61c}D\u{1b}[0m"
+
+---- tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already stdout ----
+
+thread 'tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already' (268880862) panicked at src/tui/full_transcript.rs:4644:13:
+assertion `left == right` failed: 121: [
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "● 1 tool call · 1 command",
+    "└ Ran echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close",
+    "",
+    "",
+]
+  left: false
+ right: true
+
+---- tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript stdout ----
+
+thread 'tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript' (268880864) panicked at src/tui/shell.rs:26719:13:
+document: "* session resumed: run it\n\n┃ run it\n\n● 1 tool call · 1 command\n└ Ran printf 'A\u{202e}B\u{2066}C\u{61c}D [2JE F G H'\n\n  0s (↑2 ↓0)\n"
+
+
+failures:
+    tui::bridge::tests::a_calls_argument_crosses_spelled_as_its_own_row_will_show_it
+    tui::bridge::tests::the_send_makes_every_event_inert_whoever_built_it
+    tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width
+    tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already
+    tui::full_transcript::tests::the_journal_tee_records_first_and_hands_over_what_the_document_never_gets
+    tui::shell::tests::a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript
+    tui::toolgroup::tests::a_calls_own_row_spells_its_argument_as_fx_spells_a_commands
+    tui::toolgroup::tests::a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them
+    tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape
+    tui::toolgroup::tests::no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width
+
+test result: FAILED. 0 passed; 10 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

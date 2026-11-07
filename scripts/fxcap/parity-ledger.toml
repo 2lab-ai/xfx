@@ -41,8 +41,8 @@ fx = '^𝒇x v\d+\.\d+\.\d+ · Run /help for commands$'
 xfx = '^x𝒇x v\S+(?: \[[a-z]+\])? · Run /help for commands$'
 replace = "<banner>"
 attrs = "none"
-why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.1.0-<rev> [debug]` (src/tui/shell.rs:185). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
-source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:185", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
+why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.1.0-<rev> [debug]` (src/tui/shell.rs:184). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
+source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:184", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
 
 [[normalization]]
 id = "product-name"
@@ -360,7 +360,35 @@ reason = "fx v0.0.16's Ctrl-O spells the zero-width and directional marks, the i
 owner = "T-U1-SAFE"
 resolution = "fx names the marks in a command's output and U+061C in a later pin, or the user takes fx's raw marks"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/full_transcript.rs:487"]
+source = ["docs/parity.md:238", "src/tui/full_transcript.rs:492"]
+
+[[divergence]]
+id = "call-row-raw-argument"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-call-row-safe"]
+snaps = ["*"]
+fx_row = '[\u061c\u202e\u2066\u009b]|t\\x0du|\}s\\x0dt\.txt'
+xfx_row = 'n\\u\{202e\}o|o\\u\{061c\}p|p\\u\{061c\}q|q\\x1b7r|s\\u\{009b\}t|t\\x0du|u\*\.md|m\\u\{202e\}n|p\\x1b\[2Jq|r\\u\{009b\}s|s\\x0dt|t\.txt|Path not found|^[├└] (?:Matched|Failed)$'
+reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); their bound is a file change's, 4 096 bytes, where fx's raw rows have none. The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
+owner = "CALLROW-SAFE"
+resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:657"]
+
+[[divergence]]
+id = "call-row-source-cut"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-call-row-long"]
+snaps = ["end"]
+fx_row = '^└ Ran echo shown$'
+xfx_row = '^└ Failed echo shown\.\.\.$'
+reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and says nothing of the rest (`projectRunCommandActivitySource`, `src/core/tooling/tool_presentation.zig:256-311@481104fd`, `source_limit` at `:268`; the only marker is `encodeTerminalSafe`'s, `:445`, when what it read is too long to write): a command whose first 14 400 bytes are mostly line breaks shows its head alone -- `p5-call-row-long`'s `Ran echo shown`, its `echo hidden` hidden without a word, in the transcript and on Ctrl-O. A row that hides its own tail is not safe to copy -- fx under `full-access` runs the command with no approval showing it first -- so xfx ends it `...` when anything the row would show is left unread (a tail of spaces, tabs and line breaks alone is not). Only the marker is this divergence: that xfx's row says `Failed` and its header `1 failed` is `command-size-bound`'s. The marker is the row's alone: the 120-byte status phrase Ctrl-O looks in for an argument the heading already shows is fx's exactly -- but for the `cd . &&` and workspace-root `.` projection xfx has never ported (`docs/parity.md:238`) -- and carries none (`formatRunCommandDetailBounded`, `tool_presentation.zig:441-445@481104fd`, marks only what its encoder cuts; `src/tui/toolgroup.rs` `status`), so the marker hides no argument fx shows -- `cwd: .` beside `ls`, 14 400 line breaks and `x` keeps its row."
+owner = "CALLROW-SAFE"
+resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
+expires = "date:2026-12-04"
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:705"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -454,7 +482,7 @@ owner = "DIFF-WRAP"
 scenarios = ["p5-transcript-diffwide", "p5-transcript-diffwide2"]
 snaps = ["full"]
 whole_snap = true
-xfx = "src/tui/full_transcript.rs:2221"
+xfx = "src/tui/full_transcript.rs:2240"
 fx = "src/ui/render_engine/transcript_blocks.zig:718-766@c1db9191"
 why = "fx reflows a Ctrl-O diff row longer than the screen onto continuation rows under its gutter (`  │ ` and spaces to the text column; `reflowDiffRow`, the same at 481104fd's `transcript_blocks.zig:720-768`); xfx's `diff_rows` clips it at the margin, so the rest of the line is not shown. `p5-transcript-diffwide` `full`: line 3 (104 `w`s, four soft hyphens, `TAIL5678`) is fx's `  │ 3   …TAIL` then `  │     5678`, and xfx's first row only -- byte-identical since WIDTH-DISPUTED, the `5678` row absent, so the window above it starts a row later on fx. A c1db919 behaviour too, so a KEEP gap rather than a 0.0.16 change. Fixed when xfx's Ctrl-O diff rows wrap as fx's do -- as its review already wraps one rather than cut it."
 
@@ -487,7 +515,7 @@ owner = "user decision multi-line card preview"
 scenarios = ["p5-transcript-submit-multi"]
 snaps = ["frame1"]
 rows = ["32-36"]
-why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12199). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12192). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
 
 [[cause]]
 id = "ctrl-o-result-format-raw"
@@ -497,23 +525,10 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^│.*\\u\{(?:200[b-f]|202[89a-e]|206[0-9a-f]|feff)\}'
 xfx_row = '^│.*[\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]'
-xfx = ["src/tui/full_transcript.rs:1795-1814", "src/tui/full_transcript.rs:2085-2109", "src/tui/bridge.rs:1477-1486"]
+xfx = ["src/tui/full_transcript.rs:1814-1833", "src/tui/full_transcript.rs:2104-2128", "src/tui/bridge.rs:1494-1503"]
 fx = ["src/ui/full_transcript_screen.zig:4986-5033@c1db9191", "src/core/shared/text_utils.zig:560-584@c1db9191"]
 why = "fx writes a tool's arguments, output and stored result on Ctrl-O through its terminal-safe writer (`TerminalSafeIndentedWriter`, `full_transcript_screen.zig:5147-5194@481104fd`, used by `appendStoredResultContent` `:5196-5234` and `appendTerminalSafeToolOutputInterruptible` `:6527`), which spells each code point `isNonPrintingCodepoint` names (U+0080-009F, U+200B-200F, U+2028-202E, U+2060-206F, U+FEFF; `text_utils.zig:703-708@481104fd`) as `\\u{NNNN}` (`terminalSafeToken`, `:643-667@481104fd`; the same at c1db9191, `:560-584`, `:620-626`). xfx's `railed` and `literal` write that text after `bridge::inert` alone, which turns a control character into a space and leaves the rest raw: U+200B-200F, U+2028-202E, U+2060-206F and U+FEFF reach the row as themselves, and U+0080-009F as a space where fx writes its name. Captured: `p5-transcript-diffodd` `full`, read rows 3 and 4, fx `bidi \\u{202e} reversed` and `zero\\u{200b}width \\u{feff} bom`, xfx U+202E, U+200B and U+FEFF raw (no cause named these rows before this one); `p5-transcript-diffwide2` `full`, read row 2, fx `zwj` U+FFA0 `\\u{200d}y`, xfx U+200D raw (WIDTH-DISPUTED's `green.txt:31`; that row differs for `frame-variation-selector-anchor`'s reason too). Ctrl-O's diff rows are fx's (`terminal_safe_line`, T-U6b). No byte a terminal obeys reaches these rows (`inert`), but raw, a bidi override (U+202A-202E) reorders what the reader sees and a zero-width character hides. It is the gap `docs/parity.md:238` keeps open for T-U1-SAFE, whose `127f0502` (`fix/p5-ctrlo-safe-rows`, not in this branch) spells the argument and read rows as fx's writer does, U+200B-200F among them (`obeyed_or_hidden`)."
 resolution = "T-U1-SAFE's branch lands: Ctrl-O's argument and result rows spell fx's `isNonPrintingCodepoint` set, these rows are fx's, and this cause, which then covers nothing, is deleted in that merge."
-
-[[cause]]
-id = "ctrl-o-call-row-spelling"
-kind = "unit"
-owner = "CALLROW-SAFE fix/p5-call-row-spelling (from 151dde9f), to land before train 2 merges"
-scenarios = ["p5-transcript-safe"]
-snaps = ["*"]
-fx_row = '^[├└] Ran : '
-xfx_row = '^[├└] Ran : '
-expires = "date:2026-11-10"
-xfx = ["src/tui/toolgroup.rs:593"]
-fx = ["src/core/tooling/tool_presentation.zig:432-447@481104fd", "src/core/shared/text_utils.zig:353-390@481104fd"]
-why = "A call's own row -- in the transcript and as Ctrl-O's heading -- shows its argument through `spelled`, which makes every control a space and leaves the marks as they are: `p5-transcript-safe`'s command reads `: 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G<U+061C>H<U+2067>I'` there, where fx spells it `: 'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F\\x09G<U+061C>H\\u{2067}I'` (`formatRunCommandDetailBounded` through `encodeTerminalSafe`, the tab `\\x09`, the line's last carriage return gone with the trailing space). Not this screen's detail rows (`ctrl-o-command-marks`, T-U1-SAFE). CALLROW-SAFE owns it and lands before train 2 merges; past its date this cause covers nothing (scripts/fxcap/ledger.py `live_causes`), so the rows show again as rows no cause covers."
 
 [[cause]]
 id = "cancelled-marker"
@@ -523,7 +538,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^▪ Cancelled '
 xfx_row = '^■ Cancelled '
-xfx = ["src/tui/toolgroup.rs:583"]
+xfx = ["src/tui/toolgroup.rs:618"]
 fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
 why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
 
@@ -727,7 +742,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:37024"]
+xfx = ["src/tui/shell.rs:37272"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -738,7 +753,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37024"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37272"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
 
@@ -749,9 +764,32 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
 snaps = ["full", "full-pgup"]
 rows = ["1-2", "33-36"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37024"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37272"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
+
+[[cause]]
+id = "call-row-page-edge"
+kind = "defect"
+owner = "unowned (follows tool-schema)"
+scenarios = ["p5-call-row-safe"]
+snaps = ["full"]
+rows = ["1-3"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:657"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
+why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
+
+[[cause]]
+id = "command-size-bound"
+kind = "unit"
+owner = "CMD-SIZE (after train 2; raising the bound is an S change)"
+scenarios = ["p5-call-row-long"]
+snaps = ["end"]
+fx_row = '^● 1 tool call · 1 command$|^└ Ran echo shown$'
+xfx_row = ' · 1 failed$|^└ Failed echo shown\.\.\.$'
+xfx = ["src/permission/authority.rs:38-41", "src/permission/authority.rs:1145-1149"]
+fx = ["src/core/terminal/contracts.zig:8@c1db9191", "src/core/shell_command/command_effect.zig:4@c1db9191"]
+why = "xfx refuses a command whose text, once trimmed, passes 8 KiB (`terminal exec refuses a command of N bytes; the bound is 8192`, `authority.rs:1145-1149`) -- a deliberate choice of fx's planning bound for the tool's (`authority.rs:38-40`; `command_effect.zig`'s, past which fx asks rather than classifies) -- where fx runs one up to 64 KiB. `p5-call-row-long`'s command, 14 421 bytes with no white space at either end, ran on fx (`Ran`, `1 tool call · 1 command`) and was refused on xfx (`Failed`, `· 1 failed`), and xfx's row names no reason for it. The row's target is the raw command (`src/tools/spec.rs:214`), not the trimmed one, so a command that is read only in part can still be admitted: with at least 6 208 bytes of white space at its ends (14 400 - 8 192, more by its tail's length) it passes the bound and runs, its row ending `...` (`call-row-source-cut`). Raising the bound is an S change (unit CMD-SIZE)."
 
 [[cause]]
 id = "subagent-tool"
@@ -771,7 +809,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:37024", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:37272", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 
@@ -807,7 +845,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^\* stats: ansi_bytes=\d+,'
 xfx_row = '^\* stats: ansi_bytes=\d+,'
-xfx = ["src/tui/shell.rs:1593"]
+xfx = ["src/tui/shell.rs:1583"]
 fx = ["src/core/app/app_commands.zig:1014@c1db9191"]
 why = "`/stats` counts each product's own bytes to the terminal (fx 3499, xfx 2675 for the same screen): equal only if the two wrote the same bytes."
 

@@ -135,7 +135,6 @@ use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
-use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
@@ -315,15 +314,6 @@ const RAIL_HIDDEN_ABOVE: &str = "\u{2503}\u{2191}";
 /// How many cells the rail and its space occupy, and therefore where an empty
 /// composer's caret sits (`visual_layout.zig:689-694`).
 const PROMPT_CELLS: u16 = 2;
-
-/// How much of a refused tool's own words a notice quotes back.
-///
-/// The same bound the line-oriented path gives a tool notice
-/// (`src/output.rs:1062`), spelled again rather than shared because that one is
-/// private to a module this task does not own. Both are there for the same
-/// reason: what a tool says about why it refused is for whoever needs it in
-/// full, and never for a row of the terminal's document.
-const TOOL_DETAIL_BYTES: usize = 120;
 
 /// The width `/trace`'s timeline is laid out at: the same for every report,
 /// whatever the screen's, and wide enough that a sentence is a line rather
@@ -4162,7 +4152,10 @@ impl Shell {
                 self.mark(Mark::ToolResult {
                     id: call_id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    // Spelled and bounded as the call's row has it, by the
+                    // channel (`super::toolgroup::flattened`: fx's
+                    // `encodeTerminalSafeInline` at 256 bytes).
+                    detail,
                     outcome,
                     changes,
                 });
@@ -27547,6 +27540,261 @@ mod tests {
         assert!(
             full.contains("read x\\x1b]0;pwned\\x07y\\x1b[2Jz\\u{009b}31m"),
             "{full:?}"
+        );
+    }
+
+    #[test]
+    fn a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript() {
+        // CALLROW-SAFE, the whole way a resumed call's argument travels:
+        // the log, `bridge::inert_hydration`, the shell, the group's row in
+        // the document and the heading on Ctrl-O's screen -- each spelled as
+        // fx spells a command's row (`encodeTerminalSafe`), nothing in either
+        // a terminal would act on or that reorders the row.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let command = "printf 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H'";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c".to_string(),
+                    name: "terminal".to_string(),
+                    input: serde_json::json!({"action": "exec", "command": command}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "c".to_string(),
+                tool: "terminal".to_string(),
+                ok: true,
+                output: String::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "run it",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let spelled = r"printf 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H'";
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every colour off, whoever painted it (the shell highlighter's
+            // too): what is left is the row's text.
+            let mut plain = String::new();
+            let mut rest = bytes.as_str();
+            while let Some(at) = rest.find('\u{1b}') {
+                plain.push_str(&rest[..at]);
+                rest = &rest[at..];
+                rest = &rest[rest.find('m').map_or(rest.len(), |end| end + 1)..];
+            }
+            plain.push_str(rest);
+            assert!(plain.contains(spelled), "{surface}: {plain:?}");
+            for mark in ['\u{202e}', '\u{2066}', '\u{061c}', '\u{9b}', '\r', '\t'] {
+                assert!(!bytes.contains(mark), "{surface}: {mark:?} in {bytes:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command() {
+        // CALLROW-SAFE round 2: Ctrl-O leaves an argument's row out when fx's
+        // 120-byte status phrase holds its value (`argumentVisibleInToolHeading`,
+        // `src/ui/full_transcript_screen.zig:6594-6619@481104fd`), and fx makes
+        // that phrase from the command as written: 116 `a`, then U+202E, is
+        // cut before the whole `\u{202e}`. Made from the channel's spelling
+        // instead, the bound fell inside the escape, kept a literal `\`, and
+        // hid `cwd: a\`, which fx shows. The whole way: the log,
+        // `bridge::inert_hydration`, the shell, Ctrl-O.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let command = format!("{}\u{202e}z", "a".repeat(116));
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c".to_string(),
+                    name: "terminal".to_string(),
+                    input: serde_json::json!({"action": "exec", "command": command, "cwd": "a\\"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "c".to_string(),
+                tool: "terminal".to_string(),
+                ok: true,
+                output: String::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "run it",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 160);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        resumed.route_bytes(b"\x0f");
+        let rows = uncoloured_rows(&resumed.screen_rows());
+        let heading = format!("\u{2514} Ran {}\\u{{202e}}z", "a".repeat(116));
+        assert!(rows.contains(&heading), "{rows:#?}");
+        assert!(
+            rows.iter().any(|row| row == "\u{2502}  cwd: a\\"),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views() {
+        // CALLROW-SAFE round 2: a reason crossing the 120 bytes the shell
+        // used to cut it at and the 256 fx bounds it at, with white space at
+        // the first and an escape at the second: the channel flattens and
+        // spells it (`encodeTerminalSafeInline`, `text_utils.zig:397-417
+        // @481104fd`), and the document's row and Ctrl-O's heading carry the
+        // same text. A resumed failure has no reason, as fx's replay has none
+        // (`app_session_runtime.zig:4296-4312@481104fd`; capture
+        // `fx-resume-tools-40x120-resumed`, `Failed missing.txt`).
+        let reason = format!(
+            "Path not found: {}\t \r\n{}\u{1b}[2J{}\u{202e}{}",
+            "a".repeat(100),
+            "b".repeat(100),
+            "c".repeat(29),
+            "d".repeat(50)
+        );
+        let spelled = format!(
+            "Path not found: {} {}\\x1b[2J{}...",
+            "a".repeat(100),
+            "b".repeat(100),
+            "c".repeat(29)
+        );
+        assert_eq!(spelled.len(), 256);
+        let row = format!("\u{2514} Failed gone.txt: {spelled}");
+        let mut live = shell(40, 300);
+        live.route_bytes(b"read\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted.made_inert());
+        live.apply(
+            tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
+        );
+        live.apply(
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: reason.clone(),
+                outcome: CallOutcome::Finished,
+                changes: None,
+            }
+            .made_inert(),
+        );
+        live.apply(UiEvent::Delta("Done.".to_string()));
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let document = uncoloured_rows(&live.painted_document());
+        assert!(document.contains(&row), "{document:#?}");
+        live.route_bytes(b"\x0f");
+        let full = uncoloured_rows(&live.screen_rows());
+        assert!(full.contains(&row), "{full:#?}");
+        // At 120 columns the document's row is cut at the edge; it is the
+        // same row.
+        let mut narrow = shell(40, 120);
+        narrow.route_bytes(b"read\r");
+        let _ = narrow.picks_up();
+        narrow.apply(UiEvent::TurnStarted);
+        narrow.apply(
+            tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
+        );
+        narrow.apply(
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: reason.clone(),
+                outcome: CallOutcome::Finished,
+                changes: None,
+            }
+            .made_inert(),
+        );
+        narrow.apply(UiEvent::TurnEnded { failure: None });
+        narrow.shell.flush_paced();
+        let cut = uncoloured_rows(&[super::super::transcript::ellipsized(&row, 120)]);
+        let document = uncoloured_rows(&narrow.painted_document());
+        assert!(document.contains(&cut[0]), "{:?}\n{document:#?}", cut[0]);
+        for bytes in [
+            document.join("\n"),
+            uncoloured_rows(&narrow.screen_rows()).join("\n"),
+        ] {
+            assert!(
+                !bytes.contains('\u{202e}') && !bytes.contains('\t'),
+                "{bytes:?}"
+            );
+        }
+
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "gone.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                output: reason,
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "read",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 300);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let document = uncoloured_rows(&resumed.painted_document());
+        assert!(
+            document.iter().any(|row| row == "\u{2514} Failed gone.txt"),
+            "{document:#?}"
+        );
+        resumed.route_bytes(b"\x0f");
+        let full = uncoloured_rows(&resumed.screen_rows());
+        assert!(
+            full.iter().any(|row| row == "\u{2514} Failed gone.txt"),
+            "{full:#?}"
         );
     }
 
