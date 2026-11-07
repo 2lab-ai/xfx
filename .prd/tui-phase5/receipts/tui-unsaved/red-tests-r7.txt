@@ -1,0 +1,37 @@
+# L-U3f, on a throwaway clone (git clone --no-local in the short TMPDIR); each step resets src/ and tests/
+# RED = 8d578f11's src with fe8dd28e's room test; GREEN = fe8dd28e; M8-M11 = mutants of fe8dd28e.
+# The interpreter test needs applescript_string, which 8d578f11 has not, so M8/M9 are its RED.
+# M8: the hostile path's `do shell script` ran (the returned path lost it); M9: osascript refused the script.
+## RED: 8d578f11 src, the room test
+base-room exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4003 filtered out; finished in 0.33s 
+test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy ... FAILED
+thread 'tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy' (273527545) panicked at src/tui/shell.rs:37877:9:
+  left: ["✗ images: failed to paste clipboard image: FileNotFound", ""]
+ right: ["* images: input is full; image not attached", ""]
+## GREEN: fe8dd28e
+green exit=0 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4003 filtered out; finished in 0.42s 
+test clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter ... ok
+test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy ... ok
+## M8: no escaping
+m8-noescape exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.09s 
+test clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter ... FAILED
+thread 'clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter' (273532177) panicked at src/clipboard.rs:785:9:
+  left: Some("/private/tmp/claude-501/tui-unsaved/.tmp8w2o2k/xy\\z\"w/clipboard.png")
+ right: Some("/private/tmp/claude-501/tui-unsaved/.tmp8w2o2k/x\" & (do shell script \"touch /private/tmp/claude-501/tui-unsaved/.tmp8w2o2k/canary\") & \"y\\\\z\\\"w/clipboard.png")
+## M9: quotes escaped before backslashes
+m9-order exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.07s 
+test clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter ... FAILED
+thread 'clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter' (273534273) panicked at src/clipboard.rs:784:9:
+osascript refused "\"/private/tmp/claude-501/tui-unsaved/.tmpkM6FkL/x\\\\\" & (do shell script \\\\\"touch /private/tmp/claude-501/tui-unsaved/.tmpkM6FkL/canary\\\\\") & \\\\\"y\\\\\\\\z\\\\\\\\\"w/clipboard.png\""
+## M10: a clipboard image copied before the room check (the base order)
+m10-clipboard exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.34s 
+test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy ... FAILED
+thread 'tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy' (273535185) panicked at src/tui/shell.rs:37908:9:
+  left: ["✗ images: failed to paste clipboard image: FileNotFound", ""]
+ right: ["* images: input is full; image not attached", ""]
+## M11: /image copied before the room check (the base order)
+m11-image exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.34s 
+test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy ... FAILED
+thread 'tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy' (273536827) panicked at src/tui/shell.rs:37916:9:
+  left: ["✗ images: failed to attach image: FileNotFound", ""]
+ right: ["* images: input is full; image not attached", ""]

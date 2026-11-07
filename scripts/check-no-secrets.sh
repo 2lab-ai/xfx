@@ -15,6 +15,12 @@
 
 set -euo pipefail
 
+# BSD grep -- macOS's -- puts `GREP_OPTIONS` in front of every argument list,
+# so a `--exclude=*.md` there would skip every Markdown file this scan names,
+# and the scan would report them clean. (GNU grep 3.8 ignores it.) The scan's
+# options are its own.
+unset GREP_OPTIONS
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
@@ -185,25 +191,93 @@ is_bytecode() {
 	return 1
 }
 
+# The most bytes of file names one `grep` is given. Every name is an argument,
+# and the kernel refuses an `exec` whose arguments and environment together
+# pass `ARG_MAX` (E2BIG) -- which this repository's names alone came within
+# 30 KB of, at about 12 000 files, under macOS's 1 MiB. Linux's limit is a
+# quarter of the stack limit and never under 128 KiB, so 64 KiB of names
+# leaves the other half of the smallest limit to the environment and to
+# `grep`'s own arguments. It is assigned here, not read from the environment:
+# a larger one is the E2BIG back.
+batch_bytes=65536
+
+# Prints how the operands "$@" divide into batches of at most `batch_bytes`,
+# one `start:count` per batch, in order. A name costs its bytes, the NUL that
+# ends it and the pointer to it. Bytes, not characters: `${#name}` counts
+# characters in a UTF-8 locale, so it is taken in the C one, here only. A name
+# longer than the whole budget is a batch of its own rather than none.
+batch_bounds() {
+	local LC_ALL=C
+	local operand start=0 count=0 size=0 cost
+	for operand in "$@"; do
+		cost=$((${#operand} + 9))
+		if [ "$count" -gt 0 ] && [ $((size + cost)) -gt "$batch_bytes" ]; then
+			printf '%d:%d\n' "$start" "$count"
+			start=$((start + count))
+			count=0
+			size=0
+		fi
+		count=$((count + 1))
+		size=$((size + cost))
+	done
+	printf '%d:%d\n' "$start" "$count"
+}
+
 # Reports, through `fail`, what `grep` finds in the files "$@" name -- each one
 # `./`-qualified by the caller, so a tracked file named `-` is that file and
 # not standard input.
+#
+# One `grep` per batch of names (see `batch_bounds`), per pattern, and each
+# pattern's batches judged together: a batch `grep` could not finish fails the
+# pattern whichever batch it was, and every batch's hits are printed. `-H`,
+# because a batch can be one name, and `grep` given one file prints its lines
+# without the file's name.
 grep_names() {
-	local entry name pattern hits status
+	local entry name pattern hits batch_hits status unreadable bounds bound start count covered=0
 	# With no file named, `grep` reads its standard input -- which is not a
 	# terminal here, so it would wait on it rather than find nothing.
 	if [ "$#" -eq 0 ]; then
 		fail "no files to scan; the check would pass for the wrong reason"
 		return
 	fi
+	# The batches must be the operands, each once and in order: a gap or a
+	# batch lost here would be files this scan reports clean without reading.
+	bounds="$(batch_bounds "$@")"
+	for bound in $bounds; do
+		start="${bound%%:*}"
+		count="${bound#*:}"
+		if [ "$start" -ne "$covered" ] || [ "$count" -lt 1 ]; then
+			break
+		fi
+		covered=$((covered + count))
+	done
+	if [ "$covered" -ne "$#" ]; then
+		fail "the batches cover $covered of $# files; the check would pass for the wrong reason"
+		return
+	fi
 	for entry in "${patterns[@]}"; do
 		name="${entry%%:*}"
 		pattern="${entry#*:}"
-		# Status 1 is "no match"; 2 is a file `grep` could not read, which is
-		# a file this scan did not look at.
-		status=0
-		hits="$(grep -n -E -e "$pattern" -- "$@" 2>&1 </dev/null)" || status=$?
-		if [ "$status" -ge 2 ]; then
+		hits=""
+		unreadable=no
+		for bound in $bounds; do
+			start="${bound%%:*}"
+			count="${bound#*:}"
+			# Status 1 is "no match"; 2 is a file `grep` could not read, which
+			# is a file this scan did not look at. Past 2 is a `grep` that did
+			# not run or did not finish -- 126 is the shell's E2BIG -- and the
+			# same: a batch not looked at.
+			status=0
+			batch_hits="$(grep -H -n -E -e "$pattern" -- "${@:$((start + 1)):$count}" 2>&1 </dev/null)" || status=$?
+			if [ "$status" -ge 2 ]; then
+				unreadable=yes
+			fi
+			if [ -n "$batch_hits" ]; then
+				hits="${hits:+$hits
+}$batch_hits"
+			fi
+		done
+		if [ "$unreadable" = yes ]; then
 			fail "grep could not read every file for the '$name' pattern:"
 			printf '%s\n' "$hits" >&2
 		elif [ -n "$hits" ]; then
@@ -275,6 +349,13 @@ fi
 #   - a `.env` that is a symlink to nothing, which the name rule refuses
 #     whatever is under the name, and a `.env` under a directory named `-x`.
 # And `grep`'s failure to read a file (status 2) must be a failure.
+#
+# All of it one name to a batch, so it crosses every batch boundary: the keys
+# above are in the first batch (`-`) and the last (the quoted name), and the
+# file `grep` cannot read is a batch before one it can, whose key must be
+# printed too, under the read failure.
+# `scripts/test-check-no-secrets.sh` does the same over a tree that does not
+# fit on one command line.
 sample_dir="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secret-names.XXXXXX")"
 trap 'rm -f "$control" "$listing"; rm -rf "$sample_dir"' EXIT
 odd_text="$(printf 'caf\303\251\tkey.txt')"
@@ -295,9 +376,10 @@ sample_report="$(
 		printf 'tracked\n'
 	fi
 	failures=0
+	batch_bytes=1
 	list_files "$sample_dir"
 	cd "$sample_dir" && scan ${files[@]+"${files[@]}"} 2>&1
-	grep_names ./does-not-exist 2>&1
+	grep_names ./does-not-exist ./- 2>&1
 )" </dev/null || true
 case "$sample_report" in
 tracked*) sample_tracked=yes ;;
@@ -331,6 +413,10 @@ esac
 case "$sample_report" in
 *"grep could not read every file"*"does-not-exist"*) ;;
 *) fail "a file grep could not read was not a failure; this scan is not working" ;;
+esac
+case "$sample_report" in
+*"grep could not read every file for the 'OpenAI-style key' pattern:"*"does-not-exist"*"./-:1:"*) ;;
+*) fail "a key in the batch after one grep could not read was not printed; this scan is not working" ;;
 esac
 
 scan "${files[@]}" </dev/null

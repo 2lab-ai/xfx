@@ -1,0 +1,68 @@
+
+== platform
+head 64f5f820
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+git version 2.54.0 (Apple Git-157)
+
+== the scripts ci.yml runs, and the test scripts
+scripts/check-no-secrets.sh          grep lines 9   unset GREP_OPTIONS at :22   also: find gh git 
+scripts/check-no-stubs.sh            grep lines 19  unset GREP_OPTIONS at :43   also: awk find sed sort 
+scripts/check-preview-contract.sh    grep lines 7   unset GREP_OPTIONS at :47   also: actionlint awk cargo find gh git jq ruby sed sort 
+scripts/check-tui-preflight-cost.sh  grep lines 5   unset GREP_OPTIONS at :41   also: cargo sed 
+scripts/check-usage-clock.sh         grep lines 4   unset GREP_OPTIONS at :28   also: cargo sed 
+scripts/check-xfx-identity.sh        grep lines 4   unset GREP_OPTIONS at :-    also: git 
+scripts/smoke.sh                     grep lines 5   unset GREP_OPTIONS at :-    also: find python3 
+scripts/test-check-no-secrets.sh     grep lines 8   unset GREP_OPTIONS at :55   also: git sed sort 
+scripts/test-gate-env.sh             grep lines 18  unset GREP_OPTIONS at :38   also: cargo git ruby 
+scripts/test-preview-contract.sh     grep lines 3   unset GREP_OPTIONS at :28   also: find git ruby sed 
+
+== --color in any of them (GREP_COLOR/GREP_COLORS act only with it)
+none
+
+== GREP_COLOR and GREP_COLORS without --color
+identical output
+
+== check-xfx-identity.sh: a tracked path with the retired name, under each GREP_OPTIONS
+GREP_OPTIONS=''       exit 1  check-xfx-identity: the retired product name is still in tracked path names:
+GREP_OPTIONS='-w'     exit 1  check-xfx-identity: the content scan misses the 'prose' residue in its own control; this scan is not working
+GREP_OPTIONS='-x'     exit 1  check-xfx-identity: the content scan misses the 'prose' residue in its own control; this scan is not working
+GREP_OPTIONS='-q'     exit 1  check-xfx-identity: the path scan misses a retired name in a control file name; this scan is not working
+GREP_OPTIONS='-v'     exit 1  check-xfx-identity: the scan flags upstream fx or current xfx names; it would force an allowlist onto a correct tree
+GREP_OPTIONS='-n'     exit 1  check-xfx-identity: the path scan misses a retired name in a control file name; this scan is not working
+GREP_OPTIONS='-c'     exit 1  check-xfx-identity: the path scan misses a retired name in a control file name; this scan is not working
+GREP_OPTIONS='-r'     exit 1  check-xfx-identity: the content scan misses the 'prose' residue in its own control; this scan is not working
+GREP_OPTIONS='-F'     exit 1  check-xfx-identity: the content scan misses the 'prose' residue in its own control; this scan is not working
+GREP_OPTIONS='-o'     exit 1  check-xfx-identity: the path scan misses a retired name in a control file name; this scan is not working
+GREP_OPTIONS='-e docs' exit 1  grep: ^prose\.md:: No such file or directory
+GREP_OPTIONS='-m 1'   exit 1  check-xfx-identity: the retired product name is still in tracked path names:
+
+== check-xfx-identity.sh: a retired name in a Cargo.lock that git config marks -diff
+plain:                                   exit 1  check-xfx-identity: the retired product name is still in tracked content:
+GIT_CONFIG_* core.attributesFile=*.lock -diff: exit 0  check-xfx-identity: ok (2 tracked file(s) scanned)
+
+== smoke.sh: expect_contains and expect_absent, run under each GREP_OPTIONS
+functions extracted: 2
+GREP_OPTIONS=''     absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-v'   absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-x'   absent(the key, which is there): pass   contains("tool":"edit_file", which is there): FAIL
+GREP_OPTIONS='-w'   absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-q'   absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-c'   absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-n'   absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-o'   absent(the key, which is there): FAIL   contains("tool":"edit_file", which is there): pass
+GREP_OPTIONS='-m 0' absent(the key, which is there): event: {"tool":"edit_file"} Authorization: Bearer <fake-key>
+GREP_OPTIONS='-m 0' another line
+GREP_OPTIONS='-m 0' pass   contains("tool":"edit_file", which is there): event: {"tool":"edit_file"} Authorization: Bearer <fake-key>
+GREP_OPTIONS='-m 0' another line
+GREP_OPTIONS='-m 0' FAIL
+smoke.sh:666 and :768 are the same `grep -q(F) <needle> <file>` shape, in the must-contain sense.
+
+== check-no-secrets.sh: GIT_INDEX_FILE naming an index without the file that holds a key
+plain:                         exit 1  check-no-secrets: possible OpenAI-style key:
+GIT_INDEX_FILE=<a.txt only>:   exit 0  check-no-secrets: ok (2 tracked file(s) scanned)
+
+== check-xfx-identity.sh and check-preview-contract.sh: GIT_DIR exported, pointing at a decoy repository
+check-xfx-identity.sh:   decoy index entries 1 -> 2 (1 of its control files among them)
+check-preview-contract.sh: decoy commits 0 -> 5

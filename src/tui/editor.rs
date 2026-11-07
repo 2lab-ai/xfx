@@ -221,7 +221,7 @@ impl Editor {
     /// is the module that owns the arithmetic that moves them
     /// (`super::entity`).
     pub(crate) fn insert_with_entities(&mut self, text: &str, entities: &[Span]) -> Option<Delta> {
-        if text.is_empty() {
+        if !self.can_insert(text.len()) {
             return None;
         }
         // What is selected is replaced by what is inserted, in the same edit
@@ -231,10 +231,6 @@ impl Editor {
             let held: Vec<Span> = self.entities.spans().to_vec();
             (range, held)
         });
-        let freed = selected.as_ref().map_or(0, |(range, _)| range.len());
-        if (self.text.len() - freed).saturating_add(text.len()) > MAX_COMPOSER_BYTES {
-            return None;
-        }
         let caret_before = self.cursor;
         let mut removed = String::new();
         let mut lost: Vec<Span> = Vec::new();
@@ -286,6 +282,15 @@ impl Editor {
             self.cursor,
             DeltaKind::Ordinary,
         ))
+    }
+
+    /// Whether [`Self::insert`] would take `len` bytes at the caret now --
+    /// something to insert, and room for it once the selection it replaces is
+    /// gone -- asked without inserting, as upstream asks `canInsert` before it
+    /// makes what it would insert (`image_commands.zig:128-130@481104fd`).
+    pub(crate) fn can_insert(&self, len: usize) -> bool {
+        let freed = self.selection().map_or(0, |range| range.len());
+        len > 0 && (self.text.len() - freed).saturating_add(len) <= MAX_COMPOSER_BYTES
     }
 
     /// Inserts a collapsed paste's summary at the caret and records the block
