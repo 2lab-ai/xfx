@@ -8,8 +8,12 @@ tags: [xfx, phase5, ci, secrets-gate, receipt]
 
 Every number below is from a log in this folder; each is cited as
 `file: section`. A claim with no log here is marked *(not measured here)*
-with its source. Line numbers are at the code head, `f018d86d`, unless they
-name another commit.
+with its source. Line numbers are at a round's code head unless they name
+another commit: `f018d86d` for rounds 1 and 2, and `64f5f820` for round 3.
+`scripts/check-no-secrets.sh`, `scripts/test-check-no-secrets.sh`,
+`release.yml` and `preview.yml` are the same at both. Round 3 adds lines
+to `ci.yml` only after `:131`. The commits after `64f5f820` change only this
+folder.
 
 `scripts/check-no-secrets.sh` is the secrets gate of CI (`ci.yml`,
 `release.yml`, `preview.yml`) and of every unit's local gate. At the base,
@@ -192,9 +196,13 @@ test` were not run.
 ## Round 3 (SECRETS-ARGMAXc): the other gates and GREP_OPTIONS
 
 **The sweep** (`c-sweep-macos.txt`; the same on Linux in `c-linux.txt`,
-second half; `c-sweep-env.sh` ran both). It covers every script `ci.yml`
-runs, plus every `scripts/test-*.sh`, with its grep lines, its other tools,
-and whether it unsets `GREP_OPTIONS`.
+second half; `c-sweep-env.sh` ran both). For each script `ci.yml` runs on a
+one-line `run:` step, plus every `scripts/test-*.sh`, it lists the grep
+lines, the other tools, and whether the script unsets `GREP_OPTIONS`. Its
+extractor (`c-sweep-env.sh:32`) missed the one script `ci.yml` runs from a
+block `run:`, `smoke-tui.sh` (`ci.yml:199-202`). That script runs no grep:
+its only line with the word, `:10421`, is prose (`d-probes.txt`:
+`ci.yml's block run: steps` and `scripts/smoke-tui.sh`).
 
 **Steerable, now fixed.** At `43ae27de` (the test alone) each gate below
 passes one planted violation under one `GREP_OPTIONS` value on macOS
@@ -222,20 +230,36 @@ case).
   is caught by its own case only (`c-mutants.txt`): 5 of 5, `no-unset-no-stubs` failing only `no-stubs`, and so on for `preview-contract`, `test-preview-contract`, `tui-preflight-cost` and `usage-clock`.
 - **Wiring:** `ci.yml:133-138` runs `./scripts/test-gate-env.sh` after the
   secrets test. It takes 118-120 s on macOS, most of it
-  `test-preview-contract`, and 24-26 s on Linux (`c-gate-env-macos.txt`,
+  `test-preview-contract`, and 19-20 s on Linux (`c-gate-env-macos.txt`,
   `c-linux.txt`). It is also added to the gate lists in `README.md`,
   `CONTRIBUTING.md` and `.prd/02-architecture.md`.
 
 **Not steerable, one line each:**
 - `check-xfx-identity.sh`: all 12 values tried fail one of its own controls
   or report the planted path (`c-sweep-macos.txt`: `under each
-  GREP_OPTIONS`). Its controls run the same grep both ways: must find in the
-  dirty repository, must not in the clean one. A pattern given in
-  `GREP_OPTIONS` turns their positional patterns into file names.
-- `smoke.sh`: `expect_absent` and `expect_contains` are the same `grep -qF
-  <needle> <file>`. The values that hide a present key, `-x` and `-m 0`, hide
-  `expect_contains`' present needle too, so the run fails (`c-sweep-macos.txt`:
-  `smoke.sh`). `:666` and `:768` have the same shape.
+  GREP_OPTIONS`).
+  - Its content scan is `git grep` (`:51`), which does not read the
+    variable: `-v --exclude=*.md` leaves its output unchanged (`d-probes.txt`:
+    `git grep and GREP_OPTIONS`).
+  - Its path scan (`:56`) and its controls (`:97`, `:102`) read standard
+    input or a here-string. BSD grep's `--exclude` skips a file operand and
+    does not apply to either of those (`d-probes.txt`: `BSD grep's
+    --exclude`).
+  - The controls run the same grep both ways: must find in the dirty
+    repository, must not in the clean one. A pattern given in `GREP_OPTIONS`
+    turns their positional patterns into file names.
+- `smoke.sh`: its credential verdict does not rest on grep. The Python walk
+  at `:834-901`, `os.walk` at `:847`, reads every evidence file and fails the
+  run if the key is anywhere but the Gateway's own record (the rule at
+  `:829-830`, the verdict at `:902-908`). Its grep assertions alone can be
+  steered:
+  - `expect_absent` at `:617` passes with the key present in `content.err`
+    under `GREP_OPTIONS='--exclude=*content.err'`, and no `expect_contains`
+    reads that file (`d-probes.txt`: `smoke.sh's expect_absent at :617`).
+  - Values that act on every file, `-x` and `-m 0`, hide `expect_contains`'
+    present needles too (`c-sweep-macos.txt`: `smoke.sh`).
+  - So the walk is what keeps the run from passing. `smoke.sh` is left
+    without the unset, and a later change to the walk would need it.
 - `test-check-no-secrets.sh` (`:55`) and `test-gate-env.sh` (`:38`) unset it
   themselves.
 - `GREP_COLOR`, `GREP_COLORS`: they act only with `--color`, which no gate
@@ -278,12 +302,11 @@ review.
   listing in `.prd/02-architecture.md`.
 - `docs/parity.md`: no row. This is tooling, not fx behaviour.
 
-## Not fixed here
+## The round-2 lead on check-xfx-identity
 
-`scripts/check-xfx-identity.sh:56` pipes `git ls-files` into `grep -i`, so on
-macOS that grep reads `GREP_OPTIONS` too. That check is another gate with its
-own positive control, and I have not measured whether a `GREP_OPTIONS` value
-gets past it. It reads names on standard input, so it has no ARG_MAX issue.
+Round 2 left open whether `GREP_OPTIONS` gets past `check-xfx-identity.sh`'s
+path grep at `:56`. Round 3 measured it: it does not (`Round 3`, `Not
+steerable`). It reads names on standard input, so it has no ARG_MAX issue.
 
 ## Files
 
@@ -294,6 +317,8 @@ gets past it. It reads names on standard input, so it has no ARG_MAX issue.
 - `c-*`: round 3. `c-sweep-env.sh` (the sweep), `c-gate-env-runs.sh` (the
   macOS RED and GREEN), `c-linux.sh` (the Linux run, which ends with the
   sweep), `c-mutants.py`, and their logs.
+- `d-probes.sh`, `d-probes.txt`: the probes behind this round's corrected
+  sentences, run on macOS on a clone of `6ab07cea`.
 - `publish.py`: how the logs got here. One edit beyond redaction: the
   driver's first line in `mutants.txt` named the session shell's `grep`, a
   wrapper the tests never run. `publish.py` replaced it with the `grep` the
