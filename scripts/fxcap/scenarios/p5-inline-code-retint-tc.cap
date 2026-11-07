@@ -1,0 +1,22 @@
+# P5 U3-TC: p5-inline-code-retint in a session that claims truecolor
+# (COLORTERM=truecolor). fx's builtins are 256-colour at every depth
+# (theme.zig:75-159@481104fd; truecolor reaches only the diff markers and the
+# Ultra mark, render.zig:98,395) and its switch rewrites bytes, not depths
+# (store.zig:3784-3800), so its capture is the 256-colour one. xfx paints its
+# own greys in the direct notation here (theme::depth_from_env) and its
+# answer's inline code and code block in 38;5, which a report has to find.
+gateway p5-inline-code-retint-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env COLORTERM=truecolor
+wait 4
+type show me the code
+wait 1
+key Enter
+wait 8
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark-again

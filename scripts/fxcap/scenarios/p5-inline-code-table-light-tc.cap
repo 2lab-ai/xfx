@@ -1,0 +1,18 @@
+# P5 U3-TC: p5-inline-code-table-light in a session that claims truecolor,
+# as p5-inline-code-retint-tc.
+gateway p5-inline-code-table-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env COLORTERM=truecolor
+env COLORFGBG='0;15'
+wait 4
+type show me the table
+wait 1
+key Enter
+wait 8
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light-again

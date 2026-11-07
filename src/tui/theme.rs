@@ -489,22 +489,24 @@ impl Palette {
     /// (`BODY`), xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`), an
     /// outcome notice's label ([`Self::notice_label`]) and a cancelled tool
     /// call's mark ([`Self::warning`]) -- and a cell is
-    /// recognised by the colour it is *holding*, in **either** mode, at this
-    /// palette's own depth. Both sides map onto the mode in force rather than
-    /// old-to-new, and that is what makes a run of reports converge: a chained
-    /// pair would take a session reported dark, light and dark again back to
-    /// light, because the second report would find cells the first one never
-    /// reached.
+    /// recognised by the colour it is *holding*, in **either** mode, in the
+    /// notation it is spelt in ([`Self::painter_of`]). Both sides map onto the
+    /// mode in force rather than old-to-new, and that is what makes a run of
+    /// reports converge: a chained pair would take a session reported dark,
+    /// light and dark again back to light, because the second report would
+    /// find cells the first one never reached.
     ///
     /// `None` is most of a screen, and each of its three shapes is a decision.
     /// A colour this crate did not paint is somebody else's -- the user's own
     /// echo carries none at all -- and is left exactly as it is. A cell already
     /// in this palette's grey is not a cell to rewrite, which is what makes a
-    /// report that flipped and flipped back cost no bytes. And a spelling at
-    /// the other depth is not this session's painting: the depth is a property
-    /// of the terminal program and does not move under a running session
-    /// (`depth_from_env`).
+    /// report that flipped and flipped back cost no bytes. And a direct
+    /// spelling in a 256-colour session is not this session's painting: the
+    /// depth is a property of the terminal program and does not move under a
+    /// running session (`depth_from_env`), and nothing in such a session
+    /// writes a `38;2` grey.
     pub(crate) fn document_retint(&self, colour: Color) -> Option<&'static str> {
+        let at = self.painter_of(colour);
         // xfx's own colours in the document: its notices, the card's rail
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
@@ -518,12 +520,12 @@ impl Palette {
             .find(|&role| {
                 [Mode::Dark, Mode::Light]
                     .into_iter()
-                    .any(|mode| self.shade(role, mode) == Some(colour))
+                    .any(|mode| at.shade(role, mode) == Some(colour))
             })?;
-        if self.shade(role, self.mode) == Some(colour) {
+        if at.shade(role, at.mode) == Some(colour) {
             return None;
         }
-        Some(self.paint(role))
+        Some(at.paint(role))
     }
 
     /// [`Self::document_retint`], for a cell on a row of the kind given.
@@ -558,15 +560,49 @@ impl Palette {
             DocumentRow::Code => &[COMMENT, COMMAND, NOTICE],
             DocumentRow::Table => return None,
         };
+        let at = self.painter_of(colour);
         let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
-                .any(|mode| self.shade(role, mode) == Some(colour))
+                .any(|mode| at.shade(role, mode) == Some(colour))
         })?;
-        if self.shade(role, self.mode) == Some(colour) {
+        if at.shade(role, at.mode) == Some(colour) {
             return None;
         }
-        Some(self.paint(role))
+        Some(at.paint(role))
+    }
+
+    /// This palette at the depth a cell holding `colour` was painted at.
+    ///
+    /// **A truecolor session writes its document in two notations.** This
+    /// palette's own greys -- xfx's notices, a turn's summary, the card's rail,
+    /// a tool group's statusline grey -- are spelt exactly (`38;2`, see
+    /// [`truecolor`]). The presenter's and the highlighter's are not: an
+    /// answer's inline code, a code block's words, strings, numbers and
+    /// comments, and a command's words in a tool group are `markdown::theme`'s
+    /// `38;5` at every depth, as upstream's builtins are -- `fx_dark` and
+    /// `fx_light` are 256-colour literals
+    /// (`src/core/shared/theme.zig:75-159@481104fd`), the terminal's truecolor
+    /// claim reaches only a selected theme's diff markers and the Ultra mark
+    /// (`src/ui/render.zig:92-104,395`), and a switch rewrites those bytes
+    /// through a table that names `38;5` alone
+    /// (`src/ui/transcript/store.zig:3784-3800`). So upstream recolours them
+    /// in a truecolor session as it does in a 256-colour one, and so does this:
+    /// an indexed cell in a truecolor session is answered as a 256-colour
+    /// session answers it, and repainted in the notation it holds -- a cell
+    /// repainted in the other one would hold a colour neither notation's report
+    /// recognises the next time the terminal changes.
+    ///
+    /// The other way round stays `None`: a 256-colour session writes no direct
+    /// grey, so one on its screen is not its painting.
+    fn painter_of(&self, colour: Color) -> Palette {
+        match (self.depth, colour) {
+            (Depth::TrueColor, Color::Indexed(_)) => Palette {
+                depth: Depth::Ansi256,
+                ..*self
+            },
+            _ => *self,
+        }
     }
 
     /// One role's colour in `mode`, at this palette's depth, **as a value**.
@@ -1164,17 +1200,97 @@ mod tests {
             Some("\u{1b}[38;2;98;98;98m")
         );
         assert_eq!(light.document_retint(Color::Rgb(38, 38, 38)), None);
-        // And nothing across the two depths: an indexed cell is not one this
-        // session painted, and neither is a direct one in a 256-colour session.
-        assert_eq!(light.document_retint(Color::Indexed(255)), None);
+        // An indexed cell in this session is the presenter's -- an answer's
+        // inline code is `markdown::theme`'s `38;5` at every depth, as fx's
+        // builtins are (`theme.zig:102,145@481104fd`) -- and is answered and
+        // repainted in its own notation, as fx's switch rewrites it
+        // (`store.zig:3786,3795`). Never in the direct one.
         assert_eq!(
-            Palette {
-                mode: Mode::Light,
-                depth: Depth::Ansi256,
-            }
-            .document_retint(Color::Rgb(238, 238, 238)),
+            light.document_retint(Color::Indexed(255)),
+            Some("\u{1b}[38;5;235m")
+        );
+        assert_eq!(light.document_retint(Color::Indexed(235)), None);
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::TrueColor,
+        };
+        assert_eq!(
+            dark.document_retint(Color::Indexed(235)),
+            Some("\u{1b}[38;5;255m")
+        );
+        assert_eq!(
+            dark.document_retint(Color::Rgb(38, 38, 38)),
+            Some("\u{1b}[38;2;238;238;238m")
+        );
+        // And not the other way: a 256-colour session writes no direct grey,
+        // so one on its screen is not its painting.
+        let indexed = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(indexed.document_retint(Color::Rgb(238, 238, 238)), None);
+        assert_eq!(
+            indexed.document_retint_in(DocumentRow::Code, Color::Rgb(138, 138, 138)),
             None
         );
+    }
+
+    #[test]
+    fn a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx() {
+        // The highlighter paints a code block and a command's words in `38;5`
+        // at every depth (`theme.zig:107-115,150-158@481104fd`), and fx draws
+        // a block again in the new theme (`transcript_blocks.zig:2023-2029`)
+        // and rewrites a tool row's bytes (`store.zig:3745-3750`) whatever the
+        // terminal claimed. So in a truecolor session those cells move as they
+        // do in a 256-colour one, spelt as they were drawn.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::TrueColor,
+        };
+        for (row, from, to) in [
+            (DocumentRow::Code, 245, "\u{1b}[38;5;243m"),
+            (DocumentRow::Code, 252, "\u{1b}[38;5;238m"),
+            (DocumentRow::Code, 250, "\u{1b}[38;5;241m"),
+            (DocumentRow::ToolGroup, 252, "\u{1b}[38;5;238m"),
+            (DocumentRow::ToolStopped, 252, "\u{1b}[38;5;238m"),
+        ] {
+            assert_eq!(
+                light.document_retint_in(row, Color::Indexed(from)),
+                Some(to),
+                "{row:?} {from}"
+            );
+        }
+        for (row, from, to) in [
+            (DocumentRow::Code, 243, "\u{1b}[38;5;245m"),
+            (DocumentRow::Code, 238, "\u{1b}[38;5;252m"),
+            (DocumentRow::Code, 241, "\u{1b}[38;5;250m"),
+            (DocumentRow::ToolGroup, 238, "\u{1b}[38;5;252m"),
+        ] {
+            assert_eq!(
+                dark.document_retint_in(row, Color::Indexed(from)),
+                Some(to),
+                "{row:?} {from}"
+            );
+        }
+        // The palette's own grey on a tool group's row is still spelt exactly.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolGroup, Color::Rgb(138, 138, 138)),
+            Some("\u{1b}[38;2;98;98;98m")
+        );
+        // A table keeps what it was drawn in, at this depth too
+        // (`store.zig:3758`), and a link is nobody's grey.
+        for index in [255, 235, 245, 252] {
+            assert_eq!(
+                light.document_retint_in(DocumentRow::Table, Color::Indexed(index)),
+                None,
+                "{index}"
+            );
+        }
+        assert_eq!(light.document_retint(Color::Indexed(75)), None);
     }
 
     #[test]

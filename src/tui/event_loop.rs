@@ -2316,6 +2316,11 @@ mod tests {
 
     /// [`shell`] on a screen of `rows` x `cols`.
     fn shell_of(rows: u16, cols: u16) -> Fixture {
+        shell_at(rows, cols, crate::tui::theme::Depth::Ansi256)
+    }
+
+    /// [`shell_of`] on a terminal of the colour depth given.
+    fn shell_at(rows: u16, cols: u16, depth: crate::tui::theme::Depth) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A workspace with the same last component in every fixture, because
@@ -2335,7 +2340,7 @@ mod tests {
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth: crate::tui::theme::Depth::Ansi256,
+                    depth,
                 },
                 false,
                 work,
@@ -5629,6 +5634,117 @@ mod tests {
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(fg_of(&back, "zig build"), Some(255), "{back:?}");
         assert_eq!(fg_of(&back, "# build it"), Some(245), "{back:?}");
+    }
+
+    /// The foreground the first run of `needle` is written under, **as it is
+    /// spelt** (`38;5;N` or `38;2;R;G;B`), read off the bytes: the last
+    /// foreground set before it, unless a reset or a `39` came after. `None`
+    /// when `needle` is not in `written`, or is written under no colour.
+    fn fg_spelt(written: &str, needle: &str) -> Option<String> {
+        let at = written.find(needle)?;
+        let mut fg = None;
+        for (index, _) in written[..at].match_indices("\u{1b}[") {
+            let rest = &written[index + 2..at];
+            let Some(end) = rest.find(|c: char| c.is_ascii_alphabetic()) else {
+                continue;
+            };
+            if rest.as_bytes()[end] != b'm' {
+                continue;
+            }
+            let params: Vec<&str> = rest[..end].split(';').collect();
+            let mut i = 0;
+            while i < params.len() {
+                match params[i] {
+                    "" | "0" | "39" => fg = None,
+                    "38" if params.get(i + 1) == Some(&"5") && i + 2 < params.len() => {
+                        fg = Some(params[i..=i + 2].join(";"));
+                        i += 2;
+                    }
+                    "38" if params.get(i + 1) == Some(&"2") && i + 4 < params.len() => {
+                        fg = Some(params[i..=i + 4].join(";"));
+                        i += 4;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+        fg
+    }
+
+    #[test]
+    fn a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in() {
+        // A session whose terminal claims truecolor paints xfx's own greys in
+        // `38;2` (`theme::depth_from_env`) and an answer's inline code and code
+        // block in `markdown::theme`'s `38;5`, as fx's builtins are at every
+        // depth (`theme.zig:75-159@481104fd`) -- and fx recolours those on a
+        // switch whatever the terminal claimed (`store.zig:3784-3800`,
+        // `transcript_blocks.zig:2023-2029`). So here the inline code and the
+        // comment move as in a 256-colour session, still spelt `38;5`, while
+        // the turn's summary moves in the direct notation it was drawn in.
+        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.apply(UiEvent::Delta(
+            "Run `zig build` first.\n\n```sh\n# build it\nzig build\n```\n\nDone.\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_spelt(&landed, "zig build").as_deref(),
+            Some("38;5;255"),
+            "{landed:?}"
+        );
+        assert_eq!(
+            fg_spelt(&landed, "# build it").as_deref(),
+            Some("38;5;245"),
+            "{landed:?}"
+        );
+        assert_eq!(
+            fg_spelt(&landed, "0s (").as_deref(),
+            Some("38;2;138;138;138"),
+            "{landed:?}"
+        );
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_spelt(&written, "zig build").as_deref(),
+            Some("38;5;235"),
+            "the answer's inline code kept the dark grey, or changed notation: {written:?}"
+        );
+        assert_eq!(
+            fg_spelt(&written, "# build it").as_deref(),
+            Some("38;5;243"),
+            "the code block's comment was not given the light comment grey: {written:?}"
+        );
+        assert_eq!(
+            fg_spelt(&written, "0s (").as_deref(),
+            Some("38;2;158;158;158"),
+            "the summary left the direct notation it was drawn in: {written:?}"
+        );
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_spelt(&back, "zig build").as_deref(),
+            Some("38;5;255"),
+            "{back:?}"
+        );
+        assert_eq!(
+            fg_spelt(&back, "# build it").as_deref(),
+            Some("38;5;245"),
+            "{back:?}"
+        );
+        assert_eq!(
+            fg_spelt(&back, "0s (").as_deref(),
+            Some("38;2;138;138;138"),
+            "{back:?}"
+        );
     }
 
     #[test]
