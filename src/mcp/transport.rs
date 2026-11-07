@@ -47,7 +47,7 @@ const STDERR_TAIL_BYTES: usize = 4 * 1024;
 const STDERR_SETTLE: Duration = Duration::from_millis(500);
 
 /// How often a waiting call looks at the turn's cancellation.
-const CANCEL_POLL: Duration = Duration::from_millis(20);
+pub(super) const CANCEL_POLL: Duration = Duration::from_millis(20);
 
 /// How long a stopping server is given after `SIGTERM` before `SIGKILL`.
 const STOP_GRACE: Duration = Duration::from_millis(500);
@@ -79,14 +79,33 @@ pub trait Transport: Send + Sync {
         timeout: Duration,
         cancel: Option<&CancelToken>,
     ) -> Result<Value, McpError>;
-    /// Sends a notification, which has no answer.
-    fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError>;
+    /// Sends a notification, which has no answer; given up on once `cancel`
+    /// is set.
+    fn notify(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError>;
     /// Whether the connection can still carry a request.
     fn alive(&self) -> bool;
     /// What the server said on its own way out, when it has gone.
     fn diagnostic(&self) -> Option<String>;
+    /// How a server that is a process ended, once it has: asked beside
+    /// [`Self::diagnostic`], before [`Self::close`] ends it itself.
+    fn exit(&self) -> Option<Exit> {
+        None
+    }
     /// Ends the connection and everything it started.
     fn close(&self);
+}
+
+/// How a server's process ended: its exit code, or the signal that ended it
+/// (`Exit`, `vercel-labs/fx@481104fd src/mcp/io/process.zig:165`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    Code(i32),
+    Signal(i32),
 }
 
 /// One JSON-RPC request, in upstream's key order: `jsonrpc`, `id`, `method`,
@@ -123,7 +142,6 @@ pub fn answer(frame: Value) -> Result<Value, McpError> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
-            data: error.get("data").cloned(),
         });
     }
     frame.remove("result").ok_or(McpError::Named("McpNoResult"))
@@ -732,11 +750,16 @@ impl Transport for StdioTransport {
         result
     }
 
-    fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError> {
+    fn notify(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError> {
         self.write(
             &notification_frame(method, params),
             Instant::now() + FRAME_WRITE_TIMEOUT,
-            None,
+            cancel,
         )
     }
 
@@ -757,6 +780,26 @@ impl Transport for StdioTransport {
         let tail = self.stderr.lock().unwrap_or_else(PoisonError::into_inner);
         let tail = tail.trim();
         (!tail.is_empty()).then(|| tail.to_string())
+    }
+
+    fn exit(&self) -> Option<Exit> {
+        // A server whose standard error has ended is on its way out: its exit
+        // is waited for as briefly as its last words are. One still writing
+        // there is looked at once, and one already closed has nothing left.
+        let deadline = Instant::now() + STDERR_SETTLE;
+        loop {
+            let found = {
+                let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+                exit_of(child.as_mut()?)
+            };
+            if found.is_some()
+                || !self.stderr_closed.load(Ordering::Acquire)
+                || Instant::now() >= deadline
+            {
+                return found;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     fn close(&self) {
@@ -788,6 +831,34 @@ impl Drop for StdioTransport {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// How `child` ended, if it has, leaving it uncollected: its id stays its
+/// group's until [`stop_child`] collects it (`NOWAIT`, as [`Stopping::exited`]
+/// reads it).
+#[cfg(unix)]
+fn exit_of(child: &mut Child) -> Option<Exit> {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+    let leader = rustix::process::Pid::from_raw(child.id() as i32)?;
+    let status = waitid(
+        WaitId::Pid(leader),
+        WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+    )
+    .ok()??;
+    status
+        .exit_status()
+        .map(Exit::Code)
+        .or_else(|| status.terminating_signal().map(Exit::Signal))
+}
+
+/// No group is signalled here, so collecting early costs nothing.
+#[cfg(not(unix))]
+fn exit_of(child: &mut Child) -> Option<Exit> {
+    child
+        .try_wait()
+        .ok()?
+        .and_then(|status| status.code())
+        .map(Exit::Code)
 }
 
 /// Stops `child` and its process group: `SIGTERM`, a short grace, `SIGKILL`,
@@ -989,14 +1060,19 @@ impl Transport for HttpTransport {
         result
     }
 
-    fn notify(&self, method: &str, params: Option<Value>) -> Result<(), McpError> {
+    fn notify(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<(), McpError> {
         let (reply, receiver) = mpsc::channel();
         self.send(HttpJob {
             body: notification_frame(method, params.or_else(|| Some(json!({})))),
             id: None,
             reply,
         })?;
-        wait(&receiver, Duration::from_secs(10), None).map(|_| ())
+        wait(&receiver, Duration::from_secs(10), cancel).map(|_| ())
     }
 
     fn alive(&self) -> bool {
@@ -1328,7 +1404,6 @@ mod tests {
             Err(McpError::Protocol {
                 code: -32601,
                 message: "Method not found".into(),
-                data: None
             })
         );
         assert_eq!(
@@ -2237,7 +2312,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         );
         // Whatever went before this reaches the server before it.
         transport
-            .notify("notifications/sentinel", None)
+            .notify("notifications/sentinel", None, None)
             .expect("the sentinel");
         let sentinel = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/sentinel\"}\n";
         let deadline = Instant::now() + Duration::from_secs(30);
@@ -2325,5 +2400,61 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             Some("npm error code E401")
         );
         transport.close();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_servers_exit_is_read_without_collecting_it_and_close_collects_it_and_its_group() {
+        // `Transport::exit` reads how the process ended with `NOWAIT`: as
+        // often as asked, the same answer, and the leader still uncollected,
+        // so its id is still its group's until `close` collects it.
+        let transport = StdioTransport::spawn(
+            "/bin/sh",
+            &["-c".into(), "exec 0<&-; exit 3".into()],
+            &[],
+            None,
+        )
+        .expect("spawned");
+        let leader = rustix::process::Pid::from_raw(
+            transport
+                .child
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("a child")
+                .id() as i32,
+        )
+        .expect("pid");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let first = loop {
+            if let Some(exit) = transport.exit() {
+                break exit;
+            }
+            assert!(Instant::now() < deadline, "the server never exited");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(first, Exit::Code(3));
+        for _ in 0..3 {
+            assert_eq!(transport.exit(), Some(Exit::Code(3)));
+        }
+        let uncollected = || {
+            matches!(
+                rustix::process::waitid(
+                    rustix::process::WaitId::Pid(leader),
+                    rustix::process::WaitIdOptions::EXITED
+                        | rustix::process::WaitIdOptions::NOWAIT
+                        | rustix::process::WaitIdOptions::NOHANG,
+                ),
+                Ok(Some(_))
+            )
+        };
+        assert!(uncollected(), "reading the exit collected the leader");
+        transport.close();
+        assert!(!uncollected(), "close left the leader uncollected");
+        assert!(
+            rustix::process::test_kill_process_group(leader).is_err(),
+            "its group outlived the close"
+        );
+        assert_eq!(transport.exit(), None, "closed: nothing left to read");
     }
 }

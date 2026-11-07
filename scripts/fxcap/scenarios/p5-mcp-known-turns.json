@@ -1,0 +1,5 @@
+[
+ {"tool":{"id":"call_echo","name":"mcp_fixture_echo","input":{"text":"hi"}}},
+ {"chunks":["done."]},
+ {"chunks":["again."]}
+]

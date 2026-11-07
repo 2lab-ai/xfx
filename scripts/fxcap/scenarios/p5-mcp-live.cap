@@ -1,0 +1,48 @@
+# p5 mcp: MCP calls caught while they run. The run's loopback HTTP MCP server
+# (`mcphttp`) is ready at launch, so the server and its one tool come up; it
+# is told to hang just before each prompt, so the turn's search is answered
+# from the catalog and its `tools/call` is held.
+# Turn 1: the live frame (the group, the running call's row, the activity
+# row), then the server answers and the group settles to one search and one
+# MCP call; Ctrl-O shows that group in the full transcript.
+# Turn 2: the held call is stopped with Ctrl-C (the cancelled MCP call's row
+# and line), and the server is let go after; the stopped turn asks the model
+# nothing more, so the turns file has no answer for it.
+# Turn 3: the server refuses every request (`rpcerror`), so the call fails
+# (the failed MCP call's row and count).
+mcphttp ready
+fx: homefile .fx/mcp.json p5-mcp-live-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-live-profile.json
+gateway p5-mcp-live-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 6
+mcphttp hang
+type use the web echo tool
+key Enter
+wait 3
+snap live
+mcphttp ready
+wait 4
+snap turn
+key C-o
+wait 1
+snap full
+key Escape
+wait 0.5
+mcphttp hang
+type and once more
+key Enter
+wait 3
+key C-c
+wait 1.5
+snap cancel
+mcphttp ready
+wait 2
+snap end
+mcphttp rpcerror
+type and a last time
+key Enter
+wait 4
+snap failed
+gwlog

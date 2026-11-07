@@ -1,0 +1,19 @@
+# p5-mcp-wire-new: the frames fx v0.0.16 and xfx at this branch sent the fixture
+frames: fx=6 xfx=5
+  fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{"elicitation":{"form":{},"url":{}}},"io.modelcontextprotocol/clientInfo":{"name":"fx","version":"0.0.16"}}}}
+  fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":{"elicitation":{"form":{},"url":{}}},"clientInfo":{"name":"fx","version":"0.0.16"}}}
+  fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+  fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+  fx  {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4},"name":"echo","arguments":{"text":"hi"}}}
+  fx  {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"_meta":{"progressToken":5},"name":"echo","arguments":{"text":"again"}}}
+  xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"xfx","version":"0.1.0"}}}
+  xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+  xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+  xfx {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}}
+  xfx {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"_meta":{"progressToken":3},"name":"echo","arguments":{"text":"again"}}}
+server/discover: fx=1 xfx=0 identical=False
+initialize: fx=1 xfx=1 identical=False
+notifications/initialized: fx=1 xfx=1 identical=False
+tools/list: fx=1 xfx=1 identical=False
+tools/call: fx=2 xfx=2 identical=False
+RESULT: DIFFERS

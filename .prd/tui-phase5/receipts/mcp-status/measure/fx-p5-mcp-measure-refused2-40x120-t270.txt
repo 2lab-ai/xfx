@@ -1,0 +1,40 @@
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       retrying
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+* mcp: NAME    SOURCE          TRANSPORT  STATUS
+  remote  ~/.fx/mcp.json  http       connecting
+
+┃
+
+auto · model-a                                                                                      remote failed · /mcp
+
+
+
+

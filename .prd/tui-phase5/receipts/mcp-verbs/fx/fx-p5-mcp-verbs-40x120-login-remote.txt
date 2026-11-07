@@ -1,0 +1,40 @@
+  remote   ~/.fx/mcp.json  http       connecting
+  proj     .mcp.json       stdio      waiting for approval
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2025-03-26
+    transport  stdio
+    command    <bun> <scenarios>/
+  p5-mcp-stdio.ts
+    source     ~/.fx/mcp.json
+    tools      1
+      echo  Echo text through the legacy MCP fixture
+
+* mcp: proj
+    status     waiting for approval
+    transport  stdio
+    command    <bun> <scenarios>/
+  p5-mcp-stdio.ts
+    source     .mcp.json
+    next       /mcp approve proj
+
+! mcp: fixture runs a command, so it has no login.
+
+* mcp: remote
+    status     retrying
+    transport  http
+    url        http://127.0.0.1:9/mcp
+    source     ~/.fx/mcp.json
+    error      it refused or never answered fx's initialize request
+
+! mcp: Couldn't sign in to remote: fx couldn't find how to sign in to it.
+
+┃
+
+auto · model-a                                                                       proj is waiting for approval · /mcp
+
+
+
+
+

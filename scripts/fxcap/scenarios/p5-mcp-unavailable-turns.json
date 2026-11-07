@@ -1,0 +1,4 @@
+[
+ {"tool":{"id":"call_search","name":"capability_search","input":{"query":"weather forecast"}}},
+ {"chunks":["none."]}
+]

@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: NAME      SOURCE          TRANSPORT  STATUS
+  fixture   ~/.fx/mcp.json  stdio      ready, 1 tool
+  fallback  ~/.fx/mcp.json  stdio      ready, 1 tool
+
+! mcp: note: ~/.fx/mcp.json server 'unset' field argument requires environment variable 'P5_UNSET_TOKEN'; set it or use
+  ${P5_UNSET_TOKEN:-default}.
+  note: ~/.fx/mcp.json server 'remote' field http_header requires environment variable 'P5_UNSET_HEADER'; set it or use
+  ${P5_UNSET_HEADER:-default}.
+  note: ~/.fx/mcp.json server 'badref' was skipped: a ${...} in it isn't valid.
+  note: ~/.fx/mcp.json server 'evil\x1b]0;x\x07' was skipped: its name has a character fx won't print.
+  note: ~/.fx/mcp.json server 'rtl\u{202e}txt' was skipped: its name has a character fx won't print.
+
+┃
+
+auto · model-a                                                                     MCP config has 5 problems · /mcp list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

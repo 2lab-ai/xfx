@@ -1,0 +1,22 @@
+# p5 mcp: what the model is told when a server refuses a call with a JSON-RPC
+# error. The run's loopback HTTP MCP server (`mcphttp`) is ready at launch;
+# turn one calls its tool by name and it answers; then it refuses every
+# request (`rpcerror`, -32603 `fixture refuses`) and turn two calls it again.
+# fx v0.0.16 tells the model `MCP protocol error -32603: fixture refuses`
+# (`write_protocol_diagnostic`, src/core/mcp/tool_result.zig:199-214@481104fd).
+mcphttp ready
+fx: homefile .fx/mcp.json p5-mcp-live-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-live-profile.json
+gateway p5-mcp-rpcerror-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 6
+type use the web echo tool
+key Enter
+wait 6
+mcphttp rpcerror
+type and once more
+key Enter
+wait 6
+snap failed
+gwlog

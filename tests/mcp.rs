@@ -4,8 +4,9 @@
 //!
 //! The claims are the ones a person and a model can check: the menu names the
 //! configured server and its state, a turn's request carries upstream's servers
-//! block and meta-tools and -- once a search selects it -- the server's own
-//! tool, and the tool's answer is what reaches the next request.
+//! block and meta-tools and -- once a search selects it, or the model calls it
+//! by name -- the server's own tool, and the tool's answer is what reaches the
+//! next request.
 
 #![cfg(unix)]
 
@@ -58,6 +59,52 @@ fn system_texts(body: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Opens `/mcp`, waits for the fixture's row to say it is ready, and closes
+/// the menu again, so a turn typed next finds the server up.
+fn wait_until_ready_in_the_menu(session: &mut Session) {
+    session.type_bytes(b"/mcp\r");
+    session.wait_for("MCP servers");
+    session.wait_for("ready, 1 tool");
+    close_the_menu(session);
+}
+
+/// Esc until the menu is closed: each is a lone Esc once it has 50 ms of
+/// quiet (a letter typed before that would make it Alt+letter). The hint row
+/// painted back -- the model's name on it, which the open menu's key help
+/// replaced -- is what says it closed.
+fn close_the_menu(session: &mut Session) {
+    let shown = session.text().matches(MODEL).count();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while session.text().matches(MODEL).count() <= shown {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the menu never closed"
+        );
+        session.type_bytes(b"\x1b");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+}
+
+/// A key the menu takes, and a moment for the frame it asks for.
+fn press(session: &Session, key: &[u8]) {
+    session.type_bytes(key);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+}
+
+/// Enter, yes to `question` once the screen shows it after byte `from` of
+/// the session's output: 600 ms after the question is on the screen, past
+/// the 500 ms in which an Enter after the one that asked is that one held
+/// down and answers nothing (`MCP_ENTER_HELD`) -- counted from the screen,
+/// not from when the earlier Enter was typed (opus-Y).
+fn answer(session: &Session, from: usize, question: &str) {
+    session.wait_until(question, |text| text[from..].contains(question));
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    press(session, ENTER);
+}
+
+const DOWN: &[u8] = b"\x1b[B";
+const ENTER: &[u8] = b"\r";
+
 fn tool_names(body: &Value) -> Vec<String> {
     body["tools"]
         .as_array()
@@ -96,22 +143,7 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
     pty.resize(40, 120);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
     session.wait_for(READY);
-
-    session.type_bytes(b"/mcp\r");
-    session.wait_for("[Servers]");
-    // The row may first be painted `Reloading` while the server starts; the
-    // frame that follows rewrites only the cells that change, `ady    `.
-    session.wait_until("the server row to say Ready", |text| {
-        text.contains("Ready") || (text.contains("Reloading") && text.contains("ady    "))
-    });
-    session.wait_for("stdio \u{b7} Profile");
-    // Esc closes the menu once it is known to be a lone Esc (50 ms of
-    // quiet); a letter typed before that would make it Alt+letter. The hint
-    // row painted back -- the model's name on it, which the open menu's key
-    // help replaced -- is what says it settled.
-    let shown = session.text().matches(MODEL).count();
-    session.type_bytes(b"\x1b");
-    session.wait_for_count(MODEL, shown + 1);
+    wait_until_ready_in_the_menu(&mut session);
 
     session.type_bytes(b"use the echo tool\r");
     session.wait_for("MARKER-MCP-DONE");
@@ -122,16 +154,22 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
     let requests = gateway.requests();
     assert_eq!(requests.len(), 3, "one request per step");
     let first = requests[0].json();
+    // No `tools="1"` yet: fx v0.0.16 names a count only once its catalog has
+    // read the server's list (`p5-mcp-turn`'s bodies).
     assert!(
         system_texts(&first).iter().any(|text| text.ends_with(
-            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n"
+            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" />\n</mcp_servers>\n"
         )),
         "{first:#}"
     );
     let names = tool_names(&first);
-    for meta in ["capability_search", "mcp_select_tool", "mcp_features"] {
+    for meta in ["capability_search", "mcp_select_tool"] {
         assert!(names.iter().any(|name| name == meta), "{names:?}");
     }
+    assert!(
+        !names.iter().any(|name| name == "mcp_features"),
+        "{names:?}"
+    );
     assert!(
         !names.iter().any(|name| name == "mcp_fixture_echo"),
         "advertised before it was selected"
@@ -152,13 +190,95 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
     let third = requests[2].json();
     let wire = third.to_string();
     assert!(
-        wire.contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}]}}"#),
+        wire.contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}],\"isError\":false}}"#),
         "{third:#}"
     );
 }
 
 #[test]
-fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
+fn a_tool_the_model_calls_by_name_runs_without_a_search_and_its_count_is_known_next_turn() {
+    // fx v0.0.16 (`0fb5cb8e`, `p5-mcp-direct`): a live tool called with no
+    // search or selection is selected then, judged as any MCP call -- here a
+    // rule admits it in `auto` -- and run; its schema is in the next request,
+    // and the next turn's servers block counts the server's tools.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("e1", "mcp_fixture_echo", json!({"text": "hi"})),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-MCP-DIRECT"])),
+        Reply::Sse(content_only(&["MARKER-MCP-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    profile(
+        &sandbox,
+        &json!({"mcp": {"fixture": {"type": "local", "command": ["/bin/sh", fixture()]}}}),
+        &json!({"permission": {"mcp_fixture_echo": "allow"}}),
+    );
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
+    session.wait_for(READY);
+    wait_until_ready_in_the_menu(&mut session);
+
+    session.type_bytes(b"call the echo tool\r");
+    session.wait_for("MARKER-MCP-DIRECT");
+    session.type_bytes(b"and again\r");
+    session.wait_for("MARKER-MCP-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3, "two steps, then one");
+    let first = requests[0].json();
+    assert!(!tool_names(&first)
+        .iter()
+        .any(|name| name == "mcp_fixture_echo"));
+    let unread = "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" />\n</mcp_servers>\n";
+    assert!(
+        system_texts(&first)
+            .iter()
+            .any(|text| text.ends_with(unread)),
+        "{first:#}"
+    );
+
+    let second = requests[1].json();
+    assert!(
+        tool_names(&second)
+            .iter()
+            .any(|name| name == "mcp_fixture_echo"),
+        "the tool called by name is advertised from the next step on"
+    );
+    assert!(
+        second.to_string().contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}],\"isError\":false}}"#),
+        "{second:#}"
+    );
+    // The block is the turn's, so the second step still has no count.
+    assert!(
+        system_texts(&second)
+            .iter()
+            .any(|text| text.ends_with(unread)),
+        "{second:#}"
+    );
+
+    let next = requests[2].json();
+    assert!(
+        system_texts(&next).iter().any(|text| text.ends_with(
+            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n"
+        )),
+        "{next:#}"
+    );
+    // A new turn starts with nothing selected.
+    assert!(!tool_names(&next)
+        .iter()
+        .any(|name| name == "mcp_fixture_echo"));
+}
+
+#[test]
+fn a_project_server_waits_unasked_and_the_menu_rejects_it_into_settings() {
+    // fx v0.0.16 has no launch prompt (`ba0ea4a9`): the server waits, the
+    // status line says so, and `/mcp`'s menu is where it is approved or
+    // rejected -- Reject asking on its row first.
     let gateway = FakeGateway::start(Vec::new());
     let sandbox = Sandbox::new();
     profile(&sandbox, &json!({"mcp": {}}), &json!({}));
@@ -170,22 +290,47 @@ fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
-    session.wait_for("Project MCP server 'proj' is defined in .mcp.json.");
-    session.wait_for("[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts");
-    // A letter typed at the prompt is not a draft: the prompt owns the keys.
-    session.type_bytes(b"x3");
-    session.wait_for("Rejecting project MCP server 'proj'.");
-    session.wait_for("MCP configuration reloaded successfully.");
+    session.wait_for(READY);
+    // The status line says so on its right, as fx v0.0.16's does
+    // (`dismiss-settled`): no server is still starting, so at once.
+    session.wait_for("proj is waiting for approval \u{b7} /mcp");
+    assert!(
+        !session.text().contains("Project MCP server"),
+        "a launch prompt went up"
+    );
+    session.type_bytes(b"/mcp\r");
+    session.wait_for("Needs attention");
+    press(&session, ENTER);
+    session.wait_for("/mcp approve proj");
+    press(&session, DOWN);
+    press(&session, ENTER);
+    session.wait_for("xfx won't start it in this project.");
+    // A letter at the question is a no, and reaches nothing else.
+    press(&session, b"x");
+    let from = session.text().len();
+    press(&session, ENTER);
+    answer(&session, from, "start it in this project.");
+    let saved = || -> Value {
+        std::fs::read_to_string(sandbox.home.join(".xfx/settings.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    };
+    let key = sandbox.workspace.to_str().unwrap().to_string();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while saved()["workspaces"][&key]["disabledMcpjsonServers"] != json!(["proj"]) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "never saved: {}",
+            saved()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // A choice made in the menu says nothing in the transcript.
+    assert!(!session.text().contains("Rejected proj"));
+    close_the_menu(&mut session);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
-    let settings: Value = serde_json::from_str(
-        &std::fs::read_to_string(sandbox.home.join(".xfx/settings.json")).expect("settings"),
-    )
-    .expect("json");
-    assert_eq!(
-        settings["workspaces"][sandbox.workspace.to_str().unwrap()]["disabledMcpjsonServers"],
-        json!(["proj"])
-    );
     assert_eq!(
         gateway.request_count(),
         0,
@@ -194,12 +339,12 @@ fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
 }
 
 #[test]
-fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_again() {
-    // `1` approves the entry the prompt showed. The model then replaces that
-    // entry's command with a plain file write -- which `auto` would hold
-    // (SEC-C5), so the person's own rule allows file edits -- and
-    // the reload that follows asks again, showing the new command, instead
-    // of running it.
+fn a_project_server_the_model_rewrites_after_approval_waits_to_be_approved_again() {
+    // The menu's Approve approves the entry its screen showed. The model then
+    // replaces that entry's command with a plain file write -- which `auto`
+    // would hold (SEC-C5), so the person's own rule allows file edits -- and
+    // the reload that follows holds the new entry back, waiting, instead of
+    // running it; the menu shows the new command.
     let sandbox = Sandbox::new();
     let ran = sandbox.home.join("replacement-ran");
     let replaced = json!({"mcpServers": {"proj": {
@@ -235,12 +380,17 @@ fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_a
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
-    session.wait_for("Project MCP server 'proj' is defined in .mcp.json.");
-    session.wait_for("command: /bin/sh /");
-    session.wait_for("[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts");
-    session.type_bytes(b"1");
-    session.wait_for("Approving project MCP server 'proj'.");
-    session.wait_for("MCP configuration reloaded successfully.");
+    session.wait_for(READY);
+    session.wait_for("proj is waiting for approval \u{b7} /mcp");
+    session.type_bytes(b"/mcp\r");
+    session.wait_for("Needs attention");
+    let from = session.text().len();
+    press(&session, ENTER);
+    press(&session, ENTER);
+    answer(&session, from, "Approve proj for this project? It runs:");
+    // Approved and up: its tools load on its screen.
+    session.wait_for("Tools 1");
+    close_the_menu(&mut session);
 
     session.type_bytes(b"tidy the MCP config\r");
     session.wait_for("MARKER-MCP-REWRITTEN");
@@ -250,27 +400,61 @@ fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_a
             .contains("exec /bin/sh"),
         "the model's write did not land"
     );
-    session.type_bytes(b"/mcp reload\r");
-    session.wait_for("command: /bin/sh -c");
-    session.type_bytes(b"3");
-    session.wait_for("Rejecting project MCP server 'proj'.");
+    // fx v0.0.16 reloads after add, remove, approve and reject, and has no
+    // `/mcp reload`: an add is the reload that reads the model's rewrite.
+    session.type_bytes(b"/mcp add web http://127.0.0.1:9/mcp\r");
+    session.wait_for("Added web to ~/.xfx/mcp.json.");
+    session.type_bytes(b"/mcp\r");
+    session.wait_for_count("Needs attention", 2);
+    session.wait_until("proj waiting again", |text| {
+        unescaped(text).contains("proj                    waiting for approval    project")
+    });
+    // proj is the attention group's only row; ↓ past web to it.
+    let shown = session.text().len();
+    press(&session, DOWN);
+    press(&session, ENTER);
+    press(&session, ENTER);
+    session.wait_until("the approval of the rewritten entry", |text| {
+        text[shown..].contains("Approve proj for this project? It runs:")
+    });
+    // Drawn whole again (Ctrl-L): the band is otherwise only the cells that
+    // changed.
+    let shown = session.text().len();
+    session.type_bytes(b"\x0c");
+    session.wait_until("the rewritten entry's command", |text| {
+        unescaped(&text[shown..]).contains("exec /bin/sh")
+    });
+    // Not approved: Esc goes back, and Reject rejects it.
+    press(&session, b"\x1b");
+    press(&session, DOWN);
+    let from = session.text().len();
+    press(&session, ENTER);
+    answer(&session, from, "start it in this project.");
+    let saved = || -> Value {
+        std::fs::read_to_string(sandbox.home.join(".xfx/settings.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    };
+    let key = sandbox.workspace.to_str().unwrap().to_string();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while saved()["workspaces"][&key]["disabledMcpjsonServers"] != json!(["proj"]) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "never saved: {}",
+            saved()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    close_the_menu(&mut session);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
     assert!(
         !ran.exists(),
-        "the rewritten entry ran without being asked about"
+        "the rewritten entry ran without being approved"
     );
-    let settings: Value = serde_json::from_str(
-        &std::fs::read_to_string(sandbox.home.join(".xfx/settings.json")).expect("settings"),
-    )
-    .expect("json");
-    let entry = &settings["workspaces"][sandbox.workspace.to_str().unwrap()];
-    assert_eq!(
-        entry["disabledMcpjsonServers"],
-        json!(["proj"]),
-        "{settings:#}"
-    );
-    assert_eq!(entry.get("enabledMcpjsonServers"), None, "{settings:#}");
+    let entry = &saved()["workspaces"][&key];
+    assert_eq!(entry.get("enabledMcpjsonServers"), None, "{entry:#}");
     assert_eq!(gateway.requests().len(), 3, "one request per step");
 }
 
@@ -307,20 +491,17 @@ fn unescaped(text: &str) -> String {
 }
 
 #[test]
-fn a_long_command_or_address_reaches_a_narrow_screen_whole_before_the_choices() {
-    // The prompt is the only place the person sees what they are approving,
-    // so a 300-character command line and a long address must not be clipped
-    // on an 80-column terminal: each is wrapped onto as many rows as it needs,
-    // every row after the first led by `↳ ` so none reads as a row of the
-    // entry's own, and all of it is written before the row of choices that
-    // `1` answers.
+fn a_long_command_or_address_is_shown_whole_on_the_approval_screen_of_a_narrow_terminal() {
+    // The approval's screen is where the person sees what they approve, so a
+    // 300-character command line and a long address are never cut on an
+    // 80-column terminal: each is wrapped at spaces -- an address with none,
+    // at the width -- onto as many rows as it needs, all of it above the
+    // hint row Enter answers.
     let gateway = FakeGateway::start(Vec::new());
     let sandbox = Sandbox::new();
     profile(&sandbox, &json!({"mcp": {}}), &json!({}));
     let words: Vec<String> = (1..=58).map(|i| format!("a{i:02}")).collect();
     let script = format!("echo {} TAILCMD", words.join(" "));
-    let command = format!("command: /bin/sh -c '{script}'");
-    assert!(command.len() >= 260, "{}", command.len());
     let segments: Vec<String> = (1..=40).map(|i| format!("p{i:02}")).collect();
     let url = format!("https://example.test/{}/TAILURL", segments.join("/"));
     std::fs::write(
@@ -332,34 +513,72 @@ fn a_long_command_or_address_reaches_a_narrow_screen_whole_before_the_choices() 
         .to_string(),
     )
     .expect("project config");
-    let choices = "[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts";
     let pty = Pty::open();
     pty.resize(40, 80);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
-    let whole_before_choices = |text: &str, value: &str| {
-        let text = unescaped(text);
-        assert!(
-            text.contains("\u{21b3} "),
-            "no row of {value:?} is led as a continuation:\n{text}"
-        );
-        // The value as written, the leads it wrapped behind taken out.
-        let text = text.replace("\u{21b3} ", "");
-        let at = text
-            .find(value)
-            .unwrap_or_else(|| panic!("{value:?} is not on the screen whole:\n{text}"));
-        assert!(
-            text[at + value.len()..].contains(choices),
-            "the choices came before the end of {value:?}:\n{text}"
-        );
+    session.wait_for(READY);
+    session.type_bytes(b"/mcp\r");
+    session.wait_for("Needs attention");
+    let hint = "enter confirm     esc cancel";
+    // The band is drawn as the cells that changed since the last frame, so
+    // once the approval is up Ctrl-L asks for the whole screen again: every
+    // row then written whole.
+    let approval = |session: &Session, from: usize, question: &str| -> String {
+        let up = |from: usize| {
+            move |text: &str| {
+                text[from..]
+                    .find(question)
+                    .is_some_and(|at| text[from + at..].contains(hint))
+            }
+        };
+        session.wait_until("the approval's screen and its hint", up(from));
+        let from = session.text().len();
+        session.type_bytes(b"\x0c");
+        let text = session.wait_until("the approval redrawn whole", up(from));
+        let text = &text[from..];
+        let at = text.find(question).expect("the question");
+        let end = at + text[at..].find(hint).expect("the hint");
+        unescaped(&text[at..end])
     };
-    let shown = session.wait_for(choices);
-    whole_before_choices(&shown, &command);
-    session.type_bytes(b"3");
-    session.wait_for("Rejecting project MCP server 'long'.");
-    let shown = session.wait_for_count(choices, 2);
-    whole_before_choices(&shown, &format!("url: {url}"));
-    session.type_bytes(b"3");
-    session.wait_for("Rejecting project MCP server 'remote'.");
+    let from = session.text().len();
+    press(&session, ENTER);
+    press(&session, ENTER);
+    let shown = approval(&session, from, "Approve long for this project? It runs:");
+    let mut rest = shown.as_str();
+    for word in ["/bin/sh", "-c", "'echo"]
+        .into_iter()
+        .chain(words.iter().map(String::as_str))
+        .chain(["TAILCMD'"])
+    {
+        let at = rest
+            .find(word)
+            .unwrap_or_else(|| panic!("{word:?} is not on the screen in order:\n{shown}"));
+        rest = &rest[at + word.len()..];
+    }
+    assert!(!shown.contains('\u{2026}'), "cut: {shown}");
+    press(&session, b"\x1b");
+    press(&session, b"\x1b");
+    let from = session.text().len();
+    press(&session, DOWN);
+    press(&session, ENTER);
+    press(&session, ENTER);
+    let shown = approval(
+        &session,
+        from,
+        "Approve remote for this project? It connects to:",
+    );
+    // Every piece after the first is led by `↳ `, so no piece of an address
+    // reads as a row of its own; without the leads it is the address whole.
+    assert!(
+        shown.contains("\u{21b3} /p"),
+        "a piece is not led:\n{shown}"
+    );
+    let joined: String = shown
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{21b3}')
+        .collect();
+    assert!(joined.contains(&url), "the address is not whole:\n{shown}");
+    close_the_menu(&mut session);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
 }

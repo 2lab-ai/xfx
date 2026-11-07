@@ -1,0 +1,10 @@
+[mcphttp] listening 55528
+[mcphttp] +797ms POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mode=ready -> 404 +797ms
+[mcphttp] +797ms POST /mcp rpc=initialize id=2 session=no version=- mode=ready -> 200 +797ms
+[mcphttp] +798ms POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mode=ready -> 202 +798ms
+[mcphttp] +798ms GET /mcp rpc=- session=yes version=2025-11-25 mode=ready -> 405 +798ms
+[mcphttp] +798ms POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mode=ready -> 200 +798ms
+[mcphttp] +6884ms POST /mcp rpc=tools/call id=4 session=yes version=2025-11-25 mode=ready -> 200 +9868ms
+[mcphttp] +15604ms POST /mcp rpc=tools/call id=5 session=yes version=2025-11-25 mode=ready -> 200 +20255ms
+[mcphttp] +18649ms POST /mcp rpc=notifications/cancelled id=- session=yes version=2025-11-25 mode=ready -> 202 +20259ms
+[mcphttp] +22266ms POST /mcp rpc=tools/call id=6 session=yes version=2025-11-25 mode=rpcerror -> 200 +22266ms

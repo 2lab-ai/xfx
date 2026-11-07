@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ look for a weather forecast tool
+
+● 1 tool call · 1 read
+└ Searched capabilities weather forecast
+
+  none.
+
+  2s (↑8 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

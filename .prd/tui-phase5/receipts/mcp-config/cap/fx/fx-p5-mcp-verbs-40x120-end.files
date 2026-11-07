@@ -1,0 +1,51 @@
+=== ~/.fx/backups/settings.json.backup.1793932619411-0000000000000001-cab77affd7e409a191ca788657886a25 (96 bytes)
+{"workspaces":{"<scratch>/work":{"enabledMcpjsonServers":["proj"]}}}
+
+=== ~/.fx/history.jsonl (3462 bytes)
+{"schema_version":1,"timestamp_ms":1793932565300,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793932567648,"workspace_root":"<scratch>/work","text":"/mcp show fixture"}
+{"schema_version":1,"timestamp_ms":1793932571673,"workspace_root":"<scratch>/work","text":"/mcp show remote"}
+{"schema_version":1,"timestamp_ms":1793932575708,"workspace_root":"<scratch>/work","text":"/mcp show proj"}
+{"schema_version":1,"timestamp_ms":1793932578729,"workspace_root":"<scratch>/work","text":"/mcp login fixture"}
+{"schema_version":1,"timestamp_ms":1793932580764,"workspace_root":"<scratch>/work","text":"/mcp login remote"}
+{"schema_version":1,"timestamp_ms":1793932585789,"workspace_root":"<scratch>/work","text":"/mcp auth remote"}
+{"schema_version":1,"timestamp_ms":1793932590810,"workspace_root":"<scratch>/work","text":"/mcp logout remote"}
+{"schema_version":1,"timestamp_ms":1793932592839,"workspace_root":"<scratch>/work","text":"/mcp add two -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932596864,"workspace_root":"<scratch>/work","text":"/mcp add three <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932600891,"workspace_root":"<scratch>/work","text":"/mcp add --transport http web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793932603921,"workspace_root":"<scratch>/work","text":"/mcp add web2 http://127.0.0.1:9/web2"}
+{"schema_version":1,"timestamp_ms":1793932606956,"workspace_root":"<scratch>/work","text":"/mcp add bad.name http://127.0.0.1:9/x"}
+{"schema_version":1,"timestamp_ms":1793932609003,"workspace_root":"<scratch>/work","text":"/mcp approve proj"}
+{"schema_version":1,"timestamp_ms":1793932613024,"workspace_root":"<scratch>/work","text":"/mcp trust approve proj"}
+{"schema_version":1,"timestamp_ms":1793932617054,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793932619405,"workspace_root":"<scratch>/work","text":"/mcp reject proj"}
+{"schema_version":1,"timestamp_ms":1793932622438,"workspace_root":"<scratch>/work","text":"/mcp remove two"}
+{"schema_version":1,"timestamp_ms":1793932625467,"workspace_root":"<scratch>/work","text":"/mcp remove three"}
+{"schema_version":1,"timestamp_ms":1793932628505,"workspace_root":"<scratch>/work","text":"/mcp remove web2"}
+{"schema_version":1,"timestamp_ms":1793932634573,"workspace_root":"<scratch>/work","text":"/mcp resource list fixture"}
+{"schema_version":1,"timestamp_ms":1793932636602,"workspace_root":"<scratch>/work","text":"/mcp prompt list fixture"}
+{"schema_version":1,"timestamp_ms":1793932638630,"workspace_root":"<scratch>/work","text":"/mcp show"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (299 bytes)
+{
+  "mcpServers": {
+    "fixture": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "remote": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/mcp"
+    }
+  }
+}
+
+=== ~/.fx/mcp.lock (0 bytes)
+=== ~/.fx/settings.json (97 bytes)
+{"workspaces":{"<scratch>/work":{"disabledMcpjsonServers":["proj"]}}}
+
+=== ~/.fx/settings.lock (0 bytes)

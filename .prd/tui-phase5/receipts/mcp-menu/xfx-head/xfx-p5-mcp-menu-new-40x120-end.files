@@ -1,0 +1,29 @@
+=== ~/.xfx/history.jsonl (143 bytes)
+{"schema_version":1,"timestamp_ms":1793962730887,"workspace_root":"<scratch>/work","text":"/mcp"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (222 bytes)
+{
+  "mcpServers": {
+    "fixture": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    }
+  }
+}
+
+=== ~/.xfx/mcp.lock (0 bytes)
+=== ~/.xfx/settings.json (158 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "disabledMcpjsonServers": [
+        "proj"
+      ]
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

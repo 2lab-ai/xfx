@@ -1,0 +1,40 @@
+
+[38;5;252m! mcp:[38;5;250m /mcp path is gone: /mcp list shows each server's file.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp reload is gone: fx reloads after add, remove, approve, and reject.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp auth is now /mcp login NAME.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp trust is now /mcp approve NAME and /mcp reject NAME.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp resource is gone: fx doesn't support MCP resources and prompts yet.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp prompt is gone: fx doesn't support MCP resources and prompts yet.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope. /mcp list shows them.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope. /mcp list shows them.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope. /mcp list shows them.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope in ~/.fx/mcp.json or .mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp approve needs one server NAME.[39m
+  [38;5;250musage: /mcp approve NAME | --all[39m
+
+[38;5;252m! mcp:[38;5;250m No project server named nope in .mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp add needs a NAME.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;250m* mcp: usage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

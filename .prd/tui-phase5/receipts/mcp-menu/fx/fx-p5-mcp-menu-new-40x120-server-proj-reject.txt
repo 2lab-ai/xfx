@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  proj
+  runs      <bun> <scenarios>/p5-m…
+  file      .mcp.json
+  status    waiting for approval
+
+  Approve       /mcp approve proj
+› Reject        /mcp reject proj
+  Remove        /mcp remove proj
+
+  Its tools show here once you approve it.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter run     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,23 @@
+# p5 mcp config: fx v0.0.16 notes a key it reads and no longer acts on
+# (`noteIgnoredKeys`): `required`, and a `restart_limit` other than 1. xfx
+# acts on both and gives no such note (docs/parity.md, the profile row).
+fx: homefile .fx/mcp.json p5-mcp-config-ignored-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-config-ignored-profile.json
+keep
+wait 12
+snap startup
+type /mcp
+key Enter
+wait 2
+snap menu
+key Escape
+wait 0.5
+key C-u
+type /mcp list
+key Enter
+wait 2
+snap list
+key Escape
+wait 0.3
+key C-u
+snapfull end

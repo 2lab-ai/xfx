@@ -1,0 +1,17 @@
+# p5 mcp: what the model is told when a server refuses a call with a JSON-RPC
+# error that carries `data` -- compact, spaced and reordered, and with a NUL
+# (p5-mcp-errdata.sh). fx v0.0.16 keeps only the error's code and message
+# (`CallResult.failure`, src/core/mcp_host/runtime.zig:117 and :2371@481104fd;
+# `render`, src/core/mcp_host/model.zig:841), so its diagnostic writer, which
+# would append `; data=` (src/core/mcp/tool_result.zig:199-214), never sees any.
+fx: homefile .fx/mcp.json p5-mcp-errdata-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-errdata-profile.json
+gateway p5-mcp-errdata-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 6
+type call the refusing tool three times
+key Enter
+wait 10
+snap turn
+gwlog

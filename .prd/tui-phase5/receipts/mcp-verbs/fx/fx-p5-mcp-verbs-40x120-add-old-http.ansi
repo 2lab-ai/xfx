@@ -1,0 +1,40 @@
+[38;5;250m* mcp: proj[39m
+  [38;5;250m  status     waiting for approval[39m
+  [38;5;250m  transport  stdio[39m
+  [38;5;250m  command    <bun> <scenarios>/[39m
+  [38;5;250mp5-mcp-stdio.ts[39m
+  [38;5;250m  source     .mcp.json[39m
+  [38;5;250m  next       /mcp approve proj[39m
+
+[38;5;252m! mcp:[38;5;250m fixture runs a command, so it has no login.[39m
+
+[38;5;250m* mcp: remote[39m
+  [38;5;250m  status     retrying[39m
+  [38;5;250m  transport  http[39m
+  [38;5;250m  url        http://127.0.0.1:9/mcp[39m
+  [38;5;250m  source     ~/.fx/mcp.json[39m
+  [38;5;250m  error      it refused or never answered fx's initialize request[39m
+
+[38;5;252m! mcp:[38;5;250m Couldn't sign in to remote: fx couldn't find how to sign in to it.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp auth is now /mcp login NAME.[39m
+
+[38;5;250m* mcp: remote wasn't signed in.[39m
+
+[38;5;250m* mcp: Added two to ~/.fx/mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp add needs a URL, or -- and a command.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp add has no --transport flag.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m                                                                       [38;5;245mproj is waiting for approval · /mcp

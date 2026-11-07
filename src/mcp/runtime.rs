@@ -16,32 +16,48 @@
 //! default -- `2025-11-25`, any of the four legacy versions accepted back
 //! (`protocol_negotiation.zig:7-19`, `:66-117`) -- `notifications/initialized`
 //! is sent, and `tools/list` is read page by page, all inside the server's
-//! `startup_timeout_ms`. A stdio server that fails to start is started again,
-//! up to its `restart_limit` (`[mcp] restarting stdio server after startup
-//! failure ... attempt=1`, `cap/mcp-diag-trace.log`).
+//! `startup_timeout_ms`.
+//!
+//! A server that fails to come up is `Retrying` and is tried again by itself
+//! once its backoff is over, at most eight tries in a row, the backoffs
+//! doubling from 1 s up to 30 s; the eighth failure makes it `Failed`
+//! (fx v0.0.16's engine gate: `max_attempts = 8`, `reconnectDelay`,
+//! `vercel-labs/fx@481104fd src/mcp/core/engine.zig:24-28`, `:193-216`;
+//! `src/mcp/core/request.zig:76-79`). That is about 91 seconds of backoff:
+//! fx's `p5-mcp-failed` capture is still silent at 84 s and says
+//! `bad failed · /mcp` at 100 s (`.prd/tui-phase5/receipts/mcp-status/`). A
+//! server whose failure no try can change -- it needs a sign-in, a variable
+//! that is not set, a transport xfx does not connect -- fails at once
+//! ([`worth_retrying`]). Why it is down is said in fx's words, with how a
+//! stdio server's process ended and its last stderr lines
+//! ([`failure_words`]).
 //!
 //! # Reloading
 //!
-//! A reload reads both files again and connects what changed while the
-//! servers already up stay up: a server whose configuration is the same and
-//! which is ready (or still connecting) is carried over as it is. Only once
-//! every new connection has settled is the new set put in force and the old
-//! ones stopped, and the person is told how it went
-//! (`formatMcpPublishedReload`, `app_commands.zig:91-129`).
+//! A reload reads both files again and takes the change in place
+//! (`Runtime.reload`, `vercel-labs/fx@481104fd
+//! src/core/mcp_host/runtime.zig:628-642`; `src/mcp/engine.zig:167-186`): a
+//! server whose configuration is the same keeps running as it is -- ready,
+//! still coming up, retrying or failed -- and only one added or changed starts
+//! fresh, once the old one of its name is stopped. The new set is in force at
+//! once, and the reload says nothing: what the servers do next is the status
+//! line's and `/mcp`'s to show. Only a configuration that cannot be read again
+//! is told, in one warning (`collectMcpHostFacts`,
+//! `src/core/app/app_commands.zig:340-345@481104fd`).
 //!
 //! # Commands are answered in order
 //!
-//! Every `/mcp` command, every menu catalog read and every trust choice goes
-//! to one worker thread in the order it was given, and what it says comes
-//! back as [`Event`]s the UI drains: a resource read that waits on a slow
-//! server cannot be overtaken by the `/mcp path` typed after it, and the UI
+//! Every `/mcp` command, every choice made in its menu and every trust choice
+//! goes to one worker thread in the order it was given, and what it says
+//! comes back as [`Event`]s the UI drains: a `show` that waits on a slow
+//! server cannot be overtaken by the `remove` typed after it, and the UI
 //! thread never waits on a server.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
@@ -49,7 +65,7 @@ use serde_json::{json, Map, Value};
 use super::config::{
     self, Admission, Choices, ServerConfig, Source, Transport as Kind, TrustAction,
 };
-use super::transport::{HttpTransport, StdioTransport, Transport};
+use super::transport::{Exit, HttpTransport, StdioTransport, Transport};
 use super::{names::ToolNames, McpError};
 use crate::gateway::CancelToken;
 
@@ -67,12 +83,124 @@ const HTTP_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 /// How many pages of a list are read before the list is called complete.
 const MAX_PAGES: usize = 64;
 
-/// `ConnectionState` (`health.zig:8-14`).
+/// How a server that fails to come up is tried again: up to `attempts` tries
+/// in a row, the wait after the `n`th failure `first` doubled `n - 1` times
+/// (at most five) and never more than `cap`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Retry {
+    pub(crate) attempts: u8,
+    pub(crate) first: Duration,
+    pub(crate) cap: Duration,
+}
+
+impl Retry {
+    /// fx v0.0.16's: eight tries (`Config.max_attempts`,
+    /// `vercel-labs/fx@481104fd src/mcp/core/engine.zig:24-28`), and
+    /// `reconnectDelay` -- 1 s doubling up to 30 s
+    /// (`src/mcp/core/request.zig:76-79`) -- after each failed one but the
+    /// last (`engine.zig:193-211`): 1, 2, 4, 8, 16, 30 and 30 seconds.
+    pub(crate) const FX: Self = Self {
+        attempts: 8,
+        first: Duration::from_secs(1),
+        cap: Duration::from_secs(30),
+    };
+
+    /// The wait after the `failed`th failure in a row (`reconnectDelay(
+    /// attempts - 1)`).
+    pub(crate) fn backoff(&self, failed: u8) -> Duration {
+        let doublings = u32::from(failed.saturating_sub(1).min(5));
+        (self.first * 2u32.pow(doublings)).min(self.cap)
+    }
+}
+
+/// The longest a stop waits for a try to end, after its own closes. A stop
+/// cancels the try's handshake ([`Server::cancel`]: every wait in it looks
+/// at that every 20 ms, `CANCEL_POLL`) and closes the connection it handed
+/// over; what is left
+/// is the try's own close of a process it still holds -- the group's grace
+/// (0.5 s) and, for a `docker run`, its container's removal (15 s,
+/// [`super::docker`]) -- the same close a stop of a ready server waits for.
+///
+/// So one stop takes at most its own closes (each a grace and a removal)
+/// and then this; a reload stops the servers it drops one after another,
+/// and the end of a session waits this long for a reload under way and then
+/// stops every server one after another. A server with no `docker run` and
+/// no try in its own close stops within its grace.
+const STOP_WAIT: Duration = Duration::from_secs(20);
+
+/// A try under way ([`Live::opening`]), from before it starts a process
+/// until it has published that process or closed it: marked when it begins
+/// and cleared, with whoever waits on it told, however it ends.
+struct Opening<'a>(&'a Server);
+
+impl<'a> Opening<'a> {
+    /// Marks a try on `server`, unless it was stopped or another try is
+    /// under way (a call's restart beside another): one try at a time owns
+    /// the server's process.
+    fn begin(server: &'a Server) -> Option<Self> {
+        Self::claim(server, &mut server.live())
+    }
+
+    /// [`Self::begin`] under a lock the caller already holds, so what it
+    /// decided under that lock -- a restart's credit -- and the try are one
+    /// step.
+    fn claim(server: &'a Server, live: &mut Live) -> Option<Self> {
+        if server.stopped.load(Ordering::Acquire) || live.opening || live.starting.is_some() {
+            return None;
+        }
+        live.opening = true;
+        Some(Self(server))
+    }
+}
+
+/// Where a test may hold a try (the tests of a `fault-injection` build only;
+/// no binary carries it): just before
+/// its process is handed over, and once a failed one has its process back
+/// and is about to close it itself.
+#[cfg(all(test, feature = "fault-injection"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hold {
+    BeforeHandOver,
+    BeforeOwnClose,
+    /// A stop has taken connections and is about to close them.
+    StopClosing,
+    /// A stop is about to wait for a try or another stop's close.
+    StopWaiting,
+    /// A call found a try under way and is about to wait for it.
+    WaitingForTry,
+}
+
+#[cfg(all(test, feature = "fault-injection"))]
+type HoldHook = Arc<dyn Fn(Hold) + Send + Sync>;
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.live().opening = false;
+        self.0.opened.notify_all();
+    }
+}
+
+/// How long a server's wait between tries sleeps at a time, looking at
+/// whether it was stopped in between: a reload or `/quit` never waits out a
+/// 30-second backoff.
+const BACKOFF_SLICE: Duration = Duration::from_millis(25);
+
+/// The most bytes of a stdio server's last stderr lines a failure quotes,
+/// and how many lines (`tail_max`, `tail_lines`,
+/// `vercel-labs/fx@481104fd src/mcp/io/process.zig:188-190`).
+const STDERR_TAIL_MAX_BYTES: usize = 240;
+const STDERR_TAIL_LINES: usize = 3;
+
+/// `ConnectionState` (`health.zig:8-14`), with fx v0.0.16's `retrying`:
+/// down by a failure and waiting out its backoff before it is tried again
+/// (`.backoff => .retrying`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/runtime.zig:1866-1870`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Connection {
     Disconnected,
     Disabled,
     Connecting,
+    Retrying,
     Ready,
     Failed,
 }
@@ -83,6 +211,7 @@ pub enum Connection {
 pub enum Status {
     Disabled,
     Connecting,
+    Retrying,
     Ready,
     NeedsAuth,
     Failed,
@@ -141,8 +270,9 @@ pub struct ServerView {
     pub entry: Option<Arc<ShownEntry>>,
 }
 
-/// A project entry as a person is shown it: the rows of [`what_it_runs`],
-/// each whole, and the [`config::entry_digest`] of the entry they came from.
+/// A project entry as it is written, for a person asked about it: its rows
+/// ([`entry_rows`]), each whole, and the [`config::entry_digest`] of the
+/// entry they came from -- what an approval of it is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShownEntry {
     pub rows: Vec<String>,
@@ -188,6 +318,7 @@ impl ServerView {
         match self.connection {
             Connection::Disabled => Status::Disabled,
             Connection::Connecting => Status::Connecting,
+            Connection::Retrying => Status::Retrying,
             Connection::Ready => Status::Ready,
             Connection::Failed => Status::Failed,
             Connection::Disconnected => Status::Unavailable,
@@ -208,6 +339,7 @@ impl ServerView {
             Status::Unavailable => "Disconnected",
             Status::Disabled => "Disabled",
             Status::Connecting => "Connecting",
+            Status::Retrying => "Retrying",
             Status::Ready => "Ready",
             Status::Failed => "Failed",
         }
@@ -249,50 +381,17 @@ pub enum Origin {
     Startup,
     /// A notice in the transcript.
     Transcript,
-    /// The menu's feedback row.
-    Menu,
 }
 
 /// Something the UI has to show.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// A notice: neutral or a warning, under `mcp` or, for a usage line, no
-    /// topic at all (`noticeTopicForBody`, `app_commands.zig:1851-1853`).
+    /// A notice under `mcp`, neutral or a warning -- a usage line too, as fx
+    /// v0.0.16 files a verb's output (`collectMcpHostFacts`,
+    /// `src/core/app/app_commands.zig:340-354@481104fd`).
     Notice { warning: bool, body: String },
-    /// The trust prompt is up for this server, showing the entry whose
-    /// [`config::entry_digest`] this is: what `1` approves. `listed` is every
-    /// pending server as the prompt went up, each with its digest: what `2`
-    /// approves. `whole` is whether every row of the entry fit the prompt
-    /// ([`PROMPT_ROW_MAX_BYTES`]); `1` approves only an entry shown whole.
-    /// `text` is the prompt's rows, upstream's two with what the entry runs
-    /// between them (`presentProjectMcpPrompt`, `main.zig:1818-1832`),
-    /// written into the transcript as they are, with no glyph: one event, so
-    /// the text written last is always the prompt armed. No other event
-    /// writes rows as they are, so none can print a prompt it does not arm.
-    TrustPrompt {
-        name: String,
-        digest: String,
-        listed: Vec<(String, String)>,
-        whole: bool,
-        text: String,
-    },
-    /// The menu's feedback row.
-    MenuFeedback(String),
-    /// What a menu catalog read found, for the read that asked.
-    Catalog {
-        request: u64,
-        result: Result<Catalog, String>,
-    },
     /// The servers changed: the menu repaints.
     Changed,
-}
-
-/// One section's items, for the menu.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Catalog {
-    Tools(Vec<String>),
-    Resources(Vec<Resource>),
-    Prompts(Vec<Prompt>),
 }
 
 /// The files a runtime reads its servers from.
@@ -310,24 +409,14 @@ pub struct Paths {
 pub enum Job {
     /// A `/mcp` command line, without the `/mcp`.
     Command(String),
-    /// A trust choice, and the sentence that announces it.
+    /// A trust choice, and the sentence that announces it; none for a
+    /// choice made in `/mcp`'s menu, which says only what warns.
     Trust { action: TrustAction, body: String },
-    /// A menu catalog read.
-    Catalog {
-        request: u64,
-        section: Section,
-        server: Option<String>,
-    },
-    /// A reload the menu's `r` asked for.
-    MenuReload,
-}
-
-/// The menu's catalog sections that read something.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Section {
-    Tools,
-    Resources,
-    Prompts,
+    /// `/mcp`'s menu's Remove: this name, from this file -- the ones its
+    /// question named, never parsed again as words, so a name that reads
+    /// as a flag (`--help`) is a name -- said only if it warns
+    /// ([`super::command::remove_chosen`]).
+    Remove { name: String, file: config::File },
 }
 
 /// A server's live half.
@@ -336,6 +425,15 @@ struct Live {
     needs_auth: bool,
     failure: Option<String>,
     transport: Option<Arc<dyn Transport>>,
+    /// The connection a try is still opening -- started, not yet through its
+    /// handshake -- so a stop reaches it too ([`Server::stop`]).
+    starting: Option<Arc<dyn Transport>>,
+    /// A try is under way: from just before it starts a process until that
+    /// process is published or closed. A stop waits it out
+    /// ([`Server::stop`]).
+    opening: bool,
+    /// Stops closing what they took from here, now.
+    closing: usize,
     protocol_version: Option<String>,
     instructions: Option<String>,
     capabilities: Capabilities,
@@ -366,10 +464,25 @@ pub struct Server {
     /// Set by the one reload that starts its connection, so a server carried
     /// over while it is still coming up is connected once and only once.
     claimed: AtomicBool,
+    /// Told when a try is over ([`Live::opening`]).
+    opened: Condvar,
+    /// Cancelled by a stop: a try's handshake waits on it, so a stop ends a
+    /// handshake whose connection a close cannot end by itself -- an HTTP
+    /// request still in flight, a stdio server whose output a process
+    /// outside its group still holds open.
+    cancel: CancelToken,
+    #[cfg(all(test, feature = "fault-injection"))]
+    hold: Mutex<Option<HoldHook>>,
     /// What a person is shown of it before approving it, built once when the
     /// reload that read it built the server ([`shown_entry`]): every view
     /// shares it rather than spelling the entry again per frame.
     entry: Option<Arc<ShownEntry>>,
+    /// Whether the model's catalog has read its tool list
+    /// ([`crate::mcp::catalog::servers_block`]), as fx's catalog keeps one
+    /// list state per server (`vercel-labs/fx@481104fd
+    /// src/core/mcp_host/model.zig:56-70`): carried with the server by a
+    /// reload that keeps it, and not by one that starts it anew (`:101-125`).
+    tools_known: AtomicBool,
 }
 
 impl Server {
@@ -393,6 +506,9 @@ impl Server {
                 needs_auth: false,
                 failure: None,
                 transport: None,
+                starting: None,
+                opening: false,
+                closing: 0,
                 protocol_version: None,
                 instructions: None,
                 capabilities: Capabilities::default(),
@@ -402,22 +518,42 @@ impl Server {
             }),
             stopped: AtomicBool::new(false),
             claimed: AtomicBool::new(false),
+            opened: Condvar::new(),
+            cancel: CancelToken::new(),
+            #[cfg(all(test, feature = "fault-injection"))]
+            hold: Mutex::new(None),
             entry,
+            tools_known: AtomicBool::new(false),
         })
+    }
+
+    /// Whether the model's catalog has read its tool list.
+    pub fn tools_known(&self) -> bool {
+        self.tools_known.load(Ordering::Acquire)
+    }
+
+    /// Records what the model's catalog last read of its tool list: the
+    /// list (`true`), or a failure or a needed login (`false`).
+    pub fn set_tools_known(&self, known: bool) {
+        self.tools_known.store(known, Ordering::Release);
     }
 
     fn live(&self) -> std::sync::MutexGuard<'_, Live> {
         self.live.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn view(&self, reloading: bool) -> ServerView {
-        let live = self.live();
-        // A ready server whose connection has gone is a failed one
-        // (`observedConnection`, `health.zig:16-22`).
-        let connection = match (&live.transport, live.connection) {
+    /// Its state as every surface reads it: a ready server whose connection
+    /// has gone is a failed one (`observedConnection`, `health.zig:16-22`).
+    fn observed(live: &Live) -> Connection {
+        match (&live.transport, live.connection) {
             (Some(transport), Connection::Ready) if !transport.alive() => Connection::Failed,
             (_, connection) => connection,
-        };
+        }
+    }
+
+    fn view(&self, reloading: bool) -> ServerView {
+        let live = self.live();
+        let connection = Self::observed(&live);
         ServerView {
             name: self.config.name.clone(),
             source: self.config.source,
@@ -432,7 +568,12 @@ impl Server {
             tool_count: (connection == Connection::Ready).then_some(live.tools.len()),
             tools_held: live.tools.len(),
             listed: live.listed,
-            failure: live.failure.clone(),
+            // Why it is down, while it is: a server coming up again, or back,
+            // has no failure to explain (`publish`, `vercel-labs/fx@481104fd
+            // src/core/mcp_host/runtime.zig:1873-1877`).
+            failure: matches!(connection, Connection::Retrying | Connection::Failed)
+                .then(|| live.failure.clone())
+                .flatten(),
             entry: self.entry.clone(),
         }
     }
@@ -456,22 +597,116 @@ impl Server {
         self.live().instructions.clone()
     }
 
-    fn stop(&self) {
-        self.stopped.store(true, Ordering::Release);
-        let transport = self.live().transport.take();
-        if let Some(transport) = transport {
-            transport.close();
+    /// Waits `wait` between tries, a slice at a time; false once the
+    /// server is stopped, so it is never tried again after that.
+    fn pause(&self, wait: Duration) -> bool {
+        let until = Instant::now() + wait;
+        loop {
+            if self.stopped.load(Ordering::Acquire) {
+                return false;
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return true;
+            }
+            std::thread::sleep(left.min(BACKOFF_SLICE));
         }
     }
-}
 
-/// What the trust prompt last went up over: the entry asked about and the
-/// pending set `2` approves.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Prompted {
-    name: String,
-    digest: String,
-    listed: Vec<(String, String)>,
+    /// Stops it, and returns only once nothing it started still runs: its
+    /// connection and one a try is still opening are closed -- each close
+    /// ends a process's group and collects it -- a try's handshake is
+    /// cancelled, and the try is waited out, up to [`STOP_WAIT`]. So a
+    /// replacement of the same name never runs beside it, and a session that
+    /// ends leaves none behind (fx holds what would start a server while the
+    /// one a reload dropped under its name is stopping, and its end waits
+    /// 3.5 s for every server: `Engine.stopping`, `Engine.deinit`,
+    /// `vercel-labs/fx@481104fd src/mcp/engine.zig:145-161`, `:194-199`;
+    /// `src/core/mcp_host/runtime.zig:832-840`).
+    ///
+    /// `stopped` is set before the lock is taken, and a try reads it under
+    /// that lock before it hands its process over or publishes: so a try
+    /// either finds it set and closes its own, or has handed it over before
+    /// the lock below is taken, and is closed here.
+    fn stop(&self) {
+        self.mark_stopped();
+        let taken: Vec<Arc<dyn Transport>> = {
+            let mut live = self.live();
+            let taken: Vec<_> = [live.transport.take(), live.starting.take()]
+                .into_iter()
+                .flatten()
+                .collect();
+            if !taken.is_empty() {
+                live.closing += 1;
+            }
+            taken
+        };
+        // Closed outside the lock, and counted while they are: a second stop
+        // -- a reload's and the session's end at once -- that finds nothing
+        // left to take waits for this close rather than returning before it.
+        if !taken.is_empty() {
+            #[cfg(all(test, feature = "fault-injection"))]
+            self.held(Hold::StopClosing);
+            for transport in taken {
+                transport.close();
+            }
+            self.live().closing -= 1;
+            self.opened.notify_all();
+        }
+        #[cfg(all(test, feature = "fault-injection"))]
+        self.held(Hold::StopWaiting);
+        let deadline = Instant::now() + STOP_WAIT;
+        let mut live = self.live();
+        while live.opening || live.closing > 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            live = self
+                .opened
+                .wait_timeout(live, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    #[cfg(all(test, feature = "fault-injection"))]
+    fn held(&self, at: Hold) {
+        let hook = self
+            .hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook(at);
+        }
+    }
+
+    /// Marks it stopped, and ends the wait of a handshake under way: nothing
+    /// it does from here on starts, publishes or is retried.
+    fn mark_stopped(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.cancel.cancel();
+    }
+
+    /// Hands `transport`, just started, to the server for the rest of its
+    /// try; false, and closed, when the server was stopped first.
+    fn hand_over(&self, transport: &Arc<dyn Transport>) -> bool {
+        let mut live = self.live();
+        if self.stopped.load(Ordering::Acquire) {
+            drop(live);
+            transport.close();
+            return false;
+        }
+        live.starting = Some(Arc::clone(transport));
+        true
+    }
+
+    /// Takes back the connection a try opened, when the try ends without
+    /// publishing it.
+    fn take_back(&self) -> Option<Arc<dyn Transport>> {
+        self.live().starting.take()
+    }
 }
 
 /// Everything the lock covers.
@@ -481,15 +716,16 @@ struct State {
     reloading: bool,
     /// A reload asked for while one was running, and where it is told.
     again: Option<Origin>,
-    prompts_suppressed: bool,
-    /// What the trust prompt is up over, while it is.
-    prompting: Option<Prompted>,
     /// The configuration the last reload read, for one that only changes
     /// trust choices to compare against.
     choices: Choices,
     /// Each `.mcp.json` entry the last read found, with its digest: what an
     /// approval by name is for ([`config::apply_action`]).
     digests: Vec<(String, String)>,
+    /// Servers a reload took out of force and is still stopping: each is
+    /// marked stopped before any is closed, and [`McpRuntime::shutdown`]
+    /// stops what is left of them should it stop waiting for that reload.
+    retiring: Vec<Arc<Server>>,
 }
 
 /// How a workspace server's `${VAR}` is looked up.
@@ -528,6 +764,22 @@ pub struct McpRuntime {
     jobs: Mutex<Option<mpsc::Sender<Job>>>,
     /// Bumped by every reload that put a new set in force.
     generation: AtomicU64,
+    /// When the servers were last started: the session's first load, and
+    /// every reload after it, changed or not (`startHostServers`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_mcp_runtime.zig:199-210`,
+    /// called by `reloadHost`, `:121-134`). The status line waits for them
+    /// to finish starting from then ([`crate::tui::statusline::McpStatus`]).
+    started: Mutex<Option<Instant>>,
+    /// How many tries a server gets in a row, and how long it waits between
+    /// them ([`Retry`]).
+    retry: Mutex<Retry>,
+    /// Set by [`Self::shutdown`]: no reload starts a server after it.
+    closed: AtomicBool,
+    /// How long [`Self::shutdown`] waits for a reload under way.
+    #[cfg(test)]
+    reload_wait: Mutex<Duration>,
+    #[cfg(all(test, feature = "fault-injection"))]
+    hold: Mutex<Option<HoldHook>>,
     /// What the environment says, for a workspace server's `${VAR}` and an
     /// HTTP server's `header_env` and `bearer_token_env`. A workspace server
     /// never gets xfx's own credentials from it: `config::load_workspace`
@@ -546,6 +798,29 @@ impl std::fmt::Debug for McpRuntime {
 impl McpRuntime {
     /// A runtime over `paths`, with nothing loaded and nothing started.
     pub fn new(paths: Paths) -> Arc<Self> {
+        Self::reading(paths, Box::new(|name| std::env::var(name).ok()))
+    }
+
+    /// [`Self::new`], whose servers' `${VAR}` read `overrides` first and the
+    /// environment after: a test's own fake values, never the machine's.
+    #[cfg(test)]
+    pub(crate) fn with_environment(paths: Paths, overrides: &[(&str, &str)]) -> Arc<Self> {
+        let overrides: HashMap<String, String> = overrides
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        Self::reading(
+            paths,
+            Box::new(move |name| {
+                overrides
+                    .get(name)
+                    .cloned()
+                    .or_else(|| std::env::var(name).ok())
+            }),
+        )
+    }
+
+    fn reading(paths: Paths, environment: Box<Lookup>) -> Arc<Self> {
         Arc::new(Self {
             paths,
             state: Mutex::new(State {
@@ -553,17 +828,98 @@ impl McpRuntime {
                 issues: Vec::new(),
                 reloading: false,
                 again: None,
-                prompts_suppressed: false,
-                prompting: None,
                 choices: Choices::default(),
                 digests: Vec::new(),
+                retiring: Vec::new(),
             }),
             names: Mutex::new(ToolNames::new(crate::tools::ADVERTISED_TOOLS)),
             events: Mutex::new(VecDeque::new()),
             jobs: Mutex::new(None),
             generation: AtomicU64::new(0),
-            environment: Box::new(|name| std::env::var(name).ok()),
+            started: Mutex::new(None),
+            retry: Mutex::new(Retry::FX),
+            closed: AtomicBool::new(false),
+            #[cfg(test)]
+            reload_wait: Mutex::new(STOP_WAIT),
+            #[cfg(all(test, feature = "fault-injection"))]
+            hold: Mutex::new(None),
+            environment,
         })
+    }
+
+    /// When the servers were last started, or `None` before the first load:
+    /// what the status line's 10-second wait counts from.
+    pub fn started_at(&self) -> Option<Instant> {
+        *self.started.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn mark_started(&self) {
+        *self.started.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+    }
+
+    /// A test's own schedule of tries, so a server that never comes up is
+    /// `Failed` in milliseconds rather than fx's minute and a half.
+    #[cfg(test)]
+    pub(crate) fn set_retry(&self, retry: Retry) {
+        *self.retry.lock().unwrap_or_else(PoisonError::into_inner) = retry;
+    }
+
+    fn retry(&self) -> Retry {
+        *self.retry.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A test's own wait for a reload under way at the end.
+    #[cfg(all(test, feature = "fault-injection"))]
+    pub(crate) fn set_reload_wait(&self, wait: Duration) {
+        *self
+            .reload_wait
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = wait;
+    }
+
+    #[cfg(test)]
+    fn reload_wait(&self) -> Duration {
+        *self
+            .reload_wait
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    #[cfg(not(test))]
+    fn reload_wait(&self) -> Duration {
+        STOP_WAIT
+    }
+
+    /// Holds every try at the [`Hold`] points through `hook`.
+    #[cfg(all(test, feature = "fault-injection"))]
+    pub(crate) fn set_hold(&self, hook: impl Fn(Hold) + Send + Sync + 'static) {
+        let hook: HoldHook = Arc::new(hook);
+        *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&hook));
+        for server in self.servers() {
+            *server.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&hook));
+        }
+    }
+
+    /// A server this runtime made, given its hold hook.
+    #[cfg(all(test, feature = "fault-injection"))]
+    fn adopt(&self, server: &Server) {
+        *server.hold.lock().unwrap_or_else(PoisonError::into_inner) = self
+            .hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+    }
+
+    #[cfg(all(test, feature = "fault-injection"))]
+    fn held(&self, at: Hold) {
+        let hook = self
+            .hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook(at);
+        }
     }
 
     /// A runtime that reads no file: a test's, or a session with no profile.
@@ -587,7 +943,7 @@ impl McpRuntime {
             .push_back(event);
     }
 
-    /// A notice under `mcp`, or under no topic when it is a usage line.
+    /// A notice under `mcp`.
     pub fn notice(&self, warning: bool, body: impl Into<String>) {
         self.say(Event::Notice {
             warning,
@@ -618,6 +974,17 @@ impl McpRuntime {
     /// The configuration problems the last reload found.
     pub fn issues(&self) -> Vec<String> {
         self.state().issues.clone()
+    }
+
+    /// The [`config::entry_digest`] of `.mcp.json`'s entry `name` as the last
+    /// read found it, parsed or not -- what an approval of that name binds to
+    /// (`config::apply_action`) -- or `None` when that read had no such entry.
+    pub fn loaded_digest(&self, name: &str) -> Option<String> {
+        self.state()
+            .digests
+            .iter()
+            .find(|(entry, _)| entry == name)
+            .map(|(_, digest)| digest.clone())
     }
 
     /// The server called `name`.
@@ -677,56 +1044,7 @@ impl McpRuntime {
         match job {
             Job::Command(line) => super::command::handle(self, &line),
             Job::Trust { action, body } => self.trust(action, &body),
-            Job::Catalog {
-                request,
-                section,
-                server,
-            } => {
-                let result = self.catalog(section, server.as_deref());
-                self.say(Event::Catalog { request, result });
-            }
-            Job::MenuReload => self.reload(Origin::Menu),
-        }
-    }
-
-    fn catalog(&self, section: Section, server: Option<&str>) -> Result<Catalog, String> {
-        let failed = |err: McpError| format!("MCP catalog failed: {err}");
-        match section {
-            Section::Tools => {
-                let mut names: Vec<String> = self
-                    .tools()
-                    .into_iter()
-                    .map(|(_, tool)| tool.alias)
-                    .collect();
-                names.sort();
-                Ok(Catalog::Tools(names))
-            }
-            Section::Resources => {
-                let name = server.ok_or_else(|| failed(McpError::Named("McpServerNotFound")))?;
-                match self.list_resources(name, false, None) {
-                    Ok(mut resources) => {
-                        let templates = self.list_resources(name, true, None).map_err(failed)?;
-                        resources.extend(templates);
-                        Ok(Catalog::Resources(resources))
-                    }
-                    // An empty catalog, not a failure (`completeEmptyMenuCatalog`,
-                    // `app_mcp_runtime.zig:1481-1484`).
-                    Err(McpError::Named("McpResourcesUnsupported")) => {
-                        Ok(Catalog::Resources(Vec::new()))
-                    }
-                    Err(err) => Err(failed(err)),
-                }
-            }
-            Section::Prompts => {
-                let name = server.ok_or_else(|| failed(McpError::Named("McpServerNotFound")))?;
-                match self.list_prompts(name, None) {
-                    Ok(prompts) => Ok(Catalog::Prompts(prompts)),
-                    Err(McpError::Named("McpPromptsUnsupported")) => {
-                        Ok(Catalog::Prompts(Vec::new()))
-                    }
-                    Err(err) => Err(failed(err)),
-                }
-            }
+            Job::Remove { name, file } => super::command::remove_chosen(self, &name, file),
         }
     }
 
@@ -737,13 +1055,15 @@ impl McpRuntime {
     /// The session's first load, on the worker thread.
     ///
     /// The configured servers are put in force before this returns -- each
-    /// `Connecting` or `Disabled`, and the trust prompt up for a pending one
-    /// -- so the session's first frame and its record already name them;
-    /// connecting them is the thread's.
+    /// `Connecting` or `Disabled`, a pending project server held back until
+    /// it is approved in `/mcp`'s menu or by `/mcp approve` (fx v0.0.16 has
+    /// no launch prompt, `ba0ea4a9`) -- so the session's first frame and its
+    /// record already name them; connecting them is the thread's.
     pub fn start(self: &Arc<Self>) {
         if self.paths.profile.is_none() && self.paths.settings.is_none() {
             return;
         }
+        self.mark_started();
         if let Ok((configs, issues, choices, digests)) = self.read_configuration() {
             let mut state = self.state();
             let index = by_name(&digests);
@@ -751,11 +1071,13 @@ impl McpRuntime {
                 .into_iter()
                 .map(|config| Server::new(config, &index))
                 .collect();
+            #[cfg(all(test, feature = "fault-injection"))]
+            for server in &state.servers {
+                self.adopt(server);
+            }
             state.issues = issues;
             state.choices = choices;
             state.digests = digests;
-            drop(state);
-            self.present_prompt();
         }
         let runtime = Arc::clone(self);
         let _ = std::thread::Builder::new()
@@ -809,13 +1131,14 @@ impl McpRuntime {
         ),
         McpError,
     > {
-        let mut servers = match &self.paths.profile {
-            Some(path) => {
-                config::load_profile(path)
-                    .map_err(|err| McpError::Named(err.0))?
-                    .servers
-            }
-            None => Vec::new(),
+        // A profile entry that can't be read is a note, ahead of the
+        // workspace's (`loadNativeConfigs`, `src/builtins/mcp.zig:45-56@481104fd`).
+        let config::Profile {
+            mut servers,
+            notes: mut issues,
+        } = match &self.paths.profile {
+            Some(path) => config::load_profile(path).map_err(|err| McpError::Named(err.0))?,
+            None => config::Profile::default(),
         };
         let choices = config::load_choices(self.paths.settings.as_deref(), &self.paths.workspace);
         let workspace = if self.paths.profile.is_some() || self.paths.settings.is_some() {
@@ -829,12 +1152,19 @@ impl McpRuntime {
                 servers.push(server);
             }
         }
-        Ok((servers, workspace.issues, choices, workspace.digests))
+        issues.extend(workspace.issues);
+        // The profile's `${VAR}`, then names a terminal can't show
+        // (`loadHost`, `src/builtins/mcp.zig:133-134@481104fd`).
+        config::prepare_to_start(&mut servers, &mut issues, &*self.environment);
+        Ok((servers, issues, choices, workspace.digests))
     }
 
     /// Reads both files again and connects what changed, telling `origin`
     /// how it went. A reload asked for while one runs runs after it.
     pub fn reload(self: &Arc<Self>, origin: Origin) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         {
             let mut state = self.state();
             if state.reloading {
@@ -852,79 +1182,70 @@ impl McpRuntime {
             self.reload_once(origin);
             let mut state = self.state();
             match state.again.take() {
-                Some(next) => origin = next,
-                None => {
+                Some(next) if !self.closed.load(Ordering::Acquire) => origin = next,
+                _ => {
                     state.reloading = false;
                     break;
                 }
             }
         }
         self.say(Event::Changed);
-        self.present_prompt();
     }
 
     fn reload_once(self: &Arc<Self>, origin: Origin) {
         let (configs, issues, choices, digests) = match self.read_configuration() {
             Ok(read) => read,
-            Err(err) => {
-                let body = match origin {
-                    Origin::Menu => format!("MCP reload failed: {err}"),
-                    _ => "MCP configuration could not be reloaded. Your existing MCP servers are still active. Check the configuration and run /mcp list for details before trying again.".to_string(),
-                };
-                match origin {
-                    Origin::Menu => self.say(Event::MenuFeedback(body)),
-                    _ => self.notice(true, body),
-                }
+            Err(_) => {
+                // The one thing a reload says (`collectMcpHostFacts`,
+                // `vercel-labs/fx@481104fd src/core/app/app_commands.zig:
+                // 340-345`). A profile the session could not read at its
+                // start keeps the sentence it had: which file problems stop
+                // a load, and what is said of them, is the config's
+                // (`src/mcp/config.rs`).
+                self.notice(
+                    true,
+                    if origin == Origin::Startup {
+                        "MCP configuration could not be reloaded. Your existing MCP servers are still active. Check the configuration and run /mcp list for details before trying again."
+                    } else {
+                        "The MCP config changed, but xfx couldn't load it again. Your current servers are still active."
+                    },
+                );
                 return;
             }
         };
-        // The servers carried over: same configuration, and up or coming up.
+        self.mark_started();
+        // In place: a server whose configuration is the same keeps running as
+        // it is, whatever its state -- fx's engine keeps every slot whose
+        // config is the same (`Engine.reload`, `src/mcp/engine.zig:167-186`)
+        // -- and the rest start fresh.
         let current = self.servers();
         let index = by_name(&digests);
         let mut next: Vec<Arc<Server>> = Vec::with_capacity(configs.len());
         let mut connecting: Vec<Arc<Server>> = Vec::new();
         for config in configs {
+            // And, for one a person is asked about, the entry it shows: two
+            // spellings of one server (`"type": "stdio"` or none) are two
+            // entries, and an approval is for the one in the file now
+            // (opus-A).
             let kept = current.iter().find(|server| {
                 server.config == config
-                    && matches!(
-                        server.live().connection,
-                        Connection::Ready | Connection::Connecting
-                    )
                     && !server.stopped.load(Ordering::Acquire)
+                    && server.entry.as_ref().map(|entry| entry.digest.as_str())
+                        == shown_entry_digest(&config, &index)
             });
             let server = match kept {
                 Some(server) => Arc::clone(server),
-                None => Server::new(config, &index),
+                None => {
+                    let server = Server::new(config, &index);
+                    #[cfg(all(test, feature = "fault-injection"))]
+                    self.adopt(&server);
+                    server
+                }
             };
             if server.should_connect() && !server.claimed.swap(true, Ordering::AcqRel) {
                 connecting.push(Arc::clone(&server));
             }
             next.push(server);
-        }
-        // The first load publishes at once, so the menu and the model see
-        // `Connecting` rather than nothing while servers come up.
-        if origin == Origin::Startup {
-            let mut state = self.state();
-            state.servers = next.clone();
-            state.issues = issues.clone();
-            state.choices = choices.clone();
-            state.digests = digests.clone();
-            drop(state);
-            self.present_prompt();
-            self.say(Event::Changed);
-        }
-        let threads: Vec<_> = connecting
-            .iter()
-            .map(|server| {
-                let server = Arc::clone(server);
-                let runtime = Arc::clone(self);
-                std::thread::Builder::new()
-                    .name("xfx-mcp-connect".into())
-                    .spawn(move || runtime.connect(&server))
-            })
-            .collect();
-        for thread in threads.into_iter().flatten() {
-            let _ = thread.join();
         }
         let retired: Vec<Arc<Server>> = {
             let mut state = self.state();
@@ -932,179 +1253,175 @@ impl McpRuntime {
             state.issues = issues;
             state.choices = choices;
             state.digests = digests;
-            old.into_iter()
+            let retired: Vec<Arc<Server>> = old
+                .into_iter()
                 .filter(|server| !next.iter().any(|kept| Arc::ptr_eq(kept, server)))
-                .collect()
+                .collect();
+            // Every one marked before any is closed, and each still within
+            // `shutdown`'s reach until its stop is done.
+            for server in &retired {
+                server.mark_stopped();
+            }
+            state.retiring.extend(retired.iter().cloned());
+            retired
         };
+        // A changed server's old process goes before its new one starts
+        // (`Runtime.reload`, `runtime.zig:628-642`; `Engine.stopping`,
+        // `src/mcp/engine.zig:194-199`): each stop returns once nothing it
+        // started runs, a try in its handshake included ([`Server::stop`]).
         for server in retired {
             server.stop();
+            self.state()
+                .retiring
+                .retain(|retiring| !Arc::ptr_eq(retiring, &server));
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
-        self.report(origin, &next);
-    }
-
-    /// Says how a reload went (`formatMcpPublishedReload`,
-    /// `app_commands.zig:91-129`; the menu's `applyMenuReloadCompletion`,
-    /// `app_mcp_runtime.zig:1530-1560`; the startup notice,
-    /// `health.zig:438-480`).
-    fn report(&self, origin: Origin, servers: &[Arc<Server>]) {
-        let views: Vec<ServerView> = servers.iter().map(|server| server.view(false)).collect();
-        let unavailable: Vec<&str> = views
-            .iter()
-            .filter(|view| {
-                matches!(
-                    view.status(),
-                    Status::Failed | Status::NeedsAuth | Status::Unavailable
-                )
-            })
-            .map(|view| view.name.as_str())
-            .collect();
-        match origin {
-            Origin::Startup => {
-                let needs_auth = views
-                    .iter()
-                    .filter(|view| view.status() == Status::NeedsAuth)
-                    .count();
-                let failed = views
-                    .iter()
-                    .filter(|view| view.status() == Status::Failed)
-                    .count();
-                let total = needs_auth + failed;
-                if total == 0 {
-                    return;
-                }
-                let mut body = format!(
-                    "MCP startup: {total} server{} need{} attention",
-                    if total == 1 { "" } else { "s" },
-                    if total == 1 { "s" } else { "" }
-                );
-                if needs_auth > 0 {
-                    body.push_str(&format!(
-                        ", {needs_auth} need{} authentication",
-                        if needs_auth == 1 { "s" } else { "" }
-                    ));
-                }
-                if failed > 0 {
-                    body.push_str(&format!(", {failed} failed"));
-                }
-                body.push('.');
-                if let Some(first) = views.iter().find(|view| view.status() == Status::NeedsAuth) {
-                    body.push_str(&format!(" Run /mcp auth {} --open.", first.name));
-                }
-                body.push_str(" Use /mcp list for details.");
-                self.notice(false, body);
-            }
-            Origin::Menu => {
-                let body = if unavailable.is_empty() {
-                    "MCP configuration reloaded.".to_string()
-                } else {
-                    format!(
-                        "MCP reloaded with {} unavailable server{}.",
-                        unavailable.len(),
-                        if unavailable.len() == 1 { "" } else { "s" }
-                    )
-                };
-                self.say(Event::MenuFeedback(body));
-            }
-            Origin::Transcript => {
-                let body = match unavailable.as_slice() {
-                    [] if views.is_empty() => {
-                        "MCP configuration reloaded. No servers are configured.".to_string()
-                    }
-                    [] => "MCP configuration reloaded successfully.".to_string(),
-                    [one] => format!(
-                        "MCP configuration reloaded, but server '{one}' is unavailable. Run /mcp list for details."
-                    ),
-                    many => format!(
-                        "MCP configuration reloaded, but {} servers are unavailable: {}. Run /mcp list for details.",
-                        many.len(),
-                        many.iter()
-                            .map(|name| format!("'{name}'"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                };
-                self.notice(!unavailable.is_empty(), body);
+        self.say(Event::Changed);
+        // None once the session is ending: what it stops is what is in force.
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        // Each on a thread of its own, tried until it is up or out of tries;
+        // nobody waits for them.
+        for server in connecting {
+            let runtime = Arc::clone(self);
+            let spawned = std::thread::Builder::new()
+                .name("xfx-mcp-connect".into())
+                .spawn({
+                    let server = Arc::clone(&server);
+                    move || runtime.connect(&server)
+                });
+            if spawned.is_err() {
+                let mut live = server.live();
+                live.connection = Connection::Failed;
+                live.failure = Some("xfx couldn't start a thread for it".to_string());
             }
         }
     }
 
-    /// Connects `server`, starting it again up to its restart limit.
+    /// Connects `server`: tried until it is up, it is stopped, or its tries
+    /// run out ([`Retry`]). Between tries it is `Retrying`, with why the last
+    /// one failed.
     fn connect(&self, server: &Arc<Server>) {
-        let limit = if server.config.transport == Kind::Stdio {
-            server.config.restart_limit
-        } else {
-            0
-        };
-        let mut attempt = 0u8;
+        let retry = self.retry();
+        let mut tries = 0u8;
         loop {
             if server.stopped.load(Ordering::Acquire) {
                 return;
             }
-            match self.open(server) {
+            tries = tries.saturating_add(1);
+            server.live().connection = Connection::Connecting;
+            let failed = match self.open(server) {
                 Ok(()) => return,
-                Err(err) => {
-                    let auth = err == McpError::Named("McpAuthenticationRequired");
-                    if !auth && attempt < limit && !server.stopped.load(Ordering::Acquire) {
-                        attempt += 1;
-                        continue;
-                    }
-                    let mut live = server.live();
-                    live.connection = Connection::Failed;
-                    live.needs_auth = auth;
-                    live.failure = Some(err.to_string());
-                    return;
-                }
+                Err(_) if server.stopped.load(Ordering::Acquire) => return,
+                Err(failed) => failed,
+            };
+            let auth = failed.error == McpError::Named("McpAuthenticationRequired");
+            let mut live = server.live();
+            live.needs_auth = auth;
+            live.failure = Some(failed.words);
+            if !worth_retrying(&failed.error) || tries >= retry.attempts {
+                live.connection = Connection::Failed;
+                return;
+            }
+            live.connection = Connection::Retrying;
+            drop(live);
+            if !server.pause(retry.backoff(tries)) {
+                return;
             }
         }
     }
 
-    /// One attempt: start, initialize, list the tools, publish.
-    fn open(&self, server: &Arc<Server>) -> Result<(), McpError> {
+    /// One attempt: start, initialize, list the tools, publish. A failure
+    /// comes with fx's words for it ([`failure_words`]).
+    ///
+    /// The connection is the server's from the moment it is started
+    /// ([`Server::hand_over`]), so a stop during the handshake closes it; and
+    /// it is published under the same lock a stop takes, so a stopped server
+    /// never gets one. A stopped server's try ends `Ok`, with nothing to say.
+    fn open(&self, server: &Arc<Server>) -> Result<(), Box<Failed>> {
+        match Opening::begin(server) {
+            Some(opening) => self.open_as(server, opening),
+            None => Ok(()),
+        }
+    }
+
+    /// [`Self::open`], the try already marked as `_opening`.
+    fn open_as(&self, server: &Arc<Server>, _opening: Opening<'_>) -> Result<(), Box<Failed>> {
         let config = &server.config;
         let deadline = Instant::now() + config.startup_timeout();
         let left = || deadline.saturating_duration_since(Instant::now());
+        let started = |error: McpError| Box::new(Failed::new(Step::Start, error, None, None));
         let transport: Arc<dyn Transport> = match config.transport {
-            Kind::Stdio => Arc::new(StdioTransport::spawn(
-                &config.command,
-                &config.args,
-                &config.env,
-                None,
-            )?),
-            Kind::Http => Arc::new(HttpTransport::open(
-                &config.url,
-                &http_headers(config, &*self.environment)?,
-            )?),
-            Kind::Sse => return Err(McpError::Named("McpTransportUnsupported")),
+            Kind::Stdio => Arc::new(
+                StdioTransport::spawn(&config.command, &config.args, &config.env, None)
+                    .map_err(started)?,
+            ),
+            Kind::Http => Arc::new(
+                HttpTransport::open(
+                    &config.url,
+                    &http_headers(config, &*self.environment).map_err(started)?,
+                )
+                .map_err(started)?,
+            ),
+            Kind::Sse => return Err(started(McpError::Named("McpTransportUnsupported"))),
         };
+        #[cfg(all(test, feature = "fault-injection"))]
+        self.held(Hold::BeforeHandOver);
+        if !server.hand_over(&transport) {
+            return Ok(());
+        }
+        // `_opening` is held to the end of the try, its own teardown
+        // included: a stop that finds nothing to close waits for it.
         let result = self.handshake(server, &transport, &left);
         let (version, capabilities, instructions, tools) = match result {
             Ok(found) => found,
-            Err(err) => {
-                let diagnostic = transport.diagnostic();
+            Err((step, error)) => {
+                // What a stdio server said on its way out, and how it ended,
+                // read while the connection is still the server's: a stop now
+                // closes it itself, the exit is then read at once, and the
+                // stderr wait ends as soon as its pipe does -- within its
+                // 0.5 s settle when a process outside the group holds it. An
+                // HTTP server has neither.
+                let (stderr, exit) =
+                    if config.transport == Kind::Stdio && !server.stopped.load(Ordering::Acquire) {
+                        (transport.diagnostic(), transport.exit())
+                    } else {
+                        (None, None)
+                    };
+                // `None`: a stop took it and closed it, and is the reason.
+                let mine = server.take_back().is_some();
+                #[cfg(all(test, feature = "fault-injection"))]
+                if mine {
+                    self.held(Hold::BeforeOwnClose);
+                }
                 transport.close();
-                return Err(match (err, diagnostic) {
-                    (McpError::Named("McpConnectionClosed"), Some(_)) => {
-                        McpError::Named("McpInitFailed")
-                    }
-                    (err, _) => err,
-                });
+                if !mine || server.stopped.load(Ordering::Acquire) {
+                    return Ok(());
+                }
+                return Err(Box::new(Failed::new(step, error, exit, stderr.as_deref())));
             }
         };
-        if server.stopped.load(Ordering::Acquire) {
+        let mut live = server.live();
+        if server.stopped.load(Ordering::Acquire) || live.starting.take().is_none() {
+            drop(live);
             transport.close();
             return Ok(());
         }
-        let mut live = server.live();
         live.connection = Connection::Ready;
         live.needs_auth = false;
         live.failure = None;
-        live.transport = Some(transport);
+        // A restart's old connection, which is dead: its last reference goes
+        // after the lock does, since dropping it closes it -- a group's grace,
+        // a container's removal -- and every surface reads this lock.
+        let old = live.transport.replace(transport);
         live.protocol_version = Some(version);
         live.capabilities = capabilities;
         live.instructions = instructions;
         live.tools = tools;
         live.listed = Listed::default();
+        drop(live);
+        drop(old);
         Ok(())
     }
 
@@ -1114,7 +1431,8 @@ impl McpRuntime {
         server: &Server,
         transport: &Arc<dyn Transport>,
         left: &dyn Fn() -> Duration,
-    ) -> Result<(String, Capabilities, Option<String>, Vec<McpTool>), McpError> {
+    ) -> Result<(String, Capabilities, Option<String>, Vec<McpTool>), (Step, McpError)> {
+        let at = |step: Step| move |error: McpError| (step, error);
         let initialized = transport.request(
             "initialize",
             json!({
@@ -1125,19 +1443,26 @@ impl McpRuntime {
                 "clientInfo": {"name": "xfx", "version": env!("CARGO_PKG_VERSION")},
             }),
             left(),
-            None,
-        )?;
+            Some(&server.cancel),
+        );
+        let initialized = initialized.map_err(at(Step::Initialize))?;
         let version = initialized
             .get("protocolVersion")
             .and_then(Value::as_str)
-            .ok_or(McpError::Named("McpUnsupportedProtocolVersion"))?;
+            .ok_or((
+                Step::Initialize,
+                McpError::Named("McpUnsupportedProtocolVersion"),
+            ))?;
         let accepted: &[&str] = if server.config.transport == Kind::Stdio {
             &STDIO_VERSIONS
         } else {
             &HTTP_VERSIONS
         };
         if !accepted.contains(&version) {
-            return Err(McpError::Named("McpUnsupportedProtocolVersion"));
+            return Err((
+                Step::Initialize,
+                McpError::Named("McpUnsupportedProtocolVersion"),
+            ));
         }
         let advertised = initialized.get("capabilities").and_then(Value::as_object);
         let has = |key: &str| {
@@ -1153,10 +1478,13 @@ impl McpRuntime {
             .get("instructions")
             .and_then(Value::as_str)
             .map(str::to_string);
-        transport.notify(
-            "notifications/initialized",
-            (server.config.transport != Kind::Stdio).then(|| json!({})),
-        )?;
+        transport
+            .notify(
+                "notifications/initialized",
+                (server.config.transport != Kind::Stdio).then(|| json!({})),
+                Some(&server.cancel),
+            )
+            .map_err(at(Step::Initialized))?;
         let mut tools = Vec::new();
         if capabilities.tools {
             let mut cursor: Option<String> = None;
@@ -1165,11 +1493,13 @@ impl McpRuntime {
                     Some(cursor) => json!({"cursor": cursor}),
                     None => json!({}),
                 };
-                let page = transport.request("tools/list", params, left(), None)?;
+                let page = transport
+                    .request("tools/list", params, left(), Some(&server.cancel))
+                    .map_err(at(Step::Tools))?;
                 for tool in page
                     .get("tools")
                     .and_then(Value::as_array)
-                    .ok_or(McpError::Named("McpInvalidResult"))?
+                    .ok_or((Step::Tools, McpError::Named("McpInvalidResult")))?
                 {
                     if let Some(tool) = self.tool(&server.config.name, tool) {
                         tools.push(tool);
@@ -1231,21 +1561,6 @@ impl McpRuntime {
     // trust
     // -----------------------------------------------------------------------
 
-    /// The workspace server the trust prompt should ask about next -- the
-    /// first one still pending, unless the person dismissed the prompts --
-    /// with the digest of its entry as read.
-    fn pending_prompt(state: &State) -> Option<(ServerConfig, String)> {
-        if state.prompts_suppressed {
-            return None;
-        }
-        let server = state
-            .servers
-            .iter()
-            .find(|server| server.config.admission == Some(Admission::Pending))?;
-        let digest = server.entry.as_ref()?.digest.clone();
-        Some((server.config.clone(), digest))
-    }
-
     /// Every pending project server the last read found, with the digest of
     /// its entry: what an approve-all binds.
     fn pending_entries(state: &State) -> Vec<(String, String)> {
@@ -1260,166 +1575,31 @@ impl McpRuntime {
             .collect()
     }
 
-    /// Puts the trust prompt up for the next pending server, when one is
-    /// pending and none is up for that entry. Upstream's two rows, with what
-    /// the entry runs or reaches between them ([`what_it_runs`]): the name is
-    /// the repository's to choose, so it says nothing about what would run.
-    fn present_prompt(&self) {
-        // The server asked about and the set `2` approves, from one read of
-        // the state -- and published as one event while that read is held, so
-        // two prompts put up at once (a reload's, a refused `2`'s) reach the
-        // shell in the order the state took them, each with its own text.
-        let mut state = self.state();
-        let Some((config, digest)) = Self::pending_prompt(&state) else {
-            state.prompting = None;
-            return;
-        };
-        let listed = Self::pending_entries(&state);
-        // Sent again whenever the pending set changes, not only the entry
-        // asked about: `2` approves the whole set the prompt went up over.
-        let prompted = Prompted {
-            name: config.name.clone(),
-            digest: digest.clone(),
-            listed: listed.clone(),
-        };
-        if state.prompting.as_ref() == Some(&prompted) {
-            return;
-        }
-        state.prompting = Some(prompted);
-        let name_row = format!(
-            "Project MCP server '{}' is defined in .mcp.json.",
-            prompt_value(&super::terminal_safe(&config.name))
-        );
-        let text = format!(
-            "{name_row}\n  {}\n  {PROMPT_CHOICES}\n",
-            what_it_runs(&config)
-        );
-        let whole = shown_whole(&name_row, &entry_rows(&config));
-        // The state lock, then the event queue's: no path takes them the
-        // other way round.
-        self.say(Event::TrustPrompt {
-            name: config.name,
-            digest,
-            listed,
-            whole,
-            text,
-        });
-    }
-
-    /// The prompt has been answered or overtaken: the next reload may put
-    /// one up again.
-    pub fn prompt_answered(&self) {
-        self.state().prompting = None;
-    }
-
-    /// The prompt again, from the state as it is now: for a `2` that refused
-    /// a set that no longer stands. Whether one went up -- none does when
-    /// nothing is pending or the prompts were dismissed for this process.
-    pub fn prompt_again(&self) -> bool {
-        self.prompt_answered();
-        self.present_prompt();
-        self.state().prompting.is_some()
-    }
-
-    /// Esc at the prompt: no more prompts for this process.
-    pub fn suppress_prompts(&self) {
-        let mut state = self.state();
-        state.prompts_suppressed = true;
-        state.prompting = None;
-    }
-
     /// A trust choice (`applyProjectMcpAction`, `app_commands.zig:1407-1466`):
-    /// saved, announced with `body`, and put in force by a reload.
+    /// saved, announced with `body` -- a menu's choice has none, and says
+    /// only what warns (`.warnings_only`, `app_mcp_runtime.zig:545-560
+    /// @481104fd`) -- and put in force by a reload.
     fn trust(self: &Arc<Self>, action: TrustAction, body: &str) {
-        self.prompt_answered();
         let Some(settings) = self.paths.settings.clone() else {
             self.notice(
                 true,
                 "Project MCP choices were not applied: SettingsUnavailable.",
             );
-            self.present_prompt();
             return;
         };
         // What the runtime holds now, from one read of the state.
-        let (loaded, held) = {
+        let loaded = {
             let state = self.state();
-            let held: HashMap<String, Option<Admission>> = state
-                .servers
-                .iter()
-                .filter(|server| server.config.source == Source::Workspace)
-                .map(|server| (server.config.name.clone(), server.config.admission))
-                .collect();
-            (
-                config::Loaded {
-                    entries: state.digests.clone(),
-                    pending: Self::pending_entries(&state),
-                },
-                held,
-            )
-        };
-        // An approve-all of what was drawn leaves alone each listed entry no
-        // longer pending as listed, and each pending one it did not list; and
-        // says which, and why, of each.
-        let mut left: Vec<String> = Vec::new();
-        if let TrustAction::ApproveListed(listed) = &action {
-            for (name, digest) in listed {
-                if loaded.pending.contains(&(name.clone(), digest.clone())) {
-                    continue;
-                }
-                let shown = super::terminal_safe(name);
-                left.push(match held.get(name) {
-                    Some(Some(Admission::Pending)) => format!(
-                        "Project MCP server '{shown}' changed since it was listed; it is still waiting for approval."
-                    ),
-                    Some(Some(Admission::Approved)) => {
-                        format!("Project MCP server '{shown}' was approved in the meantime.")
-                    }
-                    Some(Some(Admission::Rejected)) => format!(
-                        "Project MCP server '{shown}' was rejected in the meantime; it was not approved."
-                    ),
-                    _ => format!(
-                        "Project MCP server '{shown}' is no longer a server in .mcp.json; there was nothing to approve."
-                    ),
-                });
-            }
-            for (name, _) in &loaded.pending {
-                if !listed.iter().any(|(listed, _)| listed == name) {
-                    left.push(format!(
-                        "Project MCP server '{}' was added since the list was drawn; it is still waiting for approval.",
-                        super::terminal_safe(name)
-                    ));
-                }
-            }
-        }
-        let approving = match &action {
-            TrustAction::ApproveListed(listed) => listed
-                .iter()
-                .filter(|entry| loaded.pending.contains(entry))
-                .count(),
-            _ => 1,
-        };
-        let say_left = |runtime: &Self| {
-            for sentence in &left {
-                runtime.notice(true, sentence.clone());
+            config::Loaded {
+                entries: state.digests.clone(),
+                pending: Self::pending_entries(&state),
             }
         };
-        if let TrustAction::ApproveListed(listed) = &action {
-            if listed.is_empty() {
-                // fx v0.0.16's sentence (`mcp_host/verbs.zig:645-650@481104fd`).
-                self.notice(false, "No project servers are waiting for approval.");
-                self.present_prompt();
-                return;
-            }
-            if approving == 0 {
-                say_left(self);
-                self.present_prompt();
-                return;
-            }
-        }
         match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
-                self.notice(false, body);
-                say_left(self);
+                if !body.is_empty() {
+                    self.notice(false, body);
+                }
                 self.reload(Origin::Transcript);
             }
             Err(err) => {
@@ -1430,7 +1610,6 @@ impl McpRuntime {
                         crate::output::safe_one_line(&err.to_string(), 200)
                     ),
                 );
-                self.present_prompt();
             }
         }
     }
@@ -1472,7 +1651,7 @@ impl McpRuntime {
         let (server, tool) = self
             .tool_by_alias(alias)
             .ok_or(McpError::Named("McpToolNotFound"))?;
-        let transport = self.transport(&server)?;
+        let transport = self.transport(&server, cancel)?;
         let result = transport.request(
             "tools/call",
             json!({"name": tool.name, "arguments": arguments}),
@@ -1484,40 +1663,79 @@ impl McpRuntime {
 
     /// A ready server's connection, started again when it has gone and a
     /// restart is left.
-    fn transport(&self, server: &Arc<Server>) -> Result<Arc<dyn Transport>, McpError> {
-        let (transport, restarts) = {
-            let live = server.live();
-            (live.transport.clone(), live.restarts)
-        };
-        match transport {
-            Some(transport) if transport.alive() => Ok(transport),
-            Some(_)
-                if server.config.transport == Kind::Stdio
-                    && restarts < server.config.restart_limit =>
-            {
-                server.live().restarts = restarts + 1;
-                match self.open(server) {
-                    Ok(()) => server
-                        .live()
-                        .transport
-                        .clone()
-                        .ok_or(McpError::Named("McpConnectionClosed")),
-                    Err(err) => {
-                        let mut live = server.live();
-                        live.connection = Connection::Failed;
-                        live.failure = Some(err.to_string());
-                        Err(McpError::Restart(err.to_string()))
-                    }
+    fn transport(
+        &self,
+        server: &Arc<Server>,
+        cancel: Option<&CancelToken>,
+    ) -> Result<Arc<dyn Transport>, McpError> {
+        // A restart's credit is spent and its try marked under one lock, so
+        // two calls that find it gone spend one restart and start one
+        // process; the other waits for that try and takes what it opened --
+        // until its own call is cancelled, which leaves the try alone.
+        let deadline = Instant::now() + server.config.startup_timeout() + STOP_WAIT;
+        #[cfg(all(test, feature = "fault-injection"))]
+        let mut announced = false;
+        let opening = loop {
+            let mut live = server.live();
+            match live.transport.clone() {
+                Some(transport) if transport.alive() => return Ok(transport),
+                None => return Err(McpError::Named("McpServerUnavailable")),
+                Some(_) => {}
+            }
+            if live.opening {
+                if cancel.is_some_and(CancelToken::is_cancelled) {
+                    return Err(McpError::Named("Cancelled"));
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(McpError::Named("McpRequestTimedOut"));
+                }
+                #[cfg(all(test, feature = "fault-injection"))]
+                if !announced {
+                    announced = true;
+                    drop(live);
+                    self.held(Hold::WaitingForTry);
+                    continue;
+                }
+                drop(
+                    server
+                        .opened
+                        .wait_timeout(live, left.min(super::transport::CANCEL_POLL))
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0,
+                );
+                continue;
+            }
+            let credit = server.config.transport == Kind::Stdio
+                && live.restarts < server.config.restart_limit;
+            let opening = credit.then(|| Opening::claim(server, &mut live)).flatten();
+            match opening {
+                Some(opening) => {
+                    live.restarts += 1;
+                    break opening;
+                }
+                None => {
+                    return Err(McpError::Restart(
+                        live.failure
+                            .clone()
+                            .unwrap_or_else(|| "McpConnectionClosed".to_string()),
+                    ))
                 }
             }
-            Some(_) => Err(McpError::Restart(
-                server
-                    .live()
-                    .failure
-                    .clone()
-                    .unwrap_or_else(|| "McpConnectionClosed".to_string()),
-            )),
-            None => Err(McpError::Named("McpServerUnavailable")),
+        };
+        match self.open_as(server, opening) {
+            Ok(()) => server
+                .live()
+                .transport
+                .clone()
+                .filter(|transport| transport.alive())
+                .ok_or(McpError::Named("McpConnectionClosed")),
+            Err(failed) => {
+                let mut live = server.live();
+                live.connection = Connection::Failed;
+                live.failure = Some(failed.words);
+                Err(McpError::Restart(failed.error.to_string()))
+            }
         }
     }
 
@@ -1541,7 +1759,11 @@ impl McpRuntime {
             return Err(McpError::Named("McpWorkspaceApprovalRequired"));
         }
         let deadline = Instant::now() + server.config.operation_timeout();
-        while server.live().connection == Connection::Connecting {
+        // Still coming up: a try under way, or the wait before the next one.
+        while matches!(
+            server.live().connection,
+            Connection::Connecting | Connection::Retrying
+        ) {
             if cancel.is_some_and(CancelToken::is_cancelled) {
                 return Err(McpError::Named("Cancelled"));
             }
@@ -1560,7 +1782,7 @@ impl McpRuntime {
         params: Value,
         cancel: Option<&CancelToken>,
     ) -> Result<Value, McpError> {
-        let transport = self.transport(server)?;
+        let transport = self.transport(server, cancel)?;
         transport.request(method, params, server.config.operation_timeout(), cancel)
     }
 
@@ -1781,11 +2003,29 @@ impl McpRuntime {
 
     /// Stops every server. What the session does on its way out.
     pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
         self.jobs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        let servers = std::mem::take(&mut self.state().servers);
+        // A reload under way puts its set in force, and stops what it
+        // dropped, before the servers in force are stopped; it starts none
+        // once `closed` is set.
+        let deadline = Instant::now() + self.reload_wait();
+        while Instant::now() < deadline && {
+            let state = self.state();
+            state.reloading
+        } {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // What is in force, and what a reload that outlasted the wait was
+        // still stopping: both are stopped here.
+        let servers = {
+            let mut state = self.state();
+            let mut servers = std::mem::take(&mut state.servers);
+            servers.extend(std::mem::take(&mut state.retiring));
+            servers
+        };
         for server in servers {
             server.stop();
         }
@@ -1803,105 +2043,152 @@ impl Drop for McpRuntime {
     }
 }
 
-/// The trust prompt's rows that say what approving lets run or reach, as the
-/// entry has it: a stdio server's command line and a row for each variable it
-/// sets, or a remote server's address and a row for each header it sends,
-/// every value as written -- a literal, a default with its text, a `${VAR}`
-/// as the name it is, never expanded (a pending entry is not). What the child
-/// is given has to be on the screen: `"PATH": "./x:${PATH}"` makes
-/// `command: node` run `./x/node`, and `NODE_OPTIONS`, `LD_PRELOAD` or
-/// `PYTHONPATH` change what runs as much. The entry is the repository's own
-/// file, so its text shows nothing the file does not; what never reaches
-/// these rows is xfx's environment. Each row is spelled by [`prompt_value`],
-/// and cut only by [`fitted`]. A changed entry is a changed digest
-/// ([`config::entry_digest`]), and these rows are how its prompt differs from
-/// the one already answered.
-fn what_it_runs(config: &ServerConfig) -> String {
-    entry_rows(config)
-        .iter()
-        .map(|row| fitted(row, &config.name))
-        .collect::<Vec<_>>()
-        .join("\n  ")
+/// The step of a start a failure came at: what says which of fx's words is
+/// meant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// Starting the process, or opening the endpoint.
+    Start,
+    /// `initialize`, and the version it answered with.
+    Initialize,
+    /// `notifications/initialized`.
+    Initialized,
+    /// `tools/list`.
+    Tools,
 }
 
-/// A prompt row longer than this is shown by its two ends: written whole it
-/// would scroll its own beginning off a terminal of ordinary height before
-/// the choices under it are drawn.
-const PROMPT_ROW_MAX_BYTES: usize = 1024;
-
-/// The trust prompt's last row, upstream's choices (`main.zig:1824`).
-const PROMPT_CHOICES: &str =
-    "[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts";
-
-/// The screen a prompt is measured against, rows and columns: 80x24, the
-/// size a terminal opens at unless told otherwise, and the one xfx's own
-/// screen cases are drawn at.
-const PROMPT_SCREEN: (usize, u16) = (24, 80);
-
-/// The band's rows on [`PROMPT_SCREEN`] with nothing running: the composer,
-/// the rule under it and the hint row.
-const PROMPT_SCREEN_BAND_ROWS: usize = 3;
-
-/// Whether the prompt shows the entry whole, which is what `1` approves: no
-/// row of it was cut ([`fitted`]), and on [`PROMPT_SCREEN`] with nothing
-/// running the name row, every row of the entry and the choices are all on
-/// the screen once the choices are drawn -- 21 rows, its 24 less the band's
-/// three, the entry's rows two columns in. Each variable and header is a row
-/// of its own, so a long list of short ones would otherwise push the command
-/// row above the top unseen; such a prompt sends the person to the details
-/// and `v`, as one with a row cut does.
-fn shown_whole(name_row: &str, rows: &[String]) -> bool {
-    let (height, cols) = PROMPT_SCREEN;
-    let indented = cols - 2;
-    let drawn = screen_rows(name_row, cols)
-        + rows
-            .iter()
-            .map(|row| screen_rows(row, indented))
-            .sum::<usize>()
-        + screen_rows(PROMPT_CHOICES, indented);
-    rows.iter().all(|row| row.len() <= PROMPT_ROW_MAX_BYTES)
-        && drawn <= height - PROMPT_SCREEN_BAND_ROWS
-}
-
-/// The screen rows `row` takes `cols` wide, wrapped as the transcript wraps
-/// it (the transcript's `Gutter::Shown`).
-#[cfg(unix)]
-fn screen_rows(row: &str, cols: u16) -> usize {
-    crate::tui::wrap::wrap(row, cols).len()
-}
-
-/// Where there is no TUI, a row's characters over the width.
-#[cfg(not(unix))]
-fn screen_rows(row: &str, cols: u16) -> usize {
-    row.chars().count().div_ceil(usize::from(cols)).max(1)
-}
-
-/// `row` whole, or -- past [`PROMPT_ROW_MAX_BYTES`] -- its head and tail with
-/// how long it is and where it is shown whole, so a long command is never cut
-/// without saying so. Cut on a character boundary; `row` is already spelled,
-/// so no escape it carries is split from the code point it names.
-fn fitted(row: &str, name: &str) -> String {
-    if row.len() <= PROMPT_ROW_MAX_BYTES {
-        return row.to_string();
-    }
-    let floor = |at: usize| {
-        (0..=at)
-            .rev()
-            .find(|&at| row.is_char_boundary(at))
-            .unwrap_or(0)
-    };
-    let ceil = |at: usize| {
-        (at..=row.len())
-            .find(|&at| row.is_char_boundary(at))
-            .unwrap_or(row.len())
-    };
-    let head = &row[..floor(PROMPT_ROW_MAX_BYTES / 2)];
-    let tail = &row[ceil(row.len() - PROMPT_ROW_MAX_BYTES / 4)..];
-    format!(
-        "{head} \u{2026} [{} bytes in all; in /mcp, Enter on '{}' then v writes every byte] \u{2026} {tail}",
-        row.len(),
-        super::terminal_safe(name)
+/// Whether another try could bring a server up after `error`. A sign-in, a
+/// transport xfx does not connect and a variable a header needs that is not
+/// set are the person's to change, not time's: fx holds such a server back
+/// rather than starting it (`held`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/runtime.zig:1851-1861`), so it is `Failed` at once.
+fn worth_retrying(error: &McpError) -> bool {
+    !matches!(
+        error,
+        McpError::Named(
+            "McpAuthenticationRequired"
+                | "McpTransportUnsupported"
+                | "McpHeaderEnvironmentMissing"
+                | "McpBearerEnvironmentMissing"
+        )
     )
+}
+
+/// One failed attempt: the error, for what is decided by it, and how a
+/// person is told of it.
+#[derive(Debug, Clone, PartialEq)]
+struct Failed {
+    error: McpError,
+    words: String,
+}
+
+impl Failed {
+    fn new(step: Step, error: McpError, exit: Option<Exit>, stderr: Option<&str>) -> Self {
+        let words = failure_words(step, &error, exit, stderr);
+        Self { error, words }
+    }
+}
+
+/// Why a server is down, in fx v0.0.16's words (`writeFailure`,
+/// `describeFailure`, `vercel-labs/fx@481104fd
+/// src/core/mcp_host/runtime.zig:2277-2308`): the reason, how a stdio
+/// server's process ended -- `its process exited with code 3` -- and its last
+/// stderr lines ([`stderr_tail`]), quoted:
+/// `its process exited with code 3; its last stderr lines: "boom-stderr"`
+/// (`fail-server-1`). fx's own name is xfx's here. What xfx has no word of
+/// fx's for -- a spawn that failed, a page of tools that could not be read --
+/// is its error's name, as fx shows a reason it has no words for as it is.
+fn failure_words(step: Step, error: &McpError, exit: Option<Exit>, stderr: Option<&str>) -> String {
+    let unsupported = *error == McpError::Named("McpUnsupportedProtocolVersion");
+    // A process that is gone is the reason, however the request it was asked
+    // saw it go (`.{ "process", "its process exited" }`); its exit then says
+    // how, and after any other reason it is added.
+    let own = step != Step::Start
+        && exit.is_some()
+        && !unsupported
+        && *error != McpError::Named("McpAuthenticationRequired");
+    let mut words = match (step, error) {
+        (_, McpError::Named("McpAuthenticationRequired")) => "it needs a login".to_string(),
+        _ if own => "its process exited".to_string(),
+        (Step::Initialize, _) if unsupported => {
+            "it answered with an MCP version xfx doesn't support".to_string()
+        }
+        (Step::Initialize, _) => {
+            "it refused or never answered xfx's initialize request".to_string()
+        }
+        (Step::Initialized, _) => "it never answered xfx's initialized notification".to_string(),
+        (Step::Start | Step::Tools, error) => error.to_string(),
+    };
+    match exit {
+        Some(Exit::Code(code)) => words.push_str(&format!(
+            "{} with code {code}",
+            if own { "" } else { "; its process exited" }
+        )),
+        Some(Exit::Signal(signal)) => words.push_str(&format!(
+            "{} on signal {signal}",
+            if own { "" } else { "; its process exited" }
+        )),
+        None => {}
+    }
+    if let Some(tail) = stderr.and_then(stderr_tail) {
+        words.push_str(&format!("; its last stderr lines: \"{tail}\""));
+    }
+    words
+}
+
+/// A stdio server's last stderr lines as a failure quotes them
+/// (`keepTail`, `stderrTail`, `vercel-labs/fx@481104fd
+/// src/mcp/io/process.zig:721-756`): the last three, each without its
+/// trailing blanks and cut to 240 bytes, oldest first, joined with ` / `, and
+/// the whole cut from the front to 240 bytes -- never inside a character.
+/// `None` when it wrote nothing.
+///
+/// Each line is made inert first by [`super::terminal_safe`]: what a server
+/// writes to its standard error is the server's, and reaches the screen only
+/// spelled -- a control byte, a line break or a bidirectional override is
+/// named rather than obeyed. fx writes such a byte as `?`; xfx spells it,
+/// as it does every name a server supplies.
+pub(crate) fn stderr_tail(stderr: &str) -> Option<String> {
+    let mut lines: Vec<&str> = stderr.split('\n').collect();
+    // What follows the last line break is a line only when it holds text.
+    if lines.last().is_some_and(|last| last.is_empty()) {
+        lines.pop();
+    }
+    let start = lines.len().saturating_sub(STDERR_TAIL_LINES);
+    let kept: Vec<String> = lines[start..]
+        .iter()
+        .map(|line| {
+            let spelled = super::terminal_safe(line.trim_end_matches([' ', '\t', '\r']));
+            head_bytes(&spelled, STDERR_TAIL_MAX_BYTES).to_string()
+        })
+        .collect();
+    let joined = kept.join(" / ");
+    let tail = tail_bytes(&joined, STDERR_TAIL_MAX_BYTES);
+    (!tail.is_empty()).then(|| tail.to_string())
+}
+
+/// At most `max` bytes from the start of `text`, never inside a character.
+fn head_bytes(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// At most `max` bytes from the end of `text`, never inside a character.
+fn tail_bytes(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut start = text.len() - max;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
 }
 
 /// The last read's digests by entry name, for one lookup per server rather
@@ -1911,6 +2198,18 @@ fn by_name(digests: &[(String, String)]) -> HashMap<&str, &str> {
         .iter()
         .map(|(name, digest)| (name.as_str(), digest.as_str()))
         .collect()
+}
+
+/// The digest a server built from `config` now would show
+/// ([`shown_entry`]'s), without spelling its rows.
+fn shown_entry_digest<'a>(
+    config: &ServerConfig,
+    digests: &HashMap<&str, &'a str>,
+) -> Option<&'a str> {
+    if config.source != Source::Workspace || config.admission == Some(Admission::Approved) {
+        return None;
+    }
+    digests.get(config.name.as_str()).copied()
 }
 
 /// A project server's [`ShownEntry`], when it is one a person is asked
@@ -1927,7 +2226,7 @@ fn shown_entry(config: &ServerConfig, digests: &HashMap<&str, &str>) -> Option<S
     })
 }
 
-/// [`what_it_runs`]' rows, each whole and spelled by [`prompt_value`]: the
+/// An entry's rows, each whole and spelled by [`prompt_value`]: the
 /// command line or the address, then `env: NAME=value` for each variable and
 /// `header: Name: value` for each header -- its `headers` as written, a
 /// `header_env` header as the `${VAR}` it is sent from, and
@@ -1972,13 +2271,13 @@ pub(crate) fn entry_rows(config: &ServerConfig) -> Vec<String> {
     rows.iter().map(|row| prompt_value(row)).collect()
 }
 
-/// One value of the trust prompt as the approval view spells a command it
+/// One value of an entry's rows as the approval view spells a command it
 /// asks about ([`crate::tui::approval_view::command_text`]): nothing a
 /// terminal would obey, and nothing it would hide or reorder -- a
 /// bidirectional override, a zero-width or invisible code point -- left as it
-/// is, so the prompt cannot show a command other than the one that runs. One
-/// row: a line break is `\x0a` here, where the approval view keeps it as a
-/// row break, so a value cannot draw rows of its own under the prompt's.
+/// is, so a row cannot show a command other than the one that runs. One row:
+/// a line break is `\x0a` here, where the approval view keeps it as a row
+/// break, so a value cannot draw rows of its own.
 #[cfg(unix)]
 fn prompt_value(text: &str) -> String {
     crate::tui::approval_view::command_text(&text.replace('\n', "\\x0a"))
@@ -1993,36 +2292,306 @@ fn prompt_value(text: &str) -> String {
 }
 
 /// One word of a command line as a POSIX shell would read it back: bare when
-/// nothing in it needs quoting, else single-quoted, else -- when it holds a
-/// control character -- ANSI-C quoted with the character spelled out, so the
-/// shown word means what the shell would be given.
+/// nothing in it needs quoting; double-quoted when it holds a `${VAR}` or
+/// `${VAR:-default}` -- an approved entry's command and arguments have those
+/// expanded (`config::expand_text`), and a shell expands them in double
+/// quotes -- with every other `$`, `"`, `\` and `` ` `` escaped, since
+/// nothing else in it is (opus-B, `c4d252f5`'s single quotes said the
+/// opposite), and each control character outside the expansions written as
+/// an ANSI-C piece of its own between the quoted ones (`"a"$'\u001B'"${X}"`,
+/// opus-X: inside the double quotes a spelled `\x1b` read as a backslash);
+/// else single-quoted; else -- when it holds a control character -- ANSI-C
+/// quoted with the character spelled out, so the shown word means what the
+/// shell would be given. A control character inside an expansion's default
+/// has no exact double-quoted spelling: it stays in the quotes for the row's
+/// own spelling (`\x1b`), so every expansion in the word still reads as one
+/// (opus-Md R1: quoting the whole word ANSI-C made them literal text).
 fn shell_word(word: &str) -> String {
     let bare = |byte: u8| byte.is_ascii_alphanumeric() || b"/._-+=:,@%".contains(&byte);
     if !word.is_empty() && word.bytes().all(bare) {
         return word.to_string();
+    }
+    if let Some(quoted) = expanded_word(word) {
+        return quoted;
     }
     if !word.chars().any(char::is_control) {
         return format!("'{}'", word.replace('\'', r"'\''"));
     }
     let mut out = String::from("$'");
     for character in word.chars() {
-        match character {
-            '\\' => out.push_str(r"\\"),
-            '\'' => out.push_str(r"\'"),
-            '\n' => out.push_str(r"\n"),
-            '\t' => out.push_str(r"\t"),
-            '\r' => out.push_str(r"\r"),
-            other if other.is_control() => out.push_str(&format!("\\u{:04X}", u32::from(other))),
-            other => out.push(other),
-        }
+        ansi_c(character, &mut out);
     }
     out.push('\'');
     out
 }
 
+/// `character` as it is written inside `$'...'`.
+fn ansi_c(character: char, out: &mut String) {
+    match character {
+        '\\' => out.push_str(r"\\"),
+        '\'' => out.push_str(r"\'"),
+        '\n' => out.push_str(r"\n"),
+        '\t' => out.push_str(r"\t"),
+        '\r' => out.push_str(r"\r"),
+        other if other.is_control() => out.push_str(&format!("\\u{:04X}", u32::from(other))),
+        other => out.push(other),
+    }
+}
+
+/// `word` double-quoted, its expansions as they are and the rest escaped,
+/// when it holds an expansion `config::expand_text` would make; `None`
+/// otherwise.
+fn expanded_word(word: &str) -> Option<String> {
+    let mut out = Pieces::default();
+    let mut rest = word;
+    let mut any = false;
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            break;
+        };
+        let inner = &after[..end];
+        let (name, default) = match inner.split_once(":-") {
+            Some((name, default)) => (name, Some(default)),
+            None => (inner, None),
+        };
+        if !config::is_env_name(name) {
+            break;
+        }
+        any = true;
+        out.text(&rest[..start]);
+        out.raw("${");
+        out.raw(name);
+        if let Some(default) = default {
+            out.raw(":-");
+            out.quoted(default);
+        }
+        out.raw("}");
+        rest = &after[end + 1..];
+    }
+    if !any {
+        return None;
+    }
+    out.text(rest);
+    Some(out.finish())
+}
+
+/// A word written as double-quoted pieces, and an ANSI-C piece for each
+/// control character between them: `"a"$'\u001B'"${X}"`.
+#[derive(Default)]
+struct Pieces {
+    out: String,
+    quoted: bool,
+}
+
+impl Pieces {
+    /// Text as a shell reads it back: `$`, `"`, `\` and `` ` `` escaped
+    /// inside the quotes, a control character outside them.
+    fn text(&mut self, text: &str) {
+        for character in text.chars() {
+            if character.is_control() {
+                if self.quoted {
+                    self.out.push('"');
+                    self.quoted = false;
+                }
+                self.out.push_str("$'");
+                ansi_c(character, &mut self.out);
+                self.out.push('\'');
+                continue;
+            }
+            if matches!(character, '$' | '"' | '\\' | '`') {
+                self.raw("\\");
+            }
+            let mut buf = [0u8; 4];
+            self.raw(character.encode_utf8(&mut buf));
+        }
+    }
+
+    /// Text inside the quotes, `$`, `"`, `\` and `` ` `` escaped and a
+    /// control character left for the row's spelling: inside an expansion's
+    /// braces a piece cannot close the quotes.
+    fn quoted(&mut self, text: &str) {
+        for character in text.chars() {
+            if matches!(character, '$' | '"' | '\\' | '`') {
+                self.raw("\\");
+            }
+            let mut buf = [0u8; 4];
+            self.raw(character.encode_utf8(&mut buf));
+        }
+    }
+
+    /// `text` as it is, inside the quotes.
+    fn raw(&mut self, text: &str) {
+        if !self.quoted {
+            self.out.push('"');
+            self.quoted = true;
+        }
+        self.out.push_str(text);
+    }
+
+    fn finish(mut self) -> String {
+        if self.quoted {
+            self.out.push('"');
+        }
+        self.out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An entry's rows as one text, one row a line: what these cases read.
+    fn what_it_runs(config: &ServerConfig) -> String {
+        entry_rows(config).join("\n  ")
+    }
+
+    #[test]
+    fn one_try_at_a_time_holds_a_server_and_none_once_it_is_stopped() {
+        // `Opening::claim`'s refusal: a second try while one is under way, or
+        // any try after a stop.
+        let server = Server::new(ServerConfig::local("s", "/bin/true", &[]), &HashMap::new());
+        let first = Opening::begin(&server).expect("the first try");
+        assert!(
+            Opening::begin(&server).is_none(),
+            "a second try beside the first"
+        );
+        drop(first);
+        assert!(!server.live().opening);
+        let again = Opening::begin(&server).expect("a try once the first ended");
+        drop(again);
+        server.mark_stopped();
+        assert!(Opening::begin(&server).is_none(), "a try after a stop");
+        assert!(server.cancel.is_cancelled());
+    }
+
+    #[test]
+    fn a_failure_quotes_the_last_three_stderr_lines_joined_and_cut_from_the_front() {
+        // `stderrTail`, `vercel-labs/fx@481104fd src/mcp/io/process.zig:737-756`.
+        assert_eq!(stderr_tail("boom-stderr\n").as_deref(), Some("boom-stderr"));
+        assert_eq!(stderr_tail("a\nb\nc\nd\n").as_deref(), Some("b / c / d"));
+        assert_eq!(stderr_tail("a\nb \t\r\nc").as_deref(), Some("a / b / c"));
+        assert_eq!(stderr_tail(""), None);
+        assert_eq!(stderr_tail("\n"), None);
+        // Each line at most 240 bytes from its start, the whole at most 240
+        // from its end, never inside a character.
+        let long = format!("{}\n{}\n", "a".repeat(300), "\u{e9}".repeat(200));
+        let tail = stderr_tail(&long).expect("a tail");
+        assert!(tail.len() <= STDERR_TAIL_MAX_BYTES, "{}", tail.len());
+        assert!(tail.ends_with('\u{e9}') && !tail.contains('a'), "{tail}");
+        // One line with no break: its head, not its tail, is what is kept of
+        // it -- the per-line cut is from the start, the whole one from the
+        // end, and only these sentinels tell them apart.
+        let unterminated = format!("HEAD{}TAIL", "x".repeat(1_000));
+        assert_eq!(
+            stderr_tail(&unterminated).as_deref(),
+            Some(format!("HEAD{}", "x".repeat(236)).as_str())
+        );
+        let lines = format!(
+            "{}\n{}\n{}\n",
+            "x".repeat(100),
+            "y".repeat(100),
+            "z".repeat(100)
+        );
+        let tail = stderr_tail(&lines).expect("a tail");
+        assert_eq!(tail.len(), STDERR_TAIL_MAX_BYTES);
+        assert!(tail.ends_with(&"z".repeat(100)), "{tail}");
+    }
+
+    #[test]
+    fn what_a_server_writes_to_stderr_reaches_the_screen_spelled_never_obeyed() {
+        // A clear screen, a colour, a bidirectional override and a bell a
+        // server writes are named in the quote (fx writes `?` for the C0
+        // ones; xfx spells them, as it does every server-supplied name).
+        let tail = stderr_tail("boom\u{1b}[2J\u{1b}[31mred\u{7}\u{202e}gnp.exe\n").expect("a tail");
+        for obeyed in ['\u{1b}', '\u{7}', '\u{202e}'] {
+            assert!(!tail.contains(obeyed), "{tail:?}");
+        }
+        assert!(tail.starts_with("boom\\x1b[2J"), "{tail:?}");
+        let words = failure_words(
+            Step::Initialize,
+            &McpError::Named("McpConnectionClosed"),
+            Some(Exit::Code(3)),
+            Some("\u{1b}]52;c;aGk=\u{7}\n"),
+        );
+        assert!(
+            !words.contains('\u{1b}') && !words.contains('\u{7}'),
+            "{words:?}"
+        );
+    }
+
+    #[test]
+    fn a_failure_is_said_in_fxs_words_with_how_the_process_ended() {
+        // `writeFailure`, `describeFailure`,
+        // `vercel-labs/fx@481104fd src/core/mcp_host/runtime.zig:2277-2308`.
+        let closed = McpError::Named("McpConnectionClosed");
+        type Case<'a> = (Step, McpError, Option<Exit>, Option<&'a str>, &'a str);
+        let cases: [Case; 8] = [
+            (
+                Step::Initialize,
+                closed.clone(),
+                Some(Exit::Code(3)),
+                Some("boom-stderr\n"),
+                "its process exited with code 3; its last stderr lines: \"boom-stderr\"",
+            ),
+            (
+                Step::Tools,
+                closed.clone(),
+                Some(Exit::Signal(9)),
+                None,
+                "its process exited on signal 9",
+            ),
+            (
+                Step::Initialize,
+                McpError::Named("McpTimeout"),
+                None,
+                Some("still starting\n"),
+                "it refused or never answered xfx's initialize request; its last stderr lines: \"still starting\"",
+            ),
+            (
+                Step::Initialize,
+                McpError::Named("McpUnsupportedProtocolVersion"),
+                Some(Exit::Code(0)),
+                None,
+                "it answered with an MCP version xfx doesn't support; its process exited with code 0",
+            ),
+            (
+                Step::Initialized,
+                McpError::Named("McpTimeout"),
+                None,
+                None,
+                "it never answered xfx's initialized notification",
+            ),
+            (
+                Step::Initialize,
+                McpError::Named("McpAuthenticationRequired"),
+                None,
+                None,
+                "it needs a login",
+            ),
+            (
+                Step::Start,
+                McpError::Named("McpSpawnFailed"),
+                None,
+                None,
+                "McpSpawnFailed",
+            ),
+            (
+                Step::Tools,
+                McpError::Named("McpInvalidResult"),
+                None,
+                None,
+                "McpInvalidResult",
+            ),
+        ];
+        for (step, error, exit, stderr, said) in cases {
+            assert_eq!(
+                failure_words(step, &error, exit, stderr),
+                said,
+                "{step:?} {error:?}"
+            );
+        }
+    }
 
     #[test]
     fn the_prompt_shows_each_word_as_a_shell_would_read_it_back() {
@@ -2066,6 +2635,51 @@ mod tests {
         assert_eq!(
             what_it_runs(&config),
             "url: https://example.test/mcp\n  header: X-A: static-secret\n  header: X-Team: ${TEAM}\n  header: Authorization: Bearer ${TOKEN}"
+        );
+    }
+
+    #[test]
+    fn a_control_character_beside_an_expansion_is_a_piece_of_its_own() {
+        // opus-X: inside the double quotes the escape a control character is
+        // spelled as read as a backslash. Beside an expansion it is an ANSI-C
+        // piece between quoted ones. Inside a default, which has no exact
+        // double-quoted spelling, it stays in the quotes and the row spells
+        // it, so the word's expansions still read as expansions (opus-Md R1:
+        // `${T}` beside such a default was shown as literal text).
+        let config = ServerConfig::local(
+            "p",
+            "/bin/node",
+            &[
+                "a\u{1b}${X}\nb".into(),
+                "${Y:-d\u{1b}e}".into(),
+                "${T}${Z:-\u{1b}}".into(),
+            ],
+        );
+        assert_eq!(
+            what_it_runs(&config),
+            r#"command: /bin/node "a"$'\u001B'"${X}"$'\n'"b" "${Y:-d\x1be}" "${T}${Z:-\x1b}""#
+        );
+    }
+
+    #[test]
+    fn a_word_xfx_expands_is_shown_as_a_shell_reads_an_expansion() {
+        // opus-B SHOULD 4: an approved entry's `${VAR}` and `${VAR:-default}`
+        // are expanded in its command and arguments (`config::expand_text`),
+        // so the word is shown double-quoted -- read as a shell reads it, the
+        // expansion expands -- with every other `$`, `"`, `\\` and `` ` ``
+        // escaped, as nothing else in it is expanded.
+        let config = ServerConfig::local(
+            "p",
+            "/bin/node",
+            &[
+                "${SECRET}".into(),
+                "a\"b$c`d\\e${X:-d$f}".into(),
+                "$HOME".into(),
+            ],
+        );
+        assert_eq!(
+            what_it_runs(&config),
+            r#"command: /bin/node "${SECRET}" "a\"b\$c\`d\\e${X:-d\$f}" '$HOME'"#
         );
     }
 
@@ -2122,40 +2736,6 @@ mod tests {
     }
 
     #[test]
-    fn a_row_too_long_for_the_screen_shows_both_ends_its_size_and_where_it_is_whole() {
-        let middle = "m".repeat(3000);
-        let config = ServerConfig::local(
-            "p",
-            "/bin/sh",
-            &["-c".into(), format!("HEAD-MARK {middle} TAIL-MARK")],
-        );
-        let whole = &entry_rows(&config)[0];
-        assert!(whole.len() > PROMPT_ROW_MAX_BYTES);
-        assert!(whole.ends_with("TAIL-MARK'"), "{whole}");
-        let shown = what_it_runs(&config);
-        assert!(shown.len() < PROMPT_ROW_MAX_BYTES, "{}", shown.len());
-        assert!(
-            shown.starts_with("command: /bin/sh -c 'HEAD-MARK mmm"),
-            "{shown}"
-        );
-        assert!(shown.ends_with("mmm TAIL-MARK'"), "{shown}");
-        assert!(
-            shown.contains(&format!(
-                "\u{2026} [{} bytes in all; in /mcp, Enter on 'p' then v writes every byte] \u{2026}",
-                whole.len()
-            )),
-            "{shown}"
-        );
-        // The name it points to is spelled as every name is.
-        let named = fitted(whole, "p\u{1b}[2J");
-        assert!(named.contains(r"Enter on 'p\x1b[2J'"), "{named}");
-        assert!(!named.contains('\u{1b}'), "{named}");
-        // A row that fits is whole.
-        let short = ServerConfig::local("p", "/bin/true", &[]);
-        assert_eq!(what_it_runs(&short), "command: /bin/true");
-    }
-
-    #[test]
     fn every_row_shows_the_entry_as_written_and_never_a_value_from_the_environment() {
         // A prompt is for a pending entry, which is not expanded: each row is
         // the entry as written -- a literal, a default's text, a `${VAR}` as
@@ -2203,7 +2783,7 @@ mod tests {
         let local = shown("local");
         assert_eq!(
             local,
-            "command: '${TOOL}' --key '${SECRET}'\n  env: PLAIN=literal-secret\n  env: K=Bearer ${SECRET}\n  env: M=${A:-fallback-secret}${B}"
+            "command: \"${TOOL}\" --key \"${SECRET}\"\n  env: PLAIN=literal-secret\n  env: K=Bearer ${SECRET}\n  env: M=${A:-fallback-secret}${B}"
         );
         let remote = shown("remote");
         assert_eq!(

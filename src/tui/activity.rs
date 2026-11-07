@@ -65,7 +65,16 @@ const THINKING: &str = "Thinking";
 /// What it says once the answer is streaming.
 const GENERATING: &str = "Generating";
 
-/// What it says while a tool runs.
+/// What it says while a tool runs -- any tool, an MCP server's included.
+///
+/// fx v0.0.16 has a word per kind of call, `calling` for an MCP call, and
+/// counts to go after it, `1 MCP call made` (`vercel-labs/fx@481104fd
+/// src/core/output/activity_status.zig:92-103`, `:235-246`), but neither
+/// reaches the screen: the row is built with the call's kind taken off
+/// (`src/ui/footer/render_input.zig:692-694`), and the one label that keeps it
+/// is read only to decide whether to animate
+/// (`src/core/app/app_worker_runtime.zig:856`). Capture
+/// `fx-p5-mcp-live-40x120-live`: `Running (2s)` under a running MCP call.
 const RUNNING: &str = "Running";
 
 /// What a turn is doing.

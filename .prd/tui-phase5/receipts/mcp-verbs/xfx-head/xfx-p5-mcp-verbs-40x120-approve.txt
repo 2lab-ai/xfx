@@ -1,0 +1,40 @@
+! mcp: fixture runs a command, so it has no login.
+
+! mcp: Interactive MCP authentication is unavailable here.
+
+! mcp: /mcp auth is now /mcp login NAME.
+
+* mcp: remote wasn't signed in.
+
+* mcp: Added two to ~/.xfx/mcp.json.
+
+! mcp: /mcp add needs a URL, or -- and a command.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.xfx/mcp.json
+
+! mcp: /mcp add has no --transport flag.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.xfx/mcp.json
+
+* mcp: Added web2 to ~/.xfx/mcp.json.
+
+! mcp: 'bad.name' can't be a server name: use letters, digits, '-' and '_'.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.xfx/mcp.json
+
+* mcp: Approved proj, which runs: <bun> <local-path>
+  scenarios/p5-mcp-stdio.ts
+
+┃
+
+auto · model-a
+
+
+
+
