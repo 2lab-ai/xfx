@@ -150,7 +150,7 @@ and four refusals in `Refusals.test_each_verbs_arguments`. Round 2's:
     keystroke takes it down: a `key` or a `type` line. A paste does not, and
     a terminal report does not (`paste`, `pastex`, `key -H …`): xfx's
     `consume` lets them through (`src/tui/shell.rs:10983-10987` at
-    `1e22c660`, `:11058-11062` after the merge), and fx keeps the hint over a
+    `1e22c660`, `:11066-11070` at the final head), and fx keeps the hint over a
     paste frame. Corrected in round 2: round 1 counted `pastex` and
     `key -H` as taking it down, and a test pinned that.
   - An `until` or `absent` line speaks of a timer only with exactly its
@@ -180,7 +180,7 @@ and four refusals in `Refusals.test_each_verbs_arguments`. Round 2's:
   window stops the lower bound from growing (below). Corrected in round 2:
   round 1 left out Ctrl-O, which opens the full transcript. xfx gives the
   screen to it (`shell.rs:4775`), and `warning_shown` answers nothing then
-  (`:13634-13636` at `1e22c660`, `:13718-13720` after the merge). fx's
+  (`:13634-13636` at `1e22c660`, `:13726-13728` at the final head). fx's
   `yolo_warning_visible` is false while the alternate screen renders
   (`src/core/app/app_render_runtime.zig:1849-1850`). Both clocks pause on
   such a frame (`permissions.rs:409-437`;
@@ -514,7 +514,10 @@ The commits, in order:
 | `d40bf1a3` | `models2` by order, not 5 s from the gateway's start (item 12) |
 | `32932ad5` | this receipt, first cut |
 | `8a995bea` | an `absent` counts only once its row could be drawn (item 2) |
-| the next | this receipt, brought up to `8a995bea` |
+| `a1b64d7a` | this receipt at `8a995bea` |
+| `4d264ffe` | merges main `e6cde019` (train 3, #79), which moved while round 2 ran: no file of this branch is among its changes since `6c93f359`, no conflicts |
+| `aa4f0caf` | the same `capfile.py` comment: train 3 moved those `shell.rs` lines 8 down |
+| the next | this receipt, with the check and the gate at `4d264ffe` |
 
 No product code changed in round 2 either: `git diff 6c93f359 8a995bea --
 src tests Cargo.toml Cargo.lock build.rs` is empty.
@@ -576,7 +579,8 @@ question answers also arms the exit hint. `r2/inject-runs.txt`:
 
 ### The check over the repository
 
-`r2/check-head.txt`: at `8a995bea`, 0 races over 307 scenarios.
+`r2/check-head.txt`: at `4d264ffe`, 0 races over 313 scenarios (307 at
+`8a995bea`; the merge brought main's six new ones).
 `test-sweep.sh` runs the same check in the gate.
 
 ### Sweeps, base against head
@@ -587,7 +591,10 @@ touched. Base = main `6c93f359`'s harness and scenarios with xfx built at
 of the branch changes `src/`). Two base sweeps and four head sweeps, two at
 `b0522162` and two at `bf794f0d`; `d40bf1a3` then changed `capture.sh` only
 in `models2`'s lines, which none of the 13 uses, and `8a995bea` changed
-only the check, which runs before a sweep does. Load 6.9 to 25.6.
+only the check, which runs before a sweep does. Load 6.9 to 25.6. Not swept
+again after `4d264ffe`: that merge brings main's own changes (`src/tui`,
+six scenarios, the ledger) and none of this branch's files, and none of
+main's new scenarios uses a verb round 2 changed.
 
 - **No pair went from passing to anything else** (drops: 0) in any of the
   comparisons: base 1-2 against heads 3-4, against heads 1-2, and base 2
@@ -623,17 +630,19 @@ had N5 survive; it was retargeted, not dropped).
 
 ### Gates
 
-`r2/gate.txt`, at `8a995bea` with this directory's changes not yet
-committed, one at a time (load 6 to 9). The same list passed at `d40bf1a3`
-with the same counts (that log is `r2/gate.txt` in git at `32932ad5`).
+`r2/gate.txt`, at `4d264ffe` (main `e6cde019` merged), one at a time;
+`aa4f0caf` after it changes a comment only, and `test-sweep.sh` and the
+checks ran again at the final head (`r2/gate-final.txt`). The same list passed
+at `8a995bea` and at `d40bf1a3`, before that merge (their logs are
+`r2/gate.txt` in git at `a1b64d7a` and `32932ad5`: 5164 and 5201 tests).
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | the same, `--features fault-injection` | ok |
-| `cargo test --locked` | 15 suites, 5164 passed, 0 failed (7 ignored) |
-| `cargo test --locked --features fault-injection` | 15 suites, 5201 passed, 0 failed (7 ignored) |
+| `cargo test --locked` | 15 suites, 5226 passed, 0 failed (7 ignored) |
+| `cargo test --locked --features fault-injection` | 15 suites, 5263 passed, 0 failed (7 ignored) |
 | `scripts/check-*.sh` (6) | all ok |
 | `scripts/test-*.sh` (3: `check-no-secrets`, `gate-env`, `preview-contract`) | all ok |
 | `scripts/fxcap/test-sweep.sh` | test_sweep 62 OK, test_ci_sweep 26 OK |
@@ -702,4 +711,5 @@ remain, each named by review or found here:
   `red-settle.txt` (RED), `inject.patch` and `inject-runs.txt` (the injected
   hint), `models2.txt` (item 12's RED and GREEN), `check-head.txt` (the
   check over the repository), `sweep-compare.txt` and `until-waits.txt` (the
-  sweeps), `launch-probe.txt` (`interrupt`'s first runs), `gate.txt`.
+  sweeps), `launch-probe.txt` (`interrupt`'s first runs), `gate.txt` and
+  `gate-final.txt`.

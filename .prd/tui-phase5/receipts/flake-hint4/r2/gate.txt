@@ -1,18 +1,18 @@
-# gate at 8a995bea (4 paths not committed), load { 6.40 8.45 8.61 }, 01:21:02
+# gate at 4d264ffe (0 paths not committed), load { 6.65 7.35 7.86 }, 01:42:06
 fmt: exit 0 -- 
 clippy: exit 0 -- 
 clippy-fault-injection: exit 0 -- 
-test: exit 0 -- 15 suites: 5164 passed, 0 failed, 7 ignored
-test-fault-injection: exit 0 -- 15 suites: 5201 passed, 0 failed, 7 ignored
-check-no-secrets: exit 0 -- check-no-secrets: ok (12139 tracked file(s) scanned) 
+test: exit 0 -- 15 suites: 5226 passed, 0 failed, 7 ignored
+test-fault-injection: exit 0 -- 15 suites: 5263 passed, 0 failed, 7 ignored
+check-no-secrets: exit 0 -- check-no-secrets: ok (12578 tracked file(s) scanned) 
 check-no-stubs: exit 0 -- check-no-stubs: ok 
 check-preview-contract: exit 0 -- check-preview-contract: ok (.github/workflows/preview.yml) 
 check-tui-preflight-cost: exit 0 -- check-tui-preflight-cost: ok 
 check-usage-clock: exit 0 -- check-usage-clock: ok 
-check-xfx-identity: exit 0 -- check-xfx-identity: ok (12139 tracked file(s) scanned) 
+check-xfx-identity: exit 0 -- check-xfx-identity: ok (12578 tracked file(s) scanned) 
 test-check-no-secrets: exit 0 -- test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once test-check-no-secrets: ok nothing-tracked    exit 1 test-check-no-secrets: ok only-a-symlink     exit 1 test-check-no-secrets: ok (13 cases; 3473 tracked names past A
 test-gate-env: exit 0 -- test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests test-gate-env: ok us
 test-preview-contract: exit 0 -- test-preview-contract: ok (24 mutants caught; the unbroken copy passes) 
-fxcap-test-sweep: exit 0 -- Ran 62 tests in 5.315s OK Ran 26 tests in 27.388s OK 
-fxcap-test-capture: exit 0 -- Ran 48 tests in 481.489s OK 
-# done 01:39:54, load { 7.99 7.61 8.02 }
+fxcap-test-sweep: exit 0 -- Ran 62 tests in 5.364s OK Ran 26 tests in 27.097s OK 
+fxcap-test-capture: exit 0 -- Ran 48 tests in 336.078s OK 
+# done 02:02:10, load { 6.86 7.20 8.21 }
