@@ -10,9 +10,9 @@ Branch `train/p5-1107c`, from `origin/main` `e51685d6` (PR #77, as the
 brief expected); `origin/main` `6c93f359` (PR #78, SECRETS-ARGMAX) merged in
 after the three unit merges, at the dispatcher's word. Every unit was closed by its own two-engine review; this
 train combines them and re-designs nothing. No source line was changed to
-make them meet: the merges are git's own, the one test added is the join
-check both reviews asked for, and it passed on the merged code at its first
-run.
+make them meet: the merges are git's own, the two tests added are the join
+check both reviews asked for, and both passed on the merged code at their
+first run.
 
 Oracle: fx v0.0.16 (`481104fd`, executable sha256
 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked
@@ -242,8 +242,8 @@ worktree clean), with `main`'s two new gate tests:
 | `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1127 checks, 0 failures |
 
-With this README and `gates.txt` in their final form staged on top of
-`e1e839cd` (the last receipt commit changes only those two files):
+With the receipt in its final form staged (the receipt commits after
+`e1e839cd` change only files in this directory):
 `cargo fmt --check` ok, `check-xfx-identity.sh` ok (12549 tracked files),
 `check-no-stubs.sh` ok, `check-no-secrets.sh` ok (12549 tracked files).
 
@@ -440,14 +440,14 @@ as its `ctrlo-records.txt` reads them (`tool-schema`).
 
 ## Files
 
-- `remerge-1.txt`, `remerge-2.txt`, `remerge-3.txt`: `git show --remerge-diff`
-  of each merge.
+- `remerge-1.txt`, `remerge-2.txt`, `remerge-3.txt`, `remerge-4.txt`: `git
+  show --remerge-diff` of each merge.
 - `overlap.txt`: ENGINE-VS-ANCHOR's and TG-REDRAW's hunks in `grid.rs` and
   `frame.rs` and the nearest pairs.
 - `token_check.py`, `token-check.txt`: the token check and its negative
   control.
 - `refs.py`, `refs.txt`: every `path:line` reference mapped from each side to
-  the last merge's head; `repointed.py`, `repointed.txt`: the seven re-points
+  the third merge's head; `refs-head.txt`: the same at the merge-4 head; `repointed.py`, `repointed.txt`: the seven re-points
   checked against their code.
 - `mutants.py`, `mutants.txt`: the join test's mutants.
 - `gates.txt`: the gates, as they ran.
