@@ -1,0 +1,24 @@
+# RED, round 2: the round-2 event-loop cases of f482d340 in a765487d's src (its frame.rs given f482d340's, whose only change is the test-only Band::shadow), on the throwaway clone:
+# cargo test --locked --lib -- a_stopped_call_ a_switch_then_a_narrower a_group_closed_and_a_switch a_rewrite_queued_before a_block_landing_behind_a_resume
+# (each assertion's screen dump cut after the values)
+test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... ok
+test tui::event_loop::tests::a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings ... ok
+test tui::event_loop::tests::a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette ... ok
+test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+thread 'tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set' (281337593) panicked at src/tui/event_loop.rs:6069:9:
+  left: [Some(241), Some(252), Some(255), Some(245), Some(250), Some(245), Some(252), Some(250)]
+ right: [Some(241), Some(238), Some(235), Some(247), Some(241), Some(247), Some(238), Some(241)]
+thread 'tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set' (281337594) panicked at src/tui/event_loop.rs:6092:9:
+  left: [Some(245), Some(238), Some(235), Some(245), Some(241), Some(243), Some(238), Some(241)]
+ right: [Some(245), Some(252), Some(255), Some(245), Some(250), Some(243), Some(252), Some(250)]
+thread 'tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen' (281337590) panicked at src/tui/event_loop.rs:6862:9:
+  left: Some(252)
+ right: Some(238)
+thread 'tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set' (281337595) panicked at src/tui/event_loop.rs:6252:9:
+  left: [Some(241), Some(252), Some(255), Some(245), Some(250), Some(245), Some(252), Some(250)]
+ right: [Some(241), Some(238), Some(235), Some(247), Some(241), Some(247), Some(238), Some(241)]
+test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 4263 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`

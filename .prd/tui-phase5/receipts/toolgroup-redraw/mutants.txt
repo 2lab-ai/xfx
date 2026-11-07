@@ -1,6 +1,7 @@
 # Mutants of b6571bea's src, each applied by mutate.py to a 'git clone --no-local' throwaway in the scratchpad (never the worktree), then
 # cargo test --locked --lib -- tui::theme tui::toolgroup tui::grid tui::transcript tui::frame tui::event_loop, and the clone's src checked out again.
-# First line: the same run unmutated.
+# First line: the same run unmutated (its output line, from the run that printed the mutants below).
+test result: ok. 479 passed; 0 failed; 3 ignored; 0 measured; 3781 filtered out; finished in 4.92s
 applied A-no-redraw
 == A-no-redraw: test result: FAILED. 472 passed; 7 failed; 3 ignored; 0 measured; 3781 filtered out; finished in 4.93s
    test tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them ... FAILED

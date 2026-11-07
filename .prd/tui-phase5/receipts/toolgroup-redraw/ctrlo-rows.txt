@@ -1,4 +1,4 @@
-# Ctrl-O snaps of p5-toolgroup-ctrlo(-tc): the tool group's rows found by text and compared cell by cell (toolrows.py), fx v0.0.16 vs xfx
+# Ctrl-O snaps of p5-toolgroup-ctrlo(-tc): the tool group's rows found by text and compared cell by cell, a direct grey read as the index it spells (toolrows.py), fx v0.0.16 against xfx at the base (red/) and at f482d340 (xfx/)
 ## red p5-toolgroup-ctrlo full-dark
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
@@ -17,21 +17,21 @@ same    '└ Ran echo "hi" 42 | grep hi # note'
 ## red p5-toolgroup-ctrlo-tc full-dark-again
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
-## green p5-toolgroup-ctrlo full-dark
+## xfx p5-toolgroup-ctrlo full-dark
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
-## green p5-toolgroup-ctrlo full-light
+## xfx p5-toolgroup-ctrlo full-light
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
-## green p5-toolgroup-ctrlo full-dark-again
+## xfx p5-toolgroup-ctrlo full-dark-again
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
-## green p5-toolgroup-ctrlo-tc full-dark
+## xfx p5-toolgroup-ctrlo-tc full-dark
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
-## green p5-toolgroup-ctrlo-tc full-light
+## xfx p5-toolgroup-ctrlo-tc full-light
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'
-## green p5-toolgroup-ctrlo-tc full-dark-again
+## xfx p5-toolgroup-ctrlo-tc full-dark-again
 same    '● 1 tool call · 1 command'
 same    '└ Ran echo "hi" 42 | grep hi # note'

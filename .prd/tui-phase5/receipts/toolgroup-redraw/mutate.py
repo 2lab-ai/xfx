@@ -25,8 +25,8 @@ M = {
    "            DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE, COMMENT],")],
  # E: a cancelled call's own line drawn again too
  "E-stopped-redrawn": [("src/tui/toolgroup.rs",
-   "(kind == DocumentRow::ToolGroup).then(|| Redraw::new(dark, light))",
-   "(kind != DocumentRow::Plain).then(|| Redraw::new(dark, light))")],
+   "(kind == DocumentRow::ToolGroup).then(|| match palette.mode {",
+   "(kind != DocumentRow::Plain).then(|| match palette.mode {")],
  # F: a reused row loses its drawing (kind only)
  "F-reused-row-drops-drawing": [("src/tui/frame.rs",
    "            self.target.record(line, kind(index), redraw(index));",
@@ -43,6 +43,36 @@ M = {
  "I-wrong-mode": [("src/tui/grid.rs",
    "moved += self.redraw_row(line, redraw.drawn(palette.mode), geometry, scratch);",
    "moved += self.redraw_row(line, redraw.drawn(match palette.mode { crate::tui::theme::Mode::Dark => crate::tui::theme::Mode::Light, crate::tui::theme::Mode::Light => crate::tui::theme::Mode::Dark }), geometry, scratch);")],
+
+ # Round 2.
+ # R: a row painted in the other mode written as it was painted
+ "R-no-recolour-at-landing": [("src/tui/transcript.rs",
+   "                None if painted_in != palette.mode => {",
+   "                None if painted_in != palette.mode && false => {")],
+ # S: a bold foreground recoloured loses its bold
+ "S-recolour-drops-bold": [("src/tui/transcript.rs",
+   "        (true, Some(foreground)) => format!(\"\\u{1b}[1;{foreground}\"),",
+   "        (true, Some(_)) => wanted.to_string(),")],
+ # U: a direct (38;2) foreground not recognised
+ "U-recolour-skips-direct": [("src/tui/transcript.rs",
+   "        [\"38\", \"2\", red, green, blue] => Color::Rgb(number(red)?, number(green)?, number(blue)?),",
+   "")],
+ # M: a superseded block not coalesced
+ "M-no-coalesce": [("src/tui/transcript.rs",
+   "        if matches!(self.queue.back(), Some(Op::Block(..))) {\n            self.queue.pop_back();\n        }",
+   "")],
+ # N: coalescing whatever is at the back of the queue
+ "N-coalesce-any-op": [("src/tui/transcript.rs",
+   "        if matches!(self.queue.back(), Some(Op::Block(..))) {",
+   "        if self.queue.back().is_some() {")],
+ # O: a call's kept colouring found without its mode
+ "O-memo-ignores-mode": [("src/tui/toolgroup.rs",
+   ".find(|kept| kept.light == light && kept.base == base && kept.command == command)",
+   ".find(|kept| kept.base == base && kept.command == command)")],
+ # P: a call's kept colouring found without its run colour
+ "P-memo-ignores-grey": [("src/tui/toolgroup.rs",
+   ".find(|kept| kept.light == light && kept.base == base && kept.command == command)",
+   ".find(|kept| kept.light == light && kept.command == command)")],
 }
 for path, old, new in M[name]:
     rep(path, old, new)
