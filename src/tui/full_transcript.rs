@@ -1884,7 +1884,8 @@ impl FullTranscript {
                 let shown_already = argument.text
                     && !argument.value.is_empty()
                     && heading_fits
-                    && first_line.contains(argument.value.as_str());
+                    && first_line.contains(argument.value.as_str())
+                    && super::toolgroup::status_shows(&call.shown, &argument.value);
                 let exec = call.shown.presentation.activity == Activity::Command
                     && argument.name == "action"
                     && argument.value == "exec";
@@ -4625,6 +4626,32 @@ mod tests {
                 Some(row) => assert_eq!(arguments, [row], "{input}"),
                 None => assert_eq!(arguments, Vec::<&String>::new(), "{input}"),
             }
+        }
+        // fx looks in the status entry's own bytes, whose command is its
+        // first 120 spelled (`formatRunCommandActivity`,
+        // `src/core/tooling/tool_presentation.zig:393-416@481104fd`), not in
+        // the command the heading shows whole: past them the status ends
+        // `...` and holds no whole command, so the command keeps its row on a
+        // screen the heading fits, as on fx's.
+        // A command of 120 bytes is still whole there; one of 121 is not.
+        for (length, kept) in [(120, false), (121, true), (150, true)] {
+            let text = format!("echo {}", "a".repeat(length - 5));
+            let mut record = record();
+            record.tool_started("c", &command(&text));
+            with_arguments(
+                &mut record,
+                "c",
+                "terminal",
+                &json!({"action": "exec", "command": text}),
+            );
+            record.tool_finished("c", true, "", Outcome::Exited(0), None);
+            let rows = screen_at(&record, 200);
+            assert!(
+                rows.contains(&format!("\u{2514} Ran {text}")),
+                "{length}: {rows:#?}"
+            );
+            let row = format!("\u{2502}  command: {text}");
+            assert_eq!(rows.contains(&row), kept, "{length}: {rows:#?}");
         }
     }
 }

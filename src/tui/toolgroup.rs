@@ -63,6 +63,13 @@ const COMMAND_SOURCE_BYTES: usize = 120 * 120;
 /// the block.
 const COMMAND_TARGET_BYTES: usize = COMMAND_SOURCE_BYTES - 1;
 
+/// How many bytes of a command fx's status phrase keeps, spelled: the phrase
+/// the call's row is made from before the transcript puts the stored command
+/// in its place (`max_run_command_activity_bytes`, `tool_presentation.zig:21`;
+/// `formatRunCommandActivity`, `:393-416`), and the one Ctrl-O looks in for an
+/// argument the heading already shows ([`status_shows`]).
+const COMMAND_STATUS_BYTES: usize = 120;
+
 /// How many bytes of any other call's argument a row keeps, spelled: fx's
 /// bound for a file change's path (`diff.max_encoded_label_bytes`,
 /// `src/core/output/diff.zig:10@481104fd`, `fileMutationDisplayPath`).
@@ -598,7 +605,35 @@ pub(crate) fn spelled(target: &str, activity: Activity) -> String {
         }
         return spelling.finish();
     }
-    let mut spelling = Spelling::new(COMMAND_TARGET_BYTES);
+    command_spelled(target, COMMAND_TARGET_BYTES)
+}
+
+/// Whether fx's status phrase for this call holds `value` -- the text Ctrl-O
+/// looks in for an argument the heading already shows
+/// (`argumentVisibleInToolHeading`, `src/ui/full_transcript_screen.zig:
+/// 6594-6619@481104fd`, reads the status entry's own bytes, not the command the
+/// heading puts in its place): a command's is its first [`COMMAND_STATUS_BYTES`]
+/// spelled, so a command past them keeps its argument row even where the heading
+/// shows it whole. Any other call's status is its whole argument, which its row
+/// shows (`true`; the heading's own text is the caller's to search).
+///
+/// The target here is already spelled once (the channel's, [`spelled`]), and a
+/// bound that falls inside one of its escapes cuts that escape's text where fx,
+/// spelling the raw command, would cut before it: a value is found differently
+/// only when it ends within an escape's length of byte 117 of a command that
+/// has one.
+pub(crate) fn status_shows(shown: &Shown, value: &str) -> bool {
+    match (&shown.target, shown.presentation.activity) {
+        (Some(target), Activity::Command) => {
+            command_spelled(target, COMMAND_STATUS_BYTES).contains(value)
+        }
+        _ => true,
+    }
+}
+
+/// A command as [`spelled`] spells it, at `max` bytes.
+fn command_spelled(target: &str, max: usize) -> String {
+    let mut spelling = Spelling::new(max);
     let mut line_break = false;
     let mut written = false;
     for (at, character) in target.char_indices() {
