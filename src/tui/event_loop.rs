@@ -1723,23 +1723,8 @@ fn commit_document(
     // call that settled it, and a refused one leaves it owed under the same
     // budget as every other refused write. It is not a frame and does not count
     // as one -- `failures.succeeded` stays where the frames are.
-    if shell.owes_retint() {
-        match band.retint_document(out, &shell.palette(), &shell.geometry) {
-            // Settled: the cells were repainted, or the screen already held
-            // them, or this session owns no document row on it.
-            Ok(Retint::Settled(_)) => shell.retint_paid(),
-            // Deferred, and the tick **goes on**. The band cannot describe the
-            // screen yet, so the debt stands -- and the frame below is exactly
-            // what makes the next tick able to answer it, so returning early
-            // here would starve the repair that settles this.
-            Ok(Retint::Deferred) => {}
-            Err(emit) => {
-                return match disposed(emit, failures, now) {
-                    Some(fatal) => Err(fatal),
-                    None => Ok(false),
-                }
-            }
-        }
+    if let Some(refused) = pay_recolour(shell, band, out, failures, now) {
+        return refused;
     }
     // The tool groups on the screen, collapsed where they stand, before
     // anything moves the rows they are on. The same rules as the recolour
@@ -1854,6 +1839,16 @@ fn commit_document(
         }
     }
     shell.document_landed(document);
+    // **And once more after them**, for a block that landed in a palette
+    // other than the one its rows were painted in: queued before a report
+    // and drained after the recolour above was paid -- a stopped call's own
+    // line, the lines written under an open group
+    // ([`super::transcript::Transcript::queue_block`]). Owed again only then
+    // (`Shell::emit_document_front`), so on every other tick this asks for
+    // nothing; in the same update, so no frame shows the old palette.
+    if let Some(refused) = pay_recolour(shell, band, out, failures, now) {
+        return refused;
+    }
     // **A scroll is a reason for a frame.** The rows that just landed moved the
     // band's own out from under the coordinates the last frame put them at, so
     // the band is a row above where it belongs until one repaints it. Nothing
@@ -1864,6 +1859,39 @@ fn commit_document(
         shell.render.request(Reason::Transcript);
     }
     Ok(true)
+}
+
+/// The recolour a theme report owes the document's rows, when it is owed:
+/// `None` when the tick goes on -- settled and paid, deferred and still
+/// owed, or not owed at all -- and the tick's answer when the write was
+/// refused ([`commit_document`]'s two calls).
+fn pay_recolour(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> Option<io::Result<bool>> {
+    if !shell.owes_retint() {
+        return None;
+    }
+    match band.retint_document(out, &shell.palette(), &shell.geometry) {
+        // Settled: the cells were repainted, or the screen already held them,
+        // or this session owns no document row on it.
+        Ok(Retint::Settled(_)) => {
+            shell.retint_paid();
+            None
+        }
+        // Deferred, and the tick **goes on**. The band cannot describe the
+        // screen yet, so the debt stands -- and the frame after it is exactly
+        // what makes the next tick able to answer it, so returning early here
+        // would starve the repair that settles this.
+        Ok(Retint::Deferred) => None,
+        Err(emit) => Some(match disposed(emit, failures, now) {
+            Some(fatal) => Err(fatal),
+            None => Ok(false),
+        }),
+    }
 }
 
 /// Everything that happens while the question owns the terminal's other buffer,
@@ -5568,7 +5596,11 @@ mod tests {
     /// after. `None` when `needle` is not in `written` at all, or is written
     /// under no colour.
     fn fg_of(written: &str, needle: &str) -> Option<u8> {
-        let at = written.find(needle)?;
+        fg_before(written, written.find(needle)?)
+    }
+
+    /// The 256-colour foreground in force at byte `at` of `written`.
+    fn fg_before(written: &str, at: usize) -> Option<u8> {
         let mut fg = None;
         for (index, _) in written[..at].match_indices("\u{1b}[") {
             let rest = &written[index + 2..at];
@@ -5961,6 +5993,295 @@ mod tests {
         let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(fg_of(&dark, "\u{2514} Running "), Some(245), "{dark:?}");
         assert_eq!(fg_of(&dark, "\"hi"), Some(250), "{dark:?}");
+    }
+
+    /// [`a_command_running`], then a notice written under its open group and
+    /// the turn's end stopping the command -- each a block of the group's,
+    /// queued and none of them drained: the group's rows, the notice under
+    /// them, and the call's own `■ Cancelled` line.
+    fn a_stopped_group_and_a_notice_queued(shell: &mut Fixture) {
+        a_command_running(shell);
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+    }
+
+    /// The 256-colour foreground of the cell where `needle` starts on the
+    /// bottom-most row of the screen that opens with `row`, read off the
+    /// band's record of the screen ([`Band::shadow`]): what the terminal holds
+    /// once every write of a tick has landed, cells no write touched included.
+    fn on_screen(band: &Band, row: &str, needle: &str) -> Option<u8> {
+        use super::super::grid::Cell;
+        let grid = band.shadow();
+        let mut found = None;
+        for line in 1..=grid.rows() {
+            let mut text = String::new();
+            let mut starts = Vec::new();
+            for column in 1..=grid.cols() {
+                match grid.cell(line, column) {
+                    Some(Cell::Lead { grapheme, .. }) => {
+                        starts.push((text.len(), column));
+                        text.push_str(grapheme);
+                    }
+                    Some(Cell::Empty) => {
+                        starts.push((text.len(), column));
+                        text.push(' ');
+                    }
+                    _ => {}
+                }
+            }
+            if !text.starts_with(row) {
+                continue;
+            }
+            let Some(at) = text.find(needle) else {
+                continue;
+            };
+            let column = starts.iter().find(|(start, _)| *start == at)?.1;
+            found = match grid.cell(line, column) {
+                Some(Cell::Lead { sgr, .. }) => match sgr.color() {
+                    Ok(crate::tui::check::Color::Indexed(index)) => Some(index),
+                    _ => None,
+                },
+                _ => None,
+            };
+        }
+        found
+    }
+
+    /// What the screen holds of a stopped group and the notice under it
+    /// ([`a_stopped_group_and_a_notice_queued`]): the group's call row, the
+    /// stopped call's mark, its `Cancelled`, its argument, its string and its
+    /// comment, and the notice's label and body.
+    fn stopped_and_notice(band: &Band) -> [Option<u8>; 8] {
+        let line = "\u{25a0} Cancelled";
+        [
+            on_screen(band, "\u{2514} Cancelled ", "\u{2514}"),
+            on_screen(band, line, "\u{25a0}"),
+            on_screen(band, line, "Cancelled"),
+            on_screen(band, line, " 42 "),
+            on_screen(band, line, "\"hi"),
+            on_screen(band, line, "# note"),
+            on_screen(band, "! tool:", "tool:"),
+            on_screen(band, "! tool:", "read_file ok"),
+        ]
+    }
+
+    #[test]
+    fn a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set() {
+        // The rows of a group's block that are not drawn again -- the stopped
+        // call's own line and the lines written under the open group -- are
+        // painted when they are queued. fx rewrites those entries' bytes
+        // through its token table at the switch (`retintEntriesForTheme`,
+        // `app_render_runtime.zig:499`, `store.zig:3743-3750@481104fd`) before
+        // it asks for the build (`:511`), so whatever it draws after a switch
+        // is in the new theme. Here the recolour a report owes is paid before
+        // the tick's appends (`commit_document`): a block queued before the
+        // report and landing after it must be recoloured too, by the same
+        // rules -- the token table's pairs for the stopped line (dark 245 is
+        // 247 on light, not the 245 a fresh light drawing gives) and the
+        // notice's own greys.
+        //
+        // Dark to light.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_stopped_group_and_a_notice_queued(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            stopped_and_notice(&band),
+            [241, 238, 235, 247, 241, 247, 238, 241].map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice: {light:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set() {
+        // [`a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set`],
+        // light to dark: the stopped line drawn light keeps its argument's 245
+        // and its comment's 243, which are in no pair of upstream's table.
+        let mut other = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut other, &mut band, &mut out, &mut failures, now);
+        other.route_bytes(WENT_LIGHT);
+        tick(&mut other, &mut band, &mut out, &mut failures, now);
+        a_stopped_group_and_a_notice_queued(&mut other);
+        other.route_bytes(WENT_DARK);
+        let dark = tick(&mut other, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            stopped_and_notice(&band),
+            [245, 252, 255, 245, 250, 243, 252, 250].map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice: {dark:?}"
+        );
+    }
+
+    /// The call [`a_command_running`] started, returned.
+    fn the_command_returns(shell: &mut Fixture) {
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+    }
+
+    /// The text of the screen's bottom-most row that opens with `row`, read
+    /// off the band's record of the screen.
+    fn row_on_screen(band: &Band, row: &str) -> Option<String> {
+        use super::super::grid::Cell;
+        let grid = band.shadow();
+        (1..=grid.rows())
+            .rev()
+            .map(|line| {
+                (1..=grid.cols())
+                    .filter_map(|column| match grid.cell(line, column) {
+                        Some(Cell::Lead { grapheme, .. }) => Some(grapheme.clone()),
+                        Some(Cell::Empty) => Some(" ".to_string()),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            })
+            .find(|text| text.starts_with(row))
+            .map(|text| text.trim_end().to_string())
+    }
+
+    #[test]
+    fn a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there() {
+        // A report and then a resize, both between a group's rewrite being
+        // queued and its landing. The resize drops the recolour owed against
+        // the screen that was (`Shell::resize`) and the rewrite lands on the
+        // narrower one in the palette in force, its call row cut with an
+        // ellipsis -- and both drawings it records are cut at that width, so
+        // the next switch draws the cut row again rather than leaving it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        the_command_returns(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        assert!(matches!(shell.resize(24, 30), Resize::Repaint(_)));
+        band.invalidate(24, 30);
+        shell.damage_told();
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let cut = row_on_screen(&band, "\u{2514} Ran ").expect("the call row");
+        assert!(cut.ends_with('\u{2026}'), "the row was not cut: {cut:?}");
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\u{2514}"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(241));
+
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(row_on_screen(&band, "\u{2514} Ran "), Some(cut));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\u{2514}"), Some(245));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(250));
+    }
+
+    #[test]
+    fn a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette() {
+        // The call, its result and the answer that closes the group, all
+        // queued, and a report before the tick: the group's rows land as the
+        // group draws them in the palette in force, and the closed block is
+        // drawn again on the next switch.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "# note"), Some(243));
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(245));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(250));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "# note"), Some(245));
+    }
+
+    #[test]
+    fn a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings() {
+        // The group is on the screen; its call's result is queued; the
+        // terminal reports light. The recolour draws the landed rows light
+        // first, and the rewrite then lands in light too -- its header the
+        // same row the recolour left, so it is kept rather than written again
+        // (`Grid::row_matches`), and recorded with the rewrite's drawings: the
+        // next switch draws it dark.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        the_command_returns(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            light.matches("1 tool call").count(),
+            1,
+            "the header was written again rather than kept: {light:?}"
+        );
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(241));
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(245));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(250));
+    }
+
+    #[test]
+    fn a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set() {
+        // The same rows held back while the full transcript has the other
+        // plane: the group is on the primary screen, Ctrl-O opens, the notice
+        // and the stop are queued, the terminal reports light, and Ctrl-O
+        // closes. The recolour waits for the primary plane, is paid there
+        // first, and the held appends land after it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"\x0f");
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(band.on_alternate(), "Ctrl-O did not take the plane");
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        shell.route_bytes(WENT_LIGHT);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"\x0f");
+        let mut back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        back.push_str(&tick(&mut shell, &mut band, &mut out, &mut failures, now));
+        assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
+        assert_eq!(
+            stopped_and_notice(&band),
+            [241, 238, 235, 247, 241, 247, 238, 241].map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice: {back:?}"
+        );
     }
 
     #[test]

@@ -426,6 +426,14 @@ impl Band {
         self.tamper = None;
     }
 
+    /// What this band believes the terminal is holding: for the tests that
+    /// read a cell's colour off the screen once every write has landed,
+    /// rather than off the bytes of one of them.
+    #[cfg(test)]
+    pub(crate) fn shadow(&self) -> &Grid {
+        &self.shadow
+    }
+
     /// Damages the grid every frame from here on aims at, for the tests that
     /// have to see the check catch a disagreement no byte of the frame is
     /// near.

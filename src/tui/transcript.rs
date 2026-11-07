@@ -47,7 +47,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::notice::Tone;
 use super::prose::{self, Continuation, Opening, ProseRow};
-use super::theme::{DocumentRow, Palette, Redraw};
+use super::theme::{DocumentRow, Mode, Palette, Redraw};
 use super::wrap;
 
 /// What a text *is*, which is what decides the colour the document row carrying
@@ -532,9 +532,9 @@ enum Op {
     Gutter(Gutter),
     /// The open block, whole, as it now stands: rows that are each **one**
     /// screen row and replace the ones the block had, what each of them is,
-    /// and how its writer draws each one it can draw again
-    /// ([`Transcript::queue_block`]).
-    Block(Vec<String>, Vec<DocumentRow>, Vec<Option<Redraw>>),
+    /// how its writer draws each one it can draw again, and the mode the
+    /// others were painted in ([`Transcript::queue_block`]).
+    Block(Vec<String>, Vec<DocumentRow>, Vec<Option<Redraw>>, Mode),
     /// Lines from here on are rows of this kind ([`Transcript::queue_kind`]).
     /// Queued only at a line boundary, like a gutter.
     Kind(DocumentRow),
@@ -652,6 +652,10 @@ pub(crate) struct Transcript {
     /// is on the terminal, and a vector the screen refused must leave them
     /// owed exactly as a refused append always did ([`Landed::None`]).
     staged: Option<Staged>,
+    /// Whether a block whose rows were painted in a mode other than the
+    /// palette's it landed in has landed since [`Self::take_owed_recolour`]
+    /// last asked ([`Transcript::queue_block`]).
+    owes_recolour: bool,
 }
 
 /// The committed state [`Transcript::stage`] saved, and the operations taken
@@ -695,6 +699,7 @@ impl Transcript {
             block_frozen: 0,
             block_open: false,
             staged: None,
+            owes_recolour: false,
         }
     }
 
@@ -854,17 +859,24 @@ impl Transcript {
     /// Starts on a row of its own: an open line of text is ended first.
     ///
     /// `redraws` is how the writer draws each row in each mode, `None` for a
-    /// row it cannot draw again ([`Redraw`]). **Such a row is written in the
-    /// palette in force when it lands**, not the one it was queued in: a theme
-    /// report pays its recolour before the appends of the same tick
-    /// (`super::event_loop`'s `commit_document`), so a block queued before the
-    /// report and landing after it would otherwise land in the old palette
-    /// with nothing left owed to repaint it.
+    /// row it cannot draw again ([`Redraw`]), and `painted` the mode every
+    /// other row was painted in. A theme report pays its recolour before the
+    /// appends of the same tick (`super::event_loop`'s `commit_document`), so
+    /// a block queued before the report and landing after it would land in
+    /// the old palette with nothing left owed. So **a row drawn again is
+    /// written in the palette in force when it lands**, and when any other
+    /// row of it was painted in another mode, the landing says so
+    /// ([`Self::take_owed_recolour`]): those rows -- a stopped call's own
+    /// line, the lines written under an open group -- are recoloured by
+    /// their own rules once they are on the screen, as upstream rewrites
+    /// such entries' bytes at the switch (`retintEntriesForTheme`,
+    /// `store.zig:3743-3750@481104fd`) rather than drawing them anew.
     pub(crate) fn queue_block(
         &mut self,
         rows: Vec<String>,
         kinds: Vec<DocumentRow>,
         redraws: Vec<Option<Redraw>>,
+        painted: Mode,
     ) -> bool {
         if rows.is_empty() {
             return false;
@@ -876,10 +888,28 @@ impl Transcript {
         // the blank row it ends on, so a notice written under it does not
         // grow a second one ([`Self::ends_blank`]).
         self.blank = rows.last().is_some_and(String::is_empty);
-        self.queue.push_back(Op::Block(rows, kinds, redraws));
+        // **The block it replaces, when that one has not landed yet.** A block
+        // at the back of the queue is this same open block as it stood before
+        // -- every other write closes the block first ([`Self::queue_end_line`])
+        // -- and the rows queued now are the whole of it, so the older ones
+        // would only be written to be written over. A resumed session replays
+        // every call of a long group before anything is drained, and kept each
+        // rewrite (`.prd/tui-phase5/receipts/toolgroup-redraw/perf/`).
+        if matches!(self.queue.back(), Some(Op::Block(..))) {
+            self.queue.pop_back();
+        }
+        self.queue
+            .push_back(Op::Block(rows, kinds, redraws, painted));
         self.open = true;
         self.block_open = true;
         true
+    }
+
+    /// Whether a block that owes a recolour has landed since this was last
+    /// asked ([`Self::queue_block`]), and forgets it: rows painted in one
+    /// mode are on a screen the session now paints in the other.
+    pub(crate) fn take_owed_recolour(&mut self) -> bool {
+        std::mem::take(&mut self.owes_recolour)
     }
 
     /// Queues a change of gutter for the lines that follow.
@@ -1015,6 +1045,7 @@ impl Transcript {
                 kind: self.kind,
                 block: self.block,
                 block_frozen: self.block_frozen,
+                recolour: false,
             }),
             Op::Kind(kind) => Some(Prepared {
                 append: Append::nothing(),
@@ -1025,9 +1056,10 @@ impl Transcript {
                 kind: *kind,
                 block: self.block,
                 block_frozen: self.block_frozen,
+                recolour: false,
             }),
-            Op::Block(rows, kinds, redraws) => {
-                Some(self.prepare_block(rows, kinds, redraws, palette))
+            Op::Block(rows, kinds, redraws, painted) => {
+                Some(self.prepare_block(rows, kinds, redraws, *painted, palette))
             }
         }
     }
@@ -1040,12 +1072,15 @@ impl Transcript {
     ///
     /// A row its writer can draw again is written as it draws it in
     /// `palette`, the session's now, and its drawings go with it, cut to the
-    /// same width.
+    /// same width. Any other row it writes is as it was painted, in
+    /// `painted`; when that is not `palette`'s mode and the row holds
+    /// anything, the block owes a recolour once it lands.
     fn prepare_block(
         &self,
         rows: &[String],
         kinds: &[DocumentRow],
         redraws: &[Option<Redraw>],
+        painted_in: Mode,
         palette: Palette,
     ) -> Prepared {
         let (frozen, painted) = if self.block {
@@ -1054,6 +1089,12 @@ impl Transcript {
             (0, 0)
         };
         let redraw_of = |index: usize| redraws.get(index).and_then(Option::as_ref);
+        let recolour = painted_in != palette.mode
+            && rows
+                .iter()
+                .enumerate()
+                .skip(frozen)
+                .any(|(index, row)| redraw_of(index).is_none() && !row.is_empty());
         let mut written: Vec<String> = rows
             .iter()
             .enumerate()
@@ -1110,6 +1151,7 @@ impl Transcript {
             kind: self.kind,
             block: true,
             block_frozen: frozen,
+            recolour,
         }
     }
 
@@ -1196,6 +1238,7 @@ impl Transcript {
             kind: self.kind,
             block: false,
             block_frozen: 0,
+            recolour: false,
         }
     }
 
@@ -1213,6 +1256,7 @@ impl Transcript {
                 kind: self.kind,
                 block: false,
                 block_frozen: 0,
+                recolour: false,
             };
         }
         let rows = texts(&self.tail, &self.roles, self.cols, self.gutter, palette);
@@ -1237,6 +1281,7 @@ impl Transcript {
             kind: self.kind,
             block: false,
             block_frozen: 0,
+            recolour: false,
         }
     }
 
@@ -1244,6 +1289,7 @@ impl Transcript {
     /// from.
     fn commit(&mut self, prepared: Prepared) {
         self.take_front();
+        self.owes_recolour |= prepared.recolour;
         self.tail = prepared.tail;
         self.roles = prepared.roles;
         self.painted = prepared.painted;
@@ -1875,6 +1921,9 @@ struct Prepared {
     kind: DocumentRow,
     block: bool,
     block_frozen: usize,
+    /// A block's rows painted in a mode other than the palette's they are
+    /// written in ([`Transcript::queue_block`]).
+    recolour: bool,
 }
 
 /// `text` with every line break spelled the one way the document accepts.
@@ -3666,6 +3715,7 @@ mod tests {
                 DocumentRow::Plain,
             ],
             Vec::new(),
+            Mode::Dark,
         );
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(
@@ -3679,7 +3729,12 @@ mod tests {
             ]
         );
         // An all-plain block records nothing.
-        transcript.queue_block(rows(&["a", "b"]), vec![DocumentRow::Plain; 2], Vec::new());
+        transcript.queue_block(
+            rows(&["a", "b"]),
+            vec![DocumentRow::Plain; 2],
+            Vec::new(),
+            Mode::Dark,
+        );
         assert!(drain(&mut transcript, DARK_256)
             .iter()
             .all(|append| append.kinds.is_empty()));
@@ -3687,23 +3742,19 @@ mod tests {
 
     #[test]
     fn a_block_is_rewritten_where_it_stands_and_scrolls_only_the_rows_it_gained() {
+        // Each rewrite landed before the next is queued, as a live group's
+        // are: one queued behind another that has not landed replaces it
+        // (`a_rewrite_queued_behind_one_not_yet_landed_replaces_it`).
         let mut transcript = Transcript::new(40);
-        transcript.queue_block(
-            rows(&["header 1", "\u{2514} one", ""]),
-            Vec::new(),
-            Vec::new(),
-        );
-        transcript.queue_block(
-            rows(&["header 2", "\u{251c} one", "\u{2514} two", ""]),
-            Vec::new(),
-            Vec::new(),
-        );
-        transcript.queue_block(
-            rows(&["header 2", "\u{251c} one", "\u{2514} two!", ""]),
-            Vec::new(),
-            Vec::new(),
-        );
-        let appends = drain(&mut transcript, DARK_256);
+        let mut appends = Vec::new();
+        for block in [
+            &["header 1", "\u{2514} one", ""][..],
+            &["header 2", "\u{251c} one", "\u{2514} two", ""],
+            &["header 2", "\u{251c} one", "\u{2514} two!", ""],
+        ] {
+            transcript.queue_block(rows(block), Vec::new(), Vec::new(), Mode::Dark);
+            appends.extend(drain(&mut transcript, DARK_256));
+        }
         assert_eq!(
             appends
                 .iter()
@@ -3721,6 +3772,86 @@ mod tests {
     }
 
     #[test]
+    fn a_rewrite_queued_behind_one_not_yet_landed_replaces_it() {
+        // A resumed session replays every call of a group before anything is
+        // drained, so each rewrite of the open block was queued behind the
+        // last. Only the newest is kept: the document it leaves, row by row,
+        // each row's kind and drawings, and what is queued around the block,
+        // are the ones landing every rewrite in turn leaves -- with one append
+        // instead of one per rewrite.
+        type Block = (Vec<String>, Vec<DocumentRow>, Vec<Option<Redraw>>);
+        let blocks: Vec<Block> = (1..=4)
+            .map(|calls| {
+                let mut rows = vec![format!("\u{25cf} {calls} tool calls")];
+                rows.extend((1..=calls).map(|call| format!("\u{251c} Ran call {call}")));
+                rows.push(String::new());
+                let mut kinds = vec![DocumentRow::ToolGroup; calls + 1];
+                kinds.push(DocumentRow::Plain);
+                let mut redraws: Vec<Option<Redraw>> = rows[..=calls]
+                    .iter()
+                    .map(|row| Some(Redraw::new(format!("{row} dark"), format!("{row} light"))))
+                    .collect();
+                redraws.push(None);
+                (rows, kinds, redraws)
+            })
+            .collect();
+        let queue_around = |transcript: &mut Transcript, landed: &mut Vec<Append>, each: bool| {
+            transcript.queue_push("before", Role::Plain);
+            for (rows, kinds, redraws) in &blocks {
+                transcript.queue_block(rows.clone(), kinds.clone(), redraws.clone(), Mode::Dark);
+                if each {
+                    landed.extend(drain(transcript, DARK_256));
+                }
+            }
+            transcript.queue_push("after", Role::Plain);
+            transcript.queue_end_line();
+            landed.extend(drain(transcript, DARK_256));
+        };
+        let (mut one_by_one, mut queued) = (Vec::new(), Vec::new());
+        let mut each = Transcript::new(40);
+        queue_around(&mut each, &mut one_by_one, true);
+        let mut all = Transcript::new(40);
+        queue_around(&mut all, &mut queued, false);
+
+        assert_eq!(replay(queued.clone()), replay(one_by_one.clone()));
+        assert_eq!(
+            replay(queued.clone()),
+            // The group's rows as their drawings in the palette they land in.
+            [
+                "before",
+                "\u{25cf} 4 tool calls dark",
+                "\u{251c} Ran call 1 dark",
+                "\u{251c} Ran call 2 dark",
+                "\u{251c} Ran call 3 dark",
+                "\u{251c} Ran call 4 dark",
+                "",
+                "after"
+            ]
+        );
+        let block_append = |appends: &[Append]| {
+            appends
+                .iter()
+                .rev()
+                .find(|append| !append.redraws.is_empty())
+                .cloned()
+                .expect("the block's last append")
+        };
+        let (last, only) = (block_append(&one_by_one), block_append(&queued));
+        assert_eq!(only.rows, last.rows);
+        assert_eq!(only.kinds, last.kinds);
+        assert_eq!(only.redraws, last.redraws);
+        assert_eq!(
+            queued
+                .iter()
+                .filter(|append| !append.redraws.is_empty())
+                .count(),
+            1,
+            "a superseded rewrite was written: {queued:?}"
+        );
+        assert_eq!(all.tail_rows(), each.tail_rows());
+    }
+
+    #[test]
     fn whatever_follows_a_block_starts_on_a_row_of_its_own_and_leaves_it_alone() {
         let mut transcript = Transcript::new(40);
         transcript.queue_push("the answer so far", Role::Plain);
@@ -3728,6 +3859,7 @@ mod tests {
             rows(&["header", "\u{2514} call", ""]),
             Vec::new(),
             Vec::new(),
+            Mode::Dark,
         );
         transcript.queue_push("after", Role::Plain);
         transcript.queue_end_line();
@@ -3738,7 +3870,7 @@ mod tests {
             "a block shared a row with the text around it"
         );
         // Closed by the text: a block queued now is a new one, under it.
-        transcript.queue_block(rows(&["second"]), Vec::new(), Vec::new());
+        transcript.queue_block(rows(&["second"]), Vec::new(), Vec::new(), Mode::Dark);
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(appends.len(), 1);
         assert_eq!(appends[0].scroll, 1, "the second block rewrote the first");
@@ -3751,15 +3883,16 @@ mod tests {
         // or the next row -- belongs right under what it still has, as
         // upstream's re-render puts it.
         let mut transcript = Transcript::new(40);
-        transcript.queue_block(rows(&["a", "b", "c"]), Vec::new(), Vec::new());
-        transcript.queue_block(rows(&["a"]), Vec::new(), Vec::new());
-        let appends = drain(&mut transcript, DARK_256);
+        transcript.queue_block(rows(&["a", "b", "c"]), Vec::new(), Vec::new(), Mode::Dark);
+        let mut appends = drain(&mut transcript, DARK_256);
+        transcript.queue_block(rows(&["a"]), Vec::new(), Vec::new(), Mode::Dark);
+        appends.extend(drain(&mut transcript, DARK_256));
         assert_eq!(appends[1].rows, ["a", "", ""]);
         assert_eq!((appends[1].scroll, appends[1].release), (0, 2));
         assert_eq!(replay(appends), ["a"]);
         assert_eq!(transcript.tail_rows(), 1);
         // And it grows again from the row it kept.
-        transcript.queue_block(rows(&["a", "b"]), Vec::new(), Vec::new());
+        transcript.queue_block(rows(&["a", "b"]), Vec::new(), Vec::new(), Mode::Dark);
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!((appends[0].scroll, appends[0].release), (1, 0));
         assert_eq!(transcript.tail_rows(), 2);
@@ -3777,6 +3910,7 @@ mod tests {
             ],
             Vec::new(),
             Vec::new(),
+            Mode::Dark,
         );
         let written = replay(drain(&mut transcript, DARK_256));
         assert_eq!(
@@ -3796,6 +3930,7 @@ mod tests {
             rows(&["header", "\u{2514} call", ""]),
             Vec::new(),
             Vec::new(),
+            Mode::Dark,
         );
         drain(&mut transcript, DARK_256);
         transcript.resize_unfinished(5);
@@ -3804,6 +3939,7 @@ mod tests {
             rows(&["header", "\u{2514} done", ""]),
             Vec::new(),
             Vec::new(),
+            Mode::Dark,
         );
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(appends[0].scroll, 0);
@@ -3820,12 +3956,12 @@ mod tests {
         let tall: Vec<String> = (0..MAX_TAIL_ROWS + 10)
             .map(|n| format!("row {n}"))
             .collect();
-        transcript.queue_block(tall.clone(), Vec::new(), Vec::new());
+        transcript.queue_block(tall.clone(), Vec::new(), Vec::new(), Mode::Dark);
         drain(&mut transcript, DARK_256);
         assert_eq!(transcript.tail_rows(), MAX_TAIL_ROWS);
         let mut taller = tall;
         taller.push("one more".to_string());
-        transcript.queue_block(taller, Vec::new(), Vec::new());
+        transcript.queue_block(taller, Vec::new(), Vec::new(), Mode::Dark);
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(appends[0].scroll, 1);
         assert_eq!(appends[0].rows.len(), MAX_TAIL_ROWS + 1);
@@ -3855,6 +3991,7 @@ mod tests {
             vec![drawn_in(245), String::new()],
             vec![DocumentRow::ToolGroup, DocumentRow::Plain],
             vec![Some(Redraw::new(drawn_in(245), drawn_in(241))), None],
+            Mode::Dark,
         );
         let appends = drain(&mut transcript, LIGHT_256);
         assert_eq!(appends[0].rows[0], ellipsized(&drawn_in(241), 10));
@@ -3869,7 +4006,7 @@ mod tests {
             ]
         );
         // A block with no row drawn again records nothing, as with kinds.
-        transcript.queue_block(rows(&["a", "b"]), Vec::new(), vec![None, None]);
+        transcript.queue_block(rows(&["a", "b"]), Vec::new(), vec![None, None], Mode::Dark);
         assert!(drain(&mut transcript, DARK_256)
             .iter()
             .all(|append| append.redraws.is_empty()));
@@ -3888,11 +4025,11 @@ mod tests {
                 .map(|row| Some(Redraw::new(format!("{row} dark"), format!("{row} light"))))
                 .collect()
         };
-        transcript.queue_block(tall.clone(), Vec::new(), redraws(&tall));
+        transcript.queue_block(tall.clone(), Vec::new(), redraws(&tall), Mode::Dark);
         drain(&mut transcript, DARK_256);
         let mut taller = tall;
         taller.push("one more".to_string());
-        transcript.queue_block(taller.clone(), Vec::new(), redraws(&taller));
+        transcript.queue_block(taller.clone(), Vec::new(), redraws(&taller), Mode::Dark);
         let appends = drain(&mut transcript, LIGHT_256);
         assert_eq!(appends[0].rows[0], "row 10 light");
         assert_eq!(appends[0].rows.len(), appends[0].redraws.len());
