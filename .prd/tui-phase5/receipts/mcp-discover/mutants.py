@@ -1,4 +1,4 @@
-"""MCP-E round 2: each mutant of the unit on a --no-local clone, one at a
+"""MCP-E round 3 (MCP-Ec): each mutant of the unit on a --no-local clone, one at a
 time -- apply it, run the tests that should catch it, revert it. Usage:
 python3 -I mutants2.py <clone> <out> [--dry]   (--dry: count matches only)"""
 import subprocess, sys, os
@@ -34,6 +34,12 @@ MUTANTS = [
      "                    let _ = (left, &mut stop);\n"
      "                    let _ = reply.send(result);\n"
      "                }",
+     D + "a_request_whose_caller_stops_waiting"),
+    ("M3c a caller that stops waiting leaves its exchange running", X,
+     "                // The caller stopped waiting: dropping the exchange drops its\n"
+     "                // connection.\n"
+     "                _ = &mut stop => {}\n",
+     "",
      D + "a_request_whose_caller_stops_waiting"),
     ("M3b the probe's wait is not its caller's", X,
      ".and_then(|()| wait_until(&receiver, Instant::now() + timeout, cancel))",
@@ -121,8 +127,8 @@ MUTANTS = [
      "        let result = if false {",
      D + "an_http_probe_the_server_holds_open"),
     ("M21 an HTTP probe given up on outlives its timeout outside a session", X,
-     "            if !target.era().in_session() {\n                return;\n            }",
-     "            let _ = target.era();",
+     "            if !target.era().in_session() {\n                drop(work);",
+     "            if false && !target.era().in_session() {\n                drop(work);",
      D + "an_abandoned_http_probe_ends_at_its_request_timeout"),
     ("M22 a version written with an escape matches", W,
      "        if element.len() == needle.len() + 2\n            && element.starts_with('\"')\n            && &element[1..element.len() - 1] == needle\n        {",
@@ -153,9 +159,23 @@ MUTANTS = [
      "",
      D + "a_servers_request_is_answered_only_once_initialize"),
     ("M29 no waiting room past 32 in flight", X,
-     "                        } else if waiting.len() < WAITING_ROOM {",
-     "                        } else if false {",
+     "        if self.admitted.fetch_add(1, Ordering::AcqRel) >= MAX_IN_FLIGHT + WAITING_ROOM {",
+     "        if self.admitted.fetch_add(1, Ordering::AcqRel) >= MAX_IN_FLIGHT {",
      D + "past_32_exchanges_in_flight"),
+    ("M31 admission unbounded", X,
+     "        if self.admitted.fetch_add(1, Ordering::AcqRel) >= MAX_IN_FLIGHT + WAITING_ROOM {",
+     "        if self.admitted.fetch_add(1, Ordering::AcqRel) >= usize::MAX {",
+     D + "past_32_exchanges_in_flight"),
+    ("M32 a waiting message whose caller has gone is launched (round 2)", X,
+     "            if left.is_zero() {\n"
+     "                let _ = reply.send(Err(McpError::Named(\"McpRequestTimedOut\")));\n"
+     "                return;\n"
+     "            }\n"
+     "            if let Err(tokio::sync::oneshot::error::TryRecvError::Closed) = stop.try_recv() {\n"
+     "                return;\n"
+     "            }\n",
+     "",
+     D + "a_waiting_request_whose_caller_has_gone"),
     ("M30 a refused line's excerpt is cut at 40 bytes", W,
      "pub const EXCERPT_MAX: usize = 80;",
      "pub const EXCERPT_MAX: usize = 40;",

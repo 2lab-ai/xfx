@@ -1,5 +1,5 @@
 ---
-title: MCP-E receipt -- fx v0.0.16's version detection (server/discover, 2026-07-28, no 2024-11-05), round 2
+title: MCP-E receipt -- fx v0.0.16's version detection (server/discover, 2026-07-28, no 2024-11-05), rounds 2 and 3
 type: receipt
 tags: [xfx, tui, phase5, fx-0.0.16, mcp, security, receipt]
 ---
@@ -15,12 +15,18 @@ not yet xfx's. Security-relevant (S). Base `58b463c8`, branch
 `feat/p5-mcp-discover`. Round 2 answers both reviews of `f3a859c8`
 (`MCP-E/reviews/gpt6.md`, `opus.md` in the dispatcher's tree).
 
-**Every piece of evidence here comes from one commit, `d96603f9`**
-(`v0.1.0-d96603f`): the gate logs, the mutants (a `--no-local` clone checked
-out at it), and the head side of every capture and sweep. The receipt's own
-commit changes files under `.prd/tui-phase5/receipts/mcp-discover/` and
-nothing else: `diff-stat.txt` is `git diff --stat d96603f9 -- src tests scripts docs
-Cargo.toml Cargo.lock`, taken just before that commit, and empty.
+**Two commits, each with its own evidence.** Round 2's code, `d96603f9`
+(`v0.1.0-d96603f`): the head side of every capture and sweep, the wire, its
+gate (`gates-d96603f9.txt`) and its 31 mutants (`mutants-d96603f9.txt`).
+Round 3 (MCP-Ec, below), `7c2ceeea`: the gate (`gates.txt`, `gates/`) and the
+mutants (`mutants.txt`, a `--no-local` clone checked out at it). The sweeps
+were not run again at `7c2ceeea`: what it changes in `src/`
+(`ec-src-diff-stat.txt`) is the HTTP transport's admission and the start of a
+message that waited for a slot -- reached only with 32 messages in flight,
+which no capture scenario has -- test-only hooks, tests and comments. The
+receipt's own commit changes files under `.prd/tui-phase5/receipts/mcp-discover/`
+and nothing else: `diff-stat.txt` is `git diff --stat 7c2ceeea -- src tests scripts
+docs Cargo.toml Cargo.lock`, taken just before that commit, and empty.
 Oracle: fx v0.0.16 (`481104fd`), executable sha256 `8e6cda2efddb…`, checked
 by capture.sh around every fx run. Base: `58b463c8` built in the clone
 (`v0.1.0-58b463c`). Round 1's head: `f3a859c8` built in the clone
@@ -114,11 +120,14 @@ accepted, `2024-11-05` refused. Round 2 read what round 1 had not:
   `send_discover`/`startSession` set `r.legacy`), the transports' request
   timeout from `operation_timeout_ms`, and the probe's wait as a pure
   function (`probe_wait`).
-- Tests (`src/mcp/tests/discover.rs`): no upper bound on a clock. A wrong
-  path that would wait is made to hang -- a ten-minute probe timer, cut to
-  the start -- so it ends in other words or in `settled`'s minute; what is
+- Tests (`src/mcp/tests/discover.rs`): no elapsed-time upper bound is
+  asserted. A wrong path that would wait is made to hang -- a ten-minute
+  probe timer, cut to the start -- so it ends in other words; what is
   asynchronous is waited for by state (the fixture's connections ended, a
   cancel frame logged, `probes_open`) within `WAIT`; lower bounds stay.
+  Round 2 still read two states that a timer of the case's own could end
+  first, and kept a clock bound in configuration: round 3 below says what
+  was fixed and what clock dependence is left.
 - fxcap: `capture.sh` writes `<bin>-<scenario>-<size>-mcphttp.port`, and
   `sweep.py` (`run_rules`) rewrites only that run's port after
   `127.0.0.1:`; the ledger's global `mcphttp-port` rule is gone
@@ -138,7 +147,7 @@ accepted, `2024-11-05` refused. Round 2 read what round 1 had not:
 | MUST 4 escapes, duplicate keys | serde's reading | fx's decoder | `escaped`, `doubled` rows; `era::tests::an_escaped_version_is_another_version_and_a_doubled_field_no_answer`; `p5-mcp-discover-stdio-escaped`; M22, M23 |
 | MUST 5 too deep | serde's 128 levels | fx's 2584; deeper is no answer and the probe waits, as fx's does | `deep:2582`, `deep:2583`, `deep` rows; `wire::tests` depth boundary; `p5-mcp-discover-stdio-depth`; M24, M25 |
 | MUST 6 `mcphttp-port` global | one ledger regex over every scenario | the run's own port only (`sweep.py` `run_rules`), the ledger rule gone | `test_sweep.py` `McpPort` (4 cases); the sweeps below |
-| MUST 7 wall clock | upper bounds and once-after-sleep checks | lower bounds only; a ten-minute probe for the paths that must not wait; state barriers within `WAIT`; `probe_wait` pure; one more call after the 2026 call instead of a 500 ms sleep | `src/mcp/tests/discover.rs`: every `took`/`elapsed()` comparison left is `>=`, but one `while started.elapsed() < idle * 3` that waits past a timeout before a barrier request; every `sleep` is a 10-20 ms step of a poll bounded by `WAIT`; M2, M4, M5, M14 killed below |
+| MUST 7 wall clock (see round 3) | upper bounds and once-after-sleep checks | lower bounds only; a ten-minute probe for the paths that must not wait; state barriers within `WAIT`; `probe_wait` pure; one more call after the 2026 call instead of a 500 ms sleep | `src/mcp/tests/discover.rs`: every `took`/`elapsed()` comparison left is `>=`, but one `while started.elapsed() < idle * 3` that waits past a timeout before a barrier request; every `sleep` is a 10-20 ms step of a poll bounded by `WAIT`; M2, M4, M5, M14 killed below |
 | MUST 8 receipt | claims without files | every number below names its file; one commit | this file |
 | SHOULD 9 excerpt | from the re-serialized frame | from the raw line, 80 bytes, `?` for control bytes | `wire::tests::a_refused_reply_fails_with_why_and_the_start_of_the_line_as_it_came`; M30 |
 | SHOULD 10 3xx | doc said a redirect's body is no answer | doc says what the code does; a 307's target is never asked | `a_probe_redirected_elsewhere_is_not_followed` |
@@ -150,6 +159,48 @@ One pre-existing test changed: `transport::tests::a_server_that_asks_and_never_r
 now sets a 2025 era and sends one line before its server floods `ping`s --
 fx answers a server's request only in a 2025 session, so without it nothing
 would be answered and the flood would test nothing.
+
+## MCP-Ec (round 3): the round-2 reviews of `4deb7d89`
+
+Code `7c2ceeea` (`git diff --stat d96603f9..7c2ceeea -- src tests docs`:
+`ec-src-diff-stat.txt`). Reviews: `MCP-E/reviews/r2-gpt6.md`,
+`r2-opus.md` in the dispatcher's tree.
+
+| item | at `d96603f9` | now | evidence |
+|---|---|---|---|
+| MUST 1 silent stdio | `probes_open == 1` read after `settled`, while the probe's 60 s request timeout ran on its own | the server's `operation_timeout_ms` is an hour, past every bounded wait of the case, so the probe cannot have been cancelled when it is looked at | `a_stdio_server_that_never_answers_the_probe_is_initialized_once_the_probe_times_out` |
+| MUST 1, the stdio cancel case | needed `tools/list` answered within the 2 s it set as the request timeout | the server answers nothing (`mute`) and the start is an hour, so the connection is up, `initialize` waiting, when the cancel goes; only a lower bound and polls | `a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout` |
+| MUST 2 abandoned HTTP probe | 100 ms caller wait and 300 ms idle started before the fixture had the POST | request timeout an hour off; the case waits for the fixture to log the POST, then fires the timeout itself (`HttpTransport::time_out_probes`, test builds only), then waits until the transport has dealt with it (`probes_timed_out`) | `an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session`; M21 |
+| SHOULD 3 | `start_once` on a 10 s start | the 30 s default | `start_once` |
+| SHOULD 4 (PLAUSIBLE → RED) | a message that waited for a slot was polled once when it started, its caller gone or not | not polled at all if its deadline has passed or its caller has gone; waiting messages start oldest first, as fx's `startWaiting` | RED (`red-waiting-job.txt`): on `d96603f9` a first version of the case saw 2 and 5 extra connections in 2 of 3 runs; the committed case with the guard taken out sees 12-20 of its 32 given-up calls begin a POST, 5 of 5 runs; `a_waiting_request_whose_caller_has_gone_never_reaches_the_server` (begun POSTs = 33, fixture connections = 33, no `tools/call` logged); M32 |
+| SHOULD 5 | the caller-stop case covered the deadline only | a `CancelToken` case: an hour's deadline, cancelled once the fixture has the POST; the POST's connection ends and the next request goes | `a_request_whose_caller_stops_waiting_has_its_post_closed_and_the_next_goes`; M3, M3c |
+| SHOULD 6 admission | an unbounded channel before the 32 + 32 | at most 64 messages per connection from the send to the end of the message (`admit`, fx's `claim`), the 65th `McpTooManyInFlight` wherever it would have waited | `past_32_exchanges_in_flight_…`; M29, M31 |
+| SHOULD 7 | `Life::Caller` said fx closes a timed-out or cancelled stream | outside a 2025 session at once; in one, fx first posts `notifications/cancelled` through the session (`post_cancel`, `server.zig:1402-1411`) and closes the stream when the session ends the request (`deliver`, `:1441-1448`); xfx drops the connection in both eras without that POST | `transport.rs` `Life::Caller` |
+| SHOULD 8 | `decimal` claimed fx's `max_request_id` cap | fx's `decimal` reads any 64-bit integer (`wire.zig:315-327`); `max_request_id` (2^53 - 1, `:15-17`) bounds the ids fx issues (`request.zig:233`) | `wire.rs` `decimal` |
+| owner | two 2025-session HTTP gaps without one | unit MCP-SEAMS (dispatcher, 2026-11-07), named in `docs/parity.md` | the MCP client runtime row |
+
+Who can make a caller. Every message on an HTTP connection comes from a
+runtime call: the start's handshake, `tools/list` paging, a tool call, a
+resource or prompt read, a completion (`runtime.rs` `handshake`,
+`call_tool`, `feature_request`). None comes from the server: xfx answers no
+request a 2025 server sends over HTTP and follows no notification (an event
+stream's other events are passed over, `EventStream`), so no server-driven
+path creates one.
+
+What still leans on a clock in `src/mcp/tests/discover.rs`, and how much:
+
+- A handshake that must succeed has the start to do it in: the 30 s
+  default (`start_once`, the HTTP cases), and the probe timer where the
+  case sets one.
+- `a_probe_whose_connection_breaks_…`: the second POST must go within the
+  probe's 5 s timer, and the first break is at once.
+- `settled` and every barrier wait at most `WAIT` (60 s) for a state that
+  correct code reaches in milliseconds.
+- Request timeouts the cases set an hour off (the silent stdio case, the
+  held HTTP transport) are past the sum of the case's own bounded waits.
+
+No case reads a state that a timer of its own can end before the case looks
+at it. The lower bounds stay (`took >= …`).
 
 ## RED: round 1's head against round 2's cases
 
@@ -223,10 +274,19 @@ logs one.
 
 ## Mutants
 
-`mutants.py` (this directory) on a `git clone --no-local` checked out at
-`d96603f9`, in the scratchpad, never the worktree: one at a time, applied,
-the named test run, reverted (`git checkout`). `mutants.txt`: **31 of 31
-killed**, the clone clean after each. Round 1's 14 on the code as it is now
+Round 3 (`7c2ceeea`): `mutants.py` on the clone checked out at it (its HEAD in
+`mutants.txt`'s first lines): **34 of 34 killed, the clone clean after each**. Round 2's 31 on the code as it is
+now -- M21 rewritten for its new form (the probe kept at its timeout outside
+a session: the abandoned-probe case, whose timeout the case now fires) --
+and three new: M3c (the caller's stop branch removed: the CancelToken case),
+M31 (admission unbounded: `past_32_…`) and M32 (a waiting message whose
+caller has gone is started, `d96603f9`'s behaviour: the waiting-message
+case).
+
+Round 2 (`d96603f9`): `mutants-d96603f9.py` (this directory) on a `git
+clone --no-local` checked out at `d96603f9`, in the scratchpad, never the
+worktree: one at a time, applied, the named test run, reverted (`git
+checkout`). `mutants-d96603f9.txt`: **31 of 31 killed**, the clone clean after each. Round 1's 14 on the code as it is now
 (M1-M14, M3 split into the request's wait and the probe's), M2, M3, M4,
 M5 and M14 among them; and 16 new:
 
@@ -287,10 +347,11 @@ M5 and M14 among them; and 16 new:
 
 ## Gates
 
-`gates.txt`: at `d96603f9`, one step after another, `TMPDIR=<tmp>`, the tree
+`gates.txt`: at `7c2ceeea`, one step after another, `TMPDIR=<tmp>`, the tree
 clean before and after; each step's log under `gates/` (the two test suites
 as their per-binary result lines, `gates/test-results.txt`,
-`gates/test-fi-results.txt`).
+`gates/test-fi-results.txt`). Round 2's, at `d96603f9`: `gates-d96603f9.txt`
+(5,210 and 5,247 passed).
 
 | step | result (file) |
 |---|---|
@@ -298,8 +359,8 @@ as their per-binary result lines, `gates/test-results.txt`,
 | `cargo fmt --check` | exit 0 (`gates/fmt.log`) |
 | `cargo clippy --locked --all-targets -- -D warnings` | exit 0 (`gates/clippy.log`) |
 | the same with `--features fault-injection` | exit 0 (`gates/clippy-fi.log`) |
-| `cargo test --locked --no-fail-fast` | exit 0: 5,210 passed, 0 failed, 7 ignored, 15 binaries (`gates/test-results.txt`) |
-| the same with `--features fault-injection` | exit 0: 5,247 passed, 0 failed, 7 ignored (`gates/test-fi-results.txt`) |
+| `cargo test --locked --no-fail-fast` | exit 0: 5,211 passed, 0 failed, 7 ignored, 15 binaries (`gates/test-results.txt`) |
+| the same with `--features fault-injection` | exit 0: 5,248 passed, 0 failed, 7 ignored (`gates/test-fi-results.txt`) |
 | `scripts/check-xfx-identity.sh` | exit 0 (`gates/identity.log`) |
 | `scripts/check-no-stubs.sh` | exit 0 (`gates/no-stubs.log`) |
 | `scripts/check-no-secrets.sh` | exit 0 (`gates/no-secrets.log`) |
@@ -308,20 +369,27 @@ as their per-binary result lines, `gates/test-results.txt`,
 
 ## Observed, not this unit's
 
+Both owned by unit MCP-SEAMS (dispatcher, 2026-11-07; `docs/parity.md`):
+
 - In a 2025 HTTP session fx posts `notifications/cancelled` when a call is
-  cancelled (`p5-mcp-live`'s fx log); xfx's head and base do not.
+  cancelled (`p5-mcp-live`'s fx log, `http.txt`); xfx's head and base do not.
 - fx answers a 2025 server's request on a POST's event stream with a POST of
   its own (`answerServerRequest`, `server.zig:1521-1530`); xfx's HTTP
-  transport never has (`58b463c8:src/mcp/transport.rs:1318-1320`). Named in
-  the parity row, with no unit owning it yet.
+  transport never has (`58b463c8:src/mcp/transport.rs:1318-1320`).
+
+`p5-mcp-menu-old`'s snaps on the edge of the 10 s probe: unit MCP-HOLD
+(dispatcher, 2026-11-07).
 
 ## Files
 
-- `README.md`; `wire_compare.py`, `flips.py`, `mutants.py` (`python3 -I`
-  each). Round 1's `pairs.py` is gone: the sweep compares every pair
+- `README.md`; `wire_compare.py`, `flips.py`, `mutants.py`,
+  `mutants-d96603f9.py` (`python3 -I` each; the mutant scripts' TMPDIR is
+  redacted to `<tmp>`). Round 1's `pairs.py` is gone: the sweep compares every pair
   (`sweeps/`).
 - `snaps/fx/`, `snaps/xfx-head/`, `snaps/xfx-f3a859c/`, `snaps/xfx-base/`:
   every discover snap and `p5-mcp-wire-new`'s, as text.
-- `wire.txt`, `http.txt`, `mutants.txt`, `gates.txt`, `gates/`, `sweeps/`,
-  `diff-stat.txt`, `src-diff-stat.txt`.
+- `wire.txt`, `http.txt`, `sweeps/` (at `d96603f9`); `gates.txt`, `gates/`,
+  `mutants.txt`, `red-waiting-job.txt`, `ec-src-diff-stat.txt` (round 3);
+  `gates-d96603f9.txt`, `mutants-d96603f9.txt` (round 2); `diff-stat.txt`,
+  `src-diff-stat.txt`.
 

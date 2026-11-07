@@ -1,128 +1,139 @@
-# The clone's HEAD: its reflog's last move, before the first mutant ran (the file below was
-# last written at 22:15:28, the mutants run one after another after the sweeps), and after them:
-#   d96603f9 HEAD@{21:16:54}: checkout: moving from f3a859c88003d8a1e977368c1d9ed9e2a09dcd06 to d96603f9
-#   git rev-parse --short=8 HEAD -> d96603f9; git status --porcelain -> 0 lines
+# clone at 7c2ceeea, dirty 0
+# 7c2ceeea HEAD@{23:17:15}: checkout: moving from d96603f93c92a583203f911f39fab4282f83c8c5 to 7c2ceeea
+# mutants exit=0 killed=34 clone at 7c2ceeea dirty after: 0
 M1 initialize accepts a version not its own (2024-11-05) [src/mcp/era.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
     test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.10s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.06s
     error: test failed, to rerun pass `--lib`
 M2 the probe is not cut to what is left of the start [src/mcp/runtime.rs] -> mcp::tests::discover::the_probe_and_initialize_share_the_start: KILLED
     test mcp::tests::discover::the_probe_and_initialize_share_the_start_so_a_start_never_outlasts_its_timeout ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 60.04s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 60.03s
     error: test failed, to rerun pass `--lib`
 M3 an HTTP request outlives its caller's wait [src/mcp/transport.rs] -> mcp::tests::discover::a_request_whose_caller_stops_waiting: KILLED
-    test mcp::tests::discover::a_request_whose_caller_stops_waiting_has_its_post_closed ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 60.21s
+    test mcp::tests::discover::a_request_whose_caller_stops_waiting_has_its_post_closed_and_the_next_goes ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 60.04s
+    error: test failed, to rerun pass `--lib`
+M3c a caller that stops waiting leaves its exchange running [src/mcp/transport.rs] -> mcp::tests::discover::a_request_whose_caller_stops_waiting: KILLED
+    test mcp::tests::discover::a_request_whose_caller_stops_waiting_has_its_post_closed_and_the_next_goes ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 60.05s
     error: test failed, to rerun pass `--lib`
 M3b the probe's wait is not its caller's [src/mcp/transport.rs] -> mcp::tests::discover::an_http_probe_the_server_holds_open: KILLED
     test mcp::tests::discover::an_http_probe_the_server_holds_open_stays_open_beside_the_requests_after_it ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 60.05s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 60.03s
     error: test failed, to rerun pass `--lib`
 M4 an error without an id does not answer the probe [src/mcp/transport.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 11.18s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 31.15s
     error: test failed, to rerun pass `--lib`
 M5 a 2026 stdio server's request is answered [src/mcp/transport.rs] -> mcp::tests::discover::a_2026_stdio_server_is_served: KILLED
     test mcp::tests::discover::a_2026_stdio_server_is_served_in_its_era_with_no_initialize ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.10s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.07s
     error: test failed, to rerun pass `--lib`
 M6 a request with no params carries no _meta [src/mcp/transport.rs] -> mcp::tests::discover::a_stdio_server_is_asked_server_discover_first: KILLED
     test mcp::tests::discover::a_stdio_server_is_asked_server_discover_first_and_every_request_leads_with_its_progress_token ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.09s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.07s
     error: test failed, to rerun pass `--lib`
 M7 each try's ids start again at 1 [src/mcp/runtime.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
     test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 1.13s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 1.09s
     error: test failed, to rerun pass `--lib`
 M8 a 2026 HTTP POST carries no Mcp-Method [src/mcp/transport.rs] -> mcp::tests::discover::a_2026_http_server_is_probed: KILLED
     test mcp::tests::discover::a_2026_http_server_is_probed_with_its_version_headers_and_served_without_a_session ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.07s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.03s
     error: test failed, to rerun pass `--lib`
 M9 a stdio line refused for the probe is read as a version list [src/mcp/runtime.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.57s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.57s
     error: test failed, to rerun pass `--lib`
 M10 a modern server that falls quiet is initialized anyway [src/mcp/era.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 15.41s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 15.37s
     error: test failed, to rerun pass `--lib`
 M11 a 404 with -32601 is a legacy answer [src/mcp/era.rs] -> mcp::tests::discover::a_404_with_method_not_found: KILLED
     test mcp::tests::discover::a_404_with_method_not_found_is_a_2026_server_without_discovery ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.09s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.10s
     error: test failed, to rerun pass `--lib`
 M12 the unsupported-version words lose fx's parenthesis [src/mcp/era.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
     test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 1.26s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 1.11s
     error: test failed, to rerun pass `--lib`
 M13 a version list matches a string that only contains a version [src/mcp/wire.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.19s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.14s
     error: test failed, to rerun pass `--lib`
 M14 an HTTP body that is no JSON-RPC is a broken stream [src/mcp/transport.rs] -> mcp::tests::discover::an_http_body_that_is_no_json_rpc: KILLED
     test mcp::tests::discover::an_http_body_that_is_no_json_rpc_is_a_legacy_answer_at_once ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 30.04s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 30.03s
     error: test failed, to rerun pass `--lib`
 M15 an event stream is read only once it ends (round 1) [src/mcp/transport.rs] -> mcp::tests::discover::a_probe_answered_on_an_event_stream: KILLED
     test mcp::tests::discover::a_probe_answered_on_an_event_stream_is_read_as_its_events_come ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 30.04s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 30.04s
     error: test failed, to rerun pass `--lib`
 M16 an answer without an id does not answer its POST [src/mcp/transport.rs] -> mcp::tests::discover::a_probe_answered_on_an_event_stream: KILLED
     test mcp::tests::discover::a_probe_answered_on_an_event_stream_is_read_as_its_events_come ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 30.17s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 30.12s
     error: test failed, to rerun pass `--lib`
 M17 a string id is never the client's own [src/mcp/wire.rs] -> mcp::transport::tests::a_stream_event_answers_its_post: KILLED
     test mcp::transport::tests::a_stream_event_answers_its_post_without_an_id_or_with_its_id_as_a_string ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.00s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.00s
     error: test failed, to rerun pass `--lib`
 M18 a stream's answer under an error status is refused (as JSON's) [src/mcp/transport.rs] -> mcp::tests::discover::a_probe_answered_on_an_event_stream: KILLED
     test mcp::tests::discover::a_probe_answered_on_an_event_stream_is_read_as_its_events_come ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.47s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.09s
     error: test failed, to rerun pass `--lib`
 M19 a stdio probe given up on is never cancelled (round 1) [src/mcp/transport.rs] -> mcp::tests::discover::a_stdio_probe_given_up_on_is_cancelled: KILLED
     test mcp::tests::discover::a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 60.45s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 60.04s
     error: test failed, to rerun pass `--lib`
 M20 an HTTP probe given up on is closed at once (round 1) [src/mcp/transport.rs] -> mcp::tests::discover::an_http_probe_the_server_holds_open: KILLED
     test mcp::tests::discover::an_http_probe_the_server_holds_open_stays_open_beside_the_requests_after_it ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.46s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.44s
     error: test failed, to rerun pass `--lib`
 M21 an HTTP probe given up on outlives its timeout outside a session [src/mcp/transport.rs] -> mcp::tests::discover::an_abandoned_http_probe_ends_at_its_request_timeout: KILLED
     test mcp::tests::discover::an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 60.12s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.13s
     error: test failed, to rerun pass `--lib`
 M22 a version written with an escape matches [src/mcp/wire.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 4.49s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 3.97s
     error: test failed, to rerun pass `--lib`
 M23 a field named twice is taken [src/mcp/wire.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 3.88s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 3.58s
     error: test failed, to rerun pass `--lib`
 M24 the decoder reads deeper than fx's [src/mcp/wire.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 7.57s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 6.65s
     error: test failed, to rerun pass `--lib`
 M25 the decoder reads less deep than fx's [src/mcp/wire.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
     test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 11.31s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 31.25s
     error: test failed, to rerun pass `--lib`
 M26 a line that names no request fails the probe (banner) [src/mcp/transport.rs] -> mcp::tests::discover::a_2026_server_that_writes_a_banner: KILLED
     test mcp::tests::discover::a_2026_server_that_writes_a_banner_before_its_answer_is_still_read ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.60s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.58s
     error: test failed, to rerun pass `--lib`
 M27 a server's request is answered while detection runs [src/mcp/transport.rs] -> mcp::tests::discover::a_servers_request_is_answered_only_once_initialize: KILLED
     test mcp::tests::discover::a_servers_request_is_answered_only_once_initialize_has_begun_a_2025_session ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.16s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.09s
     error: test failed, to rerun pass `--lib`
 M28 a request is answered before initialize begins a session [src/mcp/runtime.rs] -> mcp::tests::discover::a_servers_request_is_answered_only_once_initialize: KILLED
     test mcp::tests::discover::a_servers_request_is_answered_only_once_initialize_has_begun_a_2025_session ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.19s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.06s
     error: test failed, to rerun pass `--lib`
 M29 no waiting room past 32 in flight [src/mcp/transport.rs] -> mcp::tests::discover::past_32_exchanges_in_flight: KILLED
     test mcp::tests::discover::past_32_exchanges_in_flight_a_message_waits_and_past_32_waiting_it_is_refused ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.06s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.05s
+    error: test failed, to rerun pass `--lib`
+M31 admission unbounded [src/mcp/transport.rs] -> mcp::tests::discover::past_32_exchanges_in_flight: KILLED
+    test mcp::tests::discover::past_32_exchanges_in_flight_a_message_waits_and_past_32_waiting_it_is_refused ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 60.10s
+    error: test failed, to rerun pass `--lib`
+M32 a waiting message whose caller has gone is launched (round 2) [src/mcp/transport.rs] -> mcp::tests::discover::a_waiting_request_whose_caller_has_gone: KILLED
+    test mcp::tests::discover::a_waiting_request_whose_caller_has_gone_never_reaches_the_server ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.12s
     error: test failed, to rerun pass `--lib`
 M30 a refused line's excerpt is cut at 40 bytes [src/mcp/wire.rs] -> mcp::wire::tests::a_refused_reply_fails_with_why: KILLED
     test mcp::wire::tests::a_refused_reply_fails_with_why_and_the_start_of_the_line_as_it_came ... FAILED
-    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.00s
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 0.00s
     error: test failed, to rerun pass `--lib`
