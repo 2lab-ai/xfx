@@ -560,6 +560,185 @@ class Capfile(unittest.TestCase):
         self.assertIn("compact-inturn", names)
         self.assertNotIn("compact-inturn-fx", names)
 
+    def test_no_snap_of_the_repos_scenarios_races_a_timer(self):
+        raced = [line for u in capfile.units(os.path.join(HERE, "scenarios")) for side in ("fx", "xfx") for line in capfile.races(u.reading(side))]
+        self.assertEqual(raced, [], "\n".join(raced))
+
+    YOLO = "fx: env FX_PERMISSION_MODE=yolo\nxfx: env XFX_PERMISSION_MODE=yolo\n"
+
+    def raced(self, cap, files=None):
+        """Each race of a scenario `t` made of `cap`, as (binary, snap line)."""
+        d = scratch()
+        for name, text in dict(files or {}, **{"t.cap": cap}).items():
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+        (unit,) = capfile.units(d)
+        out = []
+        for side in ("fx", "xfx"):
+            for line in capfile.races(unit.reading(side)):
+                self.assertTrue(line.startswith("t (%s): `" % side), line)
+                out.append((side, line.split("`")[1]))
+        return out
+
+    def test_a_snap_inside_the_warnings_window_is_refused(self):
+        YOLO = self.YOLO
+        both = [("fx", "snap start"), ("xfx", "snap start")]
+        for cap, want in (
+            # p5-transcript-records before FLAKE-HINT4: `wait 4`, `snap start`.
+            (YOLO + "env TZ=UTC\nwait 4\nsnap start\n", both),
+            (YOLO + "wait 4\nuntil gone Full access\nsnap start\n", []),
+            (YOLO + "wait 2\nwait 1.5\nsnapfull start\n", [("fx", "snapfull start"), ("xfx", "snapfull start")]),
+            # Before the window and after it.
+            (YOLO + "wait 2.9\nsnap start\n", []),
+            (YOLO + "wait 7\nsnap start\n", []),
+            # Another row's `until` waits as long as it takes; so does `held`.
+            (YOLO + "wait 4\nuntil gone Something else\nsnap start\n", both),
+            (YOLO + "wait 2\nheld\nwait 0.5\nsnap start\n", both),
+            (YOLO + "wait 7\nheld\nsnap start\n", []),
+            # `until shown`: up now, and up no longer than the waits before it.
+            (YOLO + "until shown Full access\nsnap start\n", []),
+            (YOLO + "wait 1\nuntil shown Full access\nwait 4\nsnap start\n", both),
+            (YOLO + "wait 3.5\nuntil shown Full access\nsnap start\n", both),
+            # `wire` and `bells` sleep 0.3 s each.
+            (YOLO + "wait 2.5\nwire w\nbells b\nsnap start\n", both),
+            # A relaunch arms it again; `until gone` before it does not carry over.
+            (YOLO + "wait 1\nuntil gone Full access\nrelaunch\nwait 4\nsnap start\n", both),
+            # Each binary's own environment, and fx's other spelling.
+            ("fx: env FX_PERMISSION_MODE=full-access\nwait 4\nsnap start\n", [("fx", "snap start")]),
+            ("xfx: env XFX_PERMISSION_MODE=yolo\nfx: until gone Full access\nwait 4\nsnap start\n", [("xfx", "snap start")]),
+            ("wait 4\nsnap start\n", []),
+        ):
+            with self.subTest(cap=cap):
+                self.assertEqual(self.raced(cap), want)
+
+    def test_a_line_that_takes_the_warnings_row_inside_its_window_is_refused(self):
+        # interrupt-next-cmd before FLAKE-HINT4: a Ctrl-C 4.5 s after launch.
+        cc = self.YOLO + "wait 2\ntype run cmd\nkey Enter\nwait 2.5\n%skey C-c\nwait 7\ntype next\n"
+        self.assertEqual(self.raced(cc % ""), [("fx", "key C-c"), ("xfx", "key C-c")])
+        self.assertEqual(self.raced(cc % "until gone Full access\n"), [])
+        for line, want in (("type /model", True), ("key Escape", True), ("key -N 2 Escape", True),
+                           ("type hello", False), ("key Enter", False), ("key C-o", True), ("key -H 1b 5b 49", False)):
+            with self.subTest(line=line):
+                got = self.raced(self.YOLO + "wait 4\n%s\nwait 9\nsnap a\n" % line)
+                self.assertEqual(got, [("fx", line), ("xfx", line)] if want else [])
+        self.assertEqual(self.raced(self.YOLO + "wait 7\ntype /model\n"), [])
+
+    def test_a_line_that_takes_the_warnings_row_before_its_window_stops_its_clock(self):
+        # A menu opened while the warning is up, and closed: how long it held
+        # the row is not in the .cap, so neither is when the warning goes.
+        menu = self.YOLO + "wait 1\ntype /model\nkey Enter\nwait 0.5\nkey Escape\nwait %s\n%ssnap a\n"
+        both = [("fx", "snap a"), ("xfx", "snap a")]
+        for wait, until, want in (("12", "", both), ("30", "", both),
+                                  # Gone after a pause is hidden, not spent: only an
+                                  # `until shown` first makes the going count.
+                                  ("12", "until gone Full access\n", both),
+                                  ("12", "until shown Full access\nuntil gone Full access\n", []),
+                                  ("0.1", "until shown Full access\n", [])):
+            with self.subTest(wait=wait, until=until):
+                self.assertEqual(self.raced(menu % (wait, until)), want)
+        # The same keys once the warning has gone stop nothing.
+        self.assertEqual(self.raced(self.YOLO + "wait 8\ntype /model\nkey Enter\nwait 0.5\nkey Escape\nwait 1\nsnap a\n"), [])
+
+    def test_a_ctrl_c_arms_the_exit_hint_and_any_other_keystroke_takes_it_down(self):
+        both = [("fx", "snap a"), ("xfx", "snap a")]
+        gone = "until gone press ctrl+c again to exit\n"
+        for cap, want in (
+            # interrupt's cc-3.5 before FLAKE-HINT4.
+            ("wait 2\nkey C-c\nwait 0.3\nsnap cc\nwait 3.2\nsnap a\n", both),
+            ("wait 2\nkey C-c\nwait 0.3\nsnap cc\nwait 3.2\n" + gone + "snap a\n", []),
+            ("key C-c\nuntil shown press ctrl+c again to exit\nwait 0.3\nsnap a\n", []),
+            ("key C-c\nwait 1\ntype x\nwait 2\nsnap a\n", []),
+            ("key C-c\nwait 1\nkey Escape\nwait 2\nsnap a\n", []),
+            # A paste and a terminal report are not keystrokes: both binaries
+            # keep the hint over them (xfx shell.rs `consume`; fx over a paste).
+            ("key C-c\nwait 1\npastex 3\nwait 2\nsnap a\n", both),
+            ("key C-c\nwait 1\npaste x\nwait 2\nsnap a\n", both),
+            ("key C-c\nwait 1\nkey -H 1b 5b 3f 39 39 37 3b 32 6e\nwait 2\nsnap a\n", both),
+            ("key C-c\nwait 2\nkey C-c\nwait 1\nsnap a\n", []),
+            ("keep\nkey C-c\nrelaunch\nwait 3\nsnap a\n", []),
+            # A Shift-Tab is not counted; the `until shown` that means it is.
+            ("key BTab\nwait 4.5\nsnap a\n", []),
+            ("key BTab\nuntil shown Full access\nwait 4.5\nsnap a\n", both),
+            ("key BTab\nuntil shown Full access\nwait 0.5\nsnap a\nwait 4.5\nuntil gone Full access\nsnap b\n", []),
+        ):
+            with self.subTest(cap=cap):
+                self.assertEqual(self.raced(cap), want)
+
+    def test_a_profile_in_full_access_arms_it_too(self):
+        yolo = {"s.json": '{"permission_mode": "yolo"}\n'}
+        for line in ("seed s.json", "homefile .xfx/settings.json s.json"):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(line + "\nwait 4\nsnap start\n", yolo),
+                                 [("fx", "snap start"), ("xfx", "snap start")])
+        self.assertEqual(self.raced("seed s.json\nwait 4\nsnap start\n", {"s.json": '{"permission_mode":"ask"}\n'}), [])
+        # A profile written between an exit and a relaunch arms it at the relaunch.
+        for line in ("reseed s.json", "rehomefile .xfx/settings.json s.json"):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced("keep\nwait 9\n" + line + "\nrelaunch\nwait 4\nsnap again\n", yolo),
+                                 [("fx", "snap again"), ("xfx", "snap again")])
+
+    def test_an_until_or_absent_counts_only_with_the_timers_exact_text(self):
+        # FLAKE-HINT4 r2 (gpt6 MUST 1): `until gone Full access never-rendered`
+        # is true while the warning is up.
+        both = [("fx", "snap start"), ("xfx", "snap start")]
+        for line, want in (
+            ("until gone Full access", []),
+            ("until gone Full access never-rendered", both),
+            ("until gone Full access enabled", both),
+            ("until gone Full", both),
+            ("absent Full access", []),
+            ("absent Full access never-rendered", both),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(self.YOLO + "wait 3.5\n%s\nsnap start\n" % line), want)
+        hint = "key C-c\nwait 1.5\n%s\nwait 1\nsnap a\n"
+        for line, want in (("absent press ctrl+c again to exit", []), ("absent press ctrl+c", True),
+                           ("until gone press ctrl+c again to exit, please", True)):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(hint % line), [("fx", "snap a"), ("xfx", "snap a")] if want else [])
+        # `until shown` with a longer text sees the row, but says no more of it
+        # than any other row's `until`: it waits as long as it takes.
+        self.assertEqual(self.raced(self.YOLO + "until shown Full access enabled\nsnap start\n"), both)
+
+    def test_absent_says_a_ctrl_c_armed_nothing(self):
+        # approvals' after-cc-cmd-ask (gpt6 MUST 2): a Ctrl-C a question
+        # answers arms no hint. The snap stays at 2.5 s; `absent` halfway
+        # fails the run if the hint is up, and the check takes its word.
+        both = [("fx", "snap after"), ("xfx", "snap after")]
+        self.assertEqual(self.raced("key C-c\nwait 2.5\nsnap after\n"), both)
+        self.assertEqual(self.raced("key C-c\nwait 1.25\nabsent press ctrl+c again to exit\nwait 1.25\nsnap after\n"), [])
+        # Too soon to say anything: the hint may not be drawn yet.
+        self.assertEqual(self.raced("key C-c\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), both)
+        self.assertEqual(self.raced("key C-c\nwait 0.5\nabsent press ctrl+c again to exit\nwait 2\nsnap after\n"), both)
+        self.assertEqual(self.raced(self.YOLO + "wait 2\nabsent Full access\nwait 2\nsnap a\n"), [("fx", "snap a"), ("xfx", "snap a")])
+        self.assertEqual(self.raced(self.YOLO + "wait 3\nabsent Full access\nwait 1\nsnap a\n"), [])
+        # Not while the row is paused: a hidden warning is not a spent one.
+        menu = self.YOLO + "wait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
+        self.assertEqual(self.raced(menu), [("fx", "snap a"), ("xfx", "snap a")])
+
+    def test_an_until_shown_nothing_counted_armed_reaches_back_to_the_last_input(self):
+        # opus SHOULD: a Shift-Tab is not counted, but it is input, and the
+        # warning it armed has been up no longer than the time since it.
+        both = [("fx", "snap a"), ("xfx", "snap a")]
+        self.assertEqual(self.raced("key BTab\nwait 3.5\nuntil shown Full access\nsnap a\n"), both)
+        self.assertEqual(self.raced("key BTab\nuntil shown Full access\nwait 0.5\nsnap a\n"), [])
+        self.assertEqual(self.raced("key BTab\nwait 1\nheld\nuntil shown Full access\nsnap a\n"), both)
+
+    def test_an_until_on_another_row_and_a_signal_take_as_long_as_they_take(self):
+        # Each is the only reason these race: two seconds of waits alone do not.
+        both = [("fx", "snap a"), ("xfx", "snap a")]
+        self.assertEqual(self.raced(self.YOLO + "wait 1\nwait 1\nsnap a\n"), [])
+        for line in ("until shown Something else", "until gone Something else", "signal SIGCONT", "held"):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(self.YOLO + "wait 1\n%s\nwait 1\nsnap a\n" % line), both)
+
+    def test_each_timer_cites_both_binaries_sources(self):
+        for timer in capfile.TIMERS:
+            path, line = timer.xfx.rsplit(":", 1)
+            with open(os.path.join(REPO, path), encoding="utf-8") as f:
+                self.assertIn("%g" % (timer.seconds * 1000), f.read().split("\n")[int(line) - 1], timer.xfx)
+            self.assertRegex(timer.fx, r"^src/\S+\.zig:\d+@481104fd$")
+
 
 HELP = """<banner>
 
@@ -605,6 +784,62 @@ case $scenario in
     printf '%s says\n' "$which" > "$out/$which-$scenario-$size-b.ansi" ;;
 esac
 """
+
+
+class McpPort(unittest.TestCase):
+    """sweep.run_rules: the port capture.sh wrote for a run's own HTTP MCP
+    server, and only that port, is the same on both sides."""
+
+    def setUp(self):
+        import sweep
+
+        self.run_rules = sweep.run_rules
+        self.out = scratch()
+        cap = os.path.join(self.out, "p5-mcp-x.cap")
+        with open(cap, "w") as f:
+            f.write("snap show\n")
+        self.unit = capfile.Unit("p5-mcp-x", cap, cap)
+        self.led = ledgermod.load(LEDGER)
+
+    def port(self, side, port):
+        runs = os.path.join(self.out, "runs", "p5-mcp-x", side)
+        os.makedirs(runs, exist_ok=True)
+        with open(os.path.join(runs, "%s-p5-mcp-x-40x120-mcphttp.port" % side), "w") as f:
+            f.write("%s\n" % port)
+
+    def diff(self, fx_text, xfx_text):
+        rules = {side: ledgermod.rules_for(self.led, side) for side in ("fx", "xfx")}
+        a = cells.normalize(cells.parse(fx_text), self.run_rules(self.out, self.unit, "fx", "40x120", rules["fx"]))
+        b = cells.normalize(cells.parse(xfx_text), self.run_rules(self.out, self.unit, "xfx", "40x120", rules["xfx"]))
+        return cells.differing(a, b)
+
+    def test_each_runs_own_port_is_the_same(self):
+        self.port("fx", 51234)
+        self.port("xfx", 60001)
+        self.assertEqual(self.diff("  url http://127.0.0.1:51234/mcp\n", "  url http://127.0.0.1:60001/mcp\n"), [])
+
+    def test_a_fixed_port_another_runs_port_and_the_digits_elsewhere_are_compared(self):
+        self.port("fx", 51234)
+        self.port("xfx", 60001)
+        for fx_text, xfx_text in (
+            # A fixed port in a profile, different on the two sides.
+            ("url http://127.0.0.1:45678/mcp\n", "url http://127.0.0.1:45679/mcp\n"),
+            # The other side's port is not this side's.
+            ("url http://127.0.0.1:60001/mcp\n", "url http://127.0.0.1:51234/mcp\n"),
+            # The run's digits, but longer, on another host, or not a port.
+            ("url http://127.0.0.1:512345/mcp\n", "url http://127.0.0.1:600011/mcp\n"),
+            ("url http://127.0.0.2:51234/mcp\n", "url http://127.0.0.2:60001/mcp\n"),
+            ("pid 51234\n", "pid 60001\n"),
+        ):
+            self.assertEqual(len(self.diff(fx_text, xfx_text)), 1, (fx_text, xfx_text))
+
+    def test_with_no_port_written_nothing_is_rewritten(self):
+        self.assertEqual(len(self.diff("url http://127.0.0.1:51234/mcp\n", "url http://127.0.0.1:60001/mcp\n")), 1)
+        rules = ledgermod.rules_for(self.led, "fx")
+        self.assertIs(self.run_rules(self.out, self.unit, "fx", "40x120", rules), rules)
+
+    def test_the_ledger_has_no_port_rule_of_its_own(self):
+        self.assertNotIn("mcphttp-port", [n["id"] for n in self.led["normalizations"]])
 
 
 class Sweep(unittest.TestCase):
@@ -753,6 +988,18 @@ class Sweep(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.board(out)["totals"]["total"], 2)
         self.assertIn("**PARTIAL**: `--only o*`", slurp(os.path.join(out, "summary.md")))
+
+    def test_a_snap_that_races_a_timer_runs_nothing(self):
+        with open(os.path.join(self.scen, "racy.cap"), "w") as f:
+            f.write("xfx: env XFX_PERMISSION_MODE=yolo\nwait 4\nsnap start\n")
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "o*")
+        self.assertEqual(r.returncode, 0, "a scenario --only leaves out is not refused: " + r.stderr)
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, out=os.path.join(self.d, "out2"))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("a snap or keystroke inside a timer's window, timed by a second count", r.stderr)
+        self.assertIn("racy (xfx): `snap start` is 4.0 to 4.0 s after the full-access warning is armed", r.stderr)
+        self.assertNotIn("racy (fx)", r.stderr)
+        self.assertFalse(os.path.exists(out), "nothing was captured")
 
     def test_the_out_directory_is_outside_the_repository(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, out=os.path.join(REPO, "target", "sweep-out"))

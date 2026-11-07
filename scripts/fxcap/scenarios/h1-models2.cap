@@ -1,9 +1,14 @@
 # H1 `models2`: a model released while the binary runs. The catalog has one
-# model until 9 s after the gateway started and two after; `/model` is opened
-# before and after, and the gateway log says which ask got which catalog, and
-# when.
+# model until the `models2` line, after the first `/model` is closed, and two
+# from there on; `/model` is opened before and after, and the gateway log says
+# which ask got which catalog, and when. Until FLAKE-HINT4 r2 the switch was
+# fixed at 9 s after the gateway started. By that clock the launch's ask came
+# at 0.8 to 4.4 s on most runs on record, but at 9.9 s (xfx) and 14.3 s (fx)
+# on a loaded one, which the fixed switch would have answered with the second
+# catalog before the first `/model`. fx asks again at the second `/model`,
+# xfx at launch only, and no binary asks between the two, so this line gives
+# each ask what the unloaded runs gave it.
 models h1-models-one.json
-models2 h1-models-two.json 9000
 wait 4
 type /model
 key Enter
@@ -11,6 +16,7 @@ wait 2
 snap before
 key Escape
 wait 6
+models2 h1-models-two.json
 type /model
 key Enter
 wait 3

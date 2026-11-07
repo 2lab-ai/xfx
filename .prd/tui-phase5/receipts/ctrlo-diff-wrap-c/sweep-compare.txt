@@ -1,0 +1,6 @@
+pairs: base 107, head 107
+pass: base 44 / 107, head 45 / 107
+verdicts that moved: 2
+  p5-transcript-diffwrap2/full: unresolved-defect -> normalized-identical
+  p5-transcript-submit/submit-0.15: normalized-identical -> identical
+dropped: 0

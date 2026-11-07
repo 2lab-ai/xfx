@@ -547,13 +547,10 @@ mod tests {
 
     use crate::interactive::Slash;
 
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
 
     /// The palette every row below is painted in: an undecided terminal's.
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     /// Upstream's `selected_completion_style` (`core/shared/theme.zig:97`):
     /// the title, the active tab and the marked row.

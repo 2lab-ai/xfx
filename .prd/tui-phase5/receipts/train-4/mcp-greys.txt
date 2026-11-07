@@ -1,0 +1,26 @@
+# at 3bd15c89: the MCP surfaces, the builtin greys they are drawn in, and where COLORTERM is read
+
+$ git grep -n COLORTERM -- src   (comment lines left out)
+src/tui/mod.rs:459:    let colorterm = std::env::var(theme::COLORTERM).ok();
+src/tui/theme.rs:51:pub(crate) const COLORTERM: &str = "COLORTERM";
+# mod.rs:459 is read once, for theme::ultra_marker at mod.rs:486-489; the palette (mod.rs:461-467) is a mode alone
+    shell.set_ultra_marker(theme::ultra_marker(
+        colorterm.as_deref(),
+        term_program.as_deref(),
+
+# palette accessor calls in the /mcp menu and its argument rows
+src/tui/mcp_args.rs:5
+src/tui/mcp_menu.rs:36
+
+# the server screen's protocol row: its label in palette.dim()
+1694:fn fact_row(label: &str, value: &str, width: usize, style: &str, palette: Palette) -> String {
+1695-    let mut out = String::from(palette.dim());
+1696-    if width > 4 {
+1213:                    "protocol",
+
+# /mcp show's version row: plain text in a neutral notice, painted in the notice grey
+927:        out.push_str(&format!("  version    {}\n", safe(version)));
+70:            Tone::Neutral => palette.notice(),
+
+# 38;2 / 48;2 in src/tui with each file's test module cut off (`#[cfg(test)]` and after):
+src/tui/theme.rs:817: pub(crate) const ULTRA_TRUECOLOR: &str = "\u{1b}[38;2;255;204;0m";

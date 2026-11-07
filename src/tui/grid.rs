@@ -27,19 +27,32 @@
 //!
 //! What the diff emits is `CUP`, replacement text with its attributes and its
 //! OSC 8 links (`super::hyperlink`, closed at the end of every row), and `EL`.
-//! **No `ECH`**: it
-//! is not in the subset `scripts/smoke-tui.sh`'s oracle models, and an erase to
-//! the end of a row says the same thing about a row that got shorter without
-//! adding a sequence the emulator -- and therefore the acceptance suite --
-//! would have to be widened for.
+//! An erase to the end of a row is what says a row got shorter. Around one
+//! display unit it emits three more, upstream's (`src/core/terminal/
+//! engine.zig:2548-2589@481104fd`), and so does every row a frame writes whole
+//! ([`write_row_text`]): `ECH` over the two cells of a unit whose suffix holds a
+//! variation selector, `CHA` to the column after such a unit, and `?7h`/`?7l`
+//! around a wide unit with a suffix at the right margin ([`put_unit`]).
+//! `super::check` and `scripts/smoke-tui.sh`'s oracle model all three.
+
+use std::borrow::Cow;
+use std::io::Write as _;
 
 use super::frame::cup;
 use super::layout::Geometry;
 use super::pacer::SgrState;
-use super::theme::{DocumentRow, Palette};
+use super::theme::{DocumentRow, Palette, Redraw};
 
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\u{1b}[K";
+
+/// `ECH 2`: blank the two cells from the cursor, and leave it where it is.
+const CLEAR_TWO: &str = "\u{1b}[2X";
+
+/// Autowrap on, and off again: `super::term::MODE_SET` turns it off for the
+/// whole session, so these two only ever bracket one unit ([`put_unit`]).
+const AUTOWRAP_ON: &str = "\u{1b}[?7h";
+const AUTOWRAP_OFF: &str = "\u{1b}[?7l";
 
 /// Every attribute off.
 ///
@@ -186,6 +199,227 @@ pub(crate) fn tokenize_row(
     }
 }
 
+/// Writes one display unit at zero-based `column`, `width` cells wide, on a
+/// screen `cols` wide: `grapheme` is the grid cell's, what the rule below is
+/// decided on, and `write` puts its bytes on the wire (they can be split by a
+/// sequence: [`write_cell`], [`write_row_text`]); `more` is whether anything
+/// else is written on the row after it, a cell or an erase.
+///
+/// Upstream's frame writer, cell by cell (`src/core/terminal/engine.zig:
+/// 2548-2589@481104fd`), and the **one** spelling of it: [`Grid::diff_from`]
+/// writes each cell through this and [`write_row_text`] each unit of a row
+/// written whole, so a full paint and a partial one cannot disagree.
+///
+/// * **A suffix that holds U+FE0E or U+FE0F** (`hasVariationSelector`,
+///   `:3367-3369`) makes the unit's width one terminals dispute: Ghostty draws
+///   U+26A1 U+FE0E in one cell and tmux in two (`95e6c8fd`). Such a unit two
+///   cells wide has both cleared first (`ECH 2`), so a terminal that draws it
+///   one cell narrow leaves no stale second cell; and when anything follows it
+///   on the row the cursor is put on the column after it (`CHA`, one-based),
+///   so what follows lands where this grid holds it however wide the terminal
+///   drew the unit. An `EL` counts as following, which upstream's diff never
+///   writes: an erase sent from a caret the terminal advanced by its own width
+///   starts a cell early or late, and late leaves a stale cell -- the defect
+///   the anchor is for.
+/// * **A wide unit with any suffix that ends at the right margin** is written
+///   with autowrap on, and autowrap is turned off again after it
+///   (`guard_margin_suffix`): with it off, a terminal can drop the suffix of a
+///   unit whose base fills the last column. Upstream asks whether autowrap is
+///   off; it is off for the whole of a session here (`super::term::MODE_SET`),
+///   on every frame this writes. Nothing follows such a unit, so it is never
+///   anchored.
+///
+/// Upstream's order: the autowrap on, the clear, the unit, the autowrap off,
+/// the anchor. Its colour and its link are already on (the caller's), so the
+/// clear blanks the cells in the unit's own background.
+fn put_unit(
+    out: &mut Vec<u8>,
+    grapheme: &str,
+    column: usize,
+    width: usize,
+    cols: usize,
+    more: bool,
+    write: impl FnOnce(&mut Vec<u8>),
+) {
+    let mut scalars = grapheme.chars();
+    scalars.next();
+    let suffix = scalars.as_str();
+    let disputed = suffix.contains(['\u{fe0e}', '\u{fe0f}']);
+    let guarded = !suffix.is_empty() && width == 2 && column + width == cols;
+    if guarded {
+        out.extend_from_slice(AUTOWRAP_ON.as_bytes());
+    }
+    if disputed && width == 2 {
+        out.extend_from_slice(CLEAR_TWO.as_bytes());
+    }
+    write(out);
+    if guarded {
+        out.extend_from_slice(AUTOWRAP_OFF.as_bytes());
+    }
+    let after = column + width;
+    if disputed && more && after < cols {
+        // Writing into a `Vec` cannot fail.
+        let _ = write!(out, "\u{1b}[{}G", after + 1);
+    }
+}
+
+/// Writes a grid cell's grapheme, `width` cells wide, so a terminal reads it
+/// back as that one cell; `pen` is the attributes open as it is written (the
+/// cell's own, [`reopen`]).
+///
+/// **Together when it reads back so**, which is nearly always. The one cell it
+/// does not is a one-cell glyph that [`Grid::place_row`] joined a cluster to
+/// across a sequence -- `☀` (one cell), a colour, U+FE0F: the grid keeps the
+/// glyph's one cell, and the pair written together is one cluster two cells
+/// wide (`super::wrap::width`), which a terminal draws, and `super::check`
+/// reads, as two. So that cell is written split as its row was: the longest
+/// part of it that is still its width, the pen again (a reset with nothing
+/// on, the attributes otherwise -- a sequence that changes nothing), and the
+/// rest, which a terminal joins to the cell in front of it as the grid did.
+fn write_cell(out: &mut Vec<u8>, grapheme: &str, width: usize, pen: &str) {
+    if usize::from(super::wrap::width(grapheme)) == width {
+        out.extend_from_slice(grapheme.as_bytes());
+        return;
+    }
+    let split = grapheme
+        .char_indices()
+        .map(|(at, _)| at)
+        .skip(1)
+        .filter(|&at| usize::from(super::wrap::width(&grapheme[..at])) == width)
+        .last();
+    let Some(at) = split else {
+        out.extend_from_slice(grapheme.as_bytes());
+        return;
+    };
+    out.extend_from_slice(&grapheme.as_bytes()[..at]);
+    out.extend_from_slice(if pen.is_empty() { RESET } else { pen }.as_bytes());
+    out.extend_from_slice(&grapheme.as_bytes()[at..]);
+}
+
+/// One thing [`write_row_text`] finds in a row, in the order the row has it.
+enum Piece<'a> {
+    /// A sequence the row keeps (a colour, a link), or a cluster that takes no
+    /// cell: written where it stands.
+    Raw(&'a str),
+    /// A cluster that takes cells, as the row has it. `grapheme` is the cell
+    /// [`Grid::place_row`] makes of it -- with the clusters that take no cell
+    /// it joins to it, which it does only for a one-cell unit -- and `end` the
+    /// index of the last piece it joined, so the unit's bytes are this piece
+    /// through that one, the sequences between them included.
+    Unit {
+        cluster: &'a str,
+        grapheme: Cow<'a, str>,
+        column: usize,
+        width: usize,
+        end: usize,
+    },
+}
+
+/// Writes `text` from the first column, as [`Grid::diff_from`] writes cells,
+/// with nothing written after it on the row: `text` is a row
+/// [`super::frame::row_text`] has made safe and cut to `cols`, the screen's
+/// width.
+///
+/// What a frame's rows written whole owe the terminal around a unit, the same
+/// as the diff's ([`put_unit`]): the alternate plane's paint and the band's
+/// whole repaints write a row's text where the diff writes its cells, and a
+/// row written whole that went on past a glyph with a variation selector would
+/// put what follows it where the terminal's own advance does rather than where
+/// the grid holds it -- `p5-transcript-diffwide2`'s read row on the full
+/// transcript, `x` three cells left of where upstream's `ESC[42G` puts it
+/// (`.prd/tui-phase5/receipts/engine-vs-anchor`). A document row is not a
+/// frame's and is written as it stands (`super::frame`'s `place`).
+///
+/// **The row's bytes are written in the row's order**, and only the clear, the
+/// anchor and the bracket are added around a unit. The rule is decided on the
+/// cell [`tokenize_row`] and [`Grid::place_row`] make of the unit: a cluster
+/// that takes no cell, after a sequence, is that cell's when the unit is one
+/// cell wide (`☀`, a colour, U+FE0F is a selector glyph, anchored after the
+/// selector) and no cell's when it is two (`한`, a colour, U+0301: the grid
+/// keeps `한`). Moving such a cluster ahead of its sequence would make the
+/// two one cluster on the wire, which `super::check` reads as one -- `한́`,
+/// or `☀️` two cells wide -- where the grid holds another, and refuses
+/// (review round 1). A row of ASCII alone has no unit with a suffix, and is
+/// written as it stands.
+pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16) {
+    if text.is_ascii() {
+        out.extend_from_slice(text.as_bytes());
+        return;
+    }
+    let mut pieces: Vec<Piece<'_>> = Vec::new();
+    let mut last_unit = None;
+    let mut column = 0usize;
+    let mut rest = text;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            pieces.push(Piece::Raw(&rest[..len]));
+            rest = &rest[len..];
+            continue;
+        }
+        let Some(cluster) = super::wrap::first_cluster(rest) else {
+            break;
+        };
+        rest = &rest[cluster.len()..];
+        let width = usize::from(super::wrap::width(cluster));
+        if width == 0 {
+            let at = pieces.len();
+            pieces.push(Piece::Raw(cluster));
+            // `place_row` joins it to the cell in front of the next free
+            // column: the unit's own when it is one cell wide, its
+            // continuation -- which takes nothing -- when it is two.
+            if let Some(Piece::Unit {
+                grapheme,
+                width: 1,
+                end,
+                ..
+            }) = last_unit.and_then(|unit| pieces.get_mut(unit))
+            {
+                grapheme.to_mut().push_str(cluster);
+                *end = at;
+            }
+            continue;
+        }
+        last_unit = Some(pieces.len());
+        pieces.push(Piece::Unit {
+            cluster,
+            grapheme: Cow::Borrowed(cluster),
+            column,
+            width,
+            end: pieces.len(),
+        });
+        column += width;
+    }
+    let cols = usize::from(cols);
+    let mut at = 0usize;
+    while let Some(piece) = pieces.get(at) {
+        match piece {
+            Piece::Raw(bytes) => {
+                out.extend_from_slice(bytes.as_bytes());
+                at += 1;
+            }
+            Piece::Unit {
+                grapheme,
+                column,
+                width,
+                end,
+                ..
+            } => {
+                let more = last_unit.is_some_and(|last| at < last);
+                // The unit's own cluster and what it joined, as the row has
+                // them: nothing in between takes a cell.
+                let span = &pieces[at..=*end];
+                put_unit(out, grapheme, *column, *width, cols, more, |out| {
+                    for piece in span {
+                        let (Piece::Raw(bytes) | Piece::Unit { cluster: bytes, .. }) = piece;
+                        out.extend_from_slice(bytes.as_bytes());
+                    }
+                });
+                at = end + 1;
+            }
+        }
+    }
+}
+
 /// What a terminal is holding, or is about to be holding.
 #[derive(Debug, Clone)]
 pub(crate) struct Grid {
@@ -196,10 +430,20 @@ pub(crate) struct Grid {
     /// an index range.
     cells: Vec<Cell>,
     /// What each row is, `rows` long, as its writer recorded it
-    /// ([`Grid::set_kind`]): what a theme report repaints a row's cells as
-    /// ([`Grid::retint_document`]). Moved with the cells by every scroll, and
-    /// plain again wherever a row is erased.
-    kinds: Vec<DocumentRow>,
+    /// ([`Grid::record`]): what a theme report repaints a row's cells as, or
+    /// draws it again from ([`Grid::retint_document`]). Moved with the cells by
+    /// every scroll, and plain again wherever a row is erased.
+    records: Vec<Record>,
+}
+
+/// What a row's writer said about it: what it is, and how it draws it in each
+/// mode when it can be drawn again ([`Redraw`]). One record per row rather
+/// than a vector of each, so nothing that moves a row can move one half of
+/// what is known about it.
+#[derive(Debug, Clone, Default)]
+struct Record {
+    kind: DocumentRow,
+    redraw: Option<Redraw>,
 }
 
 /// What a tool group's header row opens with (`super::toolgroup`'s header,
@@ -213,7 +457,7 @@ impl Grid {
             rows,
             cols,
             cells: vec![Cell::Empty; usize::from(rows) * usize::from(cols)],
-            kinds: vec![DocumentRow::Plain; usize::from(rows)],
+            records: vec![Record::default(); usize::from(rows)],
         }
     }
 
@@ -229,8 +473,8 @@ impl Grid {
         self.cells.clear();
         self.cells
             .resize(usize::from(rows) * usize::from(cols), Cell::Empty);
-        self.kinds.clear();
-        self.kinds.resize(usize::from(rows), DocumentRow::Plain);
+        self.records.clear();
+        self.records.resize(usize::from(rows), Record::default());
     }
 
     pub(crate) fn rows(&self) -> u16 {
@@ -278,23 +522,37 @@ impl Grid {
     }
 
     /// Records what row `line` is, as its writer says
-    /// (`super::transcript::Append::kinds`). A row with no such line is
-    /// nothing to record.
+    /// (`super::transcript::Append::kinds`), with nothing to draw it again
+    /// from. A row with no such line is nothing to record.
     pub(crate) fn set_kind(&mut self, line: u16, kind: DocumentRow) {
+        self.record(line, kind, None);
+    }
+
+    /// Records what row `line` is and, when its writer can draw it again, how
+    /// it draws it in each mode (`super::transcript::Append::redraws`): the
+    /// whole of what is known about the row, replacing what was.
+    pub(crate) fn record(&mut self, line: u16, kind: DocumentRow, redraw: Option<Redraw>) {
         if let Some(slot) = line
             .checked_sub(1)
-            .and_then(|index| self.kinds.get_mut(usize::from(index)))
+            .and_then(|index| self.records.get_mut(usize::from(index)))
         {
-            *slot = kind;
+            *slot = Record { kind, redraw };
         }
     }
 
     /// What row `line` was recorded as, and plain for a row with no record.
     pub(crate) fn kind(&self, line: u16) -> DocumentRow {
         line.checked_sub(1)
-            .and_then(|index| self.kinds.get(usize::from(index)))
-            .copied()
+            .and_then(|index| self.records.get(usize::from(index)))
+            .map(|record| record.kind)
             .unwrap_or_default()
+    }
+
+    /// How row `line`'s writer draws it in each mode, when it recorded that.
+    pub(crate) fn redraw(&self, line: u16) -> Option<&Redraw> {
+        line.checked_sub(1)
+            .and_then(|index| self.records.get(usize::from(index)))
+            .and_then(|record| record.redraw.as_ref())
     }
 
     /// Puts `row`'s text on row `line`, and blanks the rest of it.
@@ -384,35 +642,61 @@ impl Grid {
     /// land ([`super::frame::Band`]), which is the same discipline every other
     /// target grid is under.
     ///
+    /// A row is repainted one of two ways, by what its writer recorded:
+    ///
+    /// * **Drawn again**, when the writer recorded how it draws the row in
+    ///   each mode ([`Redraw`] -- a tool group's rows, which upstream projects
+    ///   again in the new theme rather than recolouring,
+    ///   `tool_group_projection.zig:558-640@481104fd`). Each cell takes the
+    ///   attributes the drawing in `palette`'s mode gives it, whole -- a
+    ///   fresh paint of the drawing, which for a tool row is its foreground
+    ///   alone -- and only when the drawing is the text the row holds, cell
+    ///   for cell ([`Self::redraw_row`]); a row that is not is left as it is.
+    /// * **Recoloured**, every other row: a cell's colour is asked of the
+    ///   palette within the kind of row it was recorded as.
+    ///
     /// Three things make it narrow enough to be safe on rows nobody repaints:
     ///
-    /// * **Only a [`Cell::Lead`] this crate's palette recognises.** The colour
-    ///   is asked of the cell, within the kind of row it was recorded on when
-    ///   it was written -- a tool group's rows and an answered question's
-    ///   answer share one dark grey with a turn's summary and part ways on a
-    ///   light screen ([`DocumentRow`]) -- and
-    ///   [`Palette::document_retint_in`] answers `None` for every one it did
-    ///   not paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
+    /// * **Only a [`Cell::Lead`] this crate drew.** Recoloured, the colour is
+    ///   asked of the cell, within the kind of row it was recorded on when
+    ///   it was written -- an answered question's answer shares one dark grey
+    ///   with a turn's summary and they part ways on a light screen
+    ///   ([`DocumentRow`]) -- and [`Palette::document_retint_in`] answers
+    ///   `None` for every one it did not paint; drawn again, only a row whose
+    ///   writer recorded the drawing, and only while the row still holds its
+    ///   text. So an [`Cell::Empty`] cell, a continuation, the user's own
     ///   echo and whatever the terminal was holding before xfx ran are all
     ///   left exactly as they are. Nothing here can *create* a cell, which is
     ///   what stops a repaint reconstructing history.
-    /// * **Only the foreground slot.** [`SgrState::observe`] replaces the one
-    ///   slot the sequence names and leaves the rest of them, in the order
-    ///   they were opened, so a bold or underlined answer row stays bold and
-    ///   underlined.
+    /// * **Only the attributes.** Recoloured, [`SgrState::observe`] replaces
+    ///   the one slot the sequence names and leaves the rest of them, in the
+    ///   order they were opened, so a bold or underlined answer row stays bold
+    ///   and underlined; drawn again, the cell's attributes are the drawing's.
     /// * **Nothing else about the cell.** The grapheme, its width and the
     ///   continuation behind it are untouched, so the count this returns is a
-    ///   count of colours and the row is the same shape it was.
+    ///   count of attribute changes and the row is the same shape it was.
     ///
     /// A cell whose attribute slot cannot be read is skipped rather than
     /// guessed at: it is one the checker would refuse the whole vector for
     /// (`super::check::CellState::of`), and one this crate did not write.
-    pub(crate) fn retint_document(&mut self, last: u16, palette: &Palette) -> usize {
+    pub(crate) fn retint_document(
+        &mut self,
+        last: u16,
+        palette: &Palette,
+        geometry: &Geometry,
+    ) -> usize {
         let mut moved = 0usize;
+        let mut scratch: Option<Grid> = None;
         for line in 1..=last {
             let Some(span) = self.span(line) else {
                 continue;
             };
+            if let Some(redraw) = self.redraw(line).cloned() {
+                let cols = self.cols;
+                let scratch = scratch.get_or_insert_with(|| Grid::blank(1, cols));
+                moved += self.redraw_row(line, redraw.drawn(palette.mode), geometry, scratch);
+                continue;
+            }
             // What its writer recorded the row as ([`DocumentRow`]), not what
             // its first cell looks like: an answer row and a summary open with
             // the same painted blank.
@@ -429,6 +713,64 @@ impl Grid {
                 };
                 sgr.observe(wanted);
                 moved += 1;
+            }
+        }
+        moved
+    }
+
+    /// Row `line` with each of its cells given the attributes `drawing` puts
+    /// on it, when `drawing` is the text the row holds -- every cell the same
+    /// grapheme at the same width, every empty cell and continuation where
+    /// the drawing has one -- and how many cells that changed. Zero, and the
+    /// row as it was, when it is not: a drawing is a claim about what its
+    /// writer put on the row, and a row that holds something else is not one
+    /// to draw a claim onto.
+    ///
+    /// `scratch` is one row of this grid's width, reused across rows: the
+    /// drawing is placed there by the one tokenizer ([`Self::place_row`]),
+    /// so what a cell is given is what a fresh paint of the drawing would
+    /// leave in it.
+    fn redraw_row(
+        &mut self,
+        line: u16,
+        drawing: &str,
+        geometry: &Geometry,
+        scratch: &mut Grid,
+    ) -> usize {
+        let (Some(span), Some(drawn)) = (self.span(line), scratch.span(1)) else {
+            return 0;
+        };
+        if scratch.cols != self.cols {
+            return 0;
+        }
+        scratch.place_row(1, drawing, geometry);
+        let same_text = self.cells[span.clone()]
+            .iter()
+            .zip(&scratch.cells[drawn.clone()])
+            .all(|pair| match pair {
+                (Cell::Empty, Cell::Empty) | (Cell::Continuation, Cell::Continuation) => true,
+                (
+                    Cell::Lead {
+                        grapheme, width, ..
+                    },
+                    Cell::Lead {
+                        grapheme: drawn_grapheme,
+                        width: drawn_width,
+                        ..
+                    },
+                ) => grapheme == drawn_grapheme && width == drawn_width,
+                _ => false,
+            });
+        if !same_text {
+            return 0;
+        }
+        let mut moved = 0usize;
+        for (cell, fresh) in self.cells[span].iter_mut().zip(&scratch.cells[drawn]) {
+            if let (Cell::Lead { sgr, .. }, Cell::Lead { sgr: fresh, .. }) = (cell, fresh) {
+                if sgr.reopen() != fresh.reopen() {
+                    sgr.clone_from(fresh);
+                    moved += 1;
+                }
             }
         }
         moved
@@ -486,20 +828,20 @@ impl Grid {
         let width = usize::from(self.cols);
         let end = usize::from(last) * width;
         let mut cells = Vec::with_capacity(end);
-        let mut kinds = Vec::with_capacity(usize::from(last));
+        let mut records = Vec::with_capacity(usize::from(last));
         for line in 1..=last {
             if removed.binary_search(&line).is_ok() {
                 continue;
             }
             if let Some(span) = self.span(line) {
                 cells.extend_from_slice(&self.cells[span]);
-                kinds.push(self.kind(line));
+                records.push(self.records[usize::from(line - 1)].clone());
             }
         }
         cells.resize(end, Cell::Empty);
-        kinds.resize(usize::from(last), DocumentRow::Plain);
+        records.resize(usize::from(last), Record::default());
         self.cells.splice(..end, cells);
-        self.kinds.splice(..usize::from(last), kinds);
+        self.records.splice(..usize::from(last), records);
     }
 
     /// Whether row `line`'s first cell is `grapheme`.
@@ -560,8 +902,8 @@ impl Grid {
         let width = usize::from(self.cols);
         self.cells.drain(..moved * width);
         self.cells.resize(height * width, Cell::Empty);
-        self.kinds.drain(..moved.min(self.kinds.len()));
-        self.kinds.resize(height, DocumentRow::Plain);
+        self.records.drain(..moved.min(self.records.len()));
+        self.records.resize(height, Record::default());
     }
 
     /// Writes the bytes that turn this grid into `target`, and says how many
@@ -626,6 +968,9 @@ impl Grid {
     ) -> usize {
         let rows = self.rows.min(target.rows).min(geometry.rows);
         let cols = usize::from(self.cols.min(target.cols).min(geometry.cols));
+        // The terminal's right margin, which is the screen's rather than the
+        // overlap's: what [`put_unit`] guards a unit at.
+        let margin = usize::from(geometry.cols);
         let mut touched = 0usize;
         // What the terminal has switched on, as this frame left it. It starts
         // closed whatever row the run begins on, and that is what the prefix
@@ -680,8 +1025,11 @@ impl Grid {
             // whole class of grid unable to crash the painter; the `EL` below
             // is what says the row, and it is already owed whenever this fires.
             let stop = stop.max(start);
+            // An erase follows the run when the row got shorter, which is
+            // something written after its last cell ([`put_unit`]'s `more`).
+            let erases = old_end > new_end;
             cup(out, line, column_of(start));
-            for cell in &new[start..stop] {
+            for (index, cell) in new.iter().enumerate().take(stop).skip(start) {
                 match cell {
                     // Carried by the lead in front of it.
                     Cell::Continuation => {}
@@ -689,13 +1037,22 @@ impl Grid {
                         reopen(out, &mut open, "", None);
                         out.push(b' ');
                     }
-                    Cell::Lead { grapheme, sgr, .. } => {
+                    Cell::Lead {
+                        grapheme,
+                        width,
+                        sgr,
+                    } => {
                         reopen(out, &mut open, &sgr.attributes(), sgr.link());
-                        out.extend_from_slice(grapheme.as_bytes());
+                        let width = usize::from(*width);
+                        let more = index + width < stop || erases;
+                        let pen = &open.attributes;
+                        put_unit(out, grapheme, index, width, margin, more, |out| {
+                            write_cell(out, grapheme, width, pen);
+                        });
                     }
                 }
             }
-            if old_end > new_end {
+            if erases {
                 // The row got shorter. The caret is at `new_end` -- every cell
                 // written above advanced it by exactly the columns it covered --
                 // so this erases precisely the tail that is no longer there,
@@ -1148,19 +1505,16 @@ mod tests {
 
     // -- Grid::retint_document (P3-THEME, the document's visible cells) --
 
-    /// The two palettes a retint case moves between, at the depth every case
-    /// here paints in.
+    /// The two palettes a retint case moves between.
     fn dark() -> Palette {
         Palette {
             mode: crate::tui::theme::Mode::Dark,
-            depth: crate::tui::theme::Depth::Ansi256,
         }
     }
 
     fn light() -> Palette {
         Palette {
             mode: crate::tui::theme::Mode::Light,
-            depth: crate::tui::theme::Depth::Ansi256,
         }
     }
 
@@ -1186,7 +1540,7 @@ mod tests {
         grid.place_row(3, &format!("{BODY_DARK}an answer{RESET}"), &geometry);
         grid.place_row(4, &format!("{NOTICE_DARK}[tool] ran{RESET}"), &geometry);
         assert_eq!(
-            grid.retint_document(10, &light()),
+            grid.retint_document(10, &light(), &geometry),
             "an answer[tool] ran".len()
         );
 
@@ -1220,7 +1574,7 @@ mod tests {
         );
         assert_eq!(grid.kind(3), DocumentRow::Answer);
         assert_eq!(grid.kind(5), DocumentRow::Plain);
-        grid.retint_document(10, &light());
+        grid.retint_document(10, &light(), &geometry);
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("{ANSWER_LIGHT}     SQLite{RESET}"), &geometry);
@@ -1253,7 +1607,7 @@ mod tests {
         );
         grid.set_kind(4, DocumentRow::Code);
         grid.place_row(5, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
-        grid.retint_document(10, &light());
+        grid.retint_document(10, &light(), &geometry);
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("  {COMMENT_LIGHT}# build it{RESET}"), &geometry);
@@ -1265,7 +1619,7 @@ mod tests {
         expected.place_row(5, &format!("{SUMMARY_LIGHT}  5s (3 4){RESET}"), &geometry);
         assert_eq!(diffed(&grid, &expected), "");
 
-        grid.retint_document(10, &dark());
+        grid.retint_document(10, &dark(), &geometry);
         let mut back = Grid::blank(geometry.rows, geometry.cols);
         back.place_row(3, &format!("  {COMMENT_DARK}# build it{RESET}"), &geometry);
         back.place_row(
@@ -1410,6 +1764,117 @@ mod tests {
         assert_eq!(grid.kind(0), DocumentRow::Plain);
     }
 
+    /// A tool group's call row as its writer draws it in each mode
+    /// (`super::super::toolgroup`, `p5-toolgroup-retint`): the statusline
+    /// grey, a word in the highlighter's, a string, and a comment.
+    fn call_row() -> Redraw {
+        let drawn = |statusline: u8, word: u8, string: u8, comment: u8| {
+            format!(
+                "\u{1b}[38;5;{statusline}m\u{2514} Ran \u{1b}[38;5;{word}mecho\u{1b}[39m\
+                 \u{1b}[38;5;{statusline}m \u{1b}[38;5;{string}m\"hi\"\u{1b}[39m\
+                 \u{1b}[38;5;{statusline}m \u{1b}[38;5;{comment}m# note\u{1b}[39m{RESET}"
+            )
+        };
+        Redraw::new(drawn(245, 252, 250, 245), drawn(241, 238, 241, 243))
+    }
+
+    #[test]
+    fn a_row_drawn_again_is_what_a_fresh_paint_of_its_drawing_leaves() {
+        // Upstream projects a tool group again in the new theme
+        // (`tool_group_projection.zig:558-640,742-784@481104fd`), so its rows
+        // are put back as their writer draws them in the mode reported -- the
+        // cells' attributes whole, as a paint of the drawing leaves them --
+        // not recoloured: the light string's 241 and the dark comment's 245
+        // are the statusline's greys in that mode, and come back as the
+        // highlighter's 250 and 243, which no colour rule could give them.
+        let geometry = geometry();
+        let redraw = call_row();
+        for (from, to) in [(dark(), light()), (light(), dark())] {
+            let mut grid = Grid::blank(geometry.rows, geometry.cols);
+            grid.place_row(3, redraw.drawn(from.mode), &geometry);
+            grid.record(3, DocumentRow::ToolGroup, Some(redraw.clone()));
+            assert!(grid.retint_document(10, &to, &geometry) > 0);
+            let mut fresh = Grid::blank(geometry.rows, geometry.cols);
+            fresh.place_row(3, redraw.drawn(to.mode), &geometry);
+            for column in 1..=geometry.cols {
+                assert!(
+                    grid.cell(3, column) == fresh.cell(3, column),
+                    "{:?} -> {:?}, column {column}: {:?} against {:?}",
+                    from.mode,
+                    to.mode,
+                    grid.cell(3, column),
+                    fresh.cell(3, column)
+                );
+            }
+            // The mode it is already in moves nothing.
+            assert_eq!(grid.retint_document(10, &to, &geometry), 0);
+        }
+    }
+
+    #[test]
+    fn a_drawing_that_is_not_the_rows_text_is_not_put_on_it() {
+        // A drawing is its writer's claim about what it put on the row. A row
+        // that holds anything else -- another text, one cell more or less --
+        // is not drawn over, nor recoloured: a tool group's row answers no
+        // colour ([`Palette::document_retint_in`]), so it is left exactly as
+        // it is, and nothing is created on it.
+        let geometry = geometry();
+        let redraw = call_row();
+        for held in [
+            format!("{BODY_DARK}\u{2514} Ran echo \"ho\" # note{RESET}"),
+            format!("{BODY_DARK}\u{2514} Ran echo \"hi\" # note!{RESET}"),
+            format!("{BODY_DARK}\u{2514} Ran echo \"hi\" # not{RESET}"),
+        ] {
+            let mut grid = Grid::blank(geometry.rows, geometry.cols);
+            grid.place_row(3, &held, &geometry);
+            grid.record(3, DocumentRow::ToolGroup, Some(redraw.clone()));
+            let before = grid.clone();
+            assert_eq!(grid.retint_document(10, &light(), &geometry), 0, "{held:?}");
+            for column in 1..=geometry.cols {
+                assert!(grid.cell(3, column) == before.cell(3, column), "{held:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_rows_drawings_move_with_it_and_go_with_its_cells() {
+        // The same rule as its kind: one record per row, so a scroll and a
+        // collapse carry the drawings with the cells, and a row written over,
+        // erased or resized away has none.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, "header", &geometry);
+        grid.record(3, DocumentRow::ToolGroup, Some(call_row()));
+        grid.place_row(4, "call", &geometry);
+        grid.record(4, DocumentRow::ToolGroup, Some(call_row()));
+        grid.scroll_up(1);
+        assert_eq!(
+            grid.redraw(2),
+            Some(&call_row()),
+            "the drawing stayed behind"
+        );
+        assert_eq!(grid.redraw(4), None);
+        grid.remove_rows(&[2], 4);
+        assert_eq!(
+            grid.redraw(2),
+            Some(&call_row()),
+            "a collapse left it behind"
+        );
+        assert_eq!(grid.kind(2), DocumentRow::ToolGroup);
+        assert_eq!(grid.redraw(3), None);
+        grid.set_kind(2, DocumentRow::ToolGroup);
+        assert_eq!(grid.redraw(2), None, "a kind alone keeps an old drawing");
+        grid.record(2, DocumentRow::ToolGroup, Some(call_row()));
+        grid.place_row(2, "something else", &geometry);
+        assert_eq!(grid.redraw(2), None);
+        grid.record(2, DocumentRow::ToolGroup, Some(call_row()));
+        grid.erase_row(2);
+        assert_eq!(grid.redraw(2), None);
+        grid.record(2, DocumentRow::ToolGroup, Some(call_row()));
+        grid.resize(geometry.rows, geometry.cols);
+        assert_eq!(grid.redraw(2), None);
+    }
+
     #[test]
     fn a_retint_reaches_no_row_past_the_one_it_was_given() {
         // The band's own rows are the frame's to paint, and this emitter may
@@ -1419,7 +1884,7 @@ mod tests {
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("{BODY_DARK}above{RESET}"), &geometry);
         grid.place_row(5, &format!("{BODY_DARK}below{RESET}"), &geometry);
-        assert_eq!(grid.retint_document(4, &light()), "above".len());
+        assert_eq!(grid.retint_document(4, &light(), &geometry), "above".len());
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("{BODY_LIGHT}above{RESET}"), &geometry);
@@ -1437,7 +1902,7 @@ mod tests {
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("{BODY_DARK}an answer{RESET}"), &geometry);
         let untouched = grid.clone();
-        assert_eq!(grid.retint_document(10, &dark()), 0);
+        assert_eq!(grid.retint_document(10, &dark(), &geometry), 0);
         assert_eq!(diffed(&untouched, &grid), "", "a no-op retint wrote cells");
     }
 
@@ -1454,7 +1919,7 @@ mod tests {
         grid.place_row(5, "\u{1b}[38;5;240mrule\u{1b}[0m", &geometry);
         let untouched = grid.clone();
 
-        assert_eq!(grid.retint_document(10, &light()), 0);
+        assert_eq!(grid.retint_document(10, &light(), &geometry), 0);
         assert_eq!(
             diffed(&untouched, &grid),
             "",
@@ -1470,7 +1935,7 @@ mod tests {
         let geometry = geometry();
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("\u{1b}[1m{BODY_DARK}bold{RESET}"), &geometry);
-        assert_eq!(grid.retint_document(10, &light()), "bold".len());
+        assert_eq!(grid.retint_document(10, &light(), &geometry), "bold".len());
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("\u{1b}[1m{BODY_LIGHT}bold{RESET}"), &geometry);
@@ -1552,7 +2017,10 @@ mod tests {
             &format!("{BODY_DARK}see {DOCS_OPEN}docs{LINK_CLOSE}{RESET}"),
             &geometry,
         );
-        assert_eq!(grid.retint_document(10, &light()), "see docs".len());
+        assert_eq!(
+            grid.retint_document(10, &light(), &geometry),
+            "see docs".len()
+        );
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(
@@ -1577,7 +2045,7 @@ mod tests {
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("{BODY_DARK}{text}{RESET}"), &geometry);
         assert_eq!(
-            grid.retint_document(10, &light()),
+            grid.retint_document(10, &light(), &geometry),
             4,
             "a continuation cell was counted as a cell of its own"
         );
@@ -1669,5 +2137,195 @@ mod tests {
         let mut inside = long.to_string();
         inside.replace_range(2..3, "X");
         assert!(!grid.row_matches(10, &inside, &geometry, &mut scratch));
+    }
+
+    // -- a variation selector, and the cells after it ------------------------
+    //
+    // Upstream's frame writer, `src/core/terminal/engine.zig:2548-2589@481104fd`
+    // (`95e6c8fd`): a display unit whose suffix holds U+FE0E or U+FE0F has both
+    // of its cells cleared first when it is two wide, and the cursor is put back
+    // on the column after it when anything else is written on the row; a
+    // two-wide unit with a suffix that ends at the right margin is written with
+    // autowrap on for its length.
+
+    /// The text-presentation lightning bolt of upstream's own test: two cells,
+    /// as upstream and this crate both count it.
+    const BOLT: &str = "\u{26a1}\u{fe0e}";
+    /// A sun with the emoji selector: two cells.
+    const SUN_EMOJI: &str = "\u{2600}\u{fe0f}";
+    /// A sun with the text selector: one cell.
+    const SUN_TEXT: &str = "\u{2600}\u{fe0e}";
+
+    #[test]
+    fn a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it() {
+        // Upstream's test, `engine.zig:4056-4085@481104fd`: `\x1b[2X` and the
+        // glyph, then `\x1b[5G` -- the column after it, one-based.
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {BOLT} b"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha \u{1b}[2X{BOLT}\u{1b}[5G b")
+        );
+    }
+
+    #[test]
+    fn a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it() {
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {SUN_EMOJI} b"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha \u{1b}[2X{SUN_EMOJI}\u{1b}[5G b")
+        );
+    }
+
+    #[test]
+    fn a_narrow_glyph_with_a_selector_clears_nothing_and_still_puts_the_cursor_back() {
+        // One cell: upstream clears only a two-cell unit, and anchors any.
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {SUN_TEXT} b"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha {SUN_TEXT}\u{1b}[4G b")
+        );
+    }
+
+    #[test]
+    fn a_glyph_without_a_selector_needs_no_anchor() {
+        let before = painted(10, "");
+        let after = painted(10, &format!("a \u{26a1} b {FAMILY} c"));
+        let text = diffed(&before, &after);
+        assert!(!text.contains('G') && !text.contains('X'), "{text:?}");
+    }
+
+    #[test]
+    fn a_selector_glyph_with_nothing_after_it_is_not_anchored() {
+        // Upstream's `col <= last`: nothing else is written on the row.
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {BOLT}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha \u{1b}[2X{BOLT}")
+        );
+    }
+
+    #[test]
+    fn the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end() {
+        // The row got shorter, so an `EL` follows the glyph. A terminal that
+        // draws it one cell wider than this grid counts would start the erase a
+        // cell late and leave a stale cell; the anchor in front of the `EL`
+        // puts it where the grid's row ends.
+        let before = painted(10, &format!("a {SUN_TEXT}bcd"));
+        let after = painted(10, &format!("a {BOLT}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;3H\u{1b}[2X{BOLT}\u{1b}[5G{ERASE_LINE}")
+        );
+    }
+
+    #[test]
+    fn a_wide_selector_glyph_at_the_margin_is_written_with_autowrap_on_and_not_anchored() {
+        // `guard_margin_suffix`: autowrap is off for the session
+        // (`super::super::term::MODE_SET`'s `?7l`), and a terminal can drop the
+        // suffix of a unit whose base ends at the margin. Upstream's order:
+        // `?7h`, the clear, the glyph and its suffix, `?7l`.
+        let geometry = geometry();
+        let lead = "x".repeat(usize::from(geometry.cols) - 2);
+        let before = painted(10, "");
+        let after = painted(10, &format!("{lead}{BOLT}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{lead}\u{1b}[?7h\u{1b}[2X{BOLT}\u{1b}[?7l")
+        );
+    }
+
+    #[test]
+    fn a_wide_unit_with_any_suffix_at_the_margin_is_written_with_autowrap_on() {
+        // Upstream asks for a suffix, not a selector: a ZWJ family too.
+        let geometry = geometry();
+        let lead = "x".repeat(usize::from(geometry.cols) - 2);
+        let before = painted(10, "");
+        let after = painted(10, &format!("{lead}{FAMILY}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{lead}\u{1b}[?7h{FAMILY}\u{1b}[?7l")
+        );
+    }
+
+    #[test]
+    fn a_wide_unit_without_a_suffix_or_short_of_the_margin_is_not_guarded() {
+        let geometry = geometry();
+        let cols = usize::from(geometry.cols);
+        let before = painted(10, "");
+        for row in [
+            format!("{}\u{d55c}", "x".repeat(cols - 2)),
+            format!("{}{FAMILY}", "x".repeat(cols - 3)),
+        ] {
+            let text = diffed(&before, &painted(10, &row));
+            assert!(!text.contains("\u{1b}[?7"), "{row:?}: {text:?}");
+        }
+    }
+
+    #[test]
+    fn a_one_cell_glyph_and_a_selector_a_colour_split_off_are_written_split() {
+        // `place_row` joins the selector onto the one-cell glyph and keeps its
+        // one cell; the pair written together reads as one cluster two cells
+        // wide. So the diff writes the glyph, the pen as it is (a reset with
+        // nothing on, the attributes otherwise), the selector, then the
+        // anchor -- a selector glyph.
+        let before = painted(10, "");
+        let after = painted(10, "\u{2600}\u{1b}[1m\u{fe0f} x");
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H\u{2600}{RESET}\u{fe0f}\u{1b}[2G\u{1b}[1m x{RESET}")
+        );
+        // Under a colour: the colour again, which changes nothing; and the
+        // longest part that is still one cell, the rest after it.
+        let after = painted(
+            10,
+            &format!("{COLOUR}\u{2600}\u{1b}[1m\u{fe0f}\u{301}{RESET} x"),
+        );
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{COLOUR}\u{2600}{COLOUR}\u{fe0f}\u{301}\u{1b}[2G{RESET} x")
+        );
+        // A mark between the two keeps the pair one cell written together
+        // (`super::wrap::width`), so it is written together.
+        let after = painted(
+            10,
+            &format!("{COLOUR}\u{2600}\u{1b}[1m\u{301}\u{fe0f}{RESET} x"),
+        );
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{COLOUR}\u{2600}\u{301}\u{fe0f}\u{1b}[2G{RESET} x")
+        );
+        // Written together already, as one cluster: written together.
+        let after = painted(10, &format!("{SUN_EMOJI} x"));
+        assert!(diffed(&before, &after).contains(SUN_EMOJI));
+    }
+
+    #[test]
+    fn a_row_written_whole_keeps_a_split_cluster_behind_its_colour() {
+        let mut out = Vec::new();
+        write_row_text(
+            &mut out,
+            "\u{d55c}\u{1b}[39m\u{301}\u{2600}\u{1b}[1m\u{fe0f}x",
+            80,
+        );
+        assert_eq!(
+            String::from_utf8(out).expect("utf-8"),
+            "\u{d55c}\u{1b}[39m\u{301}\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[4Gx"
+        );
+        // A selector a colour split off a two-cell glyph is no cell's
+        // (`place_row` drops it), so the glyph is no selector glyph: no clear
+        // and no anchor, as the diff writes none for the `⚡` the grid holds.
+        let row = "\u{26a1}\u{1b}[1m\u{fe0e}x";
+        let mut out = Vec::new();
+        write_row_text(&mut out, row, 80);
+        assert_eq!(String::from_utf8(out).expect("utf-8"), row);
+        let text = diffed(&painted(10, ""), &painted(10, row));
+        assert!(
+            !text.contains("\u{1b}[2X") && !text.contains('G'),
+            "{text:?}"
+        );
     }
 }

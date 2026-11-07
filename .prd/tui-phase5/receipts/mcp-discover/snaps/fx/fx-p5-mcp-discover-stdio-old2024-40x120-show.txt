@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: fixture
+    status     retrying
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts old2024
+    source     ~/.fx/mcp.json
+    error      it answered with an MCP version fx doesn't support (fx speaks 2025-03-26 and newer)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

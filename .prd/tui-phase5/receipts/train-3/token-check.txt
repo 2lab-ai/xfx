@@ -1,0 +1,89 @@
+merge b095ffe7: ours e51685d6, theirs 82442e28, base 58b463c8 -- OK
+  parity row '`/image`': changed by ours; 22 tokens added, 22 deleted, all as expected
+  parity row '`/paste`': changed by ours; 40 tokens added, 3 deleted, all as expected
+  parity row 'MCP server tools (`mcp_<server>_<tool>`)': changed by ours; 1 tokens added, 1 deleted, all as expected
+  parity row 'profile home `~/.xfx`': changed by ours; 225 tokens added, 10 deleted, all as expected
+  parity row 'full transcript (`C-o`)': changed by theirs; 498 tokens added, 0 deleted, all as expected
+  ledger cause ctrl-o-diff-row-clipped: deleted by theirs, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence filler-modifier-count: changed by theirs, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge 23fd093c: ours b095ffe7, theirs 8d802907, base 58b463c8 -- OK
+  parity row '`/image`': changed by ours; 22 tokens added, 22 deleted, all as expected
+  parity row '`/paste`': changed by ours; 40 tokens added, 3 deleted, all as expected
+  parity row 'MCP server tools (`mcp_<server>_<tool>`)': changed by ours; 1 tokens added, 1 deleted, all as expected
+  parity row 'profile home `~/.xfx`': changed by ours; 225 tokens added, 10 deleted, all as expected
+  parity row 'full transcript (`C-o`)': changed by ours; 498 tokens added, 0 deleted, all as expected
+  ledger cause ctrl-o-diff-row-clipped: deleted by ours, kept so
+  ledger cause frame-variation-selector-anchor: deleted by theirs, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge 116c7b10: ours 23fd093c, theirs ec390074, base 58b463c8 -- OK
+  parity row '`/image`': changed by ours; 22 tokens added, 22 deleted, all as expected
+  parity row '`/paste`': changed by ours; 40 tokens added, 3 deleted, all as expected
+  parity row 'MCP server tools (`mcp_<server>_<tool>`)': changed by ours; 1 tokens added, 1 deleted, all as expected
+  parity row 'profile home `~/.xfx`': changed by ours; 225 tokens added, 10 deleted, all as expected
+  parity row 'full transcript (`C-o`)': changed by ours; 498 tokens added, 0 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by theirs; 186 tokens added, 103 deleted, all as expected
+  ledger cause ctrl-o-diff-row-clipped: deleted by ours, kept so
+  ledger cause frame-variation-selector-anchor: deleted by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: added by theirs, kept so
+  ledger cause toolgroup-retint-256: deleted by theirs, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause truecolor-grey-notation: changed by theirs, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge a1a1524c: ours cc686a4c, theirs 6c93f359, base e51685d6 -- OK
+  parity row 'full transcript (`C-o`)': changed by ours; 498 tokens added, 0 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by ours; 186 tokens added, 103 deleted, all as expected
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancelled-marker: changed by ours, kept so
+  ledger cause ctrl-o-diff-row-clipped: deleted by ours, kept so
+  ledger cause frame-variation-selector-anchor: deleted by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: added by ours, kept so
+  ledger cause toolgroup-retint-256: deleted by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause truecolor-grey-notation: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, a deleted entry (ctrl-o-diff-row-clipped) back: found
+  self-test ledger, a comment line dropped: found
+self-test b095ffe7: 4 of 4 found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, a deleted entry (ctrl-o-diff-row-clipped) back: found
+  self-test ledger, a comment line dropped: found
+self-test 23fd093c: 4 of 4 found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (toolgroup-ctrlo-record-short) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-diff-row-clipped) back: found
+  self-test ledger, a comment line dropped: found
+self-test 116c7b10: 5 of 5 found
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (toolgroup-ctrlo-record-short) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-diff-row-clipped) back: found
+  self-test ledger, a comment line dropped: found
+self-test a1a1524c: 4 of 4 found

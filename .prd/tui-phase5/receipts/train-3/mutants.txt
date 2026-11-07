@@ -1,0 +1,10 @@
+# mutants.py <a git clone --no-local of train/p5-1107c at b4e0d06e>: each mutant one exact replacement in
+# src/tui/grid.rs, the two join tests (cargo test --locked --lib a_tool_rows_) run against it, the file put back.
+unmutated: exit 0; test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4319 filtered out; finished in 0.07s
+A (the anchor (CHA) after a selector unit not written): CAUGHT by ['tui::frame::tests::a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted', 'tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted']
+B (the margin bracket (?7h/?7l) not written): CAUGHT by ['tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted']
+C (the clear (ECH 2) before a two-cell selector unit not written): CAUGHT by ['tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted']
+D (a split cell written together): CAUGHT by ['tui::frame::tests::a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted']
+E (the retint ignores a row's drawings (colour matching only)): CAUGHT by ['tui::frame::tests::a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted', 'tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted']
+F (the diff writes a cell bare, not through put_unit): CAUGHT by ['tui::frame::tests::a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted', 'tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted']
+6 of 6 caught

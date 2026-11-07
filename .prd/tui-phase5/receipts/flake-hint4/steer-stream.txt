@@ -1,0 +1,19 @@
+# interrupt-steer's steer-stream: the two rows under the steer's prompt, from each sweep run of it here; the base's scenario takes it 0.4 s after the steer's Enter, the head's (ba24235) after `until`.
+base, a sweep stopped half way (24 scenarios), fx:  steered answer.| 3s (↑4 ↓73)|
+base, a sweep stopped half way (24 scenarios), xfx:  Generating (4s) (↑4 ↓73)|┃|
+head at 62edc9d (wait 0.4 still), fx:  steered answer.| 3s (↑4 ↓73)|
+head at 62edc9d (wait 0.4 still), xfx:  steered answer.| 3s (↑4 ↓73)|
+base 1, fx:  steered answer.| 3s (↑4 ↓73)|
+base 1, xfx:  steered answer.| 3s (↑4 ↓73)|
+base 2, fx:  steered answer.| 3s (↑4 ↓73)|
+base 2, xfx:  steered answer.| 3s (↑4 ↓73)|
+base 3, fx:  steered answer.| 3s (↑4 ↓73)|
+base 3, xfx:  steered answer.| 3s (↑4 ↓73)|
+head at e2937ae (wait 0.4 still), fx:  steered answer.| 3s (↑4 ↓73)|
+head at e2937ae (wait 0.4 still), xfx:  Generating (3s) (↑4 ↓37)|┃|
+head 1 at ba24235 (until), fx:  steered answer.| 3s (↑4 ↓73)|
+head 1 at ba24235 (until), xfx:  steered answer.| 3s (↑4 ↓73)|
+head 2 at ba24235 (until), fx:  steered answer.| 3s (↑4 ↓73)|
+head 2 at ba24235 (until), xfx:  steered answer.| 3s (↑4 ↓73)|
+head 3 at ba24235 (until), fx:  steered answer.| 3s (↑4 ↓73)|
+head 3 at ba24235 (until), xfx:  steered answer.| 3s (↑4 ↓73)|

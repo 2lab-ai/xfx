@@ -317,12 +317,9 @@ fn clipped(text: &str, budget: usize) -> &str {
 mod tests {
     use super::*;
 
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
     const MARKED: &str = "\u{1b}[1;38;5;255m";
     const DIM: &str = "\u{1b}[38;5;245m";
     const RESET: &str = "\u{1b}[0m";

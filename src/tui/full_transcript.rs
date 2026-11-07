@@ -2186,7 +2186,23 @@ fn run_on(row: &str, cols: u16) -> Vec<String> {
 /// A tab is fx's too: fx hands the terminal the tab, which moves to the next
 /// stop over cells it leaves unwritten; this screen places rows cell by cell,
 /// so it writes those cells, unstyled, as the terminal leaves them
-/// ([`drawn_tabs`]).
+/// ([`walked`]).
+///
+/// **A line too long for the screen goes on under its gutter**, as fx's
+/// Ctrl-O screen reflows it (`reflowDiffBlock`/`reflowDiffRow`,
+/// `src/ui/render_engine/transcript_blocks.zig:720-797@481104fd`, for the
+/// diff at `full_transcript_screen.zig:5917@481104fd`; the same at
+/// c1db9191): each further row `  │ ` in the row's colour, blanks under the
+/// number and the sign -- the widest number's columns, every number padded
+/// to them as fx pads it (`appendDiffLineNumber`, `diff.zig:1316-1329`) --
+/// the text in the column it started in ([`reflowed`] says where it is cut).
+/// Then each row is laid out as fx's row walker lays out a static one
+/// ([`walked`]): what still passes the margin -- a tab's cells, which the
+/// reflow counted as none, or the prefix on a screen narrower than it --
+/// runs on to the next row with no gutter, and a tab goes to the next stop
+/// of the row it is on, run on or not. A row with no line number (the elided
+/// run, a notice), or whose number leaves the screen no column, is not
+/// reflowed (`diffPrefix`, `:659-695`; `:783`) and is only walked.
 ///
 /// The review keeps xfx's own spelling (`approval_view::tamed` over
 /// `bounded_diff_side`): it is the screen a change is decided on, and fx's
@@ -2210,10 +2226,18 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
     let reset = palette.reset();
     // `  │ `, the number, a space, the sign, a space.
     let start = 4 + width + 3;
+    // The text's cells on a row, where the number leaves the screen any.
+    let room = u16::try_from(start)
+        .ok()
+        .and_then(|start| cols.checked_sub(start))
+        .filter(|room| *room > 0);
+    // What stands in front of a continuation's text: the gutter, then
+    // blanks where the number and the sign were.
+    let under = format!("  \u{2502} {:1$}", "", start - 4);
     review
         .lines
         .iter()
-        .map(|line| {
+        .flat_map(|line| {
             let file = |text: &str| terminal_safe_line(&unspelled(text));
             let (style, number, sign, text) = match line {
                 ReviewLine::Context(number, text) => {
@@ -2235,11 +2259,217 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
                     (palette.dim(), String::new(), ' ', (*text).to_string())
                 }
             };
-            let text = drawn_tabs(&text, start, style, reset);
-            let row = format!("  \u{2502} {number:>width$} {sign} {text}");
-            format!("{style}{}{reset}", clip(&row, cols))
+            let pieces = match room {
+                Some(room) if !number.is_empty() => reflowed(&text, room),
+                _ => vec![text],
+            };
+            let head = format!("  \u{2502} {number:>width$} {sign} ");
+            pieces
+                .iter()
+                .enumerate()
+                .flat_map(|(index, piece)| {
+                    let head = if index == 0 { &head } else { &under };
+                    walked(&format!("{head}{piece}"), cols, style, reset)
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
+}
+
+/// One cell of a row [`walked`] lays out: a cluster, or a blank a tab moved
+/// over, and the cells it takes.
+struct WalkedCell {
+    text: String,
+    cells: u16,
+    styled: bool,
+}
+
+impl WalkedCell {
+    fn blank() -> Self {
+        Self {
+            text: " ".into(),
+            cells: 1,
+            styled: false,
+        }
+    }
+}
+
+/// One row of a change, `row` its prefix and a piece of its text, laid out
+/// at `cols` as fx's row walker lays out a static row
+/// (`ProjectionRowWalker.appendWithSoftWrapPrefix`,
+/// `full_transcript_screen.zig:3972-4031@481104fd`, with no prefix, `:3848`),
+/// a column at a time from the left edge:
+///
+/// * **A character whose cells would pass the last column** starts the next
+///   row, at its column 1 (`shouldWrapAt`, `:4019-4022`).
+/// * **What takes no cells** moves no column. It is mostly part of the
+///   cluster before it ([`wrap::first_cluster`]), but a character that UAX
+///   #29 counts as a control ends a grapheme cluster (GB4, GB5), so a mark
+///   or a selector after one is a cluster of its own: after a tab, or after
+///   one [`terminal_safe_line`] writes as itself, such as the soft hyphen
+///   U+00AD. After such a character it is kept, a cell of no width after
+///   that character's cell -- the same text the frame segments again and
+///   measures the same way. **Right after a tab** it is dropped: fx writes
+///   it where its column is, and its screen does not draw it, whether the
+///   tab moved the column or not (`p5-transcript-diffwrap2` lines 15-19:
+///   `…k1Z`, `…meZ`, `p      q` for a U+FE0F or a U+0301 after the tab;
+///   `t́      u` for one before it). Kept, it would stand in the row text
+///   right after the character before the tab, and the frame, which
+///   segments the row again, would measure the two as one cluster (`1`
+///   U+FE0F two cells) and cut the row's last cell.
+/// * **A tab** moves to the next stop of eight of the row it is on -- a row
+///   run on included, counted from that row's column -- and at most to the
+///   last column (`nextTabStopColumn`, `display_width.zig:292-300@481104fd`,
+///   at `:4004-4006`), over cells left blank and unstyled, as the terminal
+///   leaves the cells fx's tab moves over. A tab never starts a row.
+/// * **A tab on a row already full** moves back onto its last column
+///   (`nextTabStopColumn` gives `cols` for a column at or past it), and the
+///   next character, if it fits there, is written over the row's last cell
+///   (`p5-transcript-diffwrap2`: `…cZ`, then `W`); over the right half of a
+///   wide character, which leaves that character's left cell blank and
+///   unstyled, as fx's screen shows it (`…i Z`). That character of the line
+///   is not on Ctrl-O, as on fx; the review, the screen a change is decided
+///   on, wraps the line whole (`approval_view`). A wide character after
+///   such a tab does not fit and starts the next row, the last cell kept.
+///
+/// Every row opens in `style` and ends in `reset`; a tab's blanks are
+/// written between `reset` and `style`.
+fn walked(row: &str, cols: u16, style: &str, reset: &str) -> Vec<String> {
+    if cols == 0 {
+        return vec![format!("{style}{row}{reset}")];
+    }
+    let mut rows: Vec<Vec<WalkedCell>> = Vec::new();
+    let mut cells: Vec<WalkedCell> = Vec::new();
+    // fx's one-based column: where the next character goes.
+    let mut column = 1u16;
+    // Whether the last cluster was a tab, with no character after it yet.
+    let mut after_tab = false;
+    let mut rest = row;
+    while let Some(cluster) = wrap::first_cluster(rest) {
+        rest = &rest[cluster.len()..];
+        if cluster == "\t" {
+            let stop = if column >= cols {
+                cols
+            } else {
+                ((column - 1) / 8 + 1)
+                    .saturating_mul(8)
+                    .saturating_add(1)
+                    .min(cols)
+            };
+            cells.extend((column..stop).map(|_| WalkedCell::blank()));
+            column = stop;
+            after_tab = true;
+            continue;
+        }
+        let width = wrap::cluster_width(cluster);
+        if width == 0 {
+            // A cluster of its own only after a character UAX #29 counts as
+            // a control: dropped after a tab, kept after any other (U+00AD).
+            if !after_tab {
+                cells.push(WalkedCell {
+                    text: cluster.into(),
+                    cells: 0,
+                    styled: true,
+                });
+            }
+            continue;
+        }
+        after_tab = false;
+        if u32::from(column) + u32::from(width) - 1 > u32::from(cols) {
+            rows.push(std::mem::take(&mut cells));
+            column = 1;
+        }
+        // What already stands at or past `column` -- only ever the row's last
+        // cell, after a tab moved back onto it -- is written over; a wide
+        // character half under it leaves its left cell blank.
+        let mut end: u16 = cells.iter().map(|cell| cell.cells).sum();
+        while end >= column {
+            let Some(cell) = cells.pop() else { break };
+            end -= cell.cells;
+            cells.extend((end + 1..column).map(|_| WalkedCell::blank()));
+            end = end.max(column - 1);
+        }
+        cells.push(WalkedCell {
+            text: cluster.into(),
+            cells: width,
+            styled: true,
+        });
+        column = column.saturating_add(width);
+    }
+    rows.push(cells);
+    rows.iter()
+        .map(|cells| {
+            let mut out = String::from(style);
+            let mut blank = false;
+            for cell in cells {
+                if cell.styled == blank {
+                    out.push_str(if blank { style } else { reset });
+                    blank = !blank;
+                }
+                out.push_str(&cell.text);
+            }
+            if blank {
+                out.push_str(style);
+            }
+            out.push_str(reset);
+            out
+        })
+        .collect()
+}
+
+/// A line's text cut into the pieces fx's `reflowDiffRow` puts on a row each
+/// (`transcript_blocks.zig:720-768@481104fd`), `room` the cells a row has
+/// after the number and the sign.
+///
+/// * **By character, never by word**, before the first character whose cells
+///   would pass the margin (`shouldWrapAt`, `display_width.zig:286-288`,
+///   asked at `transcript_blocks.zig:757`): a wide one moves down whole and
+///   leaves the last cell blank; one of no cells -- a mark joined to the
+///   character before it -- is never moved (`:751-755`).
+/// * **A tab is no cells** here, as fx counts every C0 control
+///   (`displayUnitAt`, `display_width.zig:241-244`), though it is drawn
+///   wider; the cells it takes are the row walker's to run on ([`walked`]),
+///   as fx's are.
+/// * **A character's cells are the screen's own measure** ([`wrap::width`],
+///   which the frame places and clips a row by), a grapheme cluster at a
+///   time, where fx counts with its `display_width` a unit at a time (an
+///   emoji sequence, a character and its variation selector, else one code
+///   point). They count apart for a skin-tone modifier after no emoji,
+///   which fx counts as none and a terminal draws two cells wide, so fx's
+///   row runs past the margin where this one breaks before it
+///   (`parity-ledger.toml`'s `filler-modifier-count`); and for the scalars
+///   `super::drawn_wider` lists, which this measure counts fewer cells than
+///   fx and a terminal do, so a row holding one can still run past the
+///   margin here as it could before (`ctrl-o-drawn-wider-raw`, owner
+///   CTRLO-WIDER). They cut apart in a cluster of two characters fx counts a
+///   cell or more each, conjoining jamo (`U+1100 U+1161`), which fx may cut
+///   between them where this keeps the cluster whole.
+///
+/// Nothing in `text` is a byte a terminal acts on ([`terminal_safe_line`]
+/// spelled every one), so a spelling such as `\x1b` or `\u{202e}` is cut
+/// where the margin falls like any other text, as fx's is: each piece of it
+/// printable ASCII.
+fn reflowed(text: &str, room: u16) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut piece = String::new();
+    let mut used = 0u16;
+    let mut rest = text;
+    while let Some(cluster) = wrap::first_cluster(rest) {
+        rest = &rest[cluster.len()..];
+        let cells = if cluster == "\t" {
+            0
+        } else {
+            wrap::cluster_width(cluster)
+        };
+        if cells > 0 && used.saturating_add(cells) > room {
+            pieces.push(std::mem::take(&mut piece));
+            used = 0;
+        }
+        piece.push_str(cluster);
+        used = used.saturating_add(cells);
+    }
+    pieces.push(piece);
+    pieces
 }
 
 /// A line of a change as the permission boundary spelled it
@@ -2340,30 +2570,6 @@ fn fx_names(code: u32) -> bool {
         || (0x2028..=0x202e).contains(&code)
         || (0x2060..=0x206f).contains(&code)
         || code == 0xfeff
-}
-
-/// `text` with each tab drawn as the terminal draws the one fx writes: blank,
-/// unstyled cells up to the next stop, a multiple of eight columns from the
-/// screen's left edge, the text starting at column `start`. The row's style
-/// is put back after them.
-fn drawn_tabs(text: &str, start: usize, style: &str, reset: &str) -> String {
-    if !text.contains('\t') {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len() + 16);
-    let mut column = start;
-    for (index, piece) in text.split('\t').enumerate() {
-        if index > 0 {
-            let blank = 8 - column % 8;
-            out.push_str(reset);
-            out.push_str(&" ".repeat(blank));
-            out.push_str(style);
-            column += blank;
-        }
-        out.push_str(piece);
-        column += usize::from(wrap::width(piece));
-    }
-    out
 }
 
 /// Everything `transcript` has queued, laid out as the rows a terminal would
@@ -2526,12 +2732,7 @@ mod tests {
     use crate::tools::{read, terminal};
     use serde_json::json;
 
-    use super::super::theme::Depth;
-
-    const DARK: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const DARK: Palette = Palette { mode: Mode::Dark };
 
     /// 2026-10-06 14:43:50.620 UTC, the moment the capture's second entry is
     /// stamped with (`fx-tools-single-40x120-full`).
@@ -3083,6 +3284,371 @@ mod tests {
         assert_eq!(reviewed[1], "1 + bidi \\u{202E} x");
         assert_eq!(reviewed[5], "5 + crlf\\r");
         assert_eq!(reviewed[6], "6 + lit \\\\x1b");
+    }
+
+    /// One added line's rows at `cols`.
+    fn added(line: &str, cols: u16) -> Vec<String> {
+        diff_rows(&ApprovalDiff::of("", &format!("{line}\n")), cols, DARK)
+    }
+
+    /// `row` in the diff grey with the reset after it, as [`diff_rows`]
+    /// writes a changed line with nothing in it to draw unstyled.
+    fn diff_grey(row: &str) -> String {
+        format!("{}{row}{}", DARK.diff(), DARK.reset())
+    }
+
+    #[test]
+    fn a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it() {
+        // fx's `reflowDiffRow` (`transcript_blocks.zig:720-768@481104fd`,
+        // from `reflowDiffBlock`, `:772-797`, for the Ctrl-O screen's diff at
+        // `full_transcript_screen.zig:5917@481104fd`): the rest of a line too
+        // long for the screen goes on to a row of its own, `  │ ` in the
+        // row's colour and blanks under the number and the sign, the text in
+        // the same column -- `  │     5678` in `p5-transcript-diffwide`'s
+        // `full`. 108 `w`s and `TAIL` are the 112 cells the first row has.
+        let w108 = "w".repeat(108);
+        assert_eq!(
+            added(&format!("{w108}TAIL5678"), 120),
+            [
+                diff_grey(&format!("  \u{2502} 1 + {w108}TAIL")),
+                diff_grey("  \u{2502}     5678"),
+            ]
+        );
+        // A line that reaches the last column is one row, as it was.
+        assert_eq!(
+            added(&format!("{w108}TAIL"), 120),
+            [diff_grey(&format!("  \u{2502} 1 + {w108}TAIL"))]
+        );
+        // One cell more is one cell on the next row.
+        assert_eq!(
+            added(&format!("{w108}TAILZ"), 120),
+            [
+                diff_grey(&format!("  \u{2502} 1 + {w108}TAIL")),
+                diff_grey("  \u{2502}     Z"),
+            ]
+        );
+        // A line past two rows goes on to a third; a context line keeps the
+        // dim grey on each, and a wider number column widens the blanks.
+        let long = "x".repeat(250);
+        let before: String = (1..=9).map(|n| format!("{n}\n")).collect();
+        let rows = diff_rows(
+            &ApprovalDiff::of(
+                &format!("{before}{long}\nold\n"),
+                &format!("{before}{long}\nnew\n"),
+            ),
+            120,
+            DARK,
+        );
+        let context: Vec<&String> = rows.iter().filter(|row| row.contains("xx")).collect();
+        let dim = |row: String| format!("{}{row}{}", DARK.dim(), DARK.reset());
+        assert_eq!(
+            context,
+            [
+                &dim(format!("  \u{2502} 10   {}", "x".repeat(111))),
+                &dim(format!("  \u{2502}      {}", "x".repeat(111))),
+                &dim(format!("  \u{2502}      {}", "x".repeat(28))),
+            ],
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank() {
+        // `shouldWrapAt` (`display_width.zig:286-288@481104fd`): a character
+        // whose cells would pass the last column starts the next row, as
+        // `reflowDiffRow` asks before each one (`transcript_blocks.zig:757`).
+        let a111 = "a".repeat(111);
+        for wide in ["\u{6f22}", "\u{1f600}"] {
+            assert_eq!(
+                added(&format!("{a111}{wide}TAIL"), 120),
+                [
+                    diff_grey(&format!("  \u{2502} 1 + {a111}")),
+                    diff_grey(&format!("  \u{2502}     {wide}TAIL")),
+                ],
+                "{wide:?}"
+            );
+        }
+        // A mark joined to the character in the last column stays with it:
+        // what takes no cells never starts a row (`:751-755`).
+        let f112 = "f".repeat(112);
+        assert_eq!(
+            added(&format!("{f112}\u{301}Z"), 120),
+            [
+                diff_grey(&format!("  \u{2502} 1 + {f112}\u{301}")),
+                diff_grey("  \u{2502}     Z"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control() {
+        // The text is fx's spelling already (`appendTerminalSafeLine`), so
+        // `\x1b` and `\u{202e}` are printable ASCII and are cut where the
+        // margin falls, as fx's reflow cuts them; no row, the first or a
+        // continuation, holds a byte a terminal acts on.
+        let acted_on = |c: char| {
+            c.is_control()
+                || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{61c}')
+        };
+        let b110 = "b".repeat(110);
+        let c108 = "c".repeat(108);
+        let cases = [
+            (
+                format!("{b110}\u{1b}[2JEND"),
+                [
+                    format!("  \u{2502} 1 + {b110}\\x"),
+                    "  \u{2502}     1b[2JEND".to_string(),
+                ],
+            ),
+            (
+                format!("{c108}\u{202e}END"),
+                [
+                    format!("  \u{2502} 1 + {c108}\\u{{2"),
+                    "  \u{2502}     02e}END".to_string(),
+                ],
+            ),
+        ];
+        for (line, expected) in cases {
+            let rows = added(&line, 120);
+            assert_eq!(rows, expected.map(|row| diff_grey(&row)), "{line:?}");
+            for row in &rows {
+                let bare = [DARK.dim(), DARK.diff(), DARK.reset()]
+                    .iter()
+                    .fold(row.clone(), |row, sgr| row.replace(sgr, ""));
+                assert!(
+                    !bare.chars().any(acted_on),
+                    "a row hands the terminal a character it acts on: {bare:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on() {
+        // fx counts a tab as no cells where it breaks the line
+        // (`displayUnitAt`, `display_width.zig:241-244@481104fd`: a C0
+        // control is none), then its row walker moves the tab to the next
+        // stop of eight, at most to the last column (`nextTabStopColumn`,
+        // `:292-300`; `appendWithSoftWrapPrefix`,
+        // `full_transcript_screen.zig:4004-4010@481104fd`), and runs what
+        // still passes the margin on to the next row with no gutter
+        // (`:4019-4031`; a static row's prefix is empty, `:3848`).
+        //
+        // `tab` and 109 `d`s are the first row's 112 cells to the reflow;
+        // drawn, the tab takes five cells, 104 `d`s fit and five run on;
+        // the reflow's own row holds the last 11 under the gutter.
+        let rows = added(&format!("tab\t{}", "d".repeat(120)), 120);
+        assert_eq!(
+            plain(&rows),
+            [
+                format!("  \u{2502} 1 + tab     {}", "d".repeat(104)),
+                "d".repeat(5),
+                format!("  \u{2502}     {}", "d".repeat(11)),
+            ],
+            "{rows:?}"
+        );
+        // The tab's cells unstyled, the rest in the diff grey -- the row
+        // the walker ran on too.
+        let tab = format!(
+            "{}  \u{2502} 1 + tab{}     {}d",
+            DARK.diff(),
+            DARK.reset(),
+            DARK.diff()
+        );
+        assert!(rows[0].starts_with(&tab), "{rows:?}");
+        assert!(
+            rows[1].starts_with(&format!("{}d", DARK.diff())),
+            "{rows:?}"
+        );
+        assert!(rows.iter().all(|row| wrap::width(row) <= 120), "{rows:?}");
+        // A tab one cell short of the last column moves to it, not past it:
+        // `X` is in the last column and only `Y` runs on.
+        let e110 = "e".repeat(110);
+        assert_eq!(
+            plain(&added(&format!("{e110}\tXY"), 120)),
+            [format!("  \u{2502} 1 + {e110} X"), "Y".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it() {
+        // fx reflows only a row with a line number (`diffPrefix`,
+        // `transcript_blocks.zig:659-695@481104fd`), and only when its
+        // prefix leaves the screen a column (`:783`); the walker runs any
+        // other row on to the next, mid-word and with no gutter, as it does
+        // every static row (`full_transcript_screen.zig:4019-4031@481104fd`).
+        let notice = diff_rows(&ApprovalDiff::of("same\n", "same\n"), 30, DARK);
+        assert_eq!(
+            plain(&notice),
+            [
+                "  \u{2502}     (the text of this file",
+                " would not change)",
+            ]
+        );
+        assert_eq!(plain(&added("abc", 6)), ["  \u{2502} 1 ", "+ abc"]);
+    }
+
+    #[test]
+    fn what_takes_no_cells_stays_on_its_row_even_past_a_character_wider_than_the_room() {
+        // `reflowDiffRow` writes a unit of no cells before it asks whether to
+        // break (`transcript_blocks.zig:751-755@481104fd`), so it never moves
+        // down -- even after a character wider than the whole room, which
+        // fx breaks before at once and leaves on its row past the margin
+        // (`:756-766`): an empty first row, `漢` and the tab, then `Z`.
+        assert_eq!(reflowed("\u{6f22}\tZ", 1), ["", "\u{6f22}\t", "Z"]);
+        assert_eq!(reflowed("ab\u{301}c", 2), ["ab\u{301}", "c"]);
+    }
+
+    #[test]
+    fn a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop() {
+        // fx's walker runs a row on first, its column back to 1
+        // (`full_transcript_screen.zig:4019-4022@481104fd`), and places a
+        // tab after that from the column of the row it is on (`:4004-4006`,
+        // `nextTabStopColumn`, `display_width.zig:292-300@481104fd`) --
+        // `p5-transcript-diffwrap2` `full`, its lines 1 and 2. Both lines
+        // are one piece to the reflow (a tab is no cells there): drawn, the
+        // first tab takes eight cells and 104 characters fill the row.
+        let blanks = " ".repeat(8);
+        assert_eq!(
+            plain(&added(&format!("\t{}\tZ", "b".repeat(108)), 120)),
+            [
+                format!("  \u{2502} 1 + {blanks}{}", "b".repeat(104)),
+                "bbbb    Z".to_string(),
+            ]
+        );
+        assert_eq!(
+            plain(&added(&format!("\t{}\tXY", "a".repeat(110)), 120)),
+            [
+                format!("  \u{2502} 1 + {blanks}{}", "a".repeat(104)),
+                "aaaaaa  XY".to_string(),
+            ]
+        );
+        // The run-on row's tab cells unstyled, as the first row's are.
+        let rows = added(&format!("\t{}\tZ", "b".repeat(108)), 120);
+        assert_eq!(
+            rows[1],
+            format!(
+                "{}bbbb{}    {}Z{}",
+                DARK.diff(),
+                DARK.reset(),
+                DARK.diff(),
+                DARK.reset()
+            )
+        );
+        // A screen narrower than the prefix: no reflow, and the walker runs
+        // the prefix itself on; the tab goes from the second row's column 3
+        // to its last, 6.
+        assert_eq!(plain(&added("\tab", 6)), ["  \u{2502} 1 ", "+    a", "b"]);
+    }
+
+    #[test]
+    fn a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell() {
+        // A tab whose row is already full moves the walker's column back to
+        // the last one (`nextTabStopColumn` gives `cols` for a column at or
+        // past it, `display_width.zig:295@481104fd`), and the next
+        // character, which fits there, is written over the row's last cell
+        // (`shouldWrapAt(cols, 1, cols)` is false) -- `p5-transcript-
+        // diffwrap2` `full` line 3: `…cZ`, then `W`. Over the right half of
+        // a wide character, the character's left cell is left blank and
+        // unstyled (line 13: `…i Z`); a wide character after such a tab
+        // does not fit there and starts the next row, the row's last cell
+        // kept (line 14).
+        let blanks = " ".repeat(8);
+        assert_eq!(
+            plain(&added(&format!("\t{}\tZW", "c".repeat(104)), 120)),
+            [
+                format!("  \u{2502} 1 + {blanks}{}Z", "c".repeat(103)),
+                "W".to_string(),
+            ]
+        );
+        let rows = added(&format!("\t{}\u{6f22}\tZW", "i".repeat(102)), 120);
+        assert_eq!(
+            plain(&rows),
+            [
+                format!("  \u{2502} 1 + {blanks}{} Z", "i".repeat(102)),
+                "W".to_string(),
+            ]
+        );
+        assert!(
+            rows[0].ends_with(&format!(
+                "i{} {}Z{}",
+                DARK.reset(),
+                DARK.diff(),
+                DARK.reset()
+            )),
+            "{rows:?}"
+        );
+        assert_eq!(
+            plain(&added(&format!("\t{}\t\u{6f22}W", "j".repeat(104)), 120)),
+            [
+                format!("  \u{2502} 1 + {blanks}{}", "j".repeat(104)),
+                "\u{6f22}W".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it() {
+        // fx's walker writes a unit of no cells where its column is
+        // (`full_transcript_screen.zig:4017-4034@481104fd`, `width > 0`
+        // guarding only the wrap), and one right after a tab has no
+        // character before it on fx's screen: `p5-transcript-diffwrap2`
+        // `full` lines 15-19 show neither a U+FE0F nor a U+0301 that follows
+        // a tab, whether the tab moved the column (`p      q`) or not
+        // (`…k1Z`, `…meZ`), where one before a tab stays (`t́      u`).
+        let blanks = " ".repeat(8);
+        let k102 = "k".repeat(102);
+        let rows = added(&format!("\t{k102}1\t\u{fe0f}Z"), 120);
+        // The frame keeps every cell of each row: what the walker counts is
+        // what the frame measures (`super::frame::clip`).
+        for row in &rows {
+            assert_eq!(super::super::frame::clip(row, 120), row, "{rows:?}");
+        }
+        assert_eq!(plain(&rows), [format!("  \u{2502} 1 + {blanks}{k102}1Z")]);
+        let m102 = "m".repeat(102);
+        assert_eq!(
+            plain(&added(&format!("\t{m102}e\t\u{301}Z"), 120)),
+            [format!("  \u{2502} 1 + {blanks}{m102}eZ")]
+        );
+        // After a tab on a full row: dropped, and `Z` over the `1`.
+        let l103 = "l".repeat(103);
+        assert_eq!(
+            plain(&added(&format!("\t{l103}1\t\u{fe0f}ZW"), 120)),
+            [format!("  \u{2502} 1 + {blanks}{l103}Z"), "W".to_string()]
+        );
+        // After a tab that moved the column, and before one.
+        assert_eq!(
+            plain(&added("p\t\u{301}q", 120)),
+            ["  \u{2502} 1 + p       q"]
+        );
+        assert_eq!(
+            plain(&added("r\t\u{fe0f}s", 120)),
+            ["  \u{2502} 1 + r       s"]
+        );
+        assert_eq!(
+            plain(&added("t\u{301}\tu", 120)),
+            ["  \u{2502} 1 + t\u{301}       u"]
+        );
+    }
+
+    #[test]
+    fn a_mark_alone_after_a_character_that_ends_its_cluster_is_kept_after_a_tab() {
+        // A tab counts only for the cluster right after it: once a character
+        // has been written, a mark that stands as a cluster of its own --
+        // after a soft hyphen, which ends a grapheme cluster (it is a
+        // control to UAX #29, GB4/GB5) and which `terminal_safe_line` writes
+        // as itself -- is kept, a cell of no width after the hyphen's cell,
+        // as before the tab rule. The frame segments the row text the same
+        // way and keeps every cell (`super::frame::clip`).
+        let blanks = " ".repeat(8);
+        let rows = added("\tx\u{ad}\u{301}y", 120);
+        assert_eq!(
+            plain(&rows),
+            [format!("  \u{2502} 1 + {blanks}x\u{ad}\u{301}y")]
+        );
+        for row in &rows {
+            assert_eq!(super::super::frame::clip(row, 120), row, "{rows:?}");
+        }
     }
 
     #[test]

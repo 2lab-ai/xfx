@@ -1,0 +1,283 @@
+## p5-mcp-discover-stdio-asks -- fx v0.0.16 vs xfx head
+frames: fx=5 xfx=5
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","id":"q2","result":{}}
+=  4 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  5 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-asks -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=5 xfx=6
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx {"jsonrpc":"2.0","id":"q1","result":{}}
+!  3 fx  {"jsonrpc":"2.0","id":"q2","result":{}}
+       xfx {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  4 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+       xfx {"jsonrpc":"2.0","id":"q2","result":{}}
+!  5 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+!  6 fx  -
+       xfx {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-asks -- fx v0.0.16 vs xfx base
+frames: fx=5 xfx=4
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx {"jsonrpc":"2.0","id":"q2","result":{}}
+!  3 fx  {"jsonrpc":"2.0","id":"q2","result":{}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+!  4 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+       xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+!  5 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-banner -- fx v0.0.16 vs xfx head
+frames: fx=4 xfx=2
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"notifications":{"toolsListChanged":true}}}
+       xfx {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-banner -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=4 xfx=1
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"notifications":{"toolsListChanged":true}}}
+       xfx -
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-banner -- fx v0.0.16 vs xfx base
+frames: fx=4 xfx=4
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"notifications":{"toolsListChanged":true}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-hostile -- fx v0.0.16 vs xfx head
+frames: fx=3 xfx=3
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"server/discover","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  3 fx  {"jsonrpc":"2.0","id":3,"method":"server/discover","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-hostile -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=3 xfx=3
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"server/discover","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  3 fx  {"jsonrpc":"2.0","id":3,"method":"server/discover","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-hostile -- fx v0.0.16 vs xfx base
+frames: fx=3 xfx=3
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"server/discover","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"server/discover","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-malformed -- fx v0.0.16 vs xfx head
+frames: fx=4 xfx=4
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-malformed -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=4 xfx=4
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-malformed -- fx v0.0.16 vs xfx base
+frames: fx=4 xfx=3
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+!  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+       xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+!  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-modern -- fx v0.0.16 vs xfx head
+frames: fx=7 xfx=4
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"notifications":{"toolsListChanged":true}}}
+       xfx {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"hi"}}}
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"again"}}}
+!  5 fx  {"jsonrpc":"2.0","id":5,"method":"tools/list","params":{"_meta":{"progressToken":5,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+!  6 fx  {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"_meta":{"progressToken":6,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"hi"}}}
+       xfx -
+!  7 fx  {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"_meta":{"progressToken":7,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"again"}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-modern -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=7 xfx=4
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"notifications":{"toolsListChanged":true}}}
+       xfx {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"hi"}}}
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"again"}}}
+!  5 fx  {"jsonrpc":"2.0","id":5,"method":"tools/list","params":{"_meta":{"progressToken":5,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+!  6 fx  {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"_meta":{"progressToken":6,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"hi"}}}
+       xfx -
+!  7 fx  {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"_meta":{"progressToken":7,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"again"}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-modern -- fx v0.0.16 vs xfx base
+frames: fx=7 xfx=5
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{"progressToken":2,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"notifications":{"toolsListChanged":true}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{"_meta":{"progressToken":4,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  5 fx  {"jsonrpc":"2.0","id":5,"method":"tools/list","params":{"_meta":{"progressToken":5,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  6 fx  {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"_meta":{"progressToken":6,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"hi"}}}
+       xfx -
+!  7 fx  {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"_meta":{"progressToken":7,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"},"name":"echo","arguments":{"text":"again"}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-old2024 -- fx v0.0.16 vs xfx head
+frames: fx=6 xfx=6
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","id":3,"method":"server/discover","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  4 fx  {"jsonrpc":"2.0","id":4,"method":"initialize","params":{"_meta":{"progressToken":4},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  5 fx  {"jsonrpc":"2.0","id":5,"method":"server/discover","params":{"_meta":{"progressToken":5,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  6 fx  {"jsonrpc":"2.0","id":6,"method":"initialize","params":{"_meta":{"progressToken":6},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-old2024 -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=6 xfx=6
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","id":3,"method":"server/discover","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  4 fx  {"jsonrpc":"2.0","id":4,"method":"initialize","params":{"_meta":{"progressToken":4},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  5 fx  {"jsonrpc":"2.0","id":5,"method":"server/discover","params":{"_meta":{"progressToken":5,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  6 fx  {"jsonrpc":"2.0","id":6,"method":"initialize","params":{"_meta":{"progressToken":6},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-old2024 -- fx v0.0.16 vs xfx base
+frames: fx=6 xfx=3
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+!  3 fx  {"jsonrpc":"2.0","id":3,"method":"server/discover","params":{"_meta":{"progressToken":3,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+!  4 fx  {"jsonrpc":"2.0","id":4,"method":"initialize","params":{"_meta":{"progressToken":4},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx -
+!  5 fx  {"jsonrpc":"2.0","id":5,"method":"server/discover","params":{"_meta":{"progressToken":5,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx -
+!  6 fx  {"jsonrpc":"2.0","id":6,"method":"initialize","params":{"_meta":{"progressToken":6},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-discover-stdio-silent -- fx v0.0.16 vs xfx head
+frames: fx=4 xfx=4
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-silent -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=4 xfx=4
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+RESULT: IDENTICAL
+
+## p5-mcp-discover-stdio-silent -- fx v0.0.16 vs xfx base
+frames: fx=4 xfx=3
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+!  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+       xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+!  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-wire-new -- fx v0.0.16 vs xfx head
+frames: fx=6 xfx=6
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+=  5 fx  {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4},"name":"echo","arguments":{"text":"hi"}}}
+=  6 fx  {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"_meta":{"progressToken":5},"name":"echo","arguments":{"text":"again"}}}
+RESULT: IDENTICAL
+
+## p5-mcp-wire-new -- fx v0.0.16 vs xfx f3a859c (round 1)
+frames: fx=6 xfx=6
+=  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+=  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+=  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+=  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+=  5 fx  {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4},"name":"echo","arguments":{"text":"hi"}}}
+=  6 fx  {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"_meta":{"progressToken":5},"name":"echo","arguments":{"text":"again"}}}
+RESULT: IDENTICAL
+
+## p5-mcp-wire-new -- fx v0.0.16 vs xfx base
+frames: fx=6 xfx=5
+!  1 fx  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"progressToken":1,"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":"<capabilities>","io.modelcontextprotocol/clientInfo":"<client>"}}}
+       xfx {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+!  2 fx  {"jsonrpc":"2.0","id":2,"method":"initialize","params":{"_meta":{"progressToken":2},"protocolVersion":"2025-11-25","capabilities":"<capabilities>","clientInfo":"<client>"}}
+       xfx {"jsonrpc":"2.0","method":"notifications/initialized"}
+!  3 fx  {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+       xfx {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+!  4 fx  {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"progressToken":3}}}
+       xfx {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}}
+!  5 fx  {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4},"name":"echo","arguments":{"text":"hi"}}}
+       xfx {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"_meta":{"progressToken":3},"name":"echo","arguments":{"text":"again"}}}
+!  6 fx  {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"_meta":{"progressToken":5},"name":"echo","arguments":{"text":"again"}}}
+       xfx -
+RESULT: DIFFERS
+
+## p5-mcp-wire-old -- fx v0.0.16 vs xfx head
+frames: fx=0 xfx=0
+RESULT: IDENTICAL
+
+## p5-mcp-wire-old -- fx v0.0.16 vs xfx base
+frames: fx=0 xfx=0
+RESULT: IDENTICAL

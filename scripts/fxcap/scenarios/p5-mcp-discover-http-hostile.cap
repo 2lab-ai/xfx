@@ -1,0 +1,14 @@
+# p5 mcp discover (read at ~6 s, between the third try and the fourth, 1+2+4 s of backoff): an HTTP server whose `server/discover` result lists only near misses
+# of the client's versions, with instructions that are terminal escapes (mcphttp.ts
+# `hostile`): no shared version (era.zig:206@481104fd), retrying. Nothing it wrote reaches
+# the screen.
+mcphttp hostile
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 1
+snap show
+gwlog

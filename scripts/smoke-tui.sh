@@ -157,6 +157,13 @@ What is modelled, and nothing else:
 
 * `CUP` (`CSI row ; col H`, both numbers, on the screen), `ED`
   (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
+* `CHA` (`CSI col G`, a column on the screen) and `ECH` (`CSI n X`, one cell
+  or more, none past the last column, the caret left where it is): what the
+  painter writes around a glyph whose suffix holds a variation selector
+  (`src/tui/grid.rs`'s `put_unit`, upstream's `engine.zig:2548-2589`) -- the
+  clear in front of it and the column after it. Both stay on the caret's row,
+  so `check.rs` takes them under an open link where it refuses `CUP`, `ED`
+  and `EL`, and so does this
 * `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on --
   the foreground colour in `attrs`, the background in `backgrounds`, and the
   text attributes (bold, dim, italic, underline, reverse, strike) beside them in
@@ -165,7 +172,7 @@ What is modelled, and nothing else:
   `39`), a text attribute or its close (`1 2 3 4 7 9 22 23 24 27 29` -- the
   reverse pair is a draft's caret cell and a composer selection), one
   foreground colour (`38;5;n`, `38;2;r;g;b`), or one background and its close
-  (`48;5;n`, `48;2;r;g;b`, `49` -- the file picker's), every number a
+  (`48;5;n`, `49` -- the file picker's), every number a
   terminal reads (`0-255`). One group outside it and the whole sequence is a
   finding
 * `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
@@ -242,7 +249,7 @@ KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 # The `OSC` strings xfx is allowed to write, each with the one terminator it is
 # written with (`src/tui/check.rs`'s `operating_system_command`): the window
 # title (`src/tui/frame.rs`, `BEL`), the background query it asks the terminal
-# (`src/tui/theme.rs:66`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
+# (`src/tui/theme.rs:67`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
 # `ST`). `OSC 52` is deliberately **not** here -- a build that started writing
 # the clipboard must fail this run rather than be shrugged at.
 KNOWN_OSC = {"2": b"\x07", "11": b"\x1b\\", "8": b"\x1b\\"}
@@ -259,7 +266,7 @@ KNOWN_WINDOW_OPS = {"22;2", "23;2"}
 
 # The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
-# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:104`) is the
+# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:105`) is the
 # outright "which way round are you now?" query a launch asks once, paired
 # with the `?2031` subscription above but not itself an enable/disable pair --
 # it carries no parameter, and a report with one (`?996;1n`) is a sequence
@@ -538,6 +545,12 @@ class Grid:
         if private:
             self._private(private, params, final, match)
             return match.end()
+        if final == "G":
+            self._column(params, match)
+            return match.end()
+        if final == "X":
+            self._erase_characters(params, match)
+            return match.end()
         if final in "HJK" and self.link:
             # A caret move or an erase under an open link would make what it
             # moves to, or what it blanks, part of the link (`check.rs`).
@@ -584,6 +597,39 @@ class Grid:
             self.unknown.append(match.group(0))
         self.row = min(max(row - 1, 0), self.rows - 1)
         self.col = min(max(col - 1, 0), self.cols - 1)
+
+    def _column(self, params, match):
+        """`CHA`: a column on the screen (`check.rs`'s `CSI G` arm), the row kept.
+
+        A `0`, an empty parameter or a column past the last is a finding rather
+        than a clamp, as an address off the screen is for `CUP`.
+        """
+        if not params.isdigit() or not 1 <= int(params) <= self.cols:
+            self.unknown.append(match.group(0))
+            return
+        self.col = int(params) - 1
+
+    def _erase_characters(self, params, match):
+        """`ECH`: `n` cells from the caret blanked, the caret left where it is.
+
+        The whole of a wide cluster the span covers half of goes with it, as
+        `check.rs`'s `erase_span` has it: the lead of a continuation it starts
+        on, the continuation of a lead it ends on.
+        """
+        if not params.isdigit() or int(params) == 0 or self.col + int(params) > self.cols:
+            self.unknown.append(match.group(0))
+            return
+        start, end = self.col, self.col + int(params)
+        while start > 0 and self.cells[self.row][start] == "":
+            start -= 1
+        while end < self.cols and self.cells[self.row][end] == "":
+            end += 1
+        for col in range(start, end):
+            self.cells[self.row][col] = " "
+            self.attrs[self.row][col] = ""
+            self.styles[self.row][col] = ""
+            self.backgrounds[self.row][col] = ""
+            self.links[self.row][col] = ""
 
     def _osc(self, match):
         """An `OSC` string: no cell moves, but the string has to be one of ours."""
@@ -658,7 +704,10 @@ class Grid:
                 index += 1
                 continue
             if part in ("38", "48") and index + 1 < len(parts):
-                wanted = {"5": 1, "2": 3}.get(parts[index + 1])
+                # A direct background is no shape the product writes: the
+                # file picker's bar is `48;5` at every depth.
+                shapes = {"5": 1, "2": 3} if part == "38" else {"5": 1}
+                wanted = shapes.get(parts[index + 1])
                 values = parts[index + 2 : index + 2 + (wanted or 0)]
                 if (
                     wanted is not None
@@ -972,11 +1021,12 @@ from vt_grid import Grid  # noqa: E402
 # A three-person ZWJ family: five scalars, one cluster, two columns.
 FAMILY = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
 
-# The palette's two spellings (`src/tui/theme.rs:195-227`) and the reset that
-# ends every band row.
-PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;188;188;188m", "\x1b[0m", "\x1b[m")
+# The product's two colour spellings -- a palette grey, `38;5` at every depth
+# (`src/tui/theme.rs` `Palette`), and the Ultra mark's direct yellow
+# (`ULTRA_TRUECOLOR`) -- and the reset that ends every band row.
+PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;255;204;0m", "\x1b[0m", "\x1b[m")
 
-# The background query and the window title (`src/tui/theme.rs:66`,
+# The background query and the window title (`src/tui/theme.rs:67`,
 # `src/tui/frame.rs`), each in the one terminator the product spells it with
 # (`src/tui/check.rs`'s `operating_system_command`), and the exit's clear.
 PRODUCT_OSC = ("\x1b]11;?\x1b\\", "\x1b]2;\x07", "\x1b]2;xfx \u00b7 glm-5.2\x07")
@@ -1145,6 +1195,36 @@ def a_caret_placed_off_the_screen_or_half_addressed_is_a_finding():
         require(not fed(sequence).unknown, "%r was rejected" % sequence)
 
 
+def the_anchor_around_a_selector_glyph_is_accepted_and_places_what_follows():
+    """`src/tui/grid.rs`'s `put_unit`: `ECH 2`, the glyph, `CHA` past it.
+
+    The column is the painter's to say, whatever the glyph's width here: an
+    emulator that moved the caret relative to where the glyph left it would
+    agree with a terminal that drew it at another width, which is the defect
+    the anchor is for.
+    """
+    bolt = "\u26a1\ufe0e"
+    grid = fed("a \x1b[2X" + bolt + "\x1b[5G b")
+    require(not grid.unknown, "the painter's anchor was rejected: %r" % (grid.unknown,))
+    require(grid.row_text(0) == "a " + bolt + " b", "the anchor misplaced a cell: %r" % grid.row_text(0))
+    gap = fed("a" + bolt + "\x1b[7Gb")
+    require(gap.cells[0][6] == "b" and gap.cells[0][3] == " ", "the anchor did not set the column")
+    linked = fed("\x1b]8;;https://a\x1b\\a\x1b[2X" + bolt + "\x1b[4Gb\x1b]8;;\x1b\\")
+    require(not linked.unknown, "an anchor under the cell's link was rejected: %r" % (linked.unknown,))
+    cleared = fed("\ud55cb\ud55c\x1b[1;2H\x1b[3X")
+    require(cleared.row_text(0) == "", "a clear left half a cluster: %r" % cleared.row_text(0))
+    require(cleared.col == 1, "a clear moved the caret to column %d" % (cleared.col + 1))
+    margin = fed("\x1b[?7l" + "x" * 18 + "\x1b[?7h\x1b[2X" + bolt + "\x1b[?7l")
+    require(not margin.unknown and not margin.autowrap, "the margin bracket: %r" % (margin.unknown,))
+
+
+def an_anchor_or_a_clear_off_the_screen_is_a_finding():
+    for sequence in ("\x1b[0G", "\x1b[21G", "\x1b[G", "\x1b[1;20H\x1b[2X", "\x1b[0X", "\x1b[X"):
+        require(fed(sequence).unknown, "%r passed the oracle unremarked" % sequence)
+    for sequence in ("\x1b[1G", "\x1b[20G", "\x1b[1;19H\x1b[2X"):
+        require(not fed(sequence).unknown, "%r was rejected" % sequence)
+
+
 def a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off():
     """`?7l` is what xfx runs under, and there a terminal clips the write."""
     require(fed("\x1b[?7l" + "x" * 21).unknown, "a clipped write passed the oracle unremarked")
@@ -1156,7 +1236,7 @@ def a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off():
 def an_undeclared_sgr_parameter_is_a_finding():
     for sequence in (
         "\x1b[999m", "\x1b[5m", "\x1b[8m", "\x1b[38;5;m", "\x1b[48;5;256m",
-        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m",
+        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m", "\x1b[48;2;78;78;78m",
     ):
         grid = fed(sequence)
         require(grid.unknown, "%r passed the oracle unremarked" % sequence)
@@ -1200,8 +1280,8 @@ def the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colou
 
 def reverse_video_and_a_background_are_accepted_and_kept_apart():
     """The caret cell's reverse (`7`/`27`) and the picker's background
-    (`48;5;n`, `48;2;r;g;b`, `49`), as `check.rs`'s `wire_color` admits them."""
-    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m", "\x1b[48;2;1;2;3m",
+    (`48;5;n`, `49`), as `check.rs`'s `wire_color` admits them."""
+    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m",
                      "\x1b[0;7m", "\x1b[1;38;5;255;48;5;236m"):
         require(not fed(sequence + "x").unknown, "the product's %r was rejected" % sequence)
     grid = fed("\x1b[0;7m \x1b[0mx\x1b[48;5;236;38;5;250my\x1b[49mz")
@@ -1321,7 +1401,7 @@ def a_frame_is_recorded_only_when_it_is_asked_for():
 
 
 def the_theme_subscription_mode_and_query_the_product_emits_are_accepted():
-    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:104`).
+    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:105`).
 
     The subscription mode xfx's session sets so a terminal volunteers a
     background change, and the outright query it asks at launch, both move no
@@ -1426,6 +1506,8 @@ TESTS = (
     a_bell_moves_nothing_and_is_counted,
     a_caret_placed_off_the_screen_or_half_addressed_is_a_finding,
     a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off,
+    the_anchor_around_a_selector_glyph_is_accepted_and_places_what_follows,
+    an_anchor_or_a_clear_off_the_screen_is_a_finding,
     an_undeclared_sgr_parameter_is_a_finding,
     the_sgr_the_product_emits_is_accepted,
     the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colour,
@@ -11240,10 +11322,9 @@ def scenario_26b(run):
 # `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4, the
 # grey a card's rail and the welcome line's brand are in), `NOTICE` (index 2)
 # and `DIM` (index 6, a turn's summary and the welcome line's version) -- the
-# three `Palette::document_retint` moves -- in the `Ansi256` spelling every
-# trial below runs at: there is no `COLORTERM` in a trial's environment, so
-# `theme::depth_from_env` answers `Ansi256` and the sequences are the indexed
-# ones.
+# three `Palette::document_retint` moves -- spelt `38;5;N`, the one spelling
+# the palette has whatever the terminal claims (`src/tui/theme.rs` `Palette`,
+# as upstream's builtins are).
 #
 # A literal, because the question this scenario asks is *which* grey a cell
 # ended up in. A harness that built the expectation from a palette helper would
@@ -11260,7 +11341,7 @@ RETINT_DARK = (RETINT_DARK_BODY, RETINT_DARK_NOTICE, RETINT_DARK_DIM)
 RETINT_LIGHT = (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE, RETINT_LIGHT_DIM)
 
 # What a terminal that took the `?2031` subscription volunteers when its
-# background changes (`src/tui/theme.rs:108-126`). Nobody typed it, so every
+# background changes (`src/tui/theme.rs:109-127`). Nobody typed it, so every
 # assertion about a draft below is also an assertion that it stayed out of the
 # composer.
 WENT_LIGHT = b"\x1b[?997;2n"

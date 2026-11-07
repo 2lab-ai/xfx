@@ -1,0 +1,1 @@
+{"mcpServers":{"d126":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-discover-stdio.ts","deep:126"]},"d2582":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-discover-stdio.ts","deep:2582"]},"d2583":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-discover-stdio.ts","deep:2583"]},"d4000":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-discover-stdio.ts","deep:4000"]}}}

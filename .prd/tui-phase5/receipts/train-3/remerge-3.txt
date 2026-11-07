@@ -1,0 +1,8 @@
+# git show --remerge-diff 116c7b10
+# The body below is git's own: a merge commit's remerge-diff shows how the commit differs
+# from what git's automatic merge produces. Empty (no diff after the header) = git's result taken unchanged.
+
+commit 116c7b10106ff88090ba9443ad589c9ad7a08073
+parents 23fd093cc9f6634f90c540e14d63e74610c21083 ec39007449e6ec006d801e841919024b182402ef
+
+    Merge feat/p5-toolgroup-redraw @ ec390074 (TG-REDRAW + b/c: a theme switch draws a tool group's rows again from their source, undrawn rows recoloured as they land) into the 2026-11-07 train 3

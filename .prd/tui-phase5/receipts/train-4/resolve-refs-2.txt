@@ -1,0 +1,21 @@
+docs/parity.md:238 (ours) / :238 (theirs) -> :238  SAME (5 lines): "| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/ful"
+src/tui/toolgroup.rs:750 (ours) / :656 (theirs) -> :749  SAME (5 lines): 'pub(crate) fn spelled(target: &str, activity: Activity) -> String {'
+docs/parity.md:238 (ours) / :238 (theirs) -> :238  SAME (5 lines): "| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/ful"
+src/tui/toolgroup.rs:798 (ours) / :704 (theirs) -> :797  SAME (5 lines): 'fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {'
+docs/parity.md:238 (ours) / :238 (theirs) -> :238  SAME (5 lines): "| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/ful"
+src/tui/toolgroup.rs:912 (ours) / :818 (theirs) -> :911  SAME (5 lines): "if character == '\\u{061c}' {"
+src/tui/shell.rs:12275 (ours) / :12189 (theirs) -> :12272  SAME (5 lines): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+src/tui/toolgroup.rs:711 (ours) / :617 (theirs) -> :710  SAME (5 lines): '"{}\\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}'
+src/tui/shell.rs:37458 (ours) / :37238 (theirs) -> :37424  SAME (5 lines): '"  tools: {} advertised ({},",'
+src/tui/approval_view.rs:685 (ours) / :685 (theirs) -> :685  SAME (5 lines): 'let text = format!("# terminal.exec cwd={cwd}\\n{command}");'
+src/tui/shell.rs:37458 (ours) / :37238 (theirs) -> :37424  SAME (5 lines): '"  tools: {} advertised ({},",'
+src/tui/approval_view.rs:685 (ours) / :685 (theirs) -> :685  SAME (5 lines): 'let text = format!("# terminal.exec cwd={cwd}\\n{command}");'
+src/tui/shell.rs:37458 (ours) / :37238 (theirs) -> :37424  SAME (5 lines): '"  tools: {} advertised ({},",'
+src/tui/approval_view.rs:685 (ours) / :685 (theirs) -> :685  SAME (5 lines): 'let text = format!("# terminal.exec cwd={cwd}\\n{command}");'
+src/tui/shell.rs:37458 (ours) / :37238 (theirs) -> :37424  SAME (5 lines): '"  tools: {} advertised ({},",'
+src/tui/approval_view.rs:685 (ours) / :685 (theirs) -> :685  SAME (5 lines): 'let text = format!("# terminal.exec cwd={cwd}\\n{command}");'
+src/tui/toolgroup.rs:750 (ours) / :656 (theirs) -> :749  SAME (5 lines): 'pub(crate) fn spelled(target: &str, activity: Activity) -> String {'
+src/tui/shell.rs:37458 (ours) / :37238 (theirs) -> :37424  SAME (5 lines): '"  tools: {} advertised ({},",'
+src/tui/approval_view.rs:685 (ours) / :685 (theirs) -> :685  SAME (5 lines): 'let text = format!("# terminal.exec cwd={cwd}\\n{command}");'
+19 references re-pointed; 0 problems; markers left: 0
+applied

@@ -1,0 +1,130 @@
+# hint-runs.sh <fx v0.0.16> <xfx built at e2937ae> 3 p5-transcript-resize; the scenario, capture.sh and src are the same at ba24235
+run 1 fx full-pgup-120 hint=0 load=35.11
+run 1 fx full-pgup-80 hint=0 load=35.11
+run 1 fx full-pgup-after hint=0 load=35.11
+run 1 fx full-pgup-back hint=0 load=35.11
+run 1 fx full-pgup-up hint=0 load=35.11
+run 1 fx full-pgup hint=0 load=35.11
+run 1 fx full-running hint=0 load=35.11
+run 1 fx full-tail-120-pgup hint=0 load=35.11
+run 1 fx full-tail-120-up hint=0 load=35.11
+run 1 fx full-tail-120 hint=0 load=35.11
+run 1 fx full-tail-80-pgup hint=0 load=35.11
+run 1 fx full-tail-80-up hint=0 load=35.11
+run 1 fx full-tail-80 hint=0 load=35.11
+run 1 fx start hint=0 load=35.11
+run 1 xfx full-pgup-120 hint=0 load=30.56
+run 1 xfx full-pgup-80 hint=0 load=30.56
+run 1 xfx full-pgup-after hint=0 load=30.56
+run 1 xfx full-pgup-back hint=0 load=30.56
+run 1 xfx full-pgup-up hint=0 load=30.56
+run 1 xfx full-pgup hint=0 load=30.56
+run 1 xfx full-running hint=0 load=30.56
+run 1 xfx full-tail-120-pgup hint=0 load=30.56
+run 1 xfx full-tail-120-up hint=0 load=30.56
+run 1 xfx full-tail-120 hint=0 load=30.56
+run 1 xfx full-tail-80-pgup hint=0 load=30.56
+run 1 xfx full-tail-80-up hint=0 load=30.56
+run 1 xfx full-tail-80 hint=0 load=30.56
+run 1 xfx start hint=0 load=30.56
+run 2 fx full-pgup-120 hint=0 load=25.25
+run 2 fx full-pgup-80 hint=0 load=25.25
+run 2 fx full-pgup-after hint=0 load=25.25
+run 2 fx full-pgup-back hint=0 load=25.25
+run 2 fx full-pgup-up hint=0 load=25.25
+run 2 fx full-pgup hint=0 load=25.25
+run 2 fx full-running hint=0 load=25.25
+run 2 fx full-tail-120-pgup hint=0 load=25.25
+run 2 fx full-tail-120-up hint=0 load=25.25
+run 2 fx full-tail-120 hint=0 load=25.25
+run 2 fx full-tail-80-pgup hint=0 load=25.25
+run 2 fx full-tail-80-up hint=0 load=25.25
+run 2 fx full-tail-80 hint=0 load=25.25
+run 2 fx start hint=0 load=25.25
+run 2 xfx full-pgup-120 hint=0 load=21.56
+run 2 xfx full-pgup-80 hint=0 load=21.56
+run 2 xfx full-pgup-after hint=0 load=21.56
+run 2 xfx full-pgup-back hint=0 load=21.56
+run 2 xfx full-pgup-up hint=0 load=21.56
+run 2 xfx full-pgup hint=0 load=21.56
+run 2 xfx full-running hint=0 load=21.56
+run 2 xfx full-tail-120-pgup hint=0 load=21.56
+run 2 xfx full-tail-120-up hint=0 load=21.56
+run 2 xfx full-tail-120 hint=0 load=21.56
+run 2 xfx full-tail-80-pgup hint=0 load=21.56
+run 2 xfx full-tail-80-up hint=0 load=21.56
+run 2 xfx full-tail-80 hint=0 load=21.56
+run 2 xfx start hint=0 load=21.56
+run 3 fx full-pgup-120 hint=0 load=19.51
+run 3 fx full-pgup-80 hint=0 load=19.51
+run 3 fx full-pgup-after hint=0 load=19.51
+run 3 fx full-pgup-back hint=0 load=19.51
+run 3 fx full-pgup-up hint=0 load=19.51
+run 3 fx full-pgup hint=0 load=19.51
+run 3 fx full-running hint=0 load=19.51
+run 3 fx full-tail-120-pgup hint=0 load=19.51
+run 3 fx full-tail-120-up hint=0 load=19.51
+run 3 fx full-tail-120 hint=0 load=19.51
+run 3 fx full-tail-80-pgup hint=0 load=19.51
+run 3 fx full-tail-80-up hint=0 load=19.51
+run 3 fx full-tail-80 hint=0 load=19.51
+run 3 fx start hint=0 load=19.51
+run 3 xfx full-pgup-120 hint=0 load=22.95
+run 3 xfx full-pgup-80 hint=0 load=22.95
+run 3 xfx full-pgup-after hint=0 load=22.95
+run 3 xfx full-pgup-back hint=0 load=22.95
+run 3 xfx full-pgup-up hint=0 load=22.95
+run 3 xfx full-pgup hint=0 load=22.95
+run 3 xfx full-running hint=0 load=22.95
+run 3 xfx full-tail-120-pgup hint=0 load=22.95
+run 3 xfx full-tail-120-up hint=0 load=22.95
+run 3 xfx full-tail-120 hint=0 load=22.95
+run 3 xfx full-tail-80-pgup hint=0 load=22.95
+run 3 xfx full-tail-80-up hint=0 load=22.95
+run 3 xfx full-tail-80 hint=0 load=22.95
+run 3 xfx start hint=0 load=22.95
+count fx full-pgup-120: hint shown in 0 of 3
+count fx full-pgup-80: hint shown in 0 of 3
+count fx full-pgup-after: hint shown in 0 of 3
+count fx full-pgup-back: hint shown in 0 of 3
+count fx full-pgup-up: hint shown in 0 of 3
+count fx full-pgup: hint shown in 0 of 3
+count fx full-running: hint shown in 0 of 3
+count fx full-tail-120-pgup: hint shown in 0 of 3
+count fx full-tail-120-up: hint shown in 0 of 3
+count fx full-tail-120: hint shown in 0 of 3
+count fx full-tail-80-pgup: hint shown in 0 of 3
+count fx full-tail-80-up: hint shown in 0 of 3
+count fx full-tail-80: hint shown in 0 of 3
+count fx start: hint shown in 0 of 3
+count xfx full-pgup-120: hint shown in 0 of 3
+count xfx full-pgup-80: hint shown in 0 of 3
+count xfx full-pgup-after: hint shown in 0 of 3
+count xfx full-pgup-back: hint shown in 0 of 3
+count xfx full-pgup-up: hint shown in 0 of 3
+count xfx full-pgup: hint shown in 0 of 3
+count xfx full-running: hint shown in 0 of 3
+count xfx full-tail-120-pgup: hint shown in 0 of 3
+count xfx full-tail-120-up: hint shown in 0 of 3
+count xfx full-tail-120: hint shown in 0 of 3
+count xfx full-tail-80-pgup: hint shown in 0 of 3
+count xfx full-tail-80-up: hint shown in 0 of 3
+count xfx full-tail-80: hint shown in 0 of 3
+count xfx start: hint shown in 0 of 3
+label full-pgup-120: the two binaries agree in 3 of 3 runs
+label full-pgup-80: the two binaries agree in 3 of 3 runs
+label full-pgup-after: the two binaries agree in 3 of 3 runs
+label full-pgup-back: the two binaries agree in 3 of 3 runs
+label full-pgup-up: the two binaries agree in 3 of 3 runs
+label full-pgup: the two binaries agree in 3 of 3 runs
+label full-running: the two binaries agree in 3 of 3 runs
+label full-tail-120-pgup: the two binaries agree in 3 of 3 runs
+label full-tail-120-up: the two binaries agree in 3 of 3 runs
+label full-tail-120: the two binaries agree in 3 of 3 runs
+label full-tail-80-pgup: the two binaries agree in 3 of 3 runs
+label full-tail-80-up: the two binaries agree in 3 of 3 runs
+label full-tail-80: the two binaries agree in 3 of 3 runs
+label start: the two binaries agree in 3 of 3 runs
+# how long each `until` waited, s:
+fx: shown Full access=0.02;gone Full access=0.02;shown Full access=0.01;gone Full access=0.01;shown Full access=0.01;gone Full access=0.02;
+xfx: shown Full access=0.02;gone Full access=0.02;shown Full access=0.02;gone Full access=0.01;shown Full access=0.02;gone Full access=0.01;

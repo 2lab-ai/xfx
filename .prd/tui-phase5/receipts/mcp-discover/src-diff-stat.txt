@@ -1,0 +1,12 @@
+# git diff --stat 58b463c8..d96603f9 -- src tests
+ src/mcp/era.rs                        |  725 +++++++++++++++++
+ src/mcp/era/tests.rs                  |  741 +++++++++++++++++
+ src/mcp/mod.rs                        |    9 +-
+ src/mcp/runtime.rs                    |  473 +++++++++--
+ src/mcp/tests.rs                      |   41 +-
+ src/mcp/tests/discover.rs             | 1181 +++++++++++++++++++++++++++
+ src/mcp/transport.rs                  | 1442 +++++++++++++++++++++++++++------
+ src/mcp/wire.rs                       |  675 +++++++++++++++
+ src/mcp/wire/tests.rs                 |  446 ++++++++++
+ tests/support/mcp_discover_fixture.sh |  130 +++
+ 10 files changed, 5517 insertions(+), 346 deletions(-)

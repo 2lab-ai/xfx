@@ -1,0 +1,181 @@
+# gates.sh at b7d47a93 (the receipt's first part committed, the worktree clean before it ran), one step after another; both cargo test suites, test-capture.sh and smoke-tui through the machine's suite lock. The receipt's own files were written while it ran ("tree clean after: no": this directory only).
+# head b7d47a93; tree clean: yes
+01 fmt                                exit 0     1s  load 4.47
+02 clippy                             exit 0    12s  load 4.60
+03 clippy-fault                       exit 0    22s  load 4.35
+04 test                               exit 0   622s  load 5.74
+05 test-fault                         exit 0   292s  load 6.83
+06 check-xfx-identity                 exit 0     1s  load 8.26
+07 check-no-stubs                     exit 0    21s  load 8.26
+08 check-no-secrets                   exit 0    26s  load 7.40
+09 check-preview-contract             exit 0    18s  load 7.08
+10 check-tui-preflight-cost           exit 0   182s  load 9.22
+11 check-usage-clock                  exit 0    10s  load 9.68
+12 test-check-no-secrets              exit 0   159s  load 8.90
+13 test-gate-env                      exit 0   144s  load 27.92
+14 test-preview-contract              exit 0    91s  load 9.79
+15 fxcap-test-sweep                   exit 0   109s  load 24.46
+16 fxcap-test-capture                 exit 0   872s  load 28.28
+17 build-release                      exit 0    14s  load 4.68
+18 build-faulty                       exit 0    45s  load 5.99
+19 smoke                              exit 0    24s  load 12.77
+20 smoke-tui                          exit 0    80s  load 9.87
+# 20 steps, 0 failed; tree clean after: no
+
+===== 01-fmt (last lines; test suites: every 'test result' line)
+===== 02-clippy (last lines; test suites: every 'test result' line)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.00s
+===== 03-clippy-fault (last lines; test suites: every 'test result' line)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.56s
+===== 04-test (last lines; test suites: every 'test result' line)
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+test result: ok. 4367 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 53.88s
+     Running unittests src/main.rs (target/debug/deps/xfx-9aebef0ea693158d)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.60s
+     Running tests/gateway.rs (target/debug/deps/gateway-f56ff7e9e94d6c3b)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs (target/debug/deps/interactive-f70d73351542cf43)
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.01s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-289fdfb8a5e98c98)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+     Running tests/llmux.rs (target/debug/deps/llmux-949d55ae05f0352d)
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+     Running tests/mcp.rs (target/debug/deps/mcp-a1a1760fc13d208a)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.10s
+     Running tests/parity.rs (target/debug/deps/parity-980418d577d0d951)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+     Running tests/permissions.rs (target/debug/deps/permissions-fa2e5e817ceaaeb5)
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+     Running tests/session_compat.rs (target/debug/deps/session_compat-1c169b8ef7fa34c2)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+     Running tests/sessions.rs (target/debug/deps/sessions-6075dbd4fddb1d5f)
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+     Running tests/tool_loop.rs (target/debug/deps/tool_loop-89543537cd6c9667)
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+     Running tests/tui.rs (target/debug/deps/tui-9905dcb580b5dadb)
+test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 44.27s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+===== 05-test-fault (last lines; test suites: every 'test result' line)
+     Running unittests src/lib.rs (target/debug/deps/xfx-2d6ea37707dba8fb)
+test result: ok. 4390 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 63.03s
+     Running unittests src/main.rs (target/debug/deps/xfx-d7d68d887e00150a)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/deps/cli-c8776cdc37409dc4)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.79s
+     Running tests/gateway.rs (target/debug/deps/gateway-113fb18146d5bb4b)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs (target/debug/deps/interactive-abc2ab33f33ffb53)
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.77s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-a59f94bb8e9396b4)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+     Running tests/llmux.rs (target/debug/deps/llmux-3c2b7ee374645874)
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.09s
+     Running tests/mcp.rs (target/debug/deps/mcp-3dd978f178c8277f)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+     Running tests/parity.rs (target/debug/deps/parity-75b2710f07c3e2b7)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+     Running tests/permissions.rs (target/debug/deps/permissions-dbbd7f7d2d644ecc)
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+     Running tests/session_compat.rs (target/debug/deps/session_compat-46650a364a6b96d7)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+     Running tests/sessions.rs (target/debug/deps/sessions-36faea77e11e45b0)
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+     Running tests/tool_loop.rs (target/debug/deps/tool_loop-e0fc31fab60f24d2)
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+     Running tests/tui.rs (target/debug/deps/tui-a9816d5a9344a131)
+test result: ok. 190 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 47.46s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+===== 06-check-xfx-identity (last lines; test suites: every 'test result' line)
+check-xfx-identity: ok (12920 tracked file(s) scanned)
+===== 07-check-no-stubs (last lines; test suites: every 'test result' line)
+check-no-stubs: ok
+===== 08-check-no-secrets (last lines; test suites: every 'test result' line)
+check-no-secrets: ok (12920 tracked file(s) scanned)
+===== 09-check-preview-contract (last lines; test suites: every 'test result' line)
+check-preview-contract: ok (.github/workflows/preview.yml)
+===== 10-check-tui-preflight-cost (last lines; test suites: every 'test result' line)
+check-tui-preflight-cost: measuring (default features)
+preflight 24x80 unchanged: 0 bytes in 37.899µs mean, 31.416µs min, 31.708µs median, 155.75µs max (budget 8 ms)
+preflight 24x80 sparse: 26 bytes in 31.383µs mean, 30.875µs min, 31.125µs median, 34.041µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 65.47µs mean, 63.167µs min, 64.459µs median, 75.041µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 31.46µs mean, 30.875µs min, 31.042µs median, 34.583µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 39.145µs mean, 38.375µs min, 38.791µs median, 44.583µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 675.962µs mean, 606.583µs min, 681.834µs median, 860.375µs max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 566.493µs mean, 485.458µs min, 559.208µs median, 684.959µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 977.77µs mean, 912.084µs min, 978.042µs median, 1.046792ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 480.858µs mean, 471.542µs min, 480.458µs median, 494.166µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 643.395µs mean, 636.083µs min, 641.542µs median, 665.708µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 339.299µs mean, 334.083µs min, 339.167µs median, 354.458µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.197438ms mean, 1.184292ms min, 1.195334ms median, 1.223958ms max (budget 32 ms)
+check-tui-preflight-cost: measuring (fault injection)
+preflight 24x80 unchanged: 0 bytes in 45.602µs mean, 30.833µs min, 35.917µs median, 187.666µs max (budget 8 ms)
+preflight 24x80 sparse: 26 bytes in 35.36µs mean, 33.542µs min, 34.25µs median, 47.458µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 73.287µs mean, 70.416µs min, 72.625µs median, 84.708µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 35.727µs mean, 35.083µs min, 35.625µs median, 38µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 45.856µs mean, 44.625µs min, 44.958µs median, 59.166µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 850.406µs mean, 635µs min, 855.125µs median, 1.150625ms max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 624.439µs mean, 566µs min, 622.625µs median, 686.666µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.057204ms mean, 966.583µs min, 1.043834ms median, 1.176125ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 460.218µs mean, 445.375µs min, 453.125µs median, 484.791µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 653.416µs mean, 642.625µs min, 648.167µs median, 682.084µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 330.85µs mean, 324.833µs min, 327.958µs median, 356.292µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.188522ms mean, 1.171417ms min, 1.186084ms median, 1.21975ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+===== 11-check-usage-clock (last lines; test suites: every 'test result' line)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+===== 12-test-check-no-secrets (last lines; test suites: every 'test result' line)
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 13-test-gate-env (last lines; test suites: every 'test result' line)
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+===== 14-test-preview-contract (last lines; test suites: every 'test result' line)
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+===== 15-fxcap-test-sweep (last lines; test suites: every 'test result' line)
+Ran 66 tests in 5.857s
+OK
+Ran 26 tests in 99.892s
+OK
+===== 16-fxcap-test-capture (last lines; test suites: every 'test result' line)
+Ran 59 tests in 749.002s
+OK
+===== 17-build-release (last lines; test suites: every 'test result' line)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 13.59s
+===== 18-build-faulty (last lines; test suites: every 'test result' line)
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s) in 44.80s
+===== 19-smoke (last lines; test suites: every 'test result' line)
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <smoke-dir>/smoke
+===== 20-smoke-tui (last lines; test suites: every 'test result' line)
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures
+evidence: <smoke-dir>/smoke-tui

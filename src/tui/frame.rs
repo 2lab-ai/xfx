@@ -371,6 +371,16 @@ pub(crate) enum Collapse {
     Deferred,
 }
 
+/// What an append's writer said about its rows, one entry per row from its
+/// first, and an empty slice for every row plain and drawn once
+/// (`super::transcript::Append::kinds`, `::redraws`): recorded on the grid
+/// with each row as it is placed ([`Grid::record`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Recorded<'a> {
+    pub(crate) kinds: &'a [super::theme::DocumentRow],
+    pub(crate) redraws: &'a [Option<super::theme::Redraw>],
+}
+
 impl Band {
     pub(crate) fn new() -> Self {
         Self {
@@ -414,6 +424,14 @@ impl Band {
     #[cfg(test)]
     pub(crate) fn untamper(&mut self) {
         self.tamper = None;
+    }
+
+    /// What this band believes the terminal is holding: for the tests that
+    /// read a cell's colour off the screen once every write has landed,
+    /// rather than off the bytes of one of them.
+    #[cfg(test)]
+    pub(crate) fn shadow(&self) -> &Grid {
+        &self.shadow
     }
 
     /// Damages the grid every frame from here on aims at, for the tests that
@@ -643,7 +661,7 @@ impl Band {
                 break;
             }
             cup(bytes, line, 1);
-            bytes.extend_from_slice(row_text(row, geometry.cols).as_bytes());
+            write_row(bytes, row, geometry.cols);
         }
         cup(bytes, cursor.at.0, cursor.at.1.saturating_add(1));
         bytes.extend_from_slice(if cursor.shown {
@@ -724,8 +742,7 @@ impl Band {
                 break;
             }
             cup(&mut self.buffer, line, 1);
-            self.buffer
-                .extend_from_slice(row_text(row, geometry.cols).as_bytes());
+            write_row(&mut self.buffer, row, geometry.cols);
         }
         cup(&mut self.buffer, cursor.0, cursor.1.saturating_add(1));
         self.buffer.extend_from_slice(END_FRAME.as_bytes());
@@ -1055,8 +1072,7 @@ impl Band {
                 break;
             }
             cup(&mut self.buffer, line, 1);
-            self.buffer
-                .extend_from_slice(row_text(row, geometry.cols).as_bytes());
+            write_row(&mut self.buffer, row, geometry.cols);
         }
         cup(&mut self.buffer, cursor.0, cursor.1.saturating_add(1));
         self.buffer.extend_from_slice(END_FRAME.as_bytes());
@@ -1488,22 +1504,24 @@ impl Band {
         geometry: &'rows Geometry,
         room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
-        self.render_append_recorded(scroll, rows, &[], geometry, room)
+        self.render_append_recorded(scroll, rows, Recorded::default(), geometry, room)
     }
 
     /// [`Self::render_append`], with what each row is recorded on the target
-    /// grid as it is placed (`super::transcript::Append::kinds`; empty is every
-    /// row plain): what a later theme report repaints its cells as
+    /// grid as it is placed (`super::transcript::Append::kinds` and
+    /// `::redraws`; empty is every row plain and drawn once): what a later
+    /// theme report repaints its cells as, or draws it again from
     /// ([`Grid::retint_document`]).
     fn render_append_recorded<'rows>(
         &mut self,
         scroll: usize,
         rows: &'rows [String],
-        kinds: &[super::theme::DocumentRow],
+        recorded: Recorded<'_>,
         geometry: &'rows Geometry,
         room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
-        let kind = |index: usize| kinds.get(index).copied().unwrap_or_default();
+        let kind = |index: usize| recorded.kinds.get(index).copied().unwrap_or_default();
+        let redraw = |index: usize| recorded.redraws.get(index).cloned().flatten();
         self.buffer.clear();
         // The shadow moves with the screen, step for step, and the two are
         // written side by side rather than in two functions: an append that
@@ -1632,7 +1650,7 @@ impl Band {
                 self.target.place_row(line, row, geometry);
             }
             // A reused row is still the row this append says it is.
-            self.target.set_kind(line, kind(index));
+            self.target.record(line, kind(index), redraw(index));
         }
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
@@ -1648,7 +1666,8 @@ impl Band {
             };
             place(&mut self.buffer, line, row, geometry);
             self.target.place_row(line, row, geometry);
-            self.target.set_kind(line, kind(settled + index));
+            self.target
+                .record(line, kind(settled + index), redraw(settled + index));
         }
         // Every row these bytes may reach, and every scroll they may make,
         // named from the counts above rather than from what was emitted.
@@ -2397,9 +2416,12 @@ impl Band {
     ///   Nothing it does can put a row into native scrollback, which is the one
     ///   thing on this surface that cannot be taken back.
     /// * It repaints **cells, never rows**: the candidate is a copy of the
-    ///   shadow with one colour slot rewritten per recognised cell
-    ///   ([`Grid::retint_document`]), so it cannot *create* a cell and
-    ///   therefore cannot reconstruct history the screen no longer has.
+    ///   shadow with one colour slot rewritten per recognised cell, or -- on
+    ///   a row its writer recorded drawings for, a tool group's -- each cell
+    ///   given the attributes the drawing in the new mode puts on it, only
+    ///   while the row still holds the drawing's text ([`Grid::retint_document`]).
+    ///   So it cannot *create* a cell and therefore cannot reconstruct
+    ///   history the screen no longer has.
     /// * It runs only where the shadow is a claim about **this** screen. A
     ///   damaged band, a shadow of another size and a plane this band is not on
     ///   are each [`Retint::Deferred`] with no bytes -- what is not knowable is
@@ -2440,7 +2462,7 @@ impl Band {
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
         self.target.clone_from(&self.shadow);
-        if self.target.retint_document(last, palette) == 0 {
+        if self.target.retint_document(last, palette, geometry) == 0 {
             return Ok(Retint::Settled(Commit::NoChange));
         }
         self.buffer.clear();
@@ -2598,21 +2620,22 @@ impl Band {
         rows: &[String],
         geometry: &Geometry,
     ) -> Result<(), Emit> {
-        self.append_floating(out, scroll, rows, &[], geometry, 0)
+        self.append_floating(out, scroll, rows, Recorded::default(), geometry, 0)
     }
 
     /// [`Self::append_document`] onto a band that moved `room` rows down for
     /// it: the first `room` new rows take the rows the band gave back, and
     /// only the rest scroll ([`Self::render_append`]).
     ///
-    /// `kinds` is what each row is (`super::transcript::Append::kinds`,
-    /// empty for every row plain), recorded on the grid with the row.
+    /// `recorded` is what each row is and how its writer draws it again
+    /// (`super::transcript::Append::kinds`, `::redraws`, empty for every row
+    /// plain), recorded on the grid with the row.
     pub(crate) fn append_floating(
         &mut self,
         out: &mut impl Sink,
         scroll: usize,
         rows: &[String],
-        kinds: &[super::theme::DocumentRow],
+        recorded: Recorded<'_>,
         geometry: &Geometry,
         room: u16,
     ) -> Result<(), Emit> {
@@ -2620,7 +2643,7 @@ impl Band {
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
         let (appended, footprint, script) =
-            self.render_append_recorded(scroll, rows, kinds, geometry, room);
+            self.render_append_recorded(scroll, rows, recorded, geometry, room);
         if appended.is_empty() {
             return Ok(());
         }
@@ -2712,6 +2735,17 @@ fn scroll_one(buffer: &mut Vec<u8>, geometry: &Geometry) {
 /// (`finishComposedInputRow`, `input_presentation.zig:1095-1097`, and
 /// `writeDocumentAppendClear`'s `start_col < target_cols`,
 /// `terminal_diff.zig:1177-1195`).
+///
+/// **The text as it stands, with no anchor around a glyph whose width terminals
+/// dispute**, which is where this differs from the rows a frame paints
+/// ([`write_row`]). These rows are the document's, and upstream writes its
+/// document's rows as their own bytes -- `appendDocumentMovement`,
+/// `src/ui/render_engine/terminal_diff.zig:1369-1426@481104fd`, outside the
+/// frame diff that writes `ECH`/`CHA` around such a glyph (`engine.zig:
+/// 2548-2589`) -- so the terminal places what follows by its own advance, as
+/// it does under upstream. An anchor here would also skip cells on a row this
+/// erases only behind its text: the cells a terminal draws narrower than this
+/// crate counts would keep whatever the scroll brought up into them.
 fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
     cup(buffer, line, 1);
     let text = row_text(row, geometry.cols);
@@ -2719,6 +2753,16 @@ fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
     if super::wrap::width(&text) < geometry.cols {
         buffer.extend_from_slice(ERASE_LINE.as_bytes());
     }
+}
+
+/// One row of a frame painted whole, from the column a `CUP` just put the caret
+/// on: [`row_text`], written as the grid diff writes cells
+/// ([`super::grid::write_row_text`]) -- the clear, the anchor and the autowrap
+/// bracket upstream's frame diff writes around a unit. The alternate plane's
+/// surface and the band's whole repaints: upstream paints both through that
+/// diff (`terminal_diff.zig:618-640@481104fd`).
+fn write_row(buffer: &mut Vec<u8>, row: &str, cols: u16) {
+    super::grid::write_row_text(buffer, &row_text(row, cols), cols);
 }
 
 /// The window title a session asks for: the session's own title once it has
@@ -3749,7 +3793,6 @@ mod tests {
         // A gutter writes nothing of its own; landing it is a state change.
         let palette = crate::tui::theme::Palette {
             mode: crate::tui::theme::Mode::Dark,
-            depth: crate::tui::theme::Depth::Ansi256,
         };
         while transcript
             .emit_front(palette, |_| {
@@ -6540,7 +6583,6 @@ mod tests {
                 &mut Counted::default(),
                 &super::super::theme::Palette {
                     mode: super::super::theme::Mode::Light,
-                    depth: super::super::theme::Depth::Ansi256,
                 },
                 &geometry()
             ),
@@ -7014,9 +7056,9 @@ mod tests {
     // do is narrow -- colours, above the band, no scroll, nothing created --
     // and these say so at the level the bytes are decided.
 
-    /// The document's two owned greys, dark and light, at the depth these
-    /// cases paint in. Spelled out rather than asked of `theme`: a test built
-    /// from the accessor it is checking passes for whatever that accessor says.
+    /// The document's two owned greys, dark and light. Spelled out rather than
+    /// asked of `theme`: a test built from the accessor it is checking passes
+    /// for whatever that accessor says.
     const BODY_DARK: &str = "\u{1b}[38;5;255m";
     const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
@@ -7027,14 +7069,12 @@ mod tests {
     fn dark_palette() -> super::super::theme::Palette {
         super::super::theme::Palette {
             mode: super::super::theme::Mode::Dark,
-            depth: super::super::theme::Depth::Ansi256,
         }
     }
 
     fn light_palette() -> super::super::theme::Palette {
         super::super::theme::Palette {
             mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::Ansi256,
         }
     }
 
@@ -7084,7 +7124,10 @@ mod tests {
                 String::new(),
                 "  Read both.".to_string(),
             ],
-            &[ToolGroup, ToolGroup, ToolGroup, Plain, Plain],
+            Recorded {
+                kinds: &[ToolGroup, ToolGroup, ToolGroup, Plain, Plain],
+                redraws: &[],
+            },
             geometry,
             0,
         )
@@ -8085,6 +8128,297 @@ mod tests {
             .zip(by_stage)
             {
                 report(screen_cols, screen_rows, label, samples);
+            }
+        }
+    }
+
+    // -- a variation selector, on the rows written whole --------------------
+    //
+    // The frames painted whole write a row's text rather than a grid's cells,
+    // and owe it what the grid diff does for each cell (`super::super::grid`'s
+    // tests): upstream's `src/core/terminal/engine.zig:2548-2589@481104fd`.
+    // The document's rows are not a frame's (`place`).
+
+    const BOLT: &str = "\u{26a1}\u{fe0e}";
+
+    /// Line 2 of `p5-transcript-diffwide2`'s file as the full transcript's read
+    /// row writes it: `half` U+FFA0 U+FE0E, after a U+3164 and a U+1160 that
+    /// upstream and this crate count three cells more than tmux draws. fx
+    /// v0.0.16 writes `ESC[42G` after the pair
+    /// (`.prd/tui-phase5/receipts/engine-vs-anchor`).
+    fn diffwide2_read_row() -> String {
+        "\u{2502}\u{1b}[38;5;245m  2    fill\u{ffa0}\u{301}er hang\u{3164}\u{301}ul \
+         jung\u{1160}\u{301}seong half\u{ffa0}\u{fe0e}x zwj\u{ffa0}\\u{200d}y \
+         jamo\u{115f}\u{1160}z\u{1b}[39m"
+            .to_string()
+    }
+
+    #[test]
+    fn the_whole_surface_puts_the_cursor_back_after_a_selector_glyph() {
+        let (mut band, geometry) = painted_primary();
+        let mut rows = screen_rows(geometry.rows);
+        rows[3] = format!("a {BOLT} b");
+        rows[4] = format!("c {BOLT}");
+        let frame = band
+            .enter_alternate(&rows, &geometry, (7, 0))
+            .expect("a vector the check accepted");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains(&format!("\u{1b}[4;1Ha \u{1b}[2X{BOLT}\u{1b}[5G b")),
+            "{text:?}"
+        );
+        // Nothing after it on its row, so no anchor: the next row's `CUP`.
+        assert!(
+            text.contains(&format!("\u{1b}[5;1Hc \u{1b}[2X{BOLT}\u{1b}[6;1H")),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn the_full_transcripts_read_row_lands_x_where_upstream_does() {
+        let (mut band, geometry) = painted_primary();
+        let mut rows = screen_rows(geometry.rows);
+        rows[8] = diffwide2_read_row();
+        let frame = band
+            .enter_alternate(&rows, &geometry, (7, 0))
+            .expect("a vector the check accepted");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains("half\u{ffa0}\u{fe0e}\u{1b}[42Gx zwj"),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn a_document_row_is_written_as_it_stands_as_upstreams_document_append_is() {
+        // Upstream writes a document row as its own bytes, outside the frame
+        // diff that anchors (`terminal_diff.zig:1369-1426@481104fd`).
+        let geometry = geometry();
+        let mut band = Band::new();
+        band.commit(&mut Vec::new(), &band_rows(), &geometry, (23, 2))
+            .expect("a first frame");
+        let mut out = Vec::new();
+        band.append_document(&mut out, 0, &[format!("a {BOLT} b")], &geometry)
+            .expect("an append the check accepted");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(text.contains(&format!("a {BOLT} b\u{1b}[K")), "{text:?}");
+        assert!(
+            !text.contains("\u{1b}[2X") && !text.contains("G"),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn a_band_row_ending_in_a_suffixed_wide_unit_at_the_margin_is_guarded_and_accepted() {
+        let geometry = geometry();
+        let lead = "x".repeat(usize::from(geometry.cols) - 2);
+        let mut rows = band_rows();
+        rows[2] = format!("{lead}{BOLT}");
+        let mut band = Band::new();
+        let mut out = Vec::new();
+        band.commit(&mut out, &rows, &geometry, (23, 2))
+            .expect("a frame the check accepted");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(
+            text.contains(&format!("{lead}\u{1b}[?7h\u{1b}[2X{BOLT}\u{1b}[?7l")),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too() {
+        let geometry = geometry();
+        let mut rows = band_rows();
+        rows[2] = format!("a {BOLT} b");
+        let mut band = Band::new();
+        let whole = String::from_utf8(band.render(&rows, &geometry, (23, 2))).expect("utf-8");
+        assert!(
+            whole.contains(&format!("a \u{1b}[2X{BOLT}\u{1b}[5G b")),
+            "{whole:?}"
+        );
+        let (mut band, geometry) = on_the_alternate_plane(&screen_rows(geometry.rows));
+        let frame = band
+            .restore_primary(&rows, &geometry, (23, 2))
+            .expect("a vector the check accepted");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains(&format!("a \u{1b}[2X{BOLT}\u{1b}[5G b")),
+            "{text:?}"
+        );
+    }
+
+    /// A cluster a colour split off the glyph in front of it: `한` and a
+    /// U+0301 (the glyph two cells wide, so the grid drops the mark,
+    /// `super::super::grid`'s `place_row`), and `☀` and a U+FE0F (one cell,
+    /// so the grid joins the selector at one cell -- where the pair written
+    /// together is two, `wrap::width`).
+    const SPLIT_WIDE: &str = "\u{d55c}\u{1b}[39m\u{301} x";
+    const SPLIT_NARROW: &str = "\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[22m x";
+
+    #[test]
+    fn a_cluster_a_colour_split_off_its_glyph_is_written_where_it_stands_on_a_surface() {
+        // The review's must-fix (round 1): moving the cluster ahead of the
+        // colour makes the bytes one cluster, which the check measures again
+        // and refuses -- the Ctrl-O screen, the approval and the question
+        // painter alike, until the frame budget ends the session.
+        let (mut band, geometry) = painted_primary();
+        let mut rows = screen_rows(geometry.rows);
+        rows[3] = SPLIT_WIDE.to_string();
+        rows[4] = SPLIT_NARROW.to_string();
+        let frame = band
+            .enter_alternate(&rows, &geometry, (7, 0))
+            .expect("a vector the check accepted");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains("\u{1b}[4;1H\u{d55c}\u{1b}[39m\u{301} x"),
+            "{text:?}"
+        );
+        // The selector stays behind its colour; the grid's one-cell `☀`
+        // with it is a selector glyph, so the anchor follows the selector.
+        assert!(
+            text.contains("\u{1b}[5;1H\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[2G\u{1b}[22m x"),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn a_selector_a_colour_split_off_a_one_cell_glyph_is_written_split_by_the_band_diff() {
+        // The grid joins the selector to the one-cell glyph and keeps the
+        // glyph's one cell; written together, the two are one cluster two
+        // cells wide, which the check refuses (the review's should-fix 3,
+        // on the base as well). The diff writes them split, as the row did.
+        let geometry = geometry();
+        let mut rows = band_rows();
+        rows[2] = SPLIT_NARROW.to_string();
+        let mut band = Band::new();
+        let mut out = Vec::new();
+        band.commit(&mut out, &rows, &geometry, (23, 2))
+            .expect("a frame the check accepted");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(text.contains("\u{2600}\u{1b}[0m\u{fe0f}"), "{text:?}");
+    }
+
+    // -- a tool group's split cell drawn again (train 3) ----------------------
+    //
+    // TG-REDRAW's retint gives a tool group's row the attributes its drawing
+    // in the new mode puts on each cell (`Grid::retint_document`), and the
+    // band writes the cells it moved through `Grid::diff`, which writes each
+    // through `put_unit` and `write_cell` (ENGINE-VS-ANCHOR). `☀`, a colour,
+    // U+FE0F is the cell `write_cell` splits: one cell in the grid, two
+    // written together (`wrap::width`).
+
+    /// A tool group's call row whose `☀` has its selector split off by the
+    /// highlighter's colour, as the group draws it in a mode: `grey` is the
+    /// statusline's, `word` the colour the selector is written under. `pad`
+    /// cells of `x` stand between `echo ` and the glyph, and `tail` after it.
+    fn split_call_row(mark: char, pad: usize, tail: &str, grey: u8, word: u8) -> String {
+        format!(
+            "\u{1b}[38;5;{grey}m{mark} Ran echo {}\u{2600}\u{1b}[38;5;{word}m\u{fe0f}\
+             \u{1b}[38;5;{grey}m{tail}\u{1b}[0m",
+            "x".repeat(pad)
+        )
+    }
+
+    #[test]
+    fn a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted() {
+        use super::super::grid::{Cell, Grid};
+        use super::super::theme::{DocumentRow::ToolGroup, Redraw};
+        let geometry = geometry();
+        // Mid-row (`☀` in column 12, ` x` after it), and in the last column
+        // (68 `x`: the glyph is column 80, the row exactly the screen's width).
+        let rows: Vec<(char, usize, &str)> = vec![('\u{251c}', 0, " x"), ('\u{2514}', 68, "")];
+        let drawings: Vec<Redraw> = rows
+            .iter()
+            .map(|&(mark, pad, tail)| {
+                Redraw::new(
+                    split_call_row(mark, pad, tail, 245, 252),
+                    split_call_row(mark, pad, tail, 241, 238),
+                )
+            })
+            .collect();
+        let dark: Vec<String> = drawings
+            .iter()
+            .map(|redraw| redraw.drawn(super::super::theme::Mode::Dark).to_string())
+            .collect();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame sizes the shadow");
+        band.append_floating(
+            &mut screen,
+            2,
+            &dark,
+            Recorded {
+                kinds: &[ToolGroup, ToolGroup],
+                redraws: &drawings.iter().cloned().map(Some).collect::<Vec<_>>(),
+            },
+            &geometry,
+            0,
+        )
+        .expect("the group lands");
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("the frame the append owed");
+        let lines: Vec<u16> = rows
+            .iter()
+            .map(|&(mark, _, _)| {
+                (1..=geometry.rows)
+                    .find(|&line| {
+                        matches!(band.shadow().cell(line, 1),
+                            Some(Cell::Lead { grapheme, .. }) if grapheme.starts_with(mark))
+                    })
+                    .expect("the call row on the screen")
+            })
+            .collect();
+        for (line, column) in lines.iter().zip([12u16, 80]) {
+            assert!(
+                matches!(band.shadow().cell(*line, column),
+                    Some(Cell::Lead { grapheme, width: 1, .. }) if grapheme == "\u{2600}\u{fe0f}"),
+                "row {line}: the selector is not the glyph's one cell: {:?}",
+                band.shadow().cell(*line, column)
+            );
+        }
+        for (palette, grey) in [(light_palette(), 241u8), (dark_palette(), 245)] {
+            screen.written.clear();
+            assert_eq!(
+                band.retint_document(&mut screen, &palette, &geometry)
+                    .expect("the check accepts the redrawn split cells"),
+                Retint::Settled(Commit::Painted),
+                "{:?}",
+                palette.mode
+            );
+            let written = String::from_utf8(screen.written.clone()).expect("text and escapes");
+            let pen = format!("\u{1b}[38;5;{grey}m");
+            // Mid-row: the glyph, the cell's pen again, the selector, and the
+            // caret put on the column after the one cell.
+            assert!(
+                written.contains(&format!("\u{2600}{pen}\u{fe0f}\u{1b}[13G")),
+                "{:?}: {written:?}",
+                palette.mode
+            );
+            // In the last column: split the same way, no bracket (one cell)
+            // and no anchor (nothing after it on the screen).
+            let last = format!("\u{2600}{pen}\u{fe0f}");
+            let at = written.rfind(&last).expect("the margin cell written");
+            assert!(
+                !written[at + last.len()..].starts_with("\u{1b}[81G")
+                    && !written.contains("\u{1b}[?7h"),
+                "{:?}: {written:?}",
+                palette.mode
+            );
+            // And the rows are what a fresh paint of the drawing in that mode
+            // leaves.
+            for (line, redraw) in lines.iter().zip(&drawings) {
+                let mut fresh = Grid::blank(geometry.rows, geometry.cols);
+                fresh.place_row(*line, redraw.drawn(palette.mode), &geometry);
+                for column in 1..=geometry.cols {
+                    assert!(
+                        band.shadow().cell(*line, column) == fresh.cell(*line, column),
+                        "{:?} row {line} column {column}: {:?} against {:?}",
+                        palette.mode,
+                        band.shadow().cell(*line, column),
+                        fresh.cell(*line, column)
+                    );
+                }
             }
         }
     }

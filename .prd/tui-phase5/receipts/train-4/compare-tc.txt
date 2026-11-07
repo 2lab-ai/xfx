@@ -1,0 +1,201 @@
+# compare.py <tc's own head sweep, rescored with the train's ledger> <the train head's sweep (3bd15c89)>
+pairs: reference 169, train 526, shared 169; only the reference: 0
+reference: 169 pairs, pass 88; approved-divergence 2, identical 10, normalized-identical 78, unresolved-defect 79
+train: 169 pairs, pass 89; approved-divergence 3, identical 9, normalized-identical 80, unresolved-defect 77
+p5-transcript-diffwide full: 28 differing rows left, 0 new
+    left: fx '' / xfx '  Editing the file.'
+    left: fx '' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '' / xfx '│  5678'
+    left: fx '' / xfx '┃ edit the file'
+    left: fx '' / xfx '└ Edited wide.txt +1 / -1'
+    left: fx '  Editing the file.' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx ''
+    left: fx '  finish: stop' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  finish: tool_calls' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  finish: stop'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  finish: tool_calls'
+    left: fx '  │     5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL'
+    left: fx '  │ 1 + FIRST LINE' / xfx '  │ 1 - first line'
+    left: fx '  │ 1 - first line' / xfx ''
+    left: fx '  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial' / xfx '  │ 1 + FIRST LINE'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / xfx '  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial'
+    left: fx '* network: provider: gateway · model: fake/model-a · <ms>' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '│  1    first line' / xfx '├ Read wide.txt'
+    left: fx '│  2    soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial' / xfx '│  1    first line'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / xfx '│  2    soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial'
+    left: fx '│  5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL'
+    left: fx '┃ edit the file' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '└ Edited wide.txt +1 / -1' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '├ Read wide.txt' / xfx '● 2 tool calls · 1 read · 1 edit'
+    left: fx '● 2 tool calls · 1 read · 1 edit' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+p5-transcript-diffwide2 full: 26 differing rows left, 4 new
+    left: fx '' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    left: fx '  Editing the file.' / xfx '┃ edit the file'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '│  🏽🏽TAIL5678'
+    left: fx '  │     5678' / xfx '  │ 1 + FIRST LINE'
+    left: fx '  │     5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    left: fx '  │     IL5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+    left: fx '  │ 1 + FIRST LINE' / xfx '└ Edited wide2.txt +1 / -1'
+    left: fx '  │ 1 - first line' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ''
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / xfx '  │ 1 - first line'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+    left: fx '│  1    first line' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx '● 2 tool calls · 1 read · 1 edit'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / xfx '├ Read wide2.txt'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx '│  5678'
+    left: fx '│  5678' / xfx '│  1    first line'
+    left: fx '│  5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+    left: fx '│  6    modﾠ🏽end' / xfx '│  IL5678'
+    left: fx '│  IL5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+    left: fx '└ Edited wide2.txt +1 / -1' / xfx '│  6    modﾠ🏽end'
+    left: fx '├ Read wide2.txt' / xfx ''
+    left: fx '● 2 tool calls · 1 read · 1 edit' / xfx '  Editing the file.'
+    NEW:  fx '  │     5678' / xfx '  │     🏽🏽TAIL5678'
+    NEW:  fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    NEW:  fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    NEW:  fx '│  5678' / xfx '│  🏽🏽TAIL5678'
+verdicts moved: 5
+    p5-transcript-diffwide full: unresolved-defect -> normalized-identical
+    p5-transcript-diffwide2 full: unresolved-defect -> approved-divergence
+    p5-transcript-submit filled: identical -> normalized-identical
+    p5-transcript-submit second: identical -> normalized-identical
+    p5-transcript-submit-multi submit-0.15: normalized-identical -> identical
+fx screens not the same in the two sweeps: 58
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-dark
+    p5-toolgroup-live running-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-anchormid running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+xfx screens not the same in the two sweeps: 68
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-retint-light dark
+    p5-toolgroup-retint-light light
+    p5-toolgroup-retint-light light-again
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl closed
+    p5-transcript-diffctl edited
+    p5-transcript-diffctl edited.full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab end
+    p5-transcript-safetab full
+    p5-transcript-submit filled
+    p5-transcript-submit second
+    p5-transcript-submit submit-0.15
+    p5-transcript-submit tall.full
+    p5-transcript-submit-multi submit-0.15
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 1
+# exit 0

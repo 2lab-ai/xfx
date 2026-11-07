@@ -1,0 +1,59 @@
+# The five tests, written before the fix, run on the base's code (58b463c8; the
+# tests alone added): cargo test --locked --lib -- <the five names>
+
+running 5 tests
+test tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it ... FAILED
+test tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it ... FAILED
+test tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on ... FAILED
+test tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank ... FAILED
+test tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it stdout ----
+
+thread 'tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it' (276331543) panicked at src/tui/full_transcript.rs:3277:9:
+assertion `left == right` failed
+  left: ["  │     (the text of this file"]
+ right: ["  │     (the text of this file", " would not change)"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it stdout ----
+
+thread 'tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it' (276331542) panicked at src/tui/full_transcript.rs:3109:9:
+assertion `left == right` failed
+  left: ["\u{1b}[38;5;252m  │ 1 + wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL\u{1b}[0m"]
+ right: ["\u{1b}[38;5;252m  │ 1 + wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL\u{1b}[0m", "\u{1b}[38;5;252m  │     5678\u{1b}[0m"]
+
+---- tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on stdout ----
+
+thread 'tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on' (276331545) panicked at src/tui/full_transcript.rs:3240:9:
+assertion `left == right` failed: ["\u{1b}[38;5;252m  │ 1 + tab\u{1b}[0m     \u{1b}[38;5;252mdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\u{1b}[0m"]
+  left: ["  │ 1 + tab     dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"]
+ right: ["  │ 1 + tab     dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ddddd", "  │     ddddddddddd"]
+
+---- tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank stdout ----
+
+thread 'tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank' (276331546) panicked at src/tui/full_transcript.rs:3161:13:
+assertion `left == right` failed: "漢"
+  left: ["\u{1b}[38;5;252m  │ 1 + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u{1b}[0m"]
+ right: ["\u{1b}[38;5;252m  │ 1 + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u{1b}[0m", "\u{1b}[38;5;252m  │     漢TAIL\u{1b}[0m"]
+
+---- tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control stdout ----
+
+thread 'tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control' (276331544) panicked at src/tui/full_transcript.rs:3212:13:
+assertion `left == right` failed: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u{1b}[2JEND"
+  left: ["\u{1b}[38;5;252m  │ 1 + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x\u{1b}[0m"]
+ right: ["\u{1b}[38;5;252m  │ 1 + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x\u{1b}[0m", "\u{1b}[38;5;252m  │     1b[2JEND\u{1b}[0m"]
+
+
+failures:
+    tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it
+    tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it
+    tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control
+    tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4253 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

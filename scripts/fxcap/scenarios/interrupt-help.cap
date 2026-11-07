@@ -7,7 +7,14 @@ key Enter
 wait 1
 snap help-open
 key C-c
+# The exit hint is snapped while it is up and once its 3 s are over, each
+# by the screen rather than by a second count against them (FLAKE-HINT4).
+until shown press ctrl+c again to exit
 wait 0.5
 snap help-cc
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect help-cc press ctrl+c again to exit
 wait 3.5
+until gone press ctrl+c again to exit
 snap help-cc-expired

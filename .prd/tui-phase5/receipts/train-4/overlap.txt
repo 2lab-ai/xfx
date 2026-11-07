@@ -1,0 +1,30 @@
+== merge a76f4e37: ours e6cde019, theirs d56ab017, base 6c93f359; files both changed: 2
+  docs/parity.md: ours 2 hunks, theirs 1 hunks; nearest: 16 unchanged base lines (ours 238-238, theirs 221-221)
+  scripts/fxcap/parity-ledger.toml: ours 17 hunks, theirs 3 hunks; nearest: 229 unchanged base lines (ours 377-377, theirs 147-147)
+== merge 066a913d: ours a76f4e37, theirs e1d4016b, base ec390074; files both changed: 9
+  docs/parity.md: ours 6 hunks, theirs 1 hunks; nearest: 2 unchanged base lines (ours 238-238, theirs 241-241)
+  scripts/fxcap/parity-ledger.toml: ours 18 hunks, theirs 13 hunks; nearest: 0 unchanged base lines (ours 377-377, theirs 377-377)
+    touching: ours 377-377, theirs 377-377
+    touching: ours 391-391, theirs 391-391
+    touching: ours 405-405, theirs 405-405
+    touching: ours 492-502, theirs 488-491
+    touching: ours 532-532, theirs 532-532
+    touching: ours 564-564, theirs 564-564
+    touching: ours 758-758, theirs 758-758
+    touching: ours 769-769, theirs 769-769
+    touching: ours 781-781, theirs 781-781
+    touching: ours 792-792, theirs 792-792
+    touching: ours 803-803, theirs 803-803
+    touching: ours 848-848, theirs 848-848
+  scripts/smoke-tui.sh: ours 5 hunks, theirs 11 hunks; nearest: 8 unchanged base lines (ours 160-159, theirs 168-168)
+  src/tui/check.rs: ours 11 hunks, theirs 4 hunks; nearest: 169 unchanged base lines (ours 2441-2441, theirs 2611-2611)
+  src/tui/event_loop.rs: ours 1 hunks, theirs 16 hunks; nearest: 77 unchanged base lines (ours 13216-13215, theirs 13138-13138)
+  src/tui/frame.rs: ours 6 hunks, theirs 5 hunks; nearest: 1028 unchanged base lines (ours 2749-2748, theirs 3777-3777)
+  src/tui/full_transcript.rs: ours 7 hunks, theirs 1 hunks; nearest: 160 unchanged base lines (ours 2345-2368, theirs 2529-2534)
+  src/tui/grid.rs: ours 10 hunks, theirs 3 hunks; nearest: 452 unchanged base lines (ours 806-806, theirs 1259-1260)
+  src/tui/shell.rs: ours 29 hunks, theirs 8 hunks; nearest: 356 unchanged base lines (ours 10397-10397, theirs 10754-10754)
+== merge e3035c92: ours 066a913d, theirs 31a6ef79, base e6cde019; files both changed: 4
+  scripts/fxcap/capture.sh: ours 4 hunks, theirs 12 hunks; nearest: 10 unchanged base lines (ours 518-518, theirs 505-507)
+  scripts/fxcap/sweep.py: ours 2 hunks, theirs 2 hunks; nearest: 388 unchanged base lines (ours 418-417, theirs 30-29)
+  scripts/fxcap/test_capture.py: ours 6 hunks, theirs 9 hunks; nearest: 3 unchanged base lines (ours 158-158, theirs 152-154)
+  scripts/fxcap/test_sweep.py: ours 1 hunks, theirs 2 hunks; nearest: 47 unchanged base lines (ours 610-609, theirs 563-562)

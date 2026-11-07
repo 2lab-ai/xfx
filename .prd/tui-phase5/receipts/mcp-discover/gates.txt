@@ -1,0 +1,18 @@
+# The gate at 7c2ceeea, one step after another (scratchpad tools/gate4.sh), TMPDIR=<tmp>.
+head 7c2ceeea71dda290571c42c43b99150ca127f2b7
+dirty-before: 0
+build exit=0 9s
+fmt exit=0 1s
+clippy exit=0 5s
+clippy-fi exit=0 4s
+test exit=0 105s
+test-fi exit=0 119s
+identity exit=0 0s
+no-stubs exit=0 8s
+no-secrets exit=0 21s
+test-sweep exit=0 16s
+test-capture exit=0 139s
+dirty-after: 0
+GATEDONE
+test: passed 5211 failed 0 ignored 7
+test-fi: passed 5248 failed 0 ignored 7

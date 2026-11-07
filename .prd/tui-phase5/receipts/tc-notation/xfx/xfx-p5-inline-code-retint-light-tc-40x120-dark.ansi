@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-b8a4f95 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mshow me the code[0m
+
+  Run [38;5;255mzig build test[39m before you push.
+
+  [2m─ sh ───────────────────────
+[0m  [38;5;245m# build and test[39m
+  [38;5;252mzig[39m build test [38;5;250m--summary[39m all
+  [2m────────────────────────────
+
+[0m  [2m─ zig ─────────[0m
+  [38;5;245m// the answer[39m
+  [38;5;252mconst[39m n = [38;5;250m42[39m;
+  [38;5;252mconst[39m s = [38;5;250m"hi"[39m;
+  [2m───────────────[0m
+
+  Done with [38;5;255meverything[39m.
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

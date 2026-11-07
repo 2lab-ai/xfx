@@ -1,0 +1,11 @@
+ok   anchor p5-transcript-diffwide2 full (fx / red)
+       read row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red '́ul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz' -- fx's cells are red's with 3 unstyled blank cells before 'x zwj'
+       diff row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red '́ul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz' -- fx's cells are red's with 3 unstyled blank cells before 'x zwj'
+ok   aligned p5-transcript-diffwide2 full (fx / red)
+       33 rows the same; 16 rows one side holds alone
+       the line's read and diff rows, on each side, among them: 4 of 4
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+4 claims, 4 hold, 0 fail

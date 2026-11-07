@@ -1,0 +1,21 @@
+# The two files ENGINE-VS-ANCHOR and TG-REDRAW both changed, hunk by hunk against their
+# merge base 58b463c8 (`git diff -U0`), in base line numbers: a hunk `-a,n` replaces base
+# lines a..a+n-1, and `-a,0` inserts after line a. `gap` = the base lines neither side changed
+# between a hunk of one side and a hunk of the other (an insertion after line a has none of
+# its own: it sits between a and a+1). git conflicts only where two hunks overlap or touch.
+
+src/tui/grid.rs ENGINE-VS-ANCHOR (8d802907), 10 hunks: -30,5, -43,0, -188,0, -628,0, -682,0, -684,1, -692,1, -694,1, -698,1, -1672,0
+
+src/tui/grid.rs TG-REDRAW (ec390074), 34 hunks: -39,1, -199,4, -216,1, -232,2, -281,2, -283,0, -286,1, -288,1, -295,2, -299,0, -386,0, -389,7, -399,4, -405,1, -410,1, -411,0, -415,0, -436,0, -489,1, -496,1, -500,1, -502,1, -563,2, -1189,1, -1223,1, -1256,1, -1268,1, -1412,0, -1422,1, -1440,1, -1457,1, -1473,1, -1555,1, -1580,1
+src/tui/grid.rs: the closest pairs
+  gap 4 unchanged base lines: ENGINE-VS-ANCHOR -30,5 and TG-REDRAW -39,1
+  gap 4 unchanged base lines: ENGINE-VS-ANCHOR -43,0 and TG-REDRAW -39,1
+  gap 10 unchanged base lines: ENGINE-VS-ANCHOR -188,0 and TG-REDRAW -199,4
+
+src/tui/frame.rs ENGINE-VS-ANCHOR (8d802907), 6 hunks: -646,1, -727,2, -1058,2, -2714,0, -2723,0, -8090,0
+
+src/tui/frame.rs TG-REDRAW (ec390074), 15 hunks: -373,0, -418,0, -1491,1, -1495,2, -1502,1, -1506,1, -1635,1, -1651,1, -2400,3, -2443,1, -2601,1, -2608,2, -2615,1, -2623,1, -7087,1
+src/tui/frame.rs: the closest pairs
+  gap 91 unchanged base lines: ENGINE-VS-ANCHOR -2714,0 and TG-REDRAW -2623,1
+  gap 99 unchanged base lines: ENGINE-VS-ANCHOR -2714,0 and TG-REDRAW -2615,1
+  gap 100 unchanged base lines: ENGINE-VS-ANCHOR -2723,0 and TG-REDRAW -2623,1

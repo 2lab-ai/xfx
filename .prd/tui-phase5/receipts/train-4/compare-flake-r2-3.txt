@@ -1,0 +1,89 @@
+# compare.py <flake-r2-3's own head sweep, rescored with the train's ledger> <the train head's sweep (3bd15c89)>
+pairs: reference 93, train 526, shared 93; only the reference: 0
+reference: 93 pairs, pass 29; normalized-identical 29, unresolved-defect 64
+train: 93 pairs, pass 29; normalized-identical 29, unresolved-defect 64
+p5-panels-sweep-a logout: 2 differing rows left, 4 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '' / xfx '┃'
+    NEW:  fx 'auto · model-a' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+p5-toolstop-retint dark-again: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint light: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light dark: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light light-again: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light-tc dark: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-light-tc light: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-light-tc light-again: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc dark: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc dark-again: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc light: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+verdicts moved: 0
+fx screens not the same in the two sweeps: 6
+    interrupt mid
+    interrupt mid2
+    interrupt-recovered rec-2.4
+    p5-panels-sweep-a logout
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+xfx screens not the same in the two sweeps: 22
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    interrupt mid2
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+    p5-toolstop-retint dark-again
+    p5-toolstop-retint light
+    p5-toolstop-retint-light dark
+    p5-toolstop-retint-light light-again
+    p5-toolstop-retint-light-tc dark
+    p5-toolstop-retint-light-tc light
+    p5-toolstop-retint-light-tc light-again
+    p5-toolstop-retint-tc dark
+    p5-toolstop-retint-tc dark-again
+    p5-toolstop-retint-tc light
+    permissions-midturn second-asks
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 1
+# exit 0

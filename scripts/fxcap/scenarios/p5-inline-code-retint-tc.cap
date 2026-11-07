@@ -2,9 +2,10 @@
 # (COLORTERM=truecolor). fx's builtins are 256-colour at every depth
 # (theme.zig:75-159@481104fd; truecolor reaches only the diff markers and the
 # Ultra mark, render.zig:98,395) and its switch rewrites bytes, not depths
-# (store.zig:3784-3800), so its capture is the 256-colour one. xfx paints its
-# own greys in the direct notation here (theme::depth_from_env) and its
-# answer's inline code and code block in 38;5, which a report has to find.
+# (store.zig:3784-3800), so its capture is the 256-colour one. xfx spells
+# every grey 38;5 here too, its palette's and the highlighter's alike
+# (src/tui/theme.rs Palette, TC-NOTATION), so its capture is its 256-colour
+# one as well.
 gateway p5-inline-code-retint-turns.json
 fx: env FX_AUTO_UPGRADE=0
 env COLORTERM=truecolor

@@ -1,0 +1,18 @@
+# xfx's interrupt failed in the first sweep of each side (base-1, head-1): the pane gone before the first snap. Probes with the head's capture.sh (b0522162) and the 8c2e7de build, each on a fresh copy of the binary (cp), FXCAP_SCENARIOS a scratch copy of scenarios/ plus the probe .caps below.
+## the sweeps' capture logs (xfx interrupt)
+base-1: failed exit 1 (14s); idle-cc.txt 0 bytes; log: 'no server running on <socket>'
+head-1: failed exit 1 (7s); log: 'no server running on <socket>' then "until shown 'press ctrl+c again to exit': the pane is gone"
+base-2, head-2: ran
+## zlaunch.cap: gateway interrupt-words.json / keep / until shown Run /help for commands / snap a -- a fresh copy, then the same copy twice
+launch 1: until shown 'Run /help for commands': after 2.09 s, 2.13 s since launch
+launch 2: until shown 'Run /help for commands': after 0.08 s, 0.10 s since launch
+launch 3: until shown 'Run /help for commands': after 0.07 s, 0.10 s since launch
+## zearly.cap: gateway interrupt-words.json / keep / wait 0.5 / key C-c / wait 3 / snap a -- another fresh copy, then the same copy
+run 1, snap a (rows that are not blank):
+  | Pane is dead (signal int, Sun Nov  8 00:12:49 2026)
+run 2, snap a (rows that are not blank):
+  | x𝒇x v0.1.0-8c2e7de [debug] · Run /help for commands
+  | ┃
+  | auto · model-a
+## zprobe.cap (interrupt's opening: wait 2 / key C-c) on a third fresh copy: both runs passed (the first launch drew in time)
+## why: xfx takes ISIG out of the terminal's modes when it goes raw (src/tui/term.rs:157); before that a Ctrl-C byte is SIGINT and ends it. interrupt.cap's first key is `key C-c` 2 s after launch, and the sweep runs the longest scenario first, so interrupt's xfx run was each sweep's first launch of a freshly copied binary.

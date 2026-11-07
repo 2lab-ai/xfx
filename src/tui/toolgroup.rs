@@ -25,6 +25,12 @@
 //! (`super::transcript::Transcript::queue_block`), not lines appended one by
 //! one.
 //!
+//! **A theme switch draws the rows again**, open block or closed: each header
+//! and call row is handed to the transcript with how it is drawn in either
+//! mode ([`ToolGroup::redraws`]), and a report puts that drawing back on the
+//! row rather than recolouring it, as upstream projects the group again in
+//! the new theme (`vercel-labs/fx@481104fd tool_group_projection.zig:558-640`).
+//!
 //! **The running call is the block's last row**, `└ Running <command>`, and is
 //! rewritten in place by its settled row. Upstream draws that row on the
 //! footer's side and splices it under the group (`render_input.zig:761-795`,
@@ -40,7 +46,7 @@ use crate::markdown::code_highlight::{self, Variant};
 use crate::markdown::{code_highlight_languages, theme as syntax};
 use crate::tools::{mcp, Activity, LineChanges, Outcome, Shown};
 
-use super::theme::{DocumentRow, Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette, Redraw};
 
 /// What a cancelled call's own line ends with, after its mark and its row
 /// (`vercel-labs/fx@c1db9191 src/ui/transcript/runtime.zig:644`), in this
@@ -123,7 +129,24 @@ struct Call {
     id: String,
     shown: Shown,
     state: State,
+    /// The command as the highlighter last coloured it, per mode and run
+    /// colour ([`Call::highlighted`]).
+    highlights: std::cell::RefCell<Vec<Highlight>>,
 }
+
+/// One colouring of a call's command: the command, the mode, the colour
+/// between its words, and what the highlighter made of them.
+#[derive(Debug)]
+struct Highlight {
+    command: String,
+    light: bool,
+    base: String,
+    painted: String,
+}
+
+/// How many colourings a call keeps: each mode, under the row's grey and
+/// under a stopped call's own line's, and one over.
+const HIGHLIGHTS_KEPT: usize = 5;
 
 /// Where a call has got to, as its row says it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,11 +306,40 @@ impl Call {
         if !self.runs_a_command() {
             return self.phrase();
         }
-        format!(
-            "{} {}",
-            self.label(),
-            highlighted(&self.target(), base, palette)
-        )
+        format!("{} {}", self.label(), self.highlighted(base, palette))
+    }
+
+    /// [`highlighted`] for this call's command, from the colourings it
+    /// already made when one is for the same command, mode and run colour.
+    ///
+    /// A group's block is drawn again whole on every change, in both modes
+    /// ([`ToolGroup::redraws`]), so a group of N calls coloured each command
+    /// twice per change -- and a resumed session replays every change of
+    /// every group. The highlighter is a function of exactly those three
+    /// things, so what it gave once is what it gives again.
+    fn highlighted(&self, base: &str, palette: Palette) -> String {
+        let command = self.target();
+        let light = palette.mode == Mode::Light;
+        if let Some(kept) = self
+            .highlights
+            .borrow()
+            .iter()
+            .find(|kept| kept.light == light && kept.base == base && kept.command == command)
+        {
+            return kept.painted.clone();
+        }
+        let painted = highlighted(&command, base, palette);
+        let mut kept = self.highlights.borrow_mut();
+        if kept.len() == HIGHLIGHTS_KEPT {
+            kept.remove(0);
+        }
+        kept.push(Highlight {
+            command,
+            light,
+            base: base.to_string(),
+            painted: painted.clone(),
+        });
+        painted
     }
 
     fn settled(&self) -> bool {
@@ -324,6 +376,7 @@ impl ToolGroup {
             id,
             shown,
             state: State::Running,
+            highlights: std::cell::RefCell::default(),
         });
     }
 
@@ -473,6 +526,41 @@ impl ToolGroup {
         kinds
     }
 
+    /// How each row of [`Self::rows`] is drawn in each mode, in the same
+    /// order, for the rows a theme report draws again
+    /// rather than recolours ([`Redraw`]): the header and the call rows --
+    /// upstream projects the group again in the theme then in force
+    /// (`formatGroupBlock`, `tool_group_projection.zig:558-640@481104fd`, the
+    /// command through `highlightCommandPhrase` with `shared_theme.current()`,
+    /// `:742-784`). Nothing for the blank rows, and nothing for a cancelled
+    /// call's own line: upstream does not project that entry again but draws
+    /// its own bytes (`:649-664`), which a switch rewrites through its token
+    /// table (`store.zig:3745-3750`), and so does a report here
+    /// (`super::theme::Palette::document_retint_in`).
+    ///
+    /// Beside [`Self::rows`], as [`Self::kinds`] is. `drawn` is what
+    /// [`Self::redraw`] just gave in `palette` -- the rows in that mode, so
+    /// only the other mode is drawn here -- with whatever it carried under
+    /// them.
+    pub(crate) fn redraws(&self, palette: Palette, drawn: &[String]) -> Vec<Option<Redraw>> {
+        let other = self.rows(Palette {
+            mode: match palette.mode {
+                Mode::Dark => Mode::Light,
+                Mode::Light => Mode::Dark,
+            },
+        });
+        self.kinds()
+            .into_iter()
+            .zip(drawn.iter().zip(other))
+            .map(|(kind, (drawn, other))| {
+                (kind == DocumentRow::ToolGroup).then(|| match palette.mode {
+                    Mode::Dark => Redraw::new(drawn.clone(), other),
+                    Mode::Light => Redraw::new(other, drawn.clone()),
+                })
+            })
+            .collect()
+    }
+
     /// The block: the header, one row per call that has one, a blank row, and
     /// for each cancelled call its own line and a blank row under it
     /// (`formatGroupBlock`, `:637-651`).
@@ -614,7 +702,7 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     // above it are the statusline's 241 on a light one.
     let base = palette.tool_output();
     let target = if call.runs_a_command() {
-        highlighted(&call.target(), base, palette)
+        call.highlighted(base, palette)
     } else {
         call.target()
     };
@@ -884,12 +972,7 @@ mod tests {
     use crate::tools::{read, terminal};
     use serde_json::json;
 
-    use super::super::theme::Depth;
-
-    const DARK: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const DARK: Palette = Palette { mode: Mode::Dark };
 
     /// Upstream's grayscale greys, written out rather than read off the
     /// palette, so a palette that drifted is caught here rather than agreed
@@ -1381,10 +1464,7 @@ mod tests {
     }
 
     /// Upstream's two grayscale palettes, as a theme report moves between them.
-    const LIGHT: Palette = Palette {
-        mode: Mode::Light,
-        depth: Depth::Ansi256,
-    };
+    const LIGHT: Palette = Palette { mode: Mode::Light };
 
     /// The rows `group` is drawn as in `palette`.
     fn drawn_in(group: &mut ToolGroup, palette: Palette) -> Vec<String> {
@@ -1392,22 +1472,33 @@ mod tests {
         group.redraw(palette, &[]).expect("rows")
     }
 
+    /// The 40x120 screen these cases put a group on.
+    fn screen() -> crate::tui::layout::Geometry {
+        crate::tui::layout::solve(40, 120, 1).expect("a band")
+    }
+
     /// `rows` placed from row 1 down on a 120-column grid -- each recorded as
-    /// what the group says it is ([`ToolGroup::kinds`]), as the frame records
-    /// an append's rows -- and a turn's summary (the dim grey, 245 on dark like
+    /// what the group says it is and how it draws it in each mode
+    /// ([`ToolGroup::kinds`], [`ToolGroup::redraws`]), as the frame records an
+    /// append's rows -- and a turn's summary (the dim grey, 245 on dark like
     /// the group's own) under them.
     fn on_a_grid(
         group: &ToolGroup,
         rows: &[String],
         palette: Palette,
     ) -> (super::super::grid::Grid, u16) {
-        let geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
+        let geometry = screen();
         let mut grid = super::super::grid::Grid::blank(geometry.rows, geometry.cols);
         let kinds = group.kinds();
+        let redraws = group.redraws(palette, rows);
         let mut line = 1u16;
         for (index, row) in rows.iter().enumerate() {
             grid.place_row(line, row, &geometry);
-            grid.set_kind(line, kinds.get(index).copied().unwrap_or_default());
+            grid.record(
+                line,
+                kinds.get(index).copied().unwrap_or_default(),
+                redraws.get(index).cloned().flatten(),
+            );
             line += 1;
         }
         grid.place_row(
@@ -1461,6 +1552,49 @@ mod tests {
     }
 
     #[test]
+    fn the_groups_header_and_calls_carry_their_drawings_in_both_modes_and_nothing_else_does() {
+        // Upstream projects the header and the calls again in the new theme
+        // (`formatGroupBlock`, `tool_group_projection.zig:558-640@481104fd`)
+        // and draws a cancelled call's own line from its bytes (`:649-664`),
+        // so the header and each call row carry what they are in each mode --
+        // exactly the rows the group draws in that mode -- and the blank rows
+        // and a cancelled call's line carry nothing. Collapsed, the header
+        // alone.
+        let at = |mode| Palette { mode };
+        let mut group = ToolGroup::default();
+        group.start("1".into(), command("echo \"hi\" 42 # note"));
+        assert!(group.finish("1", true, "", Outcome::Exited(0), None));
+        group.start("2".into(), command("sleep 31"));
+        group.cancel_running();
+        let dark = drawn_in(&mut group, at(Mode::Dark));
+        let light = drawn_in(&mut group, at(Mode::Light));
+        let redraws = group.redraws(at(Mode::Dark), &dark);
+        assert_eq!(redraws, group.redraws(at(Mode::Light), &light));
+        assert_eq!(redraws.len(), group.kinds().len());
+        for (index, (redraw, kind)) in redraws.iter().zip(group.kinds()).enumerate() {
+            match redraw {
+                Some(redraw) => {
+                    assert_eq!(kind, DocumentRow::ToolGroup, "row {index}");
+                    assert_eq!(redraw.drawn(Mode::Dark), dark[index]);
+                    assert_eq!(redraw.drawn(Mode::Light), light[index]);
+                }
+                None => assert_ne!(kind, DocumentRow::ToolGroup, "row {index}"),
+            }
+        }
+        assert_eq!(
+            redraws.iter().filter(|redraw| redraw.is_some()).count(),
+            3,
+            "the header and two calls"
+        );
+        group.set_collapsed(true);
+        let collapsed_rows = drawn_in(&mut group, at(Mode::Dark));
+        let collapsed = group.redraws(at(Mode::Dark), &collapsed_rows);
+        assert_eq!(collapsed.len(), 2);
+        assert!(collapsed[0].is_some() && collapsed[1].is_none());
+        assert!(ToolGroup::default().redraws(DARK, &[]).is_empty());
+    }
+
+    #[test]
     fn a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it() {
         // The 245 of a group's rows is upstream's statusline grey and goes to
         // 241 on a light screen; the summary under it is the dim grey, also
@@ -1485,7 +1619,7 @@ mod tests {
 
         let dark_rows = drawn_in(&mut group, DARK);
         let (mut repainted, last) = on_a_grid(&group, &dark_rows, DARK);
-        let moved = repainted.retint_document(last, &LIGHT);
+        let moved = repainted.retint_document(last, &LIGHT, &screen());
         assert!(moved > 0, "nothing was repainted");
         let light_rows = drawn_in(&mut group, LIGHT);
         let (fresh, _) = on_a_grid(&group, &light_rows, LIGHT);
@@ -1509,18 +1643,62 @@ mod tests {
             "a cancelled call's argument did not move as upstream's token table moves it"
         );
 
-        // And back: a light screen reported dark again is the dark drawing.
-        // (Without a quoted string or a number in the command: on light those
-        // share 241 with the statusline, and the statusline wins.)
-        let mut plain_group = ToolGroup::default();
-        plain_group.start("1".into(), command("sleep 30"));
-        plain_group.cancel_running();
-        let light_rows = drawn_in(&mut plain_group, LIGHT);
-        let (mut back, last) = on_a_grid(&plain_group, &light_rows, LIGHT);
-        assert!(back.retint_document(last, &DARK) > 0);
-        let dark_rows = drawn_in(&mut plain_group, DARK);
-        let (dark, _) = on_a_grid(&plain_group, &dark_rows, DARK);
-        same_cells(&back, &dark, last);
+        // And back: a light screen reported dark again is the dark drawing --
+        // a quoted string and a number too, which on light share 241 with the
+        // statusline, and a comment, which on dark shares its 245
+        // (`p5-toolgroup-retint-light`).
+        let mut back_group = ToolGroup::default();
+        back_group.start("1".into(), command("echo \"hi\" 42 | grep hi # note"));
+        assert!(back_group.finish("1", true, "", Outcome::Exited(0), None));
+        let light_rows = drawn_in(&mut back_group, LIGHT);
+        let (mut back, last) = on_a_grid(&back_group, &light_rows, LIGHT);
+        assert!(back.retint_document(last, &DARK, &screen()) > 0);
+        let dark_rows = drawn_in(&mut back_group, DARK);
+        let (dark, _) = on_a_grid(&back_group, &dark_rows, DARK);
+        same_cells(&back, &dark, last - 1);
+        // And light again, from the drawing rather than from what the dark
+        // one left on the screen.
+        assert!(back.retint_document(last, &LIGHT, &screen()) > 0);
+        let (light, _) = on_a_grid(&back_group, &light_rows, LIGHT);
+        same_cells(&back, &light, last - 1);
+    }
+
+    #[test]
+    fn a_calls_command_is_coloured_as_a_fresh_colouring_would_and_kept_per_mode_and_grey() {
+        // The colourings a call keeps are what the highlighter gives fresh,
+        // in each mode and run colour, in any order of switches: a
+        // group drawn again and again is the group drawn once.
+        let calls = |group: &mut ToolGroup| {
+            group.start("1".into(), command("echo \"hi\" 42 | grep hi # note"));
+            group.start("2".into(), command("sleep 30 # wait"));
+            group.cancel_running();
+        };
+        let mut kept = ToolGroup::default();
+        calls(&mut kept);
+        for palette in [DARK, LIGHT, DARK, LIGHT, LIGHT, DARK, DARK] {
+            let mut fresh = ToolGroup::default();
+            calls(&mut fresh);
+            let (kept_rows, fresh_rows) =
+                (drawn_in(&mut kept, palette), drawn_in(&mut fresh, palette));
+            assert_eq!(kept_rows, fresh_rows, "{palette:?}");
+            assert_eq!(
+                kept.redraws(palette, &kept_rows),
+                fresh.redraws(palette, &fresh_rows),
+                "{palette:?}"
+            );
+            for call in &kept.calls {
+                assert!(call.highlights.borrow().len() <= HIGHLIGHTS_KEPT);
+            }
+        }
+        // Each mode, under the row's grey and the stopped
+        // line's -- three, since on a dark screen the two are one grey (245).
+        let mut one = ToolGroup::default();
+        calls(&mut one);
+        for palette in [DARK, LIGHT, DARK, LIGHT] {
+            let rows = drawn_in(&mut one, palette);
+            one.redraws(palette, &rows);
+        }
+        assert_eq!(one.calls[0].highlights.borrow().len(), 3);
     }
 
     #[test]

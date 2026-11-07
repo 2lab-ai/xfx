@@ -17,7 +17,16 @@ snap switched
 wait 4.5
 snap second-asks
 key C-c
-wait 3
+wait 1.5
+# At a permission question Ctrl-C is the question's own deny and arms no
+# exit hint (fx src/ui/input/runtime.zig:63@481104fd, `3 => .deny`; xfx
+# shell.rs ctrl_c_at_a_question_answers_only_the_question_it_is_about).
+# The turn ends on the refusal and the hint row is the hint's again, so
+# halfway into the 3 s a hint armed in error is up, and `absent` fails
+# the run on it; the check (capfile.py) counts that as no timer, so the
+# snap stays where it was, at 3 s, rather than waiting a hint away.
+absent press ctrl+c again to exit
+wait 1.5
 snap after-refusal
 workls end
 home end

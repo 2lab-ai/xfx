@@ -1,0 +1,1 @@
+{"mcpServers":{"doubled":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-discover-stdio.ts","doubled"]},"escaped":{"command":"@BUN@","args":["@SCENARIOS@/p5-mcp-discover-stdio.ts","escaped"]}}}

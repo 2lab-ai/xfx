@@ -70,7 +70,9 @@ use tokio::sync::mpsc::Receiver;
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
 use super::deliver::{Counted, Emit, RawTty, Sink};
-use super::frame::{Band, Built, Collapse, Retint, BEGIN_FRAME, END_FRAME, END_FRAME_HIDDEN};
+use super::frame::{
+    Band, Built, Collapse, Recorded, Retint, BEGIN_FRAME, END_FRAME, END_FRAME_HIDDEN,
+};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
@@ -1808,7 +1810,10 @@ fn commit_document(
             out,
             append.scroll,
             &append.rows,
-            &append.kinds,
+            Recorded {
+                kinds: &append.kinds,
+                redraws: &append.redraws,
+            },
             &after,
             room,
         ) {
@@ -2322,11 +2327,6 @@ mod tests {
 
     /// [`shell`] on a screen of `rows` x `cols`.
     fn shell_of(rows: u16, cols: u16) -> Fixture {
-        shell_at(rows, cols, crate::tui::theme::Depth::Ansi256)
-    }
-
-    /// [`shell_of`] on a terminal of the colour depth given.
-    fn shell_at(rows: u16, cols: u16, depth: crate::tui::theme::Depth) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A workspace with the same last component in every fixture, because
@@ -2346,7 +2346,6 @@ mod tests {
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth,
                 },
                 false,
                 work,
@@ -5563,7 +5562,11 @@ mod tests {
     /// after. `None` when `needle` is not in `written` at all, or is written
     /// under no colour.
     fn fg_of(written: &str, needle: &str) -> Option<u8> {
-        let at = written.find(needle)?;
+        fg_before(written, written.find(needle)?)
+    }
+
+    /// The 256-colour foreground in force at byte `at` of `written`.
+    fn fg_before(written: &str, at: usize) -> Option<u8> {
         let mut fg = None;
         for (index, _) in written[..at].match_indices("\u{1b}[") {
             let rest = &written[index + 2..at];
@@ -5679,16 +5682,16 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in() {
-        // A session whose terminal claims truecolor paints xfx's own greys in
-        // `38;2` (`theme::depth_from_env`) and an answer's inline code and code
-        // block in `markdown::theme`'s `38;5`, as fx's builtins are at every
-        // depth (`theme.zig:75-159@481104fd`) -- and fx recolours those on a
-        // switch whatever the terminal claimed (`store.zig:3784-3800`,
-        // `transcript_blocks.zig:2023-2029`). So here the inline code and the
-        // comment move as in a 256-colour session, still spelt `38;5`, while
-        // the turn's summary moves in the direct notation it was drawn in.
-        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+    fn an_answers_code_and_its_summary_are_spelt_as_upstream_spells_them_across_a_switch() {
+        // fx's builtins are `38;5` literals at every depth, the palette's
+        // greys and the highlighter's alike (`theme.zig:75-159@481104fd`), and
+        // a switch rewrites them through a table that names `38;5` alone
+        // (`store.zig:3784-3800`) or draws a code block again in the new
+        // theme (`transcript_blocks.zig:2023-2029`) -- whatever the terminal
+        // claimed. So every grey here is spelt `38;5`, before and after each
+        // switch: the inline code, the code block's comment and the turn's
+        // summary (read as spelt, so a direct spelling of the same grey fails).
+        let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
         let mut out = screen();
@@ -5712,7 +5715,7 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&landed, "0s (").as_deref(),
-            Some("38;2;138;138;138"),
+            Some("38;5;245"),
             "{landed:?}"
         );
 
@@ -5730,8 +5733,8 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&written, "0s (").as_deref(),
-            Some("38;2;158;158;158"),
-            "the summary left the direct notation it was drawn in: {written:?}"
+            Some("38;5;247"),
+            "the summary was not given the light dim grey as upstream spells it: {written:?}"
         );
 
         shell.route_bytes(WENT_DARK);
@@ -5748,7 +5751,573 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&back, "0s (").as_deref(),
-            Some("38;2;138;138;138"),
+            Some("38;5;245"),
+            "{back:?}"
+        );
+    }
+
+    /// A turn that runs one command whose words the shell highlighter paints
+    /// -- a string, a number, an operator and a comment -- and then answers,
+    /// which closes the group (`p5-toolgroup-retint`'s turn).
+    fn a_command_then_an_answer(shell: &mut Fixture) {
+        shell.apply(UiEvent::ToolStart {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            shown: crate::tools::terminal::TERMINAL.shown(&serde_json::json!({
+                "action": "exec",
+                "command": "echo \"hi\" 42 | grep hi # note",
+            })),
+        });
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+        shell.apply(UiEvent::Delta("Done with it.\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+    }
+
+    #[test]
+    fn a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them() {
+        // fx does not recolour a tool group's rows on a switch: it projects
+        // the group again in the new theme (`formatGroupBlock`,
+        // `tool_group_projection.zig:558-640@481104fd`, the command through
+        // `highlightCommandPhrase` with the theme then in force, `:742-784`).
+        // At 256 colours two of the highlighter's greys are the statusline's
+        // in one mode -- a string's light 241, a comment's dark 245 -- so a
+        // recolouring by colour gives them the statusline's other grey (245,
+        // 241) where fx's fresh projection gives the highlighter's (250, 243).
+        // Drawn dark, then light, then dark again (`p5-toolgroup-retint`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "\u{2514} Ran "), Some(245), "{landed:?}");
+        assert_eq!(fg_of(&landed, "\"hi"), Some(250), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# note"), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&light, "\u{2514} Ran "), Some(241), "{light:?}");
+        assert_eq!(fg_of(&light, "\"hi"), Some(241), "{light:?}");
+        assert_eq!(
+            fg_of(&light, "# note"),
+            Some(243),
+            "a comment drawn dark (245, the dark statusline's grey) was not \
+             given the light comment grey upstream projects it in: {light:?}"
+        );
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&back, "\u{2514} Ran "), Some(245), "{back:?}");
+        assert_eq!(
+            fg_of(&back, "\"hi"),
+            Some(250),
+            "a string on a light screen (241, the light statusline's grey) was \
+             not given the dark string grey upstream projects it in: {back:?}"
+        );
+        assert_eq!(fg_of(&back, "# note"), Some(245), "{back:?}");
+    }
+
+    #[test]
+    fn a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it() {
+        // `p5-toolgroup-retint-light`: the group drawn on a light screen, then
+        // dark and light again. The string drawn light is the light
+        // statusline's 241 and the comment drawn dark the dark statusline's
+        // 245; fx gives them the highlighter's 250 and 243.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(WENT_LIGHT);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "\u{2514} Ran "), Some(241), "{landed:?}");
+        assert_eq!(fg_of(&landed, "\"hi"), Some(241), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# note"), Some(243), "{landed:?}");
+
+        shell.route_bytes(WENT_DARK);
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&dark, "\u{2514} Ran "), Some(245), "{dark:?}");
+        assert_eq!(
+            fg_of(&dark, "\"hi"),
+            Some(250),
+            "a string drawn light was taken for the statusline: {dark:?}"
+        );
+        assert_eq!(fg_of(&dark, "# note"), Some(245), "{dark:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let again = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&again, "\u{2514} Ran "), Some(241), "{again:?}");
+        assert_eq!(fg_of(&again, "\"hi"), Some(241), "{again:?}");
+        assert_eq!(
+            fg_of(&again, "# note"),
+            Some(243),
+            "a comment moved to the dark statusline's grey was taken for the \
+             statusline on the next switch: {again:?}"
+        );
+    }
+
+    /// The command [`a_command_then_an_answer`] runs, started and not yet
+    /// returned: the group's block open, its running call its last row.
+    fn a_command_running(shell: &mut Fixture) {
+        shell.apply(UiEvent::ToolStart {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            shown: crate::tools::terminal::TERMINAL.shown(&serde_json::json!({
+                "action": "exec",
+                "command": "echo \"hi\" 42 | grep hi # note",
+            })),
+        });
+    }
+
+    #[test]
+    fn an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette() {
+        // An open group's block is on the screen too, its running call the
+        // last row; upstream projects it again in the new theme as it does a
+        // closed one (`buildCompactTranscriptProjectionInterruptible`,
+        // `source_preparation.zig:1533@481104fd`, on every transcript build).
+        // Here the block's rows are drawn again by the report, and the call's
+        // result rewrites them in the palette then in force.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "\u{2514} Running "), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&light, "\u{2514} Running "), Some(241), "{light:?}");
+        assert_eq!(fg_of(&light, "# note"), Some(243), "{light:?}");
+
+        shell.route_bytes(WENT_DARK);
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&dark, "\"hi"), Some(250), "{dark:?}");
+
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+        let settled = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&settled, "\u{2514} Ran "), Some(245), "{settled:?}");
+        assert_eq!(fg_of(&settled, "\"hi"), Some(250), "{settled:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let again = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&again, "\u{2514} Ran "), Some(241), "{again:?}");
+        assert_eq!(fg_of(&again, "# note"), Some(243), "{again:?}");
+        // The header said the same before the result as after it, so the
+        // rewrite kept the row on the screen rather than placing it again --
+        // and it is still a row drawn again.
+        assert_eq!(fg_of(&again, "1 tool call"), Some(241), "{again:?}");
+    }
+
+    #[test]
+    fn a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set() {
+        // The recolour a report owes is paid before the appends of the same
+        // tick (`commit_document`), so a group whose block was queued in the
+        // dark palette and lands after a report to light is not on the screen
+        // for that recolour to reach. Its rows are written as the group draws
+        // them in the palette in force when they land.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_of(&landed, "\u{2514} Running "),
+            Some(241),
+            "the group landed in the palette it was queued in: {landed:?}"
+        );
+        assert_eq!(fg_of(&landed, "\"hi"), Some(241), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# note"), Some(243), "{landed:?}");
+        // And it is a row drawn again like any other: back to dark.
+        shell.route_bytes(WENT_DARK);
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&dark, "\u{2514} Running "), Some(245), "{dark:?}");
+        assert_eq!(fg_of(&dark, "\"hi"), Some(250), "{dark:?}");
+    }
+
+    /// [`a_command_running`], then a notice written under its open group and
+    /// the turn's end stopping the command -- each a block of the group's,
+    /// queued and none of them drained: the group's rows, the notice under
+    /// them, and the call's own `■ Cancelled` line.
+    fn a_stopped_group_and_a_notice_queued(shell: &mut Fixture) {
+        a_command_running(shell);
+        a_notice_a_card_and_the_stop_queued(shell);
+    }
+
+    /// The writes under a group whose command is running: a notice, a card
+    /// (what the user said at an approval, `Trailed::Card`) and the turn's
+    /// end stopping the command, queued and not drained.
+    fn a_notice_a_card_and_the_stop_queued(shell: &mut Fixture) {
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "1".to_string(),
+            text: "keep the header".to_string(),
+        });
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+    }
+
+    /// The 256-colour foreground of the cell where `needle` starts on the
+    /// bottom-most row of the screen that opens with `row`, read off the
+    /// band's record of the screen ([`Band::shadow`]): what the terminal holds
+    /// once every write of a tick has landed, cells no write touched included.
+    fn on_screen(band: &Band, row: &str, needle: &str) -> Option<u8> {
+        use super::super::grid::Cell;
+        let grid = band.shadow();
+        let mut found = None;
+        for line in 1..=grid.rows() {
+            let mut text = String::new();
+            let mut starts = Vec::new();
+            for column in 1..=grid.cols() {
+                match grid.cell(line, column) {
+                    Some(Cell::Lead { grapheme, .. }) => {
+                        starts.push((text.len(), column));
+                        text.push_str(grapheme);
+                    }
+                    Some(Cell::Empty) => {
+                        starts.push((text.len(), column));
+                        text.push(' ');
+                    }
+                    _ => {}
+                }
+            }
+            if !text.starts_with(row) {
+                continue;
+            }
+            let Some(at) = text.find(needle) else {
+                continue;
+            };
+            let column = starts.iter().find(|(start, _)| *start == at)?.1;
+            found = match grid.cell(line, column) {
+                Some(Cell::Lead { sgr, .. }) => match sgr.color() {
+                    Ok(crate::tui::check::Color::Indexed(index)) => Some(index),
+                    _ => None,
+                },
+                _ => None,
+            };
+        }
+        found
+    }
+
+    /// What the screen holds of a stopped group and what was written under it
+    /// ([`a_stopped_group_and_a_notice_queued`]): the group's call row, the
+    /// stopped call's mark, its `Cancelled`, its argument, its string and its
+    /// comment, the notice's label and body, and the card's rail -- its text
+    /// is bold in no colour, which no report moves.
+    fn stopped_and_notice(band: &Band) -> [Option<u8>; 9] {
+        let line = "\u{25a0} Cancelled";
+        [
+            on_screen(band, "\u{2514} Cancelled ", "\u{2514}"),
+            on_screen(band, line, "\u{25a0}"),
+            on_screen(band, line, "Cancelled"),
+            on_screen(band, line, " 42 "),
+            on_screen(band, line, "\"hi"),
+            on_screen(band, line, "# note"),
+            on_screen(band, "! tool:", "tool:"),
+            on_screen(band, "! tool:", "read_file ok"),
+            on_screen(band, "\u{2503} keep the header", "\u{2503}"),
+        ]
+    }
+
+    /// Dark to light: what [`stopped_and_notice`] reads once a block queued
+    /// dark has landed light -- fx's token table for the stopped line (dark
+    /// 245 is light 247), the notice's and the rail's own greys.
+    const STOPPED_LIGHT: [u8; 9] = [241, 238, 235, 247, 241, 247, 238, 241, 235];
+    /// Light to dark: the stopped line drawn light keeps its argument's 245
+    /// and its comment's 243, which are in no pair of upstream's table.
+    const STOPPED_DARK: [u8; 9] = [245, 252, 255, 245, 250, 243, 252, 250, 255];
+
+    #[test]
+    fn a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set() {
+        // The rows of a group's block that are not drawn again -- the stopped
+        // call's own line and the lines written under the open group -- are
+        // painted when they are queued. fx rewrites those entries' bytes
+        // through its token table at the switch (`retintEntriesForTheme`,
+        // `app_render_runtime.zig:499`, `store.zig:3743-3750@481104fd`) before
+        // it asks for the build (`:511`), so whatever it draws after a switch
+        // is in the new theme. Here the recolour a report owes is paid before
+        // the tick's appends (`commit_document`): a block queued before the
+        // report and landing after it must be recoloured too, by the same
+        // rules -- the token table's pairs for the stopped line (dark 245 is
+        // 247 on light, not the 245 a fresh light drawing gives) and the
+        // notice's own greys.
+        //
+        // Dark to light.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_stopped_group_and_a_notice_queued(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            stopped_and_notice(&band),
+            STOPPED_LIGHT.map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice, rail: {light:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set() {
+        // [`a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set`],
+        // light to dark: the stopped line drawn light keeps its argument's 245
+        // and its comment's 243, which are in no pair of upstream's table.
+        let mut other = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut other, &mut band, &mut out, &mut failures, now);
+        other.route_bytes(WENT_LIGHT);
+        tick(&mut other, &mut band, &mut out, &mut failures, now);
+        a_stopped_group_and_a_notice_queued(&mut other);
+        other.route_bytes(WENT_DARK);
+        let dark = tick(&mut other, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            stopped_and_notice(&band),
+            STOPPED_DARK.map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice, rail: {dark:?}"
+        );
+    }
+
+    /// The call [`a_command_running`] started, returned.
+    fn the_command_returns(shell: &mut Fixture) {
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+    }
+
+    /// The text of the screen's bottom-most row that opens with `row`, read
+    /// off the band's record of the screen.
+    fn row_on_screen(band: &Band, row: &str) -> Option<String> {
+        use super::super::grid::Cell;
+        let grid = band.shadow();
+        (1..=grid.rows())
+            .rev()
+            .map(|line| {
+                (1..=grid.cols())
+                    .filter_map(|column| match grid.cell(line, column) {
+                        Some(Cell::Lead { grapheme, .. }) => Some(grapheme.clone()),
+                        Some(Cell::Empty) => Some(" ".to_string()),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            })
+            .find(|text| text.starts_with(row))
+            .map(|text| text.trim_end().to_string())
+    }
+
+    #[test]
+    fn a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there() {
+        // A report and then a resize, both between a group's rewrite being
+        // queued and its landing. The resize drops the recolour owed against
+        // the screen that was (`Shell::resize`) and the rewrite lands on the
+        // narrower one in the palette in force, its call row cut with an
+        // ellipsis -- and both drawings it records are cut at that width, so
+        // the next switch draws the cut row again rather than leaving it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        the_command_returns(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        assert!(matches!(shell.resize(24, 30), Resize::Repaint(_)));
+        band.invalidate(24, 30);
+        shell.damage_told();
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let cut = row_on_screen(&band, "\u{2514} Ran ").expect("the call row");
+        assert!(cut.ends_with('\u{2026}'), "the row was not cut: {cut:?}");
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\u{2514}"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(241));
+
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(row_on_screen(&band, "\u{2514} Ran "), Some(cut));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\u{2514}"), Some(245));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(250));
+    }
+
+    #[test]
+    fn a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette() {
+        // The call, its result and the answer that closes the group, all
+        // queued, and a report before the tick: the group's rows land as the
+        // group draws them in the palette in force, and the closed block is
+        // drawn again on the next switch.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "# note"), Some(243));
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(245));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(250));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "# note"), Some(245));
+    }
+
+    #[test]
+    fn a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings() {
+        // The group is on the screen; its call's result is queued; the
+        // terminal reports light. The recolour draws the landed rows light
+        // first, and the rewrite then lands in light too -- its header the
+        // same row the recolour left, so it is kept rather than written again
+        // (`Grid::row_matches`), and recorded with the rewrite's drawings: the
+        // next switch draws it dark.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        the_command_returns(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            light.matches("1 tool call").count(),
+            1,
+            "the header was written again rather than kept: {light:?}"
+        );
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(241));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(241));
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(on_screen(&band, "\u{25cf} ", "1 tool call"), Some(245));
+        assert_eq!(on_screen(&band, "\u{2514} Ran ", "\"hi"), Some(250));
+    }
+
+    #[test]
+    fn a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set() {
+        // The same rows held back while the full transcript has the other
+        // plane: the group is on the primary screen, Ctrl-O opens, the notice
+        // and the stop are queued, the terminal reports light, and Ctrl-O
+        // closes. The recolour waits for the primary plane, is paid there
+        // first, and the held appends land after it. Both ways.
+        for (light_first, report, wanted) in [
+            (false, WENT_LIGHT, STOPPED_LIGHT),
+            (true, WENT_DARK, STOPPED_DARK),
+        ] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+            if light_first {
+                shell.route_bytes(WENT_LIGHT);
+                tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            }
+            a_command_running(&mut shell);
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            shell.route_bytes(b"\x0f");
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(band.on_alternate(), "Ctrl-O did not take the plane");
+            a_notice_a_card_and_the_stop_queued(&mut shell);
+            shell.route_bytes(report);
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            shell.route_bytes(b"\x0f");
+            let mut back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            back.push_str(&tick(&mut shell, &mut band, &mut out, &mut failures, now));
+            assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
+            assert_eq!(
+                stopped_and_notice(&band),
+                wanted.map(Some),
+                "light first {light_first}: row, mark, Cancelled, argument, string, \
+                 comment, label, notice, rail: {back:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tool_groups_rows_are_spelt_as_upstream_spells_them_across_a_switch() {
+        // A group's rows drawn again are what the group draws in the new
+        // mode, every grey spelt `38;5` as fx's builtins are at every depth
+        // (`theme.zig:75-159@481104fd`): the statusline grey `245`/`241`
+        // (`:81,124`), the highlighter's string `250`/`241` and comment
+        // `245`/`243` (`:109-111,152-154`) (`p5-toolgroup-retint`, `-tc`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let read = |written: &str| {
+            [
+                fg_spelt(written, "\u{2514} Ran "),
+                fg_spelt(written, "\"hi"),
+                fg_spelt(written, "# note"),
+            ]
+        };
+        let spelt = |wanted: [&str; 3]| wanted.map(|wanted| Some(wanted.to_string()));
+        assert_eq!(
+            read(&landed),
+            spelt(["38;5;245", "38;5;250", "38;5;245"]),
+            "{landed:?}"
+        );
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            read(&light),
+            spelt(["38;5;241", "38;5;241", "38;5;243"]),
+            "{light:?}"
+        );
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            read(&back),
+            spelt(["38;5;245", "38;5;250", "38;5;245"]),
             "{back:?}"
         );
     }
@@ -6261,6 +6830,69 @@ mod tests {
                 !written.contains("a streamed answer") && !written.contains("read_file ok"),
                 "tick {tick_number} after a resume repainted the document out of \
                  a shadow describing a screen somebody else had: {written:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen() {
+        // A block painted dark lands after a report to light, behind a
+        // resume: the shadow describes a screen somebody else has been
+        // writing on, and the band has not been told, so nothing of the old
+        // screen is repainted -- the report's recolour was dropped with it
+        // (`Shell::external_damage`). The block's own rows are written in the
+        // palette in force regardless. Both ways: the mark, the argument, the
+        // comment and the notice's body as a report leaves them in that
+        // palette.
+        for (light_first, report, wanted) in [
+            (false, WENT_LIGHT, [238, 247, 247, 241]),
+            (true, WENT_DARK, [252, 245, 243, 250]),
+        ] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+            if light_first {
+                shell.route_bytes(WENT_LIGHT);
+                tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            }
+            shell.route_bytes(b"next\r");
+            shell.apply(UiEvent::TurnStarted);
+            a_command_running(&mut shell);
+            shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+                "tool",
+                "queued under the group",
+            )));
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.flush_paced();
+            shell.route_bytes(report);
+            adopt_resume(&mut shell, &mut band, false);
+            let mut landed = String::new();
+            for tick_number in 0..2 {
+                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+                assert!(
+                    !written.contains("a streamed answer") && !written.contains("read_file ok"),
+                    "light first {light_first}, tick {tick_number} after a resume \
+                     repainted the old screen's rows from a shadow describing a \
+                     screen somebody else had: {written:?}"
+                );
+                landed.push_str(&written);
+            }
+            // And the rows that landed are in the palette in force all the
+            // same: they were recoloured as they were written, not by a
+            // recolour of the screen.
+            let line = &landed[landed.find("\u{25a0}").expect("the stopped line")..];
+            assert_eq!(
+                [
+                    fg_of(&landed, "\u{25a0}"),
+                    fg_of(line, " 42 "),
+                    fg_of(line, "# note"),
+                    fg_of(&landed, " queued under"),
+                ],
+                wanted.map(Some),
+                "light first {light_first}: mark, argument, comment, notice: {landed:?}"
             );
         }
     }
@@ -12490,7 +13122,6 @@ mod tests {
                 crate::tui::layout::solve(24, 80, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth: crate::tui::theme::Depth::Ansi256,
                 },
                 false,
                 work.with_mcp(std::sync::Arc::clone(&runtime)),
@@ -12567,5 +13198,394 @@ mod tests {
                 "a painted question took no answer"
             );
         }
+    }
+
+    // -- a tool group's row drawn again through the diff's bracket ----------
+    //
+    // A theme switch draws a tool group's rows again as cells whose
+    // attributes change (`Grid::retint_document`, TG-REDRAW), and the band
+    // writes those cells through `Grid::diff`, which writes each one through
+    // `put_unit` and `write_cell` (ENGINE-VS-ANCHOR: fx's frame writer,
+    // `src/core/terminal/engine.zig:2548-2589@481104fd`), before
+    // `check::preflight` reads the vector (`Band::retint_document`). A call row
+    // holding a unit with a variation selector is where the two meet.
+
+    /// One command call, started and settled.
+    fn a_command_ran(shell: &mut Fixture, id: &str, command: &str) {
+        shell.apply(UiEvent::ToolStart {
+            call_id: id.to_string(),
+            tool: "terminal".to_string(),
+            shown: crate::tools::terminal::TERMINAL.shown(&serde_json::json!({
+                "action": "exec",
+                "command": command,
+            })),
+        });
+        shell.apply(UiEvent::ToolResult {
+            call_id: id.to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+    }
+
+    /// A group of three commands whose rows each hold a unit with a variation
+    /// selector, and the answer that closes it:
+    /// - `├ Ran echo "⚡️" 42 # note`: U+26A1 U+FE0F, two cells, mid-row, inside
+    ///   the highlighter's string;
+    /// - `├ Ran echo "☀"️ x`: a U+FE0F after the string's closing quote, which
+    ///   the grid joins to the quote's one cell across the highlighter's
+    ///   sequences (`Grid::place_row`) -- a cell split by a sequence on a real
+    ///   tool row, one cell written together as well;
+    /// - `└ Ran echo xx…x⚡️`: U+26A1 U+FE0F in columns 79-80 of an 80-column
+    ///   screen, the right margin.
+    fn three_selector_calls_then_an_answer(shell: &mut Fixture) {
+        a_command_ran(shell, "1", "echo \"\u{26a1}\u{fe0f}\" 42 # note");
+        a_command_ran(shell, "2", "echo \"\u{2600}\"\u{fe0f} x");
+        a_command_ran(
+            shell,
+            "3",
+            &format!("echo {}\u{26a1}\u{fe0f}", "x".repeat(67)),
+        );
+        shell.apply(UiEvent::Delta("Done with it.\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+    }
+
+    const SELECTOR_ROWS: [&str; 3] = [
+        "\u{251c} Ran echo \"\u{26a1}\u{fe0f}\"",
+        "\u{251c} Ran echo \"\u{2600}\"\u{fe0f}",
+        "\u{2514} Ran echo xxx",
+    ];
+
+    /// The cells of the screen's bottom-most row that opens with `row`, and
+    /// its line, read off the band's record of the screen.
+    fn row_cells(band: &Band, row: &str) -> Option<(u16, Vec<super::super::grid::Cell>)> {
+        use super::super::grid::Cell;
+        let grid = band.shadow();
+        (1..=grid.rows()).rev().find_map(|line| {
+            let cells: Vec<Cell> = (1..=grid.cols())
+                .filter_map(|column| grid.cell(line, column).cloned())
+                .collect();
+            let text: String = cells
+                .iter()
+                .map(|cell| match cell {
+                    Cell::Lead { grapheme, .. } => grapheme.as_str(),
+                    Cell::Empty => " ",
+                    Cell::Continuation => "",
+                })
+                .collect();
+            text.starts_with(row).then_some((line, cells))
+        })
+    }
+
+    /// The one-based column of the cell on that row whose grapheme is
+    /// `grapheme`, and its width.
+    fn column_holding(band: &Band, row: &str, grapheme: &str) -> Option<(usize, usize)> {
+        use super::super::grid::Cell;
+        let (_, cells) = row_cells(band, row)?;
+        cells
+            .iter()
+            .enumerate()
+            .find_map(|(index, cell)| match cell {
+                Cell::Lead {
+                    grapheme: held,
+                    width,
+                    ..
+                } if held == grapheme => Some((index + 1, usize::from(*width))),
+                _ => None,
+            })
+    }
+
+    #[test]
+    fn a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted() {
+        // Both reviews' join check (train 3). Dark to light and back, each
+        // call row's switch is accepted by the check (the debt is paid, and
+        // the band records the screen only once the vector has landed); it
+        // leaves the row as a fresh landing in that palette leaves it, cell
+        // for cell; and the selector units are written as fx's frame writer
+        // writes them: `ECH 2` and a `CHA` to the column after a two-cell one
+        // mid-row, a `CHA` after a one-cell one, and `?7h` `ECH 2` the unit
+        // `?7l`, no anchor, at the margin. The append that landed the rows
+        // wrote them as they stand (`frame.rs`'s `place`, upstream's document
+        // append).
+        //
+        // Train 3 ran this at both depths. Since TC-NOTATION the palette is a
+        // mode and nothing else, every builtin grey spelt `38;5` at every
+        // depth, and the launch reads no `COLORTERM` for it (train 4): one run
+        // is both depths', so the greys below hold with no depth to gate them.
+        let now = Instant::now();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+
+        // The group drawn fresh on a light screen: what the switch owes.
+        let mut fresh = shell_of(24, 80);
+        let mut fresh_band = Band::new();
+        a_turn_under_way(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+        fresh.route_bytes(WENT_LIGHT);
+        tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+        three_selector_calls_then_an_answer(&mut fresh);
+        tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+
+        let mut shell = shell_of(24, 80);
+        let mut band = Band::new();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        three_selector_calls_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            landed.contains("\u{26a1}\u{fe0f}") && !landed.contains("\u{1b}[2X"),
+            "the append did not write the rows as they stand: {landed:?}"
+        );
+        let dark: Vec<_> = SELECTOR_ROWS
+            .iter()
+            .map(|row| row_cells(&band, row).expect("the call row on the screen").1)
+            .collect();
+
+        let (mid, mid_width) = column_holding(&band, SELECTOR_ROWS[0], "\u{26a1}\u{fe0f}")
+            .expect("the two-cell selector glyph mid-row");
+        let (quote, quote_width) = column_holding(&band, SELECTOR_ROWS[1], "\"\u{fe0f}")
+            .expect("the quote the selector was joined to");
+        let (margin, margin_width) = column_holding(&band, SELECTOR_ROWS[2], "\u{26a1}\u{fe0f}")
+            .expect("the two-cell selector glyph at the margin");
+        assert_eq!((mid, mid_width), (13, 2));
+        assert_eq!((quote, quote_width), (14, 1));
+        assert_eq!(
+            (margin, margin_width),
+            (79, 2),
+            "the glyph does not end in the last column"
+        );
+
+        for (report, wanted) in [(WENT_LIGHT, None), (WENT_DARK, Some(&dark))] {
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(!shell.owes_retint(), "nothing was owed yet");
+            shell.route_bytes(report);
+            let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(
+                !shell.owes_retint(),
+                "the switch's vector was refused: {written:?}"
+            );
+            assert!(
+                written.contains(&format!(
+                    "\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[{}G",
+                    mid + mid_width
+                )),
+                "the mid-row glyph is not cleared and anchored: {written:?}"
+            );
+            assert!(
+                written.contains(&format!("\"\u{fe0f}\u{1b}[{}G", quote + quote_width)),
+                "the joined one-cell unit is not anchored: {written:?}"
+            );
+            let bracket = "\u{1b}[?7h\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[?7l";
+            let at = written
+                .find(bracket)
+                .unwrap_or_else(|| panic!("no bracket at the margin: {written:?}"));
+            let after = &written[at + bracket.len()..];
+            let anchored = after.strip_prefix("\u{1b}[").is_some_and(|rest| {
+                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                digits > 0 && rest[digits..].starts_with('G')
+            });
+            assert!(!anchored, "anchored past the margin: {written:?}");
+            for (index, row) in SELECTOR_ROWS.iter().enumerate() {
+                let (_, now_held) = row_cells(&band, row).expect("the call row");
+                let owed = match wanted {
+                    Some(dark) => dark[index].clone(),
+                    None => row_cells(&fresh_band, row).expect("the fresh row").1,
+                };
+                assert!(
+                    now_held == owed,
+                    "{row:?}: drawn again, not as a fresh landing:\n{now_held:?}\n{owed:?}"
+                );
+            }
+        }
+        // Back on the dark screen: the string's and the statusline's greys,
+        // as the group's first landing had them.
+        assert_eq!(on_screen(&band, SELECTOR_ROWS[0], "\u{26a1}"), Some(250));
+        assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
+        assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
+    }
+
+    /// Every SGR a frame wrote that names a colour in the direct notation
+    /// (`38;2;...`, `48;2;...`): none, as fx's builtins are `38;5` at every
+    /// depth.
+    fn direct_colours(written: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for (index, _) in written.match_indices("\u{1b}[") {
+            let rest = &written[index + 2..];
+            let Some(end) = rest.find(|c: char| c.is_ascii_alphabetic()) else {
+                continue;
+            };
+            if rest.as_bytes()[end] != b'm' {
+                continue;
+            }
+            let params: Vec<&str> = rest[..end].split(';').collect();
+            if params
+                .windows(2)
+                .any(|pair| matches!(pair, ["38" | "48", "2"]))
+            {
+                found.push(rest[..end].to_string());
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys() {
+        // Train 4's join of MCP-E and TC-NOTATION: a stdio server that meets
+        // fx's `server/discover` probe as a 2026-07-28 server (MCP-E's era,
+        // `tests/support/mcp_discover_fixture.sh` `modern`), its version as
+        // `/mcp show` says it (a neutral notice, `mcp::command::show`) and as
+        // the `/mcp` menu's server screen says it (`protocol`, `fact_row`),
+        // written by the frame and drawn again across a theme switch. Every
+        // grey there is spelt `38;5`, fx's literal (`theme.zig:75-159`
+        // `@481104fd`): the notice grey 250 dark, 241 light, and the menu's
+        // dim label 247 light. The palette is a mode and nothing else, and the
+        // launch reads `COLORTERM` for the Ultra mark alone (`tui::run`), so
+        // this palette is the one a truecolor launch builds too.
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/mcp_discover_fixture.sh");
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().join("work");
+        std::fs::create_dir(&root).expect("the workspace directory");
+        let xfx = home.path().join(".xfx");
+        std::fs::create_dir(&xfx).expect("~/.xfx");
+        let profile = xfx.join("mcp.json");
+        let entry = serde_json::json!({
+            "command": "/bin/sh",
+            "args": [&fixture],
+            "env": {"MCP_DISCOVER_MODE": "modern"},
+        });
+        std::fs::write(
+            &profile,
+            serde_json::json!({"mcpServers": {"probe": entry}}).to_string(),
+        )
+        .expect("the profile");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(profile),
+            settings: Some(xfx.join("settings.json")),
+            workspace: root.clone(),
+        });
+        runtime.start_and_wait(Duration::from_secs(60));
+        // The startup reload is over; the server's connection is its own
+        // thread's: up to a minute for a state correct code reaches at once.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let view = loop {
+            let view = runtime
+                .views()
+                .into_iter()
+                .find(|view| view.name == "probe")
+                .expect("the server");
+            if !matches!(
+                view.connection,
+                crate::mcp::runtime::Connection::Connecting
+                    | crate::mcp::runtime::Connection::Retrying
+            ) {
+                break view;
+            }
+            assert!(Instant::now() < deadline, "never settled: {view:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(
+            view.protocol_version.as_deref(),
+            Some("2026-07-28"),
+            "not served in its era: {view:?}"
+        );
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            &root,
+        )
+        .expect("load a configuration");
+        let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 120, 1).expect("a band"),
+                crate::tui::theme::Palette {
+                    mode: crate::tui::theme::Mode::Dark,
+                },
+                false,
+                work.with_mcp(std::sync::Arc::clone(&runtime)),
+            )
+            .anchored(),
+            _work,
+            _control,
+            _home: home,
+            _workspace: workspace,
+        };
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        tick(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+        );
+
+        // Frames until one has written `needle`, the MCP runtime's answer
+        // being another thread's: what every frame wrote, in order.
+        let until = |shell: &mut Fixture,
+                     band: &mut Band,
+                     out: &mut FlakyScreen,
+                     failures: &mut FrameFailures,
+                     needle: &str| {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut written = String::new();
+            while !written.contains(needle) {
+                assert!(
+                    Instant::now() < deadline,
+                    "never written: {needle:?}\n{written:?}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+                shell.settle_band(Instant::now());
+                written.push_str(&tick(shell, band, out, failures, Instant::now()));
+            }
+            written
+        };
+
+        shell.route_read(b"/mcp show probe\r");
+        let shown = until(&mut shell, &mut band, &mut out, &mut failures, "2026-07-28");
+        assert_eq!(
+            fg_spelt(&shown, "version    2026-07-28").as_deref(),
+            Some("38;5;250"),
+            "{shown:?}"
+        );
+        assert_eq!(direct_colours(&shown), Vec::<String>::new(), "{shown:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+        );
+        assert_eq!(
+            fg_spelt(&light, "2026-07-28").as_deref(),
+            Some("38;5;241"),
+            "the version row was not drawn again in the light notice grey: {light:?}"
+        );
+        assert_eq!(direct_colours(&light), Vec::<String>::new(), "{light:?}");
+
+        shell.route_read(b"/mcp\r");
+        shell.settle_band(Instant::now() + Duration::from_secs(1));
+        // An Enter more than `MCP_ENTER_HELD` after the one before it.
+        std::thread::sleep(Duration::from_millis(600));
+        shell.route_read(b"\r");
+        let server = until(&mut shell, &mut band, &mut out, &mut failures, "protocol");
+        assert_eq!(
+            shell.mcp_screen(),
+            Some(super::super::mcp_menu::Screen::Server)
+        );
+        assert!(server.contains("2026-07-28"), "{server:?}");
+        assert_eq!(
+            fg_spelt(&server, "protocol").as_deref(),
+            Some("38;5;247"),
+            "{server:?}"
+        );
+        assert_eq!(direct_colours(&server), Vec::<String>::new(), "{server:?}");
+        runtime.shutdown();
     }
 }

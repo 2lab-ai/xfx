@@ -1,0 +1,24 @@
+# The test counts the README cites, per commit. Commands as run (from the train's worktree):
+#   tests:   git grep -c '#\[test\]' <commit> -- src tests | awk -F: '{s+=$NF} END {print s}'
+#   harness: git show <commit>:scripts/fxcap/test_sweep.py | grep -cE '^    def test_'   (and test_capture.py)
+# commit | what | #[test] in src+tests | def test_ in test_sweep.py | in test_capture.py
+e6cde019 | main | 5140 | 50 | 42
+6c93f359 | MCP-E-base | 5078 | 50 | 42
+d56ab017 | MCP-E | 5132 | 54 | 53
+ec390074 | TC-NOTATION-base | 5092 | 50 | 42
+e1d4016b | TC-NOTATION | 5090 | 50 | 42
+31a6ef79 | FLAKE-HINT4 | 5140 | 62 | 48
+a76f4e37 | merge-1 | 5194 | 54 | 53
+066a913d | merge-2 | 5192 | 54 | 53
+e3035c92 | merge-3 | 5192 | 66 | 59
+4714be5e | join-test | 5193 | 66 | 59
+4be2f0f2 | head | 5193 | 66 | 59
+
+# what the gate's runs counted (gates.txt): cargo test, every 'test result' line summed; test-sweep.sh's and test-capture.sh's 'Ran N tests'
+cargo test: 15 binaries, 5279 passed, 0 failed, 7 ignored
+cargo test --features fault-injection: 15 binaries, 5316 passed, 0 failed, 7 ignored
+test-sweep.sh: Ran 66 tests in 5.857s;Ran 26 tests in 99.892s;
+test-capture.sh: Ran 59 tests in 749.002s
+main's cargo test count, train 3's gate (grep -n 5226 .prd/tui-phase5/receipts/train-3/README.md):
+232:| `cargo test --locked --no-fail-fast` | 5226 passed, 0 failed, 7 ignored (15 binaries) |
+251:beside it): every gate above passed too (`cargo test` 5226 and 5263 again;

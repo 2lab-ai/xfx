@@ -1,0 +1,19 @@
+# p5 mcp discover: a stdio server that never answers `server/discover`
+# (p5-mcp-discover-stdio.ts `silent`), then speaks 2025-06-18. fx v0.0.16 waits out its
+# probe -- 10 s, cut to what is left of the 30 s start (era.zig:25@481104fd) -- and falls
+# back to `initialize`: still connecting at 5 s, ready by 15 s. `home wire` is what the
+# server was sent.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-silent-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-silent-profile.json
+gateway p5-mcp-hello.json
+wait 4
+type /mcp show fixture
+key Enter
+wait 1
+snap probing
+wait 10
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+home wire
