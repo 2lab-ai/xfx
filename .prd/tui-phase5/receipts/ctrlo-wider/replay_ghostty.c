@@ -5,7 +5,12 @@
  * with grapheme clustering (mode 2027) on, as herdr runs it and as
  * scripts/drawn-wider/probe_ghostty.c measured each scalar.
  *
- * usage: replay_ghostty <cols> <rows> <wire>
+ * usage: replay_ghostty <cols> <rows> <wire> [<offset> <cols2> <rows2>]
+ *
+ * With the last three, the first <offset> bytes are written at <cols>x<rows>,
+ * the terminal is resized to <cols2>x<rows2> (what the window resize a
+ * capture's `resize` makes), and the rest is written there: <offset> is the
+ * size of the `wire` taken just before the `resize`.
  *
  * Writes the active screen as text, one line per row, the way tmux's
  * capture-pane writes one: a cell's grapheme, a wide cell's second column
@@ -38,9 +43,17 @@ static size_t utf8(unsigned cp, char *o) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 4) { fprintf(stderr, "usage: replay_ghostty <cols> <rows> <wire>\n"); return 2; }
+  if (argc != 4 && argc != 7) { fprintf(stderr, "usage: replay_ghostty <cols> <rows> <wire> [<offset> <cols2> <rows2>]\n"); return 2; }
   int cols = atoi(argv[1]), rows = atoi(argv[2]);
   if (cols < 1 || cols > 1000 || rows < 1 || rows > 1000) { fprintf(stderr, "a size from 1 to 1000\n"); return 2; }
+  long resize_at = -1;
+  int cols2 = cols, rows2 = rows;
+  if (argc == 7) {
+    resize_at = atol(argv[4]);
+    cols2 = atoi(argv[5]);
+    rows2 = atoi(argv[6]);
+    if (resize_at < 0 || cols2 < 1 || cols2 > 1000 || rows2 < 1 || rows2 > 1000) { fprintf(stderr, "a bad resize\n"); return 2; }
+  }
   FILE *f = fopen(argv[3], "rb");
   if (!f) { perror(argv[3]); return 2; }
   GhosttyTerminal t = NULL;
@@ -49,8 +62,21 @@ int main(int argc, char **argv) {
   ghostty_terminal_mode_set(t, ghostty_mode_new(2027, false), true);
   unsigned char buf[65536];
   size_t n;
-  while ((n = fread(buf, 1, sizeof buf, f)) > 0) ghostty_terminal_vt_write(t, buf, n);
+  long written = 0;
+  while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
+    size_t at = 0;
+    if (resize_at >= written && resize_at < written + (long)n) {
+      at = (size_t)(resize_at - written);
+      ghostty_terminal_vt_write(t, buf, at);
+      ghostty_terminal_resize(t, (uint16_t)cols2, (uint16_t)rows2, 8, 16);
+    }
+    ghostty_terminal_vt_write(t, buf + at, n - at);
+    written += (long)n;
+  }
   fclose(f);
+  if (resize_at >= written && argc == 7) ghostty_terminal_resize(t, (uint16_t)cols2, (uint16_t)rows2, 8, 16);
+  cols = cols2;
+  rows = rows2;
 
   /* The text and the cell map, one row at a time. */
   char *text = malloc((size_t)cols * 64 + 1);

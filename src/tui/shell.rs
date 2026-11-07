@@ -37658,6 +37658,77 @@ mod tests {
         shell.shell.flush_paced();
     }
 
+    /// `p5-ctrlo-wider-inline-fam`'s family: characters a terminal draws
+    /// wider than xfx and fx count them (`super::drawn_wider`), raw and as
+    /// the screen names them, with an emoji base and its `U+FE0F` that both
+    /// terminals draw at the two cells counted, which stays.
+    const FAMILY_RAW: &str =
+        "fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{2e3b} up \u{261d}\u{fe0f} end";
+    const FAMILY_NAMED: &str =
+        r"fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{2e3b} up ☝️ end";
+
+    #[test]
+    fn an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written() {
+        // Display only: the document's row and Ctrl-O's Response row name
+        // them; the reply `/copy` puts on the clipboard is the model's text,
+        // byte for byte (`WorkHandle::last_reply`, the journal's), and so is
+        // what `/trace` lists as typed. Written raw, the rows lose glyphs on
+        // tmux 3.7b and libghostty-vt (.prd/tui-phase5/receipts/ctrlo-wider/,
+        // `measure.txt`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = running("go");
+        shell.copies = Copies::new(tool.clipboard());
+        shell.apply(UiEvent::Delta(format!("{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n")));
+        shell.apply(UiEvent::Operational(format!("{FAMILY_RAW}\n")));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
+        let named: Vec<&String> = document.iter().filter(|row| row.contains(FAMILY_NAMED)).collect();
+        assert_eq!(named.len(), 3, "the prose, the code panel and the operational line: {document:#?}");
+        assert!(
+            !document.iter().any(|row| row.contains("\u{261d} ") || row.contains('\u{2e3a}')),
+            "a raw character a terminal draws wider: {document:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().filter(|row| row.contains(FAMILY_NAMED)).count() >= 2,
+            "Ctrl-O's Response rows: {screen:#?}"
+        );
+        assert!(!screen.iter().any(|row| row.contains('\u{2e3a}')), "{screen:#?}");
+        shell.route_bytes(b"\x0f");
+        shell.work.replied(FAMILY_RAW);
+        shell.route_bytes(b"/copy\r");
+        let _ = copy_settled(&mut shell);
+        assert_eq!(
+            tool.copied().expect("the clipboard tool was fed"),
+            FAMILY_RAW.as_bytes()
+        );
+    }
+
+    #[test]
+    fn a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o() {
+        // Ctrl-O's Prompt row is a frame's row, written with the anchor after
+        // a glyph with a variation selector, which a scalar drawn wider
+        // before it turns into an overwrite (`p5-ctrlo-wider-inline-fam`
+        // `ctrlo`: `y a` lost on tmux, `a` on libghostty-vt): named there.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(FAMILY_RAW.as_bytes());
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("Spare.\n".into()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let _ = shell.written();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().any(|row| row == &format!("\u{2503} {FAMILY_NAMED}")),
+            "{screen:#?}"
+        );
+    }
+
     #[test]
     fn ctrl_o_opens_the_full_transcript_on_the_other_plane_and_each_closing_key_gives_it_back() {
         // `input_full_transcript_runtime.zig:177-198`: Ctrl-O toggles, and

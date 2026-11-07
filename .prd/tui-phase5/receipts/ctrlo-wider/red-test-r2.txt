@@ -1,0 +1,79 @@
+# RED, round 2: the two shell tests on 88c2fec1's product code (only the tests added)
+
+running 2 tests
+test tui::shell::tests::a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o ... FAILED
+test tui::shell::tests::an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o stdout ----
+
+[
+    "  2026-11-07 22:12:02.099 UTC · Prompt",
+    "┃ fam ☝ ⸺ 🖐 x\u{e0002}y a\u{fe0f}b ⸻ up ☝\u{fe0f} end",
+    "",
+    "  2026-11-07 22:12:02.099 UTC · Response",
+    "  Spare.",
+    "",
+    "  2026-11-07 22:12:02.099 UTC · Usage",
+    "  0s (↑13 ↓2)",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close",
+    "",
+    "run `xfx setup` · auto · glm-5.2",
+]
+
+---- tui::shell::tests::an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written stdout ----
+
+assertion `left == right` failed: the prose, the code panel and the operational line: [
+    "  fam ☝ ⸺ 🖐 x\u{e0002}y a\u{fe0f}b ⸻ up ☝\u{fe0f} end",
+    "",
+    "  ───────────────────────────",
+    "  fam ☝ ⸺ 🖐 x\u{e0002}y a\u{fe0f}b ⸻ up ☝\u{fe0f} end",
+    "  ───────────────────────────",
+    "",
+    "  fam ☝ ⸺ 🖐 x\u{e0002}y a\u{fe0f}b ⸻ up ☝\u{fe0f} end",
+    "",
+    "  0s (↑1 ↓28)",
+    "",
+]
+  left: 0
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o
+    tui::shell::tests::an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4326 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
