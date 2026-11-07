@@ -562,7 +562,7 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 ///
 /// * a command is put on one line as fx puts it
 ///   (`projectRunCommandActivitySource`, `vercel-labs/fx@481104fd
-///   src/core/tooling/tool_presentation.zig:256-306`): of its first
+///   src/core/tooling/tool_presentation.zig:256-311`): of its first
 ///   [`COMMAND_SOURCE_BYTES`], a carriage return or a line feed ends a line,
 ///   the spaces and tabs that open the next go with it, and one space stands
 ///   for the break once something came before it and something follows;
@@ -571,13 +571,14 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 ///   `src/core/app/app_callbacks.zig:544-549`);
 /// * any other argument is [`Spelling`]'s as it is, at [`TARGET_BYTES`],
 ///   as fx spells a file change's path (`fileMutationDisplayPath`,
-///   `src/core/agent/runtime/tool_presentation.zig:736-754`). fx writes a
+///   `src/core/agent/runtime/tool_presentation.zig:736-753`). fx writes a
 ///   read's, a list's or a pattern's row with the argument as it came -- the
 ///   marks and the C1 controls to the terminal as themselves, the other
 ///   controls dropped, the row ended at its first line break
-///   (`formatToolActionValue`, `src/core/app/app_agent_runtime.zig:1248-1305`;
-///   `normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:
-///   317-347`) -- which is not safe to copy (ledger `call-row-raw-argument`).
+///   (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310`,
+///   and `formatToolActionValue`, `:1340-1342`; `normalizeCanonicalStatus`,
+///   `src/ui/transcript/tool_group_projection.zig:317-347`) -- which is not
+///   safe to copy (ledger `call-row-raw-argument`).
 ///
 /// Spaces around an argument stay, upstream's `Failed   missing.txt  :`
 /// (`fx-read-failures-40x120-live`). Not fx's: a command's `cd . &&` and its
@@ -618,7 +619,7 @@ pub(crate) fn spelled(target: &str, activity: Activity) -> String {
         let kept = if at + character.len_utf8() > COMMAND_SOURCE_BYTES {
             // fx reads the command's first bytes, so a character the bound
             // splits is read in part; no part is a character, and each of its
-            // bytes is `\xNN` (`terminalSafeToken`, `text_utils.zig:653-659`).
+            // bytes is `\xNN` (`terminalSafeToken`, `text_utils.zig:652-657`).
             let mut bytes = [0u8; 4];
             character.encode_utf8(&mut bytes);
             bytes[..COMMAND_SOURCE_BYTES - at]
@@ -636,12 +637,15 @@ pub(crate) fn spelled(target: &str, activity: Activity) -> String {
 }
 
 /// A failure's reason as the row shows it, as fx's `encodeTerminalSafeInline`
-/// writes it (`src/core/shared/text_utils.zig:397-416@481104fd`, for the row
+/// writes it (`src/core/shared/text_utils.zig:397-417@481104fd`, for the row
 /// at `failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:
 /// 1445-1493`): every run of ASCII white space -- a space, `\t` to `\r` --
 /// one space and none at either end, then [`Spelling`]'s at [`REASON_BYTES`].
 /// A reason can quote the argument, so it is spelled as the argument is.
-fn flattened(reason: &str) -> String {
+///
+/// Idempotent, as [`spelled`] is: the channel spells a reason as it crosses
+/// (`super::bridge`'s `made_inert`) and the row spells it again unchanged.
+pub(crate) fn flattened(reason: &str) -> String {
     let mut spelling = Spelling::new(REASON_BYTES);
     let mut space = false;
     for character in reason.chars() {
@@ -664,7 +668,7 @@ fn flattened(reason: &str) -> String {
 ///
 /// Each character is its `terminalSafeToken` (`:643-667`) -- a C0 control or
 /// `DEL` `\xNN`, a C1 control or a mark `isNonPrintingCodepoint` names
-/// (`:703-708`) `\u{NNNN}`, anything else itself -- which is
+/// (`:703-709`) `\u{NNNN}`, anything else itself -- which is
 /// [`crate::tools::question::terminal_safe`]; and the Arabic letter mark
 /// (`U+061C`), which fx writes as itself, is `\u{061c}` too: it reorders the
 /// row around it as the marks fx names do (`approval_view`'s `reorders`, the
@@ -1398,7 +1402,7 @@ mod tests {
 
     /// A character no row may hand the terminal as itself: a control other
     /// than the escape (which [`only_colours`] reads), or a mark fx names
-    /// (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`) or xfx
+    /// (`isNonPrintingCodepoint`, `text_utils.zig:703-709@481104fd`) or xfx
     /// does (`U+061C`).
     fn obeyed_or_hidden(character: char) -> bool {
         let code = u32::from(character);
@@ -1437,7 +1441,7 @@ mod tests {
         // and the C1 `\u{NNNN}`. The pattern and the path the same way
         // without the projection, as fx spells a file change's
         // (`fileMutationDisplayPath`, `src/core/agent/runtime/
-        // tool_presentation.zig:736-754@481104fd`); fx hands those two to
+        // tool_presentation.zig:736-753@481104fd`); fx hands those two to
         // the terminal as they are (ledger `call-row-raw-argument`). The
         // Arabic letter mark is named on every row. The reason as
         // `encodeTerminalSafeInline` spells it: white space one space, the
@@ -1471,7 +1475,7 @@ mod tests {
 
     #[test]
     fn a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them() {
-        // `projectRunCommandActivitySource` (`tool_presentation.zig:256-306
+        // `projectRunCommandActivitySource` (`tool_presentation.zig:256-311
         // @481104fd`): a carriage return or a line feed ends a line, the
         // spaces and tabs that open the next one go with it, and one space
         // stands for the break -- once something came before it and only

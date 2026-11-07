@@ -507,7 +507,11 @@ impl UiEvent {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
                 ok,
-                detail: inert_owned(detail),
+                // The tool's reason, which the call's row quotes after its
+                // argument and which can quote the argument back: spelled as
+                // that row spells it (`super::toolgroup::flattened`, fx's
+                // `encodeTerminalSafeInline`), not blanked.
+                detail: super::toolgroup::flattened(&detail),
                 outcome,
                 changes,
             },
@@ -2425,7 +2429,8 @@ mod tests {
                 call_id: " [2Jc".into(),
                 tool: " [2Jt".into(),
                 ok: false,
-                detail: " [2Jd".into(),
+                // Spelled as the call's row spells a reason.
+                detail: "\\x1b[2Jd".into(),
                 outcome: Outcome::Denied,
                 changes: None,
             })
@@ -3002,5 +3007,31 @@ mod tests {
             shown.target.as_deref(),
             Some(r"m\u{202e}n\x1b[2Jq\x09r\x0dt.txt")
         );
+        // The tool's reason, which the row quotes after the argument, the
+        // same way as `encodeTerminalSafeInline` writes it: white space one
+        // space, the rest spelled, 256 bytes at most (`failureStatusDetail`,
+        // `src/core/agent/runtime/tool_presentation.zig:1445-1493@481104fd`).
+        let reason = |detail: String| {
+            let event = UiEvent::ToolResult {
+                call_id: "r".into(),
+                tool: "read_file".into(),
+                ok: false,
+                detail,
+                outcome: Outcome::Finished,
+                changes: None,
+            }
+            .made_inert();
+            assert_eq!(event.clone().made_inert(), event);
+            let UiEvent::ToolResult { detail, .. } = event else {
+                panic!("made_inert changed the variant");
+            };
+            detail
+        };
+        assert_eq!(
+            reason("Path not found:\n m\u{202e}n\u{1b}[2Jq\tr\u{9b}s\rt.txt ".into()),
+            r"Path not found: m\u{202e}n\x1b[2Jq r\u{009b}s t.txt"
+        );
+        let long = reason("\u{202e}".repeat(100));
+        assert_eq!(long, format!("{}...", r"\u{202e}".repeat(31)));
     }
 }

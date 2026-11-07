@@ -4539,7 +4539,7 @@ mod tests {
     #[test]
     fn a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width() {
         // fx's heading here is the status phrase its transcript row is made
-        // from (`formatExpandedChild`, `tool_group_projection.zig:788-821
+        // from (`formatExpandedChild`, `tool_group_projection.zig:788-820
         // @481104fd`), wrapped and never cut: the command as
         // `encodeTerminalSafe` wrote it (`p5-call-row-safe-…-full`). The
         // pattern and the path are spelled the same way here, where fx's

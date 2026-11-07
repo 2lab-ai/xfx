@@ -134,7 +134,6 @@ use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
-use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
@@ -264,15 +263,6 @@ const RAIL_HIDDEN_ABOVE: &str = "\u{2503}\u{2191}";
 /// How many cells the rail and its space occupy, and therefore where an empty
 /// composer's caret sits (`visual_layout.zig:689-694`).
 const PROMPT_CELLS: u16 = 2;
-
-/// How much of a refused tool's own words a notice quotes back.
-///
-/// The same bound the line-oriented path gives a tool notice
-/// (`src/output.rs:1062`), spelled again rather than shared because that one is
-/// private to a module this task does not own. Both are there for the same
-/// reason: what a tool says about why it refused is for whoever needs it in
-/// full, and never for a row of the terminal's document.
-const TOOL_DETAIL_BYTES: usize = 120;
 
 /// The width `/trace`'s timeline is laid out at: the same for every report,
 /// whatever the screen's, and wide enough that a sentence is a line rather
@@ -4030,7 +4020,10 @@ impl Shell {
                 self.mark(Mark::ToolResult {
                     id: call_id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    // Spelled and bounded as the call's row has it, by the
+                    // channel (`super::toolgroup::flattened`: fx's
+                    // `encodeTerminalSafeInline` at 256 bytes).
+                    detail,
                     outcome,
                     changes,
                 });
