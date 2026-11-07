@@ -374,7 +374,7 @@ reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and
 owner = "CALLROW-SAFE"
 resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:657"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:750"]
 
 [[divergence]]
 id = "call-row-source-cut"
@@ -388,7 +388,7 @@ reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and sa
 owner = "CALLROW-SAFE"
 resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:705"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:798"]
 
 [[divergence]]
 id = "call-row-arabic-letter-mark"
@@ -402,7 +402,7 @@ reason = "CALLROW-SAFE's decision (`call-row-raw-argument`) in the one scenario 
 owner = "CALLROW-SAFE"
 resolution = "fx names U+061C on a command's row in a later pin, or the user takes fx's raw mark, as `call-row-raw-argument` resolves"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:819"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:912"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -468,9 +468,9 @@ class = "unsafe-to-copy"
 pins = ["v0.0.16"]
 scenarios = ["p5-transcript-diffwide2"]
 snaps = ["full"]
-fx_row = '(?<![\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]|^│  5678$'
+fx_row = '(?<![\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]|^│  5678$|^  │     5678$'
 xfx_row = '(?<![\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
-reason = "fx v0.0.16 counts a skin-tone modifier (U+1F3FB-1F3FF) as no cells wherever it stands (`isZeroWidthContinuation`, `display_width.zig:409-421@481104fd`), and a terminal draws one that follows no emoji as cells of its own (tmux 3.7b: U+1160 U+1F3FD two cells, U+FFA0 U+1F3FD three, `a` U+1F3FD three, U+1F3FD alone two, where fx counts one, one, one and none; xfx three, three, three and two; .prd/tui-phase5/receipts/width-disputed/clusters.txt). So fx lays such a line out narrower than it is drawn, and its row runs past the margin: in `p5-transcript-diffwide2` `full`, line 5 is 104 `w`s, four U+1160 U+1F3FD and `TAIL5678`; fx's read row ends `\U0001f3fd\U0001f3fd\U0001f3fd L` in the screen's last cell (the fourth modifier and `TAI` lost) and its next row is `│  5678`, where xfx's ends `\U0001f3fd\U0001f3fd` and its next row holds the rest, `│  \U0001f3fd\U0001f3fdTAIL5678` (the capture keeps no cell for U+1160). xfx counts the modifier as the width table does, at least (`upstream_cells`): copying fx's count puts the line past the margin. The selector is a modifier after no `Emoji_Modifier_Base` (all of them in U+261D-270D and U+1F385-1FAF8, unicode-width 0.2.2 `is_emoji_modifier_base`), so a person emoji with its skin tone is not taken in, and fx's `│  5678`; the diff row's continuation, `  │     5678`, is `ctrl-o-diff-row-clipped`'s."
+reason = "fx v0.0.16 counts a skin-tone modifier (U+1F3FB-1F3FF) as no cells wherever it stands (`isZeroWidthContinuation`, `display_width.zig:409-421@481104fd`), and a terminal draws one that follows no emoji as cells of its own (tmux 3.7b: U+1160 U+1F3FD two cells, U+FFA0 U+1F3FD three, `a` U+1F3FD three, U+1F3FD alone two, where fx counts one, one, one and none; xfx three, three, three and two; .prd/tui-phase5/receipts/width-disputed/clusters.txt). So fx lays such a line out narrower than it is drawn, and its row runs past the margin: in `p5-transcript-diffwide2` `full`, line 5 is 104 `w`s, four U+1160 U+1F3FD and `TAIL5678`; fx's read row ends `\U0001f3fd\U0001f3fd\U0001f3fd L` in the screen's last cell (the fourth modifier and `TAI` lost) and its next row is `│  5678`, where xfx's ends `\U0001f3fd\U0001f3fd` and its next row holds the rest, `│  \U0001f3fd\U0001f3fdTAIL5678` (the capture keeps no cell for U+1160). xfx counts the modifier as the width table does, at least (`upstream_cells`): copying fx's count puts the line past the margin. The selector is a modifier after no `Emoji_Modifier_Base` (all of them in U+261D-270D and U+1F385-1FAF8, unicode-width 0.2.2 `is_emoji_modifier_base`), so a person emoji with its skin tone is not taken in, and fx's `│  5678`. The same line's Ctrl-O diff row stands apart the same way since DIFF-WRAP reflows a diff row as fx does: fx's `  │ 5   ` row ends `\U0001f3fd\U0001f3fd\U0001f3fd L` and its next is `  │     5678`, xfx's ends `\U0001f3fd\U0001f3fd` and its next is `  │     \U0001f3fd\U0001f3fdTAIL5678`, each of xfx's taken in by the xfx selector and fx's `  │     5678` by its own, as the read row's `│  5678` is (.prd/tui-phase5/receipts/ctrlo-diff-wrap/). Line 3's continuation reads `  │     5678` too, on both sides alike, so the selector never has to tell it apart."
 owner = "WIDTH-DISPUTED"
 resolution = "fx counts a skin-tone modifier that follows no emoji as the terminals draw it, in a later pin, and xfx takes its count"
 expires = "date:2026-12-04"
@@ -490,17 +490,6 @@ source = ["src/tui/wrap.rs:622"]
 # row is that row's -- so the row stays T-U4's while the marker differs, and
 # is TC-NOTATION's once T-U4 has changed it (T-U3-TCd).
 [[cause]]
-id = "ctrl-o-diff-row-clipped"
-kind = "defect"
-owner = "DIFF-WRAP"
-scenarios = ["p5-transcript-diffwide", "p5-transcript-diffwide2"]
-snaps = ["full"]
-whole_snap = true
-xfx = "src/tui/full_transcript.rs:2240"
-fx = "src/ui/render_engine/transcript_blocks.zig:718-766@c1db9191"
-why = "fx reflows a Ctrl-O diff row longer than the screen onto continuation rows under its gutter (`  │ ` and spaces to the text column; `reflowDiffRow`, the same at 481104fd's `transcript_blocks.zig:720-768`); xfx's `diff_rows` clips it at the margin, so the rest of the line is not shown. `p5-transcript-diffwide` `full`: line 3 (104 `w`s, four soft hyphens, `TAIL5678`) is fx's `  │ 3   …TAIL` then `  │     5678`, and xfx's first row only -- byte-identical since WIDTH-DISPUTED, the `5678` row absent, so the window above it starts a row later on fx. A c1db919 behaviour too, so a KEEP gap rather than a 0.0.16 change. Fixed when xfx's Ctrl-O diff rows wrap as fx's do -- as its review already wraps one rather than cut it."
-
-[[cause]]
 id = "ctrl-o-drawn-wider-raw"
 kind = "defect"
 owner = "CTRLO-WIDER"
@@ -513,23 +502,13 @@ why = "Ctrl-O's diff rows write as themselves, as fx v0.0.16 does, the scalars `
 resolution = "On Ctrl-O, in the inline transcript and in the composer alike. For the scalars it selects: fixed when the painter counts them as fx does, or the surface names them (a divergence from fx's bytes then). Counting as fx does cannot close the family it leaves out, where xfx's count is already fx's: only naming them closes it, as the review does (`approval_view` `tamed`); so for U+FE0F after a character that takes no emoji presentation."
 
 [[cause]]
-id = "frame-variation-selector-anchor"
-kind = "unit"
-owner = "ENGINE-VS-ANCHOR"
-scenarios = ["p5-transcript-diffwide2"]
-snaps = ["full"]
-fx_row = '[\ufe0e\ufe0f]'
-xfx_row = '[\ufe0e\ufe0f]'
-why = "fx v0.0.16's frame writes a cursor column (CHA) after every glyph whose cluster holds a variation selector, so the cells after it land where its grid put them on a terminal that draws the pair narrower or wider than fx counts (`95e6c8fd` \"Re-anchor the cursor after glyphs with a variation selector\", `disputed_width`, `src/core/terminal/engine.zig:2572@481104fd`, and the `ESC[<col>G` it sends, `:2586-2588@481104fd`; not at c1db9191). xfx's row writers (`src/tui/grid.rs`, `src/tui/frame.rs` `place`) write the run on, and the terminal places what follows by its own advance. `p5-transcript-diffwide2` `full` line 2: after `half` U+FFA0 U+FE0E, fx writes `ESC[42G` and tmux leaves three blank cells before `x` (fx counts the U+3164 and U+1160 before it three cells more than tmux draws), xfx's row runs on and its `x` is three cells left of where its grid holds it. Not a margin overrun; a later partial repaint of the row can leave a stale cell. Resolved when xfx's frame re-anchors after such a glyph, as fx's does. Read row 2 differed for a second reason as well until train 2: fx spells the U+200D after `zwj` U+FFA0 as `\\u{200d}` and xfx wrote it raw (WIDTH-DISPUTED's `green.txt:31`, and `red.txt:31` on round 2's build); T-U1-SAFE spells it as fx does, and the cause that named it, `ctrl-o-result-format-raw`, is deleted (.prd/tui-phase5/receipts/train-2/README.md), so this anchor is the row's one reason."
-
-[[cause]]
 id = "submit-multi-card-whole"
 kind = "decision"
 owner = "user decision multi-line card preview"
 scenarios = ["p5-transcript-submit-multi"]
 snaps = ["frame1"]
 rows = ["32-36"]
-why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12267). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12275). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
 
 [[cause]]
 id = "diffctl-xfx-reads-first"
@@ -561,7 +540,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^▪ Cancelled '
 xfx_row = '^■ Cancelled '
-xfx = ["src/tui/toolgroup.rs:618"]
+xfx = ["src/tui/toolgroup.rs:711"]
 fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
 why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
 
@@ -569,21 +548,11 @@ why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `
 id = "truecolor-grey-notation"
 kind = "unit"
 owner = "TC-NOTATION builtin greys spelt 38;5 at every depth"
-scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc"]
+scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc", "p5-toolgroup-live-tc", "p5-toolgroup-ctrlo-tc"]
 snaps = ["*"]
-fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
-xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
-why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
-
-[[cause]]
-id = "toolgroup-retint-256"
-kind = "unit"
-owner = "TG-REDRAW tool rows drawn again on a theme switch"
-scenarios = ["p5-toolgroup-retint", "p5-toolgroup-retint-light", "p5-toolstop-retint", "p5-toolstop-retint-light"]
-snaps = ["light", "dark", "dark-again", "light-again"]
-fx_row = '^└ (?:Ran|Cancelled) '
-xfx_row = '^└ (?:Ran|Cancelled) '
-why = "At 256 colours a cell of a tool group's row that holds the statusline grey of the mode in force -- 241 on a light screen, 245 on a dark one -- cannot be told from the statusline: xfx's recolouring of the screen gives it the other mode's statusline grey (245, 241) where fx gives the highlighter's (a string 250, a comment 243), because fx projects the group again in the new theme (src/ui/transcript/tool_group_projection.zig:558-640,742-784@481104fd), from entries xfx does not keep once a group's block closes. A string holds it on a light screen and a comment on a dark one, whether drawn in that mode or moved there by a switch: a string drawn dark is 241 once light, and a comment drawn light is 245 once dark (it goes there as fx's does, T-U3-TCc), so each joins on the next switch (dark-again of p5-toolgroup-retint and p5-toolstop-retint, light-again of their -light twins). A truecolor session has none (T-U3-TCb). .prd/tui-phase5/receipts/inline-code-truecolor/."
+fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-Z]+ · |^\* (?:session|network): |^  (?:finish|tokens|mcp): |^│ '
+xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-Z]+ · |^\* (?:session|network): |^  (?:finish|tokens|mcp): |^│ '
+why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument), the activity row a running command adds (`p5-toolgroup-live-tc`), and on a Ctrl-O page each entry's heading, the session and network records and a command's output rail (`p5-toolgroup-ctrlo-tc`) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py; TG-REDRAW's two, .prd/tui-phase5/receipts/toolgroup-redraw/). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
 
 [[cause]]
 id = "status-panel-scroll-window"
@@ -765,7 +734,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:37356"]
+xfx = ["src/tui/shell.rs:37458"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -776,9 +745,21 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37356"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37458"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+
+[[cause]]
+id = "toolgroup-ctrlo-record-short"
+kind = "defect"
+owner = "unowned (follows tool-schema and session-record)"
+scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
+snaps = ["full-*"]
+rows = ["34-37"]
+xfx_row = '^\s*$'
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37458"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
 [[cause]]
 id = "safe-page-edge"
@@ -787,7 +768,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
 snaps = ["full", "full-pgup"]
 rows = ["1-2", "33-36"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37356"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37458"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
 
@@ -798,7 +779,7 @@ owner = "unowned (follows tool-schema)"
 scenarios = ["p5-call-row-safe"]
 snaps = ["full"]
 rows = ["1-3"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:657"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:750"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
 why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
 
@@ -843,7 +824,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:37356", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:37458", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 

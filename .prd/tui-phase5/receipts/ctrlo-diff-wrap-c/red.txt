@@ -1,0 +1,58 @@
+ok   full p5-transcript-diffwide (fx / red)
+       41 rows, 41 the same
+ok   rows p5-transcript-diffwide (fx / red)
+       fx 5 rows / red 5 rows
+ok   margin p5-transcript-diffwide red
+       no cell past column 120
+ok   inline p5-transcript-diffwide edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide closed
+       all 41 rows the same
+ok   full p5-transcript-diffwide2 (fx / red)
+       row 9 ['frame-variation-selector-anchor']: fx 'ǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red 'junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+       row 14 ['filler-modifier-count']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       row 15 ['filler-modifier-count']: fx '│  5678' / red '│  🏽🏽TAIL5678'
+       row 23 ['frame-variation-selector-anchor']: fx 'ǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red 'junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+       row 28 ['filler-modifier-count']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       row 29 ['filler-modifier-count']: fx '  │     5678' / red '  │     🏽🏽TAIL5678'
+       41 rows, 35 the same
+ok   rows p5-transcript-diffwide2 (fx / red)
+       fx 10 rows / red 10 rows
+       line 2 apart (named): fx 'lfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red ' halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+       line 5 apart (named): fx 'wwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       line 5 apart (named): fx '  │     5678' / red '  │     🏽🏽TAIL5678'
+ok   margin p5-transcript-diffwide2 red
+       no cell past column 120
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+ok   full p5-transcript-diffwrap (fx / red)
+       41 rows, 41 the same
+ok   rows p5-transcript-diffwrap (fx / red)
+       fx 19 rows / red 19 rows
+ok   margin p5-transcript-diffwrap red
+       no cell past column 120
+ok   inline p5-transcript-diffwrap edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwrap closed
+       all 41 rows the same
+FAIL full p5-transcript-diffwrap2 (fx / red)
+       row 24 FAIL, nothing the claim names covers it: fx 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1Z' / red 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1️'
+       row 27 FAIL, nothing the claim names covers it: fx 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmeZ' / red 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmméZ'
+       row 28 FAIL, nothing the claim names covers it: fx '  │ 18 + p      q' / red '  │ 18 + p      ́q'
+       row 29 FAIL, nothing the claim names covers it: fx '  │ 19 + r      s' / red '  │ 19 + r      ️s'
+       41 rows, 37 the same
+FAIL rows p5-transcript-diffwrap2 (fx / red)
+       fx 29 rows / red 29 rows
+       line 15 FAIL: fx 'kkkkkkkkkkkkkkkkkkkkkkkkkkkk1Z' / red 'kkkkkkkkkkkkkkkkkkkkkkkkkkkk1️'
+       line 17 FAIL: fx 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmeZ' / red 'mmmmmmmmmmmmmmmmmmmmmmmmmmméZ'
+       line 18 FAIL: fx '  │ 18 + p      q' / red '  │ 18 + p      ́q'
+       line 19 FAIL: fx '  │ 19 + r      s' / red '  │ 19 + r      ️s'
+ok   margin p5-transcript-diffwrap2 red
+       no cell past column 120
+ok   inline p5-transcript-diffwrap2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwrap2 closed
+       all 41 rows the same
+20 claims, 18 hold, 2 fail

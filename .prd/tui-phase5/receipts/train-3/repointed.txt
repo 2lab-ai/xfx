@@ -1,0 +1,22 @@
+submit-multi-card-whole (why)
+  src/tui/shell.rs:12267 -> :12275; frame e51685d6, meant :12267
+  SAME (5 lines): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+session-record, transcript-page-offset, safe-page-edge, full-transcript-shift
+  src/tui/shell.rs:37356 -> :37458; frame e51685d6, meant :37440 (stale in its frame: e51685d6:37356 is 'let (said_more, unsaid) = unsaid.split_a')
+  SAME (5 lines): '"  tools: {} advertised ({},",'
+toolgroup-ctrlo-record-short
+  src/tui/shell.rs:37272 -> :37458; frame ec390074, meant :37374 (stale in its frame: ec390074:37272 is '// (`store.zig:1343-1390`). Recorded fro')
+  SAME (5 lines): '"  tools: {} advertised ({},",'
+cancelled-marker (xfx)
+  src/tui/toolgroup.rs:618 -> :711; frame 97644085, meant :618
+  SAME (5 lines): '"{}\\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",'
+call-row-raw-argument (source), call-row-page-edge (xfx)
+  src/tui/toolgroup.rs:657 -> :750; frame 97644085, meant :657
+  SAME (5 lines): 'pub(crate) fn spelled(target: &str, activity: Activity) -> String {'
+call-row-source-cut (source)
+  src/tui/toolgroup.rs:705 -> :798; frame 97644085, meant :705
+  SAME (5 lines): 'fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {'
+call-row-arabic-letter-mark (source)
+  src/tui/toolgroup.rs:819 -> :912; frame 97644085, meant :819
+  SAME (5 lines): "if character == '\\u{061c}' {"
+7 of 7 the same code

@@ -1,0 +1,23 @@
+# The test, written before the fix, run on 373ddb39's code (the test alone
+# added): cargo test --locked --lib -- tui::full_transcript::tests::a_mark_right_after_a_tab
+
+running 1 test
+test tui::full_transcript::tests::a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it stdout ----
+
+thread 'tui::full_transcript::tests::a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it' (280656078) panicked at src/tui/full_transcript.rs:3592:13:
+assertion `left == right` failed: ["\u{1b}[38;5;252m  │ 1 + \u{1b}[0m        \u{1b}[38;5;252mkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1\u{fe0f}Z\u{1b}[0m"]
+  left: "\u{1b}[38;5;252m  │ 1 + \u{1b}[0m        \u{1b}[38;5;252mkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1\u{fe0f}"
+ right: "\u{1b}[38;5;252m  │ 1 + \u{1b}[0m        \u{1b}[38;5;252mkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1\u{fe0f}Z\u{1b}[0m"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4261 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

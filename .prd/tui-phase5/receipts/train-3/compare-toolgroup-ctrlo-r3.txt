@@ -1,0 +1,21 @@
+# compare.py <toolgroup-ctrlo-r3's own head sweep, rescored with the train's ledger> <the train head's sweep (b4e0d06e)>
+pairs: reference 12, train 347, shared 12; only the reference: 0
+reference: 12 pairs, pass 3; normalized-identical 3, unresolved-defect 9
+train: 12 pairs, pass 3; normalized-identical 3, unresolved-defect 9
+verdicts moved: 0
+fx screens not the same in the two sweeps: 6
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+xfx screens not the same in the two sweeps: 6
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

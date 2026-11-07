@@ -1,0 +1,29 @@
+base: 124 pairs, pass 92; identical 2, normalized-identical 90, unresolved-defect 32
+head: 124 pairs, pass 92; identical 2, normalized-identical 90, unresolved-defect 32
+model-column-reask col-back: 0 differing rows left, 4 new
+    NEW:  fx '' / xfx '         anthropic/claude-opus-5'
+    NEW:  fx '' / xfx '         fake/model-a'
+    NEW:  fx '' / xfx '         xai/grok-4.7'
+    NEW:  fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-reask col-down: 4 differing rows left, 0 new
+    left: fx '         anthropic/claude-opus-5' / xfx ''
+    left: fx '         fake/model-a' / xfx ''
+    left: fx '         openai/gpt-6-astra' / xfx '         unable to load models'
+    left: fx '         xai/grok-4.7' / xfx ''
+verdicts moved: 2
+    model-column-reask col-back: normalized-identical -> unresolved-defect
+    model-column-reask col-down: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 6
+    composer-wrap badge-111
+    composer-wrap badge-71
+    model-column-reask col-back
+    model-column-reask col-down
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+xfx screens not the same in the two sweeps: 4
+    composer-wrap badge-111
+    composer-wrap badge-71
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+passed on the base, not on the head: 1; of them fx's screen moved and xfx's did not: 1
+pairs that gained a differing row: 1

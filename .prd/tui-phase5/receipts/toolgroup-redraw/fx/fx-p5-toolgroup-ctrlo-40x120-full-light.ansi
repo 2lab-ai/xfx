@@ -1,0 +1,40 @@
+[1m[38;5;235m𝒇x[0m[38;5;247m v0.0.16 · Run /help for commands[39m
+
+[38;5;247m  2026-11-07 17:59:36.823 KST · Notice[39m
+[38;5;241m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;241msystem prompt: ready · 6249 bytes[39m
+  [38;5;241mtools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+[39m  [38;5;241mmore)[39m
+  [38;5;241mskills: loading[39m
+  [38;5;241mmcp: none[39m
+
+[38;5;247m  2026-11-07 17:59:41.891 KST · Notice[39m
+[38;5;241m* network: provider: gateway · model: fake/model-a · 15ms[39m
+  [38;5;241mfinish: tool_calls[39m
+  [38;5;241mtokens: 1200 in · 40 out[39m
+
+[38;5;247m  2026-11-07 17:59:42.128 KST · Notice[39m
+[38;5;241m* network: provider: gateway · model: fake/model-a · 199ms[39m
+  [38;5;241mfinish: stop[39m
+  [38;5;241mtokens: 1200 in · 40 out[39m
+
+[38;5;247m  2026-11-07 17:59:41.869 KST · Prompt[39m
+[38;5;235m┃[39m [1mrun the command[0m
+
+[38;5;247m  2026-11-07 17:59:41.891 KST · Tool[39m
+[38;5;235m●[39m [38;5;241m1 tool call · 1 command[39m
+└ Ran [38;5;238mecho[39m [38;5;241m"hi"[39m 42 [38;5;238m|[39m [38;5;238mgrep[39m hi [38;5;243m# note[39m
+│[38;5;247m  action: run[39m
+│[38;5;247m  yield_time_ms: 30000[39m
+│[38;5;247m hi 42[39m
+
+[38;5;247m  2026-11-07 17:59:42.128 KST · Response[39m
+  Done with it.
+
+[38;5;247m  2026-11-07 17:59:42.126 KST · Usage[39m
+[38;5;247m  0s (↑4 ↓80)[39m
+
+
+[38;5;235m┃[39m [38;5;241mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;238mfull access[38;5;241m · model-a[39m

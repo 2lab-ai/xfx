@@ -1,0 +1,48 @@
+KILLED   M1 no reflow: every numbered row left to the walker
+    - Some(room) if !number.is_empty() => reflowed(&text, room),
+    + Some(room) if !number.is_empty() && room == 0 => reflowed(&text, room),
+    fails tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it
+    fails tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank
+    test result: FAILED. 86 passed; 4 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   M2 the clip back in place of the walker's run-on
+    - run_on(&format!("{style}{head}{text}{reset}"), cols)
+    + vec![format!("{style}{}{reset}", clip(&format!("{head}{text}"), cols))]
+    fails tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    test result: FAILED. 88 passed; 2 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   M3 break at the last cell (>= for >)
+    - if cells > 0 && used.saturating_add(cells) > room {
+    + if cells > 0 && used.saturating_add(cells) >= room {
+    fails tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it
+    fails tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank
+    fails tui::full_transcript::tests::what_takes_no_cells_stays_on_its_row_even_past_a_character_wider_than_the_room
+    test result: FAILED. 85 passed; 5 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   M4 a tab counted as its four cells in the reflow
+    - let cells = if cluster == "\t" {
+    + let cells = if cluster == "\u{0}" {
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::what_takes_no_cells_stays_on_its_row_even_past_a_character_wider_than_the_room
+    test result: FAILED. 88 passed; 2 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.42s
+KILLED   M5 a continuation indented one cell more
+    - let under = format!("  \u{2502} {:1$}", "", start - 4);
+    + let under = format!("  \u{2502} {:1$}", "", start - 3);
+    fails tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it
+    fails tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank
+    test result: FAILED. 86 passed; 4 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.44s
+KILLED   M6 a tab stop past the last column
+    - let blank = blank.min(last).saturating_sub(column);
+    + let blank = blank.saturating_sub(column);
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    test result: FAILED. 89 passed; 1 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.42s
+KILLED   M7 a unit of no cells may start a row
+    - if cells > 0 && used.saturating_add(cells) > room {
+    + if used.saturating_add(cells) > room {
+    fails tui::full_transcript::tests::what_takes_no_cells_stays_on_its_row_even_past_a_character_wider_than_the_room
+    test result: FAILED. 89 passed; 1 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.42s
+all killed

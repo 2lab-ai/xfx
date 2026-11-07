@@ -1,0 +1,45 @@
+base: 124 pairs, pass 93; identical 2, normalized-identical 91, unresolved-defect 31
+head: 124 pairs, pass 92; identical 2, normalized-identical 90, unresolved-defect 32
+model-column-idle col-typed: 0 differing rows left, 4 new
+    NEW:  fx '' / xfx '         anthropic/claude-opus-5'
+    NEW:  fx '' / xfx '         fake/model-a'
+    NEW:  fx '' / xfx '         xai/grok-4.7'
+    NEW:  fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-reask col-back: 4 differing rows left, 0 new
+    left: fx '' / xfx '         anthropic/claude-opus-5'
+    left: fx '' / xfx '         fake/model-a'
+    left: fx '' / xfx '         xai/grok-4.7'
+    left: fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-reask col-down: 0 differing rows left, 4 new
+    NEW:  fx '         anthropic/claude-opus-5' / xfx ''
+    NEW:  fx '         fake/model-a' / xfx ''
+    NEW:  fx '         openai/gpt-6-astra' / xfx '         unable to load models'
+    NEW:  fx '         xai/grok-4.7' / xfx ''
+p5-transcript-diffwide2 full: 2 differing rows left, 2 new
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    NEW:  fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    NEW:  fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz'
+verdicts moved: 3
+    model-column-idle col-typed: normalized-identical -> unresolved-defect
+    model-column-reask col-back: unresolved-defect -> normalized-identical
+    model-column-reask col-down: normalized-identical -> unresolved-defect
+fx screens not the same in the two sweeps: 9
+    composer-wrap badge-111
+    composer-wrap badge-71
+    model-column-idle col-down
+    model-column-idle col-idle
+    model-column-idle col-typed
+    model-column-reask col-back
+    model-column-reask col-down
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+xfx screens not the same in the two sweeps: 6
+    composer-wrap badge-111
+    composer-wrap badge-71
+    model-column-idle col-down
+    model-column-idle col-idle
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+passed on the base, not on the head: 2; of them fx's screen moved and xfx's did not: 2
+pairs that gained a differing row: 3

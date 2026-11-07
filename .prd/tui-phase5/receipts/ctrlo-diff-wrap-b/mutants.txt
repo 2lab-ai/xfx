@@ -1,0 +1,59 @@
+KILLED   W1 the walker's column kept past a row it runs on
+    -             rows.push(std::mem::take(&mut cells));
+            column = 1;
+    +             rows.push(std::mem::take(&mut cells));
+            column = column.max(1);
+    fails tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it
+    fails tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop
+    test result: FAILED. 88 passed; 4 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   W2 a tab stop past the last column
+    -                     .saturating_add(1)
+                    .min(cols)
+    +                     .saturating_add(1)
+                    .min(u16::MAX)
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop
+    test result: FAILED. 90 passed; 2 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.46s
+KILLED   W3 a tab on a full row moves nothing (DIFF-WRAP's departure 3)
+    -             let stop = if column >= cols {
+                cols
+
+    +             let stop = if column >= cols {
+                column
+
+    fails tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    test result: FAILED. 91 passed; 1 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.46s
+KILLED   W4 nothing written over the last cell
+    -         while end >= column {
+    +         while end > column {
+    fails tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    test result: FAILED. 91 passed; 1 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   W5 no blank for a wide character's left cell
+    -             cells.extend((end + 1..column).map(|_| WalkedCell::blank()));
+    +             cells.extend((end + 1..end + 1).map(|_| WalkedCell::blank()));
+    fails tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    test result: FAILED. 91 passed; 1 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   W6 a tab's cells styled
+    -             cells: 1,
+            styled: false,
+    +             cells: 1,
+            styled: true,
+    fails tui::full_transcript::tests::a_changes_rows_write_a_files_bytes_as_fx_does_and_hand_the_terminal_none
+    fails tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop
+    test result: FAILED. 88 passed; 4 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+KILLED   W7 a character that reaches the last column run on
+    -         if u32::from(column) + u32::from(width) - 1 > u32::from(cols) {
+    +         if u32::from(column) + u32::from(width) - 1 >= u32::from(cols) {
+    fails tui::full_transcript::tests::a_changes_line_wider_than_the_screen_goes_on_under_its_gutter_as_fx_reflows_it
+    fails tui::full_transcript::tests::a_row_with_no_number_or_no_room_runs_on_as_the_row_walker_lets_it
+    fails tui::full_transcript::tests::a_spelled_escape_at_the_margin_is_cut_like_any_text_and_no_row_carries_a_control
+    fails tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    fails tui::full_transcript::tests::a_tab_is_no_cells_to_the_reflow_and_the_row_walker_runs_its_overflow_on
+    fails tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop
+    fails tui::full_transcript::tests::a_wide_character_at_the_margin_moves_down_whole_and_leaves_the_last_cell_blank
+    test result: FAILED. 85 passed; 7 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 0.43s
+all killed

@@ -1,0 +1,8 @@
+# git show --remerge-diff a1a1524c
+# The body below is git's own: a merge commit's remerge-diff shows how the commit differs
+# from what git's automatic merge produces. Empty (no diff after the header) = git's result taken unchanged.
+
+commit a1a1524c30011715df645faa469463d33a4dbca1
+parents cc686a4cba3f271abd00b4e5c0551c715b2893b1 6c93f359092b75c2806251cdfa9314651953705f
+
+    Merge origin/main @ 6c93f359 (#78 SECRETS-ARGMAX: check-no-secrets greps in batches under ARG_MAX; GREP_OPTIONS unset in the gates; test-check-no-secrets, test-gate-env) into the 2026-11-07 train 3
