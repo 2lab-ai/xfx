@@ -4927,4 +4927,125 @@ mod tests {
                 .unwrap_or_else(|reject| panic!("{row:?} written whole: {reject}"));
         }
     }
+
+    /// Whether `grid`'s cell at row 10, `column`, is a lead under a link.
+    fn linked_at(grid: &Grid, column: u16) -> bool {
+        matches!(grid.cell(10, column), Some(Cell::Lead { sgr, .. }) if sgr.link().is_some())
+    }
+
+    #[test]
+    fn a_split_cell_is_accepted_under_every_pen_mid_row_and_in_the_last_column() {
+        // `super::grid`'s `write_cell` writes a one-cell glyph that `place_row`
+        // joined a cluster to across a sequence split, with the pen written
+        // again between its parts (a reset when no attribute is on). Each pen
+        // a cell can be painted under, the glyph mid-row and in the last
+        // column, through the grid diff and a row written whole: the check
+        // accepts every one, and an open link stays open across the split.
+        let pens = [
+            ("bold", "\u{1b}[1m"),
+            ("background", "\u{1b}[48;5;236m"),
+            ("underline", "\u{1b}[4m"),
+            ("fg+bg", "\u{1b}[38;5;250m\u{1b}[48;5;236m"),
+            (
+                "link and bold",
+                "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\\u{1b}[1m",
+            ),
+            // A link and no attribute: the reset form.
+            ("link alone", DOCS_OPEN),
+        ];
+        let lead = "x".repeat(79);
+        for (name, pen) in pens {
+            let linked = pen.contains("\u{1b}]8;");
+            let close = if linked {
+                format!("{RESET}{LINK_CLOSE}")
+            } else {
+                RESET.to_string()
+            };
+            for (glyph, mark) in [("\u{2600}", "\u{fe0f}"), ("e", "\u{301}")] {
+                for (place, row, column) in [
+                    (
+                        "mid-row",
+                        format!("{pen}{glyph}\u{1b}[3m{mark} x{close}"),
+                        1u16,
+                    ),
+                    (
+                        "last column",
+                        format!("{lead}{pen}{glyph}\u{1b}[3m{mark}{close}"),
+                        80,
+                    ),
+                ] {
+                    let what = format!("{name}, {glyph:?}+{mark:?}, {place}");
+                    let after = painted(10, &row);
+                    let bytes = framed(&after);
+                    preflight(
+                        &seed(&Grid::blank(24, 80), None),
+                        &bytes,
+                        &declared_frame(&after),
+                    )
+                    .unwrap_or_else(|reject| panic!("{what}, the diff: {reject}"));
+                    let mut whole = b"\x1b[10;1H".to_vec();
+                    let text = super::super::frame::row_text(&row, 80);
+                    super::super::grid::write_row_text(&mut whole, &text, 80);
+                    checked(&after, std::str::from_utf8(&whole).expect("utf-8"))
+                        .unwrap_or_else(|reject| panic!("{what}, written whole: {reject}"));
+                    let wire = String::from_utf8(bytes).expect("utf-8");
+                    if glyph == "\u{2600}" {
+                        // Split, with the pen (or a reset) between the parts.
+                        let attributes = pen.replace(DOCS_OPEN, "");
+                        let between = if attributes.is_empty() {
+                            RESET
+                        } else {
+                            &attributes[..]
+                        };
+                        assert!(
+                            wire.contains(&format!("{glyph}{between}{mark}")),
+                            "{what}: {wire:?}"
+                        );
+                    }
+                    if linked {
+                        // The grid holds the glyph, and the cell after it
+                        // mid-row, under the link; and the wire writes no
+                        // close between the glyph and its mark.
+                        assert!(linked_at(&after, column), "{what}: the grid's glyph");
+                        if column == 1 {
+                            assert!(linked_at(&after, 2), "{what}: the grid's next cell");
+                        }
+                        let from = wire.find(glyph).expect("the glyph on the wire");
+                        let to = from + wire[from..].find(mark).expect("its mark");
+                        assert!(!wire[from..to].contains(LINK_CLOSE), "{what}: {wire:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_reset_between_a_split_cells_parts_leaves_its_link_open_in_the_check() {
+        // The reset form: a link and no attribute, so the diff writes `SGR 0`
+        // between `☀` and its selector. A reset turns attributes off and
+        // leaves a hyperlink open -- in the grid (`super::grid`'s `reopen`
+        // tracks the two apart) and in this decoder, whose `m` arm moves the
+        // pen and not the link.
+        let after = painted(
+            10,
+            &format!("{DOCS_OPEN}\u{2600}\u{1b}[3m\u{fe0f} x{LINK_CLOSE}"),
+        );
+        assert!(linked_at(&after, 1) && linked_at(&after, 2) && linked_at(&after, 3));
+        let wire = framed(&after);
+        let split = "\u{2600}\u{1b}[0m\u{fe0f}";
+        let text = String::from_utf8(wire.clone()).expect("utf-8");
+        let at = text.find(split).expect("the split written with a reset") + split.len();
+        let mut model = seed(&Grid::blank(24, 80), None);
+        apply_for_tests(&mut model, &wire[..at]).expect("the bytes up to the selector");
+        assert!(
+            model.link.is_some(),
+            "the reset closed the link in the check"
+        );
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &wire,
+            &declared_frame(&after),
+        )
+        .expect("every cell under the link it was declared under");
+    }
 }
