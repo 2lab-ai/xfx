@@ -109,6 +109,14 @@ fx's capture (`fx/p5-transcript-safe-40x120/…-full.txt`) shows each:
   `transcript-wrap/green.txt` line for line, every count the same (`diff`
   with the hex digits of the revisions masked: no difference).
 
+## Gates (`gates.txt`)
+
+At `8ff28356`, one at a time after the idle wait: fmt, clippy with and without
+fault injection, both test suites (4941 and 4970 passed, 0 failed, 7
+ignored each), identity, stubs, secrets, fxcap's test-sweep, the release and
+faulty builds, smoke (47 checks) and smoke-tui (37 scenarios, 1111 checks):
+every step exit 0.
+
 ## Mutant (`mutants.txt`)
 
 On a throwaway `git clone --no-local` of `127f0502` (`28f3fda5` renames
