@@ -815,6 +815,17 @@ fx = ["src/core/tooling/tools.zig:1370@c1db9191"]
 why = "The scenario's second step calls fx's `subagent` tool twice; xfx has none, so its turns leave the step out. Every snap after that step has fx's two subagent rows, their results and the header's `2 subagents` count, and stands rows apart; what else differs there is read once xfx has the tool. The snaps before the step are not covered (`full-running`, `full-pgup`, `running`)."
 
 [[cause]]
+id = "upgrade-update-alias"
+kind = "defect"
+owner = "unowned (the upgrade command, deferred: docs/parity.md `upgrade`)"
+scenarios = ["p5-cli-ledger-update-help"]
+snaps = ["*"]
+whole_snap = true
+xfx = ["docs/parity.md:63"]
+fx = ["src/builtins/commands.zig:257-260@c1db9191"]
+why = "The scenario records what fx v0.0.16 prints for `fx update --help`, `fx upgrade --help` and `fx help update` -- `update` is the alias 0.0.16 gave `upgrade` (`src/builtins/commands.zig:242@481104fd`) -- so that the deferred `upgrade` row can say it (L-U4, .prd/tui-phase5/receipts/cli-ledger/README.md, whose captures are fx's alone). xfx has no `upgrade` and refuses both names as it refuses any name it has never heard of (`error: unrecognized subcommand`, exit 1; `tests/parity.rs` `every_deferred_command_and_alias_is_refused_like_an_unknown_name`), so every snap is that refusal against fx's help."
+
+[[cause]]
 id = "full-transcript-shift"
 kind = "defect"
 owner = "unowned (follows session-record and tool-schema)"
