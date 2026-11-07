@@ -1005,6 +1005,131 @@ fn zero_is_the_line_shell() {
     assert_no_mode_bytes(&session.settled_text());
 }
 
+/// Every path under `root`, directories too, relative to it and sorted, not
+/// following links: what a run made shows here even when it made only a
+/// directory.
+fn tree(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.expect("an entry").path();
+            out.push(
+                path.strip_prefix(root)
+                    .expect("under the root")
+                    .to_path_buf(),
+            );
+            if std::fs::symlink_metadata(&path).expect("metadata").is_dir() {
+                walk(root, &path, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn with_no_usable_home_the_session_runs_unsaved_and_writes_nothing() {
+    // fx v0.0.16 runs a session with no store and saves nothing: an empty or
+    // relative `HOME` counts as unset (`homeDir`,
+    // `src/core/shared/io.zig:475-483@481104fd`), its `v2_store` stays null
+    // (`initializePersistence`, `app_session_runtime.zig:1438-1449`), and
+    // `p5-lifecycle-relhome-unsaved` is what its screens say. The relative
+    // value names a folder that is there, inside the workspace, so a session
+    // log, a history or a lock kept under it would change the sandbox's tree.
+    for home in ["relative/home", ""] {
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["MARKER-UNSAVED"]),
+        )]);
+        let sandbox = Sandbox::new();
+        std::fs::create_dir_all(sandbox.workspace.join("relative/home"))
+            .expect("the folder a relative HOME names");
+        let root = sandbox
+            .workspace
+            .parent()
+            .expect("the sandbox root")
+            .to_path_buf();
+        let before = tree(&root);
+        let pty = Pty::open();
+        pty.resize(30, 120);
+        let size = (30, 120);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("HOME", home);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        on_screen(
+            &session,
+            size,
+            &["! history: durable prompt history unavailable"],
+            &[],
+        );
+        session.type_bytes(b"hello\r");
+        session.wait_for("MARKER-UNSAVED");
+        session.type_bytes(b"/rename later\r");
+        on_screen(
+            &session,
+            size,
+            &["✗ session: no active session to rename"],
+            &[],
+        );
+        session.type_bytes(b"/fork\r");
+        on_screen(
+            &session,
+            size,
+            &["! session: /fork needs a saved session"],
+            &[],
+        );
+        session.type_bytes(b"/status\r");
+        on_screen(
+            &session,
+            size,
+            &["none · this shell can't save sessions"],
+            &[],
+        );
+        session.type_bytes(b"\x1b");
+        on_screen(&session, size, &[], &["this shell can't save sessions"]);
+        session.type_bytes(b"/quit\r");
+        assert_eq!(session.wait_exit().code(), Some(0), "HOME={home:?}");
+        let text = session.settled_text();
+        assert!(
+            !text.contains("--resume"),
+            "HOME={home:?}: an unsaved session names no way back in"
+        );
+        assert_eq!(tree(&root), before, "HOME={home:?} wrote into the sandbox");
+    }
+}
+
+#[test]
+fn with_no_usable_home_a_resume_has_nothing_to_continue() {
+    // fx's launch, asked to resume with no store, prints `fx: HomeNotSet`
+    // and exits 1 (`p5-lifecycle-relhome-resume`); nothing is made.
+    let sandbox = Sandbox::new();
+    std::fs::create_dir_all(sandbox.workspace.join("relative/home"))
+        .expect("the folder a relative HOME names");
+    let root = sandbox
+        .workspace
+        .parent()
+        .expect("the sandbox root")
+        .to_path_buf();
+    let before = tree(&root);
+    let pty = Pty::open();
+    let mut command = tui(&sandbox);
+    command
+        .env("HOME", "relative/home")
+        .args(["--resume", "last"]);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    assert_eq!(session.wait_exit().code(), Some(1));
+    assert!(
+        session.settled_text().contains("xfx: HomeNotSet"),
+        "{}",
+        session.text()
+    );
+    assert_eq!(tree(&root), before);
+}
+
 // ---------------------------------------------------------------------------
 // the route, negatively
 // ---------------------------------------------------------------------------

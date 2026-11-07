@@ -241,6 +241,9 @@ const NOTHING_TO_FORK: &str = "nothing to fork yet";
 /// shows (`:2073-2076`): a warning, under `session`.
 const FORK_UNSAVED: &str = "/fork needs a saved session";
 
+/// `/rename` with no saved session to name (`app_commands.zig:3031@481104fd`).
+const RENAME_UNSAVED: &str = "no active session to rename";
+
 /// What a fork that could not be made says (`submitForkMenuSelection`,
 /// `app_input_runtime.zig:1670-1678@481104fd`): an error, under `session`.
 const FORK_FAILED: &str = "Unable to fork the session.";
@@ -1437,6 +1440,12 @@ pub(crate) struct Shell {
     /// The home directory `/image ~/…` is read under: the one the
     /// configuration found its profile in.
     home: Option<std::path::PathBuf>,
+    /// No usable `HOME`, so no profile: the session runs unsaved, as
+    /// upstream's does with no store (`initializePersistence`,
+    /// `src/core/app/app_session_runtime.zig:1438-1449@481104fd`), and the
+    /// commands that need a saved session say so (`/fork`, `/rename`,
+    /// `/resume`, `/permissions remember`).
+    unsaved: bool,
     /// The `/trace` reports still being built, written and copied on their own
     /// threads, and how each went ([`super::trace`]).
     traces: Traces,
@@ -2409,6 +2418,7 @@ impl Shell {
                 .as_deref()
                 .and_then(std::path::Path::parent)
                 .map(std::path::Path::to_path_buf),
+            unsaved: config.profile_dir.is_none(),
             sound: Sound::new(config.notifications, settings.clone()),
             speed_saves: super::speed_save::Saves::new(settings, config.sources),
             metrics: Metrics::default(),
@@ -3417,6 +3427,20 @@ impl Shell {
             self.announce(notice::Notice::warning(
                 "permissions",
                 format!("{refusal}; fix it, then /allowlist reads it again"),
+            ));
+        }
+    }
+
+    /// With no profile, the prompt history has nowhere to be kept, and the
+    /// launch says so after its configuration notice, as upstream's does
+    /// when its history is unavailable (`app_bootstrap_runtime.zig:667-673`,
+    /// `.unavailable` with no home, `prompt_history_runtime.zig:49@481104fd`).
+    /// Lines typed are still recalled in this session; none is written.
+    pub(crate) fn history_unavailable(&mut self) {
+        if self.unsaved {
+            self.announce(notice::Notice::warning(
+                "history",
+                "durable prompt history unavailable",
             ));
         }
     }
@@ -12382,6 +12406,19 @@ impl CommandHandlers for Shell {
             self.editor.text(),
             session_picker::page_for(self.geometry.rows),
         ));
+        // No store to list: the picker says `Unable to load sessions.` when
+        // the runtime answers, and the transcript says why, as upstream's
+        // load failure does (`writeSessionPickerError`,
+        // `app_session_runtime.zig:2436-2447@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::error(
+                "session",
+                format!(
+                    "unable to list saved sessions: {}",
+                    crate::session::store::NO_STORE
+                ),
+            ));
+        }
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -12398,6 +12435,12 @@ impl CommandHandlers for Shell {
     /// ([`Self::fork_points`]) -- unless the composer was edited first, which
     /// closes it before it opens.
     fn fork(&mut self) {
+        // No store first, as upstream's `openForkMenu` asks for its session
+        // before it asks whether a turn runs (`:2073-2081@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::warning("session", FORK_UNSAVED));
+            return;
+        }
         if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
             return;
@@ -12445,6 +12488,14 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
+        // No store, no session to name -- and the window keeps its title, as
+        // upstream caches one only after it has a session
+        // (`renameActiveSession`, `app_session_runtime.zig:3141-3146@481104fd`;
+        // `NoActiveSession`, `app_commands.zig:3031@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::error("session", RENAME_UNSAVED));
+            return;
+        }
         let announced = self.work.outstanding() > 0;
         self.work.control(TurnControl::Rename {
             title: title.clone(),
@@ -12591,9 +12642,13 @@ impl CommandHandlers for Shell {
         // There is always one: this shell's next session has its id from
         // launch.
         let store = self.work.saved_rules().view();
+        // An unsaved session has no saved-session rules to manage, as
+        // upstream's has no active saved session (`activeSessionId`,
+        // `app_session_runtime.zig:2917-2921@481104fd`; the refusal,
+        // `app_commands.zig:610-617@481104fd`).
         let managed = slash::manage_with(
             &request,
-            Some(&store.at),
+            (!self.unsaved).then_some(&store.at),
             |_| store.state.clone(),
             self.rules_busy(),
             |tool, arguments| self.prepare_rule_action(tool, arguments),

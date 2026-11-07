@@ -1619,9 +1619,25 @@ pub struct SessionStore {
     profile_dir: PathBuf,
     sessions_dir: PathBuf,
     writable: bool,
+    /// The store of a session with no usable home ([`Self::unsaved`]): every
+    /// session it opens lives in memory, and every read and write of a
+    /// directory is refused.
+    unsaved: bool,
     clock: Clock,
     scan_cap: usize,
 }
+
+/// Why a store with no home ([`SessionStore::unsaved`]) did nothing: upstream's
+/// error name, which its notices say as it is (`error.SessionStoreUnavailable`,
+/// `src/core/app/app_session_runtime.zig:1895@481104fd`).
+pub const NO_STORE: &str = "SessionStoreUnavailable";
+
+/// Where an unsaved store's paths point: under `/dev/null`, which is not a
+/// directory, so nothing can be made, opened or read below it (`ENOTDIR`).
+/// Nothing is meant to reach it -- every path that would is refused first --
+/// and a path that did would fail there rather than land relative to the
+/// folder xfx was started in.
+const NOWHERE: &str = "/dev/null/.xfx";
 
 impl SessionStore {
     /// Opens the store for writing, creating the private directories it needs.
@@ -1652,9 +1668,34 @@ impl SessionStore {
             profile_dir: profile_dir.to_path_buf(),
             sessions_dir: profile_dir.join(SESSIONS_DIR_NAME),
             writable: false,
+            unsaved: false,
             clock: Clock::system(),
             scan_cap: MAX_SCANNED_SESSIONS,
         }
+    }
+
+    /// The store of a session with no usable home -- `HOME` unset, empty or
+    /// relative (`crate::config::home_dir`) -- which upstream runs unsaved
+    /// (its `v2_store` is null, `initializePersistence`,
+    /// `src/core/app/app_session_runtime.zig:1438-1449@481104fd`).
+    ///
+    /// [`Self::create`] opens a session that lives in memory: its events are
+    /// appended and reduced as a saved session's are, and written nowhere --
+    /// no directory, no log, no lock, no manifest, no image copies, no rules
+    /// file. Everything else is refused with [`NO_STORE`]: listing, reading,
+    /// resuming and forking, and the read-only store's own refusal of every
+    /// other write.
+    pub fn unsaved() -> Self {
+        let nowhere = Path::new(NOWHERE);
+        Self {
+            unsaved: true,
+            ..Self::read_only(nowhere)
+        }
+    }
+
+    /// Whether this is [`Self::unsaved`]'s store.
+    pub fn is_unsaved(&self) -> bool {
+        self.unsaved
     }
 
     /// The same store, timestamping events from `clock`.
@@ -1707,6 +1748,12 @@ impl SessionStore {
         spec: NewSession,
         seed: impl FnOnce(&Path) -> io::Result<()>,
     ) -> Result<WritableSession, SessionError> {
+        if self.unsaved {
+            // No directory, so no seed: what it would have written stays where
+            // the caller holds it.
+            drop(seed);
+            return self.start(id, spec, None);
+        }
         self.require_writable()?;
         let dir = self.session_dir(&id);
         match fs::create_dir(&dir) {
@@ -1728,11 +1775,20 @@ impl SessionStore {
         // "a `WritableSession` owns its log" is a property of the type instead
         // of a property of one of its two constructors.
         lock_exclusive(&file, &log_path, &id)?;
+        self.start(id, spec, Some(Disk { dir, file }))
+    }
 
+    /// A new session's first event, appended and published, on `disk` or --
+    /// for [`Self::unsaved`]'s -- nowhere.
+    fn start(
+        &self,
+        id: SessionId,
+        spec: NewSession,
+        disk: Option<Disk>,
+    ) -> Result<WritableSession, SessionError> {
         let mut session = WritableSession {
             id: id.clone(),
-            dir,
-            file,
+            disk,
             log_generation: new_identifier(),
             written_bytes: 0,
             published_bytes: 0,
@@ -1770,7 +1826,11 @@ impl SessionStore {
         session: &mut WritableSession,
         event: SessionEvent,
     ) -> Result<(), SessionError> {
-        self.require_writable()?;
+        // An unsaved session is appended to by the store that opened it, which
+        // is not writable: the one write it takes is to its own memory.
+        if session.disk.is_some() {
+            self.require_writable()?;
+        }
         session.check_usable()?;
 
         let mut event_id = new_identifier();
@@ -1799,46 +1859,14 @@ impl SessionStore {
             });
         }
 
-        let log_path = session.dir.join(EVENTS_FILE);
-        // The offset this append is about to claim has to still mean what it
-        // meant when the handle was opened. The advisory lock keeps another
-        // *xfx* out; this keeps anything else -- an editor, a sync client, a
-        // second writer on a filesystem that does not honor `flock` -- from
-        // being written over in silence. Refusing here is what makes the log's
-        // "one writer per session" claim a checked fact rather than a hope.
-        let actual = session
-            .file
-            .metadata()
-            .map_err(|err| io_error(&log_path, err))?
-            .len();
-        if actual != session.written_bytes {
-            session.poisoned = Some(format!(
-                "the log was {} bytes when this turn started and is {actual} now",
-                session.written_bytes
-            ));
-            return Err(SessionError::LogDiverged {
-                id: session.id.as_str().to_string(),
-                expected: session.written_bytes,
-                actual,
-            });
+        if let Some(disk) = session.disk.as_mut() {
+            disk.append(
+                &session.id,
+                session.written_bytes,
+                line.as_bytes(),
+                &mut session.poisoned,
+            )?;
         }
-        session
-            .file
-            .seek(SeekFrom::Start(session.written_bytes))
-            .map_err(|err| io_error(&log_path, err))?;
-        session
-            .file
-            .write_all(line.as_bytes())
-            .map_err(|err| io_error(&log_path, err))?;
-        session
-            .file
-            .flush()
-            .map_err(|err| io_error(&log_path, err))?;
-        // Durable before it is published, never the other way round.
-        session
-            .file
-            .sync_data()
-            .map_err(|err| io_error(&log_path, err))?;
 
         session.hasher.update(line.as_bytes());
         session.written_bytes += line.len() as u64;
@@ -1863,8 +1891,13 @@ impl SessionStore {
     ///
     /// This is the only operation that changes what a reader sees.
     pub fn publish(&self, session: &mut WritableSession) -> Result<(), SessionError> {
-        self.require_writable()?;
         session.check_usable()?;
+        // An unsaved session has no reader: what it appended is all there is.
+        let Some(disk) = session.disk.as_ref() else {
+            session.published_bytes = session.written_bytes;
+            return Ok(());
+        };
+        self.require_writable()?;
         if session.written_bytes == session.published_bytes {
             return Ok(());
         }
@@ -1888,7 +1921,7 @@ impl SessionStore {
             });
         }
 
-        replace_private_file(&session.dir, MANIFEST_FILE, body.as_bytes())?;
+        replace_private_file(&disk.dir, MANIFEST_FILE, body.as_bytes())?;
         session.published_bytes = session.written_bytes;
         session.manifest = Some(manifest);
         Ok(())
@@ -2090,8 +2123,7 @@ impl SessionStore {
 
         let mut session = WritableSession {
             id,
-            dir,
-            file,
+            disk: Some(Disk { dir, file }),
             log_generation: manifest.log_generation.clone(),
             written_bytes: manifest.event_log_bytes,
             published_bytes: manifest.event_log_bytes,
@@ -2125,6 +2157,11 @@ impl SessionStore {
         if self.writable {
             return Ok(());
         }
+        if self.unsaved {
+            return Err(SessionError::Unavailable {
+                detail: NO_STORE.to_string(),
+            });
+        }
         Err(SessionError::Unavailable {
             detail: "this session store was opened read-only".to_string(),
         })
@@ -2140,6 +2177,11 @@ impl SessionStore {
     /// neither directory, and reading from it is an empty answer rather than an
     /// error.
     fn verify_store_dirs(&self) -> Result<(), SessionError> {
+        if self.unsaved {
+            return Err(SessionError::Unavailable {
+                detail: NO_STORE.to_string(),
+            });
+        }
         verify_store_dir(&self.profile_dir)?;
         verify_store_dir(&self.sessions_dir)
     }
@@ -2334,8 +2376,9 @@ struct Replay {
 #[derive(Debug)]
 pub struct WritableSession {
     id: SessionId,
-    dir: PathBuf,
-    file: File,
+    /// Its directory and its open, locked log -- or, for a session
+    /// [`SessionStore::unsaved`] opened, `None`: it is in memory only.
+    disk: Option<Disk>,
     log_generation: String,
     /// Bytes appended and `fsync`ed, published or not.
     written_bytes: u64,
@@ -2356,8 +2399,9 @@ impl WritableSession {
         &self.id
     }
 
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    /// The session's directory; `None` for an unsaved one, which has none.
+    pub fn dir(&self) -> Option<&Path> {
+        self.disk.as_ref().map(|disk| disk.dir.as_path())
     }
 
     /// The state as of the last appended event, published or not.
@@ -2402,11 +2446,65 @@ impl WritableSession {
 /// is writing. An explicit unlock on any descriptor of the description
 /// releases it for all of them (`flock(2)`, on Linux and on macOS alike).
 #[cfg(unix)]
-impl Drop for WritableSession {
+impl Drop for Disk {
     fn drop(&mut self) {
         // Nothing to do about a failure: the descriptor closes next, and the
         // kernel releases the lock at the last close as it always did.
         let _ = rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock);
+    }
+}
+
+/// A saved session's half on the disk: its directory, and its log, open and
+/// locked for the life of the handle.
+#[derive(Debug)]
+struct Disk {
+    dir: PathBuf,
+    file: File,
+}
+
+impl Disk {
+    /// Writes `line` at `offset` and makes it durable.
+    ///
+    /// The offset this append is about to claim has to still mean what it
+    /// meant when the handle was opened. The advisory lock keeps another
+    /// *xfx* out; this keeps anything else -- an editor, a sync client, a
+    /// second writer on a filesystem that does not honor `flock` -- from being
+    /// written over in silence. Refusing here is what makes the log's "one
+    /// writer per session" claim a checked fact rather than a hope.
+    fn append(
+        &mut self,
+        id: &SessionId,
+        offset: u64,
+        line: &[u8],
+        poisoned: &mut Option<String>,
+    ) -> Result<(), SessionError> {
+        let log_path = self.dir.join(EVENTS_FILE);
+        let actual = self
+            .file
+            .metadata()
+            .map_err(|err| io_error(&log_path, err))?
+            .len();
+        if actual != offset {
+            *poisoned = Some(format!(
+                "the log was {offset} bytes when this turn started and is {actual} now"
+            ));
+            return Err(SessionError::LogDiverged {
+                id: id.as_str().to_string(),
+                expected: offset,
+                actual,
+            });
+        }
+        self.file
+            .seek(SeekFrom::Start(offset))
+            .map_err(|err| io_error(&log_path, err))?;
+        self.file
+            .write_all(line)
+            .map_err(|err| io_error(&log_path, err))?;
+        self.file.flush().map_err(|err| io_error(&log_path, err))?;
+        // Durable before it is published, never the other way round.
+        self.file
+            .sync_data()
+            .map_err(|err| io_error(&log_path, err))
     }
 }
 
@@ -2522,11 +2620,19 @@ impl SessionRecorder {
         if images.is_empty() || self.failure.is_some() {
             return None;
         }
-        if let Err(err) = save_snapshots(self.session.dir(), images) {
+        // An unsaved session keeps no copies: its images are the ones the
+        // turn holds in memory, each named by where it came from.
+        let Some(dir) = self.session.dir() else {
+            self.commit(SessionEvent::ImagesAttached {
+                images: images.iter().map(recorded_as_handed).collect(),
+            });
+            return None;
+        };
+        if let Err(err) = save_snapshots(dir, images) {
             self.failure = Some(format!("cannot save the attached images: {err}"));
             return None;
         }
-        let folder = self.session.dir().join(IMAGES_DIR);
+        let folder = dir.join(IMAGES_DIR);
         self.commit(SessionEvent::ImagesAttached {
             images: images
                 .iter()
@@ -2562,6 +2668,18 @@ impl SessionRecorder {
     }
 }
 
+/// An image as an unsaved session records it: by the path it was handed
+/// over from, there being no copy of it anywhere.
+fn recorded_as_handed(image: &crate::image::Image) -> RecordedImage {
+    RecordedImage {
+        id: image.id,
+        path: image.path.display().to_string(),
+        media_type: image.media_type.label().to_string(),
+        sha256: image.sha256.clone(),
+        bytes: image.bytes.len() as u64,
+    }
+}
+
 impl SessionRecorder {
     /// Saves a copy of each image the result of `call_id` carried and records
     /// them right behind that result, as [`Self::attach_images`] does a
@@ -2589,11 +2707,19 @@ impl SessionRecorder {
                 &image.data[..],
             )
         });
-        if let Err(err) = save_copies(self.session.dir(), copies) {
+        let Some(dir) = self.session.dir() else {
+            // Unsaved: the result's images stay as the turn holds them.
+            self.commit(SessionEvent::ToolImagesAttached {
+                call_id: call_id.to_string(),
+                images: recorded,
+            });
+            return;
+        };
+        if let Err(err) = save_copies(dir, copies) {
             self.failure = Some(format!("cannot save a tool's images: {err}"));
             return;
         }
-        let folder = self.session.dir().join(IMAGES_DIR);
+        let folder = dir.join(IMAGES_DIR);
         self.commit(SessionEvent::ToolImagesAttached {
             call_id: call_id.to_string(),
             images: recorded,
@@ -4840,7 +4966,13 @@ mod tests {
                 },
             )
             .expect("a session");
-        let inherited = session.file.try_clone().expect("a copy of the descriptor");
+        let inherited = session
+            .disk
+            .as_ref()
+            .expect("a saved session")
+            .file
+            .try_clone()
+            .expect("a copy of the descriptor");
         drop(session);
 
         let resumed = store
@@ -4935,6 +5067,74 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn an_unsaved_store_keeps_its_session_in_memory_and_refuses_the_rest() {
+        // Upstream's session with no store (`initializePersistence`,
+        // `src/core/app/app_session_runtime.zig:1438-1449@481104fd`): the
+        // conversation runs, nothing is kept, and anything that needs the
+        // store says `SessionStoreUnavailable`.
+        let store = SessionStore::unsaved();
+        assert!(store.is_unsaved());
+        let workspace = PathBuf::from("/w");
+        let id = SessionId::generate();
+        let session = store
+            .create_with(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                    provider: None,
+                },
+                |_| panic!("an unsaved session has no directory to seed"),
+            )
+            .expect("an unsaved session opens");
+        assert_eq!(session.dir(), None);
+        let mut recorder = SessionRecorder::new(store.clone(), session);
+        recorder.commit(SessionEvent::UserMessage {
+            text: "hello".to_string(),
+        });
+        assert_eq!(recorder.attach_images(&[shot(1)]), None);
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: "kept in memory".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        });
+        assert_eq!(recorder.failure(), None);
+        let turn = &recorder.state().turns[0];
+        assert_eq!(turn.user, "hello");
+        assert_eq!(turn.images.len(), 1, "the image is the turn's");
+        assert_eq!(turn.images[0].recorded.path, "/w/shot.png");
+
+        let unavailable = |err: SessionError| match err {
+            SessionError::Unavailable { detail } => assert_eq!(detail, NO_STORE),
+            other => panic!("not upstream's refusal: {other}"),
+        };
+        unavailable(
+            store
+                .list(&ListFilter::new(ListScope::AllWorkspaces))
+                .expect_err("nothing to list"),
+        );
+        unavailable(
+            store
+                .detail(&Selector::Last, &workspace)
+                .expect_err("nothing to read"),
+        );
+        unavailable(
+            store
+                .resume_without_waiting(&Selector::Id(id.clone()), &workspace)
+                .expect_err("nothing to resume"),
+        );
+        unavailable(store.fork(&id, 1, &workspace).expect_err("nothing to fork"));
+        // Its paths name nowhere a write could land: below a file.
+        assert!(store.profile_dir().starts_with("/dev/null"));
+        assert!(!store.session_dir(&id).exists());
     }
 
     #[test]
