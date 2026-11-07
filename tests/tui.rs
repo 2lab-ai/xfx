@@ -467,12 +467,16 @@ const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{
 /// both begin (`app_lifecycle.zig:41`, `:44`), then the window title cleared, as
 /// upstream's exit clears it (`render.zig:780-792`), and the pushed one popped
 /// back.
+///
+/// And the program status records cleared (`OSC 7501 ; state=clear`) right
+/// after bracketed paste goes off, where upstream's four restores clear them
+/// (`app_lifecycle.zig:43-48@481104fd`).
 const RESTORE: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\
-                       \u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+                       \u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
 const RESTORE_TMUX: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\
-                            \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+                            \u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
 /// `1049l` defensively (`app_lifecycle.zig:36-38`), behind only the close of an
@@ -481,14 +485,25 @@ const RESTORE_TMUX: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
 const ABNORMAL_RESTORE: &str = "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\
-                               \u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+                               \u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\
+                               \u{1b}[?25h";
+
+/// The program status report a session's first tick writes, and the one a
+/// resume writes again (`OSC 7501`, `program_status.zig@481104fd`).
+///
+/// Response-only: no test types these bytes.
+const STATUS_IDLE: &str = "\u{1b}]7501;state=idle:app=xfx\u{1b}\\";
+const STATUS_WORKING: &str = "\u{1b}]7501;state=working:app=xfx\u{1b}\\";
+const STATUS_DONE: &str = "\u{1b}]7501;state=done:app=xfx\u{1b}\\";
+/// What every report begins with.
+const STATUS: &str = "\u{1b}]7501;";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
 /// A route that is not the TUI's must emit none of them: an invocation that
 /// merely *looked* like the classic path while having already stamped the
 /// terminal would be the regression these negatives exist to catch.
-const TUI_BYTES: [&str; 7] = [
+const TUI_BYTES: [&str; 8] = [
     "\u{1b}[>4;2m",
     "\u{1b}[>1u",
     "\u{1b}[?2004h",
@@ -502,6 +517,11 @@ const TUI_BYTES: [&str; 7] = [
     // must leave the terminal's own title alone.
     "\u{1b}[22;2t",
     "\u{1b}]2;",
+    // The program status: a line-oriented shell, a subcommand and `ask` tell
+    // the terminal nothing about what they are doing, as upstream's reports
+    // come from its interactive shell alone (`program_status` has no other
+    // reader at `481104fd`).
+    "\u{1b}]7501;",
 ];
 
 /// Requires that no byte of the TUI's mode set reached this terminal.
@@ -778,6 +798,81 @@ fn wait_for_conclusions(sandbox: &Sandbox, count: usize) {
         );
         std::thread::sleep(IDLE_POLL);
     }
+}
+
+#[test]
+fn the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out() {
+    // OSC 7501 on a real terminal, as upstream writes it (`research/
+    // tui-phase5` `osc/w00-w02`, `w09`): `idle` once, after the mode set and
+    // ahead of the first frame; `working` while a turn runs and `done` when
+    // it has answered, each between two frames rather than inside one; and
+    // the planned exit's restore clearing the record, with no report after
+    // it.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-STATUS"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    let text = session.wait_for(FRAME_END);
+    let idle = text.find(STATUS_IDLE).expect("the launch's idle");
+    assert!(
+        text.find(READY) < Some(idle),
+        "the report came before the mode set"
+    );
+    assert!(
+        Some(idle) < text.find("\u{1b}[?2026h"),
+        "the launch's report is not ahead of the first frame: {text:?}"
+    );
+    assert_eq!(text.matches(STATUS).count(), 1, "{text:?}");
+
+    session.type_bytes(b"say the marker\r");
+    session.wait_for("MARKER-STATUS");
+    wait_for_the_turn_to_conclude(&sandbox);
+    let text = session.wait_for(STATUS_DONE);
+    let reports: Vec<&str> = text
+        .match_indices(STATUS)
+        .map(|(at, _)| {
+            let end = text[at..].find("\u{1b}\\").expect("a terminator") + at + 2;
+            &text[at..end]
+        })
+        .collect();
+    assert_eq!(reports, [STATUS_IDLE, STATUS_WORKING, STATUS_DONE]);
+    // Between frames: never inside an update a frame opened.
+    for (at, _) in text.match_indices(STATUS) {
+        let opened = text[..at].rfind("\u{1b}[?2026h");
+        let closed = text[..at].rfind("\u{1b}[?2026l");
+        assert!(
+            opened <= closed,
+            "a report inside a frame at {at}: {text:?}"
+        );
+    }
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    nothing_reported_after(&text, RESTORE);
+}
+
+#[test]
+fn an_ask_on_a_terminal_reports_no_program_status() {
+    // `ask` is not the interactive shell, and upstream's reports come from
+    // that shell alone: an answer printed onto a terminal carries no
+    // `OSC 7501` -- not idle, not working, not a clear.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-ASKED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = tui_with(&sandbox, &gateway);
+    command.args(["ask", "--no-save", "hello"]);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    assert!(text.contains("MARKER-ASKED"), "the answer: {text:?}");
+    assert_no_mode_bytes(&text);
 }
 
 #[test]
@@ -1493,6 +1588,19 @@ fn sigterm_restores_the_line_discipline_and_dies_by_the_signal() {
     // the escape bytes alone leave the line discipline raw.
     session.wait_for(ABNORMAL_RESTORE);
     assert_eq!(before, modes(&pty), "only tcsetattr can produce this");
+    nothing_reported_after(&session.text(), ABNORMAL_RESTORE);
+}
+
+/// Requires that no program status report follows the last `restore` on the
+/// wire: the restore's clear is the last word the terminal has about this
+/// session.
+fn nothing_reported_after(text: &str, restore: &str) {
+    let at = text.rfind(restore).expect("the restore") + restore.len();
+    assert!(
+        !text[at..].contains(STATUS),
+        "a report after the restore cleared the record: {:?}",
+        &text[at..]
+    );
 }
 
 #[test]
@@ -1509,6 +1617,7 @@ fn sighup_restores_the_line_discipline_and_dies_by_the_signal() {
     );
     session.wait_for(ABNORMAL_RESTORE);
     assert_eq!(before, modes(&pty));
+    nothing_reported_after(&session.text(), ABNORMAL_RESTORE);
 }
 
 #[test]
@@ -1697,9 +1806,20 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     session.wait_for(ABNORMAL_RESTORE);
     assert_eq!(before, modes(&pty), "a stopped job left the terminal raw");
 
+    // The stop's restore cleared the program status record, and nothing
+    // after it said anything more while the process was stopped.
+    nothing_reported_after(&session.text(), ABNORMAL_RESTORE);
+
     session.signal(Signal::CONT);
     session.wait_for_count(READY, 2);
     assert_raw(modes(&pty));
+    // And the resume says it again (`main.zig:1050-1055@481104fd`): the
+    // record the stop cleared is written back, after the clear.
+    let text = session.wait_for_count(STATUS_IDLE, 2);
+    assert!(
+        text.rfind(STATUS_IDLE) > text.rfind(ABNORMAL_RESTORE),
+        "the resume's report came before the stop's clear"
+    );
     // The band comes back too. While the process was stopped the terminal was
     // the shell's, and whatever it wrote is on the rows the band had; a session
     // that only re-entered raw mode would resume onto a screen with no band on

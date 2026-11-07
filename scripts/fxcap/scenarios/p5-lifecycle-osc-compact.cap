@@ -1,0 +1,21 @@
+# Phase 5 L-U1: OSC 7501 around a manual /compact. Nothing to compact first
+# (no report), then a real compaction (working, then done).
+gateway p5-lifecycle-compactok-turns.json
+work compact-ws
+xfx: env XFX_SOUND=off
+wait 4
+type /compact
+key Enter
+wait 2
+wire c00-noop
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire c01-answered
+type /compact
+key Enter
+wait 4
+wire c02-compacted

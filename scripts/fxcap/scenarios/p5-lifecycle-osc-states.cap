@@ -1,0 +1,50 @@
+# Phase 5 L-U1: every OSC 7501 report on the wire, state by state, on fx and
+# xfx. Startup idle; a turn held mid-stream (working), then done; a second
+# turn (done again); a 400 (error); a command in ask mode (blocked:permission,
+# its label in `msg`), answered once; a question (blocked:question, its text
+# in `msg`), answered; and the planned exit's restore (clear). The tools are
+# each product's own -- fx's `shell` is xfx's `terminal` -- so the command's
+# label differs by its tool's name and nothing else. Wire only: each `wire`
+# is every byte written so far.
+fx: gateway p5-lifecycle-osc-states-fx.json
+xfx: gateway p5-lifecycle-osc-states-xfx.json
+fx: seed p5-lifecycle-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+xfx: env XFX_SOUND=off
+wait 4
+wire w00-start
+type first question
+key Enter
+held
+wire w01-working
+release
+wait 3
+wire w02-done
+type second question
+key Enter
+wait 2.5
+wire w03-done2
+type third question
+key Enter
+wait 3
+wire w04-error
+type run the command
+key Enter
+wait 3
+wire w05-permission
+key 1
+wait 3
+wire w06-after-permission
+type ask me
+key Enter
+wait 3
+wire w07-question
+key 1
+wait 3
+wire w08-after-question
+keep
+type /quit
+key Enter
+wait 2
+wire w09-exit

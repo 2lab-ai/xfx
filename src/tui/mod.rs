@@ -713,6 +713,8 @@ fn check_announced(bytes: &[u8], tmux: bool) -> io::Result<()> {
                 title_stack: 1,
                 plane: check::PlaneKind::Primary,
                 cursor_visible: None,
+                // The mode set reports nothing: the loop's first tick does.
+                clears_status: false,
             },
             check::Footprint::none(check::PlaneKind::Primary),
         ),
@@ -801,6 +803,7 @@ mod paste;
 mod permissions;
 mod picker;
 mod probe;
+mod program_status;
 mod prose;
 mod provider_picker;
 mod question;

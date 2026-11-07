@@ -1,0 +1,13 @@
+# Phase 5 L-U2: SIGHUP after a finished turn, as SIGTERM: the abnormal
+# restore clears the record, and nothing follows it.
+gateway p5-lifecycle-one-turn.json
+xfx: env XFX_SOUND=off
+keep
+wait 4
+type first question
+key Enter
+wait 3
+wire u00-done
+signal HUP
+wait 1
+wire u01-hung-up

@@ -1,0 +1,20 @@
+# Phase 5 L-U1: a turn whose every request answers 502 stays `working` while
+# it retries (a retry is not a result); two Escapes stop it, and it is idle,
+# not error; the exit clears the record.
+gateway p5-lifecycle-retry-turns.json
+xfx: env XFX_SOUND=off
+wait 4
+type retry please
+key Enter
+wait 4
+wire r00-retrying
+key Escape
+wait 0.3
+key Escape
+wait 1.5
+wire r01-after-esc
+keep
+type /quit
+key Enter
+wait 2
+wire r02-exit

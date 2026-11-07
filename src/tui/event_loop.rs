@@ -700,6 +700,13 @@ fn adopt_resume(shell: &mut Shell, band: &mut Band, plane_restored: bool) {
     if plane_restored {
         band.plane_given_back();
     }
+    // The stop handler's restore cleared the terminal's program status record
+    // (`super::term::ABNORMAL_RESTORE`), and so may whatever had the terminal
+    // since: the next report is written whatever it says, and a result the
+    // user already saw comes back as idle (`program_status.zig:98-104`,
+    // `main.zig:1050-1055@481104fd`). Any continue, as the damage below is:
+    // a record written again costs one report.
+    shell.program_status_resumed();
     // Through the shell's own door rather than by asking for the reason
     // directly: a resume is not only a frame the band owes, it is the moment
     // this session stops being able to say what is on **any** row -- the
@@ -1025,10 +1032,71 @@ fn commit_counted(
     // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
     shell.settle_column(now);
     let mut counted = Counted::new(out);
-    let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled)
+    let committed = commit_program_status(shell, &mut counted, failures, now)
+        .and_then(|()| commit_frame(shell, band, &mut counted, failures, now, reconciled))
         .and_then(|()| commit_bells(shell, &mut counted, failures, now));
     shell.metrics.ansi_bytes += counted.delivered();
     committed
+}
+
+/// What the session is doing, told to the terminal as an OSC 7501 report
+/// ([`super::program_status`]), **before** this tick's frame.
+///
+/// Before, because that is upstream's order: its tick reports the status
+/// while it drains the worker's events and flushes the frame afterwards
+/// (`processCooperativeWork`, `app_process_runtime.zig:50-60@481104fd`), so
+/// the launch's `idle` lands ahead of the first `?2026h`
+/// (`research/tui-phase5` `osc/w00-start`) and every report between two
+/// frames, "like the notification bell" (`writeProgramStatus`,
+/// `transcript/runtime.zig:10416-10429`). And on **every** tick, whatever the
+/// frame below does with it: a report carries no coordinates, so it means
+/// the same on the borrowed plane and on a screen no band fits on -- two of
+/// the states a session waits on the user in.
+///
+/// Through the output check like every other vector ([`check_program_status`])
+/// and disposed of as the bells are: refused without a byte taken, it is
+/// offered again on the next tick; torn, the session ends; landed, it mends
+/// nothing, because a report is no proof the screen is taking frames.
+fn commit_program_status(
+    shell: &mut Shell,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<()> {
+    let Some(report) = shell.take_program_status() else {
+        return Ok(());
+    };
+    if let Err(emit) = check_program_status(&report)
+        .map_err(Emit::rejected)
+        .and_then(|()| out.emit(report.bytes.as_bytes()))
+    {
+        let rearm = matches!(emit, Emit::Rejected(_) | Emit::ZeroProgress(_));
+        return match disposed(emit, failures, now) {
+            Some(fatal) => Err(fatal),
+            None => {
+                if rearm {
+                    shell.program_status_refused();
+                }
+                Ok(())
+            }
+        };
+    }
+    Ok(())
+}
+
+/// What a report says it does: tell the terminal this, and nothing else -- no
+/// cell, no caret, no mode. Seeded as the bells are, for their reason.
+fn check_program_status(report: &super::program_status::Report) -> io::Result<()> {
+    let plane = super::check::PlaneKind::Primary;
+    super::check::preflight(
+        &super::check::TerminalModel::seed_modes(1, 1, super::check::ModeSet::fresh(), 0, plane),
+        report.bytes.as_bytes(),
+        &super::check::Declared::new(
+            super::check::Intent::ProgramStatus(report.state),
+            super::check::Footprint::none(plane),
+        ),
+    )?;
+    Ok(())
 }
 
 /// `/sound`'s terminal bells, **after** everything else this tick wrote.
@@ -12567,5 +12635,135 @@ mod tests {
                 "a painted question took no answer"
             );
         }
+    }
+
+    /// A screen that keeps every vector apart, and refuses a vector that is
+    /// a program status report `refusals` times, taking nothing.
+    #[derive(Default)]
+    struct StatusScreen {
+        refusals: usize,
+        vectors: Vec<Vec<u8>>,
+    }
+
+    const REPORT: &[u8] = b"\x1b]7501;";
+
+    fn holds(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    impl StatusScreen {
+        /// The vectors that carry a report.
+        fn reports(&self) -> Vec<String> {
+            self.vectors
+                .iter()
+                .filter(|vector| holds(vector, REPORT))
+                .map(|vector| String::from_utf8(vector.clone()).expect("utf-8"))
+                .collect()
+        }
+    }
+
+    impl Sink for StatusScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            if self.refusals > 0 && bytes.starts_with(REPORT) {
+                self.refusals -= 1;
+                return Err(Emit::ZeroProgress(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "not now",
+                )));
+            }
+            self.vectors.push(bytes.to_vec());
+            Ok(())
+        }
+    }
+
+    const IDLE: &str = "\u{1b}]7501;state=idle:app=xfx\u{1b}\\";
+
+    fn status_tick(shell: &mut Shell, band: &mut Band, out: &mut StatusScreen) {
+        commit_counted(
+            shell,
+            band,
+            out,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick");
+    }
+
+    #[test]
+    fn a_program_status_goes_out_before_the_frame_on_its_own_and_is_counted() {
+        // Upstream's order: the tick reports while it drains, and the frame
+        // is flushed after it (`app_process_runtime.zig:50-60@481104fd`), so
+        // the launch's `idle` precedes the first `?2026h` (`osc/w00-start`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            out.vectors.len() > 1,
+            "no frame went out, so this proves nothing"
+        );
+        assert_eq!(
+            out.vectors.first().map(Vec::as_slice),
+            Some(IDLE.as_bytes()),
+            "the report was not the tick's first vector, or not alone in it"
+        );
+        assert_eq!(out.reports(), [IDLE], "a report inside a frame, or two");
+        let wrote: usize = out.vectors.iter().map(Vec::len).sum();
+        assert_eq!(
+            shell.metrics.ansi_bytes, wrote as u64,
+            "/stats missed the report"
+        );
+
+        // A tick that changed nothing reports nothing; one whose work did,
+        // reports that, and nothing else in the same vector.
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports(), [IDLE]);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports(),
+            [IDLE, "\u{1b}]7501;state=working:app=xfx\u{1b}\\"]
+        );
+    }
+
+    #[test]
+    fn a_refused_program_status_is_offered_again_and_written_once() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen {
+            refusals: 1,
+            ..StatusScreen::default()
+        };
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(out.reports().is_empty(), "the refused report landed");
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports(),
+            [IDLE],
+            "the report was forgotten, or written twice"
+        );
+    }
+
+    #[test]
+    fn a_resume_writes_the_record_its_stop_cleared_again() {
+        // The stop handler's restore carries the clear, so after a continue
+        // the record is gone and an unchanged status is still owed
+        // (`main.zig:1050-1055@481104fd`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports(), [IDLE]);
+        adopt_resume(&mut shell, &mut band, false);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports(),
+            [IDLE, IDLE],
+            "the cleared record was not written again"
+        );
     }
 }

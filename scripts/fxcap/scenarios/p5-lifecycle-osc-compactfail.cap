@@ -1,0 +1,17 @@
+# Phase 5 L-U1: a /compact whose notes request is refused twice -- the
+# result is error.
+gateway p5-lifecycle-compactfail-turns.json
+work compact-ws
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire f00-answered
+type /compact
+key Enter
+wait 3
+wire f01-failed
