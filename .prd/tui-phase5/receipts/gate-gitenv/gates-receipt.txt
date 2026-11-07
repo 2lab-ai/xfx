@@ -1,0 +1,46 @@
+head a3ebc769
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+TMPDIR=<tmp>
+
+== what changed since 45d99f52
+ .../receipts/gate-gitenv/gitenv-sweep.sh           | 156 ++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/hook-probe.sh | 110 ++++++
+ .prd/tui-phase5/receipts/gate-gitenv/inventory.sh  |  33 ++
+ .prd/tui-phase5/receipts/gate-gitenv/inventory.txt |  51 +++
+ .prd/tui-phase5/receipts/gate-gitenv/mutants-py.py |  67 ++++
+ .../tui-phase5/receipts/gate-gitenv/mutants-py.txt |   7 +
+ .prd/tui-phase5/receipts/gate-gitenv/mutants.py    |  93 +++++
+ .prd/tui-phase5/receipts/gate-gitenv/mutants.txt   |  10 +
+ .prd/tui-phase5/receipts/gate-gitenv/publish.py    |  69 ++++
+ .../receipts/gate-gitenv/py-runs-linux-a.txt       |  87 +++++
+ .../receipts/gate-gitenv/py-runs-linux-b.txt       |  49 +++
+ .../receipts/gate-gitenv/py-runs-macos.txt         |  41 +++
+ .prd/tui-phase5/receipts/gate-gitenv/py-runs.sh    |  29 ++
+ .../tui-phase5/receipts/gate-gitenv/runs-linux.txt | 384 ++++++++++++++++++++
+ .../tui-phase5/receipts/gate-gitenv/runs-macos.txt | 396 +++++++++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/runs.sh       |  48 +++
+ scripts/check-no-secrets.sh                        |  20 ++
+ scripts/check-preview-contract.sh                  |  20 +-
+ scripts/check-xfx-identity.sh                      |  33 +-
+ scripts/fxcap/ci_sweep.py                          |   7 +-
+ scripts/fxcap/sweep.py                             |  12 +-
+ scripts/fxcap/test_ci_sweep.py                     |  40 +++
+ scripts/fxcap/test_sweep.py                        |  26 ++
+ scripts/test-gate-env.sh                           | 173 ++++++++-
+ 27 files changed, 2361 insertions(+), 8 deletions(-)
+
+== ./scripts/check-no-secrets.sh
+check-no-secrets: ok (12130 tracked file(s) scanned)
+-> exit 0, 113 s
+
+== ./scripts/check-xfx-identity.sh
+check-xfx-identity: ok (12130 tracked file(s) scanned)
+-> exit 0, 1 s
+
+== ./scripts/check-no-stubs.sh
+check-no-stubs: ok
+-> exit 0, 24 s
+gates exit=0
