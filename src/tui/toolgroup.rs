@@ -1742,6 +1742,63 @@ mod tests {
     }
 
     #[test]
+    fn escape_shaped_server_text_at_the_bound_is_kept_whole_and_the_row_ends_before_it() {
+        // The one place the row is not what one pass over the server's words
+        // gives: text shaped like an escape (a literal `\x1b`) that
+        // straddles the cut, byte 253, is kept whole as the channel's own
+        // escapes are, so the row ends before it where one pass ends inside
+        // it.
+        fn one_pass(reason: &str) -> String {
+            let words: Vec<&str> = reason
+                .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .filter(|word| !word.is_empty())
+                .collect();
+            crate::mcp::terminal_safe(&words.join(" "))
+        }
+        let failed_row = |reason: &str| {
+            let mut group = ToolGroup::default();
+            group.start("1".into(), mcp_call("mcp_web_echo"));
+            assert!(group.finish("1", false, reason, Outcome::Finished, None));
+            plain(&group)[1].clone()
+        };
+        // Straight to the row: 252 `A`, a literal `\x1b`, `Z`.
+        let raw = format!("{}\\x1bZ", "A".repeat(252));
+        assert_eq!(one_pass(&raw), format!("{}\\...", "A".repeat(252)));
+        assert_eq!(
+            failed_row(&raw),
+            format!("\u{2514} Failed mcp_web_echo: {}...", "A".repeat(252))
+        );
+        // Through the channel: 244 `A`, U+00AD, a literal `\x1b`, `Z`. The
+        // channel leaves U+00AD raw (2 bytes, 251 in all, under its bound);
+        // the row names it in 8, which carries the literal across the cut.
+        let raw = format!("{}\u{ad}\\x1bZ", "A".repeat(244));
+        let crossed = flattened(&raw);
+        assert_eq!(crossed, raw);
+        assert_eq!(
+            one_pass(&raw),
+            format!("{}\\u{{00ad}}\\...", "A".repeat(244))
+        );
+        assert_eq!(
+            failed_row(&crossed),
+            format!(
+                "\u{2514} Failed mcp_web_echo: {}\\u{{00ad}}...",
+                "A".repeat(244)
+            )
+        );
+    }
+
+    #[test]
+    fn an_mcp_reason_with_nothing_left_once_spelled_is_no_reason() {
+        // The MCP arm tests the reason after spelling it, as fx's
+        // `failureStatusDetail` returns none for an empty encoding: a reason
+        // of white space alone, given to the row raw, leaves no `: `.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        assert!(group.finish("1", false, "\u{b}", Outcome::Finished, None));
+        assert_eq!(plain(&group)[1], "\u{2514} Failed mcp_web_echo");
+    }
+
+    #[test]
     fn a_servers_words_in_a_failed_mcp_calls_row_are_written_out_not_obeyed() {
         // A reason that is a server's text: its line breaks one space, an
         // escape and a bidirectional override spelled out, as upstream's

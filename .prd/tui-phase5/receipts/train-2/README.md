@@ -420,7 +420,19 @@ Both engines approved with fixes. Code head `5f2d0b88`.
     `tools::question::terminal_safe` writes them) taken as one token that is
     never cut.
   - `server_spelled` uses it, so the row is what one pass over the server's
-    words gives: `main`'s wider set and `main`'s bound.
+    words gives: `main`'s wider set and `main`'s bound. **One exception**,
+    since round 3: server text shaped like an escape (`\x` and two hex
+    digits, or `\u{`, one to six hex digits and `}`) that straddles the cut
+    (byte 253) is kept whole, as the channel's own escapes are, so the row
+    ends before it -- up to 9 bytes earlier than one pass, which cuts inside
+    it. Both are printable. Pinned by
+    `escape_shaped_server_text_at_the_bound_is_kept_whole_and_the_row_ends_before_it`:
+    - 252 `A` + a literal `\x1b` + `Z`: one pass ends `A\...`, the row
+      ends `A...`;
+    - through the channel, 244 `A` + U+00AD + a literal `\x1b` + `Z`: the
+      channel leaves U+00AD raw (251 bytes, under its bound), and the row
+      names it in 8, which carries the literal across the cut. One pass ends
+      `\u{00ad}\...`, the row `\u{00ad}...`.
   - The MCP arm tests the reason after spelling it.
   - CALLROW-SAFE's non-MCP rows are untouched: the change is the MCP arm,
     `server_spelled` and a new function (`git diff f4af7b0a 5f2d0b88 --
@@ -440,7 +452,7 @@ Both engines approved with fixes. Code head `5f2d0b88`.
   (`shell.rs`'s first row assertion).
 - **GREEN**, at `5f2d0b88` (`seam-green.txt`):
   - that test passes: the row is the one-pass row in the document and on
-    Ctrl-O;
+    Ctrl-O (its reason holds no escape-shaped text);
   - three reasons of white space alone (`"   "`, `" \t\r\n "`, VT+FF) give
     `└ Failed mcp_web_echo` with no `: ` on both views.
   - `tui::toolgroup::tests::an_mcp_reason_spelled_by_the_channel_is_cut_as_one_pass_cuts_the_raw_one`:
@@ -450,9 +462,19 @@ Both engines approved with fixes. Code head `5f2d0b88`.
     U+200B, U+3164, VT and white space. The result is a fixed point of the
     row's spelling.
   - The same test covers text that only looks like an escape (a server's
-    literal `\x1b`). It reads the same as the channel's own escape once
-    spelled, so the row keeps it whole and within the bound. The channel's
-    own bound, CALLROW-SAFE's, may cut it as it cuts any printable text.
+    literal `\x1b`), with no equality claimed: it reads the same as the
+    channel's own escape once spelled, so the row keeps it whole, within the
+    bound, and is a fixed point. The channel's own bound, CALLROW-SAFE's,
+    may cut it as it cuts any printable text. Its exact rows at the cut are
+    pinned by round 3's test (above).
+  - Round 3: `an_mcp_reason_with_nothing_left_once_spelled_is_no_reason`
+    gives the MCP row a raw VT (`\u{b}`) straight, not through the channel,
+    and wants `└ Failed mcp_web_echo`. With the arm's order reverted to test
+    before spelling (`toolgroup.rs:251-252`), it fails, `"└ Failed
+    mcp_web_echo: "` against `"└ Failed mcp_web_echo"` (`order-mutant.txt`;
+    run in the worktree and put back, as the mutant removes no guard). The
+    shell test's blank cases pass in either order, since the channel has
+    flattened them already.
   - `main`'s `a_servers_words_in_a_failed_mcp_calls_row_are_written_out_not_obeyed`
     passes unchanged.
 - **fx for white space alone.** `failureStatusDetail`'s dynamic-tool branch
@@ -528,6 +550,22 @@ receipt counts them.
 | `cargo test --locked --no-fail-fast` | 5155 passed, 0 failed, 7 ignored |
 | `cargo test --locked --features fault-injection --no-fail-fast` | 5192 passed, 0 failed, 7 ignored |
 
+### Round 3 (tests and wording)
+
+The equality claim is qualified (above) and pinned by
+`escape_shaped_server_text_at_the_bound_is_kept_whole_and_the_row_ends_before_it`.
+The test-after-spelling order is pinned by
+`an_mcp_reason_with_nothing_left_once_spelled_is_no_reason`, whose mutant
+fails. `terminal_safe_respelled`'s doc comment names the exception. The
+shell test's comment now says the channel's text is 224 bytes. Product code
+is unchanged: the diff is two tests, two comments and this receipt.
+
+| gate | result |
+|---|---|
+| fmt, clippy, clippy with fault-injection | ok |
+| identity / stubs / secrets | ok, with this receipt staged |
+| `cargo test --locked --lib --exact`, one at a time: `an_mcp_reason_spelled_by_the_channel_is_cut_as_one_pass_cuts_the_raw_one`, `a_servers_words_in_a_failed_mcp_calls_row_are_written_out_not_obeyed`, the two new tests, `an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once` | 1 passed each |
+
 ## Files
 
 - `ci-report.md`: `ci-sweep.sh`'s report as it ran (`bca3e793`'s ledger).
@@ -539,6 +577,7 @@ receipt counts them.
 - `seam-red.txt`, `seam-green.txt`: round 2's seam test at `f4af7b0a` with
   the test alone added, and at `5f2d0b88`.
 - `t6-check.txt`: T-U6's `check.py` on the train's captures.
+- `order-mutant.txt`: round 3's order test against the arm with its order reverted.
 - `sweep-mcp-base-120.md`, `sweep-mcp-base-60.md`, `sweep-mcp-fix-120.md`,
   `sweep-mcp-fix-60.md`: the MCP sweeps on the base and at `5f2d0b88`.
 

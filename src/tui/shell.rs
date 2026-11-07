@@ -27854,7 +27854,7 @@ mod tests {
         // A literal backslash, a C0 control, an fx mark (U+202E), a soft
         // hyphen (U+00AD) and a variation selector (U+FE0F) the channel
         // leaves raw, then three escapes where the row's bound falls: the
-        // channel's text is 230 bytes, the row's would be 260.
+        // channel's text is 224 bytes, the row's would be 260.
         let reason = format!(
             "refused \\ by\t the\u{ad}\u{202e} server\u{7}: {}{}{}",
             "A".repeat(155),

@@ -132,9 +132,13 @@ pub fn terminal_safe(text: &str) -> String {
 /// past the bound: cut a character at a time, the bound would fall inside
 /// an escape and leave a lone `\`. Cut a token at a time, the row is what
 /// [`terminal_safe`] makes of the raw text in one pass, since both passes
-/// write the same token for every character they both spell. Text that
-/// merely looks like an escape is printable either way; it is only kept
-/// whole.
+/// write the same token for every character they both spell. The one
+/// exception is text that merely looks like an escape -- a server's own
+/// `\x` and two hex digits, or `\u{`, one to six of them and `}` -- which
+/// the channel's spelling makes indistinguishable from one of its own: it is
+/// kept whole too, so where it straddles the cut (byte 253) the row ends
+/// before it, up to nine bytes earlier than one pass over the raw text, which
+/// would cut inside it. Printable either way.
 pub fn terminal_safe_respelled(text: &str) -> String {
     const MARKER: &str = "...";
     let max = TERMINAL_SAFE_MAX_BYTES;
