@@ -2765,10 +2765,16 @@ mod tests {
             c.is_control()
                 || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{61c}')
         };
-        for row in plain(&rows) {
+        // Only the palette's own colours are taken out, so a raw ESC -- and
+        // the sequence it begins -- is still there to be seen (`plain` would
+        // strip it with every other sequence).
+        for row in &rows {
+            let bare = [DARK.dim(), DARK.diff(), DARK.reset()]
+                .iter()
+                .fold(row.clone(), |row, sgr| row.replace(sgr, ""));
             assert!(
-                !row.chars().any(acted_on),
-                "a row hands the terminal a character it acts on: {row:?}"
+                !bare.chars().any(acted_on),
+                "a row hands the terminal a character it acts on: {bare:?}"
             );
         }
         assert_eq!(
@@ -2864,6 +2870,59 @@ mod tests {
         for (line, row, why) in table {
             assert_eq!(terminal_safe_line(line), *row, "{why}");
         }
+    }
+
+    #[test]
+    fn every_code_point_to_u2100_and_past_it_is_spelled_as_fx_spells_it() {
+        // fx's rule for one character of a line, written out here rather
+        // than read from `terminal_safe_line` or `fx_names`, so a narrowed
+        // range cannot pass itself (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`; `isNonPrintingCodepoint`,
+        // `:703-708`): C0 and DEL `\xNN`; C1, U+200B-200F, U+2028-202E,
+        // U+2060-206F and U+FEFF `\u{NNNN}`; a tab itself; and xfx's one
+        // addition, U+061C.
+        let fx = |c: char| -> String {
+            let code = u32::from(c);
+            if c == '\t' {
+                "\t".to_string()
+            } else if code < 0x20 || code == 0x7f {
+                format!("\\x{code:02x}")
+            } else if (0x80..=0x9f).contains(&code)
+                || (0x200b..=0x200f).contains(&code)
+                || (0x2028..=0x202e).contains(&code)
+                || (0x2060..=0x206f).contains(&code)
+                || code == 0xfeff
+                || code == 0x061c
+            {
+                format!("\\u{{{code:04x}}}")
+            } else {
+                c.to_string()
+            }
+        };
+        // Every code point to U+2100, then the byte-order mark and the
+        // default-ignorable ones fx writes as themselves and tmux 3.7b draws
+        // a cell wide (`approval_view`'s `default_ignorable`): those stay
+        // raw here too, as fx's (parity-ledger.toml
+        // `ctrl-o-width-disputed`).
+        let points = (0u32..=0x2100)
+            .chain([0xfeff, 0x061c, 0x3164, 0xffa0])
+            .chain(0xfff0..=0xfff8);
+        let mut checked = 0;
+        for code in points {
+            let Some(c) = char::from_u32(code) else {
+                continue;
+            };
+            // Between two letters, so a carriage return is not the one
+            // that ends the line (that one is dropped, `:429`).
+            let line = format!("a{c}b");
+            assert_eq!(
+                terminal_safe_line(&line),
+                format!("a{}b", fx(c)),
+                "U+{code:04X}"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 0x2101 + 2 + 2 + 9);
     }
 
     #[test]
