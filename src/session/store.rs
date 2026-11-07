@@ -2634,9 +2634,9 @@ impl SessionRecorder {
         // file's temporary one (`crate::image::Image::own_copy`) -- and never
         // by the file it was attached from. Upstream's turn keeps
         // the bytes whether or not the session is saved (D44,
-        // `src/core/session/session_store.zig:43-50@481104fd`; captured for
+        // `src/core/session/session_store.zig:44-51@481104fd`; captured for
         // every session, inlined only into a saved one,
-        // `src/core/app/app_session_runtime.zig:1331-1344@481104fd`).
+        // `src/core/app/app_session_runtime.zig:1332-1345@481104fd`).
         let Some(dir) = self.session.dir() else {
             self.commit(SessionEvent::ImagesAttached {
                 images: images.iter().map(recorded_as_handed).collect(),

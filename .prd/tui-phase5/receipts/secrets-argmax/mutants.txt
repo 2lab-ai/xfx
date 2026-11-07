@@ -1,0 +1,21 @@
+clone head f018d86d; machine Darwin arm64; GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25); the tests' grep: /usr/bin/grep, grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+control: test exit 0
+CAUGHT base-check: test exit 1; failing: clean; first-batch; last-batch; dash-n-name; unreadable-middle; grep-options; grep-signal; grep-126; grep-127; every-file; every-file-set; 11 problem(s), 2 case(s) passed
+CAUGHT round1-check: test exit 1; failing: grep-options; 1 problem(s), 12 case(s) passed
+CAUGHT nonfinal-status-ignored: test exit 1; failing: clean; unreadable-middle; grep-signal; grep-126; grep-127; 5 problem(s), 8 case(s) passed
+CAUGHT second-batch-dropped: test exit 1; failing: clean; every-file-set; 2 problem(s), 11 case(s) passed
+CAUGHT first-batch-only: test exit 1; failing: clean; last-batch; unreadable-middle; grep-options; grep-signal; grep-126; grep-127; every-file-set; 8 problem(s), 5 case(s) passed
+CAUGHT batch-edge-lost: test exit 1; failing: clean; first-batch; every-file-set; 3 problem(s), 10 case(s) passed
+CAUGHT with-filename-dropped: test exit 1; failing: clean; 1 problem(s), 12 case(s) passed
+CAUGHT last-bound-lost: test exit 1; failing: clean; first-batch; last-batch; dash-n-name; unreadable-middle; grep-options; grep-signal; grep-126; grep-127; every-file; every-file-set; 11 problem(s), 2 case(s) passed
+CAUGHT last-bound-lost-unguarded: test exit 1; failing: clean; last-batch; grep-options; every-file-set; 4 problem(s), 9 case(s) passed
+CAUGHT third-batch-is-second: test exit 1; failing: every-file-set; 1 problem(s), 12 case(s) passed
+CAUGHT status-eq-2: test exit 1; failing: grep-signal; grep-126; grep-127; 3 problem(s), 10 case(s) passed
+CAUGHT grep-options-kept: test exit 1; failing: grep-options; 1 problem(s), 12 case(s) passed
+CAUGHT break-after-unreadable: test exit 1; failing: clean; unreadable-middle; 2 problem(s), 11 case(s) passed
+CAUGHT unquoted-slice: test exit 1; failing: clean; first-batch; last-batch; dash-n-name; unreadable-middle; grep-options; grep-signal; grep-126; grep-127; every-file; every-file-set; 11 problem(s), 2 case(s) passed
+under the round-1 test: SURVIVED third-batch-is-second: test exit 0; failing: 
+under the round-1 test: SURVIVED status-eq-2: test exit 0; failing: 
+12 of 12 mutants caught by this test; base-check CAUGHT, round1-check CAUGHT
+driver exit=0
+clone status above (empty = clean)

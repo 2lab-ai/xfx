@@ -1,0 +1,11 @@
+clone head 64f5f820; Darwin arm64; GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25); /usr/bin/grep: grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+control: test exit 0; failing: -
+CAUGHT no-unset-no-stubs: test exit 1; failing: no-stubs
+CAUGHT no-unset-preview-contract: test exit 1; failing: preview-contract
+CAUGHT no-unset-test-preview-contract: test exit 1; failing: test-preview-contract
+CAUGHT no-unset-tui-preflight-cost: test exit 1; failing: tui-preflight-cost
+CAUGHT no-unset-usage-clock: test exit 1; failing: usage-clock
+plants, every unset removed, every value empty: test exit 0; failing: -
+5 of 5 mutants caught, each by its own case only
+driver exit=0
+(clone status above; empty = clean)

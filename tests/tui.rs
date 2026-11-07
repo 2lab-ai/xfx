@@ -1316,7 +1316,7 @@ fn with_no_usable_home_a_tool_runs_under_the_session_authority_alone() {
 fn with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir() {
     // An unsaved session copies an attached file to a private temporary
     // directory under upstream's root, the real `/tmp`
-    // (`createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+    // (`createTempSnapshotDir`, `image_attachments.zig:248-275@481104fd`),
     // not under `$TMPDIR` as given: a relative `TMPDIR` naming a folder the
     // project holds would put the copy in the working tree.
     let sandbox = Sandbox::new();
@@ -11513,6 +11513,89 @@ fn paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it() {
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     assert_eq!(gateway.request_count(), 0);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says() {
+    // Upstream reads the clipboard into a folder of its own under the real
+    // `/tmp` (`loadClipboardImageAttachment`, `createTempSnapshotDir`,
+    // `image_attachments.zig:1990@481104fd`), not under `$TMPDIR`, and its
+    // script names that file as one AppleScript string. A `TMPDIR` with a `"`
+    // in it, or a relative one, is in neither, and the paste works.
+    let sandbox = Sandbox::new();
+    let tools = sandbox.home.join("fake-tools");
+    std::fs::create_dir(&tools).expect("a tool directory");
+    let held = tools.join("held.png");
+    std::fs::write(&held, SHOT_PNG).expect("the clipboard's image");
+    let script = tools.join("script");
+    // Keeps the script it was given, then writes the image to the file the
+    // script names.
+    let osascript = format!(
+        "printf '%s' \"$2\" > '{}'\nout=${{2#*POSIX file \\\"}}\nout=${{out%%\\\"*}}\ncat '{}' > \"$out\"\n",
+        script.display(),
+        held.display()
+    );
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tools.join("osascript");
+        std::fs::write(&path, format!("#!/bin/sh\n{osascript}")).expect("a fake tool");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+    }
+    let quoted = sandbox.home.join("tmp\"quoted");
+    std::fs::create_dir(&quoted).expect("a folder with a quote in its name");
+    let relative = sandbox.workspace.join("relative-tmp");
+    std::fs::create_dir(&relative).expect("the folder a relative TMPDIR names");
+    let root = std::fs::canonicalize("/tmp").expect("the real /tmp");
+    for (tmpdir, folder) in [
+        (quoted.clone().into_os_string(), &quoted),
+        ("relative-tmp".into(), &relative),
+    ] {
+        let _ = std::fs::remove_file(&script);
+        let gateway = FakeGateway::start(Vec::new());
+        let pty = Pty::open();
+        pty.resize(40, 120);
+        let mut command = tui_with(&sandbox, &gateway);
+        command
+            .env("PATH", format!("{}:/bin", tools.display()))
+            .env("TMPDIR", &tmpdir);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"/paste\r");
+        on_screen(&session, (40, 120), &["\u{2503} [Image 1]"], &[]);
+        let given = std::fs::read_to_string(&script).expect("the script osascript was given");
+        let first = given.lines().next().unwrap_or_default();
+        let prefix = format!(
+            "set outFile to POSIX file \"{}/xfx-clipboard-",
+            root.display()
+        );
+        assert!(first.starts_with(&prefix), "TMPDIR={tmpdir:?}: {first:?}");
+        assert!(
+            first.ends_with("/clipboard.png\""),
+            "TMPDIR={tmpdir:?}: {first:?}"
+        );
+        assert!(
+            !given.contains("quoted") && !given.contains("relative-tmp"),
+            "TMPDIR={tmpdir:?} is in the script: {given:?}"
+        );
+        // The read's own folder is gone once the image is the session's.
+        let file = &first["set outFile to POSIX file \"".len()..first.len() - 1];
+        let read = std::path::Path::new(file)
+            .parent()
+            .expect("the read's folder");
+        assert!(read.starts_with(&root), "{read:?}");
+        assert!(!read.exists(), "{read:?} outlived the read");
+        assert_eq!(
+            std::fs::read_dir(folder).expect("TMPDIR's folder").count(),
+            0,
+            "TMPDIR={tmpdir:?}: the read wrote under it"
+        );
+        session.type_bytes(&[0x15]);
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0), "TMPDIR={tmpdir:?}");
+        assert_eq!(gateway.request_count(), 0);
+    }
 }
 
 // ---------------------------------------------------------------------------
