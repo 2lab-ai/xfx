@@ -4663,4 +4663,28 @@ mod tests {
             assert_eq!(rows.contains(&row), kept, "{length}: {rows:#?}");
         }
     }
+
+    #[test]
+    fn a_command_read_only_in_part_hides_no_argument_fxs_status_would_show() {
+        // CALLROW-SAFEc: fx's 120-byte status phrase marks nothing of a
+        // command it stopped reading at 14 400 bytes (`formatRunCommandDetailBounded`,
+        // `src/core/tooling/tool_presentation.zig:441-445@481104fd`, the
+        // marker only the encoder's): `ls`, 14 400 line breaks and `x` is the
+        // status `ls`, which holds no `.`, so `cwd: .` keeps its row on fx. The
+        // row here ends `...` (`call-row-source-cut`), and a status that ended
+        // so too would find the `.` in it.
+        let text = format!("ls{}x", "\n".repeat(14_400));
+        let input = json!({"action": "exec", "command": text, "cwd": "."});
+        let mut record = record();
+        record.tool_started("c", &command(&text));
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        // The whole record: the `command:` row is 14 400 rows of its own.
+        let rows = plain(&record.rows(120, 20_000, DARK, ""));
+        assert!(
+            rows.contains(&"\u{2514} Ran ls...".to_string()),
+            "{rows:#?}"
+        );
+        assert!(rows.contains(&"\u{2502}  cwd: .".to_string()), "{rows:#?}");
+    }
 }

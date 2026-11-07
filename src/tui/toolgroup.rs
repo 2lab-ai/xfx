@@ -607,7 +607,7 @@ pub(crate) fn spelled(target: &str, activity: Activity) -> String {
         }
         return spelling.finish();
     }
-    command_spelled(target, COMMAND_TARGET_BYTES)
+    command_spelled(target, COMMAND_TARGET_BYTES, true)
 }
 
 /// fx's status phrase for a call with this argument as the model wrote it,
@@ -616,8 +616,10 @@ pub(crate) fn spelled(target: &str, activity: Activity) -> String {
 /// `src/ui/full_transcript_screen.zig:6594-6619@481104fd`, reads the status
 /// entry's own bytes, not the command the heading puts in its place).
 ///
-/// A command's is its first [`COMMAND_STATUS_BYTES`] spelled, so a command
-/// past them keeps its argument row even where the heading shows it whole. A
+/// A command's is its first [`COMMAND_STATUS_BYTES`] spelled -- and, as fx's,
+/// with no `...` for a command read only in part, which the row's own spelling
+/// has (ledger `call-row-source-cut`) -- so a command past them keeps its
+/// argument row even where the heading shows it whole. A
 /// command call with no command has an empty one, which holds nothing. Any
 /// other call's status is its whole argument, which its row shows.
 ///
@@ -631,13 +633,19 @@ pub(crate) fn status(shown: &Shown) -> Option<String> {
         shown
             .target
             .as_deref()
-            .map(|target| command_spelled(target, COMMAND_STATUS_BYTES))
+            .map(|target| command_spelled(target, COMMAND_STATUS_BYTES, false))
             .unwrap_or_default()
     })
 }
 
-/// A command as [`spelled`] spells it, at `max` bytes.
-fn command_spelled(target: &str, max: usize) -> String {
+/// A command as [`spelled`] spells it, at `max` bytes -- and, with
+/// `mark_unread`, ended `...` where it was read only in part.
+///
+/// The status phrase is fx's exactly and so says nothing of a command fx
+/// stopped reading (`formatRunCommandDetailBounded`, `tool_presentation.zig:
+/// 441-445@481104fd`, marks only what its encoder cuts): a marker there would
+/// put a `.` in the phrase fx's has not, and hide `cwd: .`.
+fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {
     let mut spelling = Spelling::new(max);
     let mut line_break = false;
     let mut written = false;
@@ -652,7 +660,7 @@ fn command_spelled(target: &str, max: usize) -> String {
                 .chars()
                 .any(|left| !matches!(left, ' ' | '\t' | '\r' | '\n'))
             {
-                spelling.cut = true;
+                spelling.cut |= mark_unread;
             }
             break;
         }
@@ -674,7 +682,7 @@ fn command_spelled(target: &str, max: usize) -> String {
             // The rest of it is left unread, so the row is marked cut too.
             let mut bytes = [0u8; 4];
             character.encode_utf8(&mut bytes);
-            spelling.cut = true;
+            spelling.cut |= mark_unread;
             bytes[..COMMAND_SOURCE_BYTES - at]
                 .iter()
                 .all(|byte| spelling.token(&format!("\\x{byte:02x}")))
@@ -1604,9 +1612,14 @@ mod tests {
             ),
             (format!("echo shown{breaks} \t\r\n"), "Running echo shown"),
             // A character the bound splits: the byte read is `\xNN`, as fx
-            // writes it, and the rest is marked.
+            // writes it, and the rest is marked -- with more after it, and
+            // when it is the command's last.
             (
                 format!("echo shown{}\u{202e}z", "\n".repeat(14_389)),
+                r"Running echo shown \xe2...",
+            ),
+            (
+                format!("echo shown{}\u{202e}", "\n".repeat(14_389)),
                 r"Running echo shown \xe2...",
             ),
         ] {
