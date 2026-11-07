@@ -37677,15 +37677,14 @@ mod tests {
     fn an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written() {
         // Display only: the document's row and Ctrl-O's Response row name
         // them; the reply `/copy` puts on the clipboard is the model's text,
-        // byte for byte (`WorkHandle::last_reply`, the journal's), and so is
-        // what `/trace` lists as typed. Written raw, the rows lose glyphs on
-        // tmux 3.7b and libghostty-vt (.prd/tui-phase5/receipts/ctrlo-wider/,
-        // `measure.txt`).
+        // byte for byte (`WorkHandle::last_reply`, the journal's). Written
+        // raw, the rows lose glyphs on tmux 3.7b and libghostty-vt
+        // (.prd/tui-phase5/receipts/ctrlo-wider/, `measure.txt`).
         let tool = crate::clipboard::fake::FakeTool::keeping();
         let mut shell = running("go");
         shell.copies = Copies::new(tool.clipboard());
         shell.apply(UiEvent::Delta(format!(
-            "{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n"
+            "{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n\n| cell |\n|---|\n| {FAMILY_RAW} |\n\n"
         )));
         shell.apply(UiEvent::Operational(format!("{FAMILY_RAW}\n")));
         shell.apply(UiEvent::TurnEnded { failure: None });
@@ -37697,8 +37696,8 @@ mod tests {
             .collect();
         assert_eq!(
             named.len(),
-            3,
-            "the prose, the code panel and the operational line: {document:#?}"
+            4,
+            "the prose, the code panel, the table's cell and the operational line: {document:#?}"
         );
         assert!(
             !document
@@ -37713,7 +37712,7 @@ mod tests {
                 .iter()
                 .filter(|row| row.contains(FAMILY_NAMED))
                 .count()
-                >= 2,
+                >= 3,
             "Ctrl-O's Response rows: {screen:#?}"
         );
         assert!(

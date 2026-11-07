@@ -1581,6 +1581,97 @@ mod tests {
     }
 
     #[test]
+    fn a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer() {
+        // The four `FX_COUNTED` scalars the count took from none to two cells
+        // (East Asian Wide marks: U+302E-302F, U+16FF0-16FF1) and a regional
+        // indicator, which went from one to two, through the painter's cut
+        // (`frame::clip`), the composer's caret (`composer_cells`) and the
+        // status line's measure (`picker::cells`): each agrees with fx's count
+        // (the port, `crate::markdown::display_width`) wherever the scalar
+        // stands -- alone, joined to a letter before it, doubled, after a
+        // space -- and no cut keeps more cells than it was given or stops
+        // short of a cluster that would have fit.
+        let port = |text: &str| crate::markdown::display_width::visible_width(text.as_bytes());
+        for c in [
+            '\u{302e}',
+            '\u{302f}',
+            '\u{16ff0}',
+            '\u{16ff1}',
+            '\u{1f1e6}',
+        ] {
+            for text in [
+                c.to_string(),
+                format!("ab{c}cd"),
+                format!("{c}{c}x"),
+                format!("x {c}"),
+                format!("{}{c}", "a".repeat(37)),
+            ] {
+                let cells = port(&text);
+                assert_eq!(usize::from(width(&text)), cells, "{text:?}");
+                assert_eq!(super::super::picker::cells(&text), cells, "{text:?}");
+                for cols in 0..=u16::try_from(cells + 1).expect("a short text") {
+                    let cut = super::super::frame::clip(&text, cols);
+                    assert!(
+                        port(cut) <= usize::from(cols),
+                        "{text:?} at {cols}: {cut:?}"
+                    );
+                    if let Some(next) = first_cluster(&text[cut.len()..]) {
+                        assert!(
+                            port(cut) + port(next) > usize::from(cols),
+                            "{text:?} at {cols}: {cut:?} stops short of {next:?}"
+                        );
+                    }
+                }
+                // The caret after every cluster of a draft one row holds, at
+                // 40 columns of text and at the row's last cell.
+                for cols in [40u16, u16::try_from(cells).expect("a short text").max(2)] {
+                    let rows = composer(&text, cols, &[]);
+                    for row in &rows {
+                        let mut at = row.start;
+                        while at < row.end {
+                            let cluster = first_cluster(&text[at..]).expect("a cluster");
+                            at += cluster.len();
+                            assert_eq!(
+                                usize::from(composer_cells(&text, row, at, cols)),
+                                port(&text[row.start..at]),
+                                "{text:?} at {cols}, caret at {at}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx() {
+        // fx pairs a run along the line, an RGI flag whole where its trie
+        // holds one (`displayUnitAt`, `display_width.zig:246-247@481104fd`);
+        // the painter counts a grapheme cluster at a time, and the clusters
+        // pair from the run's start (UAX #29, GB12-13). Z U S, where U S is a
+        // flag and Z U none: fx Z 2 and U S 2, four; xfx [Z U] 4 and [S] 2,
+        // six (`scripts/fxcap/parity-ledger.toml`, `ri-run-pairing`;
+        // `p5-ctrlo-wider-ri`). Never fewer: every run of three, between
+        // letters.
+        let port = |text: &str| crate::markdown::display_width::visible_width(text.as_bytes());
+        let zus = "\u{1f1ff}\u{1f1fa}\u{1f1f8}";
+        assert_eq!((usize::from(width(zus)), port(zus)), (6, 4));
+        let indicator = |n: u32| char::from_u32(0x1f1e6 + n).expect("an indicator");
+        let mut differ = 0;
+        for a in 0..26 {
+            for b in 0..26 {
+                for c in 0..26 {
+                    let text = format!("x{}{}{}y", indicator(a), indicator(b), indicator(c));
+                    let (painter, fx) = (usize::from(width(&text)), port(&text));
+                    assert!(painter >= fx, "{text:?}: {painter} < {fx}");
+                    differ += usize::from(painter != fx);
+                }
+            }
+        }
+        assert!(differ > 0);
+    }
+
+    #[test]
     fn no_other_scalar_is_counted_otherwise() {
         // Every scalar the drawn-wider sweep measures that is neither one of
         // `FX_COUNTED` nor one of the fourteen `counted_as_upstream` names

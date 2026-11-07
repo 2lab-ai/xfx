@@ -3906,6 +3906,32 @@ mod tests {
     }
 
     #[test]
+    fn an_escape_sequence_in_an_answers_text_is_passed_over_whole() {
+        // An answer's prose comes to `shown_event` rendered, with its colours
+        // and its OSC 8 links (`markdown::Event::Text`): a link's target is
+        // never rewritten, while the same glyph in its text is named.
+        let link = |target: &str, text: &str| {
+            format!("\u{1b}]8;;{target}\u{1b}\\{text}\u{1b}]8;;\u{1b}\\")
+        };
+        let target = "https://x.io/\u{261d}";
+        assert_eq!(
+            drawn_wider_named(&link(target, "\u{261d} up")),
+            link(target, "\\u{261d} up")
+        );
+        // A colour between a glyph and a U+FE0F: the selector is not the
+        // glyph's, so both are named, and the colour stands as it was.
+        assert_eq!(
+            drawn_wider_named("\u{1b}[1m\u{261d}\u{1b}[0m\u{fe0f}"),
+            "\u{1b}[1m\\u{261d}\u{1b}[0m\\u{fe0f}"
+        );
+        // And an emoji base with its selector stays, inside a colour.
+        assert_eq!(
+            drawn_wider_named("\u{1b}[1m\u{261d}\u{fe0f}\u{1b}[0m"),
+            "\u{1b}[1m\u{261d}\u{fe0f}\u{1b}[0m"
+        );
+    }
+
+    #[test]
     fn every_code_point_to_u2100_and_past_it_is_spelled_as_fx_spells_it() {
         // fx's rule for one character of a line, written out here rather
         // than read from `terminal_safe_line` or `fx_names`, so a narrowed
