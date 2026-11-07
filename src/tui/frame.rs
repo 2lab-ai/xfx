@@ -8301,4 +8301,129 @@ mod tests {
         let text = String::from_utf8(out).expect("utf-8");
         assert!(text.contains("\u{2600}\u{1b}[0m\u{fe0f}"), "{text:?}");
     }
+
+    // -- a tool group's split cell drawn again (train 3) ----------------------
+    //
+    // TG-REDRAW's retint gives a tool group's row the attributes its drawing
+    // in the new mode puts on each cell (`Grid::retint_document`), and the
+    // band writes the cells it moved through `Grid::diff`, which writes each
+    // through `put_unit` and `write_cell` (ENGINE-VS-ANCHOR). `☀`, a colour,
+    // U+FE0F is the cell `write_cell` splits: one cell in the grid, two
+    // written together (`wrap::width`).
+
+    /// A tool group's call row whose `☀` has its selector split off by the
+    /// highlighter's colour, as the group draws it in a mode: `grey` is the
+    /// statusline's, `word` the colour the selector is written under. `pad`
+    /// cells of `x` stand between `echo ` and the glyph, and `tail` after it.
+    fn split_call_row(mark: char, pad: usize, tail: &str, grey: u8, word: u8) -> String {
+        format!(
+            "\u{1b}[38;5;{grey}m{mark} Ran echo {}\u{2600}\u{1b}[38;5;{word}m\u{fe0f}\
+             \u{1b}[38;5;{grey}m{tail}\u{1b}[0m",
+            "x".repeat(pad)
+        )
+    }
+
+    #[test]
+    fn a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted() {
+        use super::super::grid::{Cell, Grid};
+        use super::super::theme::{DocumentRow::ToolGroup, Redraw};
+        let geometry = geometry();
+        // Mid-row (`☀` in column 12, ` x` after it), and in the last column
+        // (68 `x`: the glyph is column 80, the row exactly the screen's width).
+        let rows: Vec<(char, usize, &str)> = vec![('\u{251c}', 0, " x"), ('\u{2514}', 68, "")];
+        let drawings: Vec<Redraw> = rows
+            .iter()
+            .map(|&(mark, pad, tail)| {
+                Redraw::new(
+                    split_call_row(mark, pad, tail, 245, 252),
+                    split_call_row(mark, pad, tail, 241, 238),
+                )
+            })
+            .collect();
+        let dark: Vec<String> = drawings
+            .iter()
+            .map(|redraw| redraw.drawn(super::super::theme::Mode::Dark).to_string())
+            .collect();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame sizes the shadow");
+        band.append_floating(
+            &mut screen,
+            2,
+            &dark,
+            Recorded {
+                kinds: &[ToolGroup, ToolGroup],
+                redraws: &drawings.iter().cloned().map(Some).collect::<Vec<_>>(),
+            },
+            &geometry,
+            0,
+        )
+        .expect("the group lands");
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("the frame the append owed");
+        let lines: Vec<u16> = rows
+            .iter()
+            .map(|&(mark, _, _)| {
+                (1..=geometry.rows)
+                    .find(|&line| {
+                        matches!(band.shadow().cell(line, 1),
+                            Some(Cell::Lead { grapheme, .. }) if grapheme.starts_with(mark))
+                    })
+                    .expect("the call row on the screen")
+            })
+            .collect();
+        for (line, column) in lines.iter().zip([12u16, 80]) {
+            assert!(
+                matches!(band.shadow().cell(*line, column),
+                    Some(Cell::Lead { grapheme, width: 1, .. }) if grapheme == "\u{2600}\u{fe0f}"),
+                "row {line}: the selector is not the glyph's one cell: {:?}",
+                band.shadow().cell(*line, column)
+            );
+        }
+        for (palette, grey) in [(light_palette(), 241u8), (dark_palette(), 245)] {
+            screen.written.clear();
+            assert_eq!(
+                band.retint_document(&mut screen, &palette, &geometry)
+                    .expect("the check accepts the redrawn split cells"),
+                Retint::Settled(Commit::Painted),
+                "{:?}",
+                palette.mode
+            );
+            let written = String::from_utf8(screen.written.clone()).expect("text and escapes");
+            let pen = format!("\u{1b}[38;5;{grey}m");
+            // Mid-row: the glyph, the cell's pen again, the selector, and the
+            // caret put on the column after the one cell.
+            assert!(
+                written.contains(&format!("\u{2600}{pen}\u{fe0f}\u{1b}[13G")),
+                "{:?}: {written:?}",
+                palette.mode
+            );
+            // In the last column: split the same way, no bracket (one cell)
+            // and no anchor (nothing after it on the screen).
+            let last = format!("\u{2600}{pen}\u{fe0f}");
+            let at = written.rfind(&last).expect("the margin cell written");
+            assert!(
+                !written[at + last.len()..].starts_with("\u{1b}[81G")
+                    && !written.contains("\u{1b}[?7h"),
+                "{:?}: {written:?}",
+                palette.mode
+            );
+            // And the rows are what a fresh paint of the drawing in that mode
+            // leaves.
+            for (line, redraw) in lines.iter().zip(&drawings) {
+                let mut fresh = Grid::blank(geometry.rows, geometry.cols);
+                fresh.place_row(*line, redraw.drawn(palette.mode), &geometry);
+                for column in 1..=geometry.cols {
+                    assert!(
+                        band.shadow().cell(*line, column) == fresh.cell(*line, column),
+                        "{:?} row {line} column {column}: {:?} against {:?}",
+                        palette.mode,
+                        band.shadow().cell(*line, column),
+                        fresh.cell(*line, column)
+                    );
+                }
+            }
+        }
+    }
 }

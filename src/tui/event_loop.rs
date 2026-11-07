@@ -13213,4 +13213,213 @@ mod tests {
             );
         }
     }
+
+    // -- a tool group's row drawn again through the diff's bracket ----------
+    //
+    // A theme switch draws a tool group's rows again as cells whose
+    // attributes change (`Grid::retint_document`, TG-REDRAW), and the band
+    // writes those cells through `Grid::diff`, which writes each one through
+    // `put_unit` and `write_cell` (ENGINE-VS-ANCHOR: fx's frame writer,
+    // `src/core/terminal/engine.zig:2548-2589@481104fd`), before
+    // `check::preflight` reads the vector (`Band::retint_document`). A call row
+    // holding a unit with a variation selector is where the two meet.
+
+    /// One command call, started and settled.
+    fn a_command_ran(shell: &mut Fixture, id: &str, command: &str) {
+        shell.apply(UiEvent::ToolStart {
+            call_id: id.to_string(),
+            tool: "terminal".to_string(),
+            shown: crate::tools::terminal::TERMINAL.shown(&serde_json::json!({
+                "action": "exec",
+                "command": command,
+            })),
+        });
+        shell.apply(UiEvent::ToolResult {
+            call_id: id.to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+    }
+
+    /// A group of three commands whose rows each hold a unit with a variation
+    /// selector, and the answer that closes it:
+    /// - `├ Ran echo "⚡️" 42 # note`: U+26A1 U+FE0F, two cells, mid-row, inside
+    ///   the highlighter's string;
+    /// - `├ Ran echo "☀"️ x`: a U+FE0F after the string's closing quote, which
+    ///   the grid joins to the quote's one cell across the highlighter's
+    ///   sequences (`Grid::place_row`) -- a cell split by a sequence on a real
+    ///   tool row, one cell written together as well;
+    /// - `└ Ran echo xx…x⚡️`: U+26A1 U+FE0F in columns 79-80 of an 80-column
+    ///   screen, the right margin.
+    fn three_selector_calls_then_an_answer(shell: &mut Fixture) {
+        a_command_ran(shell, "1", "echo \"\u{26a1}\u{fe0f}\" 42 # note");
+        a_command_ran(shell, "2", "echo \"\u{2600}\"\u{fe0f} x");
+        a_command_ran(
+            shell,
+            "3",
+            &format!("echo {}\u{26a1}\u{fe0f}", "x".repeat(67)),
+        );
+        shell.apply(UiEvent::Delta("Done with it.\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+    }
+
+    const SELECTOR_ROWS: [&str; 3] = [
+        "\u{251c} Ran echo \"\u{26a1}\u{fe0f}\"",
+        "\u{251c} Ran echo \"\u{2600}\"\u{fe0f}",
+        "\u{2514} Ran echo xxx",
+    ];
+
+    /// The cells of the screen's bottom-most row that opens with `row`, and
+    /// its line, read off the band's record of the screen.
+    fn row_cells(band: &Band, row: &str) -> Option<(u16, Vec<super::super::grid::Cell>)> {
+        use super::super::grid::Cell;
+        let grid = band.shadow();
+        (1..=grid.rows()).rev().find_map(|line| {
+            let cells: Vec<Cell> = (1..=grid.cols())
+                .filter_map(|column| grid.cell(line, column).cloned())
+                .collect();
+            let text: String = cells
+                .iter()
+                .map(|cell| match cell {
+                    Cell::Lead { grapheme, .. } => grapheme.as_str(),
+                    Cell::Empty => " ",
+                    Cell::Continuation => "",
+                })
+                .collect();
+            text.starts_with(row).then_some((line, cells))
+        })
+    }
+
+    /// The one-based column of the cell on that row whose grapheme is
+    /// `grapheme`, and its width.
+    fn column_holding(band: &Band, row: &str, grapheme: &str) -> Option<(usize, usize)> {
+        use super::super::grid::Cell;
+        let (_, cells) = row_cells(band, row)?;
+        cells
+            .iter()
+            .enumerate()
+            .find_map(|(index, cell)| match cell {
+                Cell::Lead {
+                    grapheme: held,
+                    width,
+                    ..
+                } if held == grapheme => Some((index + 1, usize::from(*width))),
+                _ => None,
+            })
+    }
+
+    #[test]
+    fn a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted() {
+        // Both reviews' join check (train 3). At both depths, dark to light
+        // and back, each call row's switch is accepted by the check (the
+        // debt is paid, and the band records the screen only once the
+        // vector has landed); it leaves the row as a fresh landing in that
+        // palette leaves it, cell for cell; and the selector units are
+        // written as fx's frame writer writes them: `ECH 2` and a `CHA` to
+        // the column after a two-cell one mid-row, a `CHA` after a one-cell
+        // one, and `?7h` `ECH 2` the unit `?7l`, no anchor, at the margin.
+        // The append that landed the rows wrote them as they stand
+        // (`frame.rs`'s `place`, upstream's document append).
+        use crate::tui::theme::Depth;
+        for depth in [Depth::Ansi256, Depth::TrueColor] {
+            let now = Instant::now();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+
+            // The group drawn fresh on a light screen: what the switch owes.
+            let mut fresh = shell_at(24, 80, depth);
+            let mut fresh_band = Band::new();
+            a_turn_under_way(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+            fresh.route_bytes(WENT_LIGHT);
+            tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+            three_selector_calls_then_an_answer(&mut fresh);
+            tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+
+            let mut shell = shell_at(24, 80, depth);
+            let mut band = Band::new();
+            a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+            three_selector_calls_then_an_answer(&mut shell);
+            let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(
+                landed.contains("\u{26a1}\u{fe0f}") && !landed.contains("\u{1b}[2X"),
+                "{depth:?}: the append did not write the rows as they stand: {landed:?}"
+            );
+            let dark: Vec<_> = SELECTOR_ROWS
+                .iter()
+                .map(|row| row_cells(&band, row).expect("the call row on the screen").1)
+                .collect();
+
+            let (mid, mid_width) = column_holding(&band, SELECTOR_ROWS[0], "\u{26a1}\u{fe0f}")
+                .expect("the two-cell selector glyph mid-row");
+            let (quote, quote_width) = column_holding(&band, SELECTOR_ROWS[1], "\"\u{fe0f}")
+                .expect("the quote the selector was joined to");
+            let (margin, margin_width) =
+                column_holding(&band, SELECTOR_ROWS[2], "\u{26a1}\u{fe0f}")
+                    .expect("the two-cell selector glyph at the margin");
+            assert_eq!((mid, mid_width), (13, 2), "{depth:?}");
+            assert_eq!((quote, quote_width), (14, 1), "{depth:?}");
+            assert_eq!(
+                (margin, margin_width),
+                (79, 2),
+                "{depth:?}: the glyph does not end in the last column"
+            );
+
+            for (report, wanted) in [(WENT_LIGHT, None), (WENT_DARK, Some(&dark))] {
+                tick(&mut shell, &mut band, &mut out, &mut failures, now);
+                assert!(!shell.owes_retint(), "{depth:?}: nothing was owed yet");
+                shell.route_bytes(report);
+                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+                assert!(
+                    !shell.owes_retint(),
+                    "{depth:?}: the switch's vector was refused: {written:?}"
+                );
+                assert!(
+                    written.contains(&format!(
+                        "\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[{}G",
+                        mid + mid_width
+                    )),
+                    "{depth:?}: the mid-row glyph is not cleared and anchored: {written:?}"
+                );
+                assert!(
+                    written.contains(&format!("\"\u{fe0f}\u{1b}[{}G", quote + quote_width)),
+                    "{depth:?}: the joined one-cell unit is not anchored: {written:?}"
+                );
+                let bracket = "\u{1b}[?7h\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[?7l";
+                let at = written
+                    .find(bracket)
+                    .unwrap_or_else(|| panic!("{depth:?}: no bracket at the margin: {written:?}"));
+                let after = &written[at + bracket.len()..];
+                let anchored = after.strip_prefix("\u{1b}[").is_some_and(|rest| {
+                    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                    digits > 0 && rest[digits..].starts_with('G')
+                });
+                assert!(
+                    !anchored,
+                    "{depth:?}: anchored past the margin: {written:?}"
+                );
+                for (index, row) in SELECTOR_ROWS.iter().enumerate() {
+                    let (_, now_held) = row_cells(&band, row).expect("the call row");
+                    let owed = match wanted {
+                        Some(dark) => dark[index].clone(),
+                        None => row_cells(&fresh_band, row).expect("the fresh row").1,
+                    };
+                    assert!(
+                        now_held == owed,
+                        "{depth:?} {row:?}: drawn again, not as a fresh landing:\n{now_held:?}\n{owed:?}"
+                    );
+                }
+            }
+            if depth == Depth::Ansi256 {
+                // Back on the dark screen: the string's and the statusline's
+                // greys, as the group's first landing had them.
+                assert_eq!(on_screen(&band, SELECTOR_ROWS[0], "\u{26a1}"), Some(250));
+                assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
+                assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
+            }
+        }
+    }
 }
