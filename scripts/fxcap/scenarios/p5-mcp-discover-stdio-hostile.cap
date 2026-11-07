@@ -1,0 +1,15 @@
+# p5 mcp discover: a stdio server whose `server/discover` result lists only near misses
+# of the client's versions -- escapes around "2026-07-28", a 64 KiB string -- with
+# instructions that are terminal escapes (p5-mcp-discover-stdio.ts `hostile`). fx v0.0.16
+# keeps none of it (a list is a mask over its own versions, era.zig:28-37@481104fd): no
+# shared version, "it supports no MCP version fx speaks", retrying. Nothing the server
+# wrote reaches the screen.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-hostile-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-hostile-profile.json
+gateway p5-mcp-hello.json
+wait 5
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+home wire

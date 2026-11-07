@@ -1,0 +1,13 @@
+# p5 mcp discover: an HTTP server that answers `server/discover` with HTTP 200 and a
+# body that is not valid JSON-RPC, its result a string of terminal escapes (mcphttp.ts
+# `malformed`), then serves as the legacy fixture. Nothing it wrote reaches the screen.
+mcphttp malformed
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+gwlog

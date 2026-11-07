@@ -4,8 +4,9 @@
 //!
 //! A port of upstream's client for the paths that need no browser
 //! (`vercel-labs/fx@c1db9191 src/core/mcp/`): stdio servers and streamable
-//! HTTP servers without OAuth, upstream's legacy `initialize` handshake as its
-//! default, upstream's profile file and project trust, and upstream's
+//! HTTP servers without OAuth, fx v0.0.16's version detection -- the
+//! `server/discover` probe, then the legacy `initialize` for a 2025 server
+//! ([`era`]) -- upstream's profile file and project trust, and upstream's
 //! model-facing surface -- a servers block and two meta-tools, with a
 //! server's own tools advertised only once a search, an explicit selection
 //! or a direct call picks them ([`catalog`]).
@@ -14,6 +15,7 @@
 //! |---|---|
 //! | [`config`] | `~/.xfx/mcp.json`, `.mcp.json`, and the trust choices in `settings.json` |
 //! | [`transport`] | one request over stdio or HTTP, synchronously, with a deadline |
+//! | [`era`] | which MCP a server speaks: fx's version detection, pure |
 //! | [`runtime`] | the live servers, their state machine, reload, and every operation |
 //! | [`catalog`] | the model's servers block, `capability_search`, selected schemas, result envelopes |
 //! | [`command`] | `/mcp`'s text subcommands |
@@ -43,6 +45,7 @@ pub mod catalog;
 pub mod command;
 pub mod config;
 pub mod docker;
+pub mod era;
 pub mod names;
 pub mod runtime;
 pub mod transport;

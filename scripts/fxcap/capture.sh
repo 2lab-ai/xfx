@@ -220,8 +220,10 @@
 #                          unknown, 404
 #   mcphttp <mode>         starts the run's HTTP MCP server (mcphttp.ts) before
 #                          launch, on a loopback port the OS picks, in <mode>
-#                          -- `ready`, `methodnotfound`, `hang`, `fail` or
-#                          `rpcerror` (mcphttp.ts says what each answers) -- and
+#                          -- `ready`, `methodnotfound`, `hang`, `fail`,
+#                          `rpcerror`, or one of the p5-mcp-discover modes
+#                          `modern`, `notimpl`, `old2024`, `malformed`,
+#                          `hostile` (mcphttp.ts says what each answers) -- and
 #                          writes its port where `@MCPPORT@` is, so a
 #                          `homefile .fx/mcp.json` naming
 #                          `http://127.0.0.1:@MCPPORT@/mcp` reaches it; each
@@ -515,7 +517,7 @@ main() {
         [[ ${line#usage } == off || -f $scenarios/${line#usage } ]] || { echo "usage takes a file in $scenarios or off, not ${line#usage }" >&2; exit 2; }
         [[ -n $usage ]] || usage=${line#usage } ;;
       mcphttp\ *)
-        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not ${line#mcphttp }" >&2; exit 2 ;; esac
+        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror|modern|notimpl|old2024|malformed|hostile) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed or hostile, not ${line#mcphttp }" >&2; exit 2 ;; esac
         [[ -n $mcpmode ]] || mcpmode=${line#mcphttp } ;;
       resize\ *)
         [[ ${line#resize } =~ ^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$ ]] || { echo "resize takes <rows>x<cols>, not ${line#resize }" >&2; exit 2; } ;;

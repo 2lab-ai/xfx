@@ -9,19 +9,27 @@
 //! - **stdio** (`vercel-labs/fx@c1db9191 src/core/mcp/stdio_dispatcher.zig`):
 //!   a child in a process group of its own, newline-delimited JSON on its
 //!   standard streams, one reader thread routing each answer to the caller
-//!   waiting on its id. A request the server sends back is answered -- `ping`
-//!   with an empty result, everything else with `Method not found` -- so a
-//!   server that asks never hangs on xfx. No write waits past its deadline,
+//!   waiting on its id. A request a 2025 server sends back is answered --
+//!   `ping` with an empty result, everything else with `Method not found` --
+//!   so a server that asks never hangs on xfx; a 2026 server sends none, and
+//!   one that does is not answered. No write waits past its deadline,
 //!   and none holds a lock while it waits, so a server that stops reading
 //!   its input holds up neither a call nor its own stop. Stopped by its own
 //!   group, never by name: the end of standard input first, then `SIGTERM`,
 //!   then `SIGKILL`.
 //! - **streamable HTTP** without OAuth (`legacy_streamable_http.zig`): one
-//!   `POST` per message, answered as JSON or as an event stream, the session
-//!   id the server hands out sent back on every later request. It runs on a
+//!   `POST` per message, answered as JSON or as an event stream; a 2025
+//!   server's session id sent back on every later request, and a 2026
+//!   server's requests carrying their version and method in headers instead
+//!   (`src/mcp/protocol/http_headers.zig@481104fd`). It runs on a
 //!   thread of its own with a runtime of its own, because the caller may be
 //!   inside the TUI worker's runtime, where blocking on another future would
 //!   panic.
+//!
+//! Both put `_meta` first in every request -- its progress token, which is
+//! the id, and on a 2026 server the era's fields ([`super::era::meta`]) --
+//! and both carry the detection messages ([`Transport::detect`]), whose
+//! replies the era reads as they came.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
@@ -34,6 +42,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+use super::era::{self, Meta};
 use super::McpError;
 use crate::gateway::CancelToken;
 
@@ -64,6 +73,7 @@ const FRAME_WRITE_TIMEOUT: Duration = Duration::from_secs(1);
 /// (`cancellation_write_timeout_ms`, `stdio_dispatcher.zig:18`).
 const CANCEL_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// Who waits on which id, given the whole answer frame.
 type Pending = Arc<Mutex<HashMap<u64, mpsc::Sender<Result<Value, McpError>>>>>;
 
 /// A notification the server sent, for whoever is watching it.
@@ -98,6 +108,54 @@ pub trait Transport: Send + Sync {
     }
     /// Ends the connection and everything it started.
     fn close(&self);
+    /// Sends a detection message -- `server/discover` or `initialize` -- with
+    /// the `_meta` `meta` says, and returns the reply as it came: its HTTP
+    /// status (200 on stdio) and the answer, unread, since the era detection
+    /// reads it (`super::era`). A probe that times out is not cancelled on
+    /// the wire: fx leaves an abandoned probe to its own request timer
+    /// (`stdioDelivered`, `src/mcp/server.zig:853-878@481104fd`).
+    fn detect(
+        &self,
+        method: &str,
+        params: Value,
+        meta: &Meta,
+        timeout: Duration,
+        cancel: Option<&CancelToken>,
+    ) -> Result<Reply, McpError>;
+    /// The era every request from now on is sent in: its `_meta` and, over
+    /// HTTP, its headers.
+    fn set_era(&self, era: WireEra);
+}
+
+/// A detection message's reply, as it came ([`Transport::detect`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reply {
+    /// The HTTP status; 200 on stdio.
+    pub status: u16,
+    /// The JSON-RPC answer, when one came back: on stdio the frame naming the
+    /// request, or an error without an id while a probe waits; over HTTP the
+    /// body's answer to this POST.
+    pub frame: Option<Value>,
+}
+
+/// The era a connection's requests are sent in, once detection has found it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WireEra {
+    /// Detection is under way: requests carry only their progress token.
+    Detecting,
+    /// A 2025 server, at the version `initialize` agreed on.
+    Legacy(&'static str),
+    /// A 2026 server, at the version detection chose.
+    Modern(&'static str),
+}
+
+impl WireEra {
+    fn meta(self) -> Meta {
+        match self {
+            Self::Modern(version) => Meta::Modern(version),
+            Self::Detecting | Self::Legacy(_) => Meta::Legacy,
+        }
+    }
 }
 
 /// How a server's process ended: its exit code, or the signal that ended it
@@ -129,6 +187,21 @@ fn notification_frame(method: &str, params: Option<Value>) -> Value {
     Value::Object(frame)
 }
 
+/// The `result` of an answer in `era`: a 2026 result must be complete
+/// (`ResultKind`, `wire.zig:52-60@481104fd`) -- one that asks for input xfx
+/// cannot give, or of a kind it does not know, is not an answer.
+fn answer_in(frame: Value, era: WireEra) -> Result<Value, McpError> {
+    let result = answer(frame)?;
+    if let (WireEra::Modern(_), Value::Object(fields)) = (era, &result) {
+        match era::result_kind(fields) {
+            era::ResultKind::Complete => {}
+            era::ResultKind::InputRequired => return Err(McpError::Named("McpInputRequired")),
+            era::ResultKind::Unrecognized => return Err(McpError::Named("McpInvalidResult")),
+        }
+    }
+    Ok(result)
+}
+
 /// The `result` of an answer, or the server's error.
 pub fn answer(frame: Value) -> Result<Value, McpError> {
     let Value::Object(mut frame) = frame else {
@@ -145,15 +218,6 @@ pub fn answer(frame: Value) -> Result<Value, McpError> {
         });
     }
     frame.remove("result").ok_or(McpError::Named("McpNoResult"))
-}
-
-/// Waits for an answer on `receiver` until `timeout`, or until `cancel`.
-fn wait(
-    receiver: &mpsc::Receiver<Result<Value, McpError>>,
-    timeout: Duration,
-    cancel: Option<&CancelToken>,
-) -> Result<Value, McpError> {
-    wait_until(receiver, Instant::now() + timeout, cancel)
 }
 
 /// Waits for an answer on `receiver` until `deadline`, or until `cancel`.
@@ -191,12 +255,17 @@ pub struct StdioTransport {
     /// to collect it. So its id is still its group's.
     child: Arc<Mutex<Option<Child>>>,
     pending: Pending,
-    next_id: AtomicU64,
+    next_id: Arc<AtomicU64>,
     alive: Arc<AtomicBool>,
     stderr: Arc<Mutex<String>>,
     /// Set once the server's standard error reaches its end.
     stderr_closed: Arc<AtomicBool>,
     docker: Mutex<Option<super::docker::Cleanup>>,
+    /// The id of the `server/discover` under way, which an error without an
+    /// id answers.
+    probe: Arc<Mutex<Option<u64>>>,
+    /// The era requests are sent in; a 2026 server's requests go unanswered.
+    era: Arc<Mutex<WireEra>>,
 }
 
 /// The variables of xfx's own environment a stdio server is given, as the MCP
@@ -268,11 +337,15 @@ impl StdioTransport {
             stdin: Arc::new(Input::new(stdin)),
             child: Arc::new(Mutex::new(Some(child))),
             pending: Arc::new(Mutex::new(HashMap::new())),
-            next_id: AtomicU64::new(0),
+            // Ids from 1, as fx's request table issues them
+            // (`writes the detection messages`, `era.zig:912-930@481104fd`).
+            next_id: Arc::new(AtomicU64::new(1)),
             alive: Arc::new(AtomicBool::new(true)),
             stderr: Arc::new(Mutex::new(String::new())),
             stderr_closed: Arc::new(AtomicBool::new(false)),
             docker: Mutex::new(prepared.cleanup),
+            probe: Arc::new(Mutex::new(None)),
+            era: Arc::new(Mutex::new(WireEra::Detecting)),
         };
         if let Some(stderr_pipe) = stderr_pipe {
             let tail = Arc::clone(&transport.stderr);
@@ -291,6 +364,8 @@ impl StdioTransport {
                 stdin: Arc::clone(&transport.stdin),
                 child: Arc::clone(&transport.child),
                 notifications,
+                probe: Arc::clone(&transport.probe),
+                era: Arc::clone(&transport.era),
             };
             std::thread::Builder::new()
                 .name("xfx-mcp-stdio".into())
@@ -298,6 +373,13 @@ impl StdioTransport {
                 .map_err(|_| McpError::Named("McpSpawnFailed"))?;
         }
         Ok(transport)
+    }
+
+    /// Its request ids taken from `ids`, which the server's every connection
+    /// shares, as fx's one request table does.
+    pub fn with_ids(mut self, ids: Arc<AtomicU64>) -> Self {
+        self.next_id = ids;
+        self
     }
 
     /// Writes `frame` by `deadline`, ending the connection when the server
@@ -322,6 +404,42 @@ impl StdioTransport {
                 }
                 Unsent::Closed => McpError::Named("McpConnectionClosed"),
             })
+    }
+
+    /// Waits for request `id`'s answer frame by `deadline`; one the caller
+    /// stopped waiting for is forgotten, and -- when `cancel_on_wire` --
+    /// cancelled on the wire too, so the server can stop the work.
+    fn wait_for(
+        &self,
+        id: u64,
+        receiver: &mpsc::Receiver<Result<Value, McpError>>,
+        deadline: Instant,
+        cancel: Option<&CancelToken>,
+        cancel_on_wire: bool,
+    ) -> Result<Value, McpError> {
+        let result = wait_until(receiver, deadline, cancel);
+        if result.is_err() {
+            self.pending
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&id);
+            if cancel_on_wire
+                && matches!(
+                    result,
+                    Err(McpError::Named("Cancelled" | "McpRequestTimedOut"))
+                )
+            {
+                let _ = self.write(
+                    &notification_frame(
+                        "notifications/cancelled",
+                        Some(json!({"requestId": id, "reason": "cancelled"})),
+                    ),
+                    Instant::now() + CANCEL_WRITE_TIMEOUT,
+                    None,
+                );
+            }
+        }
+        result
     }
 }
 
@@ -612,6 +730,8 @@ struct Reader {
     stdin: Arc<Input>,
     child: Arc<Mutex<Option<Child>>>,
     notifications: Option<NotificationSink>,
+    probe: Arc<Mutex<Option<u64>>>,
+    era: Arc<Mutex<WireEra>>,
 }
 
 impl Reader {
@@ -653,6 +773,16 @@ impl Reader {
             .and_then(Value::as_str)
             .map(str::to_string);
         match (method, frame.get("id").cloned()) {
+            (Some(_), Some(_))
+                if matches!(
+                    *self.era.lock().unwrap_or_else(PoisonError::into_inner),
+                    WireEra::Modern(_)
+                ) =>
+            {
+                // A 2026 server sends no requests; one that does is dropped
+                // (`.request`, `src/mcp/server.zig:1152-1153@481104fd`; a
+                // response to it is refused, `stdio_conn.zig:196`).
+            }
             (Some(method), Some(id)) => {
                 // A request from the server: answered, never left hanging.
                 let reply = if method == "ping" {
@@ -674,9 +804,21 @@ impl Reader {
                     sink(&method);
                 }
             }
-            (None, Some(id)) => {
-                let Some(id) = id.as_u64() else {
-                    return;
+            (None, id) => {
+                // An id the client could have issued: an integer, or plain
+                // decimal digits in a string (`ownId`, `wire.zig:300-310
+                // @481104fd`). An error without one, while a probe waits,
+                // answers the probe: a legacy server (`src/mcp/server.zig:
+                // 1159-1160`).
+                let id = match era::own_id(id.as_ref()) {
+                    Ok(Some(id)) => id,
+                    Ok(None) if frame.get("error").is_some() => {
+                        match *self.probe.lock().unwrap_or_else(PoisonError::into_inner) {
+                            Some(probe) => probe,
+                            None => return,
+                        }
+                    }
+                    _ => return,
                 };
                 let waiter = self
                     .pending
@@ -684,10 +826,9 @@ impl Reader {
                     .unwrap_or_else(PoisonError::into_inner)
                     .remove(&id);
                 if let Some(waiter) = waiter {
-                    let _ = waiter.send(answer(frame));
+                    let _ = waiter.send(Ok(frame));
                 }
             }
-            (None, None) => {}
         }
     }
 
@@ -712,7 +853,8 @@ impl Transport for StdioTransport {
         // stops reading cannot hold a call past it.
         let deadline = Instant::now() + timeout;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let params = with_progress_token(method, params, id);
+        let era = *self.era.lock().unwrap_or_else(PoisonError::into_inner);
+        let params = with_meta(params, &era.meta(), id);
         let (sender, receiver) = mpsc::channel();
         self.pending
             .lock()
@@ -725,29 +867,55 @@ impl Transport for StdioTransport {
                 .remove(&id);
             return Err(err);
         }
-        let result = wait_until(&receiver, deadline, cancel);
-        if result.is_err() {
-            self.pending
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(&id);
-            // A call the caller stopped waiting for is cancelled on the wire
-            // too, so the server can stop the work.
-            if matches!(
-                result,
-                Err(McpError::Named("Cancelled" | "McpRequestTimedOut"))
-            ) {
-                let _ = self.write(
-                    &notification_frame(
-                        "notifications/cancelled",
-                        Some(json!({"requestId": id, "reason": "cancelled"})),
-                    ),
-                    Instant::now() + CANCEL_WRITE_TIMEOUT,
-                    None,
-                );
-            }
+        let result = self.wait_for(id, &receiver, deadline, cancel, true);
+        result.and_then(|frame| answer_in(frame, era))
+    }
+
+    fn detect(
+        &self,
+        method: &str,
+        params: Value,
+        meta: &Meta,
+        timeout: Duration,
+        cancel: Option<&CancelToken>,
+    ) -> Result<Reply, McpError> {
+        if !self.alive() {
+            return Err(McpError::Named("McpConnectionClosed"));
         }
-        result
+        let deadline = Instant::now() + timeout;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let params = with_meta(params, meta, id);
+        let probing = method == "server/discover";
+        let (sender, receiver) = mpsc::channel();
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id, sender);
+        if probing {
+            *self.probe.lock().unwrap_or_else(PoisonError::into_inner) = Some(id);
+        }
+        let written = self.write(&request_frame(id, method, params), deadline, cancel);
+        let result = match written {
+            Ok(()) => self.wait_for(id, &receiver, deadline, cancel, !probing),
+            Err(err) => {
+                self.pending
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(&id);
+                Err(err)
+            }
+        };
+        if probing {
+            *self.probe.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        }
+        result.map(|frame| Reply {
+            status: 200,
+            frame: Some(frame),
+        })
+    }
+
+    fn set_era(&self, era: WireEra) {
+        *self.era.lock().unwrap_or_else(PoisonError::into_inner) = era;
     }
 
     fn notify(
@@ -951,21 +1119,19 @@ impl Stopping for Server<'_> {
     }
 }
 
-/// `tools/call` carries a progress token, the request's own id, first in its
-/// params, as upstream's does (`{"_meta":{"progressToken":2},"name":...}`;
-/// the legacy fixture refuses a call without one).
-fn with_progress_token(method: &str, params: Value, id: u64) -> Value {
-    if method != "tools/call" {
-        return params;
-    }
-    let Value::Object(params) = params else {
-        return params;
-    };
+/// `params` with `_meta` first -- the progress token, which is the request's
+/// id, and for a 2026 request the version, the client's capabilities and who
+/// it is (`meta`, `era.zig:459-474@481104fd`) -- on every request, as fx's
+/// writers put it (`wire.Writer.request`). A caller's own `_meta` is not
+/// kept.
+fn with_meta(params: Value, meta: &Meta, id: u64) -> Value {
     let mut ordered = Map::new();
-    ordered.insert("_meta".into(), json!({"progressToken": id}));
-    for (key, value) in params {
-        if key != "_meta" {
-            ordered.insert(key, value);
+    ordered.insert("_meta".into(), era::meta(meta, id));
+    if let Value::Object(params) = params {
+        for (key, value) in params {
+            if key != "_meta" {
+                ordered.insert(key, value);
+            }
         }
     }
     Value::Object(ordered)
@@ -980,22 +1146,50 @@ struct HttpJob {
     body: Value,
     /// The id the answer is for, or `None` for a notification.
     id: Option<u64>,
-    reply: mpsc::Sender<Result<Value, McpError>>,
+    /// What kind of message it is, which decides its headers and how its
+    /// reply is read.
+    kind: JobKind,
+    /// When its caller stops waiting: the exchange is dropped then, so a
+    /// server that holds one POST open -- a probe it never answers -- cannot
+    /// hold up the next.
+    deadline: Instant,
+    reply: mpsc::Sender<Result<HttpReply, McpError>>,
 }
+
+/// What an HTTP message is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum JobKind {
+    /// A request or notification in the connection's era.
+    Operation,
+    /// A detection message: `server/discover` with the 2026 headers of its
+    /// version, or `initialize` with none, its reply returned as it came.
+    Detect(Meta),
+}
+
+/// What the HTTP thread hands back: a request's answer frame (`Null` for a
+/// notification), or a detection message's reply.
+enum HttpReply {
+    Frame(Value),
+    Reply(Reply),
+}
+
+/// How long an HTTP notification waits for its POST to be taken.
+const NOTIFY_WAIT: Duration = Duration::from_secs(10);
 
 /// A server reached over streamable HTTP.
 pub struct HttpTransport {
     jobs: Mutex<Option<mpsc::Sender<HttpJob>>>,
-    next_id: AtomicU64,
+    next_id: Arc<AtomicU64>,
     alive: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<String>>>,
+    era: Arc<Mutex<WireEra>>,
 }
 
 /// What every request carries besides its body.
 struct HttpTarget {
     url: String,
     headers: Vec<(String, String)>,
-    protocol_version: Arc<Mutex<Option<String>>>,
+    era: Arc<Mutex<WireEra>>,
     session_id: Arc<Mutex<Option<String>>>,
 }
 
@@ -1005,10 +1199,11 @@ impl HttpTransport {
         let (jobs, receiver) = mpsc::channel::<HttpJob>();
         let alive = Arc::new(AtomicBool::new(true));
         let failure = Arc::new(Mutex::new(None));
+        let era = Arc::new(Mutex::new(WireEra::Detecting));
         let target = HttpTarget {
             url: url.to_string(),
             headers: headers.to_vec(),
-            protocol_version: Arc::new(Mutex::new(None)),
+            era: Arc::clone(&era),
             session_id: Arc::new(Mutex::new(None)),
         };
         let thread_alive = Arc::clone(&alive);
@@ -1018,10 +1213,19 @@ impl HttpTransport {
             .map_err(|_| McpError::Named("McpSpawnFailed"))?;
         Ok(Self {
             jobs: Mutex::new(Some(jobs)),
-            next_id: AtomicU64::new(0),
+            // Ids from 1, as fx's request table issues them.
+            next_id: Arc::new(AtomicU64::new(1)),
             alive,
             failure,
+            era,
         })
+    }
+
+    /// Its request ids taken from `ids`, which the server's every connection
+    /// shares, as fx's one request table does.
+    pub fn with_ids(mut self, ids: Arc<AtomicU64>) -> Self {
+        self.next_id = ids;
+        self
     }
 
     fn send(&self, job: HttpJob) -> Result<(), McpError> {
@@ -1031,6 +1235,42 @@ impl HttpTransport {
         };
         jobs.send(job)
             .map_err(|_| McpError::Named("McpConnectionClosed"))
+    }
+
+    /// Keeps what a failure says about the connection, for its diagnostic.
+    fn note<T>(&self, result: &Result<T, McpError>) {
+        if let Err(McpError::Named(name)) = result {
+            if matches!(*name, "McpAuthenticationRequired" | "McpSessionExpired") {
+                *self.failure.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some((*name).to_string());
+            }
+        }
+    }
+}
+
+/// Waits for the HTTP thread's reply on `receiver` until `timeout`, or until
+/// `cancel`.
+fn wait_http(
+    receiver: &mpsc::Receiver<Result<HttpReply, McpError>>,
+    timeout: Duration,
+    cancel: Option<&CancelToken>,
+) -> Result<HttpReply, McpError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if cancel.is_some_and(CancelToken::is_cancelled) {
+            return Err(McpError::Named("Cancelled"));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(McpError::Named("McpRequestTimedOut"));
+        }
+        match receiver.recv_timeout(remaining.min(CANCEL_POLL)) {
+            Ok(answer) => return answer,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(McpError::Named("McpConnectionClosed"))
+            }
+        }
     }
 }
 
@@ -1043,21 +1283,52 @@ impl Transport for HttpTransport {
         cancel: Option<&CancelToken>,
     ) -> Result<Value, McpError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let params = with_progress_token(method, params, id);
+        let era = *self.era.lock().unwrap_or_else(PoisonError::into_inner);
+        let params = with_meta(params, &era.meta(), id);
         let (reply, receiver) = mpsc::channel();
         self.send(HttpJob {
             body: request_frame(id, method, params),
             id: Some(id),
+            kind: JobKind::Operation,
+            deadline: Instant::now() + timeout,
             reply,
         })?;
-        let result = wait(&receiver, timeout, cancel);
-        if let Err(McpError::Named(name)) = &result {
-            if matches!(*name, "McpAuthenticationRequired" | "McpSessionExpired") {
-                *self.failure.lock().unwrap_or_else(PoisonError::into_inner) =
-                    Some((*name).to_string());
-            }
-        }
+        let result = wait_http(&receiver, timeout, cancel).and_then(|reply| match reply {
+            HttpReply::Frame(frame) => answer_in(frame, era),
+            HttpReply::Reply(_) => Err(McpError::Named("McpNoResult")),
+        });
+        self.note(&result);
         result
+    }
+
+    fn detect(
+        &self,
+        method: &str,
+        params: Value,
+        meta: &Meta,
+        timeout: Duration,
+        cancel: Option<&CancelToken>,
+    ) -> Result<Reply, McpError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let params = with_meta(params, meta, id);
+        let (reply, receiver) = mpsc::channel();
+        self.send(HttpJob {
+            body: request_frame(id, method, params),
+            id: Some(id),
+            kind: JobKind::Detect(meta.clone()),
+            deadline: Instant::now() + timeout,
+            reply,
+        })?;
+        let result = wait_http(&receiver, timeout, cancel).and_then(|reply| match reply {
+            HttpReply::Reply(reply) => Ok(reply),
+            HttpReply::Frame(_) => Err(McpError::Named("McpNoResult")),
+        });
+        self.note(&result);
+        result
+    }
+
+    fn set_era(&self, era: WireEra) {
+        *self.era.lock().unwrap_or_else(PoisonError::into_inner) = era;
     }
 
     fn notify(
@@ -1070,9 +1341,11 @@ impl Transport for HttpTransport {
         self.send(HttpJob {
             body: notification_frame(method, params.or_else(|| Some(json!({})))),
             id: None,
+            kind: JobKind::Operation,
+            deadline: Instant::now() + NOTIFY_WAIT,
             reply,
         })?;
-        wait(&receiver, Duration::from_secs(10), cancel).map(|_| ())
+        wait_http(&receiver, NOTIFY_WAIT, cancel).map(|_| ())
     }
 
     fn alive(&self) -> bool {
@@ -1121,7 +1394,12 @@ fn http_loop(target: HttpTarget, jobs: mpsc::Receiver<HttpJob>, alive: Arc<Atomi
         return;
     };
     while let Ok(job) = jobs.recv() {
-        let answer = runtime.block_on(post(&client, &target, &job));
+        let left = job.deadline.saturating_duration_since(Instant::now());
+        let answer = runtime.block_on(async {
+            tokio::time::timeout(left, post(&client, &target, &job))
+                .await
+                .unwrap_or(Err(McpError::Named("McpRequestTimedOut")))
+        });
         let _ = job.reply.send(answer);
     }
     // Upstream ends a session it opened with a `DELETE` (`deleteCore`); a
@@ -1146,38 +1424,78 @@ fn http_loop(target: HttpTarget, jobs: mpsc::Receiver<HttpJob>, alive: Arc<Atomi
     alive.store(false, Ordering::Release);
 }
 
+/// The `Accept` every POST carries (`post_accept`,
+/// `src/mcp/protocol/http_headers.zig:255@481104fd`).
+const POST_ACCEPT: &str = "application/json, text/event-stream";
+
+/// A header value as fx sends it (`encodeValue`, `http_headers.zig:36-52
+/// @481104fd`): as it is, unless it has a byte outside `0x20..=0x7e`, a
+/// leading or trailing space, or already looks wrapped -- then
+/// `=?base64?<base64>?=`.
+fn header_value(value: &str) -> String {
+    let wrapped = value.starts_with("=?base64?") && value.ends_with("?=");
+    let printable = value.bytes().all(|b| (0x20..=0x7e).contains(&b));
+    if printable && !value.starts_with(' ') && !value.ends_with(' ') && !wrapped {
+        return value.to_string();
+    }
+    format!("=?base64?{}?=", crate::image::base64(value.as_bytes()))
+}
+
 /// One message, sent and answered (`runBounded`, `legacy_streamable_http.zig:
-/// 640-760`, and `appendHeaders`, `:870-905`).
+/// 640-760`, and `appendHeaders`, `:870-905`), with the headers of its era:
+/// a 2026 POST carries `Accept`, `MCP-Protocol-Version`, `Mcp-Method` and,
+/// for a tool call, `Mcp-Name`, and no session (`requestHeaders`,
+/// `http_headers.zig:289-307@481104fd`); `initialize` carries `Accept` only;
+/// a 2025 session's POST carries `Accept`, the agreed version -- whichever it
+/// is -- and the session id (`sessionHeaders`, `:257-273`). The configured
+/// headers follow.
 async fn post(
     client: &reqwest::Client,
     target: &HttpTarget,
     job: &HttpJob,
-) -> Result<Value, McpError> {
+) -> Result<HttpReply, McpError> {
+    let era = *target.era.lock().unwrap_or_else(PoisonError::into_inner);
+    let method = job
+        .body
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let modern = match &job.kind {
+        JobKind::Detect(Meta::Modern(version)) => Some(*version),
+        JobKind::Detect(Meta::Legacy) => None,
+        JobKind::Operation => match era {
+            WireEra::Modern(version) => Some(version),
+            WireEra::Detecting | WireEra::Legacy(_) => None,
+        },
+    };
+    let detecting = matches!(job.kind, JobKind::Detect(_));
     let mut request = client
         .post(&target.url)
         .header("Content-Type", "application/json")
-        .header(
-            "Accept",
-            if job.id.is_some() {
-                "application/json, text/event-stream"
-            } else {
-                "text/event-stream"
-            },
-        );
-    let version = target
-        .protocol_version
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    // `2025-03-26` sends no version header (`sendsProtocolHeader`, `:27-29`).
-    if let Some(version) = version.filter(|version| version != "2025-03-26") {
-        request = request.header("MCP-Protocol-Version", version);
+        .header("Accept", POST_ACCEPT);
+    let session = if modern.is_some() || detecting {
+        None
+    } else {
+        target
+            .session_id
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    };
+    if let Some(version) = modern {
+        request = request
+            .header("MCP-Protocol-Version", version)
+            .header("Mcp-Method", method);
+        if method == "tools/call" {
+            if let Some(name) = job.body.pointer("/params/name").and_then(Value::as_str) {
+                request = request.header("Mcp-Name", header_value(name));
+            }
+        }
+    } else if let WireEra::Legacy(version) = era {
+        if !detecting {
+            request = request.header("MCP-Protocol-Version", version);
+        }
     }
-    let session = target
-        .session_id
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
     if let Some(session) = &session {
         request = request.header("MCP-Session-Id", session);
     }
@@ -1190,9 +1508,6 @@ async fn post(
         .await
         .map_err(|err| McpError::Named(send_failure(&err)))?;
     let status = response.status();
-    if status.is_redirection() {
-        return Err(McpError::Named("RedirectNotAllowed"));
-    }
     if status == reqwest::StatusCode::UNAUTHORIZED
         || (status == reqwest::StatusCode::FORBIDDEN
             && response
@@ -1201,9 +1516,17 @@ async fn post(
     {
         return Err(McpError::Named("McpAuthenticationRequired"));
     }
+    if detecting {
+        return detect_reply(target, job, method, response)
+            .await
+            .map(HttpReply::Reply);
+    }
+    if status.is_redirection() {
+        return Err(McpError::Named("RedirectNotAllowed"));
+    }
     let Some(id) = job.id else {
         return if status == reqwest::StatusCode::ACCEPTED || status.is_success() {
-            Ok(Value::Null)
+            Ok(HttpReply::Frame(Value::Null))
         } else {
             Err(McpError::Named("UnexpectedHttpStatus"))
         };
@@ -1214,6 +1537,103 @@ async fn post(
     if status != reqwest::StatusCode::OK {
         return Err(McpError::Named("UnexpectedHttpStatus"));
     }
+    if modern.is_none() {
+        keep_session(target, &response)?;
+    }
+    let media = media_type(&response).ok_or(McpError::Named("MissingContentType"))?;
+    let body = read_bounded(response).await?;
+    let frame = match media.as_str() {
+        "application/json" => {
+            serde_json::from_slice::<Value>(&body).map_err(|_| McpError::Named("McpInvalidJson"))?
+        }
+        "text/event-stream" => sse_answer(&body, id)?,
+        _ => return Err(McpError::Named("UnsupportedContentType")),
+    };
+    if frame.get("id").and_then(Value::as_u64) != Some(id) {
+        return Err(McpError::Named("McpResponseIdMismatch"));
+    }
+    Ok(HttpReply::Frame(frame))
+}
+
+/// A detection message's reply, as fx's HTTP client reads it (`run`,
+/// `src/mcp/io/http.zig:417-487@481104fd`): a JSON body that is one valid
+/// JSON-RPC message is the answer, whatever the status, unless it is a
+/// result under an error status; any other body -- another type, JSON that
+/// is no such message, a redirect's -- is a status without an answer (fx's
+/// `http_failure`). An event stream's answer is the answer. A 202, a stream
+/// that ends without the answer, and an answer to another id are a stream
+/// that broke (`McpNoResult`), which fx sends again. `initialize`'s answer
+/// may bring the session id.
+async fn detect_reply(
+    target: &HttpTarget,
+    job: &HttpJob,
+    method: &str,
+    response: reqwest::Response,
+) -> Result<Reply, McpError> {
+    let status = response.status();
+    if method == "initialize" {
+        keep_session(target, &response)?;
+    }
+    if status == reqwest::StatusCode::ACCEPTED {
+        return Err(McpError::Named("McpNoResult"));
+    }
+    let id = job.id.unwrap_or_default();
+    let media = media_type(&response);
+    let none = Reply {
+        status: status.as_u16(),
+        frame: None,
+    };
+    match media.as_deref() {
+        Some("text/event-stream") => {
+            let body = read_bounded(response).await?;
+            let frame = sse_answer(&body, id).map_err(|_| McpError::Named("McpNoResult"))?;
+            Ok(Reply {
+                status: status.as_u16(),
+                frame: Some(frame),
+            })
+        }
+        Some("application/json") => {
+            let body = read_bounded(response).await?;
+            let Ok(frame) = serde_json::from_slice::<Value>(&body) else {
+                return Ok(none);
+            };
+            let Ok(response) = era::decode_response(&frame) else {
+                return Ok(none);
+            };
+            if !status.is_success() && matches!(response.body, era::Body::Result(_)) {
+                return Ok(none);
+            }
+            if response.id.is_some_and(|answered| answered != id) {
+                return Err(McpError::Named("McpNoResult"));
+            }
+            Ok(Reply {
+                status: status.as_u16(),
+                frame: Some(frame),
+            })
+        }
+        _ => Ok(none),
+    }
+}
+
+/// A response's media type, lower case, without its parameters.
+fn media_type(response: &reqwest::Response) -> Option<String> {
+    response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        })
+}
+
+/// Keeps the session id a 2025 server hands out, when it is one fx would
+/// echo (`validSessionId`, `http_headers.zig:275-281@481104fd`).
+fn keep_session(target: &HttpTarget, response: &reqwest::Response) -> Result<(), McpError> {
     if let Some(value) = response
         .headers()
         .get("mcp-session-id")
@@ -1231,44 +1651,7 @@ async fn post(
             return Err(McpError::Named("InvalidMcpSessionId"));
         }
     }
-    let media = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_ascii_lowercase()
-        })
-        .ok_or(McpError::Named("MissingContentType"))?;
-    let body = read_bounded(response).await?;
-    let frame = match media.as_str() {
-        "application/json" => {
-            serde_json::from_slice::<Value>(&body).map_err(|_| McpError::Named("McpInvalidJson"))?
-        }
-        "text/event-stream" => sse_answer(&body, id)?,
-        _ => return Err(McpError::Named("UnsupportedContentType")),
-    };
-    if frame.get("id").and_then(Value::as_u64) != Some(id) {
-        return Err(McpError::Named("McpResponseIdMismatch"));
-    }
-    // The negotiated version, once the initialize answer names it, goes on
-    // every later request.
-    if job.body.get("method").and_then(Value::as_str) == Some("initialize") {
-        if let Some(version) = frame
-            .pointer("/result/protocolVersion")
-            .and_then(Value::as_str)
-        {
-            *target
-                .protocol_version
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(version.to_string());
-        }
-    }
-    answer(frame)
+    Ok(())
 }
 
 /// Why a request never got an answer, by the name upstream's HTTP client
@@ -1363,7 +1746,7 @@ mod tests {
         }
         crate::test_net::assert_no_proxy_is_used(
             "mcp::transport::tests::an_http_server_on_loopback_is_asked_with_no_proxy_between",
-            crate::test_net::json_answer(r#"{"jsonrpc":"2.0","id":0,"result":{"tools":[]}}"#),
+            crate::test_net::json_answer(r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#),
         );
     }
 
@@ -1380,17 +1763,51 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_call_leads_with_its_progress_token() {
-        let params = with_progress_token(
-            "tools/call",
-            json!({"name": "echo", "arguments": {"text": "hi"}}),
+    fn every_request_leads_with_its_progress_token_and_a_2026_one_with_its_era() {
+        // `_meta` first, its progress token the id, on every request
+        // (`meta`, `era.zig:459-474@481104fd`); a caller's own is not kept.
+        let params = with_meta(
+            json!({"_meta": {"x": 1}, "name": "echo", "arguments": {"text": "hi"}}),
+            &Meta::Legacy,
             2,
         );
         assert_eq!(
             params.to_string(),
             r#"{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}"#
         );
-        assert_eq!(with_progress_token("tools/list", json!({}), 2), json!({}));
+        assert_eq!(
+            with_meta(json!({}), &Meta::Legacy, 3).to_string(),
+            r#"{"_meta":{"progressToken":3}}"#
+        );
+        assert_eq!(
+            with_meta(json!({"cursor": "c"}), &Meta::Modern("2026-07-28"), 4).to_string(),
+            format!(
+                "{{\"_meta\":{{\"progressToken\":4,\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\
+                 \"io.modelcontextprotocol/clientCapabilities\":{{}},\"io.modelcontextprotocol/clientInfo\":\
+                 {{\"name\":\"xfx\",\"version\":\"{}\"}}}},\"cursor\":\"c\"}}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
+
+    #[test]
+    fn a_header_value_goes_out_as_it_is_or_base64_wrapped_as_fxs_does() {
+        // `encodeValue`, `http_headers.zig:36-52@481104fd`.
+        assert_eq!(header_value("echo"), "echo");
+        assert_eq!(header_value("a b"), "a b");
+        assert_eq!(header_value(" echo"), "=?base64?IGVjaG8=?=");
+        assert_eq!(
+            header_value("e\u{301}"),
+            format!("=?base64?{}?=", crate::image::base64("e\u{301}".as_bytes()))
+        );
+        assert_eq!(
+            header_value("x\r\nInjected: 1"),
+            format!("=?base64?{}?=", crate::image::base64(b"x\r\nInjected: 1"))
+        );
+        assert_eq!(
+            header_value("=?base64?eA==?="),
+            "=?base64?PT9iYXNlNjQ/ZUE9PT89?="
+        );
     }
 
     #[test]

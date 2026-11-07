@@ -1,0 +1,20 @@
+# p5 mcp discover: a 2026-07-28 server without discovery (mcphttp.ts `notimpl`):
+# `server/discover` gets 404 with -32601, which fx v0.0.16 reads as a modern server served
+# at the probe's version (`classifyDiscoverHttp`, era.zig:411-415@481104fd). One turn
+# calls its tool; `gwlog` copies the server log.
+mcphttp notimpl
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+type use the fixture echo tool
+key Enter
+wait 12
+snap turn
+gwlog

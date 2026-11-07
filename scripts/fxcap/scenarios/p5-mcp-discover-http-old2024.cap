@@ -1,0 +1,13 @@
+# p5 mcp discover: an HTTP server that only speaks 2024-11-05 (mcphttp.ts `old2024`):
+# discover 404, then `initialize` answered with 2024-11-05 -- unsupported_version
+# (src/core/mcp_host/runtime.zig:2296@481104fd), retrying.
+mcphttp old2024
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+gwlog
