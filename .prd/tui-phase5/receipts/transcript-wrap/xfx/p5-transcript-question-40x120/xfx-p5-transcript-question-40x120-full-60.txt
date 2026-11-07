@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-52b150c [debug] · Run /help for commands
+
+  2026-11-06 23:46:49.097 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort:
+  auto
+  tools: 13 advertised (list_files, glob_files, grep_files,
+  read_file, write_file, edit_file, create_folder, terminal,
+  +5 more)
+  mcp: none
+
+  2026-11-06 23:46:53.186 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-06 23:46:56.370 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 203ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-06 23:46:53.121 UTC · Prompt
+┃ pick a storage engine
+
+  1) Which of the two storage engines should the nightly imp
+ort job write its staging tables into before it runs the
+     checks?
+     Postgres with the write-ahead log kept on the fast loca
+l disk
+
+  2026-11-06 23:46:56.406 UTC · Response
+  Got it.
+
+  2026-11-06 23:46:56.406 UTC · Usage
+  3s (↑6 ↓80)
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

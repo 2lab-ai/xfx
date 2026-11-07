@@ -1,0 +1,40 @@
+
+  2026-11-06 21:40:06.990 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  system prompt: ready · 6249 bytes
+  tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+  more)
+  skills: loading
+  mcp: none
+
+  2026-11-06 21:40:12.088 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 12ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-06 21:40:12.109 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 11ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-06 21:40:12.027 UTC · Prompt
+┃ read and wait
+
+  2026-11-06 21:40:12.088 UTC · Response
+  Reading.
+
+  2026-11-06 21:40:12.088 UTC · Tool
+● 6 tool calls · 5 read · 1 command
+├ Read a.txt
+│  1     a line 1 of the a file
+│  2     a line 2 of the a file
+│  3     a line 3 of the a file
+│  4     a line 4 of the a file
+│  5     a line 5 of the a file
+│  6     a line 6 of the a file
+│  7     a line 7 of the a file
+│  8     a line 8 of the a file
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

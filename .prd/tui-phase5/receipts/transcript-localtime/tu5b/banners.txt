@@ -1,0 +1,11 @@
+Row 1 of every banner-bearing snap, counted, per capture run (15 runs each):
+
+merge base, xfx built at f103c2a9:
+  39 x𝒇x v0.1.0-f103c2a [debug] · Run /help for commands
+
+merged head, xfx built after commit c84392a3:
+  39 x𝒇x v0.1.0-c84392a [debug] · Run /help for commands
+
+embedded revisions (strings <bin> | grep):
+f103c2a9232d
+c84392a3e055

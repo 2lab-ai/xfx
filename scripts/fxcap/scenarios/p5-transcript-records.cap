@@ -1,0 +1,38 @@
+# Phase 5 T-U2 review round (gpt6-U2): the Ctrl-O reader inside the
+# full-detail records when the width changes. p5-transcript-anchor's turn,
+# left to finish, so the record is still; Ctrl-O, to the top, Down once: row
+# 1 is the `* session:` record's first row on both binaries. Then the window
+# narrows to 80 columns and widens back. fx's own reading of a width change
+# (`prepare_projection` queues the bookmark its last selection refreshed,
+# and a refreshed bookmark skips the records, transcript_presentation.zig:
+# 115-122,254-275@481104fd) is the oracle, not "the offset is kept".
+# fx's `shell`/`run` is xfx's `terminal`/`exec`; TZ=UTC on both (T-U5).
+fx: gateway p5-transcript-anchor-turns.json
+xfx: gateway p5-transcript-anchor-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
+work p5-transcript-ws
+wait 4
+snap start
+type read and wait
+wait 1
+key Enter
+wait 14
+key C-o
+wait 1.5
+key PPage PPage PPage PPage
+wait 1
+key Down
+wait 1
+snap full-records
+resize 40x80
+wait 1.5
+snap full-records-80
+resize 40x120
+wait 1.5
+snap full-records-120
+key C-o
+wait 1
+gwlog

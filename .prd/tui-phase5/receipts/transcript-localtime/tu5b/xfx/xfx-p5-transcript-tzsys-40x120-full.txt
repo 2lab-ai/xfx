@@ -1,0 +1,40 @@
+* network: provider: gateway · model: fake/model-a · 2ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:21:10.901 KST · Notice
+* network: provider: gateway · model: fake/model-a · 126ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:21:10.665 KST · Prompt
+┃ read it
+
+  2026-11-07 09:21:10.773 KST · Response
+  Reading.
+
+  2026-11-07 09:21:10.773 KST · Tool
+● 1 tool call · 1 read
+└ Read a.txt
+│  1     a line 1 of the a file
+│  2     a line 2 of the a file
+│  3     a line 3 of the a file
+│  4     a line 4 of the a file
+│  5     a line 5 of the a file
+│  6     a line 6 of the a file
+│  7     a line 7 of the a file
+│  8     a line 8 of the a file
+│  9     a line 9 of the a file
+│  10    a line 10 of the a file
+│  11    a line 11 of the a file
+│  12    a line 12 of the a file
+
+  2026-11-07 09:21:10.946 KST · Response
+  Read it.
+
+  2026-11-07 09:21:10.946 KST · Usage
+  0s (↑2 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

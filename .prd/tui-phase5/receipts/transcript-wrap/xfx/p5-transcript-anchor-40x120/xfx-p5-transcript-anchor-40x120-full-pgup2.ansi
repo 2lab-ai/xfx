@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-52b150c [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-11-06 23:45:22.701 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;5;250m+5 more)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-06 23:45:27.801 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-06 23:45:27.879 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-06 23:45:27.738 UTC · Prompt[39m
+[38;5;255m┃[39m [1mread and wait[0m
+
+[38;5;245m  2026-11-06 23:45:27.821 UTC · Response[39m
+  Reading.
+
+[38;5;245m  2026-11-06 23:45:27.821 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m6 tool calls · 5 read · 1 command[39m
+├ Read a.txt
+│[38;5;245m  1     a line 1 of the a file[39m
+│[38;5;245m  2     a line 2 of the a file[39m
+│[38;5;245m  3     a line 3 of the a file[39m
+│[38;5;245m  4     a line 4 of the a file[39m
+│[38;5;245m  5     a line 5 of the a file[39m
+│[38;5;245m  6     a line 6 of the a file[39m
+│[38;5;245m  7     a line 7 of the a file[39m
+│[38;5;245m  8     a line 8 of the a file[39m
+│[38;5;245m  9     a line 9 of the a file[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

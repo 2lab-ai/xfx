@@ -1,9 +1,11 @@
-# Phase 5 transcript research: Ctrl-O entry times (c9bc4876): UTC on c1db919,
-# the local zone on v0.0.16. TZ=Asia/Kolkata has no plain abbreviation in
-# fx's table, so v0.0.16 should print the +0530 offset.
+# Phase 5 transcript (T-U5): Ctrl-O entry times read the local zone
+# (v0.0.16's c9bc4876; UTC on c1db919). TZ=Asia/Kolkata: macOS's tzdata
+# names it IST, so both print `IST`. `xfx: env XFX_PERMISSION_MODE=yolo`
+# matches fx's mode row (added by T-U5).
 gateway p5-transcript-tz-turns.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
 env TZ=Asia/Kolkata
 work p5-transcript-ws
 wait 4

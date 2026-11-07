@@ -1074,7 +1074,7 @@ const OSC8_CLOSE: &[u8] = b"\x1b]8;;\x1b\\";
 /// longer than 24 bytes that is *not* a theme slot. Upstream ignores it and
 /// keeps the previous foreground; this carries it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct CellSgr<'a> {
+pub(crate) struct CellSgr<'a> {
     bold: bool,
     dim: bool,
     italic: bool,
@@ -1088,13 +1088,13 @@ struct CellSgr<'a> {
 const REOPEN_CAPACITY: usize = 64;
 
 impl<'a> CellSgr<'a> {
-    fn is_active(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         self.bold || self.dim || self.italic || self.underline || self.strike || self.fg.is_some()
     }
 
     /// Updates from one complete escape sequence; anything but an SGR is
     /// ignored (`pacer.zig:64-117`).
-    fn apply(&mut self, seq: &'a [u8]) {
+    pub(crate) fn apply(&mut self, seq: &'a [u8]) {
         if seq.len() < 3 || seq[0] != ESC || seq[1] != b'[' || seq[seq.len() - 1] != b'm' {
             return;
         }
@@ -1156,7 +1156,7 @@ impl<'a> CellSgr<'a> {
 
     /// The opens that restore this state, bold first and the foreground last
     /// (`pacer.zig:132-162`).
-    fn write_opens(&self, out: &mut Vec<u8>) {
+    pub(crate) fn write_opens(&self, out: &mut Vec<u8>) {
         let mut written = 0;
         let mut append = |src: &[u8]| {
             if written + src.len() <= REOPEN_CAPACITY {

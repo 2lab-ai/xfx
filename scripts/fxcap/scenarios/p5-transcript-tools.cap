@@ -1,13 +1,19 @@
-# Phase 5 transcript research: one tool group in full-access mode -- a long
-# command (wider than 120 columns, running 12 s) and five reads in one step,
-# then two subagents (the `request` wrapper both binaries accept,
-# df0878eb), then the answer. Ctrl-O while the command runs (the long row
-# clipped on c1db919, wrapped under the rail on v0.0.16, 427d481f), a page up,
-# and the same view after the command settles and the page rebuilds
-# (026a8f4e/b1a53b01). The group header counts subagents (8625c8f6).
-gateway p5-transcript-tools-turns.json
+# Phase 5 T-U1 (Ctrl-O tool rows wrap, fx 427d481f/6f071dea/78424464): one
+# tool group in full-access mode -- a long command (wider than 120 columns,
+# running 12 s) and five reads in one step, then the answer. Ctrl-O while the
+# command runs (the heading clipped on c1db919, wrapped under the rail on
+# v0.0.16), a page up, and the same view after the command settles and the
+# page rebuilds (026a8f4e/b1a53b01). fx's second step calls two subagents
+# (the `request` wrapper, df0878eb); xfx has no subagent tool, so its turns
+# skip that step. The tools are each product's own: fx's `shell`/`run` is
+# xfx's `terminal`/`exec`. TZ=UTC on both, so v0.0.16's local-time header
+# (c9bc4876, T-U5) reads UTC as xfx's does.
+fx: gateway p5-transcript-tools-turns.json
+xfx: gateway p5-transcript-tools-xfx.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
 work p5-transcript-ws
 wait 4
 type check the files
