@@ -1,16 +1,16 @@
 [38;5;255m┃[39m [1mlook[0m
 
-[38;5;245m  2026-11-07 04:31:57.766 UTC · Response[39m
+[38;5;245m  2026-11-07 05:36:49.993 UTC · Response[39m
   Looking.
 
-[38;5;245m  2026-11-07 04:31:57.766 UTC · Tool[39m
+[38;5;245m  2026-11-07 05:36:49.993 UTC · Tool[39m
 [38;5;255m●[39m [38;5;245m3 tool calls · 1 read · 1 list · 1 command · 1 failed[39m
 ├ Ran [38;5;252mprintf[39m [38;5;250m'%s'[39m [38;5;250m'A\u{202e}B\u{2066}CD\x1b[2JE[39m
 │ [38;5;250mF\x09G\u{009b}H'[39m [38;5;252m>[39m/dev/null
 │[38;5;245m  command: printf '%s' 'A\u{202e}B\u{2066}CD\x1b[2JE\x0dF[39m
 │[38;5;245m   G\u{009b}H' >/dev/null[39m
 
-[38;5;245m  2026-11-07 04:31:57.796 UTC · Tool[39m
+[38;5;245m  2026-11-07 05:36:50.027 UTC · Tool[39m
 ├ Matched
 │ n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md
 │[38;5;245m  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r[39m
@@ -19,7 +19,7 @@
 [39m│[38;5;245m     s\u{009b}t\x0du*.md[39m
 
 
-[38;5;245m  2026-11-07 04:31:57.812 UTC · Tool[39m
+[38;5;245m  2026-11-07 05:36:50.042 UTC · Tool[39m
 └ Failed
   m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.tx
   t: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq
@@ -29,10 +29,10 @@
 │[38;5;245m  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r
 [39m│[38;5;245m  \u{009b}s\x0dt.txt[39m
 
-[38;5;245m  2026-11-07 04:31:57.927 UTC · Response[39m
+[38;5;245m  2026-11-07 05:36:50.150 UTC · Response[39m
   Done.
 
-[38;5;245m  2026-11-07 04:31:57.927 UTC · Usage[39m
+[38;5;245m  2026-11-07 05:36:50.150 UTC · Usage[39m
 [38;5;245m  0s (↑1 ↓80)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m

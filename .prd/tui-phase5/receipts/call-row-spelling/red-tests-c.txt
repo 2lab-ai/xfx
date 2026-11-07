@@ -1,0 +1,40 @@
+# Round c's RED: cargo test --locked --lib in the worktree on f52e97a9's code, with round c's two tests
+# added and the fix not yet written. The status test fails: `└ Ran ls...` is there and `│  cwd: .` is
+# hidden. The cut test, with its new case (a split character that ends the command), passes on the
+# base, whose `:677` still marks it; the `no-split-cut-marker` mutant (that line reverted) fails it
+# (mutants.txt).
+
+
+running 2 tests
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... ok
+test tui::full_transcript::tests::a_command_read_only_in_part_hides_no_argument_fxs_status_would_show ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_command_read_only_in_part_hides_no_argument_fxs_status_would_show stdout ----
+
+thread 'tui::full_transcript::tests::a_command_read_only_in_part_hides_no_argument_fxs_status_would_show' (271776135) panicked at src/tui/full_transcript.rs:4688:9:
+[
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "● 1 tool call · 1 command",
+    "└ Ran ls...",
+    "│  command: ls",
+    "│  ",
+    "│  ",
+    ... (14394 more `"│  ",` rows: the `command:` row's line breaks)
+    "│  ",
+    "│  ",
+    "│  x",
+    ... (5593 blank rows below the record: the 20 000-row screen it was drawn on)
+    "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close",
+    ... (2 blank rows below the record: the 20 000-row screen it was drawn on)
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::a_command_read_only_in_part_hides_no_argument_fxs_status_would_show
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4057 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`

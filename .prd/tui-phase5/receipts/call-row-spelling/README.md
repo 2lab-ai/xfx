@@ -10,16 +10,21 @@ tool row and Ctrl-O's heading. Base: `151dde9f`, the head of T-U1-SAFE
   `9f93f8a5` the round-1 receipt (now under `round1/`);
 - round 2 (the review's batch): `1789e2a6` the status phrase made from the raw
   call, the source-bound cut marked, the tests, the scenarios; `57af20f1` the
-  ledger and `docs/parity.md`; this receipt on top.
+  ledger and `docs/parity.md`; `f52e97a9` its receipt;
+- round c (opus-b's after-merge SHOULDs): `696700bb` the status phrase never
+  marked for a command read in part, the tests; the ledger, `docs/parity.md` and
+  this receipt on top.
 
 Oracle: fx v0.0.16 (`vercel-labs/fx@481104fd`), sha256 `8e6cda2e…`, checked by
 the sweep before and after each run.
 
-**Builds.** Every `xfx/` capture is from a debug build of `1789e2a6`, the last
-code commit (`57af20f1` and this receipt touch no `src/`); every `red/` capture
-from a debug build of `9f93f8a5`, round 2's base, in a `git clone --no-local`.
+**Builds.** Every `xfx/` capture is from a debug build of `696700bb`, the last
+code commit (the commits on top touch no `src/`); every `red/` capture from a
+debug build of `9f93f8a5`, round 2's base, in a `git clone --no-local`.
 `publish.py` checked, as it copied them in, that each snap whose row 1 is the
-banner reads `x𝒇x v0.1.0-1789e2a [debug]` (xfx) or `v0.1.0-9f93f8a` (red).
+banner reads `x𝒇x v0.1.0-696700b [debug]` (xfx) or `v0.1.0-9f93f8a` (red).
+The reason sweep (`reasons.txt`) is round 2's, from `1789e2a6` and `151dde9f`:
+round c changes only the status phrase, which no row draws.
 Captures are from `scripts/fxcap/sweep.sh --only …` (one sweep per build and
 size), re-scored with the ledger as committed (`--rescore`). Round 1's
 captures, pairs, RED tests, mutants and gates (builds `29e8f8d3` against
@@ -54,25 +59,26 @@ bytes, `src/tui/shell.rs:4033` at `151dde9f`).
 | a failure's reason | `failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1445-1493` | a tool's own `status_detail` **as it is** when it has one that is not `preflight failed` (`:1457-1458`); only the preflight and MCP reasons go through `encodeTerminalSafeInline(masked, 256)` (`text_utils.zig:397-417`: every run of ASCII white space -- space, `\t`-`\r` -- one space, none at either end, then the encoder at 256 bytes). xfx spells **every** reason that way, which is stricter. A resumed failed call shows no reason (`app_session_runtime.zig:4296-4312`: `Failed <target>`, a detail only for a command's outcome; capture `fx-resume-tools-40x120-resumed`), as xfx's |
 | an argument's own row on Ctrl-O | `argumentVisibleInToolHeading`, `src/ui/full_transcript_screen.zig:6594-6619` | left out when the **raw** value is in the first line of the status entry's own bytes (escape sequences skipped, `containsIgnoringSgr`, `:6574-6592`) and that status fits the screen. So a value holding anything the encoder spells is never found -- it keeps its row (`fx/p5-call-row-safe-40x120/…-full.txt`: `command:`, `pattern:` and `path:` all shown) -- a command past 120 bytes keeps its row too, and the 120-byte cut is the encoder's on the **raw** command, so it never falls inside an escape |
 
-## What changed (lines at `1789e2a6`)
+## What changed (lines at `696700bb`)
 
 - `src/tui/toolgroup.rs:600` `spelled(target, activity)`: a command projected
-  as fx projects it, then `Spelling` (`:733`, fx's `encodeTerminalSafe`:
+  as fx projects it, then `Spelling` (`:741`, fx's `encodeTerminalSafe`:
   `crate::tools::question::terminal_safe` per character, U+061C `\u{061c}` too)
-  at `COMMAND_TARGET_BYTES` = 14 399 (`:64`; `command_spelled`, `:640`); any
+  at `COMMAND_TARGET_BYTES` = 14 399 (`:64`; `command_spelled`, `:648`); any
   other argument `Spelling` as it is at `TARGET_BYTES` = 4 096 (`:76`). The
   bound counts what is written, cuts at a whole token and ends `...` (`CUT`,
   `:85`); a character the 14 400-byte source bound splits is `\xNN` per byte
   read, as fx's -- and where fx says nothing of a command it stopped reading at
-  that bound with anything left to show, the row is marked cut, `...` (`:655`,
-  `:677`; ledger `call-row-source-cut`). Idempotent (no line break, nothing it
+  that bound with anything left to show, the row is marked cut, `...` (`:663`,
+  `:685`; ledger `call-row-source-cut`). Idempotent (no line break, nothing it
   would spell, nothing past its bound).
-- `toolgroup.rs:701` `flattened`: fx's `encodeTerminalSafeInline` at 256 bytes
+- `toolgroup.rs:709` `flattened`: fx's `encodeTerminalSafeInline` at 256 bytes
   (`REASON_BYTES`, `:81`), ASCII white space as Zig's `isWhitespace` (VT
   included). A reason empty once flattened adds no `: `.
-- `toolgroup.rs:629` `status`: fx's status phrase for a call -- a command's
-  first 120 bytes spelled (`COMMAND_STATUS_BYTES`, `:71`), `None` for any other
-  call -- made from the **raw** call.
+- `toolgroup.rs:631` `status`: fx's status phrase for a call -- a command's
+  first 120 bytes spelled (`COMMAND_STATUS_BYTES`, `:71`), with no `...` for a
+  command read only in part, as fx's has none (`command_spelled(.., false)`,
+  round c), `None` for any other call -- made from the **raw** call.
 - `src/tui/bridge.rs:955` `spelled_shown`, used for a live call (`:498`) and a
   resumed one (`:932`): the argument crosses the channel spelled by the row's
   own rule instead of blanked; the reason crosses through `flattened` (`:515`),
@@ -101,7 +107,8 @@ fall inside an escape's spelling: 116 `a`, U+202E, `z` became 116 `a`, a literal
 `\u{202e}`. A text value ending in `\` was then "shown already" and hidden.
 **Chosen:** compute the phrase from the raw value -- in `arguments`, where the
 raw call is already in hand on both the live and the resumed path, so nothing
-new has to cross the bridge and the bound is fx's exactly; not the fallback of
+new has to cross the bridge and the 120-byte cut is fx's exactly (and, since
+round c, so is the absence of a source-cut marker in it); not the fallback of
 hiding no value near an escape, which would still differ from fx.
 - RED (`red-tests.txt`, on a clone of `9f93f8a5` with the round-2 test hunks and
   the one-line `pub(crate)` on `made_inert` they need):
@@ -169,6 +176,39 @@ bytes are SHOULD 2's test. Of the 140 snaps with a row unexplained here, 139
 have one on the base too (143 there), in other units' surfaces; the 140th is
 `p5-transcript-records` `start`, above.
 
+## Round c (opus-b's after-merge SHOULDs)
+
+**1 -- the status phrase inherited the source-cut marker.** `command_spelled`
+set the row's `...` whatever its bound, and `status` went through it, so where a
+command's first 14 400 bytes spell to 120 bytes or fewer and something visible
+follows, xfx's status ended `...` and fx's 120-byte one, which marks only what
+its encoder cuts (`tool_presentation.zig:441-445`), does not: a `.` was found
+in it and `cwd: .` hidden. **Fix:** `command_spelled(target, max, mark_unread)`
+(`toolgroup.rs:648`); the row passes `true` (`:610`), the status `false`
+(`:634`).
+- RED (`red-tests-c.txt`, f52e97a9's code with the test added):
+  `a_command_read_only_in_part_hides_no_argument_fxs_status_would_show` -- `ls`,
+  14 400 line breaks, `x`, with `cwd: "."` -- **fails**: `└ Ran ls...` is drawn
+  and `│  cwd: .` is not.
+- GREEN: it passes at `696700bb`. Mutant `status-marks-unread` (the status
+  passing `true`) fails it, and only it.
+- `call-row-source-cut`'s reason, `docs/parity.md:238` and the table above say
+  the marker is the row's alone.
+
+**2 -- the split-character marker is pinned.** The cut test gains a case where
+the character the 14 400-byte bound splits ends the command (`echo shown`,
+14 389 line breaks, U+202E): only the marker at the split (`toolgroup.rs:685`,
+round 2's `:677`) can mark it. Mutant `no-split-cut-marker` (that line
+reverted) now fails the cut test; it survived round 2's suite.
+
+**3 -- `command-size-bound` reworded.** The 8 KiB bound is on the command once
+trimmed (`authority.rs:1145-1149`) while the row's target is the raw command
+(`src/tools/spec.rs:219`), so a command read only in part can be admitted --
+with at least 6 208 bytes of white space at its ends it passes and runs, its
+row ending `...` -- and round 2's "only on a refused row" was wrong. The bound
+is a deliberate choice of fx's planning bound (`authority.rs:38-40`): the cause
+is now `kind = "unit"`, owner `CMD-SIZE`, and raising the bound is an S change.
+
 ## Pairs (`pairs.txt`)
 
 - `p5-transcript-safe` `end`, `end.full`: **normalized-identical** at both sizes
@@ -179,20 +219,24 @@ have one on the base too (143 there), in other units' surfaces; the 140th is
   `call-row-page-edge`, **no row unexplained**.
 - `p5-call-row-long` `end`: `call-row-source-cut`, `command-size-bound`, **no
   row unexplained**.
+- From `696700b` (round c), as from `1789e2a` (round 2): round c changes only
+  the status phrase, which no row draws, and every pair is classified as it was.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-Each alone on a throwaway `git clone --no-local` of `1789e2a6`, thirteen tests run:
+Each alone on a throwaway `git clone --no-local` of `696700bb`, fourteen tests run:
 
 | mutant | what it does | fails |
 |---|---|---|
 | `no-mark-naming` | C0, DEL and C1 named, no mark | 7 |
 | `no-control-spelling` | every control a space again, the marks named | 7 (the reason test among them) |
 | `bridge-blanks` | the channel blanks the argument again | 3 |
-| `no-text-flag` | every string value may be "shown already" | 3 |
-| `no-status-bound` | no status phrase looked in | 2 |
-| `status-from-spelled` | the 120-byte bound on the spelled call (round 1's way) | 1: the MUST test |
-| `no-source-cut-marker` | the source bound says nothing again | 1: the cut test |
+| `no-text-flag` | every string value may be "shown already" | 4 |
+| `no-status-bound` | no status phrase looked in | 3 |
+| `status-from-spelled` | the 120-byte bound on the spelled call (round 1's way) | 2: the MUST test, round c's status test |
+| `no-source-cut-marker` | the source bound says nothing of a visible tail | 2: the cut test, round c's status test |
+| `no-split-cut-marker` | the split character says nothing (`:685` reverted) | 1: the cut test |
+| `status-marks-unread` | the status carries the row's marker (before round c) | 1: round c's status test |
 | `reason-blanked` | the channel blanks the reason again | 3 (the reason test among them) |
 
 ## Ledger and parity
@@ -214,19 +258,21 @@ Each alone on a throwaway `git clone --no-local` of `1789e2a6`, thirteen tests r
 
 ## Gates (`gates.txt`)
 
-At `57af20f1` (code of `1789e2a6`), one step at a time: fmt, clippy with and
-without fault injection, both test suites (**4952** and **4981** passed, 0
-failed, 7 ignored each; the thirteen tests above among them), identity, stubs,
+At `a177d863` (code of `696700bb`), one step at a time: fmt, clippy with and
+without fault injection, both test suites (**4953** and **4982** passed, 0
+failed, 7 ignored each; the fourteen tests above among them), identity, stubs,
 secrets, fxcap's test-sweep, the release and faulty builds, smoke (47 checks, 0
 failures) and smoke-tui (37 scenarios and the oracle, 1111 checks, 0 failures):
-every step exit 0. Round 1's gate list (`round1/gates.txt`) ran green at
-`29e8f8d3`.
+every step exit 0. Round 2's list ran green at `57af20f1`, round 1's
+(`round1/gates.txt`) at `29e8f8d3`.
 
 ## Files
 
-`fx/`, `red/`, `xfx/` round 2's captures, by scenario and size (redacted,
-`scripts/fxcap/redact.py`); `pairs.txt` their pairs; `reasons.txt` the reason
-sweep, both builds; `red-tests.txt`; `mutants.txt`; `gates.txt`; `publish.py`,
+`fx/`, `red/`, `xfx/` the captures by scenario and size -- `xfx/` from round
+c's build `696700b`, `red/` from round 2's base `9f93f8a` -- (redacted,
+`scripts/fxcap/redact.py`); `pairs.txt` their pairs; `reasons.txt` round 2's
+reason sweep, both builds; `red-tests.txt` (round 2) and `red-tests-c.txt`
+(round c); `mutants.txt`; `gates.txt`; `publish.py`,
 `split_tests.py`, `mutants.py` the scripts that made them; `round1/` round 1's
 receipt files as they were. The scenarios: `scripts/fxcap/scenarios/
 p5-call-row-safe.cap`, `p5-call-row-long.cap` and their turn files. In the text

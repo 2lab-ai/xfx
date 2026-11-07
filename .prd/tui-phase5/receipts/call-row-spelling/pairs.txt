@@ -76,7 +76,7 @@ p5-call-row-safe     full       unresolved-defect    causes=call-row-page-edge,t
     fx  30 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b}s\x0dt.txt
     xfx 30 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
 
-== xfx fix (1789e2a) against fx v0.0.16, 40x120
+== xfx fix (696700b) against fx v0.0.16, 40x120
 p5-call-row-long     end        unresolved-defect    causes=command-size-bound
     rows no cause or divergence explains: none
     fx   7 -                      ● 1 tool call · 1 command
@@ -268,7 +268,7 @@ p5-transcript-safe   full-pgup  unresolved-defect    causes=session-record,tool-
     fx  36 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
     xfx 36 -                      
 
-== xfx fix (1789e2a) against fx v0.0.16, 40x60
+== xfx fix (696700b) against fx v0.0.16, 40x60
 p5-call-row-safe     end        approved-divergence  causes=-
     rows no cause or divergence explains: none
     fx   9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t

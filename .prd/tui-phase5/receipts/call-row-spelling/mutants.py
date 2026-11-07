@@ -82,12 +82,20 @@ MUTANTS = {
         });"""),
     # The source bound stops with no marker again, as fx's does.
     "no-source-cut-marker": ("src/tui/toolgroup.rs", """            {
-                spelling.cut = true;
+                spelling.cut |= mark_unread;
             }
             break;""", """            {
                 // MUTANT no-source-cut-marker: nothing said of the tail.
+                let _ = mark_unread;
             }
             break;"""),
+    # A character the source bound splits is written in part with no marker.
+    "no-split-cut-marker": ("src/tui/toolgroup.rs", """            spelling.cut |= mark_unread;
+            bytes[..COMMAND_SOURCE_BYTES - at]""", """            // MUTANT no-split-cut-marker: the split character says nothing.
+            bytes[..COMMAND_SOURCE_BYTES - at]"""),
+    # The status phrase carries the row's source-cut marker, as before round c.
+    "status-marks-unread": ("src/tui/toolgroup.rs", """            .map(|target| command_spelled(target, COMMAND_STATUS_BYTES, false))""", """            // MUTANT status-marks-unread: the row's marker in the status.
+            .map(|target| command_spelled(target, COMMAND_STATUS_BYTES, true))"""),
     # The channel blanks the reason again.
     "reason-blanked": ("src/tui/bridge.rs", """                detail: super::toolgroup::flattened(&detail),""", """                // MUTANT reason-blanked: the reason crosses blanked.
                 detail: inert_owned(detail),"""),
