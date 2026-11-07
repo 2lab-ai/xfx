@@ -1,18 +1,18 @@
-head bbdf860e
+head 6724c47c
 Darwin arm64
 GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
 grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
 TMPDIR=<tmp>
 
 == what changed since 24a6b912
- .prd/tui-phase5/receipts/secrets-argmax/c-linux.sh |  19 ++
- .../tui-phase5/receipts/secrets-argmax/c-linux.txt |  94 ++++++
  .../receipts/secrets-argmax/c-mutants.py           |  91 +++++
  .../receipts/secrets-argmax/c-mutants.txt          |  11 +
  .../receipts/secrets-argmax/c-sweep-env.sh         | 130 ++++++++
  .../receipts/secrets-argmax/c-sweep-macos.txt      |  68 ++++
+ .../tui-phase5/receipts/secrets-argmax/d-probes.sh |  66 ++++
+ .../receipts/secrets-argmax/d-probes.txt           |  39 +++
  .prd/tui-phase5/receipts/secrets-argmax/gates.sh   |  52 +++
- .prd/tui-phase5/receipts/secrets-argmax/gates.txt  |  86 +++++
+ .prd/tui-phase5/receipts/secrets-argmax/gates.txt  | 106 ++++++
  .prd/tui-phase5/receipts/secrets-argmax/mutants.py | 168 ++++++++++
  .../tui-phase5/receipts/secrets-argmax/mutants.txt |  21 ++
  .../receipts/secrets-argmax/platform-linux.txt     | 196 +++++++++++
@@ -29,14 +29,14 @@ TMPDIR=<tmp>
  scripts/test-check-no-secrets.sh                   | 370 +++++++++++++++++++++
  scripts/test-gate-env.sh                           | 177 ++++++++++
  scripts/test-preview-contract.sh                   |   6 +
- 29 files changed, 2381 insertions(+), 7 deletions(-)
+ 31 files changed, 2531 insertions(+), 7 deletions(-)
 
 == cargo fmt --check
--> exit 0, 3 s
+-> exit 0, 2 s
 
 == ./scripts/check-no-secrets.sh
-check-no-secrets: ok (12079 tracked file(s) scanned)
--> exit 0, 43 s
+check-no-secrets: ok (12081 tracked file(s) scanned)
+-> exit 0, 38 s
 
 == ./scripts/test-check-no-secrets.sh
 test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): ./scripts/test-check-no-secrets.sh: line 178: /usr/bin/env: Argument list too long
@@ -55,7 +55,7 @@ test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
 test-check-no-secrets: ok nothing-tracked    exit 1
 test-check-no-secrets: ok only-a-symlink     exit 1
 test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
--> exit 0, 144 s
+-> exit 0, 129 s
 
 == ./scripts/test-gate-env.sh
 test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
@@ -65,19 +65,19 @@ test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed
 test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
 test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
 test-gate-env: ok (5 cases)
--> exit 0, 110 s
+-> exit 0, 120 s
 
 == ./scripts/check-xfx-identity.sh
-check-xfx-identity: ok (12079 tracked file(s) scanned)
+check-xfx-identity: ok (12081 tracked file(s) scanned)
 -> exit 0, 1 s
 
 == ./scripts/check-no-stubs.sh
 check-no-stubs: ok
--> exit 0, 16 s
+-> exit 0, 24 s
 
 == ./scripts/check-preview-contract.sh
 check-preview-contract: ok (.github/workflows/preview.yml)
--> exit 0, 4 s
+-> exit 0, 12 s
 
 == ./scripts/test-preview-contract.sh
 test-preview-contract: caught gate-removed                 preflight has no epoch gate
@@ -100,7 +100,7 @@ test-preview-contract: caught epoch-absent                 there is no .github/p
 test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
 test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
 test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
--> exit 0, 87 s
+-> exit 0, 137 s
 
 == actionlint .github/workflows/ci.yml
 -> exit 0, 0 s
