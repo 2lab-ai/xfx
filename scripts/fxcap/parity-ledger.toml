@@ -675,3 +675,22 @@ fx_row = '^auto · model-a · fix the renderer loop, it redraw'
 xfx_row = '^auto · model-a · Fix the renderer loop$'
 fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
 why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."
+
+[[cause]]
+id = "tui-without-home"
+kind = "unit"
+owner = "L-U3b the TUI runs without a home and saves nothing"
+scenarios = ["p5-lifecycle-relhome*"]
+snaps = ["h00-launch", "h01-turn"]
+whole_snap = true
+why = "With no usable HOME (a relative one here) fx v0.0.16 opens its TUI, says `! history: durable prompt history unavailable` and runs the turn unsaved (app_bootstrap_runtime.zig:667-673@481104fd); xfx's TUI refuses to open, as it already did for an unset HOME, because it opens the session store before the first prompt (docs/parity.md, the `profile home` row). Nothing is written by either (the work snaps match)."
+
+[[cause]]
+id = "tui-without-home-scrollback"
+kind = "unit"
+owner = "L-U3b the TUI runs without a home and saves nothing"
+scenarios = ["p5-lifecycle-relhome*"]
+snaps = ["h01-sessions.full", "h02-sessions.full"]
+fx_row = '^<banner>$'
+xfx_row = '^xfx: xfx cannot record a conversation because no home directory is set; '
+why = "The first launch's leftovers above `xfx sessions: HOME is not set`: fx's TUI ran and left its banner, xfx's refused and left its refusal (cause tui-without-home)."
