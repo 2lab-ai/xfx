@@ -80,13 +80,20 @@ impl Errands {
     fn lock(&self) -> MutexGuard<'_, Vec<(JoinHandle<()>, Stop)>> {
         self.running.lock().unwrap_or_else(PoisonError::into_inner)
     }
-}
 
-impl Drop for Errands {
-    fn drop(&mut self) {
+    /// The end of every thread started so far: each still running is waited
+    /// for until `over` says the grace is over -- asked with when the wait
+    /// began, and only while a thread is still running -- then given up,
+    /// and every thread is joined.
+    ///
+    /// A session's end is [`GRACE`] on the clock ([`Drop`]). `over` is the
+    /// seam a case decides the grace with by the order of events rather than
+    /// a second count: it can let a tool answer only once the end has begun,
+    /// or end the grace before a tool answers.
+    fn end(&self, mut over: impl FnMut(Instant) -> bool) {
         let running = std::mem::take(&mut *self.lock());
-        let deadline = Instant::now() + GRACE;
-        while running.iter().any(|(thread, _)| !thread.is_finished()) && Instant::now() < deadline {
+        let began = Instant::now();
+        while running.iter().any(|(thread, _)| !thread.is_finished()) && !over(began) {
             std::thread::sleep(Duration::from_millis(5));
         }
         for (_, stop) in &running {
@@ -95,6 +102,12 @@ impl Drop for Errands {
         for (thread, _) in running {
             let _ = thread.join();
         }
+    }
+}
+
+impl Drop for Errands {
+    fn drop(&mut self) {
+        self.end(|began| began.elapsed() >= GRACE);
     }
 }
 
@@ -184,6 +197,7 @@ impl Copies {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clipboard::fake::FakeTool;
     use std::time::{Duration, Instant};
 
     /// How long a case waits for a fake tool: a fresh script's first run is
@@ -234,33 +248,91 @@ mod tests {
         );
     }
 
+    /// A tool that keeps what it is fed once its gate is open
+    /// ([`FakeTool::GATE`]), and says who it is before it waits there.
+    fn gated() -> FakeTool {
+        FakeTool::running(&format!(
+            "echo $$ > \"${{0%/*}}/hung\"\n{}cat > \"${{0%/*}}/copied\"",
+            FakeTool::GATE
+        ))
+    }
+
     #[test]
     fn an_ending_session_lets_a_copy_that_answers_land() {
-        let tool = crate::clipboard::fake::FakeTool::running("sleep 0.2\ncat > \"${0%/*}/copied\"");
+        // The tool answers only once the session has begun to end: its gate
+        // is opened by the end's first look at the grace. So the copy lands
+        // inside the grace or not at all, by the order of events and not by
+        // how fast a loaded machine starts a tool -- a 0.2 s tool against
+        // the 1 s grace failed under load (FLAKE-COPYEND). The grace this
+        // case gives runs out at LOADED, which only a tool that never
+        // answers reaches; that it is GRACE in a session is the case above.
+        let tool = gated();
         let copies = Copies::new(tool.clipboard());
-        // Once to its end first: macOS assesses a fresh script the first time
-        // it runs, which can take longer than the grace, and the claim here
-        // is about a tool that answers.
-        assert!(copies.start(Arc::from("a first reply")));
-        assert!(outcome(&copies, Duration::from_secs(30)));
         assert!(copies.start(Arc::from("the reply")));
-        drop(copies);
+        let mut looked = false;
+        copies.errands.end(|began| {
+            if !looked {
+                tool.open();
+                looked = true;
+            }
+            began.elapsed() >= LOADED
+        });
+        assert!(looked, "the end gave a copy still running no grace");
         assert_eq!(tool.copied().as_deref(), Some("the reply".as_bytes()));
     }
 
     #[test]
-    fn a_copy_is_started_and_answered_later_rather_than_waited_for() {
-        // A tool that takes its time, so "start returned" and "the copy is
-        // over" are two moments apart.
-        let tool = crate::clipboard::fake::FakeTool::running("cat >/dev/null\nsleep 1");
+    fn an_ending_session_kills_a_copy_whose_answer_comes_after_its_grace() {
+        // The same order the other way round: the tool is running with its
+        // answer behind the gate, and the grace is over at the end's first
+        // look. The tool is killed, and the gate opened afterwards lets
+        // nothing land.
+        let tool = gated();
         let copies = Copies::new(tool.clipboard());
-        let started = Instant::now();
+        assert!(copies.start(Arc::from("the reply")));
+        let deadline = Instant::now() + LOADED;
+        while tool.hung().is_none() {
+            assert!(Instant::now() < deadline, "the tool never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let pid = tool.hung().expect("the tool started");
+        copies.errands.end(|_| true);
+        assert!(!FakeTool::alive(pid), "the tool outlived the session");
+        tool.open();
+        assert_eq!(tool.copied(), None, "a copy given up landed");
+    }
+
+    #[test]
+    fn a_copy_is_started_and_answered_later_rather_than_waited_for() {
+        // A tool that answers only when this case opens its gate, so "start
+        // returned" and "the copy is over" are two moments in the case's own
+        // order, not a second apart. A start that waited for the tool would
+        // wait for ever: a watchdog opens the gate after LOADED, so such a
+        // start fails the case rather than hanging it.
+        let tool = Arc::new(FakeTool::running(&format!(
+            "cat >/dev/null\n{}",
+            FakeTool::GATE
+        )));
+        let copies = Copies::new(tool.clipboard());
+        let (cancel, cancelled) = mpsc::channel::<()>();
+        let watchdog = {
+            let tool = Arc::clone(&tool);
+            std::thread::spawn(move || {
+                let fired = cancelled.recv_timeout(LOADED).is_err();
+                if fired {
+                    tool.open();
+                }
+                fired
+            })
+        };
         assert!(copies.start(Arc::from("reply")));
+        assert_eq!(copies.finished(), None, "a copy still running was answered");
+        cancel.send(()).expect("the watchdog is waiting");
         assert!(
-            started.elapsed() < Duration::from_millis(500),
+            !watchdog.join().expect("the watchdog's thread"),
             "starting a copy waited for the tool"
         );
-        assert_eq!(copies.finished(), None, "a copy still running was answered");
+        tool.open();
         assert!(outcome(&copies, LOADED));
     }
 

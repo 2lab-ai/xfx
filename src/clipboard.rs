@@ -1319,6 +1319,17 @@ pub(crate) mod fake {
             std::fs::write(self.path("fail"), "").expect("arm the failure");
         }
 
+        /// A line of a tool's body that waits, polling, until [`Self::open`]
+        /// is called: what comes after it runs at a point in the case's order
+        /// of events rather than after a second count.
+        pub(crate) const GATE: &'static str =
+            "while [ ! -f \"${0%/*}/open\" ]; do sleep 0.01; done\n";
+
+        /// Lets every tool waiting at [`Self::GATE`] go on.
+        pub(crate) fn open(&self) {
+            std::fs::write(self.path("open"), "").expect("open the gate");
+        }
+
         /// Makes every file copy from now on wait far past any deadline.
         pub(crate) fn hang(&self) {
             std::fs::write(self.path("hang"), "").expect("arm the wait");
