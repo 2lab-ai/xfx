@@ -1828,7 +1828,9 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     // the frame the resume repaints, as upstream's repaint inside the suspend
     // precedes its invalidation (`osc/s02-resumed`).
     let text = session.wait_for_count(STATUS_IDLE, 2);
-    let cleared = text.rfind(ABNORMAL_RESTORE).expect("the stop's restore");
+    // Past the restore's end: it opens with `?2026l` itself.
+    let cleared =
+        text.rfind(ABNORMAL_RESTORE).expect("the stop's restore") + ABNORMAL_RESTORE.len();
     assert!(
         text.rfind(STATUS_IDLE) > Some(cleared),
         "the resume's report came before the stop's clear"
