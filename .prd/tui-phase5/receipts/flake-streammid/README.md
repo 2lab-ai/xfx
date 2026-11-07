@@ -58,17 +58,23 @@ not timing at all.
 - `capture.sh` (now): `held` waits up to 30 s for the next hold in the
   gateway's log, and fails the run (exit 1) without it. `release` writes the
   line. Both refuse an argument (exit 2, before launch).
-- Fourteen scenarios: `held` where a fixed wait used to be, and `release`
-  after the mid-stream snap or keystroke. The table below gives each one's
-  hold.
+- Fourteen scenarios: `held` and then `wait 1` where a fixed wait used to
+  be, and `release` after the mid-stream snap or keystroke. The table below
+  gives each one's hold.
 - The ledger: the `stream-position` cause is deleted, and a comment at its
   place says why.
 
-The only timing left is the `wait 1` (or the keystrokes) between `held` and
-the snap. That wait does not race the stream: by then every byte the snap
-counts is already in the binary's socket, and nothing more is coming. Both
-binaries redraw the activity row on their own clock, and fx's pacer emits
-what is complete on its next tick (`src/ui/assistant/pacer.zig:257`, `:288`).
+The only timing left is the `wait 1` after `held`, before any keystroke or
+snap. That wait does not race the stream: every byte the snap counts is
+already in the binary's socket, and nothing more is coming until `release`.
+The second is for the binary to read and draw what it has. Both binaries
+redraw the activity row on their own clock, and fx's pacer emits what is
+complete on its next tick (`src/ui/assistant/pacer.zig:257`, `:288`). The
+settle matters most where the keystroke ends the stream. In `interrupt-steer`
+the steer closes the stream, and a binary that had not yet read the held
+events would keep less of the answer. The first held commit (`3ed24db2`) went
+straight from `held` to the keystroke in twelve scenarios. The settle is
+`a14281db`, re-swept under the same load (below).
 
 ## RED and GREEN
 
@@ -81,12 +87,12 @@ what is complete on its next tick (`src/ui/assistant/pacer.zig:257`, `:288`).
   hold.
 - Sweep, the fourteen scenarios, `--jobs 3`, under the same load:
 
-| | base scenarios | held, run 1 | held, run 2 | held at 3ed24db2, with the CI core |
-|---|---|---|---|---|
-| scenarios | 15 | 14 | 14 | 23 |
-| pairs | 87 | 82 | 82 | 133 |
-| passing | 59 | 61 | 61 | 110 |
-| not passing | 28 | 21 | 21 | 23 |
+| | base scenarios | held, run 1 | held, run 2 | held at 3ed24db2, with the CI core | settled (a14281db) |
+|---|---|---|---|---|---|
+| scenarios | 15 | 14 | 14 | 23 | 14 |
+| pairs | 87 | 82 | 82 | 133 | 82 |
+| passing | 59 | 61 | 61 | 110 | 61 |
+| not passing | 28 | 21 | 21 | 23 | 21 |
 
   Base minus held: `streaming/mid` and the five `interrupt-steer` snaps
   (`steer-stream`, `steer-stream-done`, `steer-tool`, `steer-done`,
@@ -98,7 +104,12 @@ what is complete on its next tick (`src/ui/assistant/pacer.zig:257`, `:288`).
   `full-transcript-shift`, an approved cascade, and `p5-transcript-cancel/mid`'s
   footer (fx runs `FX_PERMISSION_MODE=yolo`, xfx `auto`). At the head the
   core adds `h1-resize` small and large, which `ci-core.txt` names as not
-  passing yet; `streaming` mid and end are normalized-identical.
+  passing yet; `streaming` mid and end are normalized-identical. With the
+  settle (the binary still the one built at `3ed24db2`), the same 21, every
+  scenario's capture log holding on both sides. `interrupt-steer` alone,
+  three more runs: 5 of 5 pairs passing each time, and in each run both
+  gateways log `hold 1 after 16 event(s)` and then
+  `hold 1: stream closed by client`.
 
 ## A real count difference is still caught
 
@@ -153,6 +164,13 @@ version on Nov 4 and `fork-edge/midturn` in an earlier receipt
 (`fork-status-gap`). In `interrupt-steer` and `p5-transcript-cancel` both
 binaries end the held stream themselves (the steer and the Escape), and the
 gateway logs `hold 1: stream closed by client`.
+
+The empirical list covers the scenarios that existed on Nov 4. The `p5-*`
+scenarios added since rely on the static walk, which models a typed prompt and
+its Enter, and a tool call's follow-up turn. It does not model a stream
+resumed by `relaunch`. If an exposure was missed, CI now reports it as a
+regression on its first run instead of re-running past it. That is the
+intent: the next sighting gets a hold, not a retry.
 
 Not held, and why:
 
