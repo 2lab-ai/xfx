@@ -1754,12 +1754,44 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         finished.recv_timeout(bound).ok()
     }
 
+    /// How long a process that was signalled to stop is given to be gone: it
+    /// exits when the kernel gets to it, not when `kill` returns, and on a
+    /// loaded machine that can be a while.
+    #[cfg(unix)]
+    const EXIT_PATIENCE: Duration = Duration::from_secs(30);
+
     #[cfg(unix)]
     fn assert_gone(pid: i32, what: &str) {
         let pid = rustix::process::Pid::from_raw(pid).expect("pid");
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + EXIT_PATIENCE;
         while rustix::process::test_kill_process(pid).is_ok() {
             assert!(Instant::now() < deadline, "{what} outlived its stop");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Waits for `pid`, a child of this process that was sent `SIGKILL`, to
+    /// exit, and leaves it uncollected. `NOWAIT` reports the exit without
+    /// collecting it, so the look can be repeated. A collected child is not
+    /// waited for: `waitid` then fails at once (`ECHILD`), and so does this.
+    #[cfg(unix)]
+    fn assert_exited_uncollected(pid: i32, what: &str) {
+        use rustix::process::{waitid, WaitId, WaitIdOptions};
+        let pid = rustix::process::Pid::from_raw(pid).expect("pid");
+        let deadline = Instant::now() + EXIT_PATIENCE;
+        loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            ) {
+                Ok(Some(_)) => return,
+                // Not exited yet, or the look was interrupted: look again.
+                Ok(None) | Err(rustix::io::Errno::INTR) => assert!(
+                    Instant::now() < deadline,
+                    "{what} was not killed: it had not exited {EXIT_PATIENCE:?} later"
+                ),
+                Err(err) => panic!("{what} was collected before the close: {err}"),
+            }
             std::thread::sleep(Duration::from_millis(20));
         }
     }
@@ -1820,26 +1852,16 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         // is half of one: the connection is over before the request returns
         // -- the next one is refused, never written after the half frame --
         // and its whole group is killed there and then, before any close,
-        // while its leader is left for the close to collect.
+        // while its leader is left for the close to collect. Killed, not yet
+        // exited: the grandchild being gone does not mean the leader's exit
+        // can be seen yet, so it is waited for (once on a loaded CI runner, a
+        // single look came too early).
         assert_eq!(
             transport.request("ping", json!({}), Duration::from_secs(1), None),
             Err(McpError::Named("McpConnectionClosed"))
         );
         assert_gone(grandchild, "the server's grandchild, at the cut,");
-        assert!(
-            matches!(
-                rustix::process::waitid(
-                    rustix::process::WaitId::Pid(
-                        rustix::process::Pid::from_raw(leader).expect("pid")
-                    ),
-                    rustix::process::WaitIdOptions::EXITED
-                        | rustix::process::WaitIdOptions::NOWAIT
-                        | rustix::process::WaitIdOptions::NOHANG,
-                ),
-                Ok(Some(_))
-            ),
-            "the leader was not killed, or was collected, before the close"
-        );
+        assert_exited_uncollected(leader, "the leader, at the cut,");
         let closer = Arc::clone(&transport);
         let ((), took) =
             within(Duration::from_secs(20), move || closer.close()).expect("close never returned");
