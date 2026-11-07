@@ -1,0 +1,87 @@
+# Each snap pair of p5-transcript-safe 40x120, classified by scripts/fxcap/sweep.sh --rescore with the
+# ledger as committed. A character a terminal would act on or that hides text is shown here as <U+XXXX>;
+# the captures under fx/, red/ and xfx/ hold it as the screen did.
+
+== xfx base (56979c5) against fx v0.0.16
+end        unresolved-defect  causes=ctrl-o-call-row-spelling
+           rows no cause or divergence explains: none
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+end.full   unresolved-defect  causes=ctrl-o-call-row-spelling
+           rows no cause or divergence explains: none
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+full       unresolved-defect  causes=safe-page-edge,ctrl-o-call-row-spelling,tool-schema
+           rows no cause or divergence explains: fx 22, xfx 22, xfx 23, xfx 24, fx 29, fx 30, xfx 29, xfx 30
+    xfx  1 -                        mcp: none
+    fx  20 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    fx  21 -                      │  action: run
+    fx  22 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    fx  23 -                      │  yield_time_ms: 5000
+    fx  24 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 21 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+    xfx 22 -                      │  command: printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F    G' >/dev/null; cat safe.txt #
+    xfx 23 -                      │ a<U+202E>b<U+200B>c<U+FEFF>d [2Je f    g
+    xfx 24 -                      │ over
+    fx  29 -                      │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d
+    fx  30 -                      │  2    over\x0dX
+    xfx 29 -                      │  1    a<U+202E>b<U+200B>c<U+FEFF>d [2Je f    g
+    xfx 30 -                      │  2    overX
+full-pgup  unresolved-defect  causes=session-record,ctrl-o-call-row-spelling,tool-schema,safe-page-edge
+           rows no cause or divergence explains: fx 31, xfx 28, xfx 29, xfx 30
+    fx   5 -                        system prompt: ready · 6249 bytes
+    fx   6 -                        tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+    fx   7 -                        more)
+    fx   8 -                        skills: loading
+    xfx  5 -                        tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+    xfx  6 -                        +5 more)
+    fx  29 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    fx  30 -                      │  action: run
+    fx  31 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    fx  32 -                      │  yield_time_ms: 5000
+    fx  33 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 27 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+    xfx 28 -                      │  command: printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F    G' >/dev/null; cat safe.txt #
+    xfx 29 -                      │ a<U+202E>b<U+200B>c<U+FEFF>d [2Je f    g
+    xfx 30 -                      │ over
+    xfx 34 -                      └ Read safe.txt
+    xfx 35 -                      │  1    a<U+202E>b<U+200B>c<U+FEFF>d [2Je f    g
+    xfx 36 -                      │  2    overX
+
+== xfx new (127f050) against fx v0.0.16
+end        unresolved-defect  causes=ctrl-o-call-row-spelling
+           rows no cause or divergence explains: none
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+end.full   unresolved-defect  causes=ctrl-o-call-row-spelling
+           rows no cause or divergence explains: none
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+full       unresolved-defect  causes=session-record,safe-page-edge,ctrl-o-call-row-spelling,tool-schema
+           rows no cause or divergence explains: none
+    xfx  1 -                        +5 more)
+    xfx  2 -                        mcp: none
+    fx  20 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    fx  21 -                      │  action: run
+    xfx 22 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+    fx  23 -                      │  yield_time_ms: 5000
+    fx  24 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 24 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+full-pgup  unresolved-defect  causes=session-record,ctrl-o-call-row-spelling,tool-schema,safe-page-edge
+           rows no cause or divergence explains: none
+    fx   5 -                        system prompt: ready · 6249 bytes
+    fx   6 -                        tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+    fx   7 -                        more)
+    fx   8 -                        skills: loading
+    xfx  5 -                        tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+    xfx  6 -                        +5 more)
+    fx  29 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    fx  30 -                      │  action: run
+    xfx 27 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+    fx  32 -                      │  yield_time_ms: 5000
+    fx  33 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 29 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+    xfx 33 -                      └ Read safe.txt
+    xfx 34 -                      │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d
+    xfx 35 -                      │  2    over\x0dX
+    xfx 36 -                      

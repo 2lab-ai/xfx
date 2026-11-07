@@ -1,0 +1,125 @@
+# cargo test --locked --lib on the base 56979c59 with this unit's four tests added (src/tui/full_transcript.rs), before the fix
+
+running 4 tests
+test tui::full_transcript::tests::a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it ... FAILED
+test tui::full_transcript::tests::a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks ... FAILED
+test tui::full_transcript::tests::an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it ... FAILED
+test tui::full_transcript::tests::no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it stdout ----
+
+thread 'tui::full_transcript::tests::a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it' (265477480) panicked at src/tui/full_transcript.rs:3547:13:
+"│  1    a\\u{202e}b\\u{200b}c\\u{feff}d\\x1b[2Je\\u{009b}f    g\\x0d" in [
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "● 2 tool calls · 1 read · 1 command",
+    "├ Ran printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D [2JE F G' >/dev/null; cat safe.txt #  ",
+    "│  command: printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D [2JE F    G' >/dev/null; cat safe.txt #",
+    "│ a\u{202e}b\u{200b}c\u{feff}d [2Je f    g",
+    "│ over\r",
+    "│ X",
+    "",
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "└ Read safe.txt",
+    "│  1    a\u{202e}b\u{200b}c\u{feff}d [2Je f    g",
+    "│  2    over\rX",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close",
+    "",
+    "auto · model-a",
+]
+
+---- tui::full_transcript::tests::a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks stdout ----
+
+thread 'tui::full_transcript::tests::a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks' (265477479) panicked at src/tui/full_transcript.rs:3566:9:
+assertion `left == right` failed
+  left: ["│ a\u{202e}b\u{200b}c\u{feff}d [2Je f    g", "│ over\r"]
+ right: ["│ a\\u{202e}b\\u{200b}c\\u{feff}de\\u{009b}f        g", "│ X"]
+
+---- tui::full_transcript::tests::an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it stdout ----
+
+thread 'tui::full_transcript::tests::an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it' (265477481) panicked at src/tui/full_transcript.rs:3534:9:
+[
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "● 2 tool calls · 1 read · 1 command",
+    "├ Ran printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D [2JE F G' >/dev/null; cat safe.txt #  ",
+    "│  command: printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D [2JE F    G' >/dev/null; cat safe.txt #",
+    "│ a\u{202e}b\u{200b}c\u{feff}d [2Je f    g",
+    "│ over\r",
+    "│ X",
+    "",
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "└ Read safe.txt",
+    "│  1    a\u{202e}b\u{200b}c\u{feff}d [2Je f    g",
+    "│  2    over\rX",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close",
+    "",
+    "auto · model-a",
+]
+
+---- tui::full_transcript::tests::no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width stdout ----
+
+thread 'tui::full_transcript::tests::no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width' (265477482) panicked at src/tui/full_transcript.rs:3585:17:
+10: "│\u{1b}[38;5;245m  'A\u{202e}B\u{200b}C\u{feff}D\u{1b}[0m"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks
+    tui::full_transcript::tests::a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it
+    tui::full_transcript::tests::an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it
+    tui::full_transcript::tests::no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4042 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

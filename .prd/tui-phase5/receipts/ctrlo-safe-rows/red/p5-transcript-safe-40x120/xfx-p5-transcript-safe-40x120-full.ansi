@@ -1,0 +1,40 @@
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-07 01:40:18.370 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 01:40:18.486 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 63ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 01:40:18.307 UTC · Prompt[39m
+[38;5;255m┃[39m [1mshow the file[0m
+
+[38;5;245m  2026-11-07 01:40:18.414 UTC · Response[39m
+  Showing the file.
+
+[38;5;245m  2026-11-07 01:40:18.414 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
+├ Ran [38;5;252mprintf[39m [38;5;250m'%s\n'[39m [38;5;250m'A‮B​C﻿D [2JE F G'[39m [38;5;252m>[39m/dev/null[38;5;252m;[39m [38;5;252mcat[39m safe.txt [38;5;245m#  [39m
+│[38;5;245m  command: printf '%s\n' 'A‮B​C﻿D [2JE F    G' >/dev/null; cat safe.txt #[39m
+│[38;5;245m a‮b​c﻿d [2Je f    g[39m
+│[38;5;245m over[39m
+│[38;5;245m X[39m
+
+[38;5;245m  2026-11-07 01:40:18.414 UTC · Tool[39m
+└ Read safe.txt
+│[38;5;245m  1    a‮b​c﻿d [2Je f    g[39m
+│[38;5;245m  2    overX[39m
+
+[38;5;245m  2026-11-07 01:40:18.522 UTC · Response[39m
+  Shown.
+
+[38;5;245m  2026-11-07 01:40:18.522 UTC · Usage[39m
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

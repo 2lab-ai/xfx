@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-56979c5 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mshow the file[0m
+
+  Showing the file.
+
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
+[38;5;245m├ Ran [38;5;252mprintf[38;5;245m [38;5;250m'%s\n'[38;5;245m [38;5;250m'A‮B​C﻿D [2JE F G'[38;5;245m [38;5;252m>[38;5;245m/dev/null[38;5;252m;[38;5;245m [38;5;252mcat[38;5;245m safe.txt #  [39m
+[38;5;245m└ Read safe.txt[39m
+
+  Shown.
+
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
