@@ -1,0 +1,116 @@
+diff --git a/src/mcp/transport.rs b/src/mcp/transport.rs
+index 9ebc492..fa4aa4d 100644
+--- a/src/mcp/transport.rs
++++ b/src/mcp/transport.rs
+@@ -369,6 +369,9 @@ impl Input {
+     ) -> Result<(), Unsent> {
+         let mut line = frame.to_string();
+         line.push('\n');
++        if let Some(ms) = std::env::var("XFX_RED_SLOW_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
++            std::thread::sleep(Duration::from_millis(ms));
++        }
+         let mut pipe = self.take(deadline, cancel)?;
+         let sent = self.push(&mut pipe, line.as_bytes(), deadline, cancel, Instant::now);
+         let intact = matches!(sent, Ok(()) | Err(Unsent::Held(_)));
+@@ -428,6 +431,7 @@ impl Input {
+             if self.closed.load(Ordering::Acquire) {
+                 return Err(Unsent::Closed);
+             }
++            let cancel = if std::env::var_os("XFX_RED_IGNORE_CANCEL").is_some() { None } else { cancel };
+             if let Some(err) = stopped(now(), deadline, cancel) {
+                 return Err(if written == 0 && !refused {
+                     Unsent::Held(err)
+@@ -470,6 +474,11 @@ impl Input {
+     /// waited for: it sees the close at its next look and lets the pipe go.
+     fn close(&self) {
+         let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
++        if std::env::var_os("XFX_RED_CLOSE_WAITS").is_some() {
++            while slot.taken {
++                slot = self.free.wait(slot).unwrap_or_else(PoisonError::into_inner);
++            }
++        }
+         self.closed.store(true, Ordering::Release);
+         let pipe = slot.pipe.take();
+         drop(slot);
+@@ -1941,6 +1950,81 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
+         assert_eq!(result, Err(McpError::Named("McpConnectionClosed")));
+     }
+ 
++    #[cfg(unix)]
++    #[test]
++    fn old_a_request_to_a_server_that_never_reads_stops_at_its_cancellation() {
++        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
++        let cancel = CancelToken::new();
++        let caller = Arc::clone(&transport);
++        let token = cancel.clone();
++        let (done, finished) = mpsc::channel();
++        std::thread::spawn(move || {
++            let result = caller.request(
++                "tools/call",
++                oversized_call(),
++                Duration::from_secs(120),
++                Some(&token),
++            );
++            let _ = done.send(result);
++        });
++        std::thread::sleep(Duration::from_millis(300));
++        cancel.cancel();
++        let result = finished.recv_timeout(Duration::from_secs(20)).expect(
++            "the request outlived its cancellation: its write to the full pipe does not look",
++        );
++        assert_eq!(result, Err(McpError::Named("Cancelled")));
++        // Part of the frame went: the connection is over.
++        assert!(!transport.alive());
++        assert_eq!(
++            transport.request("ping", json!({}), Duration::from_secs(1), None),
++            Err(McpError::Named("McpConnectionClosed"))
++        );
++        transport.close();
++        assert_gone(leader, "the server");
++        assert_gone(grandchild, "the server's grandchild");
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn old_close_stops_a_server_that_never_reads_while_a_write_to_it_is_blocked() {
++        let (transport, (leader, grandchild), _dir) = deaf_server(DEAF);
++        let caller = Arc::clone(&transport);
++        let (done, finished) = mpsc::channel();
++        std::thread::spawn(move || {
++            let result = caller.request(
++                "tools/call",
++                oversized_call(),
++                Duration::from_secs(120),
++                None,
++            );
++            let _ = done.send(result);
++        });
++        // The request is registered, and then a moment for its write to fill
++        // the pipe and block.
++        let deadline = Instant::now() + Duration::from_secs(60);
++        while transport
++            .pending
++            .lock()
++            .unwrap_or_else(PoisonError::into_inner)
++            .is_empty()
++        {
++            assert!(Instant::now() < deadline, "the request never started");
++            std::thread::sleep(Duration::from_millis(5));
++        }
++        std::thread::sleep(Duration::from_millis(300));
++        let closer = Arc::clone(&transport);
++        let ((), took) = within(Duration::from_secs(20), move || closer.close()).expect(
++            "close never returned: it waits for the input a blocked write holds, and the server runs on",
++        );
++        assert!(took < STOP_GRACE + Duration::from_secs(5), "took {took:?}");
++        assert_gone(leader, "the server");
++        assert_gone(grandchild, "the server's grandchild");
++        let result = finished
++            .recv_timeout(Duration::from_secs(20))
++            .expect("the request outlived close");
++        assert_eq!(result, Err(McpError::Named("McpConnectionClosed")));
++    }
++
+     #[cfg(unix)]
+     #[test]
+     fn a_server_that_asks_and_never_reads_the_answers_cannot_hold_close() {
