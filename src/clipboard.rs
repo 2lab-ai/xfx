@@ -927,17 +927,35 @@ mod tests {
         #[test]
         #[cfg(target_os = "macos")]
         fn a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure() {
+            // The deadline counts from the tool's start (`run`), and so does
+            // this case's clock: the start itself -- which waits out any other
+            // start in the process (`SPAWNING`) -- is in neither. Before, the
+            // clock began ahead of the copy, so a slow start elsewhere could
+            // use up its ten seconds (FLAKE-COPYEND r2).
             let tool = FakeTool::keeping();
             tool.hang();
+            let copying = {
+                let clipboard = tool
+                    .clipboard()
+                    .waiting(std::time::Duration::from_millis(200));
+                std::thread::spawn(move || clipboard.copy_file(std::path::Path::new(REPORT)))
+            };
+            // A tool killed at its deadline before it got as far as saying
+            // who it is leaves nothing to time from: the copy is over first.
+            until(|| copying.is_finished() || tool.hung().is_some());
             let started = std::time::Instant::now();
-            assert!(!tool
-                .clipboard()
-                .waiting(std::time::Duration::from_millis(200))
-                .copy_file(std::path::Path::new(REPORT)));
+            let pid = tool.hung();
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a copy past its deadline was a success"
+            );
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(10),
                 "the copy waited for a tool that never answered"
             );
+            if let Some(pid) = pid {
+                assert!(!FakeTool::alive(pid), "the tool outlived its deadline");
+            }
         }
 
         /// Waits, up to a minute, until `ready` says so: a fresh fake tool is
@@ -1305,17 +1323,21 @@ pub(crate) mod fake {
             // (`tests/e2e/tui-command-permissions.test.ts:1842-1845`); `exec`
             // so a deadline's kill reaches the `sleep` and leaves nothing.
             let osascript = dir.path().join("osascript");
-            std::fs::write(
-                &osascript,
+            let body = format!(
                 concat!(
                     "#!/bin/sh\n",
-                    "if [ -f \"${0%/*}/fail\" ]; then exit 1; fi\n",
-                    "if [ -f \"${0%/*}/hang\" ]; then echo $$ > \"${0%/*}/hung\"; exec sleep 30; fi\n",
+                    "if [ -f \"${{0%/*}}/fail\" ]; then exit 1; fi\n",
+                    "if [ -f \"${{0%/*}}/hang\" ]; then echo $$ > \"${{0%/*}}/hung\"; exec sleep 30; fi\n",
+                    "if [ -f \"${{0%/*}}/gated\" ]; then\n",
+                    "echo $$ > \"${{0%/*}}/hung\"\n",
+                    "{gate}",
+                    "fi\n",
                     "for arg in \"$@\"; do last=$arg; done\n",
-                    "printf '%s' \"$last\" > \"${0%/*}/copied-file\"\n",
+                    "printf '%s' \"$last\" > \"${{0%/*}}/copied-file\"\n",
                 ),
-            )
-            .expect("write a fake osascript");
+                gate = Self::gate()
+            );
+            std::fs::write(&osascript, body).expect("write a fake osascript");
             std::fs::set_permissions(&osascript, std::fs::Permissions::from_mode(0o755))
                 .expect("make it executable");
             Self { dir }
@@ -1435,6 +1457,12 @@ pub(crate) mod fake {
         /// Makes every file copy from now on wait far past any deadline.
         pub(crate) fn hang(&self) {
             std::fs::write(self.path("hang"), "").expect("arm the wait");
+        }
+
+        /// Makes every file copy from now on say who it is ([`Self::hung`])
+        /// and wait at the gate ([`Self::gate`]) before it keeps its path.
+        pub(crate) fn gate_file_copies(&self) {
+            std::fs::write(self.path("gated"), "").expect("arm the gate");
         }
 
         /// The process id of the last tool that hung -- a file copy armed

@@ -304,20 +304,23 @@ mod tests {
 
     #[test]
     fn an_ending_session_joins_a_report_whole_and_gives_its_copy_up() {
-        // Quit at once after `/trace`, with a clipboard tool that never
-        // answers: the shell's drop joins the report's thread, the report is
-        // on disk whole, and the tool is killed rather than waited for.
+        // Quit at once after `/trace`, with a clipboard tool that answers
+        // only once its gate is opened, which nothing does: the shell's drop
+        // joins the report's thread, the report is on disk whole, and the
+        // tool is given up rather than waited for. An end that waited for it
+        // would wait until the gate gave up, and fail on that. No clock: the
+        // end's time holds the report's write and the copy's wait for another
+        // start (`SPAWNING`), which a bound of GRACE + 10 s counted
+        // (FLAKE-COPYEND r2).
         let tool = FakeTool::keeping();
-        tool.hang();
+        tool.gate_file_copies();
         let dir = tempfile::tempdir().expect("a report directory");
         let traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
         assert!(traces.start(job(TraceFacts::default())));
-        let ending = Instant::now();
         drop(traces);
-        let took = ending.elapsed();
         assert!(
-            took < super::super::copy::GRACE + Duration::from_secs(10),
-            "the end waited on the tool: {took:?}"
+            !tool.gave_up(),
+            "the end waited on the tool until its gate gave up"
         );
         let written: Vec<PathBuf> = std::fs::read_dir(dir.path())
             .expect("the directory")
@@ -335,6 +338,7 @@ mod tests {
         if let Some(pid) = tool.hung() {
             assert!(!FakeTool::alive(pid), "the tool outlived the session");
         }
+        assert_eq!(tool.copied_file(), None, "a copy given up landed");
     }
 
     #[test]
