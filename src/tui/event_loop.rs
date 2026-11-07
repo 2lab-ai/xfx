@@ -13404,4 +13404,188 @@ mod tests {
         assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
         assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
     }
+
+    /// Every SGR a frame wrote that names a colour in the direct notation
+    /// (`38;2;...`, `48;2;...`): none, as fx's builtins are `38;5` at every
+    /// depth.
+    fn direct_colours(written: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for (index, _) in written.match_indices("\u{1b}[") {
+            let rest = &written[index + 2..];
+            let Some(end) = rest.find(|c: char| c.is_ascii_alphabetic()) else {
+                continue;
+            };
+            if rest.as_bytes()[end] != b'm' {
+                continue;
+            }
+            let params: Vec<&str> = rest[..end].split(';').collect();
+            if params
+                .windows(2)
+                .any(|pair| matches!(pair, ["38" | "48", "2"]))
+            {
+                found.push(rest[..end].to_string());
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys() {
+        // Train 4's join of MCP-E and TC-NOTATION: a stdio server that meets
+        // fx's `server/discover` probe as a 2026-07-28 server (MCP-E's era,
+        // `tests/support/mcp_discover_fixture.sh` `modern`), its version as
+        // `/mcp show` says it (a neutral notice, `mcp::command::show`) and as
+        // the `/mcp` menu's server screen says it (`protocol`, `fact_row`),
+        // written by the frame and drawn again across a theme switch. Every
+        // grey there is spelt `38;5`, fx's literal (`theme.zig:75-159`
+        // `@481104fd`): the notice grey 250 dark, 241 light, and the menu's
+        // dim label 247 light. The palette is a mode and nothing else, and the
+        // launch reads `COLORTERM` for the Ultra mark alone (`tui::run`), so
+        // this palette is the one a truecolor launch builds too.
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/mcp_discover_fixture.sh");
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().join("work");
+        std::fs::create_dir(&root).expect("the workspace directory");
+        let xfx = home.path().join(".xfx");
+        std::fs::create_dir(&xfx).expect("~/.xfx");
+        let profile = xfx.join("mcp.json");
+        let entry = serde_json::json!({
+            "command": "/bin/sh",
+            "args": [&fixture],
+            "env": {"MCP_DISCOVER_MODE": "modern"},
+        });
+        std::fs::write(
+            &profile,
+            serde_json::json!({"mcpServers": {"probe": entry}}).to_string(),
+        )
+        .expect("the profile");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(profile),
+            settings: Some(xfx.join("settings.json")),
+            workspace: root.clone(),
+        });
+        runtime.start_and_wait(Duration::from_secs(60));
+        // The startup reload is over; the server's connection is its own
+        // thread's: up to a minute for a state correct code reaches at once.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let view = loop {
+            let view = runtime
+                .views()
+                .into_iter()
+                .find(|view| view.name == "probe")
+                .expect("the server");
+            if !matches!(
+                view.connection,
+                crate::mcp::runtime::Connection::Connecting
+                    | crate::mcp::runtime::Connection::Retrying
+            ) {
+                break view;
+            }
+            assert!(Instant::now() < deadline, "never settled: {view:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(
+            view.protocol_version.as_deref(),
+            Some("2026-07-28"),
+            "not served in its era: {view:?}"
+        );
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            &root,
+        )
+        .expect("load a configuration");
+        let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 120, 1).expect("a band"),
+                crate::tui::theme::Palette {
+                    mode: crate::tui::theme::Mode::Dark,
+                },
+                false,
+                work.with_mcp(std::sync::Arc::clone(&runtime)),
+            )
+            .anchored(),
+            _work,
+            _control,
+            _home: home,
+            _workspace: workspace,
+        };
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        tick(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+        );
+
+        // Frames until one has written `needle`, the MCP runtime's answer
+        // being another thread's: what every frame wrote, in order.
+        let until = |shell: &mut Fixture,
+                     band: &mut Band,
+                     out: &mut FlakyScreen,
+                     failures: &mut FrameFailures,
+                     needle: &str| {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut written = String::new();
+            while !written.contains(needle) {
+                assert!(
+                    Instant::now() < deadline,
+                    "never written: {needle:?}\n{written:?}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+                shell.settle_band(Instant::now());
+                written.push_str(&tick(shell, band, out, failures, Instant::now()));
+            }
+            written
+        };
+
+        shell.route_read(b"/mcp show probe\r");
+        let shown = until(&mut shell, &mut band, &mut out, &mut failures, "2026-07-28");
+        assert_eq!(
+            fg_spelt(&shown, "version    2026-07-28").as_deref(),
+            Some("38;5;250"),
+            "{shown:?}"
+        );
+        assert_eq!(direct_colours(&shown), Vec::<String>::new(), "{shown:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+        );
+        assert_eq!(
+            fg_spelt(&light, "2026-07-28").as_deref(),
+            Some("38;5;241"),
+            "the version row was not drawn again in the light notice grey: {light:?}"
+        );
+        assert_eq!(direct_colours(&light), Vec::<String>::new(), "{light:?}");
+
+        shell.route_read(b"/mcp\r");
+        shell.settle_band(Instant::now() + Duration::from_secs(1));
+        // An Enter more than `MCP_ENTER_HELD` after the one before it.
+        std::thread::sleep(Duration::from_millis(600));
+        shell.route_read(b"\r");
+        let server = until(&mut shell, &mut band, &mut out, &mut failures, "protocol");
+        assert_eq!(
+            shell.mcp_screen(),
+            Some(super::super::mcp_menu::Screen::Server)
+        );
+        assert!(server.contains("2026-07-28"), "{server:?}");
+        assert_eq!(
+            fg_spelt(&server, "protocol").as_deref(),
+            Some("38;5;247"),
+            "{server:?}"
+        );
+        assert_eq!(direct_colours(&server), Vec::<String>::new(), "{server:?}");
+        runtime.shutdown();
+    }
 }
