@@ -15,6 +15,8 @@ A claim with no log is marked *(not measured here)* with its source.
   `fff83c06`. Line numbers in the round 2 sections are at `fff83c06`.
 - **Round 2b:** the tests at `582007b0` (on `d6760929`), the fixes at
   `4a95372f`. Line numbers in the round 2b section are at `4a95372f`.
+- **Round 2c:** the tests at `c00d2bb3` (on `625abcf1`), the fix at
+  `16c115c1`. Line numbers in the round 2c section are at `16c115c1`.
 
 **The goal:** no environment or config a caller inherits can make a CI gate
 read anything but the repository it is checking, pass a violation, or write
@@ -336,11 +338,14 @@ their own, and in a linked worktree of that (`.git` a file). Rows from
 
 Round 2's `--work-tree=.` made it: git found the parent's repository, its
 paths resolved inside `vendor/xfx`, where none exists, and `git grep`
-skipped each one. The fix (`check-xfx-identity.sh:228-239`): the first git
-call runs with `GIT_CEILING_DIRECTORIES` at the parent of the script's root,
-so git looks for a repository at the root and no higher. A `.git` directory
-or file there passes; a vendored copy is refused by name rather than
-scanned, since the gate speaks only for the checkout it is in.
+skipped each one. The 2b fix (`check-xfx-identity.sh:228-239` at
+`4a95372f`): the discovery call for the checkout -- the first git call on
+it; the controls run git earlier, on their own repositories -- ran with
+`GIT_CEILING_DIRECTORIES` at the parent of the script's root. That held for
+the layouts in this table: the copy reached by its own path is refused by
+name, and a `.git` directory or file at the root still passes. It did not
+hold for a root reached through a symlink, a `:` in the parent's path, or
+a path in another case: round 2c below replaces it.
 
 Cases (`test-gate-env.sh:492-510`): `identity-vendored` requires that
 refusal, and `identity-linked-worktree` requires a linked worktree still to
@@ -428,6 +433,100 @@ one included.
     `identity-skip-worktree`;
   - `build-rs-watches-the-main-head` → `build-script-linked-worktree`.
 
+## Round 2c
+
+Both round 2b reviews found the same leftover: the ceiling is compared by
+path, and git's path is not the script's. `discovery-probe.sh` runs the
+identity script on the vendored copy reached four ways, on an own checkout
+reached four ways, and on an entry with both index bits
+(`runs-r2c-*.txt`: `the identity script at ...`).
+
+| at `625abcf1` | macOS | Linux |
+|---|---|---|
+| vendored, by its own path | exit 1, refused | exit 1, refused |
+| vendored, through a symlink to its root | **exit 0** | **exit 0** |
+| vendored, a `:` in the parent's path | **exit 0** | **exit 0** |
+| vendored, by a path in another case | **exit 0** | no such path (the file system does not fold case) |
+| own checkout, by its path, a symlink, another case, a linked worktree | exit 1, the residue named | the same, without the case row |
+| both index bits (`ls-files -v` tag `s`) | only the skip-worktree remedy | the same |
+
+Why each one passed (git's handling of the ceiling from its documentation
+and the reviewers' reading of its source; the rows are what was measured):
+- Git compares the ceiling with its physical working directory. Through a
+  symlink to the root, the ceiling is the link's parent, which lies above
+  the parent repository, so the walk reaches that repository first.
+- With a path in another case, the ceiling has the case the path was given
+  in. Git's working directory comes from `getcwd`, which has the disk's
+  case (the probe's last line). The exit 0 row shows that the two did not
+  match.
+- `GIT_CEILING_DIRECTORIES` is colon-separated, with no escaping.
+
+**Why not `pwd -P`.** It fixes the symlink row, but not the case row:
+bash's `pwd -P` keeps the case it was given, while the system's `getcwd`
+gives the disk's (`discovery-probe.sh`'s last two lines, macOS). And no
+spelling of the path fixes the `:` row.
+
+**The fix** (`check-xfx-identity.sh:228-250`): no ceiling, and a check
+that does not compare paths. Git discovers the repository from the root
+(`rev-parse --absolute-git-dir`). That repository must be the same file
+(`-ef`: device and inode) as the one the root's own `.git` names
+(`git --git-dir=<root>/.git rev-parse --absolute-git-dir`). A linked
+worktree's or submodule's `.git` file names its own repository. A copy with
+no `.git` fails the second command and is refused by name. The refusal
+prints the repository git found.
+
+An entry with both bits is now listed under both refusals (`:275-279`).
+Setting the two bits takes two `update-index` calls: one call with both
+options set only the last (`identity-both-bits`'s comment).
+
+| at `16c115c1` | macOS | Linux |
+|---|---|---|
+| vendored, every row | exit 1, `not a git checkout of its own` | the same, without the case row |
+| own checkout, every row | exit 1, the residue named | the same |
+| both index bits | both remedies | both remedies |
+
+Cases (`test-gate-env.sh:498-551`):
+- `identity-vendored-symlink`, `identity-vendored-colon` and
+  `identity-vendored-miscased` require the refusal.
+- `identity-own-symlink` and `identity-own-miscased` require an own
+  checkout reached those ways still to be scanned.
+- `identity-both-bits` requires `git update-index --no-assume-unchanged` in
+  the refusal.
+- The two `-miscased` cases need a file system that folds case. Elsewhere
+  they print `skip` and are not counted.
+
+`test-gate-env.sh` (`runs-r2c-*.txt`):
+
+| at | macOS | Linux |
+|---|---|---|
+| `625abcf1` | 48 pass | 48 pass |
+| `c00d2bb3` (the new cases, the gates at `625abcf1`) | `4 problem(s), 50 case(s) passed`: both-bits, symlink, colon, miscased | `3 problem(s), 49 case(s) passed`, the two miscased skipped |
+| `16c115c1` | 54 pass | 52 pass, the two miscased skipped |
+
+The `identity-own-*` cases pass at `625abcf1` too: they hold the fix to
+scanning an own checkout however it is reached.
+
+Mutants, each on a `--no-local` clone at `16c115c1`, after a control run
+that passed:
+- `mutants-r2c-linux.txt` (Linux): 22 mutants. 21 ran: the miscased cases
+  skip there, so `identity-own-check-by-path`, which only they catch, is
+  skipped too. 20 caught, 1 OTHER.
+  - The OTHER was `identity-reads-flagged-entries`. Taking the refusal out
+    also failed `identity-both-bits`, which its expected set did not name.
+  - With the set widened (the reason is in `mutants-r2c.py`), that mutant
+    alone was run again: caught (`mutants-r2c-linux-rerun.txt`).
+- `mutants-r2c-macos.txt` (macOS, case folded): 3 of 3, the ones the
+  miscased cases decide:
+  - `identity-no-own-check` → the four `identity-vendored*` cases;
+  - `identity-ceiling-instead` (2b's fix put back) → symlink, colon and
+    miscased, but not `identity-vendored`, which 2b's fix did hold;
+  - `identity-own-check-by-path` (`!=` on the two paths in place of `-ef`)
+    → `identity-own-miscased`: compared as paths, an own checkout reached
+    in another case would be refused.
+- The new mutants beside those: `identity-both-bits-one-list` →
+  `identity-both-bits`. `identity-walks-up-to-a-parent` (2b's) is gone with
+  the ceiling it took out.
+
 ## Gates
 
 `gates-code.txt` (`gates.sh`, the worktree at `fff83c06`), all exit 0:
@@ -451,13 +550,20 @@ same list; `check-no-secrets` and `check-xfx-identity` over 12 140 files,
 still run there on its own, as a local gate. `gates-receipt-r2b.txt` is the
 tree-reading gates at the 2b receipt commit.
 
+Round 2c, the four tree-reading gates (`check-no-secrets`,
+`check-xfx-identity`, `check-no-stubs`, `check-preview-contract`): exit 0 at
+`16c115c1` (`gates-code-r2c.txt`) and at the receipt commit
+(`gates-receipt-r2c.txt`). `test-gate-env.sh` at `16c115c1` is in
+`runs-r2c-*.txt`.
+
 ## Files
 
 - **Tools:** `inventory.sh`, `gitenv-sweep.sh`, `hook-probe.sh`, `runs.sh`,
   `py-runs.sh`, `mutants.py`, `mutants-py.py` (round 1); `r2-probes.sh`,
   `runs-r2.sh`, `mutants-r2.py` (round 2); `vendored-probe.sh`,
   `runs-r2b.sh`, `mutants-r2b.py`, `row-time.sh`, `row-time-rounds.sh`
-  (round 2b); `gates.sh` and `publish.py`.
+  (round 2b); `discovery-probe.sh`, `runs-r2c.sh`, `mutants-r2c.py` (round
+  2c); `gates.sh` and `publish.py`.
 - **Logs:** the `.txt` files. Round 2 rewrote `inventory.txt` and
   `gates-code.txt` at `fff83c06`; round 1's are in git at `2c8fbc64`.
   `r2-base-macos.txt` ran an earlier `r2-probes.sh`, before its index-bit,
