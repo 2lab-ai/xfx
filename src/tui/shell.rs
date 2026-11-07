@@ -27799,6 +27799,90 @@ mod tests {
     }
 
     #[test]
+    fn an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once() {
+        // Train 2's seam: the channel spells every call's reason as a
+        // command's row spells it (CALLROW-SAFE, `toolgroup::flattened`: fx's
+        // `encodeTerminalSafe` set), and an MCP call's row then spells a
+        // server's words with the wider set `crate::mcp::terminal_safe`
+        // names -- U+FE0F, U+00AD and the rest the channel leaves as they are
+        // -- under its own 256-byte bound. That second bound must not fall
+        // inside an escape the channel wrote: the row is what the MCP row
+        // makes of the server's words in one pass (`mcp::terminal_safe` over
+        // them, white space made one space), inline and on Ctrl-O. A reason
+        // that is white space alone is no reason, as fx's is none
+        // (`failureStatusDetail`, `src/core/agent/runtime/
+        // tool_presentation.zig:1490-1493@481104fd`, and `:1283`): `Failed
+        // mcp_web_echo`, no `: `.
+        fn one_pass(reason: &str) -> String {
+            let words: Vec<&str> = reason
+                .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .filter(|word| !word.is_empty())
+                .collect();
+            crate::mcp::terminal_safe(&words.join(" "))
+        }
+        fn failed_mcp_rows(reason: &str) -> (Vec<String>, Vec<String>) {
+            let mut live = shell(40, 300);
+            live.route_bytes(b"echo\r");
+            let _ = live.picks_up();
+            live.apply(UiEvent::TurnStarted.made_inert());
+            live.apply(
+                UiEvent::ToolStart {
+                    call_id: "m".to_string(),
+                    tool: "mcp_web_echo".to_string(),
+                    shown: crate::tools::mcp::shown("mcp_web_echo"),
+                }
+                .made_inert(),
+            );
+            live.apply(
+                UiEvent::ToolResult {
+                    call_id: "m".to_string(),
+                    tool: "mcp_web_echo".to_string(),
+                    ok: false,
+                    detail: reason.to_string(),
+                    outcome: CallOutcome::Finished,
+                    changes: None,
+                }
+                .made_inert(),
+            );
+            live.apply(UiEvent::Delta("Done.".to_string()));
+            live.apply(UiEvent::TurnEnded { failure: None });
+            live.shell.flush_paced();
+            let document = uncoloured_rows(&live.painted_document());
+            live.route_bytes(b"\x0f");
+            (document, uncoloured_rows(&live.screen_rows()))
+        }
+        // A literal backslash, a C0 control, an fx mark (U+202E), a soft
+        // hyphen (U+00AD) and a variation selector (U+FE0F) the channel
+        // leaves raw, then three escapes where the row's bound falls: the
+        // channel's text is 230 bytes, the row's would be 260.
+        let reason = format!(
+            "refused \\ by\t the\u{ad}\u{202e} server\u{7}: {}{}{}",
+            "A".repeat(155),
+            "\u{fe0f}".repeat(6),
+            "\u{1b}".repeat(3)
+        );
+        let spelled = one_pass(&reason);
+        assert!(spelled.ends_with("\\x1b..."), "{spelled}");
+        assert!(spelled.len() <= crate::mcp::TERMINAL_SAFE_MAX_BYTES);
+        let row = format!("\u{2514} Failed mcp_web_echo: {spelled}");
+        let (document, full) = failed_mcp_rows(&reason);
+        assert!(document.contains(&row), "{row}\n{document:#?}");
+        assert!(full.contains(&row), "{row}\n{full:#?}");
+        for blank in ["   ", " \t\r\n ", "\u{b}\u{c}"] {
+            let (document, full) = failed_mcp_rows(blank);
+            for rows in [&document, &full] {
+                assert!(
+                    rows.iter().any(|row| row == "\u{2514} Failed mcp_web_echo"),
+                    "{blank:?}: {rows:#?}"
+                );
+                assert!(!rows
+                    .iter()
+                    .any(|row| row.starts_with("\u{2514} Failed mcp_web_echo:")));
+            }
+        }
+    }
+
+    #[test]
     fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
         use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
         let cut_off = vec![

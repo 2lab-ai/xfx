@@ -244,10 +244,14 @@ impl Call {
     fn phrase(&self) -> String {
         let mut phrase = format!("{} {}", self.label(), self.target());
         match &self.state {
+            // A reason with nothing left once it is spelled is no reason, as
+            // fx's is none (`failureStatusDetail`, `src/core/agent/runtime/
+            // tool_presentation.zig:1490-1493@481104fd`, and `:1283`).
             State::Failed(reason) if self.calls_mcp() => {
+                let reason = server_spelled(reason);
                 if !reason.is_empty() {
                     phrase.push_str(": ");
-                    phrase.push_str(&server_spelled(reason));
+                    phrase.push_str(&reason);
                 }
             }
             State::Failed(reason) => {
@@ -850,17 +854,24 @@ impl Spelling {
 /// server's own (an `isError` result's text), so it is spelled as every text
 /// a server supplies is: upstream's `encodeTerminalSafeInline`
 /// (`vercel-labs/fx@481104fd src/core/shared/text_utils.zig:397-417`), ASCII
-/// white space flattened to one space and then [`crate::mcp::terminal_safe`]
-/// -- every other control and every invisible or bidirectional code point
-/// written out rather than dropped, and the length bounded. Since fx v0.0.16
-/// such a row carries its reason, where a command's row did not
+/// white space flattened to one space and then [`crate::mcp::terminal_safe`]'s
+/// tokens -- every other control and every invisible or bidirectional code
+/// point written out rather than dropped, and the length bounded. Since fx
+/// v0.0.16 such a row carries its reason, where a command's row did not
 /// (`fx-p5-mcp-live-40x120-failed` row 25).
+///
+/// The reason has already crossed the channel spelled as [`flattened`]
+/// spells every call's (`super::bridge`'s `made_inert`), which leaves raw
+/// some of what this names (U+FE0F, U+00AD, ...): so the bound is
+/// [`crate::mcp::terminal_safe_respelled`]'s, which keeps each escape the
+/// channel wrote whole and cuts between tokens, and the row is what one pass
+/// over the server's words makes of them.
 fn server_spelled(reason: &str) -> String {
     let words: Vec<&str> = reason
         .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
         .filter(|word| !word.is_empty())
         .collect();
-    crate::mcp::terminal_safe(&words.join(" "))
+    crate::mcp::terminal_safe_respelled(&words.join(" "))
 }
 
 #[cfg(test)]
@@ -1677,6 +1688,56 @@ mod tests {
             format!(
                 "{TEXT}\u{2514} Failed mcp_web_echo: MCP protocol error -32603: fixture refuses{RESET}"
             )
+        );
+    }
+
+    #[test]
+    fn an_mcp_reason_spelled_by_the_channel_is_cut_as_one_pass_cuts_the_raw_one() {
+        // Train 2's seam, at every cut point: the channel's spelling
+        // ([`flattened`]) and then the MCP row's ([`server_spelled`]) give
+        // what the row's spelling gives the server's words in one pass, for
+        // a reason whose escapes, marks and wider-set characters the 256-byte
+        // bound falls among, at every length from well under to well over it.
+        fn one_pass(reason: &str) -> String {
+            let words: Vec<&str> = reason
+                .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .filter(|word| !word.is_empty())
+                .collect();
+            crate::mcp::terminal_safe(&words.join(" "))
+        }
+        let tails = [
+            "\u{fe0f}\u{fe0f}\u{1b}\u{1b}\u{1b}x",
+            "\u{ad}\\\u{202e}\u{9b}\u{7f}\u{ad}y",
+            "\u{61c}\u{feff}\u{fe0f}\t\r\n\u{200b}\u{b}\u{3164}w",
+        ];
+        for tail in tails {
+            for n in 150..300 {
+                let raw = format!("lead \\ {}{tail}{tail}", "A".repeat(n));
+                let crossed = flattened(&raw);
+                let row = server_spelled(&crossed);
+                assert_eq!(row, one_pass(&raw), "{n} {tail:?}");
+                // Spelled twice it is the same: the row's text is a fixed
+                // point of its own spelling.
+                assert_eq!(server_spelled(&row), row);
+            }
+        }
+        // Text that only looks like an escape -- a server's literal `\x1b`
+        // -- is printable characters, which the channel's bound may cut as
+        // it cuts any text, and reads the same as an escape once spelled: the
+        // row keeps what reaches it within the bound, and spells it once.
+        for n in 150..300 {
+            let raw = format!(
+                "lead {}\\x1b\\u{{202e}}\u{fe0f}\u{1b}\\x7f\\u{{9b}}z",
+                "A".repeat(n)
+            );
+            let row = server_spelled(&flattened(&raw));
+            assert!(row.len() <= crate::mcp::TERMINAL_SAFE_MAX_BYTES, "{n}");
+            assert_eq!(server_spelled(&row), row);
+        }
+        // A backslash that begins no escape is a character like any other.
+        assert_eq!(
+            crate::mcp::terminal_safe_respelled("a\\xzz\\u{}b\\"),
+            "a\\xzz\\u{}b\\"
         );
     }
 
