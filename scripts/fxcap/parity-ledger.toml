@@ -502,16 +502,6 @@ why = "Ctrl-O's diff rows write as themselves, as fx v0.0.16 does, the scalars `
 resolution = "On Ctrl-O, in the inline transcript and in the composer alike. For the scalars it selects: fixed when the painter counts them as fx does, or the surface names them (a divergence from fx's bytes then). Counting as fx does cannot close the family it leaves out, where xfx's count is already fx's: only naming them closes it, as the review does (`approval_view` `tamed`); so for U+FE0F after a character that takes no emoji presentation."
 
 [[cause]]
-id = "frame-variation-selector-anchor"
-kind = "unit"
-owner = "ENGINE-VS-ANCHOR"
-scenarios = ["p5-transcript-diffwide2"]
-snaps = ["full"]
-fx_row = '[\ufe0e\ufe0f]'
-xfx_row = '[\ufe0e\ufe0f]'
-why = "fx v0.0.16's frame writes a cursor column (CHA) after every glyph whose cluster holds a variation selector, so the cells after it land where its grid put them on a terminal that draws the pair narrower or wider than fx counts (`95e6c8fd` \"Re-anchor the cursor after glyphs with a variation selector\", `disputed_width`, `src/core/terminal/engine.zig:2572@481104fd`, and the `ESC[<col>G` it sends, `:2586-2588@481104fd`; not at c1db9191). xfx's row writers (`src/tui/grid.rs`, `src/tui/frame.rs` `place`) write the run on, and the terminal places what follows by its own advance. `p5-transcript-diffwide2` `full` line 2: after `half` U+FFA0 U+FE0E, fx writes `ESC[42G` and tmux leaves three blank cells before `x` (fx counts the U+3164 and U+1160 before it three cells more than tmux draws), xfx's row runs on and its `x` is three cells left of where its grid holds it. Not a margin overrun; a later partial repaint of the row can leave a stale cell. Resolved when xfx's frame re-anchors after such a glyph, as fx's does. Read row 2 differed for a second reason as well until train 2: fx spells the U+200D after `zwj` U+FFA0 as `\\u{200d}` and xfx wrote it raw (WIDTH-DISPUTED's `green.txt:31`, and `red.txt:31` on round 2's build); T-U1-SAFE spells it as fx does, and the cause that named it, `ctrl-o-result-format-raw`, is deleted (.prd/tui-phase5/receipts/train-2/README.md), so this anchor is the row's one reason."
-
-[[cause]]
 id = "submit-multi-card-whole"
 kind = "decision"
 owner = "user decision multi-line card preview"
