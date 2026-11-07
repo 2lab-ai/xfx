@@ -4,9 +4,9 @@ v0.0.16 against xfx, report by report.
 usage: python3 -I -B osc.py <receipt-dir> <side> <sha7> [<scenario>]
 
 <side> is `xfx` (the build under the receipt), `red` (the base's), `prev`
-(the unit's first build, `743c5381`: `picker` only) or `prev2` (round 1's
-build, `eb90e677`: `autocompactfail` only); a <scenario> limits the run to
-it. Reads
+(the unit's first build, `743c5381`: `picker` only), `prev2` (round 1's
+build, `eb90e677`: `autocompactfail` only) or `prev3` (round 2's build,
+`7d8b2c10`, every scenario); a <scenario> limits the run to it. Reads
 `fx/<scenario>-40x120/fx-<scenario>-40x120-<label>.wire` and the same under
 <side>/ with the `xfx-` prefix. Every report is `ESC ] 7501 ; <body> ESC \\`
 with a body of printable ASCII; this file's own parser reads them -- it shares
@@ -46,6 +46,12 @@ The claims, per wire label:
   same     the reports, in order, decoded and normalized, are fx's.
   between  no report is inside a synchronized update a frame opened, on
            either side.
+  order    what each report follows is what fx's follows, report by report:
+           the nearest of a window title (`OSC 2`), a frame's `?2026h` or
+           `?2026l`, the mode set's `?2004h`, `?2004l` or another report --
+           and the first report is followed by what fx's first is followed
+           by. So the launch's `idle` is after the title and right ahead of
+           the first frame, and a resume's report after the resume's frame.
   clear    every `state=clear` follows `?2004l` immediately, on either side.
   last     on a wire that ends the session (an exit, a signal death), no
            introducer -- whole report or not -- follows the last clear, on
@@ -142,6 +148,33 @@ def inert(body):
     return None
 
 
+# What a report is placed against: a window title, a frame's opener or
+# closer, the mode set's `?2004h` and the restore's `?2004l`, another report.
+NEIGHBOUR = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07|\x1b\[\?2026[hl]|\x1b\[\?2004[hl]|\x1b\]7501;[\x20-\x7e]*\x1b\\")
+
+
+def neighbour(token):
+    if token.startswith(b"\x1b]2;"):
+        return "title"
+    if token.startswith(b"\x1b]7501;"):
+        return "report"
+    return {b"\x1b[?2026h": "?2026h", b"\x1b[?2026l": "?2026l", b"\x1b[?2004h": "?2004h", b"\x1b[?2004l": "?2004l"}[token]
+
+
+def placed(data):
+    """What each report follows, and what the first is followed by."""
+    tokens = [(m.start(), m.group(0)) for m in NEIGHBOUR.finditer(data)]
+    out = []
+    first_next = None
+    for i, (at, token) in enumerate(tokens):
+        if not token.startswith(b"\x1b]7501;") or token == b"\x1b]7501;state=clear\x1b\\":
+            continue
+        out.append(neighbour(tokens[i - 1][1]) if i else "(start)")
+        if first_next is None:
+            first_next = neighbour(tokens[i + 1][1]) if i + 1 < len(tokens) else "(end)"
+    return out, first_next
+
+
 def between(data, at):
     opened = data.rfind(b"\x1b[?2026h", 0, at)
     closed = data.rfind(b"\x1b[?2026l", 0, at)
@@ -196,6 +229,12 @@ def main():
                     failures.append("last %s %s %s: an introducer after the last clear" % (name, unit, label))
         a = [normalized(b) for _, b in reports(theirs)]
         b = [normalized(b) for _, b in reports(ours)]
+        (fx_after, fx_first), (our_after, our_first) = placed(theirs), placed(ours)
+        if len(fx_after) == len(our_after) and (fx_after != our_after or fx_first != our_first):
+            failures.append(
+                "order %s %s: fx's reports follow %s, the first followed by %s / %s's follow %s, the first followed by %s"
+                % (unit, label, fx_after, fx_first, side, our_after, our_first)
+            )
         mark = "same" if a == b else "DIFF"
         print("%-4s %-34s %-22s fx %2d  %s %2d  %s" % (mark, unit, label, len(a), side, len(b), " > ".join(b) or "(none)"))
         if a != b:

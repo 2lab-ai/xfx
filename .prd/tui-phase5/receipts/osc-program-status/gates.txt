@@ -1,10 +1,11 @@
-# P5 L-U1+U2 round 2. Every gate below ran on the tree of 7d8b2c106c85, the code the receipt
+# P5 L-U1+U2 round 2. Every gate below ran on the tree of afe7bda49d07, the code the receipt
 # names (the commits after it add .prd/ files only), one step at a time, TMPDIR=<tmp>/osc,
 # macOS. Paths are redacted: <worktree>, <tmp>, <scratch>. Logs: <scratch>/gates2/*.log.
 
-## summary.log (gates2.sh: fmt, clippy x2, test x2, identity, stubs, secrets, contract,
-## preflight-cost, fxcap test-sweep, release and faulty builds, smoke-tui)
-head 7d8b2c106c85d7262552e4ebe58dc47f6dc5774a
+## summary.log (gates3.sh: fmt, clippy x2, test x2, identity, stubs, secrets, contract,
+## preflight-cost, fxcap test-sweep, release and faulty builds and what each binary says it
+## was built from, smoke.sh, smoke-tui)
+head afe7bda49d0716df316485999270710087e89e46
 fmt exit=0
 clippy exit=0
 clippy-fi exit=0
@@ -18,7 +19,9 @@ preflight-cost exit=0
 test-sweep exit=0
 build-release exit=0
 build-faulty exit=0
-smoke-tui exit=1
+revision exit=0
+smoke exit=0
+smoke-tui exit=0
 gates-done
 
 ## fmt
@@ -26,150 +29,99 @@ gates-done
 
 ## clippy
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.98s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.78s
 
 ## clippy-fi
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.99s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.73s
 
-## test: 15 test binaries, 5186 passed, 0 failed, 7 ignored
-test result: ok. 4273 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 39.23s
+## test: 15 test binaries, 5193 passed, 0 failed, 7 ignored
+test result: ok. 4280 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 36.13s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
-test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
-test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.77s
-test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.10s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.66s
-test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
-test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.79s
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
-test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
-test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
-test result: ok. 177 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.86s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
-
-## test-fi: 15 test binaries, 5223 passed, 0 failed, 7 ignored
-test result: ok. 4296 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 39.13s
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.89s
-test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
-test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.85s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.77s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.03s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.83s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
 test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.10s
-test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
-test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.81s
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
-test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
-test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
-test result: ok. 191 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.20s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.43s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+test result: ok. 177 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.71s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+## test-fi: 15 test binaries, 5230 passed, 0 failed, 7 ignored
+test result: ok. 4303 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.58s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.22s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.24s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.40s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.57s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.51s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 191 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.30s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
 
 ## identity
-check-xfx-identity: ok (12211 tracked file(s) scanned)
+check-xfx-identity: ok (12212 tracked file(s) scanned)
 
 ## stubs
 check-no-stubs: ok
 
 ## secrets
-check-no-secrets: ok (12211 tracked file(s) scanned)
+check-no-secrets: ok (12212 tracked file(s) scanned)
 
 ## contract
 check-preview-contract: ok (.github/workflows/preview.yml)
 
 ## preflight-cost
-preflight 200x300 full: 61292 bytes in 1.90155ms mean, 1.869583ms min, 1.882417ms median, 2.189084ms max (budget 32 ms)
-preflight 200x300 scroll: 9 bytes in 847.729µs mean, 841.791µs min, 848.334µs median, 855.167µs max (budget 32 ms)
-preflight 200x300 update: 85420 bytes in 1.394643ms mean, 1.372667ms min, 1.384834ms median, 1.466917ms max (budget 32 ms)
-replay 24x80 1000 rows: 26000 bytes in 666.752µs mean, 652.167µs min, 657.083µs median, 795.291µs max (budget 8 ms)
-replay 200x300 1000 rows: 28000 bytes in 2.386089ms mean, 2.101708ms min, 2.365334ms median, 2.814ms max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.053333ms mean, 938.583µs min, 1.032167ms median, 1.163084ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 473.277µs mean, 453.958µs min, 471.458µs median, 506.125µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 621.597µs mean, 611.667µs min, 621.083µs median, 643.209µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 337.186µs mean, 327.416µs min, 332.458µs median, 366.5µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.203613ms mean, 1.153583ms min, 1.208583ms median, 1.2275ms max (budget 32 ms)
 check-tui-preflight-cost: ok
 
 ## test-sweep
 OK
 ..........................
 ----------------------------------------------------------------------
-Ran 26 tests in 15.984s
+Ran 26 tests in 14.025s
 
 OK
 
 ## smoke
+
 6. what was sent, and what was written down
   ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
 
 47 check(s), 0 failure(s)
-evidence: <tmp>/osc-smoke-cli
-exit=0
+evidence: <tmp>/osc-smoke-cli3
 
 ## build-release
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `release` profile [optimized] target(s) in 27.07s
+    Finished `release` profile [optimized] target(s) in 13.91s
 
 ## build-faulty
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `release` profile [optimized] target(s) in 36.71s
+    Finished `release` profile [optimized] target(s) in 15.63s
 
-## smoke-tui, run 1 (gates2.sh): exit 1, one scenario not driven
+## revision: `xfx status` of each binary (target/release/xfx, then target/faulty/release/xfx)
+[status] build_revision=afe7bda49d07
+[status] build_revision=afe7bda49d07
+
+## smoke-tui (gates3.sh)
 xfx smoke-tui
   binary:   <worktree>/target/release/xfx
   faulty:   <worktree>/target/faulty/release/xfx
-  evidence: <tmp>/osc-smoke2
-
-  0-oracle-falsification                ok
-  1-launch-and-band-ownership           ok
-  2-cursor-probe-and-scrollback-push    ok
-  3-restore-matrix                      FAIL
-          the scenario could not be driven (at 'sigtstp-and-cont'): the session never took the terminal back; it is still TerminalState(iflag=0x2b02 oflag=0x3 cflag=0x4b00 lflag=0x5cb vmin=b'\x01' vtime=b'\x00' size=(24, 80))
-      re-run: python3 <tmp>/osc-smoke2/helpers/scenarios.py 3-restore-matrix --binary <worktree>/target/release/xfx --faulty <worktree>/target/faulty/release/xfx --evidence <tmp>/osc-smoke2
-  3b-shutdown-drain                     ok
-  3c-partial-frame-containment          ok
-  3d-primary-band-recovery              ok
-  3e-alternate-repaint-recovery         ok
-  3f-job-control                        ok
-  3g-inherited-ignores                  ok
-  4-raw-mode-positively-entered         ok
-  5-editor-basics                       ok
-  6-soft-wrap-and-growth-cap            ok
-  7-multiline-and-paste-framing         ok
-  8-streaming-render                    ok
-  9-activity-row                        ok
-  10-approval-panel                     ok
-  10b-approval-mid-turn                 ok
-  11-ctrl-c-as-a-byte                   ok
-  12-theme-detection                    ok
-  13-cell-diff-correctness              ok
-  14-no-op-frame-skip                   ok
-  15-resize-reflow                      ok
-  16-slash-menu                         ok
-  17-history                            ok
-  17b-quit-and-resume                   ok
-  18-provider-switch                    ok
-  19-model-catalog-and-context-meter    ok
-  20-alternate-screen-approval          ok
-  21-paste-entities                     ok
-  22-edit-history                       ok
-  23-question-panel                     ok
-  23b-question-cancelled                ok
-  24-approval-readiness                 ok
-  25-amended-approval                   ok
-  26-layout-stabilization               ok
-  26b-composer-yield-to-panel           ok
-  27-live-theme-retint                  ok
-
-smoke-tui: 37 scenarios + the oracle, 1139 checks, 1 failures
-evidence: <tmp>/osc-smoke2
-
-## 3-restore-matrix alone, 3 runs on the same binaries (the re-run line above)
-restore-alone-1: rc=0 checks=48 problems=0
-restore-alone-2: rc=0 checks=48 problems=0
-restore-alone-3: rc=0 checks=48 problems=0
-
-## smoke-tui, run 2 (the same command, a fresh evidence dir): exit 0
-xfx smoke-tui
-  binary:   <worktree>/target/release/xfx
-  faulty:   <worktree>/target/faulty/release/xfx
-  evidence: <tmp>/osc-smoke3
+  evidence: <tmp>/osc-smoke5
 
   0-oracle-falsification                ok
   1-launch-and-band-ownership           ok
@@ -211,11 +163,45 @@ xfx smoke-tui
   27-live-theme-retint                  ok
 
 smoke-tui: 37 scenarios + the oracle, 1152 checks, 0 failures
-evidence: <tmp>/osc-smoke3
-exit=0
+evidence: <tmp>/osc-smoke5
+
+## the same gate on 303f0b3d, stopped after its test step failed (what 33dffa7c fixes)
+head 303f0b3d01a3f62efa99dee4296e710be9e1035c
+fmt exit=0
+clippy exit=0
+clippy-fi exit=0
+test exit=101
+test the_band_is_painted_under_the_welcome_inside_one_synchronized_frame ... FAILED
+thread 'the_band_is_painted_under_the_welcome_inside_one_synchronized_frame' (286693796) panicked at tests/tui.rs:2800:5:
+the window title is not the write right ahead of the first update: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\"
+test result: FAILED. 176 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.82s
+
+## the same gate on 33dffa7c (passed; the mutants then found the pty resume case vacuous)
+head 33dffa7c0bdca53e1f628d6dc4600bad757467e3
+fmt exit=0
+clippy exit=0
+clippy-fi exit=0
+test exit=0
+test-fi exit=0
+identity exit=0
+stubs exit=0
+secrets exit=0
+contract exit=0
+preflight-cost exit=0
+test-sweep exit=0
+build-release exit=0
+build-faulty exit=0
+revision exit=0
+smoke exit=0
+smoke-tui exit=0
+gates-done
+test: 15 test binaries, 5193 passed, 0 failed, 7 ignored
+test-fi: 15 test binaries, 5230 passed, 0 failed, 7 ignored
+smoke-tui: 37 scenarios + the oracle, 1152 checks, 0 failures
+evidence: <tmp>/osc-smoke5
 
 ## the fault-injection suite
-Round 2 (7d8b2c106c85): passed in full, 5223 passed, 0 failed (above).
+Round 3 (afe7bda49d07): 5230 passed, 0 failed (above).
 Round 1 (the tree of ecd4ace2: logs written 19:53-19:58, after ecd4ace2 at 19:45:38 and before
 the receipt commit 6b3a6b55 at 20:00:27) failed one test; its failing line and panic:
 test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... FAILED
@@ -233,7 +219,8 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4299 filtered out; f
 base 24a6b91: pass = 52 / 97 = 53.6%; unresolved 44, failed 0, timeout 0
 743c538: pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
 eb90e67: pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
-7d8b2c1 (this receipt): pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
+7d8b2c1: pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
+33dffa7 (this receipt's product code): pass = 51 / 97 = 52.6%; unresolved 45, failed 0, timeout 0
 
 per-pair, against base (97 pairs):
   743c538: 97 shared pairs, 53 pass; gained 1, lost 0, other verdict changes 0; pairs only here 0, only in base 0
@@ -242,14 +229,18 @@ per-pair, against base (97 pairs):
     gained p5-lifecycle-retryok/k01-1.5s: unresolved-defect -> normalized-identical
   7d8b2c1: 97 shared pairs, 53 pass; gained 1, lost 0, other verdict changes 0; pairs only here 0, only in base 0
     gained p5-lifecycle-retryok/k01-1.5s: unresolved-defect -> normalized-identical
+  33dffa7: 97 shared pairs, 51 pass; gained 0, lost 1, other verdict changes 0; pairs only here 0, only in base 0
+    LOST   p5-lifecycle-retryok/k00-0.5s: normalized-identical -> unresolved-defect
 
 xfx banners in each sweep's scoreboard.json (one per run):
   sweep-base: ['x𝒇x v0.1.0-24a6b91 [debug] · Run /help for commands'] 30 scenarios
   sweep-head-743c538: ['x𝒇x v0.1.0-743c538 [debug] · Run /help for commands'] 30 scenarios
   sweep-head-eb90e677: ['x𝒇x v0.1.0-eb90e67 [debug] · Run /help for commands'] 32 scenarios
-  sweep-head: ['x𝒇x v0.1.0-7d8b2c1 [debug] · Run /help for commands'] 33 scenarios
+  sweep-head-7d8b2c1: ['x𝒇x v0.1.0-7d8b2c1 [debug] · Run /help for commands'] 33 scenarios
+  sweep-head: ['x𝒇x v0.1.0-33dffa7 [debug] · Run /help for commands'] 33 scenarios
 
-The one pair that moved, on the base run (sweep-base/diffs/p5-lifecycle-retryok/k01-1.5s.diff, lines 1-7):
+The pairs that moved are all p5-lifecycle-retryok, and on each the difference is fx's own row.
+On the base run (sweep-base/diffs/p5-lifecycle-retryok/k01-1.5s.diff, lines 1-7):
   # p5-lifecycle-retryok k01-1.5s: unresolved-defect
   # 4 rows differ by position; aligned as sequences, 3 fx rows and 3 xfx rows have no match
   # aligned: every row left without a match, and what accounts for it
@@ -257,11 +248,27 @@ The one pair that moved, on the base run (sweep-base/diffs/p5-lifecycle-retryok/
   #   [1] xfx  5:   RECOVERED-ANSWER. -> UNCOVERED
   #   [1] xfx  6:  -> UNCOVERED
   #   [1] xfx  7:   <wall> (↑4 ↓40) -> UNCOVERED
+On the 33dffa7 run (sweep-head/diffs/p5-lifecycle-retryok/*.diff, lines 1-5 each):
+  # p5-lifecycle-retryok k00-0.5s: unresolved-defect
+  # 1 rows differ by position; aligned as sequences, 1 fx rows and 1 xfx rows have no match
+  # aligned: every row left without a match, and what accounts for it
+  #   [1] fx   5: ⚠ Provider unavailable · HTTP 503 · Synthetic unavailable · retrying request -> UNCOVERED
+  #   [1] xfx  5: ⚠ Provider unavailable · HTTP 503 · Synthetic unavailable · retrying request in 1s -> UNCOVERED
+  # p5-lifecycle-retryok k01-1.5s: unresolved-defect
+  # 4 rows differ by position; aligned as sequences, 3 fx rows and 3 xfx rows have no match
+  # aligned: every row left without a match, and what accounts for it
+  #   [1] fx   5: ⚠ Provider unavailable · HTTP 503 · Synthetic unavailable · retrying request in 1s -> UNCOVERED
+  #   [1] xfx  5:   RECOVERED-ANSWER. -> UNCOVERED
 
-smoke-tui run 1's failure is the harness's 20 s wait for raw mode after SIGCONT
-(scripts/smoke-tui.sh:2482 WAIT, wait_until_raw :3496-3511). On that path the loop re-enters raw mode
-(super::resume, src/tui/mod.rs:735-743, called at src/tui/event_loop.rs:628) before anything this unit
-added runs (adopt_resume, event_loop.rs:639). git diff --stat 24a6b912 7d8b2c10 -- src/tui/signals.rs
-src/tui/mod.rs lists mod.rs alone (3 lines: `mod program_status;` and the announce's
-`clears_status: false`); signals.rs is unchanged.
+p5-lifecycle-retryok alone against the 33dffa7 build, three times (sweep.sh --jobs 1 --only p5-lifecycle-retryok):
+  run 1: pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0 [('k00-0.5s', 'normalized-identical'), ('k01-1.5s', 'normalized-identical'), ('k02-4.5s', 'normalized-identical')]
+  run 2: pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0 [('k00-0.5s', 'normalized-identical'), ('k01-1.5s', 'normalized-identical'), ('k02-4.5s', 'normalized-identical')]
+  run 3: pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0 [('k00-0.5s', 'normalized-identical'), ('k01-1.5s', 'normalized-identical'), ('k02-4.5s', 'normalized-identical')]
+
+Product code: the sweep's build is 33dffa7c's; what changed after it, outside .prd/:
+  git diff --stat 33dffa7c afe7bda4 -- . ':(exclude).prd':
+     tests/tui.rs | 4 +++-
+     1 file changed, 3 insertions(+), 1 deletion(-)
+  git diff --stat 33dffa7c afe7bda4 -- src scripts docs (empty = no product, script or doc change):
+  (end)
 

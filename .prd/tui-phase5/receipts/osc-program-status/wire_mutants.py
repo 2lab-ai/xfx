@@ -15,8 +15,12 @@ here = os.path.dirname(os.path.realpath(__file__))
 UNIT = "p5-lifecycle-osc-states-40x120"
 EXIT = os.path.join("xfx", UNIT, "xfx-%s-w09-exit.wire" % UNIT)
 PERM = os.path.join("xfx", UNIT, "xfx-%s-w05-permission.wire" % UNIT)
+SUSPEND = "p5-lifecycle-osc-suspend-40x120"
+START = os.path.join("xfx", UNIT, "xfx-%s-w00-start.wire" % UNIT)
+RESUMED = os.path.join("xfx", SUSPEND, "xfx-%s-s02-resumed.wire" % SUSPEND)
 CLEAR = b"\x1b]7501;state=clear\x1b\\"
 DONE = b"\x1b]7501;state=done:app=xfx\x1b\\"
+IDLE = b"\x1b]7501;state=idle:app=xfx\x1b\\"
 
 
 def drop_clear(data):
@@ -81,6 +85,21 @@ def eight_bit_introducer_after_the_clear(data):
     return data + b"\x9d7501;state=done:app=xfx\x9c"
 
 
+def launch_idle_ahead_of_its_title(data):
+    # The order the unit's first two rounds wrote: `idle`, then the title.
+    at = data.find(IDLE)
+    title = data.rfind(b"\x1b]2;", 0, at)
+    return data[:title] + IDLE + data[title:at] + data[at + len(IDLE):]
+
+
+def resume_report_ahead_of_its_frame(data):
+    # The order the unit's first two rounds wrote: the resume's `idle`, then
+    # the frame it repaints.
+    at = data.rfind(IDLE)
+    frame = data.rfind(b"\x1b[?2026h", 0, at)
+    return data[:frame] + IDLE + data[frame:at] + data[at + len(IDLE):]
+
+
 MUTANTS = [
     ("the exit's restore without its clear", EXIT, drop_clear),
     ("the clear moved after ?25h", EXIT, clear_moved_after_the_cursor),
@@ -94,6 +113,8 @@ MUTANTS = [
     ("an unterminated report after the exit's clear", EXIT, unterminated_report_after_the_clear),
     ("a report ended by BEL", EXIT, bel_terminated_report),
     ("an 8-bit introducer after the exit's clear", EXIT, eight_bit_introducer_after_the_clear),
+    ("the launch's idle ahead of its title", START, launch_idle_ahead_of_its_title),
+    ("a resume's report ahead of the frame it repaints", RESUMED, resume_report_ahead_of_its_frame),
 ]
 
 
