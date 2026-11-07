@@ -2447,6 +2447,58 @@ mod tests {
     }
 
     #[test]
+    fn every_scalar_the_painter_counts_as_fx_does_is_still_named_in_any_context() {
+        // The painter counts `super::super::wrap::FX_COUNTED` as upstream
+        // does, so `super::drawn_wider`'s table, and `guarded`'s postcondition
+        // with it, no longer holds them. Every one but the regional indicators
+        // (`named_wherever`) is still named: by `uncounted` (the width table
+        // counts it as none alone) or `default_ignorable` -- each decided on
+        // the character alone, so wherever it stands. Contexts: alone,
+        // between letters, after a consonant it would join, doubled, before a
+        // mark, after an emoji, before a selector, after a flag.
+        let contexts: [fn(char) -> String; 8] = [
+            |c| c.to_string(),
+            |c| format!("a{c}b"),
+            |c| format!("\u{995}{c}"),
+            |c| format!("{c}{c}"),
+            |c| format!("x{c}\u{301}"),
+            |c| format!("\u{1f44d}{c}"),
+            |c| format!("{c}\u{fe0f}"),
+            |c| format!("\u{1f1fa}\u{1f1f8}{c}"),
+        ];
+        let mut scalars = 0;
+        let mut raw = Vec::new();
+        for &(first, last) in &super::super::wrap::FX_COUNTED {
+            for code in first..=last {
+                let c = char::from_u32(code).expect("a scalar");
+                if regional_indicator(c) {
+                    continue;
+                }
+                scalars += 1;
+                for context in contexts {
+                    let text = context(c);
+                    for (rule, shown) in [
+                        ("tamed", tamed(&text)),
+                        ("named", named(&text)),
+                        ("command", command_text(&text)),
+                    ] {
+                        if shown.contains(c) {
+                            raw.push(format!("{rule} {text:?} -> {shown:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(scalars, 3812);
+        assert!(
+            raw.is_empty(),
+            "{} left raw, first {:#?}",
+            raw.len(),
+            &raw[..raw.len().min(8)]
+        );
+    }
+
+    #[test]
     fn a_command_names_every_table_character_itself() {
         // `command_text`'s own arm for `named_wherever`: a regional
         // indicator, a dash and an emoji base are neither default-ignorable
