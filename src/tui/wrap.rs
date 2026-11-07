@@ -664,10 +664,14 @@ fn upstream_cells(cluster: &str) -> usize {
 /// tmux draws it, where upstream's count is one; measured too, and no
 /// terminal draws more. **Not closed:** with `U+FE0F` after a soft hyphen,
 /// `U+FFA0` or `U+FFF0`-`U+FFF8`, tmux draws one cell more than this count
-/// (and libghostty-vt none) -- the selector after a character that takes no
-/// emoji presentation, which tmux gives a cell wherever it stands
-/// (`super::drawn_wider`'s `U+FE0F`; the ledger's `ctrl-o-drawn-wider-raw`,
-/// owner CTRLO-WIDER, says only naming closes it).
+/// (and libghostty-vt no more than it) -- the selector after a character
+/// that takes no emoji presentation, which tmux widens by a cell when the
+/// character before it draws narrower than two cells: `U+115F U+FE0F` stays
+/// two, as `U+115F` alone does, where `U+1160 U+FE0F` and `U+3164 U+FE0F`
+/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`; the
+/// ledger's `ctrl-o-drawn-wider-raw`, owner CTRLO-WIDER, owns it on Ctrl-O,
+/// in the inline transcript and in the composer, and says only naming
+/// closes it.
 ///
 /// **It is more than they draw, often**, and that is upstream's count kept
 /// rather than a terminal's: `U+1160` one cell and `U+3164` two where both

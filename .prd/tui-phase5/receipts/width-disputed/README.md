@@ -421,6 +421,27 @@ Each reproduced its `green.txt`.
     does. Its `why` now records the 12 U+FE0F forms above.
 - **`submit-multi-card-whole`** (`[[cause]]`, decision), unchanged.
 
+**WIDTH-DISPUTED-d** (docs and ledger only; opus-c's round-3 SHOULDs):
+- **`ctrl-o-result-format-raw`** (`[[cause]]`, defect, owner T-U1-SAFE),
+  new. fx writes a tool's arguments, output and stored result on Ctrl-O
+  through its terminal-safe writer, which spells `isNonPrintingCodepoint`'s
+  set as `\u{NNNN}` (`full_transcript_screen.zig:5147-5194` and
+  `text_utils.zig:643-667@481104fd`; the same at c1db9191). xfx's `railed`
+  and `literal` write it raw after `bridge::inert`. It covers read row 2 of
+  `p5-transcript-diffwide2` (U+200D; `green.txt:31`), which
+  `frame-variation-selector-anchor`'s `why` now names as its second
+  reason, and `p5-transcript-diffodd`'s read rows 3 and 4 (U+202E, U+200B,
+  U+FEFF), which no cause covered before. The owner is T-U1-SAFE, not
+  CTRLO-WIDER: `docs/parity.md:238` keeps this gap open for it, and its
+  `127f0502` (`fix/p5-ctrlo-safe-rows`, not in this branch) spells these
+  rows as fx does, U+200B-200F among them.
+- **`ctrl-o-drawn-wider-raw`**: CTRLO-WIDER owns the 12 U+FE0F forms, and
+  the rest of the table, in the inline transcript and the composer too.
+  `drawn_wider` is consulted only by `approval_view`.
+- **`wrap.rs`'s comment** on U+FE0F: tmux widens it by a cell only when the
+  character before it draws narrower than two cells (`U+115F U+FE0F` stays
+  two, `clusters.txt:91` against `:9`).
+
 ## Files
 
 - `fx/`, `xfx/`, `red/`: both scenarios' snaps, redacted.
