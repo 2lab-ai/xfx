@@ -1,38 +1,38 @@
 x𝒇x v0.1.0-56979c5 [debug] · Run /help for commands
 
-  2026-11-07 01:40:14.191 UTC · Notice
+  2026-11-07 03:19:29.692 UTC · Notice
 * session: provider: gateway · model: fake/model-a · effort: auto
   tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
   +5 more)
   mcp: none
 
-  2026-11-07 01:40:18.370 UTC · Notice
+  2026-11-07 03:19:34.750 UTC · Notice
 * network: provider: gateway · model: fake/model-a · 1ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-07 01:40:18.486 UTC · Notice
+  2026-11-07 03:19:34.870 UTC · Notice
 * network: provider: gateway · model: fake/model-a · 63ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 01:40:18.307 UTC · Prompt
+  2026-11-07 03:19:34.678 UTC · Prompt
 ┃ show the file
 
-  2026-11-07 01:40:18.414 UTC · Response
+  2026-11-07 03:19:34.793 UTC · Response
   Showing the file.
 
-  2026-11-07 01:40:18.414 UTC · Tool
+  2026-11-07 03:19:34.793 UTC · Tool
 ● 2 tool calls · 1 read · 1 command
-├ Ran printf '%s\n' 'A‮B​C﻿D [2JE F G' >/dev/null; cat safe.txt #
-│  command: printf '%s\n' 'A‮B​C﻿D [2JE F    G' >/dev/null; cat safe.txt #
-│ a‮b​c﻿d [2Je f    g
+├ Ran : 'A‮B​C﻿D [2JE F G؜H⁧I'; cat safe.txt #
+│  command: : 'A‮B​C﻿D [2JE F    G؜H⁧I'; cat safe.txt #
+│ a‮b​c﻿d [2Je f    g؜h⁧i
 │ over
 │ X
 
-  2026-11-07 01:40:18.414 UTC · Tool
+  2026-11-07 03:19:34.793 UTC · Tool
 └ Read safe.txt
-│  1    a‮b​c﻿d [2Je f    g
+│  1    a‮b​c﻿d [2Je f    g؜h⁧i
 │  2    overX
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

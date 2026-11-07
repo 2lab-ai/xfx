@@ -1,6 +1,6 @@
 [1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
 
-[38;5;245m  2026-11-07 01:39:40.765 UTC · Notice[39m
+[38;5;245m  2026-11-07 03:12:35.358 UTC · Notice[39m
 [38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
   [38;5;250msystem prompt: ready · 6249 bytes[39m
   [38;5;250mtools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
@@ -8,32 +8,32 @@
   [38;5;250mskills: loading[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-11-07 01:39:45.811 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+[38;5;245m  2026-11-07 03:12:40.418 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 15ms[39m
   [38;5;250mfinish: tool_calls[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 01:39:46.000 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 138ms[39m
+[38;5;245m  2026-11-07 03:12:40.652 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 144ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 01:39:45.791 UTC · Prompt[39m
+[38;5;245m  2026-11-07 03:12:40.395 UTC · Prompt[39m
 [38;5;255m┃[39m [1mshow the file[0m
 
-[38;5;245m  2026-11-07 01:39:45.811 UTC · Response[39m
+[38;5;245m  2026-11-07 03:12:40.418 UTC · Response[39m
   Showing the file.
 
-[38;5;245m  2026-11-07 01:39:45.811 UTC · Tool[39m
+[38;5;245m  2026-11-07 03:12:40.418 UTC · Tool[39m
 [38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
-├ Ran [38;5;252mprintf[39m [38;5;250m'%s\n'[39m [38;5;250m'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'[39m [38;5;252m>[39m/dev/null[38;5;252m;[39m [38;5;252mcat[39m safe.txt [38;5;245m#[39m
+├ Ran : [38;5;250m'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G؜H\u{2067}I'[38;5;252m;[39m [38;5;252mcat[39m safe.txt [38;5;245m#[39m
 │[38;5;245m  action: run[39m
-│[38;5;245m  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d[39m
+│[38;5;245m  command: : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G؜H\u{2067}I'; cat safe.txt # \x0d[39m
 │[38;5;245m  yield_time_ms: 5000[39m
-│[38;5;245m a‮b​c﻿de\u{009b}f        g[39m
+│[38;5;245m a‮b​c﻿de\u{009b}f        g؜h⁧i[39m
 │[38;5;245m X[39m
 
-[38;5;245m  2026-11-07 01:39:45.860 UTC · Tool[39m
+[38;5;245m  2026-11-07 03:12:40.505 UTC · Tool[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
 

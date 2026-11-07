@@ -1,4 +1,4 @@
-# .prd/tui-phase5/receipts/transcript-wrap/check.py <repo> <captures>: fx/ the T-U1U2 receipt's own fx captures, xfx/ new captures of the seven scenarios from a debug build of 28f3fda (each scenario's banner snaps: x𝒇x v0.1.0-28f3fda [debug]). Line for line transcript-wrap/green.txt, revisions aside.
+# .prd/tui-phase5/receipts/transcript-wrap/check.py <repo> <captures>: fx/ the T-U1U2 receipt's own fx captures, xfx/ new captures of the seven scenarios from a debug build of 3046d8d (each scenario's banner snaps: x𝒇x v0.1.0-3046d8d [debug]). Line for line transcript-wrap/green.txt, revisions aside.
 ok   stitch p5-transcript-tools 40x120 [full-running]
        fx   31 rows joined; taken out: tool-schema 2, session-record 2, tools-list 2
        xfx  27 rows joined; taken out: tools-list 2

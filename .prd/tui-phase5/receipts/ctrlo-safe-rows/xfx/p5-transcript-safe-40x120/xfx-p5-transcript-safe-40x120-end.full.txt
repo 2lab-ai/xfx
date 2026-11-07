@@ -1,11 +1,11 @@
-x𝒇x v0.1.0-28f3fda [debug] · Run /help for commands
+x𝒇x v0.1.0-3046d8d [debug] · Run /help for commands
 
 ┃ show the file
 
   Showing the file.
 
 ● 2 tool calls · 1 read · 1 command
-├ Ran printf '%s\n' 'A‮B​C﻿D [2JE F G' >/dev/null; cat safe.txt #
+├ Ran : 'A‮B​C﻿D [2JE F G؜H⁧I'; cat safe.txt #
 └ Read safe.txt
 
   Shown.

@@ -5,7 +5,7 @@
   Showing the file.
 
 ● 2 tool calls · 1 read · 1 command
-├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+├ Ran : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G؜H\u{2067}I'; cat safe.txt #
 └ Read safe.txt
 
   Shown.

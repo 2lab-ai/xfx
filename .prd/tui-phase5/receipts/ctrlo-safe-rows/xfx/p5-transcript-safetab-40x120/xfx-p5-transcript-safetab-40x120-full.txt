@@ -1,0 +1,40 @@
+* session: provider: gateway · model: fake/model-a · effort: auto
+  tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+  +5 more)
+  mcp: none
+
+  2026-11-07 03:15:56.416 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:15:56.524 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:15:56.354 UTC · Prompt
+┃ show the file
+
+  2026-11-07 03:15:56.450 UTC · Response
+  Showing the file.
+
+  2026-11-07 03:15:56.450 UTC · Tool
+● 1 tool call · 1 command
+└ Ran cat tab.txt
+│ aaa
+│ b xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxZ
+│ aaaa
+│ bbbbbb   yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyZ
+│ aaaaaaaaaa
+│ b  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwZ
+
+  2026-11-07 03:15:56.558 UTC · Response
+  Shown.
+
+  2026-11-07 03:15:56.558 UTC · Usage
+  0s (↑3 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

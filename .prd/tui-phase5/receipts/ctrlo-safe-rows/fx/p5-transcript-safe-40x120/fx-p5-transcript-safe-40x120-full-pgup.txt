@@ -1,6 +1,6 @@
 𝒇x v0.0.16 · Run /help for commands
 
-  2026-11-07 01:39:40.765 UTC · Notice
+  2026-11-07 03:12:35.358 UTC · Notice
 * session: provider: gateway · model: fake/model-a · effort: auto
   system prompt: ready · 6249 bytes
   tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
@@ -8,32 +8,32 @@
   skills: loading
   mcp: none
 
-  2026-11-07 01:39:45.811 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 14ms
+  2026-11-07 03:12:40.418 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 15ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-07 01:39:46.000 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 138ms
+  2026-11-07 03:12:40.652 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 144ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 01:39:45.791 UTC · Prompt
+  2026-11-07 03:12:40.395 UTC · Prompt
 ┃ show the file
 
-  2026-11-07 01:39:45.811 UTC · Response
+  2026-11-07 03:12:40.418 UTC · Response
   Showing the file.
 
-  2026-11-07 01:39:45.811 UTC · Tool
+  2026-11-07 03:12:40.418 UTC · Tool
 ● 2 tool calls · 1 read · 1 command
-├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+├ Ran : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G؜H\u{2067}I'; cat safe.txt #
 │  action: run
-│  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+│  command: : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G؜H\u{2067}I'; cat safe.txt # \x0d
 │  yield_time_ms: 5000
-│ a‮b​c﻿de\u{009b}f        g
+│ a‮b​c﻿de\u{009b}f        g؜h⁧i
 │ X
 
-  2026-11-07 01:39:45.860 UTC · Tool
+  2026-11-07 03:12:40.505 UTC · Tool
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
 

@@ -1,0 +1,27 @@
+# cargo test --locked --lib on 151dde9f (the code of 28f3fda5, round 1) with round 2's tab test added, before the fix
+
+running 1 test
+test tui::full_transcript::tests::a_command_lines_tab_loses_no_character_when_its_word_moves_down ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_command_lines_tab_loses_no_character_when_its_word_moves_down stdout ----
+
+thread 'tui::full_transcript::tests::a_command_lines_tab_loses_no_character_when_its_word_moves_down' (267306155) panicked at src/tui/full_transcript.rs:3956:17:
+assertion `left == right` failed: "aaa b\t1234567890123" at 8: [
+    "│ aaa",
+    "│ b    1",
+    "│ 678901",
+    "│ 23",
+]
+  left: "aaab167890123"
+ right: "aaab1234567890123"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::a_command_lines_tab_loses_no_character_when_its_word_moves_down
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4047 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
