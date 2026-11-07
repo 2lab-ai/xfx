@@ -1,0 +1,20 @@
+# RED, unit: the five event-loop cases of b6571bea inserted into 58b463c8's src/tui/event_loop.rs (base code otherwise), on the throwaway clone:
+# cargo test --locked --lib -- a_theme_report_draws_a_tool_groups_rows_again a_tool_group_drawn_light_is_drawn_again an_open_tool_group_is_drawn_again a_tool_group_queued_before_a_report a_truecolor_sessions_tool_group_is_drawn_again
+test tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set ... FAILED
+test tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette ... FAILED
+test tui::event_loop::tests::a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it ... FAILED
+test tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them ... FAILED
+test tui::event_loop::tests::a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it ... ok
+thread 'tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set' (276726294) panicked at src/tui/event_loop.rs:5947:9:
+  left: Some(245)
+ right: Some(241)
+thread 'tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette' (276726296) panicked at src/tui/event_loop.rs:5903:9:
+  left: Some(241)
+ right: Some(243)
+thread 'tui::event_loop::tests::a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it' (276726293) panicked at src/tui/event_loop.rs:5850:9:
+  left: Some(245)
+ right: Some(250)
+thread 'tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them' (276726292) panicked at src/tui/event_loop.rs:5808:9:
+  left: Some(241)
+ right: Some(243)
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4253 filtered out; finished in 0.02s

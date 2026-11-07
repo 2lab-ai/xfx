@@ -1,0 +1,132 @@
+# head a1a1524c; sides: train-before-merge-4 cc686a4c, main 6c93f359
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:816]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:841]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:522, scripts/fxcap/parity-ledger.toml:533]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:727]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:805]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:701]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:673]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:739]
+    train-before-merge-4* = row | main* = row
+docs/parity.md:241	[scripts/fxcap/parity-ledger.toml:250]
+    train-before-merge-4* = row | main* = row
+scripts/fxcap/capture.sh:252-254	[scripts/fxcap/parity-ledger.toml:85]
+    train-before-merge-4* = | main* =
+scripts/fxcap/capture.sh:416	[scripts/fxcap/parity-ledger.toml:78]
+    train-before-merge-4* = | main* =
+scripts/fxcap/capture.sh:786	[scripts/fxcap/parity-ledger.toml:147]
+    train-before-merge-4* = | main* =
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    train-before-merge-4* = | main* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    train-before-merge-4* = | main* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    train-before-merge-4* = | main* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:622, docs/parity.md:237]
+    train-before-merge-4* = | main* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    train-before-merge-4* = | main* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:701]
+    train-before-merge-4* = | main* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    train-before-merge-4* = | main* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    train-before-merge-4* = | main* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:794]
+    train-before-merge-4* = | main* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    train-before-merge-4* = | main* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:794]
+    train-before-merge-4* = | main* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:725]
+    train-before-merge-4* = | main* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:713]
+    train-before-merge-4* = | main* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    train-before-merge-4* = | main* =
+src/session/store.rs:74	[docs/parity.md:48]
+    train-before-merge-4* = | main* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:631]
+    train-before-merge-4* = | main* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:839]
+    train-before-merge-4* = | main* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:970, docs/parity.md:176]
+    train-before-merge-4* = | main* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:531, docs/parity.md:158]
+    train-before-merge-4* = | main* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:531, docs/parity.md:158]
+    train-before-merge-4* = | main* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:796]
+    train-before-merge-4* = | main* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:851]
+    train-before-merge-4* = | main* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:725, scripts/fxcap/parity-ledger.toml:748, scripts/fxcap/parity-ledger.toml:760, scripts/fxcap/parity-ledger.toml:771, scripts/fxcap/parity-ledger.toml:782, scripts/fxcap/parity-ledger.toml:827]
+    train-before-merge-4* = | main* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    train-before-merge-4* = | main* =
+src/tui/drawn_wider.rs:50-67	[scripts/fxcap/parity-ledger.toml:499]
+    train-before-merge-4* = | main* =
+src/tui/full_transcript.rs:492	[scripts/fxcap/parity-ledger.toml:363]
+    train-before-merge-4* = | main* =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:874, scripts/fxcap/parity-ledger.toml:887]
+    train-before-merge-4* = | main* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    train-before-merge-4* = | main* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:979]
+    train-before-merge-4* = | main* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    train-before-merge-4* = | main* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:839]
+    train-before-merge-4* = | main* =
+src/tui/shell.rs:184	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    train-before-merge-4* = | main* =
+src/tui/shell.rs:1583	[scripts/fxcap/parity-ledger.toml:863]
+    train-before-merge-4* = | main* =
+src/tui/shell.rs:12275	[scripts/fxcap/parity-ledger.toml:511]
+    train-before-merge-4* = | main -> 12283
+src/tui/shell.rs:37458	[scripts/fxcap/parity-ledger.toml:737, scripts/fxcap/parity-ledger.toml:748, scripts/fxcap/parity-ledger.toml:760, scripts/fxcap/parity-ledger.toml:771, scripts/fxcap/parity-ledger.toml:827]
+    train-before-merge-4* = | main -> 37476
+src/tui/toolgroup.rs:711	[scripts/fxcap/parity-ledger.toml:543]
+    train-before-merge-4* = | main -> 800
+src/tui/toolgroup.rs:750	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:782]
+    train-before-merge-4* = | main -> 839
+src/tui/toolgroup.rs:798	[scripts/fxcap/parity-ledger.toml:391]
+    train-before-merge-4* = | main -> 887
+src/tui/toolgroup.rs:912	[scripts/fxcap/parity-ledger.toml:405]
+    train-before-merge-4* = | main -> 1001
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    train-before-merge-4* = | main* =
+src/tui/wrap.rs:622	[scripts/fxcap/parity-ledger.toml:477]
+    train-before-merge-4* = | main* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    train-before-merge-4* = | main* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    train-before-merge-4* = | main* =
+# 65 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it

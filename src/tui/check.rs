@@ -451,6 +451,33 @@ impl Plane {
         }
     }
 
+    /// `ECH`: `count` cells from `column`, blanked, and the whole of every wide
+    /// cluster the span covers part of -- the left half of one it starts
+    /// inside, the right half of one it ends inside -- as [`write_text`] breaks
+    /// the clusters a write covers.
+    fn erase_span(&mut self, row: u16, column: u16, count: u16) {
+        if column == 0 || column > self.cols {
+            return;
+        }
+        let cols = usize::from(self.cols);
+        let Some(cells) = self.row_mut(row) else {
+            return;
+        };
+        let start = usize::from(column - 1);
+        let end = (start + usize::from(count)).min(cols);
+        let mut lead = start;
+        while lead > 0 && matches!(cells[lead], CellState::Continuation) {
+            lead -= 1;
+        }
+        let mut tail = end;
+        while tail < cols && matches!(cells[tail], CellState::Continuation) {
+            tail += 1;
+        }
+        for cell in &mut cells[lead.min(start)..tail] {
+            *cell = CellState::Empty;
+        }
+    }
+
     /// Moves every row up by one and blanks the row that frees.
     ///
     /// The top row's cells **leave the plane** -- which is what a linefeed on
@@ -654,6 +681,54 @@ pub(crate) struct TerminalModel {
     /// slot with a screen of its own. The path is declared, so the path is
     /// compared.
     moves: Vec<PlaneKind>,
+    /// A `?7h` that may open the painter's autowrap bracket around one unit
+    /// at the margin (`super::grid`'s `put_unit`), and what has come since.
+    bracket: Option<Bracket>,
+}
+
+/// What a `?7h` found, and what has been written since it, for the `?7l` that
+/// may close it as the painter's bracket.
+///
+/// The painter writes autowrap on for exactly one unit -- a two-cell one with
+/// a suffix that ends at the right margin -- and off again
+/// (`super::grid`'s `put_unit`; `guard_margin_suffix`,
+/// `engine.zig:2565-2580@481104fd`): `?7h`, `ECH 2` exactly when the unit's
+/// suffix holds a variation selector, the unit, `?7l`. That shape and no other
+/// gives the mode back as the `?7h` found it (when that was off or unsaid: a
+/// bracket ends with autowrap off), so a frame, which declares no mode, may
+/// carry it. Anything else -- a unit one cell wide, or with no suffix, short
+/// of the margin, a second unit, a clear of another count, two clears, a
+/// selector unit with no clear or a clear before a unit with no selector, any
+/// other sequence, a linefeed -- and the two are what they say alone: a frame
+/// that turned autowrap on and off, which is refused as a mode it did not
+/// declare.
+#[derive(Debug, Clone, Copy)]
+struct Bracket {
+    /// The mode before the `?7h`.
+    before: Option<bool>,
+    /// The units that take cells written since.
+    units: u8,
+    /// Whether the last of them is the painter's unit -- two cells wide, with
+    /// a suffix, ending in the last column -- and whether its suffix holds a
+    /// variation selector.
+    margin_unit: bool,
+    selector: bool,
+    /// The `ECH`s in front of it, and the count of the last one.
+    clears: u8,
+    cleared: u16,
+}
+
+impl Bracket {
+    /// Whether what came after the `?7h` is the painter's bracket.
+    fn painters(&self) -> bool {
+        let clear = match (self.clears, self.cleared) {
+            (0, _) => false,
+            (1, 2) => true,
+            // Two clears, or one of another count.
+            _ => return false,
+        };
+        self.units == 1 && self.margin_unit && clear == self.selector && self.before != Some(true)
+    }
 }
 
 impl TerminalModel {
@@ -683,6 +758,7 @@ impl TerminalModel {
             link: None,
             effects: Vec::new(),
             moves: Vec::new(),
+            bracket: None,
         }
     }
 
@@ -2039,6 +2115,7 @@ fn apply(
         match bytes[at] {
             0x1b => at += sequence(model, bytes, at)?,
             b'\n' => {
+                model.bracket = None;
                 linefeed(model, expected.as_deref_mut(), at)?;
                 at += 1;
             }
@@ -2047,6 +2124,7 @@ fn apply(
             // declares it ([`Intent::Bell`]), and every other intent declares
             // none.
             0x07 => {
+                model.bracket = None;
                 model.bells = model.bells.saturating_add(1);
                 at += 1;
             }
@@ -2189,6 +2267,15 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             }
         }
         model.record(Did::Place, row);
+        let cols = model.screen_ref().cols;
+        if let Some(bracket) = &mut model.bracket {
+            let mut scalars = cluster.chars();
+            scalars.next();
+            let suffix = scalars.as_str();
+            bracket.units = bracket.units.saturating_add(1);
+            bracket.margin_unit = width == 2 && !suffix.is_empty() && column + width - 1 == cols;
+            bracket.selector = suffix.contains(['\u{fe0e}', '\u{fe0f}']);
+        }
         model.caret = Caret::Known((row, column + width));
     }
     Ok(())
@@ -2222,7 +2309,10 @@ fn clusters(text: &str) -> impl Iterator<Item = &str> {
 fn sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Result<usize, Reject> {
     match bytes.get(at + 1) {
         Some(b'[') => control_sequence(model, bytes, at),
-        Some(b']') => operating_system_command(model, bytes, at),
+        Some(b']') => {
+            model.bracket = None;
+            operating_system_command(model, bytes, at)
+        }
         _ => Err(Reject::new("an escape outside the alphabet", at)),
     }
 }
@@ -2244,6 +2334,17 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
         _ => (b' ', body),
     };
     let length = end + 1 - at;
+    // What may stand inside the painter's autowrap bracket ([`Bracket`]): the
+    // clear in front of its unit, and the `?7` that closes it (or opens
+    // another).
+    let in_bracket = match (prefix, final_byte) {
+        (b' ', b'X') => model.bracket.is_some_and(|bracket| bracket.units == 0),
+        (b'?', b'h' | b'l') => params == "7",
+        _ => false,
+    };
+    if !in_bracket {
+        model.bracket = None;
+    }
     match (prefix, final_byte) {
         (b' ', b'H') => {
             if model.link.is_some() {
@@ -2260,6 +2361,65 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
                 ));
             }
             model.caret = Caret::Known((row, column));
+        }
+        // `CHA`, the anchor the painter puts after a unit whose width
+        // terminals dispute ([`super::grid`]'s `put_unit`). **Under an open
+        // link, unlike a `CUP`**: it moves the caret along the row it is on,
+        // so what the link would take in is the next cells of that row, which
+        // the painter writes under the link they are in (`reopen` switches it
+        // before any cell that is not), and upstream writes it after the
+        // cell's link is open (`engine.zig:2559-2588@481104fd`).
+        (b' ', b'G') => {
+            let Caret::Known((row, _)) = model.caret else {
+                return Err(Reject::new(
+                    "a caret move from a caret nothing can place",
+                    at,
+                ));
+            };
+            let column = params
+                .parse::<u16>()
+                .map_err(|_| Reject::new("a caret address that is not a number", at))?;
+            if column == 0 || column > model.screen_ref().cols {
+                return Err(Reject::at_cell(
+                    "a caret placed off the screen",
+                    at,
+                    row,
+                    column,
+                ));
+            }
+            model.caret = Caret::Known((row, column));
+        }
+        // `ECH`, the clear in front of a two-cell unit whose width terminals
+        // dispute. **Under an open link, unlike `EL` and `ED`**: it blanks
+        // only the cells the unit written next covers, under its own link,
+        // and the caret does not move.
+        (b' ', b'X') => {
+            let count = match params.parse::<u16>() {
+                Ok(count) if count > 0 => count,
+                _ => {
+                    return Err(Reject::new(
+                        "a character erase this crate does not write",
+                        at,
+                    ))
+                }
+            };
+            let Caret::Known((row, column)) = model.caret else {
+                return Err(Reject::new("an erase from a caret nothing can place", at));
+            };
+            if usize::from(column) + usize::from(count) - 1 > usize::from(model.screen_ref().cols) {
+                return Err(Reject::at_cell(
+                    "an erase past the last column",
+                    at,
+                    row,
+                    column,
+                ));
+            }
+            model.screen().erase_span(row, column, count);
+            model.record(Did::Erase, row);
+            if let Some(bracket) = &mut model.bracket {
+                bracket.clears = bracket.clears.saturating_add(1);
+                bracket.cleared = count;
+            }
         }
         (b' ', b'J' | b'K') if model.link.is_some() => {
             return Err(Reject::new("an erase under an open hyperlink", at));
@@ -2438,7 +2598,25 @@ fn private_mode(
             model.cursor_visible = Some(set);
         }
         "2004" => model.modes.bracketed_paste = Some(set),
-        "7" => model.modes.autowrap = Some(set),
+        "7" if set => {
+            model.bracket = Some(Bracket {
+                before: model.modes.autowrap,
+                units: 0,
+                margin_unit: false,
+                selector: false,
+                clears: 0,
+                cleared: 0,
+            });
+            model.modes.autowrap = Some(true);
+        }
+        "7" => {
+            model.modes.autowrap = match model.bracket.take() {
+                // The painter's bracket around its one unit at the margin gives
+                // the mode back as it found it.
+                Some(bracket) if bracket.painters() => bracket.before,
+                _ => Some(false),
+            };
+        }
         "2031" => model.modes.theme_notifications = Some(set),
         "1049" if model.link.is_some() => {
             return Err(Reject::new(
@@ -4519,5 +4697,355 @@ mod tests {
             model.alternate.is_some(),
             "the cleanup gave the borrowed buffer back"
         );
+    }
+
+    // -- the anchor around a variation selector ------------------------------
+    //
+    // What the painter writes around a display unit whose suffix holds U+FE0E
+    // or U+FE0F, upstream's `engine.zig:2548-2589@481104fd`: `ECH` over both of
+    // its cells, `CHA` to the column after it, and `?7h`/`?7l` around a
+    // suffixed wide unit at the margin.
+
+    const BOLT: &str = "\u{26a1}\u{fe0e}";
+
+    /// A primary frame painting `after`, from `bytes`, declared as `after`.
+    fn checked(after: &Grid, bytes: &str) -> Result<(), Reject> {
+        let declared = Declared::new(
+            Intent::Primary {
+                grid: after,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            anywhere(24, 0),
+        );
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            bytes.as_bytes(),
+            &declared,
+        )
+        .map(drop)
+    }
+
+    #[test]
+    fn a_cleared_and_reanchored_selector_glyph_is_accepted() {
+        let after = painted(10, &format!("a {BOLT} b"));
+        checked(&after, &format!("\x1b[10;1Ha \x1b[2X{BOLT}\x1b[5G b"))
+            .expect("the anchor the painter writes");
+        // And the frame the grid diff really writes for it.
+        let bytes = framed(&after);
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[5G"));
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &bytes,
+            &declared_frame(&after),
+        )
+        .expect("the diff's own frame");
+    }
+
+    #[test]
+    fn an_anchor_inside_a_link_is_accepted() {
+        // Upstream writes the clear and the anchor after the cell's link is
+        // open, and so does the painter: both stay on the row and the next
+        // cell covers what the clear blanked.
+        let after = painted(10, &format!("{DOCS_OPEN}a {BOLT} b{LINK_CLOSE} c"));
+        let bytes = framed(&after);
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[2X"));
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &bytes,
+            &declared_frame(&after),
+        )
+        .expect("an anchor under the link the cell is in");
+    }
+
+    #[test]
+    fn the_autowrap_bracket_around_one_margin_unit_leaves_the_mode_as_it_was() {
+        let lead = "x".repeat(78);
+        for unit in [BOLT.to_string(), FAMILY.to_string()] {
+            let clear = if unit == BOLT { "\x1b[2X" } else { "" };
+            let after = painted(10, &format!("{lead}{unit}"));
+            checked(
+                &after,
+                &format!("\x1b[10;1H{lead}\x1b[?7h{clear}{unit}\x1b[?7l"),
+            )
+            .expect("the bracket the painter writes");
+        }
+    }
+
+    #[test]
+    fn an_autowrap_bracket_around_anything_else_is_a_mode_change() {
+        // Two units, a unit short of the margin, a bracket left open, a
+        // sequence inside it: each is `?7h` and `?7l` as they read alone, and a
+        // frame declares no mode.
+        let lead = "x".repeat(77);
+        let after = painted(10, &format!("{lead}y{FAMILY}"));
+        let short = painted(10, &format!("{lead}{FAMILY}"));
+        for (grid, bytes) in [
+            (&after, format!("\x1b[10;1H{lead}\x1b[?7hy{FAMILY}\x1b[?7l")),
+            (&short, format!("\x1b[10;1H{lead}\x1b[?7h{FAMILY}\x1b[?7l")),
+            (&after, format!("\x1b[10;1H{lead}y\x1b[?7h{FAMILY}")),
+            (
+                &after,
+                format!("\x1b[10;1H{lead}y\x1b[?7h\x1b[38;5;250m\x1b[0m{FAMILY}\x1b[?7l"),
+            ),
+        ] {
+            let reject = checked(grid, &bytes).expect_err("a mode change");
+            assert_eq!(
+                reject.shape(),
+                "a terminal mode this vector did not declare",
+                "{bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_anchor_off_the_screen_or_from_nowhere_is_refused() {
+        let after = painted(10, "a");
+        let reject = checked(&after, "\x1b[10;1Ha\x1b[81G").expect_err("column 81");
+        assert_eq!(reject.shape(), "a caret placed off the screen");
+        let reject = checked(&after, "\x1b[10;1Ha\x1b[0G").expect_err("column 0");
+        assert_eq!(reject.shape(), "a caret placed off the screen");
+        let reject = checked(&after, "\x1b[2G\x1b[10;1Ha").expect_err("no caret");
+        assert_eq!(
+            reject.shape(),
+            "a caret move from a caret nothing can place"
+        );
+    }
+
+    #[test]
+    fn a_clear_past_the_margin_or_from_nowhere_is_refused() {
+        let after = painted(10, "a");
+        let reject = checked(&after, "\x1b[10;80H\x1b[2X\x1b[10;1Ha").expect_err("past the margin");
+        assert_eq!(reject.shape(), "an erase past the last column");
+        let reject = checked(&after, "\x1b[10;1H\x1b[0Xa").expect_err("an empty clear");
+        assert_eq!(
+            reject.shape(),
+            "a character erase this crate does not write"
+        );
+        let reject = checked(&after, "\x1b[2X\x1b[10;1Ha").expect_err("no caret");
+        assert_eq!(reject.shape(), "an erase from a caret nothing can place");
+    }
+
+    #[test]
+    fn a_clear_takes_the_whole_of_a_wide_cluster_it_covers_half_of() {
+        // Both edges: the clear starts on a continuation, and ends on a lead.
+        let mut model = TerminalModel::seed_modes(24, 80, ModeSet::fresh(), 0, PlaneKind::Primary);
+        apply_for_tests(
+            &mut model,
+            "\x1b[10;1H\u{d55c}b\u{d55c}\x1b[10;2H\x1b[3X".as_bytes(),
+        )
+        .expect("a clear");
+        let plane = model.screen_ref();
+        // Five columns written and cleared; the sixth, never written, is still
+        // the foreign cell the seed holds.
+        let row: Vec<bool> = (1..=6)
+            .map(|column| {
+                plane
+                    .index(10, column)
+                    .is_some_and(|index| matches!(plane.cells[index], CellState::Empty))
+            })
+            .collect();
+        assert_eq!(row, [true, true, true, true, true, false], "{row:?}");
+        assert!(matches!(model.caret, Caret::Known((10, 2))));
+    }
+
+    #[test]
+    fn an_autowrap_bracket_is_only_the_painters_own_shape() {
+        // `super::grid`'s `put_unit` brackets a two-cell unit with a suffix
+        // that ends at the margin, with `ECH 2` in front of it exactly when its
+        // suffix holds a selector. Any other shape is a mode change.
+        let lead = "x".repeat(78);
+        let narrow = "x".repeat(79);
+        for (row, bytes) in [
+            // One cell wide, with no suffix and with one.
+            (
+                format!("{narrow}y"),
+                format!("\x1b[10;1H{narrow}\x1b[?7hy\x1b[?7l"),
+            ),
+            (
+                format!("{narrow}e\u{301}"),
+                format!("\x1b[10;1H{narrow}\x1b[?7he\u{301}\x1b[?7l"),
+            ),
+            // Two cells, no suffix.
+            (
+                format!("{lead}\u{d55c}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\u{d55c}\x1b[?7l"),
+            ),
+            // A selector glyph with the wrong clear, two clears, or none.
+            (
+                format!("{lead}{BOLT}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\x1b[1X{BOLT}\x1b[?7l"),
+            ),
+            (
+                format!("{lead}{BOLT}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\x1b[2X\x1b[2X{BOLT}\x1b[?7l"),
+            ),
+            (
+                format!("{lead}{BOLT}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h{BOLT}\x1b[?7l"),
+            ),
+            // A clear in front of a unit with no selector.
+            (
+                format!("{lead}{FAMILY}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\x1b[2X{FAMILY}\x1b[?7l"),
+            ),
+        ] {
+            let after = painted(10, &row);
+            let reject = checked(&after, &bytes).expect_err("not the painter's bracket");
+            assert_eq!(
+                reject.shape(),
+                "a terminal mode this vector did not declare",
+                "{bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cluster_split_off_its_glyph_by_a_colour_is_accepted_from_the_diff_and_a_whole_row() {
+        // The three readers agree: `place_row` (the declaration), the bytes
+        // the grid diff and a row written whole put on the wire, and this
+        // decoder. A wide glyph's split-off mark is no cell's; a one-cell
+        // glyph's selector or mark is the glyph's, at one cell.
+        for row in [
+            "\u{d55c}\u{1b}[39m\u{301} x",
+            "\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[22m x",
+            "\u{1b}[38;5;250m\u{2600}\u{1b}[1m\u{fe0f}\u{301}\u{1b}[0m x",
+            "\u{1b}[38;5;250m\u{2600}\u{1b}[1m\u{301}\u{fe0f}\u{1b}[0m x",
+        ] {
+            let after = painted(10, row);
+            preflight(
+                &seed(&Grid::blank(24, 80), None),
+                &framed(&after),
+                &declared_frame(&after),
+            )
+            .unwrap_or_else(|reject| panic!("the diff's frame of {row:?}: {reject}"));
+            let mut whole = b"\x1b[10;1H".to_vec();
+            super::super::grid::write_row_text(&mut whole, row, 80);
+            whole.extend_from_slice(RESET.as_bytes());
+            checked(&after, std::str::from_utf8(&whole).expect("utf-8"))
+                .unwrap_or_else(|reject| panic!("{row:?} written whole: {reject}"));
+        }
+    }
+
+    /// Whether `grid`'s cell at row 10, `column`, is a lead under a link.
+    fn linked_at(grid: &Grid, column: u16) -> bool {
+        matches!(grid.cell(10, column), Some(Cell::Lead { sgr, .. }) if sgr.link().is_some())
+    }
+
+    #[test]
+    fn a_split_cell_is_accepted_under_every_pen_mid_row_and_in_the_last_column() {
+        // `super::grid`'s `write_cell` writes a one-cell glyph that `place_row`
+        // joined a cluster to across a sequence split, with the pen written
+        // again between its parts (a reset when no attribute is on). Each pen
+        // a cell can be painted under, the glyph mid-row and in the last
+        // column, through the grid diff and a row written whole: the check
+        // accepts every one, and an open link stays open across the split.
+        let pens = [
+            ("bold", "\u{1b}[1m"),
+            ("background", "\u{1b}[48;5;236m"),
+            ("underline", "\u{1b}[4m"),
+            ("fg+bg", "\u{1b}[38;5;250m\u{1b}[48;5;236m"),
+            (
+                "link and bold",
+                "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\\u{1b}[1m",
+            ),
+            // A link and no attribute: the reset form.
+            ("link alone", DOCS_OPEN),
+        ];
+        let lead = "x".repeat(79);
+        for (name, pen) in pens {
+            let linked = pen.contains("\u{1b}]8;");
+            let close = if linked {
+                format!("{RESET}{LINK_CLOSE}")
+            } else {
+                RESET.to_string()
+            };
+            for (glyph, mark) in [("\u{2600}", "\u{fe0f}"), ("e", "\u{301}")] {
+                for (place, row, column) in [
+                    (
+                        "mid-row",
+                        format!("{pen}{glyph}\u{1b}[3m{mark} x{close}"),
+                        1u16,
+                    ),
+                    (
+                        "last column",
+                        format!("{lead}{pen}{glyph}\u{1b}[3m{mark}{close}"),
+                        80,
+                    ),
+                ] {
+                    let what = format!("{name}, {glyph:?}+{mark:?}, {place}");
+                    let after = painted(10, &row);
+                    let bytes = framed(&after);
+                    preflight(
+                        &seed(&Grid::blank(24, 80), None),
+                        &bytes,
+                        &declared_frame(&after),
+                    )
+                    .unwrap_or_else(|reject| panic!("{what}, the diff: {reject}"));
+                    let mut whole = b"\x1b[10;1H".to_vec();
+                    let text = super::super::frame::row_text(&row, 80);
+                    super::super::grid::write_row_text(&mut whole, &text, 80);
+                    checked(&after, std::str::from_utf8(&whole).expect("utf-8"))
+                        .unwrap_or_else(|reject| panic!("{what}, written whole: {reject}"));
+                    let wire = String::from_utf8(bytes).expect("utf-8");
+                    if glyph == "\u{2600}" {
+                        // Split, with the pen (or a reset) between the parts.
+                        let attributes = pen.replace(DOCS_OPEN, "");
+                        let between = if attributes.is_empty() {
+                            RESET
+                        } else {
+                            &attributes[..]
+                        };
+                        assert!(
+                            wire.contains(&format!("{glyph}{between}{mark}")),
+                            "{what}: {wire:?}"
+                        );
+                    }
+                    if linked {
+                        // The grid holds the glyph, and the cell after it
+                        // mid-row, under the link; and the wire writes no
+                        // close between the glyph and its mark.
+                        assert!(linked_at(&after, column), "{what}: the grid's glyph");
+                        if column == 1 {
+                            assert!(linked_at(&after, 2), "{what}: the grid's next cell");
+                        }
+                        let from = wire.find(glyph).expect("the glyph on the wire");
+                        let to = from + wire[from..].find(mark).expect("its mark");
+                        assert!(!wire[from..to].contains(LINK_CLOSE), "{what}: {wire:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_reset_between_a_split_cells_parts_leaves_its_link_open_in_the_check() {
+        // The reset form: a link and no attribute, so the diff writes `SGR 0`
+        // between `☀` and its selector. A reset turns attributes off and
+        // leaves a hyperlink open -- in the grid (`super::grid`'s `reopen`
+        // tracks the two apart) and in this decoder, whose `m` arm moves the
+        // pen and not the link.
+        let after = painted(
+            10,
+            &format!("{DOCS_OPEN}\u{2600}\u{1b}[3m\u{fe0f} x{LINK_CLOSE}"),
+        );
+        assert!(linked_at(&after, 1) && linked_at(&after, 2) && linked_at(&after, 3));
+        let wire = framed(&after);
+        let split = "\u{2600}\u{1b}[0m\u{fe0f}";
+        let text = String::from_utf8(wire.clone()).expect("utf-8");
+        let at = text.find(split).expect("the split written with a reset") + split.len();
+        let mut model = seed(&Grid::blank(24, 80), None);
+        apply_for_tests(&mut model, &wire[..at]).expect("the bytes up to the selector");
+        assert!(
+            model.link.is_some(),
+            "the reset closed the link in the check"
+        );
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &wire,
+            &declared_frame(&after),
+        )
+        .expect("every cell under the link it was declared under");
     }
 }

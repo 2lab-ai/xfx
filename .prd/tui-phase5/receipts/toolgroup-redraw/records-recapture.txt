@@ -1,0 +1,10 @@
+# The one pair the head sweep has worse than the base: p5-transcript-records/start (snap at 4 s after launch).
+# The hint row's 'Full access enabled: xfx permission checks disabled' is transient on both products:
+#   sweep-base fx: shown 1
+#   sweep-base xfx: shown 1
+#   sweep-head fx: shown 0
+#   sweep-head xfx: shown 1
+# The head binary (b6571bea) captured again three times, each start snap against the head sweep's fx capture (cells.py):
+recapture 1 [v0.1.0-b6571be]: 0 rows differ in their cells (row 1 not compared); notice shown 0
+recapture 2 [v0.1.0-b6571be]: 0 rows differ in their cells (row 1 not compared); notice shown 0
+recapture 3 [v0.1.0-b6571be]: 0 rows differ in their cells (row 1 not compared); notice shown 0

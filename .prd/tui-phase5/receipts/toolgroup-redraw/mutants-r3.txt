@@ -1,0 +1,28 @@
+# Round 3 mutants, on the throwaway clone at c10f718e (scratchpad, never the worktree); mutate.py, run.sh
+unmutated c10f718e: test result: ok. 1315 passed; 0 failed; 3 ignored; 0 measured; 2956 filtered out
+applied R-no-recolour-at-landing
+== R-no-recolour-at-landing: test result: FAILED. 1311 passed; 4 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.59s
+   test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+error: test failed, to rerun pass `--lib`
+applied S-recolour-drops-bold
+== S-recolour-drops-bold: test result: FAILED. 1313 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 7.10s
+   test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+   test tui::transcript::tests::every_palette_sequence_recoloured_as_written_is_what_a_report_leaves_on_the_screen ... FAILED
+error: test failed, to rerun pass `--lib`
+applied U-recolour-skips-direct
+== U-recolour-skips-direct: test result: FAILED. 1313 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.46s
+   test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+   test tui::transcript::tests::every_palette_sequence_recoloured_as_written_is_what_a_report_leaves_on_the_screen ... FAILED
+error: test failed, to rerun pass `--lib`
+applied K-recolour-ignores-kind
+== K-recolour-ignores-kind: test result: FAILED. 1314 passed; 1 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.36s
+   test tui::transcript::tests::every_palette_sequence_recoloured_as_written_is_what_a_report_leaves_on_the_screen ... FAILED
+error: test failed, to rerun pass `--lib`
+applied V-recolour-skips-bold
+== V-recolour-skips-bold: test result: FAILED. 1313 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 8.34s
+   test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+   test tui::transcript::tests::every_palette_sequence_recoloured_as_written_is_what_a_report_leaves_on_the_screen ... FAILED
+error: test failed, to rerun pass `--lib`

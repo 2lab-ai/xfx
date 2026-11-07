@@ -1,0 +1,8 @@
+# git show --remerge-diff 23fd093c
+# The body below is git's own: a merge commit's remerge-diff shows how the commit differs
+# from what git's automatic merge produces. Empty (no diff after the header) = git's result taken unchanged.
+
+commit 23fd093cc9f6634f90c540e14d63e74610c21083
+parents b095ffe7e03d2228fbedf2a0df79dd255cb59c28 8d8029079cfe2c39641bac03b1895edd16dbec38
+
+    Merge feat/p5-engine-vs-anchor @ 8d802907 (ENGINE-VS-ANCHOR + b: put_unit writes fx's ?7h/ECH/CHA bracket around a variation-selector cluster) into the 2026-11-07 train 3
