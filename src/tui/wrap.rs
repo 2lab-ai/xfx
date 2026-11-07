@@ -595,13 +595,41 @@ fn cluster_cells(cluster: &str) -> usize {
         return 0;
     }
     if cluster.chars().any(counted_as_upstream) {
-        return crate::markdown::display_width::visible_width(cluster.as_bytes());
+        return upstream_cells(cluster).max(cluster.width());
     }
     let mut chars = cluster.chars();
     if let (Some(base), Some('\u{fe0e}'), None) = (chars.next(), chars.next(), chars.next()) {
         return unicode_width::UnicodeWidthChar::width(base).unwrap_or(0);
     }
     cluster.width()
+}
+
+/// A cluster holding one of [`counted_as_upstream`]'s code points, counted
+/// one code point at a time as upstream counts a line
+/// ([`crate::markdown::display_width`]) -- but no code point under the width
+/// table's own count of it.
+///
+/// The one place the two disagree in such a cluster is a skin-tone modifier
+/// (`U+1F3FB`-`U+1F3FF`): upstream counts it as none wherever it stands (a
+/// lone modifier is no RGI sequence; `super::tool_status` records the same
+/// disagreement), the width table two after anything that is not its base,
+/// and both terminals draw it so, on a cell pair of its own -- `U+FFA0` with a
+/// modifier after it is three cells on tmux 3.7b, where upstream's count is
+/// one (`.prd/tui-phase5/receipts/width-disputed/clusters.txt`). Every other
+/// code point these clusters were measured with -- the 14, `U+0301`,
+/// `U+FE0E`, `U+034F`, `U+200D`, the jamo -- the table counts no more than
+/// upstream does, so for them this is upstream's count exactly.
+fn upstream_cells(cluster: &str) -> usize {
+    let mut buf = [0u8; 4];
+    cluster
+        .chars()
+        .map(|character| {
+            let upstream = crate::markdown::display_width::visible_width(
+                character.encode_utf8(&mut buf).as_bytes(),
+            );
+            upstream.max(unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
+        })
+        .sum()
 }
 
 /// Whether a cluster holding `character` is counted as upstream counts it --
@@ -630,14 +658,27 @@ fn cluster_cells(cluster: &str) -> usize {
 /// jamo `U+115F U+1160`, `U+1100 U+1160`, `U+115F U+1161` and
 /// `U+1100 U+1160 U+11A8` (`.prd/tui-phase5/receipts/width-disputed/
 /// clusters.txt`): never fewer cells than either draws, so a row measured by
-/// it never runs past the margin **in those forms**.
+/// it never runs past the margin **in those forms**. With a skin-tone
+/// modifier after it the count is the code points' own, each no less than
+/// the width table's ([`upstream_cells`]): `U+FFA0 U+1F3FD` three cells, as
+/// tmux draws it, where upstream's count is one; measured too, and no
+/// terminal draws more. **Not closed:** with `U+FE0F` after a soft hyphen,
+/// `U+FFA0` or `U+FFF0`-`U+FFF8`, tmux draws one cell more than this count
+/// (and libghostty-vt none) -- the selector after a character that takes no
+/// emoji presentation, which tmux gives a cell wherever it stands
+/// (`super::drawn_wider`'s `U+FE0F`; the ledger's `ctrl-o-drawn-wider-raw`,
+/// owner CTRLO-WIDER, says only naming closes it).
 ///
 /// **It is more than they draw, often**, and that is upstream's count kept
 /// rather than a terminal's: `U+1160` one cell and `U+3164` two where both
 /// terminals draw none; `U+115F`, `U+FFA0` and `U+FFF0`-`U+FFF8` one or two
 /// where libghostty-vt draws none; a jamo cluster with a filler one or two
 /// more than both. A row with one of them is laid out as if it were that
-/// much wider [추론, no capture of these costs]: the frame may skip the `EL`
+/// much wider [추론, but for one, captured: in `p5-transcript-diffwide2`'s
+/// Ctrl-O line 2, the text after the `U+3164` and `U+1160` stands three cells
+/// left of where the grid holds it -- fx's frame re-anchors there and shows
+/// the three cells blank; the WIDTH-DISPUTED receipt's `green.txt`, line 2's
+/// row]: the frame may skip the `EL`
 /// that would clear the right edge of a row it thinks is full
 /// (`super::frame`'s `place`) and leave a stale cell there; a partial row
 /// update (`super::grid`'s row diff) may leave cells the terminal never moved
@@ -1281,6 +1322,68 @@ mod tests {
                 "{cluster:?}: {painter} < {tmux}/{ghostty}"
             );
         }
+    }
+
+    #[test]
+    fn a_filler_cluster_never_counts_fewer_cells_than_the_width_table_or_a_terminal_draws() {
+        // The port counts a skin-tone modifier as none (it is no RGI sequence
+        // alone), where the width table gives one two cells after anything
+        // that is not its base -- and both terminals draw it so, on a cell
+        // pair of its own. A filler before it must not take the cluster under
+        // the table's count, as the port alone would (opus-b, round 2).
+        let fillers = [0x00ad, 0x115f, 0x1160, 0x3164, 0xffa0, 0xfff0, 0xfff8];
+        let marks = [
+            0x0301, 0xfe0e, 0xfe0f, 0x034f, 0x200d, 0x1f3fb, 0x1f3fc, 0x1f3fd, 0x1f3fe, 0x1f3ff,
+        ];
+        let mut under = Vec::new();
+        for filler in fillers {
+            for mark in marks {
+                let text: String = [filler, mark]
+                    .iter()
+                    .map(|&c| char::from_u32(c).expect("a scalar"))
+                    .collect();
+                let table = text.width();
+                let painter = usize::from(width(&text));
+                if painter < table {
+                    under.push((format!("{filler:04X} {mark:04X}"), painter, table));
+                }
+            }
+        }
+        assert_eq!(
+            under,
+            Vec::<(String, usize, usize)>::new(),
+            "(cluster, painter, unicode-width)"
+        );
+        // And never under what tmux 3.7b and libghostty-vt 1.3.2 were
+        // measured to advance for it (.prd/tui-phase5/receipts/
+        // width-disputed/clusters.txt).
+        let measured: &[(u32, u32, usize, usize)] = &[
+            (0xffa0, 0x1f3fd, 3, 2),
+            (0x1160, 0x1f3fd, 2, 2),
+            (0x115f, 0x1f3fd, 4, 2),
+            (0x3164, 0x1f3fd, 2, 2),
+            (0xfff0, 0x1f3fd, 3, 2),
+            (0x00ad, 0x1f3fd, 3, 3),
+            (0x115f, 0xfe0f, 2, 0),
+            (0x1160, 0xfe0f, 1, 0),
+            (0x3164, 0xfe0f, 1, 0),
+        ];
+        let mut short = Vec::new();
+        for &(filler, mark, tmux, ghostty) in measured {
+            let text: String = [filler, mark]
+                .iter()
+                .map(|&c| char::from_u32(c).expect("a scalar"))
+                .collect();
+            let painter = usize::from(width(&text));
+            if painter < tmux.max(ghostty) {
+                short.push((format!("{filler:04X} {mark:04X}"), painter, tmux, ghostty));
+            }
+        }
+        assert_eq!(
+            short,
+            Vec::<(String, usize, usize, usize)>::new(),
+            "(cluster, painter, tmux, libghostty-vt)"
+        );
     }
 
     #[test]
