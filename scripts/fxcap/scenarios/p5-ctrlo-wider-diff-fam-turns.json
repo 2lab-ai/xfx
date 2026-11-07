@@ -1,0 +1,1 @@
+[{"chunks": ["Editing the file.\n"], "tool": {"name": "read_file", "input": {"path": "wider2.txt"}}}, {"tool": {"name": "edit_file", "input": {"path": "wider2.txt", "old_string": "first line\n", "new_string": "FIRST LINE\n"}}}, {"delayMs": 60, "chunks": ["Edited."]}, {"delayMs": 60, "chunks": ["Spare."]}]

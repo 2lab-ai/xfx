@@ -1,0 +1,33 @@
+# Phase 5 (CTRLO-WIDER): the family of p5-ctrlo-wider-diff-fam in an answer
+# (the inline transcript, 118 cells of text a row) and in the composer: the
+# short line, then four paragraphs that reach a row's last cell by the count
+# (U+261D, U+2E3A, `a` U+FE0F, U+E0002 then `z`, each before `TAIL5678`) and
+# one that fills a row by it with four U+261D at its front; then the short
+# line typed, and that last line, a new line and 117 `w`, U+261D and `TAIL`.
+# `cursor` says where the caret is.
+gateway p5-ctrlo-wider-inline-fam-turns.json
+fx: env FX_AUTO_UPGRADE=0
+keep
+wait 4
+# A debug xfx under load takes the terminal later than fx does.
+xfx: wait 3
+type go
+wait 1
+key Enter
+wait 4
+snap answer
+wire answer
+type fam ☝ ⸺ 🖐 x󠀂y a️b ­️c ﾠ️d ￰️e ⁥f end
+wait 1
+snap composer
+cursor composer
+wire composer
+key C-u
+type ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL
+key C-j
+type wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww☝TAIL
+wait 1
+snap margin
+cursor margin
+wire margin
+gwlog

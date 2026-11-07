@@ -476,6 +476,34 @@ resolution = "fx counts a skin-tone modifier that follows no emoji as the termin
 expires = "date:2026-12-04"
 source = ["src/tui/wrap.rs:622"]
 
+[[divergence]]
+id = "ctrl-o-drawn-wider-named"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-ctrlo-wider-diff-fam"]
+snaps = ["full"]
+fx_row = '^(?:│  |  │ ).*(?:[\u261d\u26f9\u270c\u270d\u2e3a\u2e3b\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590\U000e0002-\U000e001f]|[a-z\u00ad\uffa0\ufff0-\ufff8]\ufe0f)|^(?:│  3    |  │ 3   )w{111}$|^(?:│  |  │     )(?:TAIL5678|wwEND)$'
+xfx_row = '^(?:│  |  │ ).*\\u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f])\}|^(?:│  |  │     )u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f])\}|^(?:│  |  │ ).*\\$|^(?:│  4    |  │ 4   )w{111}a$|^(?:│  |  │     )w+TAILw+END$'
+reason = "fx v0.0.16 writes as itself, in a file's line on Ctrl-O, every scalar a terminal draws wider than fx and xfx both count it (`src/tui/drawn_wider.rs`, 43 scalars: U+261D, U+26F9, U+270C-270D, U+1F3CB-1F3CC, U+1F574-1F575 and U+1F590 two cells on tmux 3.7b and one to the count, U+2E3A-2E3B two on libghostty-vt and one to the count, U+E0002-E001F one on tmux and none to the count, U+FE0F after a character that takes no emoji presentation, U+2065), and its rows do not read as the file holds them: in `p5-ctrlo-wider-diff-fam` `full`, line 2 (`fam` U+261D U+2E3A U+1F590 `x` U+E0002 `y a` U+FE0F `b` ...) reads `fam ☝ ⸺ 🖐 x` U+E0002 `b  c  d  e` on tmux -- the cells after U+261D and U+1F590 stand right of where fx's grid holds them, and the anchor fx writes after the next glyph with a variation selector (`engine.zig:2586-2588@481104fd`) puts the cursor back over `y a`, which `b` overwrites -- and `fam ☝ ⸺ 🖐 xy b` on libghostty-vt; line 3's U+261D at the margin is not drawn on tmux, line 4's `a` U+FE0F there loses its `a`, and line 5 (four U+261D, 100 `w`, `TAIL`, six `w`, `END`; the row's 112 cells by the count end four `w` after `TAIL`) ends `TAIw` on tmux, its `L` and three `w` past the margin. xfx's bytes before were fx's, cell for cell (.prd/tui-phase5/receipts/ctrlo-wider/). So a file's or a tool's line on Ctrl-O writes them `\\u{NNNN}` (`src/tui/full_transcript.rs`'s `drawn_wider_named`), as the review names them (`approval_view` `tamed`): an emoji base with its U+FE0F, a U+FE0F after one, a flag and a keycap stay. Each line takes as many rows on both sides, so the rows differ in place, read row and diff row alike. The selector, both sides of each: fx's rows holding one raw (U+FE0F after a letter, a soft hyphen, U+FFA0 or U+FFF0-FFF8), line 3's first row (111 `w`, the U+261D not drawn) and the continuations `TAIL5678` and `wwEND`; xfx's holding a token, a token's tail beginning a continuation (`u{261d}TAIL5678`) or its backslash ending a row, line 4's first row (111 `w` and `a`, its U+FE0F named on the next) and line 5's continuation."
+owner = "CTRLO-WIDER"
+resolution = "fx names them in a file's line, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
+expires = "date:2026-12-04"
+source = ["src/tui/full_transcript.rs:2596", "docs/parity.md:238"]
+
+[[divergence]]
+id = "inline-band-row-anchor"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-ctrlo-wider-inline-fam"]
+snaps = ["*"]
+fx_row = '^  fam \u261d '
+xfx_row = '^  fam \u261d '
+reason = "fx v0.0.16 paints an answer's row with its frame diff while the turn runs, and anchors the cursor after each glyph with a variation selector (`engine.zig:2586-2588@481104fd`); with a scalar before it that a terminal draws wider than the count (`src/tui/drawn_wider.rs`), the anchor puts the cursor back over glyphs already drawn, and the glyphs after it overwrite them: `p5-ctrlo-wider-inline-fam`'s first paragraph (`fam` U+261D U+2E3A U+1F590 `x` U+E0002 `y a` U+FE0F `b` ...) reads `fam ☝ ⸺ 🖐 x` U+E0002 `b  c  d  e` on tmux 3.7b and `fam ☝ ⸺ 🖐 xy b` on libghostty-vt. xfx writes an answer's rows as the document's, as they stand (`src/tui/frame.rs`'s `place`; ENGINE-VS-ANCHOR's decision 2, `.prd/tui-phase5/receipts/engine-vs-anchor/README.md`), so every glyph stays on both terminals, shifted as the terminal draws it (`fam ☝ ⸺ 🖐 x` U+E0002 `y a️b ­️c ﾠ️d ￰️e`); copying fx's write would lose them. Both write the scalars themselves, as fx does: an answer is the model's own words (docs/parity.md, the full-screen TUI row; .prd/tui-phase5/receipts/ctrlo-wider/)."
+owner = "CTRLO-WIDER"
+resolution = "fx stops anchoring over a glyph a terminal drew wider than its count, in a later pin, so the rows are the same"
+expires = "date:2026-12-04"
+source = ["src/tui/frame.rs:2749", "docs/parity.md:237"]
+
 # --- causes -----------------------------------------------------------------
 #
 # Why each row that stays unresolved is unresolved, and whose fix it is. These
@@ -489,18 +517,6 @@ source = ["src/tui/wrap.rs:622"]
 # (`^[▪■] Cancelled `) is a row of both, and the first cause that covers a
 # row is that row's -- so the row stays T-U4's while the marker differs, and
 # is TC-NOTATION's once T-U4 has changed it (T-U3-TCd).
-[[cause]]
-id = "ctrl-o-drawn-wider-raw"
-kind = "defect"
-owner = "CTRLO-WIDER"
-scenarios = ["*"]
-snaps = ["*"]
-xfx_row = '^  │ +\d+ [ +-] .*[\u0605\u070f\u0890-\u0891\u08e2\u09be\u09d7\u0b3e\u0b57\u0bbe\u0bd7\u0cc0\u0cc2\u0cc7-\u0cc8\u0cca-\u0ccb\u0cd5-\u0cd6\u0d3e\u0d4e\u0d57\u0dcf\u0ddf\u1715\u1734\u1b35\u1b3b\u1b3d\u1b43-\u1b44\u1baa\u1bf2-\u1bf3\u302e-\u302f\ua8fa\ua953\ua9c0\uff9e-\uff9f\U000111c0\U000111c2-\U000111c3\U00011235\U0001133e\U0001134d\U00011357\U000113b8\U000113c2\U000113c5\U000113c7-\U000113c9\U000113cf\U000113d1\U000114b0\U000114bd\U000115af\U000116b6\U00011930\U0001193d\U0001193f\U00011941\U00011a84-\U00011a89\U00011d46\U00011f02\U00011f41\U00016ff0-\U00016ff1\U0001d165-\U0001d166\U0001d16d-\U0001d172\U000e0000\U000e0080-\U000e00ff\U000e01f0-\U000e0fff]'
-xfx = "src/tui/drawn_wider.rs:50-67"
-fx = "src/core/shared/display_width.zig:275-282@c1db9191"
-why = "Ctrl-O's diff rows write as themselves, as fx v0.0.16 does, the scalars `src/tui/drawn_wider.rs` lists that fx does not name (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`), and the painter counts them as the width table does, fewer cells than a terminal was measured to draw them. This cause selects only the ones fx counts more cells than xfx does, one code point at a time (`runeWidth`): 3,812 scalars in 63 ranges, U+0605, U+FF9E and U+302E among them (U+0605 and U+FF9E one cell, U+302E two, `wide_ranges` `0x2FF0-0x303E`, `unicode_display_data.zig:81@481104fd`; xfx none). A diff line with one at the margin can run past it, as WIDTH-DISPUTED's fillers did. No scenario holds one. Left out of the selector, so a row with one of them sweeps unresolved rather than here: U+FE0F (it would take in every row with an emoji in emoji presentation), and the scalars fx counts no more cells than xfx -- the family `drawn_wider.rs:23-30` lists (U+261D, U+26F9, U+270C-270D, U+2E3A-2E3B, the regional indicators U+1F1E6-1F1FF, U+1F3CB-1F3CC, U+1F574-1F575, U+1F590), which xfx and fx count one cell where a terminal draws two, and U+E0002-E001F, which both count as none. Of that U+FE0F: after a soft hyphen, U+FFA0, U+FFF0-FFF8 or a letter, the painter counts one cell less than tmux 3.7b draws, as fx does (12 of the 164 forms WIDTH-DISPUTED measured, .prd/tui-phase5/receipts/width-disputed/clusters.txt, `UNDER`; libghostty-vt draws no more than the count). Those 12, and the rest of the table's scalars, are painted raw not on Ctrl-O alone: `super::drawn_wider` is consulted only by `approval_view`, so the inline transcript and the composer write and count them the same way. CTRLO-WIDER owns them on all three surfaces (its scope widened in WIDTH-DISPUTED-d); the selector stays Ctrl-O's diff rows, the one surface a capture holds them on."
-resolution = "On Ctrl-O, in the inline transcript and in the composer alike. For the scalars it selects: fixed when the painter counts them as fx does, or the surface names them (a divergence from fx's bytes then). Counting as fx does cannot close the family it leaves out, where xfx's count is already fx's: only naming them closes it, as the review does (`approval_view` `tamed`); so for U+FE0F after a character that takes no emoji presentation."
-
 [[cause]]
 id = "submit-multi-card-whole"
 kind = "decision"
