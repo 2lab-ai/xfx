@@ -1,0 +1,64 @@
+--- a/src/mcp/transport.rs
++++ b/src/mcp/transport.rs
+@@ -1796,6 +1796,61 @@
+         }
+     }
+ 
++    /// RED scratch, never committed: the real cut, with no grandchild to wait
++    /// for before the leader is looked at.
++    fn red_cut() -> (Arc<StdioTransport>, i32, tempfile::TempDir) {
++        let (transport, (leader, _), dir) =
++            deaf_server(r#"echo "$$ $$" > "$1"; exec sleep 120"#);
++        let mut timeout = Duration::from_millis(300);
++        loop {
++            let caller = Arc::clone(&transport);
++            let (result, _) = within(timeout + Duration::from_secs(20), move || {
++                caller.request("tools/call", oversized_call(), timeout, None)
++            })
++            .expect("the request returned");
++            assert_eq!(result, Err(McpError::Named("McpRequestTimedOut")));
++            if !transport.alive() {
++                break;
++            }
++            timeout *= 4;
++            assert!(timeout <= Duration::from_secs(20), "never cut");
++        }
++        assert_eq!(
++            transport.request("ping", json!({}), Duration::from_secs(1), None),
++            Err(McpError::Named("McpConnectionClosed"))
++        );
++        (transport, leader, dir)
++    }
++
++    #[test]
++    fn red_old_point_check() {
++        let (transport, leader, _dir) = red_cut();
++        assert!(
++            matches!(
++                rustix::process::waitid(
++                    rustix::process::WaitId::Pid(
++                        rustix::process::Pid::from_raw(leader).expect("pid")
++                    ),
++                    rustix::process::WaitIdOptions::EXITED
++                        | rustix::process::WaitIdOptions::NOWAIT
++                        | rustix::process::WaitIdOptions::NOHANG,
++                ),
++                Ok(Some(_))
++            ),
++            "the leader was not killed, or was collected, before the close"
++        );
++        transport.close();
++    }
++
++    #[test]
++    fn red_new_poll() {
++        let (transport, leader, _dir) = red_cut();
++        let started = Instant::now();
++        assert_exited_uncollected(leader, "the leader, at the cut,");
++        eprintln!("RED-WAITED {:?}", started.elapsed());
++        transport.close();
++    }
++
+     #[cfg(unix)]
+     #[test]
+     fn a_request_to_a_server_that_never_reads_ends_at_its_deadline_and_close_stops_it() {
