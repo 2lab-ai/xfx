@@ -9,8 +9,8 @@ usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red
 capture, the scenario each of those builds failed, and `prev3/`, round 2's
 build on every scenario, whose launch and resume reports sit where fx's do
 not, and `prev4/`, round 3's build on every scenario, whose keystroke
-reports go ahead of the frame that shows the keystroke, and `prev5/`, this
-batch's first build, whose prompt `working` can still go ahead of the frame
+reports go ahead of the frame that shows the keystroke, and `prev5/`, round
+4's first build, whose prompt `working` can still go ahead of the frame
 that shows its `Thinking` -- each with one
 `<scenario>-40x120/` per scenario as `capture.sh` wrote it. Only `.wire`
 files are copied: no gateway log, no request body, no run log. A wire is

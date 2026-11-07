@@ -37,18 +37,19 @@ same p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  prev5  7  
 same p5-lifecycle-osc-term-40x120       t00-done               fx  3  prev5  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  prev5  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
 build: every prev5 wire carries v0.1.0-b65eeed and no other banner
-FAIL order p5-lifecycle-osc-autocompactfail-40x120 o00-answered: working [3] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-autocompactfail-40x120 o01-failed: working [3, 5] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev5
-FAIL order p5-lifecycle-osc-hostile-40x120 h01-question: working [5] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-hostile-40x120 h02-exit: working [5] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-picker-40x120 p00-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-picker-40x120 p01-picker: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-picker-40x120 p02-closed: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-picker-40x120 p03-exit: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-states-40x120 w04-error: working [5] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-states-40x120 w05-permission: working [5] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-states-40x120 w06-after-permission: working [5] after a frame that showed Thinking: [True] on fx, [False] on prev5
-FAIL order p5-lifecycle-osc-states-40x120 w07-question: working [5, 11] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev5
-FAIL order p5-lifecycle-osc-states-40x120 w08-after-question: working [5, 11] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev5
-FAIL order p5-lifecycle-osc-states-40x120 w09-exit: working [5, 11] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev5
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o00-answered: working [3] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o01-failed: working [3, 5] after Thinking: [True, True] on fx, [False, False] on prev5
+FAIL order p5-lifecycle-osc-hostile-40x120 h01-question: working [5] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-hostile-40x120 h02-exit: working [5] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-picker-40x120 p00-done: working [1] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-picker-40x120 p01-picker: working [1] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-picker-40x120 p02-closed: working [1] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-picker-40x120 p03-exit: working [1] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-states-40x120 w04-error: working [5] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-states-40x120 w05-permission: working [5] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-states-40x120 w06-after-permission: working [5] after Thinking: [True] on fx, [False] on prev5
+FAIL order p5-lifecycle-osc-states-40x120 w07-question: working [5, 11] after Thinking: [True, True] on fx, [False, False] on prev5
+FAIL order p5-lifecycle-osc-states-40x120 w08-after-question: working [5, 11] after Thinking: [True, True] on fx, [False, False] on prev5
+FAIL order p5-lifecycle-osc-states-40x120 w09-exit: working [5, 11] after Thinking: [True, True] on fx, [False, False] on prev5
+not captured on prev5: p5-lifecycle-osc-interruptnext-40x120
 38 wire pairs, 14 failing claims

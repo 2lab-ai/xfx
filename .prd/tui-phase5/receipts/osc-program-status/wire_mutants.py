@@ -23,6 +23,10 @@ DONE = b"\x1b]7501;state=done:app=xfx\x1b\\"
 IDLE = b"\x1b]7501;state=idle:app=xfx\x1b\\"
 WORKING = b"\x1b]7501;state=working:app=xfx\x1b\\"
 WORKING_WIRE = os.path.join("xfx", UNIT, "xfx-%s-w01-working.wire" % UNIT)
+AFTER_PERMISSION = os.path.join("xfx", UNIT, "xfx-%s-w06-after-permission.wire" % UNIT)
+AUTOCOMPACT = "p5-lifecycle-osc-autocompactfail-40x120"
+FAILED = os.path.join("xfx", AUTOCOMPACT, "xfx-%s-o01-failed.wire" % AUTOCOMPACT)
+ERROR = b"\x1b]7501;state=error:app=xfx\x1b\\"
 
 
 def drop_clear(data):
@@ -111,6 +115,24 @@ def resume_report_ahead_of_its_frame(data):
     return data[:frame] + IDLE + data[frame:at] + data[at + len(IDLE):]
 
 
+def compaction_error_behind_its_failure(data):
+    # The order rounds 1 to 3 wrote: the frame that shows `Compaction failed.`,
+    # then the turn's `error` -- behind that frame rather than ahead of it.
+    at = data.find(ERROR)
+    shown = data.find(b"Compaction failed", at)
+    close = data.find(b"\x1b[?2026l", shown) + len(b"\x1b[?2026l")
+    return data[:at] + data[at + len(ERROR):close] + ERROR + data[close:]
+
+
+def answered_working_ahead_of_any_frame(data):
+    # An answer's `working` with no frame after the question: right behind the
+    # `blocked` report it follows.
+    blocked = data.find(b"\x1b]7501;state=blocked")
+    end = data.find(b"\x1b\\", blocked) + 2
+    at = data.find(WORKING, end)
+    return data[:end] + WORKING + data[end:at] + data[at + len(WORKING):]
+
+
 MUTANTS = [
     ("the exit's restore without its clear", EXIT, drop_clear),
     ("the clear moved after ?25h", EXIT, clear_moved_after_the_cursor),
@@ -127,6 +149,10 @@ MUTANTS = [
     ("the launch's idle ahead of its title", START, launch_idle_ahead_of_its_title),
     ("a resume's report ahead of the frame it repaints", RESUMED, resume_report_ahead_of_its_frame),
     ("a keystroke's working ahead of the frame that shows it", WORKING_WIRE, keystroke_working_ahead_of_its_frame),
+    ("an automatic compaction's error behind the frame that shows its failure", FAILED,
+     compaction_error_behind_its_failure),
+    ("an answer's working with no frame after its question", AFTER_PERMISSION,
+     answered_working_ahead_of_any_frame),
 ]
 
 

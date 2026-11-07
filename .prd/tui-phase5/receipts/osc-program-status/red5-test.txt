@@ -1,0 +1,28 @@
+# Round 5's tests on ef52945a's code (the RED commit 17ee8cd8 adds tests only):
+# cargo test --lib -- a_prompt_typed_after_a_stop a_held_prompt_reports_nothing keys_typed_ahead_of_the_session an_automatic_compaction_failure_whose_place
+running 4 tests
+tui::shell::tests::an_automatic_compaction_failure_whose_place_comes_back_before_the_turn_ends_is_one_error --- FAILED
+tui::event_loop::tests::keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle --- FAILED
+tui::event_loop::tests::a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking --- FAILED
+.
+failures:
+---- tui::shell::tests::an_automatic_compaction_failure_whose_place_comes_back_before_the_turn_ends_is_one_error stdout ----
+thread 'tui::shell::tests::an_automatic_compaction_failure_whose_place_comes_back_before_the_turn_ends_is_one_error' (298468023) panicked at src/tui/shell.rs:45111:9:
+assertion `left == right` failed: the settled band read the failed turn as working again
+  left: Some("working")
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+---- tui::event_loop::tests::keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle stdout ----
+thread 'tui::event_loop::tests::keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle' (298468022) panicked at src/tui/event_loop.rs:13264:9:
+assertion `left == right` failed: the launch's idle went missing, or more went with it
+  left: 0
+ right: 1
+---- tui::event_loop::tests::a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking stdout ----
+thread 'tui::event_loop::tests::a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking' (298468021) panicked at src/tui/event_loop.rs:13153:9:
+the waiting prompt's working went ahead of any frame that shows its turn: [[27, 93, 55, 53, 48, 49, 59, 115, 116, 97, 116, 101, 61, 119, 111, 114, 107, 105, 110, 103, 58, 97, 112, 112, 61, 120, 102, 120, 27, 92], [27, 91, 63, 50, 48, 50, 54, 104, 27, 91, 63, 50, 53, 108, 27, 91, 50, 52, 59, 49, 72, 27, 91, 51, 56, 59, 53, 59, 50, 52, 53, 109, 114, 117, 110, 32, 96, 120, 102, 120, 32, 115, 101, 116, 117, 112, 96, 32, 194, 183, 32, 27, 91, 48, 109, 27, 91, 51, 56, 59, 53, 59, 50, 53, 50, 109, 97, 117, 116, 111, 27, 91, 48, 109, 27, 91, 51, 56, 59, 53, 59, 50, 52, 53, 109, 32, 194, 183, 32, 103, 108, 109, 45, 53, 46, 50, 27, 91, 48, 109, 27, 91, 50, 50, 59, 51, 72, 27, 91, 63, 50, 48, 50, 54, 108, 27, 91, 63, 50, 53, 104]]
+failures:
+    tui::event_loop::tests::a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking
+    tui::event_loop::tests::keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle
+    tui::shell::tests::an_automatic_compaction_failure_whose_place_comes_back_before_the_turn_ends_is_one_error
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 4296 filtered out; finished in 0.02s
+error: test failed, to rerun pass `--lib`
