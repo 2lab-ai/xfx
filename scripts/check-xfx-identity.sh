@@ -306,16 +306,21 @@ if [ "$tracked_count" -eq 0 ]; then
 	fail 'no tracked files to scan; the check would pass for the wrong reason'
 	exit 1
 fi
-# Every tracked file is in the working tree: `git grep` skips one it cannot
-# find without a word. A file deleted and not yet committed is refused by
-# name too; so is every path of another repository a planted `.git` names.
-if ! scan_git . ls-files -d -z >"$control_root/deleted" 2>"$control_root/errors" || [ -s "$control_root/errors" ]; then
-	fail 'git ls-files could not list the tracked files missing from this checkout:'
+# Every tracked file is in the working tree as the type the index records:
+# `git grep` skips, without a word, a file it cannot find and an entry that
+# is not a regular file. `diff-files --diff-filter=DT` lists both: `D` for a
+# path that is gone or is now a directory, `T` for one whose type changed
+# (a file now a symlink). `ls-files -d` saw only the first. A file deleted
+# and not yet committed is refused by name too; so is every path of another
+# repository a planted `.git` names.
+if ! scan_git . diff-files --name-only -z --diff-filter=DT >"$control_root/deleted" 2>"$control_root/errors" ||
+	[ -s "$control_root/errors" ]; then
+	fail 'git diff-files could not list the tracked files missing from this checkout:'
 	cat "$control_root/errors" >&2
 	exit 1
 fi
 if [ -s "$control_root/deleted" ]; then
-	fail 'tracked files missing from the working tree, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>):'
+	fail "tracked files missing from the working tree, or there as a directory or a symlink, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>), unless none of them belongs here: then this root's .git names another repository:"
 	tr '\000' '\n' <"$control_root/deleted" >&2
 	exit 1
 fi
