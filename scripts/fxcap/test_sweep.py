@@ -761,6 +761,32 @@ class Sweep(unittest.TestCase):
         self.assertFalse(os.path.exists(out))
 
 
+class GitEnvironment(unittest.TestCase):
+    def test_the_out_guard_finds_this_checkout_whatever_git_variables_it_inherits(self):
+        """`--out` is refused inside this checkout and inside its main worktree,
+        which git is asked for. GIT_DIR or GIT_COMMON_DIR inherited from the
+        caller would have git answer for another repository, and the guard
+        would let the sweep write into this one's main worktree."""
+        import sweep
+
+        want = sweep.main_worktree()
+        self.assertIsNotNone(want)
+        decoy = os.path.join(scratch(), "decoy")
+        subprocess.run(["git", "init", "-q", decoy], check=True, capture_output=True)
+        for extra in ({"GIT_DIR": os.path.join(decoy, ".git")}, {"GIT_COMMON_DIR": os.path.join(decoy, ".git")}):
+            saved = {k: os.environ.get(k) for k in extra}
+            os.environ.update(extra)
+            try:
+                got = sweep.main_worktree()
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            self.assertEqual(got, want, sorted(extra))
+
+
 class Inventory(unittest.TestCase):
     def write(self, **snaps):
         d = scratch()
