@@ -238,7 +238,9 @@ cargo build --locked --release
 ./target/release/xfx --version
 ```
 
-The full local gate, which is what CI runs:
+The full local gate, which is what CI runs (CI runs the two script tests,
+`test-gate-env.sh` and `test-preview-contract.sh`, on one row per OS; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md)):
 
 ```bash
 cargo fmt --check
@@ -253,6 +255,11 @@ cargo build --locked --release
 ./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ```
+
+`cargo test` runs the identity gate as one of its tests, and that gate refuses a
+tracked file missing from the working tree: a file deleted and not committed,
+or renamed with plain `mv`, fails `the_tracked_tree_carries_only_the_current_product_name`
+until the change is committed or the file restored.
 
 `scripts/smoke.sh` drives the built binary end to end against a fake Gateway on
 a loopback port -- no credential, no network -- and leaves every captured stream

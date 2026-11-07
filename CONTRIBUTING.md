@@ -40,7 +40,11 @@ plain terms" in [`README.md`](README.md).
 ## The gate
 
 Everything below must pass before a change is ready. This is exactly what CI
-runs, on Linux and macOS, on x86_64 and aarch64:
+runs, on Linux and macOS, on x86_64 and aarch64 -- except the two script tests
+(`test-gate-env.sh` and `test-preview-contract.sh`), which test the gate scripts
+on the OS's own bash, grep and git rather than anything built for the target,
+so CI runs them on one row per OS: aarch64 macOS and x86_64 Linux. Run them
+locally all the same:
 
 ```bash
 cargo fmt --check
@@ -59,6 +63,14 @@ cargo build --locked --release --features fault-injection --target-dir target/fa
 ./scripts/smoke.sh target/release/xfx
 ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx
 ```
+
+`cargo test --all-targets` runs `scripts/check-xfx-identity.sh` too
+(`the_tracked_tree_carries_only_the_current_product_name` in `tests/parity.rs`).
+The check reads the tracked files from the working tree and refuses one it
+cannot read as tracked, so a tracked file deleted and not yet committed, or
+renamed with a plain `mv` rather than `git mv`, fails that test with "tracked
+files missing from the working tree", naming the file: commit the change, or
+`git restore` the file, first.
 
 `scripts/check-xfx-identity.sh` scans the tracked tree for the name this port
 carried before it was `xfx`. Upstream is `fx` and keeps its own name wherever it

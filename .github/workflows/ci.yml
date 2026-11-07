@@ -49,14 +49,25 @@ jobs:
       # `macos-15-intel` are free for public repositories; if either becomes
       # unavailable, the honest change is to drop that row and stop shipping
       # its archive, not to replace it with a build that is never run.
+      #
+      # `script_tests` marks one row per OS for the tests of the gate scripts
+      # themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
+      # and test-preview-contract.sh). They exercise the OS's bash, grep, git
+      # and getconf -- bash 3.2 and BSD grep on macOS, GNU grep on Linux --
+      # and build nothing for the target, so a second row of the same OS
+      # repeats them on the same userland. On the x86_64 macOS row they would
+      # have cost minutes against its 60-minute timeout (PR #80: 47m29s). The
+      # gates themselves (every check-*.sh) still run on every row.
       matrix:
         include:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            script_tests: true
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
           - runner: macos-15
             target: aarch64-apple-darwin
+            script_tests: true
           - runner: macos-15-intel
             target: x86_64-apple-darwin
     steps:
@@ -131,7 +142,7 @@ jobs:
       # plants one violation per gate and requires it refused under the
       # value that used to hide it.
       #
-      # It is also this job's one run of scripts/test-check-no-secrets.sh,
+      # It is also the one run of scripts/test-check-no-secrets.sh,
       # whole, under a decoy GIT_DIR, a GIT_TRACE and a HOME whose config
       # runs programs: the secrets check hands the tracked names to `grep`
       # in batches that fit under ARG_MAX, and that test builds a scratch
@@ -141,6 +152,7 @@ jobs:
       # second full run per row; the two differed only in the environment,
       # and the run under the decoys is the one that tests it.
       - name: No gate takes its options, repository or config from the environment
+        if: matrix.script_tests
         run: ./scripts/test-gate-env.sh
 
       - name: One product name in tracked files
@@ -158,6 +170,7 @@ jobs:
       # condition on the jobs behind it, and the epoch file, one at a time in
       # a scratch copy, and requires each break to be reported by name.
       - name: The preview contract catches every mutant it exists for
+        if: matrix.script_tests
         run: ./scripts/test-preview-contract.sh
 
       # The TUI output check runs in front of every frame a released binary
