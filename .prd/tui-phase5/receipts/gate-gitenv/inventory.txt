@@ -1,0 +1,51 @@
+== head 08f9025b
+
+== the scripts the workflows run (one-line and block run: steps)
+./scripts/check-no-secrets.sh
+./scripts/check-no-stubs.sh
+./scripts/check-preview-contract.sh
+./scripts/check-tui-preflight-cost.sh
+./scripts/check-usage-clock.sh
+./scripts/check-xfx-identity.sh
+./scripts/fxcap/ci-fetch.sh
+./scripts/fxcap/ci-sweep.sh
+./scripts/fxcap/test-capture.sh
+./scripts/fxcap/test-sweep.sh
+./scripts/smoke-tui.sh
+./scripts/smoke.sh
+./scripts/test-check-no-secrets.sh
+./scripts/test-gate-env.sh
+./scripts/test-preview-contract.sh
+
+== per script: lines that run git (comments and ruby/text excluded), and the GIT_* drop
+scripts/check-no-secrets.sh          git lines 5   drops GIT_* at :40
+scripts/check-no-stubs.sh            git lines 0   drops GIT_* at :-
+scripts/check-preview-contract.sh    git lines 1   drops GIT_* at :61
+scripts/check-tui-preflight-cost.sh  git lines 0   drops GIT_* at :-
+scripts/check-usage-clock.sh         git lines 0   drops GIT_* at :-
+scripts/check-xfx-identity.sh        git lines 8   drops GIT_* at :39
+scripts/test-check-no-secrets.sh     git lines 6   drops GIT_* at :-
+scripts/test-gate-env.sh             git lines 15  drops GIT_* at :59
+scripts/test-preview-contract.sh     git lines 0   drops GIT_* at :-
+scripts/smoke.sh                     git lines 0   drops GIT_* at :-
+scripts/smoke-tui.sh                 git lines 0   drops GIT_* at :-
+
+== smoke.sh: the environment of the binary it drives
+432:xfx_env() {
+433:	env -i \
+
+== smoke-tui.sh: the environment of the binary it drives
+3223:        # Built from nothing, exactly as `tests/support/sandbox.rs` does. The
+3228:        env = {
+3229:            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+4272:        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": trial.home},
+
+== build.rs (built by the cargo gates): its git calls
+61:    let Some(git_dir) = git_path(&["rev-parse", "--git-dir"]) else {
+64:    let common = git_path(&["rev-parse", "--git-common-dir"]).unwrap_or_else(|| git_dir.clone());
+98:    let output = Command::new("git").args(args).output().ok()?;
+111:    let output = Command::new("git")
+112:        .args(["rev-parse", "HEAD"])
+
+== hooks: anything that installs or names one
+none
