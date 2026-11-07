@@ -273,9 +273,9 @@ with `TMPDIR=/private/tmp/claude-501/tlt`:
 - **The test now** reads every case before it judges any, and reports each
   wrong one.
   - The zone files run unconditionally, first.
-  - Then POSIX strings that both C libraries read alike: `<XXX>-24` reads UTC
-    (exactly a day), `<XXX>-25` reads UTC (glibc clamps hours over 24 to 24 in
-    `compute_offset`, macOS keeps 25 h), and `<XXX>-23:59:59` applies (`… XXX`,
+  - Then POSIX strings that both C libraries read alike: `<QQQ>-24` reads UTC
+    (exactly a day), `<QQQ>-25` reads UTC (glibc clamps hours over 24 to 24 in
+    `compute_offset`, macOS keeps 25 h), and `<QQQ>-23:59:59` applies (`… QQQ`,
     a day less a second). Then `PST8` and `<+14>-14`.
   - `<XX>-25` asserts each platform's own reading: macOS `UTC` (its tzcode
     takes the 2-character name at 25 h), elsewhere `+0000`.
