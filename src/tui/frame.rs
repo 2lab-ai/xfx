@@ -8134,12 +8134,18 @@ mod tests {
         let (mut band, geometry) = painted_primary();
         let mut rows = screen_rows(geometry.rows);
         rows[3] = format!("a {BOLT} b");
+        rows[4] = format!("c {BOLT}");
         let frame = band
             .enter_alternate(&rows, &geometry, (7, 0))
             .expect("a vector the check accepted");
         let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
         assert!(
             text.contains(&format!("\u{1b}[4;1Ha \u{1b}[2X{BOLT}\u{1b}[5G b")),
+            "{text:?}"
+        );
+        // Nothing after it on its row, so no anchor: the next row's `CUP`.
+        assert!(
+            text.contains(&format!("\u{1b}[5;1Hc \u{1b}[2X{BOLT}\u{1b}[6;1H")),
             "{text:?}"
         );
     }
