@@ -2,15 +2,17 @@
 
 Security unit (S): terminal injection on the full transcript. Base:
 `train/p5-1107` at `56979c59` (PR #73's train, which holds T-U1+U2's
-tool-row wrap). Fix: `127f0502` on `fix/p5-ctrlo-safe-rows`. Oracle: fx
+tool-row wrap). Fix: `127f0502`, and `28f3fda5` (clippy's rename of the
+decoder's state to fx's `EscapeState`; two shell tests read the spelled rows)
+on `fix/p5-ctrlo-safe-rows`. Oracle: fx
 v0.0.16 (`vercel-labs/fx@481104fd`).
 
-**Builds.** Every `xfx/` capture is from a debug build of `127f050`, the
-commit under this receipt; every `red/` capture from a debug build of the base
+**Builds.** Every `xfx/` capture is from a debug build of `28f3fda`, the
+code commit under this receipt; every `red/` capture from a debug build of the base
 `56979c5`. `publish.py`'s check as the captures were copied in: each snap whose
-row 1 is the banner reads `x𝒇x v0.1.0-127f050 [debug]` (xfx) or
+row 1 is the banner reads `x𝒇x v0.1.0-28f3fda [debug]` (xfx) or
 `v0.1.0-56979c5` (red). The seven scenarios `check.txt` re-reads were captured
-from the same `127f050` build (row 1 of each: `v0.1.0-127f050`). fx is the
+from the same `28f3fda` build (row 1 of each: `v0.1.0-28f3fda`). fx is the
 v0.0.16 reference binary, sha256 `8e6cda2e…`, checked before and after each
 sweep (`sweep-*.md`).
 
@@ -42,7 +44,7 @@ fx's capture (`fx/p5-transcript-safe-40x120/…-full.txt`) shows each:
 `│ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g` and `│ X`;
 `│  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d` and `│  2    over\x0dX`.
 
-## What changed (`127f0502`, `src/tui/full_transcript.rs`)
+## What changed (`127f0502` + `28f3fda5`, `src/tui/full_transcript.rs`; lines at `28f3fda5`)
 
 - `Detail::made_inert` (`:424`) spells an argument's name and value, a
   result and a command's status with `detail_spelled` (`:486`): fx's
@@ -56,8 +58,8 @@ fx's capture (`fx/p5-transcript-safe-40x120/…-full.txt`) shows each:
   (`:709`), a port of fx's `Decoder` (per stream, before `bounded`, so a cut
   can never fall inside a sequence), and no longer turns tabs into four
   spaces.
-- `railed` (`:2042`) draws a command's tab as the spaces to the stop the wrap
-  measured it to (`prose::expand_tabs`, `:2058`), then trims and clips.
+- `railed` (`:2043`) draws a command's tab as the spaces to the stop the wrap
+  measured it to (`prose::expand_tabs`, `:2059`), then trims and clips.
 - **Two differences from fx, both made on purpose**: the marks fx leaves raw
   in a command's output are named there too, and the Arabic letter mark
   (`U+061C`, which fx writes as itself everywhere and `approval_view` counts
@@ -83,8 +85,11 @@ fx's capture (`fx/p5-transcript-safe-40x120/…-full.txt`) shows each:
 
 ## GREEN
 
-- **Tests**: `cargo test --locked --lib -- tui::full_transcript`: 75 passed,
-  0 failed -- the four above, `a_commands_stream_is_read_as_fxs_decoder_reads_it`
+- **Tests**: `cargo test --locked --lib -- tui::full_transcript` and the two
+  resumed-session shell tests (`a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript`,
+  `a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times`,
+  now reading a result spelled -- their every-escape-is-an-SGR checks
+  unchanged): 77 passed, 0 failed -- the four above, `a_commands_stream_is_read_as_fxs_decoder_reads_it`
   (one case per decoder branch: CSI, OSC to BEL and ST, `ESC Fe`, a
   sequence cut by a control, a line feed inside a CSI, a sequence the stream
   ends in, `ESC ESC [`, CRLF, a bare CR, the last CR, `CR ESC[2K`, `\xNN`,
@@ -92,21 +97,23 @@ fx's capture (`fx/p5-transcript-safe-40x120/…-full.txt`) shows each:
   `a_detail_is_made_inert_before_it_reaches_a_row` restated for the new
   contract (spelled, not blanked; idempotent). The no-control test checks
   every row at 10, 24, 80 and 120 columns fits (`wrap::width <= cols`).
-- **Pair** (`pairs.txt`, `sweep-new.md`): `127f050` against fx: **no row is
+- **Pair** (`pairs.txt`, `sweep-new.md`): `28f3fda` against fx: **no row is
   unexplained**. The argument and read rows are fx's cell for cell; the
   command row is fx's but for the named marks (`ctrl-o-command-marks`, on
   both pages); what is left is the call's own row (below) and the rows
   `tool-schema`, `session-record` and the new `safe-page-edge` (those two
   causes four rows deep at the two page edges) already name.
 - **`check.py`** (`check.txt`): the T-U1U2 receipt's checker, its own fx
-  captures against new captures of the seven scenarios from `127f050`:
-  **34 claims, 34 hold**. No claim changed: none of those scenarios has a
-  control, a mark or a tab in a detail row.
+  captures against new captures of the seven scenarios from `28f3fda`:
+  **34 claims, 34 hold**. No claim changed: the report is
+  `transcript-wrap/green.txt` line for line, every count the same (`diff`
+  with the hex digits of the revisions masked: no difference).
 
 ## Mutant (`mutants.txt`)
 
-On a throwaway `git clone --no-local` of `127f0502`: an argument's value
-names C0 and C1 but no mark. `an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it`
+On a throwaway `git clone --no-local` of `127f0502` (`28f3fda5` renames
+nothing in the arm it mutates): an argument's value names C0 and C1 but no
+mark. `an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it`
 and `no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width`
 fail on it, at the argument row (`'A<U+202E>B<U+200B>C<U+FEFF>D\x1b…`); the
 read and command tests pass -- the assertions are per row kind.

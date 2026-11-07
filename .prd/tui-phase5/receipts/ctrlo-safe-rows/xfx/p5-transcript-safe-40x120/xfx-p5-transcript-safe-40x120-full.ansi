@@ -1,38 +1,38 @@
   [38;5;250m+5 more)[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-11-07 02:06:09.013 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+[38;5;245m  2026-11-07 02:21:16.753 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 2ms[39m
   [38;5;250mfinish: tool_calls[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 02:06:09.133 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 63ms[39m
+[38;5;245m  2026-11-07 02:21:16.873 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 64ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 02:06:08.928 UTC · Prompt[39m
+[38;5;245m  2026-11-07 02:21:16.681 UTC · Prompt[39m
 [38;5;255m┃[39m [1mshow the file[0m
 
-[38;5;245m  2026-11-07 02:06:09.047 UTC · Response[39m
+[38;5;245m  2026-11-07 02:21:16.792 UTC · Response[39m
   Showing the file.
 
-[38;5;245m  2026-11-07 02:06:09.047 UTC · Tool[39m
+[38;5;245m  2026-11-07 02:21:16.792 UTC · Tool[39m
 [38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
 ├ Ran [38;5;252mprintf[39m [38;5;250m'%s\n'[39m [38;5;250m'A‮B​C﻿D [2JE F G'[39m [38;5;252m>[39m/dev/null[38;5;252m;[39m [38;5;252mcat[39m safe.txt [38;5;245m#  [39m
 │[38;5;245m  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d[39m
 │[38;5;245m a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g[39m
 │[38;5;245m X[39m
 
-[38;5;245m  2026-11-07 02:06:09.048 UTC · Tool[39m
+[38;5;245m  2026-11-07 02:21:16.792 UTC · Tool[39m
 └ Read safe.txt
 │[38;5;245m  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d[39m
 │[38;5;245m  2    over\x0dX[39m
 
-[38;5;245m  2026-11-07 02:06:09.167 UTC · Response[39m
+[38;5;245m  2026-11-07 02:21:16.918 UTC · Response[39m
   Shown.
 
-[38;5;245m  2026-11-07 02:06:09.167 UTC · Usage[39m
+[38;5;245m  2026-11-07 02:21:16.918 UTC · Usage[39m
 [38;5;245m  0s (↑3 ↓80)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m

@@ -1,5 +1,5 @@
-# Each snap pair of p5-transcript-safe 40x120, classified by scripts/fxcap/sweep.sh --rescore with the
-# ledger as committed. A character a terminal would act on or that hides text is shown here as <U+XXXX>;
+# Each snap pair of p5-transcript-safe 40x120, classified by scripts/fxcap/sweep.sh (base: --rescore) with
+# the ledger as committed. A character a terminal would act on or that hides text is shown here as <U+XXXX>;
 # the captures under fx/, red/ and xfx/ hold it as the screen did.
 
 == xfx base (56979c5) against fx v0.0.16
@@ -48,7 +48,7 @@ full-pgup  unresolved-defect  causes=session-record,ctrl-o-call-row-spelling,too
     xfx 35 -                      │  1    a<U+202E>b<U+200B>c<U+FEFF>d [2Je f    g
     xfx 36 -                      │  2    overX
 
-== xfx new (127f050) against fx v0.0.16
+== xfx fix (28f3fda) against fx v0.0.16
 end        unresolved-defect  causes=ctrl-o-call-row-spelling
            rows no cause or divergence explains: none
     fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
