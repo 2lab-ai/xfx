@@ -3933,14 +3933,7 @@ impl Shell {
             self.handoff = Some(u16::from(!self.tail_unknown && ends_blank));
             return None;
         }
-        let landed = self.transcript.emit_front(self.palette, emit);
-        // A block whose rows were painted in the other mode landed after the
-        // recolour a report owed was paid: owed again, by the same rules and
-        // under the same conditions as a report's ([`Self::retint`]).
-        if self.transcript.take_owed_recolour() && !self.damage_untold && self.handoff.is_none() {
-            self.retint_debt = true;
-        }
-        landed
+        self.transcript.emit_front(self.palette, emit)
     }
 
     /// Shows what the runtime just did.

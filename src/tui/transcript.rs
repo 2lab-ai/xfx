@@ -652,10 +652,6 @@ pub(crate) struct Transcript {
     /// is on the terminal, and a vector the screen refused must leave them
     /// owed exactly as a refused append always did ([`Landed::None`]).
     staged: Option<Staged>,
-    /// Whether a block whose rows were painted in a mode other than the
-    /// palette's it landed in has landed since [`Self::take_owed_recolour`]
-    /// last asked ([`Transcript::queue_block`]).
-    owes_recolour: bool,
 }
 
 /// The committed state [`Transcript::stage`] saved, and the operations taken
@@ -699,7 +695,6 @@ impl Transcript {
             block_frozen: 0,
             block_open: false,
             staged: None,
-            owes_recolour: false,
         }
     }
 
@@ -861,16 +856,17 @@ impl Transcript {
     /// `redraws` is how the writer draws each row in each mode, `None` for a
     /// row it cannot draw again ([`Redraw`]), and `painted` the mode every
     /// other row was painted in. A theme report pays its recolour before the
-    /// appends of the same tick (`super::event_loop`'s `commit_document`), so
-    /// a block queued before the report and landing after it would land in
-    /// the old palette with nothing left owed. So **a row drawn again is
-    /// written in the palette in force when it lands**, and when any other
-    /// row of it was painted in another mode, the landing says so
-    /// ([`Self::take_owed_recolour`]): those rows -- a stopped call's own
-    /// line, the lines written under an open group -- are recoloured by
-    /// their own rules once they are on the screen, as upstream rewrites
-    /// such entries' bytes at the switch (`retintEntriesForTheme`,
-    /// `store.zig:3743-3750@481104fd`) rather than drawing them anew.
+    /// appends of the same tick (`super::event_loop`'s `commit_document`), and
+    /// none at all while the screen is not one it can describe, so a block
+    /// queued before the report and landing after it would land in the old
+    /// palette with nothing left owed. So **every row is written in the
+    /// palette in force when it lands**: a row drawn again as its writer
+    /// draws it there, and any other -- a stopped call's own line, the lines
+    /// written under an open group -- painted in the other mode is written
+    /// recoloured by the rules a report would apply to it on the screen
+    /// ([`recoloured`]), as upstream rewrites such entries' bytes at the
+    /// switch (`retintEntriesForTheme`, `store.zig:3743-3750@481104fd`)
+    /// rather than drawing them anew.
     pub(crate) fn queue_block(
         &mut self,
         rows: Vec<String>,
@@ -903,13 +899,6 @@ impl Transcript {
         self.open = true;
         self.block_open = true;
         true
-    }
-
-    /// Whether a block that owes a recolour has landed since this was last
-    /// asked ([`Self::queue_block`]), and forgets it: rows painted in one
-    /// mode are on a screen the session now paints in the other.
-    pub(crate) fn take_owed_recolour(&mut self) -> bool {
-        std::mem::take(&mut self.owes_recolour)
     }
 
     /// Queues a change of gutter for the lines that follow.
@@ -1045,7 +1034,6 @@ impl Transcript {
                 kind: self.kind,
                 block: self.block,
                 block_frozen: self.block_frozen,
-                recolour: false,
             }),
             Op::Kind(kind) => Some(Prepared {
                 append: Append::nothing(),
@@ -1056,7 +1044,6 @@ impl Transcript {
                 kind: *kind,
                 block: self.block,
                 block_frozen: self.block_frozen,
-                recolour: false,
             }),
             Op::Block(rows, kinds, redraws, painted) => {
                 Some(self.prepare_block(rows, kinds, redraws, *painted, palette))
@@ -1072,9 +1059,8 @@ impl Transcript {
     ///
     /// A row its writer can draw again is written as it draws it in
     /// `palette`, the session's now, and its drawings go with it, cut to the
-    /// same width. Any other row it writes is as it was painted, in
-    /// `painted`; when that is not `palette`'s mode and the row holds
-    /// anything, the block owes a recolour once it lands.
+    /// same width. Any other row it writes was painted in `painted_in`; when
+    /// that is not `palette`'s mode it is written recoloured ([`recoloured`]).
     fn prepare_block(
         &self,
         rows: &[String],
@@ -1089,18 +1075,16 @@ impl Transcript {
             (0, 0)
         };
         let redraw_of = |index: usize| redraws.get(index).and_then(Option::as_ref);
-        let recolour = painted_in != palette.mode
-            && rows
-                .iter()
-                .enumerate()
-                .skip(frozen)
-                .any(|(index, row)| redraw_of(index).is_none() && !row.is_empty());
         let mut written: Vec<String> = rows
             .iter()
             .enumerate()
             .skip(frozen)
             .map(|(index, row)| match redraw_of(index) {
                 Some(redraw) => ellipsized(redraw.drawn(palette.mode), self.cols),
+                None if painted_in != palette.mode => {
+                    let kind = kinds.get(index).copied().unwrap_or_default();
+                    ellipsized(&recoloured(row, kind, palette), self.cols)
+                }
                 None => ellipsized(row, self.cols),
             })
             .collect();
@@ -1151,7 +1135,6 @@ impl Transcript {
             kind: self.kind,
             block: true,
             block_frozen: frozen,
-            recolour,
         }
     }
 
@@ -1238,7 +1221,6 @@ impl Transcript {
             kind: self.kind,
             block: false,
             block_frozen: 0,
-            recolour: false,
         }
     }
 
@@ -1256,7 +1238,6 @@ impl Transcript {
                 kind: self.kind,
                 block: false,
                 block_frozen: 0,
-                recolour: false,
             };
         }
         let rows = texts(&self.tail, &self.roles, self.cols, self.gutter, palette);
@@ -1281,7 +1262,6 @@ impl Transcript {
             kind: self.kind,
             block: false,
             block_frozen: 0,
-            recolour: false,
         }
     }
 
@@ -1289,7 +1269,6 @@ impl Transcript {
     /// from.
     fn commit(&mut self, prepared: Prepared) {
         self.take_front();
-        self.owes_recolour |= prepared.recolour;
         self.tail = prepared.tail;
         self.roles = prepared.roles;
         self.painted = prepared.painted;
@@ -1421,6 +1400,61 @@ fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
         return (frozen, rows);
     }
     (frozen + (rows - MAX_TAIL_ROWS), MAX_TAIL_ROWS)
+}
+
+/// `row`, painted in the other mode than `palette`'s, as a theme report would
+/// leave it once on the screen: every foreground this crate spells -- `38;5`
+/// or `38;2`, bold or not -- replaced by what
+/// [`Palette::document_retint_in`] answers for that colour on a row of
+/// `kind`, which is the rule `super::grid::Grid::retint_document` applies
+/// cell by cell, and every other byte as it is. A colour that rule leaves is
+/// left here. So a stopped call's argument drawn dark is light's 247, as
+/// upstream's token table makes it, not the 245 a fresh light drawing has.
+fn recoloured(row: &str, kind: DocumentRow, palette: Palette) -> String {
+    let mut out = String::with_capacity(row.len());
+    let mut rest = row;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            let sequence = &rest[..len];
+            match recoloured_sequence(sequence, kind, palette) {
+                Some(wanted) => out.push_str(&wanted),
+                None => out.push_str(sequence),
+            }
+            rest = &rest[len..];
+            continue;
+        }
+        // Up to the next escape; the whole rest when there is none, or when
+        // the one at the head is nothing `escape_at` measures.
+        let text = rest
+            .find('\u{1b}')
+            .filter(|&at| at > 0)
+            .unwrap_or(rest.len());
+        out.push_str(&rest[..text]);
+        rest = &rest[text..];
+    }
+    out
+}
+
+/// One SGR sequence a row holds, recoloured by [`recoloured`]'s rule, or
+/// `None` when it is not a foreground of this crate's or the rule leaves it.
+fn recoloured_sequence(sequence: &str, kind: DocumentRow, palette: Palette) -> Option<String> {
+    use super::check::{number, Color};
+    let body = sequence.strip_prefix("\u{1b}[")?.strip_suffix('m')?;
+    let (bold, colour) = match body.strip_prefix("1;") {
+        Some(colour) => (true, colour),
+        None => (false, body),
+    };
+    let params: Vec<&str> = colour.split(';').collect();
+    let colour = match params.as_slice() {
+        ["38", "5", index] => Color::Indexed(number(index)?),
+        ["38", "2", red, green, blue] => Color::Rgb(number(red)?, number(green)?, number(blue)?),
+        _ => return None,
+    };
+    let wanted = palette.document_retint_in(kind, colour)?;
+    Some(match (bold, wanted.strip_prefix("\u{1b}[")) {
+        (true, Some(foreground)) => format!("\u{1b}[1;{foreground}"),
+        _ => wanted.to_string(),
+    })
 }
 
 /// One block row as it is written at `cols`: whole when it fits, and cut one
@@ -1921,9 +1955,6 @@ struct Prepared {
     kind: DocumentRow,
     block: bool,
     block_frozen: usize,
-    /// A block's rows painted in a mode other than the palette's they are
-    /// written in ([`Transcript::queue_block`]).
-    recolour: bool,
 }
 
 /// `text` with every line break spelled the one way the document accepts.
@@ -4010,6 +4041,45 @@ mod tests {
         assert!(drain(&mut transcript, DARK_256)
             .iter()
             .all(|append| append.redraws.is_empty()));
+    }
+
+    #[test]
+    fn a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it() {
+        // Each foreground this crate spells -- indexed or direct, bold or
+        // not -- goes where a theme report sends that colour on a row of the
+        // row's kind; every other byte stays, a link and a reset included.
+        let link = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
+        let row = format!(
+            "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
+             \u{1b}[38;5;245mx {link}y\u{1b}[39m \u{1b}[38;5;243m# note\u{1b}[0m"
+        );
+        assert_eq!(
+            recoloured(&row, DocumentRow::ToolStopped, LIGHT_256),
+            format!(
+                "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;235m Cancelled\u{1b}[0m \
+                 \u{1b}[38;5;247mx {link}y\u{1b}[39m \u{1b}[38;5;243m# note\u{1b}[0m"
+            ),
+            "the token table's pairs, the bold kept, 243 (in no pair) left"
+        );
+        let direct = Palette {
+            mode: super::super::theme::Mode::Light,
+            depth: super::super::theme::Depth::TrueColor,
+        };
+        assert_eq!(
+            recoloured(
+                "\u{1b}[38;2;138;138;138m  5s\u{1b}[0m",
+                DocumentRow::Plain,
+                direct
+            ),
+            "\u{1b}[38;2;158;158;158m  5s\u{1b}[0m",
+            "a turn's summary in the direct notation it was drawn in"
+        );
+        // Text with no escape, and a stray one, come back as they were.
+        assert_eq!(recoloured("plain", DocumentRow::Plain, LIGHT_256), "plain");
+        assert_eq!(
+            recoloured("a\u{1b}", DocumentRow::Plain, LIGHT_256),
+            "a\u{1b}"
+        );
     }
 
     #[test]

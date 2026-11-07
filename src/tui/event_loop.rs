@@ -1723,8 +1723,23 @@ fn commit_document(
     // call that settled it, and a refused one leaves it owed under the same
     // budget as every other refused write. It is not a frame and does not count
     // as one -- `failures.succeeded` stays where the frames are.
-    if let Some(refused) = pay_recolour(shell, band, out, failures, now) {
-        return refused;
+    if shell.owes_retint() {
+        match band.retint_document(out, &shell.palette(), &shell.geometry) {
+            // Settled: the cells were repainted, or the screen already held
+            // them, or this session owns no document row on it.
+            Ok(Retint::Settled(_)) => shell.retint_paid(),
+            // Deferred, and the tick **goes on**. The band cannot describe the
+            // screen yet, so the debt stands -- and the frame below is exactly
+            // what makes the next tick able to answer it, so returning early
+            // here would starve the repair that settles this.
+            Ok(Retint::Deferred) => {}
+            Err(emit) => {
+                return match disposed(emit, failures, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(false),
+                }
+            }
+        }
     }
     // The tool groups on the screen, collapsed where they stand, before
     // anything moves the rows they are on. The same rules as the recolour
@@ -1839,16 +1854,6 @@ fn commit_document(
         }
     }
     shell.document_landed(document);
-    // **And once more after them**, for a block that landed in a palette
-    // other than the one its rows were painted in: queued before a report
-    // and drained after the recolour above was paid -- a stopped call's own
-    // line, the lines written under an open group
-    // ([`super::transcript::Transcript::queue_block`]). Owed again only then
-    // (`Shell::emit_document_front`), so on every other tick this asks for
-    // nothing; in the same update, so no frame shows the old palette.
-    if let Some(refused) = pay_recolour(shell, band, out, failures, now) {
-        return refused;
-    }
     // **A scroll is a reason for a frame.** The rows that just landed moved the
     // band's own out from under the coordinates the last frame put them at, so
     // the band is a row above where it belongs until one repaints it. Nothing
@@ -1859,39 +1864,6 @@ fn commit_document(
         shell.render.request(Reason::Transcript);
     }
     Ok(true)
-}
-
-/// The recolour a theme report owes the document's rows, when it is owed:
-/// `None` when the tick goes on -- settled and paid, deferred and still
-/// owed, or not owed at all -- and the tick's answer when the write was
-/// refused ([`commit_document`]'s two calls).
-fn pay_recolour(
-    shell: &mut Shell,
-    band: &mut Band,
-    out: &mut impl Sink,
-    failures: &mut FrameFailures,
-    now: Instant,
-) -> Option<io::Result<bool>> {
-    if !shell.owes_retint() {
-        return None;
-    }
-    match band.retint_document(out, &shell.palette(), &shell.geometry) {
-        // Settled: the cells were repainted, or the screen already held them,
-        // or this session owns no document row on it.
-        Ok(Retint::Settled(_)) => {
-            shell.retint_paid();
-            None
-        }
-        // Deferred, and the tick **goes on**. The band cannot describe the
-        // screen yet, so the debt stands -- and the frame after it is exactly
-        // what makes the next tick able to answer it, so returning early here
-        // would starve the repair that settles this.
-        Ok(Retint::Deferred) => None,
-        Err(emit) => Some(match disposed(emit, failures, now) {
-            Some(fatal) => Err(fatal),
-            None => Ok(false),
-        }),
-    }
 }
 
 /// Everything that happens while the question owns the terminal's other buffer,
@@ -6847,6 +6819,51 @@ mod tests {
                  a shadow describing a screen somebody else had: {written:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen() {
+        // A block painted dark lands after a report to light, behind a
+        // resume: the shadow describes a screen somebody else has been
+        // writing on, and the band has not been told, so nothing of the old
+        // screen is repainted -- the report's recolour was dropped with it
+        // (`Shell::external_damage`). The block's own rows are written in the
+        // palette in force regardless.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"next\r");
+        shell.apply(UiEvent::TurnStarted);
+        a_command_running(&mut shell);
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool",
+            "queued under the group",
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        shell.route_bytes(WENT_LIGHT);
+        adopt_resume(&mut shell, &mut band, false);
+        let mut landed = String::new();
+        for tick_number in 0..2 {
+            let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(
+                !written.contains("a streamed answer") && !written.contains("read_file ok"),
+                "tick {tick_number} after a resume repainted the old screen's rows \
+                 from a shadow describing a screen somebody else had: {written:?}"
+            );
+            landed.push_str(&written);
+        }
+        // And the rows that landed are in the palette in force all the same:
+        // they were recoloured as they were written, not by a recolour of
+        // the screen.
+        assert_eq!(fg_of(&landed, "\u{25a0}"), Some(238), "{landed:?}");
+        let line = &landed[landed.find("\u{25a0}").expect("the stopped line")..];
+        assert_eq!(fg_of(line, " 42 "), Some(247), "{landed:?}");
+        assert_eq!(fg_of(line, "# note"), Some(247), "{landed:?}");
+        assert_eq!(fg_of(&landed, " queued under"), Some(241), "{landed:?}");
     }
 
     #[test]
