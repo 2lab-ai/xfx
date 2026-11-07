@@ -6,7 +6,8 @@ usage: python3 -I -B mutants.py code <clone> <out>
        python3 -I -B mutants.py check <repo> <receipt-dir> <scratch>
 
 `code` edits files in <clone> -- a throwaway `git clone --no-local` of the
-commit under test, never the worktree -- one mutant at a time, runs the tests
+commit under test, never the worktree -- one mutant at a time (the list is
+checked against the clone before anything runs), runs the tests
 named beside it there (`cargo test --locked --lib`, TMPDIR short), restores
 the file, and writes what each run said to <out>. `oracle` does the same to
 `scripts/smoke-tui.sh`'s emulator, extracted into <scratch> with its
@@ -26,6 +27,8 @@ TESTS = [
     "full_transcripts_read_row", "document_row_is_written", "band_row_ending", "whole_band_repaint_and",
     "cleared_and_reanchored", "anchor_inside_a_link", "autowrap_bracket", "anchor_off_the_screen",
     "clear_past_the_margin", "clear_takes_the_whole",
+    # Review round 1.
+    "split_off", "split_cluster", "painters_own_shape", "split_off_its_glyph",
 ]
 
 CODE = [
@@ -61,13 +64,46 @@ CODE = [
      "        (b' ', b'G') => {\n            let Caret::Known((row, _)) = model.caret else {",
      "        (b' ', b'G') if model.link.is_some() => {\n            return Err(Reject::new(\"an erase under an open hyperlink\", at));\n        }\n        (b' ', b'G') => {\n            let Caret::Known((row, _)) = model.caret else {"),
     ("check: any ?7h/?7l pair gives the mode back", "src/tui/check.rs",
-     "                Some(Bracket {\n                    before,\n                    units: 1,\n                    at_margin: true,\n                }) if before != Some(true) => before,",
-     "                Some(Bracket { before, .. }) => before,"),
+     "                Some(bracket) if bracket.painters() => bracket.before,",
+     "                Some(bracket) => bracket.before,"),
     ("check: ECH takes no half of a wide cluster", "src/tui/check.rs",
      "        for cell in &mut cells[lead.min(start)..tail] {", "        for cell in &mut cells[start..end] {"),
     ("check: ECH past the last column accepted", "src/tui/check.rs",
      "            if usize::from(column) + usize::from(count) - 1 > usize::from(model.screen_ref().cols) {",
      "            if false {"),
+    # Review round 1: the row's order, the split cell, the bracket's shape.
+    ("a row written whole moves a joined cluster ahead of its sequence (round 1's head)", "src/tui/grid.rs",
+     "                    for piece in span {\n"
+     "                        let (Piece::Raw(bytes) | Piece::Unit { cluster: bytes, .. }) = piece;\n"
+     "                        out.extend_from_slice(bytes.as_bytes());\n"
+     "                    }",
+     "                    out.extend_from_slice(grapheme.as_bytes());\n"
+     "                    for piece in span {\n"
+     "                        if let Piece::Raw(bytes) = piece {\n"
+     "                            if super::pacer::escape_at(bytes).is_some() {\n"
+     "                                out.extend_from_slice(bytes.as_bytes());\n"
+     "                            }\n"
+     "                        }\n"
+     "                    }"),
+    ("a row written whole decides on a cluster joined to a two-cell unit", "src/tui/grid.rs",
+     "                grapheme,\n                width: 1,\n                end,\n                ..\n            }) = last_unit",
+     "                grapheme,\n                end,\n                ..\n            }) = last_unit"),
+    ("the diff writes a split one-cell cell together", "src/tui/grid.rs",
+     "    if usize::from(super::wrap::width(grapheme)) == width {",
+     "    if true {"),
+    ("the diff splits it with nothing between", "src/tui/grid.rs",
+     "    out.extend_from_slice(if pen.is_empty() { RESET } else { pen }.as_bytes());\n", ""),
+    ("check: the bracket takes a unit of any width", "src/tui/check.rs",
+     "bracket.margin_unit = width == 2 && !suffix.is_empty() && column + width - 1 == cols;",
+     "bracket.margin_unit = !suffix.is_empty() && column + width - 1 == cols;"),
+    ("check: the bracket takes a unit with no suffix", "src/tui/check.rs",
+     "bracket.margin_unit = width == 2 && !suffix.is_empty() && column + width - 1 == cols;",
+     "bracket.margin_unit = width == 2 && column + width - 1 == cols;"),
+    ("check: the bracket takes a clear of any count", "src/tui/check.rs",
+     "            (1, 2) => true,", "            (1, _) => true,"),
+    ("check: the bracket takes a clear whatever the selector", "src/tui/check.rs",
+     "self.units == 1 && self.margin_unit && clear == self.selector && self.before != Some(true)",
+     "self.units == 1 && self.margin_unit && self.before != Some(true) && (clear || !clear)"),
     ("check: CHA off the screen accepted", "src/tui/check.rs",
      "            if column == 0 || column > model.screen_ref().cols {\n                return Err(Reject::at_cell(\n                    \"a caret placed off the screen\",\n                    at,\n                    row,\n                    column,\n                ));\n            }\n            model.caret = Caret::Known((row, column));",
      "            model.caret = Caret::Known((row, column.max(1)));"),

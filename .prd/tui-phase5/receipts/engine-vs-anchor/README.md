@@ -9,17 +9,22 @@ closed: deleted from the ledger.
 
 - **Base:** `58b463c8`, the train-2 head (WIDTH-DISPUTED in it).
 - **Head:** the commit carrying this receipt (the ledger and this folder).
-  Its code is `05752b03`'s, five commits on the base:
+  Its code is `a66155c0`'s, seven commits on the base:
   - `02204cbc`: the rule (grid, frame, check, smoke oracle);
   - `b6522746`: document rows written as they stand (decision 2);
   - `a253f7bf`, `8018daf0`: comments only (fx citations; the comments point
     here rather than at the closed ledger cause);
-  - `05752b03`: one test, for the code mutant that survived (below).
-  `git diff b6522746 05752b03 -- src` is comments and that test.
+  - `05752b03`: one test, for the code mutant that survived round 0's run;
+  - `b729c221`: **review round 1** (below): a cluster split off its glyph
+    by a sequence written where it stands, the grid diff's split cell, and
+    the check's bracket narrowed to the painter's shape;
+  - `a66155c0`: one more bracket test case, for the mutant that survived
+    round 1's first run.
 - **Builds.** Debug builds of the commit named:
-  - `xfx/`: `05752b03` (`x𝒇x v0.1.0-05752b0 [debug]`);
+  - `xfx/`: `a66155c0` (`x𝒇x v0.1.0-a66155c [debug]`);
   - `red/`: `58b463c8` (`v0.1.0-58b463c`);
-  - the sweeps' head: `b6522746` (`v0.1.0-b652274`), the same product code.
+  - the sweeps: base `58b463c8`, head `a66155c0` (`sweep-head-r2.md`);
+    round 0's head sweep was `b6522746` (`sweep-head.md`).
   - `publish.py` (WIDTH-DISPUTED's, `../width-disputed/publish.py`) checked
     each xfx snap whose row 1 is the banner as it copied it.
 - **fx:** the v0.0.16 reference binary, sha256 `8e6cda2e…`,
@@ -63,12 +68,21 @@ The per-cell write of `Grid.diffBand`, `src/core/terminal/engine.zig:2548-2589@4
 ## What changed
 
 - **`src/tui/grid.rs`**
-  - `put_unit`: the one spelling of the rule, upstream's order. The grid diff
-    (`diff_from`) writes each cell through it.
+  - `put_unit`: the one spelling of the rule, upstream's order. It decides on
+    the grid cell's grapheme and writes the unit's bytes through the writer
+    it is handed. The grid diff (`diff_from`) writes each cell through it.
+  - `write_cell` (round 1): the diff's bytes for one cell. Together, unless
+    the cell is a one-cell glyph `place_row` joined a cluster to across a
+    sequence and the two together measure wider (`☀` U+FE0F: one cell in the
+    grid, two together): then split as its row was -- the longest part still
+    its width, the pen again (a reset with nothing on, the attributes
+    otherwise: it changes nothing), the rest.
   - `write_row_text`: a row written whole, cut into the units `tokenize_row`
-    finds and each written through `put_unit`. A zero-width cluster the row
-    put after a sequence (a colour opened between a glyph and its selector) is
-    written with its unit: the cell the grid holds. Pure ASCII is written as it
+    finds and each written through `put_unit`. **Its bytes are the row's, in
+    the row's order** (round 1); the rule is decided on the cell `place_row`
+    makes, which joins a zero-width cluster after a sequence onto a
+    one-cell unit and onto nothing for a two-cell one (its continuation). The
+    anchor follows the last cluster joined. Pure ASCII is written as it
     stands.
   - The module doc: `ECH`, `CHA` and the bracket are now in the diff's
     alphabet (it said "No `ECH`", for the smoke oracle's sake).
@@ -82,11 +96,14 @@ The per-cell write of `Grid.diffBand`, `src/core/terminal/engine.zig:2548-2589@4
   - `ECH` (`CSI n X`): `n ≥ 1`, a known caret, nothing past the last column,
     the whole of any wide cluster it covers part of (`erase_span`), the caret
     kept; recorded as an erase;
-  - the bracket (`Bracket`): `?7h`, an optional `ECH`, one unit that ends in
-    the last column, `?7l` gives the mode back as `?7h` found it. Anything
-    else and the two are what they say alone, so a frame that carries them
-    is refused as a mode it did not declare (as a bare trailing `?7h` still
-    is, `frame.rs`'s `a_frame_that_turns_a_terminal_mode_back_on_…`).
+  - the bracket (`Bracket`): only `put_unit`'s shape gives the mode back as
+    `?7h` found it -- `?7h`, `ECH 2` exactly when the unit's suffix holds a
+    selector, one unit two cells wide with a suffix ending in the last
+    column, `?7l` (round 1: it took any one unit at the margin and any
+    clears). Anything else and the two are what they say alone, so a frame
+    that carries them is refused as a mode it did not declare (as a bare
+    trailing `?7h` still is, `frame.rs`'s
+    `a_frame_that_turns_a_terminal_mode_back_on_…`).
 - **`scripts/smoke-tui.sh`**: the oracle models `CHA` and `ECH` as
   `check.rs` does, with two falsification tests.
 - **`scripts/fxcap/parity-ledger.toml`**: `frame-variation-selector-anchor`
@@ -112,6 +129,19 @@ The per-cell write of `Grid.diffBand`, `src/core/terminal/engine.zig:2548-2589@4
    oracle, where `CUP`, `ED` and `EL` are refused: both stay on the caret's
    row, the next cell covers what `ECH` blanked, and fx writes both after the
    cell's link is open. Test: `an_anchor_inside_a_link_is_accepted`.
+5. **A split cluster's rule is decided on the grid's cell** (round 1). The
+   brief allowed reading the joined grapheme; the cell `place_row` makes is
+   the one the diff writes, so a full paint and a partial one decide alike:
+   `☀`, a colour, U+FE0F is a selector glyph (anchored after the selector),
+   `⚡`, a colour, U+FE0E is not (the grid keeps `⚡`, no clear, no anchor).
+   `place_row` is unchanged. Tests:
+   `a_row_written_whole_keeps_a_split_cluster_behind_its_colour`,
+   `a_cluster_split_off_its_glyph_by_a_colour_is_accepted_from_the_diff_and_a_whole_row`.
+6. **The diff's split cell carries the pen again between its parts** (round
+   1). The grid does not keep the sequence the row had there, so the diff
+   writes one that changes nothing: the cell's own attributes, or a reset
+   when none are on. Test:
+   `a_one_cell_glyph_and_a_selector_a_colour_split_off_are_written_split`.
 
 ### Seen, not this unit's
 
@@ -122,6 +152,12 @@ The per-cell write of `Grid.diffBand`, `src/core/terminal/engine.zig:2548-2589@4
 - fx writes a document append with autowrap on (`:1414-1420`); xfx's `place`
   writes with it off, so a wide unit with a suffix in a document row's last
   column is written without the bracket. Not in the brief.
+- A cluster after a sequence and a **two-cell** glyph is no cell's in the
+  grid (`place_row`), where a terminal may join it to the glyph. Unchanged
+  here, as the review asked; such a selector neither clears nor anchors.
+- The review's other should-fix (a row painted whole writes a `CHA` before
+  trailing default spaces where fx's `last` stops) is recorded by the
+  dispatcher as no action: the cells are the same.
 
 ## RED
 
@@ -142,9 +178,27 @@ read row and Ctrl-O diff row on the full transcript: fx's cells are red's
 with three unstyled blank cells before `x zwj`, both rows; and all four of
 those rows are among the rows one side holds alone.
 
+### Review round 1 (`red-test-r2.txt`)
+
+Six tests, `b729c221`'s, appended to round 1's head `f20c28c9` in a
+throwaway clone: **all six fail** there.
+
+| finding | test | at `f20c28c9` | on the base `58b463c8` |
+|---|---|---|---|
+| MUST 1: `한` `ESC[39m` U+0301 and `☀` `ESC[1m` U+FE0F through `enter_alternate` | `frame` `a_cluster_a_colour_split_off_its_glyph_is_written_where_it_stands_on_a_surface` | **refused** ("a cell the vector did not leave as intended", row 4 col 1) | accepted; fails only at its anchor assertion (the base writes none) |
+| MUST 1, the bytes | `grid` `a_row_written_whole_keeps_a_split_cluster_behind_its_colour` | `한\u{301}\u{1b}[39m…`: the mark moved ahead of the colour | -- |
+| MUST 1, the three readers | `check` `a_cluster_split_off_its_glyph_by_a_colour_is_accepted_from_the_diff_and_a_whole_row` | "`한` `ESC[39m` U+0301 written whole: refused" | -- |
+| SHOULD 3: `☀` `ESC[1m` U+FE0F through the band diff | `frame` `a_selector_a_colour_split_off_a_one_cell_glyph_is_written_split_by_the_band_diff` | **refused** (row 24 col 1) | **refused** too (row 24 col 1): the defect is the base's |
+| SHOULD 3, the bytes | `grid` `a_one_cell_glyph_and_a_selector_a_colour_split_off_are_written_split` | `☀\u{fe0f}` written together | -- |
+| SHOULD 2: the bracket's shape | `check` `an_autowrap_bracket_is_only_the_painters_own_shape` | a one-cell unit with no suffix, at the margin, accepted as a bracket | -- |
+
+The base column is the two `frame.rs` tests on `58b463c8` (same file).
+`a66155c0` adds one more shape (a one-cell unit with a suffix) to the last
+test, for the mutant that survived round 1's first run (below).
+
 ## GREEN
 
-**Tests:** the 21 pass at the head.
+**Tests:** the unit's 27 pass at the head (round 0's 21 and round 1's six).
 
 **Captures** (`green.txt`, `check.py` on `fx/` against `xfx/`), 4 claims, 4
 hold:
@@ -169,15 +223,23 @@ for the banner.
 
 `mutants.py`, every mutant caught:
 
-- **Code** (`mutants-code.txt`): 16 mutants in a throwaway clone of
-  `05752b03`, each against the unit's 21 tests. Each takes out one rule: the
+- **Code** (`mutants-code.txt`): 24 mutants in a throwaway clone of
+  `a66155c0`, each against the unit's 27 tests. Each takes out one rule: the
   anchor, its column (one early), the clear, U+FE0F as a selector, the
   guard, the guard for any suffix, the diff's `EL` as following, the row
   written whole not anchoring after its last unit, each of the three frame
   writers, the document row as it stands, and in the check `CHA` under a
-  link, the bracket's shape, `ECH`'s whole-cluster span, `ECH` past the
-  margin, `CHA` off the screen. On `8018daf0` one survived (anchoring after a
-  row's last unit); `05752b03`'s assertion catches it.
+  link, the bracket at all, `ECH`'s whole-cluster span, `ECH` past the
+  margin, `CHA` off the screen. Round 1's eight: the joined cluster moved
+  ahead of its sequence (round 1's head, restored), the join onto a two-cell
+  unit, the diff's split cell written together, split with nothing between,
+  and the bracket taking a unit of any width, one with no suffix, a clear of
+  any count, a clear whatever the selector.
+  - On `8018daf0` one survived (anchoring after a row's last unit);
+    `05752b03`'s assertion catches it.
+  - On `b729c221` one survived (the bracket taking any width: a one-cell
+    unit with no suffix failed on the suffix too); `a66155c0`'s case, a
+    one-cell unit with a suffix, catches it.
 - **Oracle** (`mutants-oracle.txt`): 4 mutants of `smoke-tui.sh`'s emulator
   (`CHA` or `ECH` unmodelled, `CHA` past the margin accepted, `ECH` leaving
   half a cluster), each caught by its falsification tests.
@@ -223,25 +285,37 @@ The other xfx screens that differ between the sweeps: `composer-wrap`
 `p5-transcript-diffwide` `full` (timestamps), and `p5-transcript-diffwide2`
 `full` (the anchor).
 
+**Review round 1** (`sweep-head-r2.md` at `a66155c0`; `compare-r2.txt`
+against the same base sweep, `compare-r0-r2.txt` against round 0's head
+sweep). Base 93 pass, round 1's head 92, round 0's head 92.
+- Against the base: one verdict moved, `model-column-idle` `col-typed`, the
+  fx-timing pair above (fx's screen moved, xfx's did not; `compare.py` exit 0).
+- Against round 0's head: two verdicts moved, both `model-column-reask` (the
+  same fx timing: fx's screens moved, xfx's did not). The xfx screens that
+  differ are `composer-wrap` `badge-71`/`-111` (the temp path),
+  `p5-transcript-diffwide` `full` and `p5-transcript-diffwide2` `full`; the
+  last differs from round 0's in no row once its timestamps are set aside
+  (40 rows each, checked by row).
+
 ## Gates
 
-On `05752b03`, with the ledger and this receipt staged. `TMPDIR` a short
-scratch directory; each suite alone, one after another.
+On `a66155c0` (review round 1), with the ledger and this receipt staged.
+`TMPDIR` a short scratch directory; each suite alone, one after another.
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 5178 passed, 0 failed, 7 ignored |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 5215 passed, 0 failed, 7 ignored |
+| `cargo test --locked --no-fail-fast` | 5184 passed, 0 failed, 7 ignored |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5221 passed, 0 failed, 7 ignored |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok (12094 files), ok, ok (12094 files) |
 | `scripts/fxcap/test-sweep.sh` (the ledger changed); the ledger loads with its sources checked | 50 + 26 tests OK; 22 divergences, 46 causes |
 | `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,127 checks (the oracle's two new tests among them), 0 failures |
-| `scripts/check-tui-preflight-cost.sh` (the check decodes three more sequences) | ok: 200x300 full 1.14 ms, update 0.69 ms (budget 32 ms) |
+| `scripts/check-tui-preflight-cost.sh` (the check decodes three more sequences) | ok: 200x300 full 1.30 ms, update 0.92 ms (budget 32 ms) |
 | `check.py … xfx` (`green.txt`) / `check.py … red` (`red.txt`) | 4 claims, 4 hold / 4 claims, 4 hold (red mode asserts the gap) |
-| `mutants.py` code / oracle / check | 16 / 4 / 3 mutants, every one caught |
+| `mutants.py` code / oracle / check | 24 / 4 / 3 mutants, every one caught |
 | `transcript-wrap/check.py`, `transcript-receipts/check.py`, `width-disputed/check.py` under the new ledger | 34/34, 35/35, 11/11: each `green.txt` reproduced |
 
 `docs/parity.md`: no row touched. The anchor closes a gap no row records,
@@ -252,15 +326,16 @@ and nothing here is left divergent from fx.
 - `fx/`, `xfx/`, `red/`: `p5-transcript-diffwide2`'s snaps, redacted.
 - `check.py` (the claims above), `mutants.py` (code, oracle and checker
   mutants), `compare.py` (two sweeps, pair by pair).
-- `green.txt`, `red.txt`, `red-test.txt`, `mutants-code.txt`,
-  `mutants-oracle.txt`, `mutants-check.txt`, `sweep-base.md`, `sweep-head.md`,
-  `compare.txt`, `sweep-base-2.md`, `sweep-head-2.md`, `compare-2.txt`. Each
-  went through `scripts/fxcap/redact.py`.
+- `green.txt`, `red.txt`, `red-test.txt`, `red-test-r2.txt`,
+  `mutants-code.txt`, `mutants-oracle.txt`, `mutants-check.txt`,
+  `sweep-base.md`, `sweep-head.md`, `compare.txt`, `sweep-base-2.md`,
+  `sweep-head-2.md`, `compare-2.txt`, `sweep-head-r2.md`, `compare-r2.txt`,
+  `compare-r0-r2.txt`. Each went through `scripts/fxcap/redact.py`.
 
 Commands, from the worktree (`R=.prd/tui-phase5/receipts/engine-vs-anchor`):
 
 ```
-python3 -I -B .prd/tui-phase5/receipts/width-disputed/publish.py . $R p5-transcript-diffwide2 <fx-caps> <head-caps> <base-caps> 05752b0 58b463c
+python3 -I -B .prd/tui-phase5/receipts/width-disputed/publish.py . $R p5-transcript-diffwide2 <fx-caps> <head-caps> <base-caps> a66155c 58b463c
 python3 -I -B $R/check.py . $R xfx    # green.txt
 python3 -I -B $R/check.py . $R red    # red.txt
 python3 -I -B $R/mutants.py code <clone of the head> $R/mutants-code.txt
