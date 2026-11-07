@@ -704,10 +704,12 @@ class LaunchWait(unittest.TestCase):
         self.assertEqual(kept.code, 0, kept.stdout + kept.stderr)
         self.assertRegex(kept.stdout, r"up: the pane is dead after \d+\.\d\d s \(\d+ looks\)\n")
         self.assertRegex(kept.file("a"), r"Pane is dead \(status 0, ")
-        gone = capture("wait 0.5\nsnap a\n", binary="/bin/echo")
+        # `home` reads no pane: the run stops at the wait, not at a later
+        # line that happens to need one.
+        gone = capture("home h\n", binary="/bin/echo")
         self.assertEqual(gone.code, 1, gone.stdout + gone.stderr)
         self.assertIn("up: the pane is gone", gone.stderr)
-        self.assertFalse(os.path.exists(os.path.join(gone.out, "fx-t-30x200-a.txt")))
+        self.assertFalse(os.path.exists(os.path.join(gone.out, "fx-t-30x200-h.files")), "the run went on")
         self.assertIn("guards:", gone.stdout, "the guards still ran")
 
     def test_nodraw_runs_a_stub_that_draws_nothing_at_once(self):
