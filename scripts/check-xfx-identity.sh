@@ -225,29 +225,41 @@ fi
 
 # --- the scan itself ---------------------------------------------------------
 
-# The checkout is this directory's own: its `.git`, a directory, or a file in
-# a linked worktree or a submodule. A copy of xfx inside another repository
-# (a vendored subtree) has none, and git would walk up to the parent's; with
-# `--work-tree=.` the parent's paths then resolved inside this directory,
-# where none exists, and `git grep` skipped every one without a word. A
-# ceiling at the parent directory stops that walk here.
-if ! GIT_CEILING_DIRECTORIES="$(dirname "$repo_root")" scan_git . rev-parse --git-dir \
-	>/dev/null 2>"$control_root/errors"; then
-	fail 'not a git checkout of its own, or git cannot open it; this check can only speak about the tracked files of the checkout it is in:'
+# The repository git finds from here must be the one this directory's own
+# `.git` names: a directory, or a file in a linked worktree or a submodule. A
+# copy of xfx inside another repository (a vendored subtree) has none, and
+# git walks up to the parent's; with `--work-tree=.` the parent's paths then
+# resolved inside this directory, where none exists, and `git grep` skipped
+# every one without a word.
+#
+# The two are compared as files (`-ef`: device and inode), not as paths. A
+# ceiling at the parent directory (GIT_CEILING_DIRECTORIES) did not hold:
+# git compares it with its physical working directory, so it missed when
+# this root was reached through a symlink or, on a case-folding file system,
+# by a path in another case; and the list is colon-separated, so a `:` in
+# the parent's path split it.
+if ! discovered="$(scan_git . rev-parse --absolute-git-dir 2>"$control_root/errors")"; then
+	fail 'not a git checkout, or git cannot open it; this check can only speak about the tracked files of the checkout it is in:'
 	cat "$control_root/errors" >&2
+	exit 1
+fi
+if ! own="$(git -c core.fsmonitor=false --git-dir="$repo_root/.git" rev-parse --absolute-git-dir 2>/dev/null)" ||
+	! [ "$discovered" -ef "$own" ]; then
+	fail "not a git checkout of its own: git finds the repository at $discovered, which no .git here names; this check can only speak about the tracked files of the checkout it is in"
 	exit 1
 fi
 
 # `-v` tags each entry: `H` for a plain one, `S` for skip-worktree, lower
-# case for assume-unchanged (`s` for both). Either bit makes the content
-# scan's answer about something other than the file: `git grep` passes over a
-# skip-worktree entry (a sparse checkout's file outside its cone) without a
-# word, and reads an assume-unchanged one from the index while the probe reads
-# the working tree, so a working copy with a NUL hid an index text that
-# carried the name. Only local index state sets either; a CI checkout has
-# neither. Each refusal names a remedy that ends in a scan of the file:
-# clearing skip-worktree on a file the working tree lacks would leave a
-# deleted file, which the scan skips, so a sparse checkout is to be undone.
+# case for assume-unchanged (`s` for both, named in both refusals). Either
+# bit makes the content scan's answer about something other than the file:
+# `git grep` passes over a skip-worktree entry (a sparse checkout's file
+# outside its cone) without a word, and reads an assume-unchanged one from
+# the index while the probe reads the working tree, so a working copy with a
+# NUL hid an index text that carried the name. Only local index state sets
+# either; a CI checkout has neither. Each refusal names a remedy that ends in
+# a scan of the file: clearing skip-worktree on a file the working tree lacks
+# would leave a deleted file, which the scan skips, so a sparse checkout is
+# to be undone.
 if ! scan_git . ls-files -v -z >"$control_root/tracked" 2>"$control_root/errors" || [ -s "$control_root/errors" ]; then
 	fail 'git ls-files could not list this checkout:'
 	cat "$control_root/errors" >&2
@@ -259,7 +271,12 @@ assumed=()
 while IFS= read -r -d '' entry; do
 	tracked_count=$((tracked_count + 1))
 	case "$entry" in
-	S\ * | s\ *) skipped+=("${entry#??}") ;;
+	S\ *) skipped+=("${entry#??}") ;;
+	s\ *)
+		# Both bits: `git sparse-checkout disable` leaves the other.
+		skipped+=("${entry#??}")
+		assumed+=("${entry#??}")
+		;;
 	[[:lower:]]\ *) assumed+=("${entry#??}") ;;
 	esac
 done <"$control_root/tracked"
