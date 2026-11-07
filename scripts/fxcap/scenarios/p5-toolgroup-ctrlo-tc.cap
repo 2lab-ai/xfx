@@ -1,0 +1,34 @@
+# P5 TG-REDRAW: p5-toolgroup-retint's group in the full transcript (Ctrl-O)
+# across a live theme switch, in a session that claims truecolor (COLORTERM=truecolor). Drawn dark;
+# Ctrl-O; the terminal reports light while the full transcript is open;
+# Ctrl-O closes it onto the inline transcript, which the switch reached
+# while it was hidden; then Ctrl-O again, dark, and closed.
+fx: gateway p5-toolgroup-retint-fx.json
+xfx: gateway p5-toolgroup-retint-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env COLORTERM=truecolor
+wait 4
+type run the command
+wait 1
+key Enter
+wait 8
+snap dark
+key C-o
+wait 2
+snap full-dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap full-light
+key C-o
+wait 2
+snap light
+key C-o
+wait 2
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap full-dark-again
+key C-o
+wait 2
+snap dark-again

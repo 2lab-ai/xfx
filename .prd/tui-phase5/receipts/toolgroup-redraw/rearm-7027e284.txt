@@ -1,0 +1,12 @@
+# Why 7027e284's re-arm went (f482d340 replaced it): the resume case of f482d340, in 7027e284's src, on a throwaway clone.
+# 1) 7027e284 as it is: the guard drops the re-arm behind a resume, so the landed stopped line stays dark (its mark 252, wanted 238).
+test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+thread 'tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen' (282391579) panicked at src/tui/event_loop.rs:6890:9:
+  left: Some(252)
+ right: Some(238)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4271 filtered out; finished in 0.01s
+# 2) 7027e284 with the re-arm's guard removed (re-armed whatever the screen): the old screen's rows are repainted from a shadow that describes a screen somebody else had.
+test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+thread 'tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen' (282396222) panicked at src/tui/event_loop.rs:6880:13:
+tick 0 after a resume repainted the old screen's rows from a shadow describing a screen somebody else had: <the bytes>
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4271 filtered out; finished in 0.01s

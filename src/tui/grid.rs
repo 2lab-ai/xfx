@@ -41,7 +41,7 @@ use std::io::Write as _;
 use super::frame::cup;
 use super::layout::Geometry;
 use super::pacer::SgrState;
-use super::theme::{DocumentRow, Palette};
+use super::theme::{DocumentRow, Palette, Redraw};
 
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\u{1b}[K";
@@ -430,10 +430,20 @@ pub(crate) struct Grid {
     /// an index range.
     cells: Vec<Cell>,
     /// What each row is, `rows` long, as its writer recorded it
-    /// ([`Grid::set_kind`]): what a theme report repaints a row's cells as
-    /// ([`Grid::retint_document`]). Moved with the cells by every scroll, and
-    /// plain again wherever a row is erased.
-    kinds: Vec<DocumentRow>,
+    /// ([`Grid::record`]): what a theme report repaints a row's cells as, or
+    /// draws it again from ([`Grid::retint_document`]). Moved with the cells by
+    /// every scroll, and plain again wherever a row is erased.
+    records: Vec<Record>,
+}
+
+/// What a row's writer said about it: what it is, and how it draws it in each
+/// mode when it can be drawn again ([`Redraw`]). One record per row rather
+/// than a vector of each, so nothing that moves a row can move one half of
+/// what is known about it.
+#[derive(Debug, Clone, Default)]
+struct Record {
+    kind: DocumentRow,
+    redraw: Option<Redraw>,
 }
 
 /// What a tool group's header row opens with (`super::toolgroup`'s header,
@@ -447,7 +457,7 @@ impl Grid {
             rows,
             cols,
             cells: vec![Cell::Empty; usize::from(rows) * usize::from(cols)],
-            kinds: vec![DocumentRow::Plain; usize::from(rows)],
+            records: vec![Record::default(); usize::from(rows)],
         }
     }
 
@@ -463,8 +473,8 @@ impl Grid {
         self.cells.clear();
         self.cells
             .resize(usize::from(rows) * usize::from(cols), Cell::Empty);
-        self.kinds.clear();
-        self.kinds.resize(usize::from(rows), DocumentRow::Plain);
+        self.records.clear();
+        self.records.resize(usize::from(rows), Record::default());
     }
 
     pub(crate) fn rows(&self) -> u16 {
@@ -512,23 +522,37 @@ impl Grid {
     }
 
     /// Records what row `line` is, as its writer says
-    /// (`super::transcript::Append::kinds`). A row with no such line is
-    /// nothing to record.
+    /// (`super::transcript::Append::kinds`), with nothing to draw it again
+    /// from. A row with no such line is nothing to record.
     pub(crate) fn set_kind(&mut self, line: u16, kind: DocumentRow) {
+        self.record(line, kind, None);
+    }
+
+    /// Records what row `line` is and, when its writer can draw it again, how
+    /// it draws it in each mode (`super::transcript::Append::redraws`): the
+    /// whole of what is known about the row, replacing what was.
+    pub(crate) fn record(&mut self, line: u16, kind: DocumentRow, redraw: Option<Redraw>) {
         if let Some(slot) = line
             .checked_sub(1)
-            .and_then(|index| self.kinds.get_mut(usize::from(index)))
+            .and_then(|index| self.records.get_mut(usize::from(index)))
         {
-            *slot = kind;
+            *slot = Record { kind, redraw };
         }
     }
 
     /// What row `line` was recorded as, and plain for a row with no record.
     pub(crate) fn kind(&self, line: u16) -> DocumentRow {
         line.checked_sub(1)
-            .and_then(|index| self.kinds.get(usize::from(index)))
-            .copied()
+            .and_then(|index| self.records.get(usize::from(index)))
+            .map(|record| record.kind)
             .unwrap_or_default()
+    }
+
+    /// How row `line`'s writer draws it in each mode, when it recorded that.
+    pub(crate) fn redraw(&self, line: u16) -> Option<&Redraw> {
+        line.checked_sub(1)
+            .and_then(|index| self.records.get(usize::from(index)))
+            .and_then(|record| record.redraw.as_ref())
     }
 
     /// Puts `row`'s text on row `line`, and blanks the rest of it.
@@ -618,35 +642,61 @@ impl Grid {
     /// land ([`super::frame::Band`]), which is the same discipline every other
     /// target grid is under.
     ///
+    /// A row is repainted one of two ways, by what its writer recorded:
+    ///
+    /// * **Drawn again**, when the writer recorded how it draws the row in
+    ///   each mode ([`Redraw`] -- a tool group's rows, which upstream projects
+    ///   again in the new theme rather than recolouring,
+    ///   `tool_group_projection.zig:558-640@481104fd`). Each cell takes the
+    ///   attributes the drawing in `palette`'s mode gives it, whole -- a
+    ///   fresh paint of the drawing, which for a tool row is its foreground
+    ///   alone -- and only when the drawing is the text the row holds, cell
+    ///   for cell ([`Self::redraw_row`]); a row that is not is left as it is.
+    /// * **Recoloured**, every other row: a cell's colour is asked of the
+    ///   palette within the kind of row it was recorded as.
+    ///
     /// Three things make it narrow enough to be safe on rows nobody repaints:
     ///
-    /// * **Only a [`Cell::Lead`] this crate's palette recognises.** The colour
-    ///   is asked of the cell, within the kind of row it was recorded on when
-    ///   it was written -- a tool group's rows and an answered question's
-    ///   answer share one dark grey with a turn's summary and part ways on a
-    ///   light screen ([`DocumentRow`]) -- and
-    ///   [`Palette::document_retint_in`] answers `None` for every one it did
-    ///   not paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
+    /// * **Only a [`Cell::Lead`] this crate drew.** Recoloured, the colour is
+    ///   asked of the cell, within the kind of row it was recorded on when
+    ///   it was written -- an answered question's answer shares one dark grey
+    ///   with a turn's summary and they part ways on a light screen
+    ///   ([`DocumentRow`]) -- and [`Palette::document_retint_in`] answers
+    ///   `None` for every one it did not paint; drawn again, only a row whose
+    ///   writer recorded the drawing, and only while the row still holds its
+    ///   text. So an [`Cell::Empty`] cell, a continuation, the user's own
     ///   echo and whatever the terminal was holding before xfx ran are all
     ///   left exactly as they are. Nothing here can *create* a cell, which is
     ///   what stops a repaint reconstructing history.
-    /// * **Only the foreground slot.** [`SgrState::observe`] replaces the one
-    ///   slot the sequence names and leaves the rest of them, in the order
-    ///   they were opened, so a bold or underlined answer row stays bold and
-    ///   underlined.
+    /// * **Only the attributes.** Recoloured, [`SgrState::observe`] replaces
+    ///   the one slot the sequence names and leaves the rest of them, in the
+    ///   order they were opened, so a bold or underlined answer row stays bold
+    ///   and underlined; drawn again, the cell's attributes are the drawing's.
     /// * **Nothing else about the cell.** The grapheme, its width and the
     ///   continuation behind it are untouched, so the count this returns is a
-    ///   count of colours and the row is the same shape it was.
+    ///   count of attribute changes and the row is the same shape it was.
     ///
     /// A cell whose attribute slot cannot be read is skipped rather than
     /// guessed at: it is one the checker would refuse the whole vector for
     /// (`super::check::CellState::of`), and one this crate did not write.
-    pub(crate) fn retint_document(&mut self, last: u16, palette: &Palette) -> usize {
+    pub(crate) fn retint_document(
+        &mut self,
+        last: u16,
+        palette: &Palette,
+        geometry: &Geometry,
+    ) -> usize {
         let mut moved = 0usize;
+        let mut scratch: Option<Grid> = None;
         for line in 1..=last {
             let Some(span) = self.span(line) else {
                 continue;
             };
+            if let Some(redraw) = self.redraw(line).cloned() {
+                let cols = self.cols;
+                let scratch = scratch.get_or_insert_with(|| Grid::blank(1, cols));
+                moved += self.redraw_row(line, redraw.drawn(palette.mode), geometry, scratch);
+                continue;
+            }
             // What its writer recorded the row as ([`DocumentRow`]), not what
             // its first cell looks like: an answer row and a summary open with
             // the same painted blank.
@@ -663,6 +713,64 @@ impl Grid {
                 };
                 sgr.observe(wanted);
                 moved += 1;
+            }
+        }
+        moved
+    }
+
+    /// Row `line` with each of its cells given the attributes `drawing` puts
+    /// on it, when `drawing` is the text the row holds -- every cell the same
+    /// grapheme at the same width, every empty cell and continuation where
+    /// the drawing has one -- and how many cells that changed. Zero, and the
+    /// row as it was, when it is not: a drawing is a claim about what its
+    /// writer put on the row, and a row that holds something else is not one
+    /// to draw a claim onto.
+    ///
+    /// `scratch` is one row of this grid's width, reused across rows: the
+    /// drawing is placed there by the one tokenizer ([`Self::place_row`]),
+    /// so what a cell is given is what a fresh paint of the drawing would
+    /// leave in it.
+    fn redraw_row(
+        &mut self,
+        line: u16,
+        drawing: &str,
+        geometry: &Geometry,
+        scratch: &mut Grid,
+    ) -> usize {
+        let (Some(span), Some(drawn)) = (self.span(line), scratch.span(1)) else {
+            return 0;
+        };
+        if scratch.cols != self.cols {
+            return 0;
+        }
+        scratch.place_row(1, drawing, geometry);
+        let same_text = self.cells[span.clone()]
+            .iter()
+            .zip(&scratch.cells[drawn.clone()])
+            .all(|pair| match pair {
+                (Cell::Empty, Cell::Empty) | (Cell::Continuation, Cell::Continuation) => true,
+                (
+                    Cell::Lead {
+                        grapheme, width, ..
+                    },
+                    Cell::Lead {
+                        grapheme: drawn_grapheme,
+                        width: drawn_width,
+                        ..
+                    },
+                ) => grapheme == drawn_grapheme && width == drawn_width,
+                _ => false,
+            });
+        if !same_text {
+            return 0;
+        }
+        let mut moved = 0usize;
+        for (cell, fresh) in self.cells[span].iter_mut().zip(&scratch.cells[drawn]) {
+            if let (Cell::Lead { sgr, .. }, Cell::Lead { sgr: fresh, .. }) = (cell, fresh) {
+                if sgr.reopen() != fresh.reopen() {
+                    sgr.clone_from(fresh);
+                    moved += 1;
+                }
             }
         }
         moved
@@ -720,20 +828,20 @@ impl Grid {
         let width = usize::from(self.cols);
         let end = usize::from(last) * width;
         let mut cells = Vec::with_capacity(end);
-        let mut kinds = Vec::with_capacity(usize::from(last));
+        let mut records = Vec::with_capacity(usize::from(last));
         for line in 1..=last {
             if removed.binary_search(&line).is_ok() {
                 continue;
             }
             if let Some(span) = self.span(line) {
                 cells.extend_from_slice(&self.cells[span]);
-                kinds.push(self.kind(line));
+                records.push(self.records[usize::from(line - 1)].clone());
             }
         }
         cells.resize(end, Cell::Empty);
-        kinds.resize(usize::from(last), DocumentRow::Plain);
+        records.resize(usize::from(last), Record::default());
         self.cells.splice(..end, cells);
-        self.kinds.splice(..usize::from(last), kinds);
+        self.records.splice(..usize::from(last), records);
     }
 
     /// Whether row `line`'s first cell is `grapheme`.
@@ -794,8 +902,8 @@ impl Grid {
         let width = usize::from(self.cols);
         self.cells.drain(..moved * width);
         self.cells.resize(height * width, Cell::Empty);
-        self.kinds.drain(..moved.min(self.kinds.len()));
-        self.kinds.resize(height, DocumentRow::Plain);
+        self.records.drain(..moved.min(self.records.len()));
+        self.records.resize(height, Record::default());
     }
 
     /// Writes the bytes that turn this grid into `target`, and says how many
@@ -1435,7 +1543,7 @@ mod tests {
         grid.place_row(3, &format!("{BODY_DARK}an answer{RESET}"), &geometry);
         grid.place_row(4, &format!("{NOTICE_DARK}[tool] ran{RESET}"), &geometry);
         assert_eq!(
-            grid.retint_document(10, &light()),
+            grid.retint_document(10, &light(), &geometry),
             "an answer[tool] ran".len()
         );
 
@@ -1469,7 +1577,7 @@ mod tests {
         );
         assert_eq!(grid.kind(3), DocumentRow::Answer);
         assert_eq!(grid.kind(5), DocumentRow::Plain);
-        grid.retint_document(10, &light());
+        grid.retint_document(10, &light(), &geometry);
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("{ANSWER_LIGHT}     SQLite{RESET}"), &geometry);
@@ -1502,7 +1610,7 @@ mod tests {
         );
         grid.set_kind(4, DocumentRow::Code);
         grid.place_row(5, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
-        grid.retint_document(10, &light());
+        grid.retint_document(10, &light(), &geometry);
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("  {COMMENT_LIGHT}# build it{RESET}"), &geometry);
@@ -1514,7 +1622,7 @@ mod tests {
         expected.place_row(5, &format!("{SUMMARY_LIGHT}  5s (3 4){RESET}"), &geometry);
         assert_eq!(diffed(&grid, &expected), "");
 
-        grid.retint_document(10, &dark());
+        grid.retint_document(10, &dark(), &geometry);
         let mut back = Grid::blank(geometry.rows, geometry.cols);
         back.place_row(3, &format!("  {COMMENT_DARK}# build it{RESET}"), &geometry);
         back.place_row(
@@ -1659,6 +1767,117 @@ mod tests {
         assert_eq!(grid.kind(0), DocumentRow::Plain);
     }
 
+    /// A tool group's call row as its writer draws it in each mode
+    /// (`super::super::toolgroup`, `p5-toolgroup-retint`): the statusline
+    /// grey, a word in the highlighter's, a string, and a comment.
+    fn call_row() -> Redraw {
+        let drawn = |statusline: u8, word: u8, string: u8, comment: u8| {
+            format!(
+                "\u{1b}[38;5;{statusline}m\u{2514} Ran \u{1b}[38;5;{word}mecho\u{1b}[39m\
+                 \u{1b}[38;5;{statusline}m \u{1b}[38;5;{string}m\"hi\"\u{1b}[39m\
+                 \u{1b}[38;5;{statusline}m \u{1b}[38;5;{comment}m# note\u{1b}[39m{RESET}"
+            )
+        };
+        Redraw::new(drawn(245, 252, 250, 245), drawn(241, 238, 241, 243))
+    }
+
+    #[test]
+    fn a_row_drawn_again_is_what_a_fresh_paint_of_its_drawing_leaves() {
+        // Upstream projects a tool group again in the new theme
+        // (`tool_group_projection.zig:558-640,742-784@481104fd`), so its rows
+        // are put back as their writer draws them in the mode reported -- the
+        // cells' attributes whole, as a paint of the drawing leaves them --
+        // not recoloured: the light string's 241 and the dark comment's 245
+        // are the statusline's greys in that mode, and come back as the
+        // highlighter's 250 and 243, which no colour rule could give them.
+        let geometry = geometry();
+        let redraw = call_row();
+        for (from, to) in [(dark(), light()), (light(), dark())] {
+            let mut grid = Grid::blank(geometry.rows, geometry.cols);
+            grid.place_row(3, redraw.drawn(from.mode), &geometry);
+            grid.record(3, DocumentRow::ToolGroup, Some(redraw.clone()));
+            assert!(grid.retint_document(10, &to, &geometry) > 0);
+            let mut fresh = Grid::blank(geometry.rows, geometry.cols);
+            fresh.place_row(3, redraw.drawn(to.mode), &geometry);
+            for column in 1..=geometry.cols {
+                assert!(
+                    grid.cell(3, column) == fresh.cell(3, column),
+                    "{:?} -> {:?}, column {column}: {:?} against {:?}",
+                    from.mode,
+                    to.mode,
+                    grid.cell(3, column),
+                    fresh.cell(3, column)
+                );
+            }
+            // The mode it is already in moves nothing.
+            assert_eq!(grid.retint_document(10, &to, &geometry), 0);
+        }
+    }
+
+    #[test]
+    fn a_drawing_that_is_not_the_rows_text_is_not_put_on_it() {
+        // A drawing is its writer's claim about what it put on the row. A row
+        // that holds anything else -- another text, one cell more or less --
+        // is not drawn over, nor recoloured: a tool group's row answers no
+        // colour ([`Palette::document_retint_in`]), so it is left exactly as
+        // it is, and nothing is created on it.
+        let geometry = geometry();
+        let redraw = call_row();
+        for held in [
+            format!("{BODY_DARK}\u{2514} Ran echo \"ho\" # note{RESET}"),
+            format!("{BODY_DARK}\u{2514} Ran echo \"hi\" # note!{RESET}"),
+            format!("{BODY_DARK}\u{2514} Ran echo \"hi\" # not{RESET}"),
+        ] {
+            let mut grid = Grid::blank(geometry.rows, geometry.cols);
+            grid.place_row(3, &held, &geometry);
+            grid.record(3, DocumentRow::ToolGroup, Some(redraw.clone()));
+            let before = grid.clone();
+            assert_eq!(grid.retint_document(10, &light(), &geometry), 0, "{held:?}");
+            for column in 1..=geometry.cols {
+                assert!(grid.cell(3, column) == before.cell(3, column), "{held:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_rows_drawings_move_with_it_and_go_with_its_cells() {
+        // The same rule as its kind: one record per row, so a scroll and a
+        // collapse carry the drawings with the cells, and a row written over,
+        // erased or resized away has none.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, "header", &geometry);
+        grid.record(3, DocumentRow::ToolGroup, Some(call_row()));
+        grid.place_row(4, "call", &geometry);
+        grid.record(4, DocumentRow::ToolGroup, Some(call_row()));
+        grid.scroll_up(1);
+        assert_eq!(
+            grid.redraw(2),
+            Some(&call_row()),
+            "the drawing stayed behind"
+        );
+        assert_eq!(grid.redraw(4), None);
+        grid.remove_rows(&[2], 4);
+        assert_eq!(
+            grid.redraw(2),
+            Some(&call_row()),
+            "a collapse left it behind"
+        );
+        assert_eq!(grid.kind(2), DocumentRow::ToolGroup);
+        assert_eq!(grid.redraw(3), None);
+        grid.set_kind(2, DocumentRow::ToolGroup);
+        assert_eq!(grid.redraw(2), None, "a kind alone keeps an old drawing");
+        grid.record(2, DocumentRow::ToolGroup, Some(call_row()));
+        grid.place_row(2, "something else", &geometry);
+        assert_eq!(grid.redraw(2), None);
+        grid.record(2, DocumentRow::ToolGroup, Some(call_row()));
+        grid.erase_row(2);
+        assert_eq!(grid.redraw(2), None);
+        grid.record(2, DocumentRow::ToolGroup, Some(call_row()));
+        grid.resize(geometry.rows, geometry.cols);
+        assert_eq!(grid.redraw(2), None);
+    }
+
     #[test]
     fn a_retint_reaches_no_row_past_the_one_it_was_given() {
         // The band's own rows are the frame's to paint, and this emitter may
@@ -1668,7 +1887,7 @@ mod tests {
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("{BODY_DARK}above{RESET}"), &geometry);
         grid.place_row(5, &format!("{BODY_DARK}below{RESET}"), &geometry);
-        assert_eq!(grid.retint_document(4, &light()), "above".len());
+        assert_eq!(grid.retint_document(4, &light(), &geometry), "above".len());
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("{BODY_LIGHT}above{RESET}"), &geometry);
@@ -1686,7 +1905,7 @@ mod tests {
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("{BODY_DARK}an answer{RESET}"), &geometry);
         let untouched = grid.clone();
-        assert_eq!(grid.retint_document(10, &dark()), 0);
+        assert_eq!(grid.retint_document(10, &dark(), &geometry), 0);
         assert_eq!(diffed(&untouched, &grid), "", "a no-op retint wrote cells");
     }
 
@@ -1703,7 +1922,7 @@ mod tests {
         grid.place_row(5, "\u{1b}[38;5;240mrule\u{1b}[0m", &geometry);
         let untouched = grid.clone();
 
-        assert_eq!(grid.retint_document(10, &light()), 0);
+        assert_eq!(grid.retint_document(10, &light(), &geometry), 0);
         assert_eq!(
             diffed(&untouched, &grid),
             "",
@@ -1719,7 +1938,7 @@ mod tests {
         let geometry = geometry();
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("\u{1b}[1m{BODY_DARK}bold{RESET}"), &geometry);
-        assert_eq!(grid.retint_document(10, &light()), "bold".len());
+        assert_eq!(grid.retint_document(10, &light(), &geometry), "bold".len());
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(3, &format!("\u{1b}[1m{BODY_LIGHT}bold{RESET}"), &geometry);
@@ -1801,7 +2020,10 @@ mod tests {
             &format!("{BODY_DARK}see {DOCS_OPEN}docs{LINK_CLOSE}{RESET}"),
             &geometry,
         );
-        assert_eq!(grid.retint_document(10, &light()), "see docs".len());
+        assert_eq!(
+            grid.retint_document(10, &light(), &geometry),
+            "see docs".len()
+        );
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(
@@ -1826,7 +2048,7 @@ mod tests {
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(3, &format!("{BODY_DARK}{text}{RESET}"), &geometry);
         assert_eq!(
-            grid.retint_document(10, &light()),
+            grid.retint_document(10, &light(), &geometry),
             4,
             "a continuation cell was counted as a cell of its own"
         );

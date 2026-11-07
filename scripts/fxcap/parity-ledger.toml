@@ -548,21 +548,11 @@ why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `
 id = "truecolor-grey-notation"
 kind = "unit"
 owner = "TC-NOTATION builtin greys spelt 38;5 at every depth"
-scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc"]
+scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc", "p5-toolgroup-live-tc", "p5-toolgroup-ctrlo-tc"]
 snaps = ["*"]
-fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
-xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
-why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
-
-[[cause]]
-id = "toolgroup-retint-256"
-kind = "unit"
-owner = "TG-REDRAW tool rows drawn again on a theme switch"
-scenarios = ["p5-toolgroup-retint", "p5-toolgroup-retint-light", "p5-toolstop-retint", "p5-toolstop-retint-light"]
-snaps = ["light", "dark", "dark-again", "light-again"]
-fx_row = '^└ (?:Ran|Cancelled) '
-xfx_row = '^└ (?:Ran|Cancelled) '
-why = "At 256 colours a cell of a tool group's row that holds the statusline grey of the mode in force -- 241 on a light screen, 245 on a dark one -- cannot be told from the statusline: xfx's recolouring of the screen gives it the other mode's statusline grey (245, 241) where fx gives the highlighter's (a string 250, a comment 243), because fx projects the group again in the new theme (src/ui/transcript/tool_group_projection.zig:558-640,742-784@481104fd), from entries xfx does not keep once a group's block closes. A string holds it on a light screen and a comment on a dark one, whether drawn in that mode or moved there by a switch: a string drawn dark is 241 once light, and a comment drawn light is 245 once dark (it goes there as fx's does, T-U3-TCc), so each joins on the next switch (dark-again of p5-toolgroup-retint and p5-toolstop-retint, light-again of their -light twins). A truecolor session has none (T-U3-TCb). .prd/tui-phase5/receipts/inline-code-truecolor/."
+fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-Z]+ · |^\* (?:session|network): |^  (?:finish|tokens|mcp): |^│ '
+xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-Z]+ · |^\* (?:session|network): |^  (?:finish|tokens|mcp): |^│ '
+why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument), the activity row a running command adds (`p5-toolgroup-live-tc`), and on a Ctrl-O page each entry's heading, the session and network records and a command's output rail (`p5-toolgroup-ctrlo-tc`) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py; TG-REDRAW's two, .prd/tui-phase5/receipts/toolgroup-redraw/). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
 
 [[cause]]
 id = "status-panel-scroll-window"
@@ -758,6 +748,18 @@ rows = ["1-2", "35-37"]
 xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37356"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+
+[[cause]]
+id = "toolgroup-ctrlo-record-short"
+kind = "defect"
+owner = "unowned (follows tool-schema and session-record)"
+scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
+snaps = ["full-*"]
+rows = ["34-37"]
+xfx_row = '^\s*$'
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37272"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
 [[cause]]
 id = "safe-page-edge"
