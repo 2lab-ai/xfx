@@ -9,10 +9,12 @@ Commits:
 - `dee4060f` and `914e897e`: the relative-`HOME` link base and its parity sentence.
 - `83d06be6`: the pins.
 - `f04090b9`: the `launch-refusal-row` cause.
+- `a38a413c` (round 2): an unsaved session's images go out again, no title is asked, the pins, and the link base's limit stated.
 
 Binaries (sha256 prefix of `target/debug/xfx`):
 - RED `715a65de…`, built at `771b428b` (banner `v0.1.0-771b428`).
-- GREEN `6c3d4d49…`, built at `83d06be6` (banner `v0.1.0-83d06be`). `f04090b9` changes only the ledger the pairs were scored with.
+- Round 1 GREEN `6c3d4d49…`, built at `83d06be6` (banner `v0.1.0-83d06be`). Round 2 RED for the image pair is this binary: `src/` is unchanged from `83d06be6` to `82919cc0` (`git diff --stat 83d06be6 82919cc0 -- src tests Cargo.toml Cargo.lock build.rs` is empty).
+- **GREEN `a1fbfed4…`, built at `a38a413c` (banner `v0.1.0-a38a413`)**: every capture in `green/`.
 
 fx is v0.0.16 (`8e6cda2e…`), checked by `capture.sh` around every run.
 
@@ -83,6 +85,47 @@ Each fails its test.
   - fx takes the terminal before it opens the session `--resume` names. Its restore ends `ESC[1;1H ESC[J ESC[?25h \r\n` and then `fx: HomeNotSet\r\n` (wire, read off a probe run). That leaves a blank row above the message.
   - xfx opens the session before the terminal is touched (`src/tui/mod.rs:127-133`).
   - A probe with a missing id on an ordinary `HOME` shows the same row: `fx: saved session not found.` one row lower than `xfx: there is no session …`. So the row belongs to every refused resume, not to this unit.
+
+## Round 2
+
+### MUST: an unsaved session's images go out again
+
+The defect: the unsaved branches of `attach_images` and `attach_tool_images` committed the record and never set `Snapshot::Loaded`. The reducer leaves a recorded image `Unread`, so `turn_messages` dropped it from the next turn's history. Its notice reads `! session: image #1 of this session was not read back, so it was not sent again`.
+
+fx: the turn keeps the bytes whether or not the session is saved. "The turn keeps the bytes (D44)" is fx's own doc comment (`imageSnapshotTempDir`, `src/core/session/session_store.zig:43-50@481104fd`). `captureImageAttachment` captures every image into the process's temporary folder, and inlines it into the turn only for a saved session (`src/core/app/app_session_runtime.zig:1331-1344@481104fd`).
+
+The fix: both unsaved branches hold the bytes they were handed, as `Snapshot::Loaded`. The path is the image's own: an attached file, or the paste's copy (`PasteCopies`).
+
+- **RED** (`red-tests-r2.txt`): `an_unsaved_sessions_images_are_sent_again_on_every_later_turn` fails on round 1's `src` with `images_of(&live.messages[0])` = 0, against 2.
+- **Capture** (`p5-lifecycle-relhome-image`, new): one image, then a second prompt.
+  - RED (`red-r2/`): `again` shows the notice, and the second turn's request carries no image.
+  - GREEN: both pairs are normalized-identical with fx, and each turn's request carries one image, as fx's do (`green.txt`, last block).
+  - RED also sent `001-title.json`, which fx never sends. That led to the next fix.
+
+### A title is asked only for a saved session
+
+fx titles only an active, saved session (`activeSessionId(app) orelse return`, `maybeStartSessionTitleGeneration`, `src/core/app/app_session_runtime.zig:3035@481104fd`). xfx's unsaved session sent the first prompt's excerpt to the title model. `title_asker` now returns none for an unsaved store.
+
+- RED: the base's `title_asker` fails `a_session_with_no_home_runs_unsaved_and_says_so`, at "an unsaved session asked for a title".
+
+### SHOULDs
+
+1. `with_no_usable_home_a_tool_runs_under_the_session_authority_alone` (relative and empty `HOME`): a `read_file` the model calls is answered with the file.
+   - Mutant T binds the rules path again in an unsaved session, so every decision fails closed on `/dev/null/...`. It fails at "the read was not answered with the file".
+2. The writes-nothing test now takes unset, relative and empty `HOME`. `tree` records each file's length, modification time and bytes. The relative home holds a seeded `.xfx/settings.json` and `history.jsonl`, and the workspace a `notes.txt`.
+   - Mutant O rewrites the seeded `history.jsonl` in place under its own name. It fails at `HOME=None wrote into the sandbox`.
+3. **The link base's one folder: stated, not widened.**
+   - A write is checked before any command picks its folder. The folders a later command can name are every directory in scope, so a base per root would cover the roots but not their subdirectories, while reading as complete.
+   - It also needs a link already planted under such a folder's relative home, which only the person can plant: auto refuses a write to `.zshrc` and the rest by name.
+   - Written at `src/permission/links.rs` (`Base::from_environment`) and in `docs/parity.md` (the `ask --add-dir` row).
+
+### GREEN, round 2
+
+`green.txt`: 17 pairs.
+- 15 are normalized-identical.
+- `u02-status` is within the standing `/status` panel divergences.
+- `r00-resume` is the `launch-refusal-row` decision.
+- All five workspace listings are byte-identical with fx's raw captures.
 
 ## Pins (Opus SHOULD 2-4)
 
