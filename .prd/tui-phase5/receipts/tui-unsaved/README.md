@@ -127,6 +127,21 @@ fx titles only an active, saved session (`activeSessionId(app) orelse return`, `
 - `r00-resume` is the `launch-refusal-row` decision.
 - All five workspace listings are byte-identical with fx's raw captures.
 
+## L-U3c: the note for a left-out image (opus-b SHOULDs)
+
+- **What fx names.** Only its own copy of an image, never the file it was attached from (`savedImagePath`, `noteAttachmentLocations`, `src/core/images/image_attachments.zig:1050-1062@481104fd`). In an unsaved session, that copy is its temporary snapshot (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`).
+- **What xfx did.** In an unsaved session, turn 1 named nothing. Turn 2 and later named the attached file's source path.
+- **What xfx does now.**
+  - It names only its own copy: the session's, or a paste's. An attached file in an unsaved session has none, so its note says `No local image file is available` on every turn.
+  - That is narrower than fx, which makes a temporary copy and names it. This is written in `docs/parity.md`.
+  - A pasted image is named by its paste copy on every turn.
+- **Tests** (`red-tests-r3.txt`).
+  - RED: `an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy` fails on `ad670388`'s `src` at turn 1, with `[None, None]`.
+  - A mutant that brings back the source path in the history fails at "every later turn".
+- **Wording fixes.**
+  - `links.rs` and `docs/parity.md` now say that a git the terminal runs in another folder reads `<folder>/<HOME>/.gitconfig`, which the walk does not seed.
+  - The fx citation for `activeSessionId` is now `:3036`.
+
 ## Pins (Opus SHOULD 2-4)
 
 - `tui::shell::tests::a_tilde_under_no_usable_home_browses_nothing`: under an empty or relative `HOME`, `~/` is `Unavailable`; under an absolute one it is read.
