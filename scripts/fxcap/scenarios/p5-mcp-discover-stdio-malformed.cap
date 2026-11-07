@@ -1,7 +1,7 @@
 # p5 mcp discover: a stdio server that answers `server/discover` with a reply that is not
 # valid JSON-RPC, its result a string of terminal escapes (p5-mcp-discover-stdio.ts
 # `malformed`), then speaks 2025-06-18. fx v0.0.16 fails the probe with that reply
-# (`onRefusedLine`, src/mcp/server.zig:769-789@481104fd), reads the failure as a legacy
+# (`onRefusedLine`, src/mcp/server.zig:769-790@481104fd), reads the failure as a legacy
 # answer, and initializes. Nothing the server wrote reaches the screen. `home wire` is
 # what the server was sent.
 fx: homefile .fx/mcp.json p5-mcp-discover-stdio-malformed-profile.json

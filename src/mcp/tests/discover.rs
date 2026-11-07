@@ -225,7 +225,7 @@ fn a_stdio_server_that_never_answers_the_probe_is_initialized_once_the_probe_tim
 #[test]
 fn the_probe_and_initialize_share_the_start_so_a_start_never_outlasts_its_timeout() {
     // The probe's 10 s are cut to what is left of the start (`startLeft`,
-    // `src/mcp/server.zig:913-916`), and initialize gets the rest: a silent
+    // `src/mcp/server.zig:966-971`), and initialize gets the rest: a silent
     // probe on a 1.5 s start leaves initialize nothing, and the start fails
     // within it.
     let home = Home::new();
@@ -282,7 +282,7 @@ fn assert_view_inert(view: &ServerView) {
 fn a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen() {
     // Each answer, its end state, and what it says: fx's detection
     // (`classifyDiscover`, `era.zig:386-405`; `onRefusedLine`,
-    // `src/mcp/server.zig:769-789`; an error without an id, `:1159-1160`).
+    // `src/mcp/server.zig:769-790`; an error without an id, `:1159-1160`).
     // The probes each case waits out: none for an answer the probe reads at
     // once, one for silence or a line that is not JSON -- after a modern
     // answer, on its second probe.

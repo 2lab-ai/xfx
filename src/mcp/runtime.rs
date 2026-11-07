@@ -1445,7 +1445,7 @@ impl McpRuntime {
     /// ([`era::Detector`]) driven one blocking exchange at a time. The probe
     /// waits at most 10 s, cut to what is left of the start, as fx arms its
     /// probe timer (`arm_probe_timer`, `startLeft`, `src/mcp/server.zig:
-    /// 2043`, `:913-916@481104fd`); `initialize` waits what is left.
+    /// 2043`, `:966-971@481104fd`); `initialize` waits what is left.
     #[allow(clippy::type_complexity)]
     fn handshake(
         &self,
@@ -1457,7 +1457,7 @@ impl McpRuntime {
         let config = self.era_config();
         let mut detector = era::Detector::new(config);
         // Each start is a new process, which detects before anything else
-        // (`processUp`, `detect`, `src/mcp/server.zig:820-826`, `:398-401`).
+        // (`processUp`, `detect`, `src/mcp/server.zig:824-831`, `:395-399`).
         let _ = detector.step(era::Event::ProcessStarted);
         let mut out = detector
             .step(era::Event::DetectRequested)
@@ -1523,7 +1523,7 @@ impl McpRuntime {
         };
         let capabilities = Capabilities {
             // A 2026 server is listed whatever it says: fx's catalog asks
-            // every server for its tools (`stepCatalog`, `:2049-2051`).
+            // every server for its tools (`.ready`, `:2044-2053`).
             tools: has("tools") || matches!(wire_era, WireEra::Modern(_)),
             resources: has("resources"),
             prompts: has("prompts"),
@@ -1567,13 +1567,13 @@ impl McpRuntime {
     /// `classifyDiscoverHttp`, `era.zig:386-415@481104fd`).
     ///
     /// On stdio a reply that is not valid JSON-RPC fails the probe, which is
-    /// a legacy answer (`onRefusedLine`, `src/mcp/server.zig:769-789`); an
+    /// a legacy answer (`onRefusedLine`, `src/mcp/server.zig:769-790`); an
     /// error without an id is one too (`:1159-1160`); a line that is not JSON
     /// answers nothing, so the probe waits out its timer; and a process that
     /// is gone ends the start. Over HTTP a body that holds no JSON-RPC answer
     /// is a legacy answer whatever its status, a broken connection is sent
     /// again once and then waits out the timer (`max_attempts = 2`,
-    /// `http_modern.zig:21-24`; `endAttempt`, `server.zig:1238-1258`), and an
+    /// `http_modern.zig:21-24`; `endAttempt`, `server.zig:1242-1257`), and an
     /// answer over the size limit waits it out at once.
     fn probe(
         &self,
@@ -1631,7 +1631,7 @@ impl McpRuntime {
     /// words may hint at a modern server), a line that is not JSON answers
     /// nothing, and a process that is gone ends the start; over HTTP an
     /// initialize that ends without an answer is rejected (`onInitializeEnded`,
-    /// `src/mcp/server.zig:1595-1600`).
+    /// `src/mcp/server.zig:1598-1603`).
     fn initialize(
         &self,
         server: &Server,
@@ -2297,7 +2297,7 @@ fn probe_event(config: &era::Config, reply: &Reply, http: bool, said: &mut Said)
 }
 
 /// The message of a refused reply's failure, as fx writes it
-/// (`onRefusedLine`, `src/mcp/server.zig:769-789@481104fd`): what was wrong,
+/// (`onRefusedLine`, `src/mcp/server.zig:769-790@481104fd`): what was wrong,
 /// and the start of what came, at most 80 bytes and never a cut character.
 fn invalid_reply(why: &str, frame: &Value) -> String {
     let line = frame.to_string();

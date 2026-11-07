@@ -113,7 +113,7 @@ pub trait Transport: Send + Sync {
     /// status (200 on stdio) and the answer, unread, since the era detection
     /// reads it (`super::era`). A probe that times out is not cancelled on
     /// the wire: fx leaves an abandoned probe to its own request timer
-    /// (`stdioDelivered`, `src/mcp/server.zig:853-878@481104fd`).
+    /// (`stdioDelivered`, `src/mcp/server.zig:871-872@481104fd`).
     fn detect(
         &self,
         method: &str,

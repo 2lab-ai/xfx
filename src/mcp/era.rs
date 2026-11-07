@@ -563,7 +563,7 @@ pub mod code {
 /// `failureOf`, `:337-350`): `jsonrpc` exactly `"2.0"`, no `method` and no
 /// `params`, exactly one of `result` -- an object -- and `error` -- an object
 /// with an integer `code` and a string `message`. What fails says why, in
-/// fx's words (`onRefusedLine`, `src/mcp/server.zig:775-783@481104fd`).
+/// fx's words (`onRefusedLine`, `src/mcp/server.zig:777-783@481104fd`).
 pub fn decode_response(frame: &Value) -> Result<Response<'_>, &'static str> {
     let Value::Object(fields) = frame else {
         return Err("it isn't valid JSON-RPC");
