@@ -608,6 +608,20 @@ const ULTRAFAST_USAGE: &str = "usage: /ultrafast [on|off|status]";
 /// `/fast`, or `/ultrafast` with a word it knows: the command as given,
 /// before the catalog row it is judged against is known
 /// ([`Shell::held_speed`]).
+/// Whether this tick's frame shows what this session's own input asked for
+/// ([`Shell::take_status_moved_by_input`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Keyed {
+    /// Nothing typed moved the status: the report goes where it always does.
+    No,
+    /// The keys moved it, and this tick's frame shows what they did: the
+    /// report follows the frame.
+    AfterFrame,
+    /// A prompt was sent and the runtime has not started it, so no frame
+    /// shows its `Thinking` yet: no report this tick.
+    NotYet,
+}
+
 /// What the program status says the session is doing, owned
 /// ([`Shell::status_activity`]): what [`program_status::Activity`] borrows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10131,8 +10145,28 @@ impl Shell {
     /// stopped only when the turn has (`osc/i01-after-esc`: `idle`, then
     /// `Cancelled`), and the line xfx writes at the keystroke is that one, so
     /// the stop's `idle` stays ahead of the frame that carries it.
-    pub(crate) fn take_status_moved_by_input(&mut self) -> bool {
-        std::mem::take(&mut self.status_moved_by_input)
+    ///
+    /// **A prompt the runtime has not started yet is not asked for here**:
+    /// upstream's keystroke frame already shows the prompt's `Thinking`, and
+    /// xfx's band shows it once the turn has started (`TurnStarted`), so the
+    /// report waits for the tick whose frame first shows it
+    /// ([`Keyed::NotYet`]) -- whichever tick the runtime's word lands in.
+    pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
+        if !self.status_moved_by_input {
+            return Keyed::No;
+        }
+        let compacting = self
+            .compaction
+            .as_ref()
+            .is_some_and(|compaction| compaction.active() && !compaction.stopped());
+        if self.status_activity() == StatusActivity::Working
+            && !self.activity.working()
+            && !compacting
+        {
+            return Keyed::NotYet;
+        }
+        self.status_moved_by_input = false;
+        Keyed::AfterFrame
     }
 
     /// Somebody else has had the terminal -- a stop, whose restore cleared

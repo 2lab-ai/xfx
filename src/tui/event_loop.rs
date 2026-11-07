@@ -1103,7 +1103,9 @@ fn commit_counted(
 ///   ([`Shell::take_status_moved_by_input`]): upstream handles the keys after
 ///   it reports, so what they did is on that pass's frame and reported by the
 ///   next (`osc/w02-done`: the prompt's `Thinking`, then `working`). A stop
-///   is not one ([`Shell::take_status_moved_by_input`] says why).
+///   is not one, and a prompt the runtime has not started is reported on the
+///   tick whose frame first shows its `Thinking`
+///   ([`Shell::take_status_moved_by_input`] says why).
 /// * **After the frame of a resume.** Upstream repaints inside
 ///   `suspendToJobControl` and invalidates its reporter on the way out
 ///   (`defer`, `main.zig:1050-1055`), so the record the stop's restore
@@ -1126,9 +1128,10 @@ fn commit_tick(
 ) -> io::Result<()> {
     let resumed = shell.take_program_status_resume();
     let keyed = shell.take_status_moved_by_input();
-    let after_frame = resumed || keyed;
+    let after_frame = resumed || keyed == super::shell::Keyed::AfterFrame;
+    let held = !resumed && keyed == super::shell::Keyed::NotYet;
     let mut lead = None;
-    if !after_frame {
+    if !after_frame && !held {
         if let Some(report) = take_checked_status(shell, failures, now)? {
             let rides = band.title_owed().is_some()
                 && !shell.owes_title()
@@ -12874,10 +12877,13 @@ mod tests {
         );
 
         // A tick that changed nothing reports nothing; one whose work did,
-        // reports that, and nothing else in the same vector.
+        // reports that, and nothing else in the same vector -- once the
+        // prompt's turn has started ([`a_working_a_keystroke_caused_…`]).
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(out.reports(), [IDLE]);
         shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(
             out.reports(),
@@ -13031,11 +13037,25 @@ mod tests {
         let before = out.vectors.len();
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        let tick = &out.vectors[before..];
+        // The runtime has not started the prompt: no frame shows its
+        // `Thinking` yet, and no report goes.
+        assert!(
+            !out.vectors[before..]
+                .iter()
+                .any(|vector| holds(vector, REPORT)),
+            "a working ahead of any frame that shows the turn: {:?}",
+            &out.vectors[before..]
+        );
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        // The loop settles the band before it commits (`session`).
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[started..];
         let frame = tick
             .iter()
-            .position(|vector| holds(vector, BEGIN_FRAME.as_bytes()))
-            .unwrap_or_else(|| panic!("the keystroke painted nothing: {tick:?}"));
+            .position(|vector| holds(vector, b"Thinking"))
+            .unwrap_or_else(|| panic!("the started turn painted no Thinking: {tick:?}"));
         let report = tick
             .iter()
             .position(|vector| holds(vector, REPORT))
@@ -13045,6 +13065,25 @@ mod tests {
             "the keystroke's working went ahead of the frame that shows it: {tick:?}"
         );
         assert_eq!(tick[report], WORKING.as_bytes(), "{tick:?}");
+
+        // And when the runtime's word lands in the keystroke's own tick, the
+        // report follows that tick's frame.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(b"again\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let frame = tick.iter().position(|vector| holds(vector, b"Thinking"));
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes());
+        assert!(
+            frame.is_some() && report.is_some() && frame < report,
+            "{tick:?}"
+        );
     }
 
     #[test]
@@ -13171,6 +13210,8 @@ mod tests {
             out.reports()
         );
         shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(
             out.reports(),
