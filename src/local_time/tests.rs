@@ -378,7 +378,7 @@ type Case = (String, Result<Vec<String>, String>, Vec<&'static str>);
 
 #[test]
 fn the_c_library_reads_a_zone_that_cannot_apply_in_utc() {
-    const DAY_LESS_A_SECOND: &str = "2024-01-03 03:04:04.006 XXX";
+    const DAY_LESS_A_SECOND: &str = "2024-01-03 03:04:04.006 QQQ";
     const IN_UTC: &str = "2024-01-02 03:04:05.006 UTC";
     let dir = tempfile::tempdir().expect("a directory");
     let mut cases: Vec<Case> = Vec::new();
@@ -398,9 +398,9 @@ fn the_c_library_reads_a_zone_that_cannot_apply_in_utc() {
     // 24 hours glibc clamps the hours to 24 (`compute_offset`, time/tzset.c)
     // and macOS keeps 25: a day or more either way.
     for (tz, moment, expected) in [
-        ("<XXX>-24", AT, IN_UTC),
-        ("<XXX>-25", AT, IN_UTC),
-        ("<XXX>-23:59:59", AT, DAY_LESS_A_SECOND),
+        ("<QQQ>-24", AT, IN_UTC),
+        ("<QQQ>-25", AT, IN_UTC),
+        ("<QQQ>-23:59:59", AT, DAY_LESS_A_SECOND),
         // Shifted out of 1970 through 9999.
         ("PST8", 2, "1970-01-01 00:00:00.002 UTC"),
         ("<+14>-14", MAX_TIMESTAMP_MS, "9999-12-31 23:59:59.999 UTC"),
