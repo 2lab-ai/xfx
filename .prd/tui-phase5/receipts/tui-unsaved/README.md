@@ -18,7 +18,8 @@ Binaries (sha256 prefix of `target/debug/xfx`):
 - L-U3c GREEN `821508c0…`, built at `9f0e4a66` (banner `v0.1.0-9f0e4a6`).
 - L-U3d GREEN `c32f85d5…`, built at `d87d448b` (banner `v0.1.0-d87d448`).
 - L-U3e first GREEN `f3064c38…`, built at `efcff6bf` (banner `v0.1.0-efcff6b`).
-- **GREEN `c49e8889…`, built at `80cd9aef` (banner `v0.1.0-80cd9ae`)**: every capture now in `green/` and `fx/`, from the sweep that `green.txt` scores.
+- L-U3e GREEN `c49e8889…`, built at `80cd9aef` (banner `v0.1.0-80cd9ae`).
+- **GREEN `67635b2e…`, built at `fe8dd28e` (banner `v0.1.0-fe8dd28`)**: every capture now in `green/` and `fx/`, from the sweep that `green.txt` scores.
 
 fx is v0.0.16 (`8e6cda2e…`), checked by `capture.sh` around every run.
 
@@ -79,7 +80,7 @@ Each fails its test.
 
 ## GREEN
 
-Round 1's sweep (`scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*'`, 15 pairs). `green/` and `green.txt` now hold the latest sweep (L-U3e, 24 pairs); this section is round 1's account.
+Round 1's sweep (`scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*'`, 15 pairs). `green/` and `green.txt` now hold the latest sweep (L-U3f, 24 pairs); this section is round 1's account.
 
 - **Workspace listings: all four byte-identical to fx's.**
 - **13 pairs normalized-identical.** That covers every TUI pair of `p5-lifecycle-relhome`, `-made` and the new `-unsaved` (launch, turn, `/resume`, `/fork`, `/rename`, `/new`, the second turn, `/quit`'s scrollback), and both `xfx sessions` pairs. The `tui-without-home*` causes are dropped.
@@ -187,6 +188,29 @@ Code: `efcff6bf`, then `80cd9aef`. RED, GREEN and mutants: `red-tests-r6.txt`, o
   - `an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route` fails on `efcff6bf` (the clipboard image's copy is left). Mutants M6 (`attach` keeps it) and M7 (a refused paste keeps its copies) fail it.
 - **Citations.** fx line numbers I had counted with `nl -v`, which skips blank lines, are now the pin's real lines: `session_store.zig:44-51`, `app_session_runtime.zig:1332-1345`, `image_attachments.zig:248-275`, `:331-347` and `:349-369`, `image_commands.zig:140-143` and `:39`, `input_paste_runtime.zig:491-494`, `input_submit_runtime.zig:1219-1224`.
 - **GREEN** at `80cd9aef` (`green.txt`, `scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*' --only image-paste`; the same scores as the sweep at `efcff6bf`): 22 of 24 pairs normalized-identical. The two others are the standing `u02-status` cascade and the `r00-resume` decision. `image-paste`'s 7 pairs, which read the clipboard through the harness's `osascript`, are all normalized-identical. The five workspace listings are byte-identical, and each request carries the same number of images as fx's (1 and 1; 2 for `image-paste`).
+
+## L-U3f: room before the copy, the escaping through the real interpreter, the last stale cites (opus-e, gpt6-e SHOULDs)
+
+Code: `fe8dd28e`. RED, GREEN and mutants: `red-tests-r7.txt`, on a throwaway clone.
+
+- **1. Order (opus-e).** With no room and a copy that cannot be written, the clipboard route said `failed to paste clipboard image: X` and `/image` said `failed to attach image: X`.
+  - fx asks `canInsert` before it captures (`insertImageAtCursor`, `image_commands.zig:128-130` before `:140@481104fd`, read with `git show … | sed -n`), and says `input is full; image not attached`.
+  - Now both routes ask `Shell::badge_fits` before any copy. With no room they say fx's words and make no copy. `Editor::can_insert` is the one room rule, and `insert` uses it.
+  - A pasted path keeps fx's paste order: it captures first (`handlePastedBytes`, `input_paste_runtime.zig:491`) and checks room after (`:554-560`). It still removes its copies (L-U3e).
+  - RED: `with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy` fails on `8d578f11` with `failed to paste clipboard image: FileNotFound` where it expects `input is full; image not attached`.
+  - GREEN on `fe8dd28e`. Mutants M10 (the clipboard copy before the room check) and M11 (`/image` the same) fail it, with the old message on each route.
+  - The test also checks that with copies that could be written, neither route makes one (`paste_copies.dir()` stays `None`).
+- **2. Real interpreter (gpt6-e).** `applescript_string` is now the one escaper. `a_hostile_path_is_one_string_to_the_real_applescript_interpreter` (macOS only, skipped when `/usr/bin/osascript` is missing) runs the real `osascript`.
+  - The path holds `\`, `"`, `\"` and `" & (do shell script "touch <canary>") & "`. It comes back from `return <literal>` exactly as it went in.
+  - The clipboard script, with its read replaced by `set pngData to "probe"`, writes exactly that file, and the canary never appears.
+  - It does not compile on `8d578f11` (no `applescript_string` there), so its RED is two mutants:
+    - M8 (no escaping): the interpreter ran the `do shell script` and returned the path without it.
+    - M9 (quotes escaped before backslashes): `osascript` refused the script.
+- **3. Stale cites (opus-e).** Re-counted at the pin with `git show 481104fd:<path> | sed -n`.
+  - `clipboard_image.rs`'s doc block: `writeImageBadge` `1544-1548`, `insertImageAtCursor` `140-148`. The temporary folder is `imageSnapshotStorageDir` `app_session_runtime.zig:1347-1351` → `session_store.zig:44-51` → `createTempSnapshotDir` `248-275`, and it is removed at `:1274-1277`.
+  - That block also said fx captured into a session's `images/`. At the pin every capture goes to the temporary folder, and the block now says so.
+  - `image.rs:158` and the `/image` row of `docs/parity.md` now cite `140-148`, and that row's `session_store.zig:102-118` is now `44-51`.
+- **GREEN** at `fe8dd28e` (`green.txt`, the same sweep as L-U3e's): the same scores as at `80cd9aef`. 22 of 24 pairs are normalized-identical, `image-paste` is 7/7, the five workspace listings are byte-identical, and each request carries the same number of images as fx's.
 
 ## Pins (Opus SHOULD 2-4)
 
