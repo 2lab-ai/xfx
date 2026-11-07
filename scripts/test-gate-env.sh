@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 #
-# Proves that no gate takes its grep options from the environment.
+# Proves that no gate takes its grep options, or its repository, from the
+# environment.
 #
 #   scripts/test-gate-env.sh
+#
+# Two kinds of case: grep's `GREP_OPTIONS`, below, and git's own variables and
+# attribute files, in the second half.
 #
 # BSD grep -- macOS's, on the macOS CI rows and on every Mac this repository
 # is worked on -- puts `GREP_OPTIONS` in front of every argument list it is
@@ -27,6 +31,18 @@
 # check-no-secrets.sh has its own case, `grep-options`, in
 # scripts/test-check-no-secrets.sh.
 #
+# Git takes where a repository is, which index it lists, where it writes
+# objects and which config and attributes apply from `GIT_DIR`,
+# `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`, `GIT_CONFIG_*`,
+# `GIT_ATTR_SOURCE` and the rest. Before the gates dropped them, a caller's
+# made check-xfx-identity.sh and check-no-secrets.sh pass a planted violation,
+# and made all three git-reading gates write into a decoy repository. And
+# attributes from a config, `.git/info/attributes` or an untracked
+# `.gitattributes` hid a Cargo.lock from the identity scan. Each git case
+# runs a gate on a fixture with one violation, with one variable or one
+# attribute file set, and requires the violation refused and every file
+# under the decoy's `.git` unchanged.
+#
 # Requires git and ruby (check-preview-contract.sh), as the gates do.
 
 set -euo pipefail
@@ -34,9 +50,15 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# This file's own greps read the gates' output with options of their own.
+# This file's own greps read the gates' output with options of their own,
+# and its own gits build scratch repositories and nothing else; the cases
+# hand a gate its variables explicitly.
 unset GREP_OPTIONS
-unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+for name in $(compgen -e); do
+	case "$name" in
+	GIT_*) unset "$name" ;;
+	esac
+done
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-gate-env.XXXXXX")"
 trap 'rm -rf "$work"' EXIT HUP INT TERM
@@ -169,6 +191,144 @@ cp scripts/check-usage-clock.sh "$clock/scripts/"
 expect usage-clock -v "the filter did not run the one clock test" \
 	env PATH="$bin:$PATH" XFX_TEST_CARGO_RAN=0 XFX_TEST_CARGO_LINES=0 \
 	"$clock/scripts/check-usage-clock.sh"
+
+# --- git's environment and attribute files ---------------------------------
+
+# The retired product name and a key, assembled: this file is tracked, and the
+# gates read it.
+retired="f"
+retired="${retired}x"
+retired="${retired}r"
+key_prefix="sk"
+key="${key_prefix}-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+# Fixtures, each with one violation: a tracked path carrying the retired name,
+# the retired name inside a tracked Cargo.lock, a key in a tracked file.
+ipath="$work/ipath"
+mkdir -p "$ipath/scripts" "$ipath/docs"
+cp scripts/check-xfx-identity.sh "$ipath/scripts/"
+printf 'Clean text.\n' >"$ipath/docs/${retired}rename-notes.md"
+git -C "$ipath" init -q
+git -C "$ipath" add -A
+
+ilock="$work/ilock"
+mkdir -p "$ilock/scripts"
+cp scripts/check-xfx-identity.sh "$ilock/scripts/"
+printf 'name = "%s-core"\n' "$retired" >"$ilock/Cargo.lock"
+git -C "$ilock" init -q
+git -C "$ilock" add -A
+
+keyed="$work/keyed"
+mkdir -p "$keyed/scripts"
+cp scripts/check-no-secrets.sh "$keyed/scripts/"
+printf 'clean\n' >"$keyed/a.txt"
+printf '%s\n' "$key" >"$keyed/b.txt"
+git -C "$keyed" init -q
+git -C "$keyed" add -A
+
+# Indexes without the violation.
+env GIT_INDEX_FILE="$work/ipath.index" git -C "$ipath" add scripts/check-xfx-identity.sh
+env GIT_INDEX_FILE="$work/keyed.index" git -C "$keyed" add a.txt scripts/check-no-secrets.sh
+
+# Attributes calling a .lock binary; a config naming them; a tree carrying
+# them as a .gitattributes, for GIT_ATTR_SOURCE.
+printf '*.lock -diff\n' >"$work/attributes"
+printf '[core]\n\tattributesFile = %s\n' "$work/attributes" >"$work/attributes.config"
+attr_blob="$(printf '*.lock -diff\n' | git -C "$ilock" hash-object -w --stdin)"
+attr_tree="$(printf '100644 blob %s\t.gitattributes\n' "$attr_blob" | git -C "$ilock" mktree)"
+
+# A repository the gates must neither read nor write.
+decoy="$work/decoy"
+new_decoy() {
+	rm -rf "$decoy"
+	mkdir -p "$decoy"
+	git -C "$decoy" init -q
+	printf 'decoy\n' >"$decoy/d.txt"
+	git -C "$decoy" add d.txt
+	git -C "$decoy" -c user.name=decoy -c user.email=decoy@example.invalid \
+		-c commit.gpgsign=false commit -q -m decoy
+}
+decoy_sums() {
+	(cd "$decoy/.git" && find . -type f -exec cksum {} + | sort)
+}
+
+# refuses <case> <message> <command...>: runs the command against a fresh
+# decoy and requires exit 1, the message, and the decoy's .git unchanged.
+refuses() {
+	local name="$1" message="$2" status=0
+	shift 2
+	new_decoy
+	decoy_sums >"$work/decoy.before"
+	"$@" </dev/null >"$work/$name.log" 2>&1 || status=$?
+	decoy_sums >"$work/decoy.after"
+	if [ "$status" -ne 1 ]; then
+		problem "$name: the gate exited $status, expected 1; its last lines:"
+		tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+	elif ! grep -q -F -e "$message" "$work/$name.log"; then
+		problem "$name: the gate failed, but not with '$message'; its last lines:"
+		tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+	elif ! cmp -s "$work/decoy.before" "$work/decoy.after"; then
+		problem "$name: the gate wrote into the decoy repository:"
+		{ diff "$work/decoy.before" "$work/decoy.after" || true; } | head -n 6 >&2
+	else
+		printf 'test-gate-env: ok %-30s %s\n' "$name" "$message"
+		passed=$((passed + 1))
+	fi
+}
+
+path_found="the retired product name is still in tracked path names"
+content_found="the retired product name is still in tracked content"
+key_found="possible OpenAI-style key:"
+readme_found="does not document the qualified install command"
+
+refuses identity-git-dir "$path_found" \
+	env GIT_DIR="$decoy/.git" "$ipath/scripts/check-xfx-identity.sh"
+refuses identity-git-dir-work-tree "$path_found" \
+	env GIT_DIR="$decoy/.git" GIT_WORK_TREE="$decoy" "$ipath/scripts/check-xfx-identity.sh"
+refuses identity-index-file "$path_found" \
+	env GIT_INDEX_FILE="$work/ipath.index" "$ipath/scripts/check-xfx-identity.sh"
+refuses identity-object-dir "$path_found" \
+	env GIT_OBJECT_DIRECTORY="$decoy/.git/objects" "$ipath/scripts/check-xfx-identity.sh"
+refuses identity-common-dir "$path_found" \
+	env GIT_COMMON_DIR="$decoy/.git" "$ipath/scripts/check-xfx-identity.sh"
+
+refuses no-secrets-index-file "$key_found" \
+	env GIT_INDEX_FILE="$work/keyed.index" "$keyed/scripts/check-no-secrets.sh"
+refuses no-secrets-object-dir "$key_found" \
+	env GIT_OBJECT_DIRECTORY="$decoy/.git/objects" "$keyed/scripts/check-no-secrets.sh"
+refuses no-secrets-common-dir "$key_found" \
+	env GIT_COMMON_DIR="$decoy/.git" "$keyed/scripts/check-no-secrets.sh"
+
+preview() {
+	env "$@" scripts/check-preview-contract.sh "$readme_tree/.github/workflows/preview.yml" "$readme_tree"
+}
+refuses preview-git-dir "$readme_found" preview GIT_DIR="$decoy/.git"
+refuses preview-git-dir-work-tree "$readme_found" preview GIT_DIR="$decoy/.git" GIT_WORK_TREE="$decoy"
+refuses preview-object-dir "$readme_found" preview GIT_OBJECT_DIRECTORY="$decoy/.git/objects"
+refuses preview-common-dir "$readme_found" preview GIT_COMMON_DIR="$decoy/.git"
+
+refuses attributes-config-global "$content_found" \
+	env GIT_CONFIG_GLOBAL="$work/attributes.config" "$ilock/scripts/check-xfx-identity.sh"
+refuses attributes-config-system "$content_found" \
+	env GIT_CONFIG_SYSTEM="$work/attributes.config" "$ilock/scripts/check-xfx-identity.sh"
+refuses attributes-config-count "$content_found" \
+	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.attributesFile GIT_CONFIG_VALUE_0="$work/attributes" \
+	"$ilock/scripts/check-xfx-identity.sh"
+refuses attributes-config-parameters "$content_found" \
+	env GIT_CONFIG_PARAMETERS="'core.attributesfile'='$work/attributes'" "$ilock/scripts/check-xfx-identity.sh"
+refuses attributes-attr-source "$content_found" \
+	env GIT_ATTR_SOURCE="$attr_tree" "$ilock/scripts/check-xfx-identity.sh"
+
+# Attribute files a clone holds, set one at a time and taken away after.
+cp "$work/attributes" "$ilock/.git/info/attributes"
+refuses attributes-info "$content_found" "$ilock/scripts/check-xfx-identity.sh"
+rm -f "$ilock/.git/info/attributes"
+git -C "$ilock" config core.attributesFile "$work/attributes"
+refuses attributes-local-config "$content_found" "$ilock/scripts/check-xfx-identity.sh"
+git -C "$ilock" config --unset core.attributesFile
+cp "$work/attributes" "$ilock/.gitattributes"
+refuses attributes-untracked "$content_found" "$ilock/scripts/check-xfx-identity.sh"
+rm -f "$ilock/.gitattributes"
 
 if [ "$failures" -ne 0 ]; then
 	printf 'test-gate-env: %d problem(s), %d case(s) passed\n' "$failures" "$passed" >&2
