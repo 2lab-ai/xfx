@@ -1,0 +1,1358 @@
+# compare.py <main e6cde019's sweep, its own harness and scenarios, rescored with the train's ledger; the four scenarios that timed out outside the suite lock replaced by their rerun under it> <the train head's sweep (3bd15c89)>
+pairs: reference 502, train 526, shared 502; only the reference: 0
+reference: 502 pairs, pass 246; approved-divergence 4, identical 13, normalized-identical 233, unresolved-defect 252
+train: 502 pairs, pass 287; approved-divergence 4, identical 12, normalized-identical 275, unresolved-defect 211
+h1-models2 after: 0 differing rows left, 7 new
+    NEW:  fx '' / xfx 'Note: Gateway catalog is authenticated with an API key'
+    NEW:  fx '  fake/model-a' / xfx ''
+    NEW:  fx '  fake/model-released-later' / xfx '  fake/model-a'
+    NEW:  fx 'Models 2  [All]' / xfx 'Models 1  [All]'
+    NEW:  fx 'Note: Gateway catalog is authenticated with an API key' / xfx '──────────────────────────────────────────────────────────────────────'
+    NEW:  fx '↑↓ navigate     tab provider     enter use     esc close' / xfx ''
+    NEW:  fx '──────────────────────────────────────────────────────────────────────' / xfx '↑↓ navigate     tab provider     enter use     esc close'
+p5-inline-code-retint-light-tc dark: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '  <wall> (↑4 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the code' / xfx '┃ show me the code'
+p5-inline-code-retint-light-tc light: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '  <wall> (↑4 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the code' / xfx '┃ show me the code'
+p5-inline-code-retint-light-tc light-again: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '  <wall> (↑4 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the code' / xfx '┃ show me the code'
+p5-inline-code-retint-tc dark: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '  <wall> (↑4 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the code' / xfx '┃ show me the code'
+p5-inline-code-retint-tc dark-again: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '  <wall> (↑4 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the code' / xfx '┃ show me the code'
+p5-inline-code-retint-tc light: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '  <wall> (↑4 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the code' / xfx '┃ show me the code'
+p5-inline-code-table-light-tc dark: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑5 ↓40)' / xfx '  <wall> (↑5 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the table' / xfx '┃ show me the table'
+p5-inline-code-table-light-tc light: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑5 ↓40)' / xfx '  <wall> (↑5 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the table' / xfx '┃ show me the table'
+p5-inline-code-table-light-tc light-again: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑5 ↓40)' / xfx '  <wall> (↑5 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the table' / xfx '┃ show me the table'
+p5-inline-code-table-tc dark: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑5 ↓40)' / xfx '  <wall> (↑5 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the table' / xfx '┃ show me the table'
+p5-inline-code-table-tc dark-again: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑5 ↓40)' / xfx '  <wall> (↑5 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the table' / xfx '┃ show me the table'
+p5-inline-code-table-tc light: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑5 ↓40)' / xfx '  <wall> (↑5 ↓40)'
+    left: fx 'auto · model-a' / xfx 'auto · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ show me the table' / xfx '┃ show me the table'
+p5-mcp-config list: 1 differing rows left, 0 new
+    left: fx '  web    ~/.xfx/mcp.json  http       connecting' / xfx '  web    ~/.xfx/mcp.json  http       retrying'
+p5-mcp-config removed.full: 1 differing rows left, 0 new
+    left: fx '  web    ~/.xfx/mcp.json  http       connecting' / xfx '  web    ~/.xfx/mcp.json  http       retrying'
+p5-mcp-menu-new left-back: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-menu-new list: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-after-approve: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-filter: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-proj: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-unfilter: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new remove-cancel: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove        /mcp remove remote'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove        /mcp remove remote' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-new remove-inplace: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove remote from ~/.xfx/mcp.json?   yes  no'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove remote from ~/.xfx/mcp.json?   yes  no' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-new remove-no: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove remote from ~/.xfx/mcp.json?   yes  no'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove remote from ~/.xfx/mcp.json?   yes  no' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-new reopened: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new server-remote: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove        /mcp remove remote'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove        /mcp remove remote' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-old details-1: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove        /mcp remove remote'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove        /mcp remove remote' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-old list: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-old list-down: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-menu-old resources: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-menu-old servers: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-menu-old tools: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-verbs add-badname: 4 differing rows left, 4 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-new-http: 8 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '    status     waiting for approval' / xfx '    status     retrying'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-new-syntax: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-old-http: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-old-syntax: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs auth-remote: 9 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: NAME     SOURCE          TRANSPORT  STATUS' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs complete-args: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs complete-show: 3 differing rows left, 0 new
+    left: fx '       show remote   connecting' / xfx '       show remote   retrying'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs end.full: 9 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs list: 1 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs list-after: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs login-remote: 9 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: NAME     SOURCE          TRANSPORT  STATUS' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs login-stdio: 8 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs logout-remote: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx 'ivate<local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs prompt-list: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs reject: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-three: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-two: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-web: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-web2: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs resource-list: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs show-bare: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs show-fixture: 1 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs show-proj: 15 differing rows left, 9 new
+    left: fx '' / xfx 'ivate<local-path>'
+    left: fx '' / xfx '    next       /mcp approve proj'
+    left: fx '' / xfx '    source     .mcp.json'
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '' / xfx '┃'
+    left: fx 'ivate<local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     waiting for approval' / xfx '    status     retrying'
+    left: fx '    transport  stdio' / xfx '    transport  http'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '* mcp: proj' / xfx '* mcp: remote'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '    transport  stdio'
+    left: fx '┃' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx ''
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx ''
+    NEW:  fx '    status     waiting for approval' / xfx ''
+    NEW:  fx '    transport  stdio' / xfx '                                   proj is waiting for approval · /mcp'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx ''
+    NEW:  fx '* mcp: proj' / xfx '┃'
+    NEW:  fx '                                   proj is waiting for approval · /mcp' / xfx ''
+    NEW:  fx '┃' / xfx ''
+p5-mcp-verbs show-remote: 9 differing rows left, 0 new
+    left: fx '' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '' / xfx '    status     retrying'
+    left: fx '' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '' / xfx '┃'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '    transport  http'
+    left: fx '┃' / xfx '* mcp: remote'
+p5-panels-sweep-a feedback: 8 differing rows left, 13 new
+    left: fx '' / xfx '┃'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '* session: renamed to "My title"'
+    left: fx '* session: renamed to "My title"' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃ /shell reload'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    left: fx 'auto · model-a' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '┃' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* clipboard: No assistant reply to copy.' / xfx '* undo: Nothing to undo.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx '* images: no pending images' / xfx '✗ images: image file not found'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* clipboard: No assistant reply to copy.'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '* undo: Nothing to undo.' / xfx '* images: no pending images'
+    NEW:  fx '* version: <build>' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+    NEW:  fx '✗ images: image file not found' / xfx '* fast: This model does not come with a fast mode.'
+p5-panels-sweep-a login: 17 differing rows left, 10 new
+    left: fx '         grok' / xfx ''
+    left: fx '         vercel · current' / xfx ''
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx 'auto · model-a'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '┃'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '┃ /login' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '         grok' / xfx 'auto · model-a'
+    NEW:  fx '         vercel · current' / xfx '┃'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '┃ /login' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a login-closed: 16 differing rows left, 10 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx 'auto · model-a'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '┃'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a logout: 7 differing rows left, 12 new
+    left: fx '' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '* session: renamed to "My title"'
+    left: fx '* session: renamed to "My title"' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃ /shell reload'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    left: fx '┃' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* clipboard: No assistant reply to copy.' / xfx '* undo: Nothing to undo.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx '* images: no pending images' / xfx '✗ images: image file not found'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* clipboard: No assistant reply to copy.'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '* undo: Nothing to undo.' / xfx '* images: no pending images'
+    NEW:  fx '* version: <build>' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+    NEW:  fx '✗ images: image file not found' / xfx '* fast: This model does not come with a fast mode.'
+p5-panels-sweep-a provider: 18 differing rows left, 12 new
+    left: fx '            codex' / xfx 'auto · model-a'
+    left: fx '            grok' / xfx ''
+    left: fx '            vercel · current' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '            gateway · current'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '┃ /provider'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '┃ /provider' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '            codex' / xfx '──────────────────────────────────────────────────────────────────────'
+    NEW:  fx '            grok' / xfx '            gateway · current'
+    NEW:  fx '            vercel · current' / xfx '┃ /provider'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '┃ /provider' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a provider-closed: 16 differing rows left, 10 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx 'auto · model-a'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '┃'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a resume: 20 differing rows left, 7 new
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '  No sessions found.' / xfx ''
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '  No sessions found.'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx 'Sessions 0  [Current workspace]  All workspaces'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '┃'
+    left: fx '* auth: No xfx login session found.' / xfx '↑↓ navigate     tab scope     enter resume     esc close'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx 'Sessions 0  [Current workspace]  All workspaces' / xfx ''
+    left: fx '↑↓ navigate     tab scope     enter resume     esc close' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a resume-closed: 16 differing rows left, 7 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx ''
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx 'auto · model-a'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '┃'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a settings: 28 differing rows left, 8 new
+    left: fx '' / xfx '  Fast mode                off'
+    left: fx '' / xfx '  Model                    fake/model-a'
+    left: fx '' / xfx '  Permission mode          ask  auto  full access'
+    left: fx '' / xfx '  Prompt history           off  on'
+    left: fx '' / xfx '  Session titles           off  on'
+    left: fx '' / xfx '  Slash menu categories    off  on'
+    left: fx '' / xfx '  Sound level              off  on'
+    left: fx '' / xfx '  Startup scrollback       off  on'
+    left: fx '' / xfx '  Status line session      off  on'
+    left: fx '' / xfx '  Ultra mode               off'
+    left: fx '' / xfx '↑↓ navigate     tab category     ←→ change     esc close'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '  Status line workspace    off  on'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '  Status line context      off  on'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'Settings 14  [All]  Interface  Agent  Notifications  Advanced'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx '  Reasoning effort         default'
+    left: fx '┃' / xfx '  Collapse tool calls      off  on'
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '  Sound level              off  on  max' / xfx '  Sound level              off  on'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a settings-closed: 16 differing rows left, 7 new
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'auto · model-a'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a statusline: 20 differing rows left, 7 new
+    left: fx '' / xfx '  Context      off  on'
+    left: fx '' / xfx '  Workspace    off  on'
+    left: fx '' / xfx 'Status line'
+    left: fx '' / xfx '↑↓ navigate     ←→ change     esc close'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '  Session      off  on'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx ''
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a statusline-closed: 16 differing rows left, 7 new
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'auto · model-a'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a trace: 1 differing rows left, 0 new
+    left: fx '<banner>' / xfx '* version: <build>'
+p5-panels-sweep-a workspace: 34 differing rows left, 7 new
+    left: fx '' / xfx '  Additional directories    0 / 16'
+    left: fx '' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '' / xfx '* session: renamed to "My title"'
+    left: fx '' / xfx '* ultrafast: requested: off'
+    left: fx '' / xfx '↑↓ navigate     enter use     esc close'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '' / xfx '┃ /shell reload'
+    left: fx '' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '' / xfx '❯ Add directory…             Grant access to another directory'
+    left: fx '  Additional directories    0 / 16' / xfx ''
+    left: fx '        <local-path>' / xfx ''
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx ''
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '        <local-path>'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx ''
+    left: fx '* fast: This model does not come with a fast mode.' / xfx ''
+    left: fx '* images: no pending images' / xfx ''
+    left: fx '* session: renamed to "My title"' / xfx 'Workspace'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx ''
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx ''
+    left: fx '* ultrafast: requested: off' / xfx ''
+    left: fx '* undo: Nothing to undo.' / xfx ''
+    left: fx 'Workspace' / xfx ''
+    left: fx '↑↓ navigate     enter use     esc close' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx ''
+    left: fx '✗ images: image file not found' / xfx ''
+    left: fx '❯ Add directory…             Grant access to another directory' / xfx ''
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a workspace-closed: 28 differing rows left, 7 new
+    left: fx '' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '' / xfx '* session: renamed to "My title"'
+    left: fx '' / xfx '* ultrafast: requested: off'
+    left: fx '' / xfx 'auto · model-a'
+    left: fx '' / xfx '┃'
+    left: fx '' / xfx '┃ /shell reload'
+    left: fx '' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx ''
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx ''
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx ''
+    left: fx '* fast: This model does not come with a fast mode.' / xfx ''
+    left: fx '* images: no pending images' / xfx ''
+    left: fx '* session: renamed to "My title"' / xfx ''
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx ''
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx ''
+    left: fx '* ultrafast: requested: off' / xfx ''
+    left: fx '* undo: Nothing to undo.' / xfx ''
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx ''
+    left: fx '✗ images: image file not found' / xfx ''
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-toolgroup-ctrlo-tc dark: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-ctrlo-tc dark-again: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-ctrlo-tc full-dark: 4 differing rows left, 0 new
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close' / xfx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+p5-toolgroup-ctrlo-tc full-dark-again: 4 differing rows left, 0 new
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close' / xfx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+p5-toolgroup-ctrlo-tc full-light: 4 differing rows left, 0 new
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close' / xfx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+p5-toolgroup-ctrlo-tc light: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-live-tc dark: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran sleep 5 && echo "hi" 42 # note' / xfx '└ Ran sleep 5 && echo "hi" 42 # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-live-tc light: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran sleep 5 && echo "hi" 42 # note' / xfx '└ Ran sleep 5 && echo "hi" 42 # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-live-tc running-dark: 6 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '~ Running (<s>) (↑4 ↓40)' / xfx '~ Running (<s>) (↑4 ↓40)'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Running sleep 5 && echo "hi" 42 # note' / xfx '└ Running sleep 5 && echo "hi" 42 # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-live-tc running-light: 6 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '~ Running (<s>) (↑4 ↓40)' / xfx '~ Running (<s>) (↑4 ↓40)'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Running sleep 5 && echo "hi" 42 # note' / xfx '└ Running sleep 5 && echo "hi" 42 # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-retint-light-tc dark: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-retint-light-tc light: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-retint-light-tc light-again: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-retint-tc dark: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-retint-tc dark-again: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-retint-tc light: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolstop-retint-light-tc dark: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-light-tc light: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-light-tc light-again: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc dark: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc dark-again: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc light: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
+    left: fx '-501/t4/fxsw.6u7kn4sy/171/fxcap.XXXXXX/work/src","error":"NotRegularFi' / xfx ''
+    left: fx '├ Failed src' / xfx '-501/t4/fxsw.6u7kn4sy/171/fxcap.XXXXXX/work/src","error":"NotRegularFi'
+    NEW:  fx '-501/t4/fxsw._1aqlx20/209/fxcap.XXXXXX/work/src","error":"NotRegularFi' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '-501/t4/fxsw._1aqlx20/209/fxcap.XXXXXX/work/src","error":"NotRegularFi'
+verdicts moved: 46
+    h1-models2 after: normalized-identical -> unresolved-defect
+    p5-inline-code-retint-light-tc dark: unresolved-defect -> normalized-identical
+    p5-inline-code-retint-light-tc light: unresolved-defect -> normalized-identical
+    p5-inline-code-retint-light-tc light-again: unresolved-defect -> normalized-identical
+    p5-inline-code-retint-tc dark: unresolved-defect -> normalized-identical
+    p5-inline-code-retint-tc dark-again: unresolved-defect -> normalized-identical
+    p5-inline-code-retint-tc light: unresolved-defect -> normalized-identical
+    p5-inline-code-table-light-tc dark: unresolved-defect -> normalized-identical
+    p5-inline-code-table-light-tc light: unresolved-defect -> normalized-identical
+    p5-inline-code-table-light-tc light-again: unresolved-defect -> normalized-identical
+    p5-inline-code-table-tc dark: unresolved-defect -> normalized-identical
+    p5-inline-code-table-tc dark-again: unresolved-defect -> normalized-identical
+    p5-inline-code-table-tc light: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new left-back: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-after-approve: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-filter: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-proj: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-unfilter: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new remove-cancel: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new remove-inplace: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new remove-no: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new reopened: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new server-remote: unresolved-defect -> normalized-identical
+    p5-mcp-menu-old details-1: unresolved-defect -> normalized-identical
+    p5-mcp-menu-old list: unresolved-defect -> normalized-identical
+    p5-mcp-menu-old list-down: unresolved-defect -> normalized-identical
+    p5-mcp-menu-old resources: unresolved-defect -> normalized-identical
+    p5-mcp-menu-old servers: unresolved-defect -> normalized-identical
+    p5-mcp-menu-old tools: unresolved-defect -> normalized-identical
+    p5-toolgroup-ctrlo-tc dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-ctrlo-tc dark-again: unresolved-defect -> normalized-identical
+    p5-toolgroup-ctrlo-tc light: unresolved-defect -> normalized-identical
+    p5-toolgroup-live-tc dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-live-tc light: unresolved-defect -> normalized-identical
+    p5-toolgroup-live-tc running-dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-live-tc running-light: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-light-tc dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-light-tc light: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-light-tc light-again: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-tc dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-tc dark-again: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-tc light: unresolved-defect -> normalized-identical
+    p5-transcript-submit filled: identical -> normalized-identical
+    p5-transcript-submit second: identical -> normalized-identical
+    p5-transcript-submit-multi submit-0.15: normalized-identical -> identical
+fx screens not the same in the two sweeps: 148
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    h1-models2 after
+    h1-models2 before
+    interrupt-recovered rec-0.5
+    interrupt-recovered rec-1.4
+    interrupt-recovered rec-1.8
+    interrupt-steer-retract steer-wait
+    links full
+    p5-call-row-safe full
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-panels-sweep-a compact-empty
+    p5-panels-sweep-a login
+    p5-panels-sweep-a login-closed
+    p5-panels-sweep-a provider
+    p5-panels-sweep-a provider-closed
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a resume
+    p5-panels-sweep-a resume-closed
+    p5-panels-sweep-a settings
+    p5-panels-sweep-a settings-closed
+    p5-panels-sweep-a statusline
+    p5-panels-sweep-a statusline-closed
+    p5-panels-sweep-a trace
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-a workspace-closed
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-dark
+    p5-toolgroup-live-tc running-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-anchormid running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    permissions-midturn first-done
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    settings-collapse running
+    timeout live-ctrl-o
+xfx screens not the same in the two sweeps: 222
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    h1-models2 after
+    h1-models2 before
+    interrupt mid2
+    interrupt-recovered rec-0.5
+    interrupt-recovered rec-1.4
+    interrupt-recovered rec-1.8
+    interrupt-recovered rec-3.2
+    interrupt-steer steer-tool
+    interrupt-steer-retract steer-wait
+    links full
+    p5-call-row-safe full
+    p5-inline-code-retint-light-tc dark
+    p5-inline-code-retint-light-tc light
+    p5-inline-code-retint-light-tc light-again
+    p5-inline-code-retint-tc dark
+    p5-inline-code-retint-tc dark-again
+    p5-inline-code-retint-tc light
+    p5-inline-code-table-light-tc dark
+    p5-inline-code-table-light-tc light
+    p5-inline-code-table-light-tc light-again
+    p5-inline-code-table-tc dark
+    p5-inline-code-table-tc dark-again
+    p5-inline-code-table-tc light
+    p5-mcp-config list
+    p5-mcp-config removed.full
+    p5-mcp-direct end.full
+    p5-mcp-direct turn
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new left-back
+    p5-mcp-menu-new list
+    p5-mcp-menu-new list-after-approve
+    p5-mcp-menu-new list-filter
+    p5-mcp-menu-new list-proj
+    p5-mcp-menu-new list-unfilter
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new remove-cancel
+    p5-mcp-menu-new remove-inplace
+    p5-mcp-menu-new remove-no
+    p5-mcp-menu-new reopened
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-new server-remote
+    p5-mcp-menu-old details-1
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-menu-old list
+    p5-mcp-menu-old list-down
+    p5-mcp-menu-old resources
+    p5-mcp-menu-old servers
+    p5-mcp-menu-old tools
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-panels-sweep-a compact-empty
+    p5-panels-sweep-a feedback
+    p5-panels-sweep-a logout
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a trace
+    p5-panels-sweep-a workspace
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc dark
+    p5-toolgroup-ctrlo-tc dark-again
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-ctrlo-tc light
+    p5-toolgroup-live-tc dark
+    p5-toolgroup-live-tc light
+    p5-toolgroup-live-tc running-dark
+    p5-toolgroup-live-tc running-light
+    p5-toolgroup-retint-light-tc dark
+    p5-toolgroup-retint-light-tc light
+    p5-toolgroup-retint-light-tc light-again
+    p5-toolgroup-retint-tc dark
+    p5-toolgroup-retint-tc dark-again
+    p5-toolgroup-retint-tc light
+    p5-toolstop-retint-light-tc dark
+    p5-toolstop-retint-light-tc light
+    p5-toolstop-retint-light-tc light-again
+    p5-toolstop-retint-tc dark
+    p5-toolstop-retint-tc dark-again
+    p5-toolstop-retint-tc light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchor running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-submit filled
+    p5-transcript-submit second
+    p5-transcript-submit submit-0.15
+    p5-transcript-submit tall.full
+    p5-transcript-submit-multi submit-0.15
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    permissions-midturn second-asks
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools write-ask
+    settings-collapse after-esc
+    settings-collapse cmd-ask
+    settings-collapse collapse-on
+    settings-collapse group
+    settings-collapse group2
+    settings-collapse later
+    settings-collapse running
+    settings-collapse stopped
+    timeout live-ctrl-o
+passed on the reference, not on the train: 1
+    h1-models2 after; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 27
+# exit 1

@@ -36,3 +36,12 @@
   332 scenarios; 0 races, in 0 scenarios
   models2 lines: 1; in the old timed form: 0
     h1-models2.cap: models2 h1-models-two.json
+
+# The repository check itself (test-sweep.sh runs it; CI's "The sweep's own tests" step too), at merge 3 and after the conversion:
+== e3035c92: python3 -I scripts/fxcap/test_sweep.py Capfile.test_no_snap_of_the_repos_scenarios_races_a_timer (git archive of the commit's scripts/fxcap)
+AssertionError: Lists differ: ["p5-mcp-discover-http-modern (fx): `type [1514 chars] it"] != []
+Ran 1 test in 0.044s
+FAILED (failures=1)
+== d2e25b0a: python3 -I scripts/fxcap/test_sweep.py Capfile.test_no_snap_of_the_repos_scenarios_races_a_timer (git archive of the commit's scripts/fxcap)
+Ran 1 test in 0.041s
+OK

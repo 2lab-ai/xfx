@@ -1,0 +1,32 @@
+# h1-models2 under the suite lock: two sweeps (--only h1-models2) of main e6cde019 (its own harness: `models2 h1-models-two.json 9000`, the second catalog from 9 s after the gateway starts) and two of the head (FLAKE-HINT4's `models2` line: the second catalog from that line on), and the two sweeps' first runs; per run, each /models ask, ms after the gateway started, (2nd) when it was answered with the second catalog
+sw-main: [('before', 'normalized-identical'), ('after', 'normalized-identical')]
+    fx asks: ['28120 ms (2nd)', '40184 ms (2nd)']; xfx asks: ['33428 ms (2nd)']
+sw-head: [('before', 'normalized-identical'), ('after', 'unresolved-defect')]
+    fx asks: ['2362 ms', '14420 ms (2nd)']; xfx asks: ['735 ms']
+m2-main-1: [('before', 'normalized-identical'), ('after', 'normalized-identical')]
+    fx asks: ['15188 ms (2nd)', '27253 ms (2nd)']; xfx asks: ['16980 ms (2nd)']
+m2-main-2: [('before', 'normalized-identical'), ('after', 'normalized-identical')]
+    fx asks: ['24695 ms (2nd)', '36766 ms (2nd)']; xfx asks: ['23958 ms (2nd)']
+m2-head-1: [('before', 'normalized-identical'), ('after', 'unresolved-defect')]
+    fx asks: ['21732 ms', '33824 ms (2nd)']; xfx asks: ['24938 ms']
+m2-head-2: [('before', 'normalized-identical'), ('after', 'unresolved-defect')]
+    fx asks: ['20040 ms', '32104 ms (2nd)']; xfx asks: ['18242 ms']
+
+# why the first ask came late on every run here: capture.sh (main's; the train's has the same lines) warms up its shims before launch, and a freshly written shim's first exec took about 10 s each on this machine today. bash -x of main's capture.sh xfx h1-models2 under the lock, PS4 = seconds since start and line:
++ 0 544: FAKEGW_RELEASE=<scratch>/fxcap.BLOgf0/gw-release
++ 0 544: FAKEGW_MODELS=<scratch>/c-main/scripts/fxcap/scenarios/h1-models-one.json
++ 0 544: FAKEGW_MODELS_DOWN_MS=
++ 0 544: FAKEGW_MODELS_DELAY_MS=
++ 0 544: FAKEGW_MODELS2=<scratch>/c-main/scripts/fxcap/scenarios/h1-models-two.json
++ 0 544: FAKEGW_MODELS2_MS=9000
++ 0 544: FAKEGW_CREDITS=
++ 0 544: FAKEGW_TITLE=
++ 0 544: FAKEGW_USAGE=<scratch>/fxcap.BLOgf0/usage.json
++ 0 544: bun <scratch>/c-main/scripts/fxcap/fakegw.ts 0 <scratch>/fxcap.BLOgf0/turns.j
++ 0 552: sleep 0.1
++ 1 657: :
++ 1 657: <scratch>/fxcap.BLOgf0/shim/pbcopy
++ 11 658: <scratch>/fxcap.BLOgf0/shim/osascript warm-up
++ 21 659: rm -f <scratch>/fxcap.BLOgf0/clipboard <scratch>/fxcap.BLOgf0/clipboard-file
++ 21 696: tmux -f /dev/null -S <scratch>/fxcap.BLOgf0/s start-server ';' set-hook -g alert-bell 'run-sh
+# 0 s the gateway starts (544); 1 s the first shim runs (657); 11 s the second (658); 21 s the next line (659); 21 s tmux starts and launches (696)

@@ -17,6 +17,25 @@ Oracle: fx v0.0.16 (`481104fd`), executable sha256
 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked
 by `capture.sh` before and after every run, `FX_AUTO_UPGRADE=0`.
 
+**At a glance.**
+- Merges: 1 and 3 are git's own (empty remerge-diffs). Merge 2 resolved
+  two things by hand: 11 ledger hunks that were `path:line` numbers alone
+  (the code each names, re-pointed and checked), and a train 3 test that
+  ran on `theme::Depth`, which TC-NOTATION deleted (one run on the one
+  palette).
+- Join checks: FLAKE-HINT4's lint refused three MCP-E scenarios (a `/`
+  typed inside the full-access warning's window); converted as
+  FLAKE-HINT4 converted `p5-mcp-turn`, 0 races over 332 scenarios, the
+  lint unchanged. MCP surfaces in builtin greys: a new join test (5 of 5
+  mutants caught) and a `-tc` twin whose captures are byte-identical to its
+  256-colour twin's. No product line changed.
+- Gate at `b7d47a93`: 20 steps, 0 failed (`cargo test` 5279, with fault
+  injection 5316).
+- Sweep, 108 scenarios at the head: 309 of 526 pass, 0 failed, 0 timeout.
+  Against `main` 246 → 287 over the 502 shared pairs, one down: a timing
+  pass on `main`'s side (`h1-models2` `after`, the old fixed-clock
+  `models2`). Against each unit's own sweep: 0 dropped.
+
 ## Units and merges
 
 Each is `git merge --no-ff`, in this order; each message names the unit and
@@ -41,7 +60,8 @@ After the merges, in order:
 | `a5b45e77` | the `file:line` references merge 3 moved, re-pointed (below) |
 | `4714be5e` | the MCP-E x TC-NOTATION join test (below) |
 | `3bd15c89` | `p5-mcp-discover-stdio-modern-tc`, its capture twin under `COLORTERM=truecolor` |
-| the next | this receipt |
+| `b7d47a93` | this receipt, first part (the gate ran here) |
+| the next | this receipt, the rest |
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-3.txt`.
 Merges 1 and 3 have an empty body: each is git's automatic result,
@@ -132,7 +152,9 @@ Four files both changed since `e6cde019` (`overlap.txt`): `capture.sh`
 verb checks), `sweep.py` (388), `test_capture.py` (3: MCP-E's `mcphttp`
 refusal cases beside FLAKE-HINT4's `models2` refusal cases), `test_sweep.py`
 (47). Auto-merged; `remerge-3.txt` is empty. The merged tree fails one
-FLAKE-HINT4 test, which is the join check below.
+FLAKE-HINT4 test, `Capfile.test_no_snap_of_the_repos_scenarios_races_a_timer`
+(run alone at `e3035c92`: FAILED, three MCP-E scenarios; at `d2e25b0a`: OK;
+`lint.txt`): the join check below.
 
 ## The token check (`token_check.py`, `token-check.txt`, `token-self-test.txt`)
 
@@ -297,9 +319,23 @@ in the frame; a light report: the row drawn again in `38;5;241`; `/mcp`,
 Enter: the server screen, `protocol` in the light dim `38;5;247`, no direct
 colour. fx's literals: `theme.zig:85`/`:128` (notice text 250/241) and
 `:86`/`:129` (dim 245/247) at `481104fd`, as TC-NOTATION's README cites
-them. Passed at its first complete run.
+them. Its first run failed in the test itself: it read the server's view
+right after the startup reload, while the connection was still
+`Connecting` (no version yet). The test now waits, up to 60 s, for the
+connection to settle (as MCP-E's own `settled` helper does), and passed; no
+`src` line outside the test changed.
 
-MUTANTS_PLACEHOLDER
+**Does it discriminate?** `mutants.py`, on a `git clone --no-local` of
+the train at `3bd15c89`, each mutant one exact replacement, the join test
+run against it (`mutants.txt`): **5 of 5 caught**.
+
+| mutant | where | caught at |
+|---|---|---|
+| A: the notice grey spelt direct (`38;2;188;188;188`, the dark 250) | `theme.rs` `notice` | the version row's `38;5;250` |
+| B: the server screen's fact label spelt direct | `mcp_menu.rs` `fact_row` | `protocol`'s `38;5;247` |
+| C: the menu's row drops the era's version | `mcp_menu.rs` `row` | no `protocol` row is ever written |
+| D: `/mcp show` says no version | `mcp/command.rs` `show` | `2026-07-28` is never written |
+| E: a theme switch leaves a notice row as it was | `theme.rs` `document_retint_in` | the light `38;5;241` |
 
 **Under `COLORTERM=truecolor`, through the binary** (`3bd15c89`):
 `p5-mcp-discover-stdio-modern-tc`, the twin of `-stdio-modern` with
@@ -327,10 +363,281 @@ combination at capture level -- FLAKE-HINT4's `until` driving an MCP-E
 `mcphttp` scenario -- is what the three converted scenarios exercise; they
 ran in the sweep (below).
 
-GATES_PLACEHOLDER
+## Gates
 
-SWEEP_PLACEHOLDER
+`gates.sh` (`gates.txt`): every step the brief lists, at `b7d47a93` (the
+receipt's first part committed; the worktree clean before the run), one
+after another, `TMPDIR` a short scratch directory. Both cargo test suites,
+`test-capture.sh` (real captures) and `smoke-tui.sh` ran through the
+machine's suite lock, which admits two heavy jobs from all the workers at
+once (the coordinator's rule, 2026-11-08). The commits after `b7d47a93`
+change only this directory (`git diff b7d47a93 <head> -- src tests scripts
+docs Cargo.toml Cargo.lock build.rs` is empty).
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| the same `--features fault-injection` | ok |
+| `cargo test --locked --no-fail-fast` | **5279 passed**, 0 failed, 7 ignored (15 binaries) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | **5316 passed**, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` | ok (12920 tracked files) / ok |
+| `scripts/check-no-secrets.sh` | ok (12920 tracked files) |
+| `scripts/check-preview-contract.sh` / `test-preview-contract.sh` | ok / ok (24 mutants caught) |
+| `scripts/check-tui-preflight-cost.sh` | ok (200x300 full 0.98 ms, update 0.64 ms, replay 1.19 ms; budget 32 ms) |
+| `scripts/check-usage-clock.sh` | ok |
+| `scripts/test-check-no-secrets.sh` / `test-gate-env.sh` | ok (13 cases) / ok (5 cases) |
+| `scripts/fxcap/test-sweep.sh` | 66 + 26 OK |
+| `scripts/fxcap/test-capture.sh` | 59 OK |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1127 checks, 0 failures |
+
+**Every side's tests are in.** `#[test]` attributes under `src` and
+`tests` (`git grep -c`): `main` 5140; MCP-E +54 since its base, at merge 1
+5194; merge 2 5192 (TC-NOTATION -2: its deleted depth tests); merge 3 5192
+(FLAKE-HINT4 changes no Rust); the join test +1, 5193 at the head. `cargo
+test` counts 5279 against `main`'s 5226 (train 3's gate): +53, the same
+difference. The harness's (`def test_` in each file): `test_sweep.py` 66
+(`main` 50, FLAKE-HINT4 +12, MCP-E +4) and `test_capture.py` 59 (`main` 42,
+MCP-E +11, FLAKE-HINT4 +6) -- the counts the gate's two runs report.
+
+With the receipt in its final form staged: `cargo fmt --check`,
+`check-xfx-identity.sh`, `check-no-stubs.sh` and `check-no-secrets.sh`
+again (`gates-final.txt`).
+
+## Sweep
+
+**Builds** (debug, as train 3's): the head `3bd15c89` (`x𝒇x v0.1.0-3bd15c8
+[debug]` on row 1 of every xfx snap; the receipt commits after it change no
+compiled file); `main` `e6cde019` and MCP-E `d56ab017`, each built in a
+`git clone --no-local` scratch clone. fx: the v0.0.16 binary, sha256
+`8e6cda2e…`, `FX_AUTO_UPGRADE=0`, checked by `capture.sh` around every run.
+`scripts/fxcap/sweep.sh --fx <fx> --pin-sha 8e6cda2e… --xfx <bin> --jobs 2
+--only ...`, 40x120.
+
+**Each binary with its own tree's harness**, as the brief asks: the head's
+sweep ran from the train's worktree (its scenarios, `capture.sh` and
+ledger), `main`'s from its clone (`main`'s scenarios and harness: the old
+timed `models2`, no `until`). This differs from train 3, whose two sweeps
+both ran from the train's worktree (its README, Sweep). Every reference
+sweep was then rescored with the train's ledger (`sweep.sh --rescore`, no
+capture taken) before comparing, as train 3 did, so a verdict that moves
+moved because a capture did.
+
+**Selection, 108 scenarios at the head** (89 of them on `main`; the other
+19 are MCP-E's 18 discover scenarios and the new `-tc` twin):
+- every `p5-mcp-*` and `p5-input-mcp` (40: MCP-E's sweep selection, the 18
+  discover scenarios among them, and `p5-mcp-discover-stdio-modern-tc`);
+- every `*-tc` (11: TC-NOTATION's ten and the new one);
+- TC-NOTATION's own selection, `p5-inline-code-*`, `p5-toolgroup-*`,
+  `p5-toolstop-*`, `p5-transcript-*`;
+- FLAKE-HINT4's 29 converted scenarios and `h1-models2` (its round 2's
+  `models2`);
+- the scenarios of every ledger entry the merges touched: the re-pointed
+  `call-row-*` (`p5-call-row-*`), `cancelled-marker`, `session-record`,
+  `transcript-page-offset`, `toolgroup-ctrlo-record-short`,
+  `safe-page-edge`, `submit-multi-card-whole` (in the globs above) and
+  `full-transcript-shift` (`fulltranscript*`, `links`, `read-failures`,
+  `resume-tools`, `timeout`). `session-record`, `cancelled-marker` and
+  `stats-bytes` name `scenarios = ["*"]`; as train 3 says, a re-point
+  changes a line number the sweep does not read, so it moves no verdict.
+
+**Result at the head** (`sweep-head.md`): 108 scenarios ran, 0 failed, 0
+timed out; 526 pairs, **309 pass** (58.7%: 12 identical, 297
+normalized-identical), 4 approved divergences, 213 unresolved; wall 51m29s,
+load 7.2 at its start and 26.0 at its peak (other workers' sweeps).
+The 24 discover pairs (`main` has none of them): 22 pass, and the two that
+do not are `stdio-depth/list` and `stdio-escaped/list`, the `/mcp list`
+header's SOURCE column that MCP-E's README names (`~/.xfx/mcp.json` a
+character longer than `~/.fx/mcp.json`, not this unit's).
+
+### The sweep's own trouble: four timeouts on `main`, outside the lock
+
+`main`'s first sweep (`sweep-main-first.md`) ran before the suite lock
+existed, beside four other workers' sweeps (load 4.5 at its start, 23.8 at
+its peak, wall 83 min): four scenarios timed out (`p5-transcript-resize`
+and `-tools` on fx, `p5-mcp-empty` and `compact` on xfx; 56 pairs). They
+were run again under the lock (`sweep-main-rerun.md`: 4 of 4 ran, 0 timed
+out), and their runs replace the first's in `sweep-main.md` (the first
+sweep's directory with those four scenarios' runs swapped in, rescored).
+A timeout there says nothing about the train: it is `main`'s run, and the
+rerun passed.
+
+### Against `main`
+
+`compare-main.txt` (train 3's `compare.py`, which now reads a pair with no
+rows, a timed-out one, as none), pair by pair over the 502 pairs both took:
+**246 → 287 pass**; 46 verdicts moved, 45 up or between two passes, **1
+down, a timing pass on `main`'s side** (below).
+
+| pair(s) | `main` → train | what moved it |
+|---|---|---|
+| 25 `-tc` pairs: `p5-inline-code-retint-tc`, `-light-tc`, `-table-tc`, `-table-light-tc` (12), `p5-toolgroup-retint-tc`, `-light-tc` (6), `p5-toolgroup-live-tc` (4), `p5-toolgroup-ctrlo-tc` `dark`, `light`, `dark-again` (3) | unresolved → normalized-identical | TC-NOTATION: exactly its README's 25 (its Sweep: "25 pass on the head and not on the base") |
+| `p5-mcp-menu-new` ×11 (`list`, `list-*`, `left-back`, `reopened`, `remove-*`, `server-remote`); `p5-mcp-menu-old` ×6 (`list`, `list-down`, `tools`, `resources`, `servers`, `details-1`) | unresolved → normalized-identical | MCP-E: the refused `remote` (127.0.0.1:9) reads `connecting` as fx's does, not `retrying` (every one in its `flips-base-head-120.txt`, "base fails, head passes") |
+| `p5-transcript-submit` `filled`, `second` | identical → normalized-identical | **timing**, a pass both ways: xfx's turn summary reads `1s` where `main`'s run read `0s` (the turn's wall time; the `wall` normalization reads it) |
+| `p5-transcript-submit-multi` `submit-0.15` | normalized-identical → identical | **timing**, a pass both ways: the activity row's mark caught in its other blink phase (`• Generating (1s)`), as train 3 names it |
+| `h1-models2` `after` | normalized-identical → unresolved | **timing on `main`'s side** (below) |
+
+**`h1-models2` `after` (`models2-runs.txt`).** `main`'s harness serves the
+second catalog from 9 s after the fake gateway starts
+(`models2 h1-models-two.json 9000`); FLAKE-HINT4's serves it from the
+scenario's `models2` line, after the first `/model` is closed. In all three
+of `main`'s runs here (the first sweep and two under the lock) the first
+`/models` ask came 15 to 33 s after the gateway started, past the 9 s, so
+every ask was answered with the second catalog: `before` showed two models
+on both sides as well (the scenario means one there) and `after` matched.
+In the head's three runs (the sweep and two under the lock) the first asks
+got the first catalog, by order, and `after` is the difference FLAKE-HINT4
+recorded on every one of its 7 runs, base and head: fx asks again at the
+second `/model` and shows two models, xfx asks at launch only and shows one
+(`flake-hint4/r2/sweep-compare.txt`, "fx asks again at the second /model,
+xfx at launch only"). Why the first ask was that late: `capture.sh` (both
+trees, the same lines) runs two freshly written shims once before launch,
+and each first exec took about 10 s on this machine today (`bash -x` of
+`main`'s `capture.sh` under the lock: gateway at 0 s, the first shim at
+1 s, the second at 11 s, tmux and the launch at 21 s). So `main` passed
+`after` only because its fixed clock ran out before launch; the pair is
+not a drop of the train's code, and the harness that took it away is
+FLAKE-HINT4's fix, working.
+
+Two pairs changed differing rows without a verdict move, as on train 3:
+`read-failures` `live-ctrl-o-up1` (the sweep's scratch path, a fresh name
+per run) and FLAKE-HINT4's `p5-panels-sweep-a` (its own base against its
+own head shows the same moved rows: `compare.py` on its `base-1`/`base-2`
+and `head-3` sweeps, `feedback` 8 rows left and 13 new, `logout` 10 and
+13); and `p5-mcp-verbs` (below).
+
+**Screens that moved** (`screen-moves-main.txt`; train 3's
+`screen_moves.py`, with the port of a run's HTTP MCP server, the checkout's
+path and a saved session's resume id masked as run-local): 339 snaps
+differ, 190 only in clock-like or run-local text. Of the rest, 29 moved on
+fx at the same rows as on xfx (the run, not xfx's code: the checkout's path
+in a stdio server's command line, `main`'s clone and the train's worktree
+being paths of different length, so the row wraps elsewhere), and the
+others are, by scenario: `p5-mcp-verbs` (the same path, at more rows on
+xfx's side, plus MCP-E's `connecting`), `p5-mcp-menu-new`/`-old` and
+`p5-mcp-config` (MCP-E's `connecting`), `p5-panels-sweep-a` (FLAKE-HINT4,
+above), the `-tc` pairs (TC-NOTATION), `h1-models2` (above), the resume id
+a saved session prints (`approvals`, `permissions-midturn`,
+`resume-tools`, `settings-collapse`, `p5-transcript-diffask`), and fx's own
+transient `press ctrl+c again to exit` on `p5-toolstop-retint-light`
+`light` in `main`'s run, which FLAKE-HINT4's `until gone` now waits away.
+
+### Against each unit's own head sweep
+
+Each unit's sweep, rescored with the train's ledger (`sweep-unit-*.md`),
+against the head's, over the pairs both took (`compare-<unit>.txt`):
+
+| unit (reference build) | shared pairs | pass, unit → train | verdicts moved | dropped |
+|---|---|---|---|---|
+| MCP-E (`d96603f9`, its 39) | 177 | 131 → 133 | 2 | **0** |
+| TC-NOTATION (`b8a4f952`, its 42) | 169 | 88 → 89 | 5 | **0** |
+| FLAKE-HINT4 r1 (`ba242353`, its 29), 3 sweeps | 236 each | 92 → 105, each | 13, each | **0** |
+| FLAKE-HINT4 r2 (`bf794f0d`, its 13), 2 sweeps | 93 each | 29 → 29 | 0 | **0** |
+| FLAKE-HINT4 r2 `h1-models2` (`bf794f0d`), 3 sweeps | 2 each | 1 → 1 | 0 | **0** |
+
+Each unit's sweep is of its unit's code: MCP-E's after `d96603f9` are its
+round 3 (`7c2ceeea`, the HTTP admission and lifecycle, which no capture
+scenario reaches, its README) and the merge of `main`; TC-NOTATION's after
+`b8a4f952` are comments and the receipt; FLAKE-HINT4's after `bf794f0d`
+are the `models2` line (swept in its `m2` sweeps), the `absent` settle and
+two merges of `main`.
+
+Every move:
+- **MCP-E**: `p5-mcp-menu-new` `approve-confirm`, approved-divergence →
+  normalized-identical: the approval's command line, `bun` and the
+  scenario's path, wraps in MCP-E's sweep (its worktree's path is longer)
+  and not in the train's, so the wrapped piece the divergence
+  `mcp-approval-wrap-led` approves is not there. The checkout's path, not
+  the code. `p5-mcp-menu-old` `prompts`, unresolved → normalized-identical:
+  the coin flip on the 10 s probe MCP-E's README records and leaves to
+  MCP-HOLD (`menu-old-reruns.txt`); it passes on `main`'s run too.
+- **TC-NOTATION**: `p5-transcript-diffwide` `full` → normalized-identical
+  and `-diffwide2` `full` → approved-divergence: DIFF-WRAP's reflow and
+  ENGINE-VS-ANCHOR's anchor, which TC-NOTATION's base `ec390074` did not
+  hold and `main` does (train 3's README, the same two pairs);
+  `p5-transcript-submit` `filled`, `second` and `-submit-multi`
+  `submit-0.15`: the timing moves above, passes both ways.
+- **FLAKE-HINT4 r1**: the 11 `p5-mcp-menu-new` pairs (MCP-E's
+  `connecting`), `approve-confirm` (the path, as above) and `p5-mcp-live`
+  `full`, unresolved → normalized-identical, which passes on `main`'s
+  sweep too: `main`'s own code since FLAKE-HINT4 r1's base `24a6b912`
+  (train 3), not a unit of this train.
+
+No pair that passes on a unit's own sweep fails on the train's.
+
+**Screens that moved without a verdict** against the units
+(`screen-moves-units.txt`, beyond clock-like and run-local text):
+- TC-NOTATION: 3 snaps -- the resume id on `p5-transcript-diffask` `ask`,
+  and `diffwide`/`diffwide2` `full` (the reflow above);
+- FLAKE-HINT4 r2: 10 -- the resume id a saved session prints (`approvals`
+  ×8, `permissions-midturn`), and fx's own `p5-panels-sweep-a` `logout`
+  page;
+- FLAKE-HINT4 r1: the resume id (`approvals` ×8, `permissions-midturn`,
+  `settings-collapse`), the activity mark's blink on
+  `p5-lifecycle-compactok` `c02-compacting`, `p5-mcp-live` `full` and the
+  11 `p5-mcp-menu-new` pairs (the moves above), `p5-panels-sweep-a` (its
+  own base-to-head moves, above), and 29 `p5-mcp-verbs` snaps: the
+  checkout's path in a stdio server's command line, wrapped at other rows
+  (fx's at the same rows on most), and MCP-E's `connecting`;
+- MCP-E: 12 snaps beyond the 39 where fx moved at the same rows as xfx (the
+  checkout's path): `p5-mcp-menu-old` `prompts` (above) and 11
+  `p5-mcp-verbs` snaps -- the same path at more rows on xfx's side, and on
+  `auth-remote` and `login-remote` the band two to three rows higher under
+  the same notices (MCP-E's run kept three more rows of an earlier `/mcp
+  list` above them). Unresolved on both sides, for the path, before and
+  after.
+
+### The join's scenarios, base against train
+
+The three scenarios converted for the lint, MCP-E's head (their base: MCP-E
+`d96603f9`'s sweep, its scenarios) against the train's (`compare-mcp-e.txt`
+holds them): `p5-mcp-discover-http-modern` `show`, `turn`,
+`-http-notimpl` `show`, `turn`, `-stdio-modern` `show`, `turn`: 6 of 6
+normalized-identical on both, verdicts unchanged. Their `until` lines, in
+every run of them here (the head sweep and a first sweep of the three at
+`d2e25b0a`, each binary): `until shown Full access` returned 0.01 to 0.07 s
+after its line, 0.03 to 0.10 s after launch; `until gone Full access` 0.01
+to 0.03 s after the `wait 6`, 6.06 to 6.13 s after launch -- the warning had
+gone, and `/mcp show` was typed 0.06 to 0.13 s later than before.
 
 ## Files
 
-FILES_PLACEHOLDER
+- `remerge-1.txt`, `remerge-2.txt`, `remerge-3.txt`: `git show
+  --remerge-diff` of each merge.
+- `overlap.py`, `overlap.txt`: every file both sides of a merge changed,
+  and the nearest pair of hunks.
+- `resolve_refs.py`, `resolve-refs-2.txt`: merge 2's ledger conflicts,
+  resolved and checked against the code.
+- `token_check.py`, `token-check.txt`, `token-self-test.txt`: train 3's
+  token check with the numbers-only rule, and its negative control.
+- `refs.py`, `refs.txt` (merge 3's head), `refs-head.txt` (the head): train
+  3's reference map, four sides; `refs_all.py`, `refs_short.py`,
+  `refs-all.txt`: the same over every tracked file outside `.prd/`, both
+  forms of reference; `repointed.py`, `repointed.txt`: train 4's 11
+  re-points checked against their code.
+- `lint.py`, `lint.txt`: FLAKE-HINT4's timer-window lint over each side's
+  scenarios and the train's; `models2-grep.txt`: the old `models2` form.
+- `mcp-greys.txt`: the MCP surfaces, their greys, where `COLORTERM` is read.
+- `mutants.py`, `mutants.txt`: the MCP-E x TC-NOTATION join test's mutants.
+- `gates.sh`, `gates.txt`: the gate as it ran; `gates-final.txt`: the file
+  checks with the receipt in its final form.
+- `sweep-head.md`: the head's scoreboard; `sweep-main.md`: `main`'s (its
+  first run with the four timed-out scenarios' rerun swapped in, rescored
+  with the train's ledger), `sweep-main-first.md` and
+  `sweep-main-rerun.md`: the two runs as they scored; `compare.py`,
+  `compare-main.txt`: `main` against the head, pair by pair.
+- `sweep-unit-mcp-e.md`, `-tc.md`, `-flake-r1-1.md`, `-flake-r2-3.md`,
+  `-flake-m2-1.md`: each unit's own head sweep, rescored with the train's
+  ledger (one of each set of reruns); `compare-<unit>.txt`: every one of
+  them against the head.
+- `screen_moves.py`, `screen-moves-main.txt`, `screen-moves-units.txt`: the
+  screens that moved, clock-like and run-local text set aside.
+- `models2-runs.txt`: `h1-models2`'s six runs, each `/models` ask and the
+  catalog it got, and the shim warm-up trace.
+- `tc_vs_256.py` (TC-NOTATION's), `tc-vs-256.txt`: each `-tc` snap against
+  its 256-colour twin at the head, both sides, and the SGRs of the new twin.
+- `redacted.py`: every sweep-derived file here went through
+  `scripts/fxcap/redact.py`'s `Redactor.write` (it refuses a text with a
+  local path left in it), checkout and account names first.
