@@ -1,0 +1,12 @@
+clone head 28f5d410
+control: test exit 0
+CAUGHT base-script: test exit 1; failing: clean; first-batch; last-batch; dash-n-name; unreadable-middle; every-file; every-file; 7 problem(s), 2 case(s) passed
+CAUGHT nonfinal-status-ignored: test exit 1; failing: clean; unreadable-middle; 2 problem(s), 7 case(s) passed
+CAUGHT second-batch-dropped: test exit 1; failing: every-file; 1 problem(s), 8 case(s) passed
+CAUGHT first-batch-only: test exit 1; failing: clean; last-batch; unreadable-middle; every-file; 4 problem(s), 5 case(s) passed
+CAUGHT batch-edge-lost: test exit 1; failing: clean; first-batch; every-file; 3 problem(s), 6 case(s) passed
+CAUGHT with-filename-dropped: test exit 1; failing: clean; 1 problem(s), 8 case(s) passed
+CAUGHT last-bound-lost: test exit 1; failing: clean; first-batch; last-batch; dash-n-name; unreadable-middle; every-file; every-file; 7 problem(s), 2 case(s) passed
+CAUGHT last-bound-lost-unguarded: test exit 1; failing: clean; last-batch; every-file; 3 problem(s), 6 case(s) passed
+8 of 8 mutants caught
+driver exit=0

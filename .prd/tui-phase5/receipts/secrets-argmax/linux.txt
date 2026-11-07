@@ -1,0 +1,38 @@
+head 28f5d410
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+grep (GNU grep) 3.8
+ARG_MAX 2097152
+uid 1000
+check-no-secrets: ok (12061 tracked file(s) scanned)
+check exit=0 secs=2
+test exit=0 secs=27
+test-check-no-secrets: 6976 tracked names overflow ARG_MAX (2097152): ./scripts/test-check-no-secrets.sh: line 145: /usr/bin/env: Argument list too long
+test-check-no-secrets: ok clean              exit 0
+test-check-no-secrets: ok first-batch        exit 1
+test-check-no-secrets: ok last-batch         exit 1
+test-check-no-secrets: ok dash-n-name        exit 1
+test-check-no-secrets: ok unreadable-middle  exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-count   6975 of 6975 keys reported
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (9 cases; 6976 tracked names past ARG_MAX 2097152)
+RED: scripts/check-no-secrets.sh replaced by its 24a6b912 version
+RED test exit=1 secs=5
+test-check-no-secrets: 6976 tracked names overflow ARG_MAX (2097152): ./scripts/test-check-no-secrets.sh: line 145: /usr/bin/env: Argument list too long
+test-check-no-secrets: clean: the check exited 1, expected 0; its output lacks 'check-no-secrets: ok (6976 tracked file(s) scanned)'; it overflowed ARG_MAX; the first lines it printed:
+test-check-no-secrets: first-batch: its output lacks 'check-no-secrets: possible OpenAI-style key:'; its output lacks './+first-batch:1:<fake-key>'; it overflowed ARG_MAX; the first lines it printed:
+test-check-no-secrets: last-batch: its output lacks 'check-no-secrets: possible OpenAI-style key:'; its output lacks './zz-last-batch:1:<fake-key>'; it overflowed ARG_MAX; the first lines it printed:
+test-check-no-secrets: dash-n-name: its output lacks 'check-no-secrets: possible OpenAI-style key:'; its output lacks './-n:1:<fake-key>'; it overflowed ARG_MAX; the first lines it printed:
+test-check-no-secrets: unreadable-middle: its output lacks './d0034-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/f003486-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; it overflowed ARG_MAX; the first lines it printed:
+test-check-no-secrets: every-file: its output lacks 'check-no-secrets: possible OpenAI-style key:'; it overflowed ARG_MAX; the first lines it printed:
+test-check-no-secrets: every-file: 0 of the 6975 planted keys were reported
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: 7 problem(s), 2 case(s) passed
+-- the first problem in full:
+test-check-no-secrets: clean: the check exited 1, expected 0; its output lacks 'check-no-secrets: ok (6976 tracked file(s) scanned)'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<local-path> line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<local-path> line 205: /usr/bin/grep: Argument list too long

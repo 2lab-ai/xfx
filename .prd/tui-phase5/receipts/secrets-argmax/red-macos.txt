@@ -1,0 +1,83 @@
+test-check-no-secrets: 3490 tracked names overflow ARG_MAX (1048576): <scratch>/clone2/scripts/test-check-no-secrets.sh: line 145: /usr/bin/env: Argument list too long
+test-check-no-secrets: clean: the check exited 1, expected 0; its output lacks 'check-no-secrets: ok (3490 tracked file(s) scanned)'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub fine-grained token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'AWS access key id' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Google API key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Slack token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+test-check-no-secrets: first-batch: its output lacks 'check-no-secrets: possible OpenAI-style key:'; its output lacks './+first-batch:1:<fake-key>'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub fine-grained token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'AWS access key id' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Google API key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Slack token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+test-check-no-secrets: last-batch: its output lacks 'check-no-secrets: possible OpenAI-style key:'; its output lacks './zz-last-batch:1:<fake-key>'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub fine-grained token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'AWS access key id' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Google API key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Slack token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+test-check-no-secrets: dash-n-name: its output lacks 'check-no-secrets: possible OpenAI-style key:'; its output lacks './-n:1:<fake-key>'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub fine-grained token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'AWS access key id' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Google API key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Slack token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+test-check-no-secrets: unreadable-middle: its output lacks './d0017-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/f001743-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub fine-grained token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'AWS access key id' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Google API key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Slack token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+test-check-no-secrets: every-file: its output lacks 'check-no-secrets: possible OpenAI-style key:'; it overflowed ARG_MAX; the first lines it printed:
+check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'GitHub fine-grained token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'AWS access key id' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Google API key' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+check-no-secrets: grep could not read every file for the 'Slack token' pattern:
+<tmp>/xfx-secrets-test.ep3ZFV/big/scripts/check-no-secrets.sh: line 205: /usr/bin/grep: Argument list too long
+test-check-no-secrets: every-file: 0 of the 3489 planted keys were reported
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: 7 problem(s), 2 case(s) passed
