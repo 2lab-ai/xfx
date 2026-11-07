@@ -46,7 +46,8 @@ pub(crate) const ENV: &str = "XFX_THEME";
 pub(crate) const COLORFGBG: &str = "COLORFGBG";
 
 /// The variable a terminal claims 24-bit colour in
-/// (`theme_protocol.zig:44-48`).
+/// (`theme_protocol.zig:44-48`), which reaches the Ultra mark alone
+/// ([`ultra_marker`]).
 pub(crate) const COLORTERM: &str = "COLORTERM";
 
 /// The variable a terminal names itself in (`theme_protocol.zig:49-51`).
@@ -142,15 +143,6 @@ pub(crate) enum Mode {
     Light,
 }
 
-/// How exactly a colour can be asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Depth {
-    /// The 256-colour palette, which every terminal in use has.
-    Ansi256,
-    /// Direct 24-bit colour, for a terminal that said it has it.
-    TrueColor,
-}
-
 /// The colours the band paints its own rows in.
 ///
 /// Four of the roles are the band's, because four of its rows carry colour in
@@ -164,10 +156,21 @@ pub(crate) enum Depth {
 /// Every accessor answers with a whole SGR sequence rather than with a colour
 /// number, so a painter concatenates and never formats, and
 /// [`reset`](Self::reset) is the only way a run ends.
+///
+/// **One notation at every depth: `38;5;N`.** Upstream's builtins are
+/// 256-colour literals whatever the terminal claims (`fx_dark`, `fx_light`,
+/// `src/core/shared/theme.zig:75-159@481104fd`), copied verbatim into the
+/// renderer (`applyTheme`, `src/ui/render.zig:69-90`); its truecolor claim
+/// reaches a selected theme's diff markers and the Ultra mark alone
+/// (`render.zig:92-104,395`), and its capture under `COLORTERM=truecolor` is
+/// byte-identical to its 256-colour one
+/// (`.prd/tui-phase5/receipts/inline-code-truecolor/fx-tc-vs-256.txt`). So a
+/// palette is a mode and nothing else: there is no depth for it to be painted
+/// at, and the Ultra mark reads the terminal's claim by upstream's own rule
+/// ([`ultra_marker`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Palette {
     pub(crate) mode: Mode,
-    pub(crate) depth: Depth,
 }
 
 /// What ends every run of colour this crate writes.
@@ -335,18 +338,17 @@ pub(crate) enum DocumentRow {
     Table,
 }
 
-/// A document row **as its writer draws it in each mode**, at the session's
-/// depth, recorded with the row ([`super::transcript::Append::redraws`], kept
-/// per line by `super::grid::Grid`): what a theme report puts back on the row
-/// in place of recolouring what it holds.
+/// A document row **as its writer draws it in each mode**, recorded with the
+/// row ([`super::transcript::Append::redraws`], kept per line by
+/// `super::grid::Grid`): what a theme report puts back on the row in place of
+/// recolouring what it holds.
 ///
 /// A tool group's row is the one so recorded (`super::toolgroup`), because
 /// upstream does not recolour it: it projects the group again in the theme
 /// then in force (`tool_group_projection.zig:558-640,742-784@481104fd`). Two
 /// finished drawings rather than the group they came from, so the grid that
 /// keeps them knows nothing of tool calls and the drawing a report puts back
-/// is the writer's own, byte for byte -- whatever notation the palette spells
-/// its greys in.
+/// is the writer's own, byte for byte.
 ///
 /// Shared, not copied: a row is handed from the group to the transcript, the
 /// append and the grid's two copies of the screen.
@@ -437,11 +439,9 @@ impl Palette {
     /// a theme report repaint it: the retint replaces the foreground and
     /// leaves the bold where it is (`super::grid`'s `retint_document`).
     pub(crate) fn notice_heading(&self) -> &'static str {
-        match (self.mode, self.depth) {
-            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;252m",
-            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;238m",
-            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;208;208;208m",
-            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;68;68;68m",
+        match self.mode {
+            Mode::Dark => "\u{1b}[1;38;5;252m",
+            Mode::Light => "\u{1b}[1;38;5;238m",
         }
     }
 
@@ -474,16 +474,14 @@ impl Palette {
     /// draft it owns (`question_ui.zig:323-399`, `approval_ui.zig:1662`), and a
     /// selection in the composer (`appendLayoutUnit`,
     /// `input_presentation.zig:995-1021`, which writes `ESC[7m` before a
-    /// selected unit and the reset after it). The same in every mode and at
-    /// every depth, because it names no colour -- it swaps the two the
-    /// terminal already has.
+    /// selected unit and the reset after it). The same in every mode, because
+    /// it names no colour -- it swaps the two the terminal already has.
     pub(crate) fn reverse(&self) -> &'static str {
         "\u{1b}[7m"
     }
 
     /// Bold and nothing else: a question's title and the path it is about
-    /// (`bold_style`). The same in every mode and at every depth, because it
-    /// names no colour.
+    /// (`bold_style`). The same in every mode, because it names no colour.
     pub(crate) fn bold(&self) -> &'static str {
         "\u{1b}[1m"
     }
@@ -500,26 +498,22 @@ impl Palette {
     /// `super::grid` closes every attribute before an `EL`, so the bar never
     /// bleeds into the rest of the row.
     pub(crate) fn selected(&self) -> String {
-        let background = match (self.mode, self.depth) {
-            (Mode::Dark, Depth::Ansi256) => "\u{1b}[48;5;239m",
-            (Mode::Light, Depth::Ansi256) => "\u{1b}[48;5;251m",
-            (Mode::Dark, Depth::TrueColor) => "\u{1b}[48;2;78;78;78m",
-            (Mode::Light, Depth::TrueColor) => "\u{1b}[48;2;198;198;198m",
+        let background = match self.mode {
+            Mode::Dark => "\u{1b}[48;5;239m",
+            Mode::Light => "\u{1b}[48;5;251m",
         };
         format!("{background}{}", self.paint(SELECTED))
     }
 
     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
     pub(crate) fn subtitle(&self) -> &'static str {
-        match (self.mode, self.depth) {
-            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;255m",
-            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;235m",
-            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;238;238;238m",
-            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;38;38;38m",
+        match self.mode {
+            Mode::Dark => "\u{1b}[1;38;5;255m",
+            Mode::Light => "\u{1b}[1;38;5;235m",
         }
     }
 
-    /// What ends a run, in either mode and at either depth.
+    /// What ends a run, in either mode.
     pub(crate) fn reset(&self) -> &'static str {
         RESET
     }
@@ -530,25 +524,22 @@ impl Palette {
     /// Five of the roles reach a plain document row -- the answer text
     /// (`BODY`), xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`), an
     /// outcome notice's label ([`Self::notice_label`]) and a cancelled tool
-    /// call's mark ([`Self::warning`]) -- and a cell is
-    /// recognised by the colour it is *holding*, in **either** mode, in the
-    /// notation it is spelt in ([`Self::painter_of`]). Both sides map onto the
-    /// mode in force rather than old-to-new, and that is what makes a run of
-    /// reports converge: a chained pair would take a session reported dark,
-    /// light and dark again back to light, because the second report would
-    /// find cells the first one never reached.
+    /// call's mark ([`Self::warning`]) -- and a cell is recognised by the
+    /// colour it is *holding*, in **either** mode. Both sides map onto the mode
+    /// in force rather than old-to-new, and that is what makes a run of reports
+    /// converge: a chained pair would take a session reported dark, light and
+    /// dark again back to light, because the second report would find cells
+    /// the first one never reached.
     ///
     /// `None` is most of a screen, and each of its three shapes is a decision.
     /// A colour this crate did not paint is somebody else's -- the user's own
     /// echo carries none at all -- and is left exactly as it is. A cell already
     /// in this palette's grey is not a cell to rewrite, which is what makes a
     /// report that flipped and flipped back cost no bytes. And a direct
-    /// spelling in a 256-colour session is not this session's painting: the
-    /// depth is a property of the terminal program and does not move under a
-    /// running session (`depth_from_env`), and nothing in such a session
-    /// writes a `38;2` grey.
+    /// (`38;2`) spelling is not this crate's painting: it spells every grey
+    /// `38;5`, as upstream's builtins are at every depth ([`Palette`]), so
+    /// whatever spelt one there is somebody else.
     pub(crate) fn document_retint(&self, colour: Color) -> Option<&'static str> {
-        let at = self.painter_of(colour);
         // xfx's own colours in the document: its notices, the card's rail
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
@@ -562,12 +553,12 @@ impl Palette {
             .find(|&role| {
                 [Mode::Dark, Mode::Light]
                     .into_iter()
-                    .any(|mode| at.shade(role, mode) == Some(colour))
+                    .any(|mode| Self::shade(role, mode) == colour)
             })?;
-        if at.shade(role, at.mode) == Some(colour) {
+        if Self::shade(role, self.mode) == colour {
             return None;
         }
-        Some(at.paint(role))
+        Some(self.paint(role))
     }
 
     /// [`Self::document_retint`], for a cell on a row of the kind given.
@@ -587,8 +578,8 @@ impl Palette {
     /// **A cancelled call's own line is not projected again.** Upstream draws
     /// that entry's own bytes (`tool_group_projection.zig:649-664@481104fd`),
     /// which a switch rewrites through the builtin token table
-    /// (`store.zig:3745-3750,3784-3800`) whatever the depth: 255/235, 252/238,
-    /// 250/241 and 245/247. So the line is answered by those four pairs
+    /// (`store.zig:3745-3750,3784-3800`) whatever the terminal claims:
+    /// 255/235, 252/238, 250/241 and 245/247. So the line is answered by those four pairs
     /// ([`HINT`], [`WARNING`] -- the words' grey too --, [`NOTICE`], [`DIM`]):
     /// its argument, drawn in [`TOOL`]'s 245 on either screen, goes to 247 on a
     /// light one, a comment drawn dark with it, and a comment drawn light
@@ -608,12 +599,11 @@ impl Palette {
         row: DocumentRow,
         colour: Color,
     ) -> Option<&'static str> {
-        let at = self.painter_of(colour);
         let roles: &[usize] = match row {
             DocumentRow::Plain => return self.document_retint(colour),
             // Drawn again, never recoloured.
             DocumentRow::ToolGroup => return None,
-            // Upstream's token table, at either depth: its four pairs.
+            // Upstream's token table, at every depth: its four pairs.
             DocumentRow::ToolStopped => &[WARNING, HINT, NOTICE, DIM],
             DocumentRow::Answer => &[ANSWER],
             DocumentRow::Code => &[COMMENT, COMMAND, NOTICE],
@@ -622,70 +612,27 @@ impl Palette {
         let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
-                .any(|mode| at.shade(role, mode) == Some(colour))
+                .any(|mode| Self::shade(role, mode) == colour)
         })?;
-        if at.shade(role, at.mode) == Some(colour) {
+        if Self::shade(role, self.mode) == colour {
             return None;
         }
-        Some(at.paint(role))
+        Some(self.paint(role))
     }
 
-    /// This palette at the depth a cell holding `colour` was painted at.
-    ///
-    /// **A truecolor session writes its document in two notations.** This
-    /// palette's own greys -- xfx's notices, a turn's summary, the card's rail,
-    /// a tool group's statusline grey -- are spelt exactly (`38;2`, see
-    /// [`truecolor`]). The presenter's and the highlighter's are not: an
-    /// answer's inline code, a code block's words, strings, numbers and
-    /// comments, and a command's words in a tool group are `markdown::theme`'s
-    /// `38;5` at every depth, as upstream's builtins are -- `fx_dark` and
-    /// `fx_light` are 256-colour literals
-    /// (`src/core/shared/theme.zig:75-159@481104fd`), the terminal's truecolor
-    /// claim reaches only a selected theme's diff markers and the Ultra mark
-    /// (`src/ui/render.zig:92-104,395`), and a switch rewrites those bytes
-    /// through a table that names `38;5` alone
-    /// (`src/ui/transcript/store.zig:3784-3800`). So upstream recolours them
-    /// in a truecolor session as it does in a 256-colour one, and so does this:
-    /// an indexed cell in a truecolor session is answered as a 256-colour
-    /// session answers it, and repainted in the notation it holds -- a cell
-    /// repainted in the other one would hold a colour neither notation's report
-    /// recognises the next time the terminal changes.
-    ///
-    /// The other way round stays `None`: a 256-colour session writes no direct
-    /// grey, so one on its screen is not its painting.
-    fn painter_of(&self, colour: Color) -> Palette {
-        match (self.depth, colour) {
-            (Depth::TrueColor, Color::Indexed(_)) => Palette {
-                depth: Depth::Ansi256,
-                ..*self
-            },
-            _ => *self,
-        }
-    }
-
-    /// One role's colour in `mode`, at this palette's depth, **as a value**.
+    /// One role's colour in `mode`, **as a value**.
     ///
     /// The comparison side of [`Self::document_retint`], and it does not go
     /// through [`Self::paint`] on purpose: what a cell holds was decoded from
     /// the wire into a [`Color`], so a match made on the bytes this module
     /// happens to spell a colour with would be comparing a sequence with
-    /// itself. The direct spelling is xterm's greyscale ramp -- index `i` in
-    /// `232..=255` is level `8 + (i - 232) * 10` on all three channels -- which
-    /// is the same claim [`truecolor`] makes per index, said here as
-    /// arithmetic. `None` for an index off that ramp, which is a colour this
-    /// palette could not have painted at this depth.
-    fn shade(&self, role: usize, mode: Mode) -> Option<Color> {
-        let index = match mode {
+    /// itself. Always an index: a direct grey is no colour this palette
+    /// paints ([`Palette`]).
+    fn shade(role: usize, mode: Mode) -> Color {
+        Color::Indexed(match mode {
             Mode::Dark => DARK[role],
             Mode::Light => LIGHT[role],
-        };
-        match self.depth {
-            Depth::Ansi256 => Some(Color::Indexed(index)),
-            Depth::TrueColor => {
-                let level = index.checked_sub(232)?.checked_mul(10)?.checked_add(8)?;
-                Some(Color::Rgb(level, level, level))
-            }
-        }
+        })
     }
 
     /// One role's sequence.
@@ -698,10 +645,7 @@ impl Palette {
             Mode::Dark => DARK[role],
             Mode::Light => LIGHT[role],
         };
-        match self.depth {
-            Depth::Ansi256 => ansi256(index),
-            Depth::TrueColor => truecolor(index),
-        }
+        ansi256(index)
     }
 }
 
@@ -728,37 +672,6 @@ fn ansi256(index: u8) -> &'static str {
         // Unreachable from `paint`, whose only inputs are the two tables above.
         // A grey a future palette adds and forgets to spell here reads as no
         // colour at all rather than as a wrong one.
-        _ => "",
-    }
-}
-
-/// The same shade, said exactly, for a terminal that can take it.
-///
-/// Every index here is on xterm's greyscale ramp, where index `i` in
-/// `232..=255` is the level `8 + (i - 232) * 10` on all three channels -- so
-/// these are not approximations of the sequences above, they are the same
-/// colours spelled in the notation a truecolor terminal reads without
-/// consulting a palette. That is the whole of what [`Depth::TrueColor`] buys
-/// here: indices 232-255 are a *palette*, and a terminal whose theme has
-/// remapped them paints a band grey xfx did not choose.
-///
-/// Upstream reserves truecolor for the diff markers, where the fallback index
-/// really is an approximation of a brand colour
-/// (`render.zig:41-48`); this is the same "exact when the terminal said it can"
-/// rule applied to the greys.
-fn truecolor(index: u8) -> &'static str {
-    match index {
-        235 => "\u{1b}[38;2;38;38;38m",
-        237 => "\u{1b}[38;2;58;58;58m",
-        238 => "\u{1b}[38;2;68;68;68m",
-        240 => "\u{1b}[38;2;88;88;88m",
-        241 => "\u{1b}[38;2;98;98;98m",
-        243 => "\u{1b}[38;2;118;118;118m",
-        245 => "\u{1b}[38;2;138;138;138m",
-        247 => "\u{1b}[38;2;158;158;158m",
-        250 => "\u{1b}[38;2;188;188;188m",
-        252 => "\u{1b}[38;2;208;208;208m",
-        255 => "\u{1b}[38;2;238;238;238m",
         _ => "",
     }
 }
@@ -878,52 +791,18 @@ pub(crate) fn detect(env_theme: Option<&str>, osc: Option<Mode>, colorfgbg: Opti
         .unwrap_or(Mode::Dark)
 }
 
-/// Whether the terminal can be asked for an exact colour
-/// (`theme_protocol.zig:44-53`).
-///
-/// Truecolor is **claimed**, never assumed: `COLORTERM` containing `truecolor`
-/// or `24bit` is the claim, and nothing else is. Apple Terminal is not believed
-/// even when it makes the claim, because it is the one mainstream terminal that
-/// quantizes a `38;2` to its own palette rather than rendering it
-/// (`theme_protocol.zig:42-43`).
-///
-/// **Two deliberate divergences from upstream, both toward
-/// [`Depth::Ansi256`]:** upstream returns truecolor for a terminal that claims
-/// nothing (`theme_protocol.zig:52`, and its test at `:63-66`), and lets a
-/// `COLORTERM` claim outrank the program name so that Apple Terminal *with*
-/// `COLORTERM=truecolor` is believed (`:46`, test at `:55-57`). Both are safe
-/// for upstream because its only truecolor use is a diff marker whose 256-colour
-/// fallback is a visibly different green. Here the two depths are the same five
-/// greys in two notations, so guessing wrong costs a terminal that quantizes
-/// silently -- and 256 colours render correctly on every terminal that has
-/// truecolor, while the converse is false. The conservative answer is the one
-/// that cannot be wrong on screen.
-pub(crate) fn depth_from_env(colorterm: Option<&str>, term_program: Option<&str>) -> Depth {
-    if term_program.is_some_and(|value| value == "Apple_Terminal") {
-        return Depth::Ansi256;
-    }
-    let claimed =
-        colorterm.is_some_and(|value| value.contains("truecolor") || value.contains("24bit"));
-    if claimed {
-        Depth::TrueColor
-    } else {
-        Depth::Ansi256
-    }
-}
-
 /// The colour the hint row's `⚡︎` is said in while Ultra mode is on: one
 /// yellow on either screen (`appendSessionStatusSegments`, `render.zig:396-400`,
 /// `c1db919`), `38;2;255;204;0` where upstream believes in truecolor and
 /// `38;5;220` where it does not.
 ///
-/// **Upstream's own rule, not [`depth_from_env`]'s** (`truecolorSupportedForValues`,
-/// `theme_protocol.zig:83-92`): a `COLORTERM` claim, else anything but Apple
+/// **Upstream's own rule** (`truecolorSupportedForValues`,
+/// `theme_protocol.zig:84-93@481104fd`): a `COLORTERM` claim, else anything but Apple
 /// Terminal -- so a terminal that claims nothing gets the 24-bit yellow, as
 /// upstream's capture shows beside its 256-colour greys
-/// (`fx-fast-astra-40x120-uf-on`). The greys stay on the conservative depth
-/// for the reason that function gives: they are the same greys in two
-/// notations, and a wrong guess there costs every row. This is one sign, in
-/// the colour upstream paints it.
+/// (`fx-fast-astra-40x120-uf-on`). The one thing a claim of truecolor
+/// changes, as upstream's builtins are (`render.zig:92-104,395@481104fd`): the
+/// greys are `38;5` at every depth ([`Palette`]).
 pub(crate) fn ultra_marker(colorterm: Option<&str>, term_program: Option<&str>) -> &'static str {
     let claimed =
         colorterm.is_some_and(|value| value.contains("truecolor") || value.contains("24bit"));
@@ -941,6 +820,121 @@ pub(crate) const ULTRA_TRUECOLOR: &str = "\u{1b}[38;2;255;204;0m";
 mod tests {
     use super::*;
 
+    #[test]
+    fn every_builtin_grey_is_spelt_as_upstreams() {
+        // `fx_dark` and `fx_light`, `src/core/shared/theme.zig@481104fd`:
+        // divider `:79,122`, hint `:80,123`, statusline `:81,124`, subtitle
+        // `:83,126`, notice label `:84,127` and text `:85,128`, dim `:86,129`,
+        // permission_auto `:99,142` (the activity row's), the file picker's
+        // `approval_button_inactive_style` `:97,140` -- each a `38;5` (or
+        // `48;5`) literal, at every depth.
+        let dark = Palette { mode: Mode::Dark };
+        let light = Palette { mode: Mode::Light };
+        for (what, got, wanted) in [
+            (
+                "divider dark",
+                dark.divider().to_string(),
+                "\u{1b}[38;5;240m",
+            ),
+            (
+                "divider light",
+                light.divider().to_string(),
+                "\u{1b}[38;5;250m",
+            ),
+            ("hint dark", dark.hint().to_string(), "\u{1b}[38;5;255m"),
+            ("hint light", light.hint().to_string(), "\u{1b}[38;5;235m"),
+            ("notice dark", dark.notice().to_string(), "\u{1b}[38;5;250m"),
+            (
+                "notice light",
+                light.notice().to_string(),
+                "\u{1b}[38;5;241m",
+            ),
+            (
+                "activity dark",
+                dark.activity().to_string(),
+                "\u{1b}[38;5;252m",
+            ),
+            (
+                "activity light",
+                light.activity().to_string(),
+                "\u{1b}[38;5;238m",
+            ),
+            (
+                "statusline dark",
+                dark.statusline().to_string(),
+                "\u{1b}[38;5;245m",
+            ),
+            (
+                "statusline light",
+                light.statusline().to_string(),
+                "\u{1b}[38;5;241m",
+            ),
+            ("dim dark", dark.dim().to_string(), "\u{1b}[38;5;245m"),
+            ("dim light", light.dim().to_string(), "\u{1b}[38;5;247m"),
+            (
+                "selected dark",
+                dark.selected(),
+                "\u{1b}[48;5;239m\u{1b}[38;5;255m",
+            ),
+            (
+                "selected light",
+                light.selected(),
+                "\u{1b}[48;5;251m\u{1b}[38;5;237m",
+            ),
+            (
+                "subtitle dark",
+                dark.subtitle().to_string(),
+                "\u{1b}[1;38;5;255m",
+            ),
+            (
+                "subtitle light",
+                light.subtitle().to_string(),
+                "\u{1b}[1;38;5;235m",
+            ),
+            (
+                "heading dark",
+                dark.notice_heading().to_string(),
+                "\u{1b}[1;38;5;252m",
+            ),
+            (
+                "heading light",
+                light.notice_heading().to_string(),
+                "\u{1b}[1;38;5;238m",
+            ),
+        ] {
+            assert_eq!(got, wanted, "{what}");
+        }
+    }
+    /// Every row kind a theme report reads ([`DocumentRow`]).
+    const KINDS: [DocumentRow; 6] = [
+        DocumentRow::Plain,
+        DocumentRow::ToolGroup,
+        DocumentRow::ToolStopped,
+        DocumentRow::Answer,
+        DocumentRow::Code,
+        DocumentRow::Table,
+    ];
+
+    #[test]
+    fn a_direct_grey_is_nobodys_on_any_row() {
+        // Nothing this crate writes spells a grey `38;2`, as nothing of fx's
+        // builtins does (`theme.zig:75-159@481104fd`), so a direct grey on the
+        // screen -- any level of xterm's ramp -- is not this session's
+        // painting, on any row, in either mode.
+        for mode in [Mode::Dark, Mode::Light] {
+            let palette = Palette { mode };
+            for kind in KINDS {
+                for step in 0..24u8 {
+                    let level = 8 + step * 10;
+                    assert_eq!(
+                        palette.document_retint_in(kind, Color::Rgb(level, level, level)),
+                        None,
+                        "{mode:?} {kind:?} {level}"
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn the_ultra_marker_follows_upstreams_truecolor_rule() {
         // `theme_protocol.zig:95-106`.
@@ -996,27 +990,9 @@ mod tests {
     }
 
     #[test]
-    fn truecolor_is_gated_on_colorterm_and_apple_terminal_is_downgraded() {
-        // theme_protocol.zig:44-53
-        assert_eq!(depth_from_env(Some("truecolor"), None), Depth::TrueColor);
-        assert_eq!(depth_from_env(Some("24bit"), None), Depth::TrueColor);
-        assert_eq!(
-            depth_from_env(Some("truecolor"), Some("Apple_Terminal")),
-            Depth::Ansi256
-        );
-        assert_eq!(depth_from_env(None, None), Depth::Ansi256);
-    }
-
-    #[test]
     fn the_two_palettes_differ_and_both_end_a_run_the_same_way() {
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let dark = Palette { mode: Mode::Dark };
+        let light = Palette { mode: Mode::Light };
         assert_eq!(dark.reset(), "\u{1b}[0m");
         assert_eq!(light.reset(), "\u{1b}[0m");
         assert_ne!(
@@ -1029,124 +1005,59 @@ mod tests {
     }
 
     #[test]
-    fn every_shade_is_spelled_the_same_in_both_notations() {
+    fn every_shade_is_upstreams_index() {
         // The greys are upstream's, by 256-colour index (`render.zig:28,29,34`
-        // dark, `:70,71,76` light), and the direct-colour spelling of each is
-        // that index's own level on xterm's greyscale ramp -- index `i` in
-        // `232..=255` is `8 + (i - 232) * 10` on all three channels. So these
-        // are not two palettes but one, said twice, and the pairs are written
-        // out because that claim is only checkable against the numbers: a
-        // transposed digit in either column reads as a plausible grey and shows
-        // up nowhere else.
-        for (mode, role, index, level) in [
-            (Mode::Dark, DIVIDER, 240u32, 88u32),
-            (Mode::Dark, HINT, 255, 238),
-            (Mode::Dark, NOTICE, 250, 188),
+        // dark, `:70,71,76` light), spelt `38;5` as upstream's builtins are at
+        // every depth (`theme.zig:75-159@481104fd`). Written out because that
+        // claim is only checkable against the numbers: a transposed digit
+        // reads as a plausible grey and shows up nowhere else.
+        for (mode, role, index) in [
+            (Mode::Dark, DIVIDER, 240u32),
+            (Mode::Dark, HINT, 255),
+            (Mode::Dark, NOTICE, 250),
             // `shimmer_runtime.zig:262-291` / `render.zig:55,86,105`: the
             // activity row's literal indices, pinned rather than derived.
-            (Mode::Dark, ACTIVITY, 252, 208),
+            (Mode::Dark, ACTIVITY, 252),
             // `render.zig:29,71`: the answer text's own grey, which is the hint
             // row's number under a name of its own.
-            (Mode::Dark, BODY, 255, 238),
-            (Mode::Light, DIVIDER, 250, 188),
-            (Mode::Light, HINT, 235, 38),
-            (Mode::Light, NOTICE, 241, 98),
-            (Mode::Light, ACTIVITY, 238, 68),
-            (Mode::Light, BODY, 235, 38),
+            (Mode::Dark, BODY, 255),
+            (Mode::Light, DIVIDER, 250),
+            (Mode::Light, HINT, 235),
+            (Mode::Light, NOTICE, 241),
+            (Mode::Light, ACTIVITY, 238),
+            (Mode::Light, BODY, 235),
             // `theme.zig:86-88` / `:129-131`: an outcome notice's label.
-            (Mode::Dark, LABEL, 252, 208),
-            (Mode::Light, LABEL, 238, 68),
+            (Mode::Dark, LABEL, 252),
+            (Mode::Light, LABEL, 238),
             // `theme.zig` `statusline_style` (`245` dark, `241` light): an
             // answered question's answer (`question_ui.zig:481`).
-            (Mode::Dark, ANSWER, 245, 138),
-            (Mode::Light, ANSWER, 241, 98),
+            (Mode::Dark, ANSWER, 245),
+            (Mode::Light, ANSWER, 241),
             // `theme.zig:96` / `:139`: the file picker's marked row.
-            (Mode::Dark, SELECTED, 255, 238),
-            (Mode::Light, SELECTED, 237, 58),
+            (Mode::Dark, SELECTED, 255),
+            (Mode::Light, SELECTED, 237),
         ] {
             assert_eq!(
-                level,
-                8 + (index - 232) * 10,
-                "index {index} is not the ramp level this pair claims"
-            );
-            let ansi = Palette {
-                mode,
-                depth: Depth::Ansi256,
-            };
-            let direct = Palette {
-                mode,
-                depth: Depth::TrueColor,
-            };
-            assert_eq!(
-                ansi.paint(role),
+                Palette { mode }.paint(role),
                 format!("\u{1b}[38;5;{index}m"),
-                "{mode:?} role {role} at 256 colours"
-            );
-            assert_eq!(
-                direct.paint(role),
-                format!("\u{1b}[38;2;{level};{level};{level}m"),
-                "{mode:?} role {role} at direct colour"
+                "{mode:?} role {role}"
             );
         }
-        // and the two a reader will look for first, spelled outright
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::TrueColor,
-        };
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        assert_eq!(dark.divider(), "\u{1b}[38;2;88;88;88m");
-        assert_eq!(light.hint(), "\u{1b}[38;2;38;38;38m");
-        // The activity row's direct-colour spelling, literal: `252` and `238`
-        // are `208` and `68` on the ramp, not a number this test asked the
-        // accessor to confirm about itself.
-        assert_eq!(dark.activity(), "\u{1b}[38;2;208;208;208m");
-        assert_eq!(light.activity(), "\u{1b}[38;2;68;68;68m");
     }
-
     #[test]
     fn the_file_pickers_marked_row_is_a_grey_bar_behind_the_hint_grey() {
         // `theme.zig:96` dark and `:139` light, background first as upstream
-        // writes it; the direct spellings are the same indices on the ramp
-        // (`239` is 78, `251` is 198, `255` is 238, `237` is 58).
-        for (mode, depth, wanted) in [
-            (
-                Mode::Dark,
-                Depth::Ansi256,
-                "\u{1b}[48;5;239m\u{1b}[38;5;255m",
-            ),
-            (
-                Mode::Light,
-                Depth::Ansi256,
-                "\u{1b}[48;5;251m\u{1b}[38;5;237m",
-            ),
-            (
-                Mode::Dark,
-                Depth::TrueColor,
-                "\u{1b}[48;2;78;78;78m\u{1b}[38;2;238;238;238m",
-            ),
-            (
-                Mode::Light,
-                Depth::TrueColor,
-                "\u{1b}[48;2;198;198;198m\u{1b}[38;2;58;58;58m",
-            ),
+        // writes it, `48;5`/`38;5` at every depth.
+        for (mode, wanted) in [
+            (Mode::Dark, "\u{1b}[48;5;239m\u{1b}[38;5;255m"),
+            (Mode::Light, "\u{1b}[48;5;251m\u{1b}[38;5;237m"),
         ] {
-            assert_eq!(
-                Palette { mode, depth }.selected(),
-                wanted,
-                "{mode:?} {depth:?}"
-            );
+            assert_eq!(Palette { mode }.selected(), wanted, "{mode:?}");
         }
         // A band colour: nothing the document holds is ever repainted into it.
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
+        let dark = Palette { mode: Mode::Dark };
         assert_eq!(dark.document_retint(Color::Indexed(237)), None);
     }
-
     #[test]
     fn a_document_cell_is_retinted_from_either_mode_onto_the_one_in_force() {
         // Both sides map onto the mode the session is in, rather than old to
@@ -1157,10 +1068,7 @@ mod tests {
         // The colours are literals on both sides -- what a cell holds and what
         // it is to be repainted in -- so nothing here is an expectation this
         // mapper computed about itself.
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let light = Palette { mode: Mode::Light };
         assert_eq!(
             light.document_retint(Color::Indexed(255)),
             Some("\u{1b}[38;5;235m"),
@@ -1176,10 +1084,7 @@ mod tests {
             None,
             "a cell already in the palette's own grey was rewritten"
         );
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
+        let dark = Palette { mode: Mode::Dark };
         assert_eq!(
             dark.document_retint(Color::Indexed(235)),
             Some("\u{1b}[38;5;255m")
@@ -1196,14 +1101,8 @@ mod tests {
         // Upstream's `statusline_style` in both modes, literally: `245` dark and
         // `241` light (`theme.zig`), the hint row's numbers under the
         // document's name.
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let dark = Palette { mode: Mode::Dark };
+        let light = Palette { mode: Mode::Light };
         assert_eq!(dark.answer(), "\u{1b}[38;5;245m");
         assert_eq!(light.answer(), "\u{1b}[38;5;241m");
         // On a row recorded as an answer, the cell is the answer's, both ways
@@ -1239,78 +1138,16 @@ mod tests {
     }
 
     #[test]
-    fn a_direct_colour_session_matches_and_repaints_in_the_same_notation() {
-        // The same two pairs at the other depth, spelled out: `255` and `235`
-        // are `238` and `38` on xterm's ramp, and `250` and `241` are `188` and
-        // `98`. A session that matched one notation and repainted in the other
-        // would leave every answer row holding a colour nothing recognises the
-        // next time the terminal changes.
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        assert_eq!(
-            light.document_retint(Color::Rgb(238, 238, 238)),
-            Some("\u{1b}[38;2;38;38;38m")
-        );
-        assert_eq!(
-            light.document_retint(Color::Rgb(188, 188, 188)),
-            Some("\u{1b}[38;2;98;98;98m")
-        );
-        assert_eq!(light.document_retint(Color::Rgb(38, 38, 38)), None);
-        // An indexed cell in this session is the presenter's -- an answer's
-        // inline code is `markdown::theme`'s `38;5` at every depth, as fx's
-        // builtins are (`theme.zig:102,145@481104fd`) -- and is answered and
-        // repainted in its own notation, as fx's switch rewrites it
-        // (`store.zig:3786,3795`). Never in the direct one.
-        assert_eq!(
-            light.document_retint(Color::Indexed(255)),
-            Some("\u{1b}[38;5;235m")
-        );
-        assert_eq!(light.document_retint(Color::Indexed(235)), None);
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::TrueColor,
-        };
-        assert_eq!(
-            dark.document_retint(Color::Indexed(235)),
-            Some("\u{1b}[38;5;255m")
-        );
-        assert_eq!(
-            dark.document_retint(Color::Rgb(38, 38, 38)),
-            Some("\u{1b}[38;2;238;238;238m")
-        );
-        // And not the other way: a 256-colour session writes no direct grey,
-        // so one on its screen is not its painting.
-        let indexed = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
-        assert_eq!(indexed.document_retint(Color::Rgb(238, 238, 238)), None);
-        assert_eq!(
-            indexed.document_retint_in(DocumentRow::Code, Color::Rgb(138, 138, 138)),
-            None
-        );
-    }
-
-    #[test]
-    fn a_truecolor_sessions_code_and_stopped_rows_recolour_their_indexed_greys_as_fx() {
-        // The highlighter paints a code block and a command's words in `38;5`
-        // at every depth (`theme.zig:107-115,150-158@481104fd`), and fx draws
-        // a block again in the new theme (`transcript_blocks.zig:2023-2029`)
-        // and rewrites a cancelled call's own line through its token table
-        // (`store.zig:3745-3750`) whatever the terminal claimed. So in a
-        // truecolor session those cells move as they do in a 256-colour one,
-        // spelt as they were drawn. A tool group's rows are not recoloured at
-        // all: they are drawn again (`a_tool_groups_rows_answer_no_colour_at_either_depth`).
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::TrueColor,
-        };
+    fn a_code_and_stopped_rows_recolour_their_highlighter_greys_as_fx() {
+        // The highlighter paints a code block and a command's words
+        // (`theme.zig:107-115,150-158@481104fd`); fx draws a block again in
+        // the new theme (`transcript_blocks.zig:2023-2029`) and rewrites a
+        // cancelled call's own line through its token table
+        // (`store.zig:3745-3750`) whatever the terminal claimed. A tool
+        // group's rows are not recoloured at all: they are drawn again
+        // (`a_tool_groups_rows_answer_no_colour`).
+        let light = Palette { mode: Mode::Light };
+        let dark = Palette { mode: Mode::Dark };
         for (row, from, to) in [
             (DocumentRow::Code, 245, "\u{1b}[38;5;243m"),
             (DocumentRow::Code, 252, "\u{1b}[38;5;238m"),
@@ -1335,8 +1172,8 @@ mod tests {
                 "{row:?} {from}"
             );
         }
-        // A table keeps what it was drawn in, at this depth too
-        // (`store.zig:3758`), and a link is nobody's grey.
+        // A table keeps what it was drawn in (`store.zig:3758`), and a link
+        // is nobody's grey.
         for index in [255, 235, 245, 252] {
             assert_eq!(
                 light.document_retint_in(DocumentRow::Table, Color::Indexed(index)),
@@ -1348,85 +1185,63 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_groups_rows_answer_no_colour_at_either_depth() {
+    fn a_tool_groups_rows_answer_no_colour() {
         // fx projects a tool group again in the new theme on a switch
         // (`tool_group_projection.zig:558-640`, the command through
         // `highlightCommandPhrase` in `shared_theme.current()`, `:742-784`,
-        // `@481104fd`); it never recolours what the row holds. At 256 colours
-        // no rule over a cell's colour could: a light string's 241 and a dark
-        // comment's 245 are the statusline's own greys in that mode
-        // (`p5-toolgroup-retint`). So the row's cells answer nothing here, in
-        // either notation, mode or depth -- the row is drawn again from its
-        // writer's drawings (`super::super::grid::Grid::retint_document`) --
-        // and nothing about this depends on how the palette spells its greys.
+        // `@481104fd`); it never recolours what the row holds. No rule over a
+        // cell's colour could: a light string's 241 and a dark comment's 245
+        // are the statusline's own greys in that mode (`p5-toolgroup-retint`).
+        // So the row's cells answer nothing here, in either mode or notation
+        // -- the row is drawn again from its writer's drawings
+        // (`super::super::grid::Grid::retint_document`).
         for mode in [Mode::Dark, Mode::Light] {
-            for depth in [Depth::Ansi256, Depth::TrueColor] {
-                let palette = Palette { mode, depth };
-                for index in [235, 238, 241, 243, 245, 247, 250, 252, 255] {
-                    let level = 8 + (index - 232) * 10;
-                    for colour in [Color::Indexed(index), Color::Rgb(level, level, level)] {
-                        assert_eq!(
-                            palette.document_retint_in(DocumentRow::ToolGroup, colour),
-                            None,
-                            "{mode:?} {depth:?} {colour:?}"
-                        );
-                    }
+            let palette = Palette { mode };
+            for index in [235, 238, 241, 243, 245, 247, 250, 252, 255] {
+                let level = 8 + (index - 232) * 10;
+                for colour in [Color::Indexed(index), Color::Rgb(level, level, level)] {
+                    assert_eq!(
+                        palette.document_retint_in(DocumentRow::ToolGroup, colour),
+                        None,
+                        "{mode:?} {colour:?}"
+                    );
                 }
             }
         }
     }
-
     #[test]
     fn a_stopped_calls_line_moves_through_upstreams_token_table() {
         // fx does not project a cancelled call's own line again: it draws the
         // entry's own bytes (`tool_group_projection.zig:649-664@481104fd`),
         // which a switch rewrites through the builtin token table
         // (`store.zig:3745-3750`, pairs `:3784-3800`: 255/235, 252/238,
-        // 250/241, 245/247), at either depth. So the argument's 245 (and a
-        // comment drawn dark in it) goes to 247 on light and back, and a comment
-        // drawn light (243, in no pair) stays (`p5-toolstop-retint`,
-        // `p5-toolstop-retint-light`, and their `-tc`).
-        for depth in [Depth::Ansi256, Depth::TrueColor] {
-            let light = Palette {
-                mode: Mode::Light,
-                depth,
-            };
-            let dark = Palette {
-                mode: Mode::Dark,
-                depth,
-            };
-            for (palette, from, to) in [
-                (light, 245, Some("\u{1b}[38;5;247m")),
-                (light, 250, Some("\u{1b}[38;5;241m")),
-                (light, 252, Some("\u{1b}[38;5;238m")),
-                (light, 255, Some("\u{1b}[38;5;235m")),
-                (light, 243, None),
-                (light, 247, None),
-                (dark, 247, Some("\u{1b}[38;5;245m")),
-                (dark, 241, Some("\u{1b}[38;5;250m")),
-                (dark, 238, Some("\u{1b}[38;5;252m")),
-                (dark, 243, None),
-                (dark, 245, None),
-            ] {
-                assert_eq!(
-                    palette.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(from)),
-                    to,
-                    "{depth:?} {:?} {from}",
-                    palette.mode
-                );
-            }
+        // 250/241, 245/247), whatever the terminal claims. So the argument's
+        // 245 (and a comment drawn dark in it) goes to 247 on light and back,
+        // and a comment drawn light (243, in no pair) stays
+        // (`p5-toolstop-retint`, `p5-toolstop-retint-light`, and their `-tc`).
+        let light = Palette { mode: Mode::Light };
+        let dark = Palette { mode: Mode::Dark };
+        for (palette, from, to) in [
+            (light, 245, Some("\u{1b}[38;5;247m")),
+            (light, 250, Some("\u{1b}[38;5;241m")),
+            (light, 252, Some("\u{1b}[38;5;238m")),
+            (light, 255, Some("\u{1b}[38;5;235m")),
+            (light, 243, None),
+            (light, 247, None),
+            (dark, 247, Some("\u{1b}[38;5;245m")),
+            (dark, 241, Some("\u{1b}[38;5;250m")),
+            (dark, 238, Some("\u{1b}[38;5;252m")),
+            (dark, 243, None),
+            (dark, 245, None),
+        ] {
+            assert_eq!(
+                palette.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(from)),
+                to,
+                "{:?} {from}",
+                palette.mode
+            );
         }
-        // The row's own greys in a truecolor session, spelt exactly.
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        assert_eq!(
-            light.document_retint_in(DocumentRow::ToolStopped, Color::Rgb(138, 138, 138)),
-            Some("\u{1b}[38;2;158;158;158m")
-        );
     }
-
     #[test]
     fn the_colours_this_crate_does_not_own_in_the_document_are_left_alone() {
         // The band's own roles are painted by the band's own frame, and the
@@ -1436,10 +1251,7 @@ mod tests {
         // longer foreign to the document: it is an outcome notice's label
         // too, and `an_outcome_notices_label_is_retinted_like_the_rest` holds
         // that half.)
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let light = Palette { mode: Mode::Light };
         for foreign in [
             Color::Default,
             Color::Indexed(240), // the divider's
@@ -1459,16 +1271,10 @@ mod tests {
     fn an_outcome_notices_label_is_retinted_like_the_rest() {
         // `✗ command:` is written in the label grey -- 252 dark, 238 light
         // (`theme.zig:86-88`, `:129-131`) -- and a terminal that changes its
-        // background mid-session must find it, at either depth. Literals on
-        // both sides, as above.
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
+        // background mid-session must find it. Literals on both sides, as
+        // above.
+        let light = Palette { mode: Mode::Light };
+        let dark = Palette { mode: Mode::Dark };
         assert_eq!(dark.notice_label(), "\u{1b}[38;5;252m");
         assert_eq!(light.notice_label(), "\u{1b}[38;5;238m");
         assert_eq!(
@@ -1480,27 +1286,10 @@ mod tests {
             Some("\u{1b}[38;5;252m")
         );
         assert_eq!(light.document_retint(Color::Indexed(238)), None);
-        let direct = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        assert_eq!(
-            direct.document_retint(Color::Rgb(208, 208, 208)),
-            Some("\u{1b}[38;2;68;68;68m")
-        );
         // The bold heading is the same grey, so the retint above is its too;
         // the bold is a separate attribute the retint leaves where it is.
         assert_eq!(dark.notice_heading(), "\u{1b}[1;38;5;252m");
         assert_eq!(light.notice_heading(), "\u{1b}[1;38;5;238m");
-        assert_eq!(
-            Palette {
-                mode: Mode::Dark,
-                depth: Depth::TrueColor,
-            }
-            .notice_heading(),
-            "\u{1b}[1;38;2;208;208;208m"
-        );
-        assert_eq!(direct.notice_heading(), "\u{1b}[1;38;2;68;68;68m");
     }
 
     #[test]
@@ -1510,14 +1299,8 @@ mod tests {
         // light terminal gets the dark palette's pale greys on white. The
         // answer itself carries no palette colour; the rows this palette
         // paints in the document are xfx's own lines and a turn's summary.
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let dark = Palette { mode: Mode::Dark };
+        let light = Palette { mode: Mode::Light };
         assert_eq!(dark.notice(), "\u{1b}[38;5;250m");
         assert_eq!(light.notice(), "\u{1b}[38;5;241m");
         assert_ne!(dark.notice(), light.notice());
@@ -1531,10 +1314,7 @@ mod tests {
         // The role a theme report repaints a command's words by has to be the
         // grey the highlighter painted them in, or the report would skip them.
         for (mode, light) in [(Mode::Dark, false), (Mode::Light, true)] {
-            let palette = Palette {
-                mode,
-                depth: Depth::Ansi256,
-            };
+            let palette = Palette { mode };
             let syntax = crate::markdown::theme::builtin(light).syntax;
             for style in [
                 &syntax.keyword_style,
@@ -1553,10 +1333,7 @@ mod tests {
         // names, so each of them has to be the grey the highlighter painted
         // with -- or a report would skip the cell or move it to another's.
         for (mode, light) in [(Mode::Dark, false), (Mode::Light, true)] {
-            let palette = Palette {
-                mode,
-                depth: Depth::Ansi256,
-            };
+            let palette = Palette { mode };
             let syntax = crate::markdown::theme::builtin(light).syntax;
             assert_eq!(
                 palette.paint(COMMENT),
@@ -1582,14 +1359,8 @@ mod tests {
         // (`transcript_blocks.zig:2023-2029`, `app_render_runtime.zig:509`),
         // so its dark comment goes to the light comment grey, 243 -- not to
         // the 247 a turn's summary, the same dark 245, goes to.
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
+        let light = Palette { mode: Mode::Light };
+        let dark = Palette { mode: Mode::Dark };
         assert_eq!(
             light.document_retint_in(DocumentRow::Code, Color::Indexed(245)),
             Some("\u{1b}[38;5;243m")
@@ -1629,15 +1400,6 @@ mod tests {
             light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
             Some("\u{1b}[38;5;247m")
         );
-        // And at the other depth, the same greys said exactly.
-        let direct = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        assert_eq!(
-            direct.document_retint_in(DocumentRow::Code, Color::Rgb(138, 138, 138)),
-            Some("\u{1b}[38;2;118;118;118m")
-        );
     }
 
     #[test]
@@ -1649,14 +1411,8 @@ mod tests {
         // carries it across a switch both ways. A table cell's is not on a
         // plain row (`a_tables_row_keeps_the_colours_it_was_drawn_in`).
         use crate::markdown::theme::{FX_DARK, FX_LIGHT};
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
+        let light = Palette { mode: Mode::Light };
+        let dark = Palette { mode: Mode::Dark };
         assert_eq!(FX_DARK.inline_code_open, "\u{1b}[38;5;255m");
         assert_eq!(FX_LIGHT.inline_code_open, "\u{1b}[38;5;235m");
         assert_eq!(
@@ -1677,10 +1433,7 @@ mod tests {
         // repaint -- not its inline code in either mode's grey, not a link,
         // not a grey another row kind would move.
         for mode in [Mode::Dark, Mode::Light] {
-            let palette = Palette {
-                mode,
-                depth: Depth::Ansi256,
-            };
+            let palette = Palette { mode };
             for index in [255, 235, 245, 247, 250, 241, 252, 238, 75, 25] {
                 assert_eq!(
                     palette.document_retint_in(DocumentRow::Table, Color::Indexed(index)),
@@ -1698,10 +1451,7 @@ mod tests {
         // question's `■ Cancelled` row, in the outcome grey, pass for a tool
         // group's stopped call. A group's own rows answer nothing: they are
         // drawn again.
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let light = Palette { mode: Mode::Light };
         assert_eq!(
             light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(245)),
             None

@@ -639,7 +639,6 @@ mod tests {
 
     const PALETTE: Palette = Palette {
         mode: super::super::theme::Mode::Dark,
-        depth: super::super::theme::Depth::Ansi256,
     };
 
     /// The text of each row with its colours taken out.

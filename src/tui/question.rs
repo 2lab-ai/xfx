@@ -2234,7 +2234,6 @@ mod tests {
     /// The palette the captures were taken in.
     const DARK: Palette = Palette {
         mode: super::super::theme::Mode::Dark,
-        depth: super::super::theme::Depth::Ansi256,
     };
 
     #[test]
@@ -2873,7 +2872,6 @@ mod tests {
         assert_eq!(cancelled_row(&DARK), "\u{1b}[38;5;252m■\u{1b}[0m Cancelled");
         let light = Palette {
             mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::Ansi256,
         };
         assert_eq!(
             cancelled_row(&light),

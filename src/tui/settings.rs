@@ -1108,12 +1108,9 @@ pub(crate) fn key_help(cols: u16) -> &'static str {
 mod tests {
     use super::*;
 
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     /// Upstream's `selected_completion_style`: the title, the active tab, the
     /// marked label and the value in force.

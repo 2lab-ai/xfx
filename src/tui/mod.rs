@@ -464,7 +464,6 @@ fn hold(
             cursor.background().and_then(theme::parse_osc11),
             colorfgbg.as_deref(),
         ),
-        depth: theme::depth_from_env(colorterm.as_deref(), term_program.as_deref()),
     };
 
     // The window title is the shell's to decide (`Shell::take_title`) and

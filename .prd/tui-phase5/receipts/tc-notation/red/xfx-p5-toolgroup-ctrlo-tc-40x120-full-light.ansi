@@ -1,0 +1,40 @@
+[1m[38;2;38;38;38mx𝒇x[0m[38;2;158;158;158m v0.1.0-ec39007 [38;2;38;38;38m[debug][38;2;158;158;158m · Run /help for commands[39m
+
+[38;2;158;158;158m  2026-11-07 21:27:34.639 KST · Notice[39m
+[38;2;98;98;98m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;2;98;98;98mtools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;2;98;98;98m+4 more)[39m
+  [38;2;98;98;98mmcp: none[39m
+
+[38;2;158;158;158m  2026-11-07 21:27:39.747 KST · Notice[39m
+[38;2;98;98;98m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;2;98;98;98mfinish: tool_calls[39m
+  [38;2;98;98;98mtokens: 1200 in · 40 out[39m
+
+[38;2;158;158;158m  2026-11-07 21:27:39.905 KST · Notice[39m
+[38;2;98;98;98m* network: provider: gateway · model: fake/model-a · 126ms[39m
+  [38;2;98;98;98mfinish: stop[39m
+  [38;2;98;98;98mtokens: 1200 in · 40 out[39m
+
+[38;2;158;158;158m  2026-11-07 21:27:39.679 KST · Prompt[39m
+[38;2;38;38;38m┃[39m [1mrun the command[0m
+
+[38;2;158;158;158m  2026-11-07 21:27:39.757 KST · Tool[39m
+[38;2;38;38;38m●[39m [38;2;98;98;98m1 tool call · 1 command[39m
+└ Ran [38;5;238mecho[39m [38;5;241m"hi"[39m 42 [38;5;238m|[39m [38;5;238mgrep[39m hi [38;5;243m# note[39m
+│[38;2;158;158;158m hi 42[39m
+
+[38;2;158;158;158m  2026-11-07 21:27:39.954 KST · Response[39m
+  Done with it.
+
+[38;2;158;158;158m  2026-11-07 21:27:39.954 KST · Usage[39m
+[38;2;158;158;158m  0s (↑4 ↓80)[39m
+
+
+
+
+
+
+[38;2;38;38;38m┃[39m [38;2;98;98;98mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;2;68;68;68mfull access[38;2;98;98;98m · model-a[39m
