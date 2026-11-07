@@ -5265,6 +5265,11 @@ mod tests {
             ),
             (write(&a(4_096)), format!("\u{2514} Wrote {}", a(4_096))),
             (write(&a(4_097)), format!("\u{2514} Wrote {}...", a(4_093))),
+            (
+                crate::tools::mutate::EDIT_FILE
+                    .shown(&json!({"path": a(4_097), "old_string": "x", "new_string": "y"})),
+                format!("\u{2514} Edited {}...", a(4_093)),
+            ),
             // Past the old 1 KB cut and past a file change's bound: whole, as
             // on fx -- a read's path, a pattern, a new folder's path.
             (read(&a(3_000)), format!("\u{2514} Read {}", a(3_000))),
