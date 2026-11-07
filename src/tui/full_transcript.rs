@@ -1762,7 +1762,14 @@ impl FullTranscript {
     /// header calls it -- [`Self::lay_out`] without the header.
     fn content(&self, entry: &Entry, cols: u16, palette: Palette) -> (Option<Kind>, Vec<String>) {
         match &entry.body {
-            Body::Prompt(text) => (Some(Kind::Prompt), card(text, cols, palette)),
+            // A prompt's row is a frame's here, and written with the anchor
+            // after a glyph with a variation selector: named, as an answer's
+            // are (`p5-ctrlo-wider-inline-fam` `ctrlo`). `/trace` lists what
+            // was typed.
+            Body::Prompt(text) => (
+                Some(Kind::Prompt),
+                card(&drawn_wider_named(text), cols, palette),
+            ),
             Body::Response(events) => (Some(Kind::Response), answer(events, cols, palette)),
             Body::Notice(notice) => (
                 Some(if notice.tone == Tone::Error {
@@ -2593,7 +2600,19 @@ fn terminal_safe_line(line: &str) -> String {
 /// `b` on tmux under fx and under the bytes xfx wrote before this, and
 /// `fam ☝ ⸺ 🖐 xy b` on libghostty-vt (`.prd/tui-phase5/receipts/ctrlo-wider/`;
 /// `scripts/fxcap/parity-ledger.toml`, `ctrl-o-drawn-wider-named`).
-fn drawn_wider_named(text: &str) -> Cow<'_, str> {
+///
+/// **Display only, and on every surface that writes the model's or a file's
+/// text through a frame or as the document's rows:** a file's or a tool's line
+/// here, an answer -- prose, a code panel, a table's cells, operational text
+/// -- in the document and on this screen, and a prompt's row on this screen
+/// ([`shown_event`]; `super::shell`'s `present`). What is kept is the text as
+/// written: the journal, the reply `/copy` copies (`WorkHandle::last_reply`)
+/// and the events this screen records (`FullTranscript::presented`) are untouched,
+/// and only the rows drawn from them name. An escape sequence the presenter
+/// wrote (a colour, an OSC 8 link) is passed over whole, so a link's target is
+/// never rewritten; a character on either side of one is not taken as the
+/// other's neighbour.
+pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> {
     use std::fmt::Write as _;
     if text.is_ascii() || !text.chars().any(super::drawn_wider::drawn_wider) {
         return Cow::Borrowed(text);
@@ -2601,13 +2620,22 @@ fn drawn_wider_named(text: &str) -> Cow<'_, str> {
     let mut out = String::with_capacity(text.len() + 16);
     // The character before this one, when it was written as itself.
     let mut before: Option<char> = None;
-    let mut characters = text.chars().peekable();
-    while let Some(character) = characters.next() {
+    let mut rest = text;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            out.push_str(&rest[..len]);
+            rest = &rest[len..];
+            before = None;
+            continue;
+        }
+        let Some(character) = rest.chars().next() else {
+            break;
+        };
+        rest = &rest[character.len_utf8()..];
         let agreed = if character == '\u{fe0f}' {
             before.is_some_and(super::approval_view::agreed_presentation)
         } else {
-            characters.peek() == Some(&'\u{fe0f}')
-                && super::approval_view::agreed_presentation(character)
+            rest.starts_with('\u{fe0f}') && super::approval_view::agreed_presentation(character)
         };
         let undrawn = before == Some('\t') && wrap::width(character.encode_utf8(&mut [0; 4])) == 0;
         if super::drawn_wider::drawn_wider(character) && !agreed && !undrawn {
@@ -2619,6 +2647,43 @@ fn drawn_wider_named(text: &str) -> Cow<'_, str> {
         }
     }
     Cow::Owned(out)
+}
+
+/// `event` as a row of an answer shows it: every character a terminal draws
+/// wider than it is counted named ([`drawn_wider_named`]) in its prose, its
+/// code and its table's cells, before any of them is laid out, so the rows
+/// are measured as they are drawn. Display only; the event the screen records
+/// is the presenter's (`FullTranscript::presented`).
+///
+/// fx v0.0.16 writes an answer's text as itself, and the rows lose glyphs on
+/// both measured terminals (`p5-ctrlo-wider-inline-fam`, xfx at `88c2fec1`
+/// like fx: a U+261D at the margin dropped on tmux 3.7b, a U+2E3A on
+/// libghostty-vt, four U+261D in front costing the row its `TAIL` on tmux,
+/// and on this screen's rows the anchor after a glyph with a variation
+/// selector writing over `y a`; `.prd/tui-phase5/receipts/ctrlo-wider/`,
+/// `red-r2.txt`): unsafe to copy, as a file's line is
+/// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider-named`).
+pub(crate) fn shown_event(event: markdown::Event) -> markdown::Event {
+    let named = |text: String| match drawn_wider_named(&text) {
+        Cow::Borrowed(_) => text,
+        Cow::Owned(named) => named,
+    };
+    match event {
+        markdown::Event::Text(text) => markdown::Event::Text(named(text)),
+        markdown::Event::CodeBlock(mut block) => {
+            block.code = named(std::mem::take(&mut block.code));
+            markdown::Event::CodeBlock(block)
+        }
+        markdown::Event::Table(mut table) => {
+            for row in &mut table.rows {
+                for cell in &mut row.cells {
+                    *cell = named(std::mem::take(cell));
+                }
+            }
+            markdown::Event::Table(table)
+        }
+        markdown::Event::ThematicRule => markdown::Event::ThematicRule,
+    }
 }
 
 /// fx's `isNonPrintingCodepoint` (`text_utils.zig:703-708@481104fd`).
@@ -2697,7 +2762,7 @@ fn answer(events: &[markdown::Event], cols: u16, palette: Palette) -> Vec<String
         light: palette.mode == Mode::Light,
     };
     for event in events {
-        writer.present(event.clone());
+        writer.present(shown_event(event.clone()));
     }
     writer.close();
     drained(writer.transcript, palette)
@@ -5783,6 +5848,17 @@ mod tests {
                 json!({"path": "plain.txt"}),
                 read("plain.txt"),
                 None,
+            ),
+            // A character a terminal draws wider than it is counted
+            // (`super::drawn_wider`): the heading holds it raw, as fx's
+            // does, and the argument row names it (`drawn_wider_named`), so
+            // the value is not found in the heading and its row stays -- the
+            // name is on the screen once.
+            (
+                "read_file",
+                json!({"path": "\u{261d}x\u{2e3a}.txt"}),
+                read("\u{261d}x\u{2e3a}.txt"),
+                Some(r"│  path: \u{261d}x\u{2e3a}.txt"),
             ),
         ] {
             let mut record = record();

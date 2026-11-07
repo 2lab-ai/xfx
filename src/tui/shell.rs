@@ -9441,7 +9441,7 @@ impl Shell {
             Mark::Amendment(text) => self.write_card(&text, &BadgeLinks::new(), &SkillRuns::new()),
             Mark::Operational(text) => {
                 self.full.presented(&markdown::Event::Text(text.clone()));
-                self.write_prose(&text);
+                self.write_prose(&full_transcript::drawn_wider_named(&text));
             }
             Mark::Notice(notice) => self.write_notice(&notice),
             Mark::Block(rows) => self.write_block(&rows),
@@ -12524,8 +12524,14 @@ impl Shell {
     }
 
     /// One thing the presenter completed, in the shape upstream gives it.
+    ///
+    /// The screen records the event as the presenter made it; the document
+    /// is given it as an answer's rows show it
+    /// ([`full_transcript::shown_event`]: a character a terminal draws wider
+    /// than it is counted, named).
     fn present(&mut self, event: markdown::Event) {
         self.full.presented(&event);
+        let event = full_transcript::shown_event(event);
         let cols = self.geometry.cols;
         match event {
             markdown::Event::Text(text) => self.write_prose(&text),
@@ -37678,24 +37684,42 @@ mod tests {
         let tool = crate::clipboard::fake::FakeTool::keeping();
         let mut shell = running("go");
         shell.copies = Copies::new(tool.clipboard());
-        shell.apply(UiEvent::Delta(format!("{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n")));
+        shell.apply(UiEvent::Delta(format!(
+            "{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n"
+        )));
         shell.apply(UiEvent::Operational(format!("{FAMILY_RAW}\n")));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
         let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
-        let named: Vec<&String> = document.iter().filter(|row| row.contains(FAMILY_NAMED)).collect();
-        assert_eq!(named.len(), 3, "the prose, the code panel and the operational line: {document:#?}");
+        let named: Vec<&String> = document
+            .iter()
+            .filter(|row| row.contains(FAMILY_NAMED))
+            .collect();
+        assert_eq!(
+            named.len(),
+            3,
+            "the prose, the code panel and the operational line: {document:#?}"
+        );
         assert!(
-            !document.iter().any(|row| row.contains("\u{261d} ") || row.contains('\u{2e3a}')),
+            !document
+                .iter()
+                .any(|row| row.contains("\u{261d} ") || row.contains('\u{2e3a}')),
             "a raw character a terminal draws wider: {document:#?}"
         );
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);
         assert!(
-            screen.iter().filter(|row| row.contains(FAMILY_NAMED)).count() >= 2,
+            screen
+                .iter()
+                .filter(|row| row.contains(FAMILY_NAMED))
+                .count()
+                >= 2,
             "Ctrl-O's Response rows: {screen:#?}"
         );
-        assert!(!screen.iter().any(|row| row.contains('\u{2e3a}')), "{screen:#?}");
+        assert!(
+            !screen.iter().any(|row| row.contains('\u{2e3a}')),
+            "{screen:#?}"
+        );
         shell.route_bytes(b"\x0f");
         shell.work.replied(FAMILY_RAW);
         shell.route_bytes(b"/copy\r");
@@ -37724,7 +37748,9 @@ mod tests {
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);
         assert!(
-            screen.iter().any(|row| row == &format!("\u{2503} {FAMILY_NAMED}")),
+            screen
+                .iter()
+                .any(|row| row == &format!("\u{2503} {FAMILY_NAMED}")),
             "{screen:#?}"
         );
     }
