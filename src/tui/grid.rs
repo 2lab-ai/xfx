@@ -29,7 +29,7 @@
 //! OSC 8 links (`super::hyperlink`, closed at the end of every row), and `EL`.
 //! An erase to the end of a row is what says a row got shorter. Around one
 //! display unit it emits three more, upstream's (`src/core/terminal/
-//! engine.zig:2557-2592@481104fd`), and so does every row written whole
+//! engine.zig:2557-2592@481104fd`), and so does every row a frame writes whole
 //! ([`write_row_text`]): `ECH` over the two cells of a unit whose suffix holds a
 //! variation selector, `CHA` to the column after such a unit, and `?7h`/`?7l`
 //! around a wide unit with a suffix at the right margin ([`put_unit`]).
@@ -276,19 +276,20 @@ enum Piece<'a> {
     },
 }
 
-/// Writes `text` from the first column, as [`Grid::diff_from`] writes cells:
-/// `text` is a row [`super::frame::row_text`] has made safe and cut to `cols`,
-/// the screen's width, and `erase_follows` is whether an `EL` is written after
-/// it.
+/// Writes `text` from the first column, as [`Grid::diff_from`] writes cells,
+/// with nothing written after it on the row: `text` is a row
+/// [`super::frame::row_text`] has made safe and cut to `cols`, the screen's
+/// width.
 ///
-/// What the rows written whole owe the terminal around a unit, the same as the
-/// diff's ([`put_unit`]): `place`, the alternate plane's paint and the band's
+/// What a frame's rows written whole owe the terminal around a unit, the same
+/// as the diff's ([`put_unit`]): the alternate plane's paint and the band's
 /// whole repaints write a row's text where the diff writes its cells, and a
 /// row written whole that went on past a glyph with a variation selector would
 /// put what follows it where the terminal's own advance does rather than where
-/// the grid holds it -- `p5-transcript-diffwide2`'s read row, `x` three cells
-/// left of where upstream's `ESC[42G` puts it (the ledger's
-/// `frame-variation-selector-anchor`).
+/// the grid holds it -- `p5-transcript-diffwide2`'s read row on the full
+/// transcript, `x` three cells left of where upstream's `ESC[42G` puts it (the
+/// ledger's `frame-variation-selector-anchor`). A document row is not a
+/// frame's and is written as it stands (`super::frame`'s `place`).
 ///
 /// Cut into units by [`tokenize_row`]'s steps, so a unit is the cell a grid
 /// holds. A zero-width cluster the row put after a sequence -- a colour opened
@@ -296,7 +297,7 @@ enum Piece<'a> {
 /// the sequence: that is the cell the grid holds and the diff writes, and a
 /// terminal joins it to the cell in front of it either way. A row of ASCII
 /// alone has no unit with a suffix, and is written as it stands.
-pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16, erase_follows: bool) {
+pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16) {
     if text.is_ascii() {
         out.extend_from_slice(text.as_bytes());
         return;
@@ -340,7 +341,7 @@ pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16, erase_fol
                 column,
                 width,
             } => {
-                let more = erase_follows || last_unit.is_some_and(|last| at < last);
+                let more = last_unit.is_some_and(|last| at < last);
                 put_unit(out, grapheme, *column, *width, cols, more);
             }
         }

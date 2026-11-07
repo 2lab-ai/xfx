@@ -2710,22 +2710,34 @@ fn scroll_one(buffer: &mut Vec<u8>, geometry: &Geometry) {
 /// (`finishComposedInputRow`, `input_presentation.zig:1095-1097`, and
 /// `writeDocumentAppendClear`'s `start_col < target_cols`,
 /// `terminal_diff.zig:1177-1195`).
+///
+/// **The text as it stands, with no anchor around a glyph whose width terminals
+/// dispute**, which is where this differs from the rows a frame paints
+/// ([`write_row`]). These rows are the document's, and upstream writes its
+/// document's rows as their own bytes -- `appendDocumentMovement`,
+/// `src/ui/render_engine/terminal_diff.zig:1369-1425@481104fd`, outside the
+/// frame diff that writes `ECH`/`CHA` around such a glyph (`engine.zig:
+/// 2557-2592`) -- so the terminal places what follows by its own advance, as
+/// it does under upstream. An anchor here would also skip cells on a row this
+/// erases only behind its text: the cells a terminal draws narrower than this
+/// crate counts would keep whatever the scroll brought up into them.
 fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
     cup(buffer, line, 1);
     let text = row_text(row, geometry.cols);
-    let erases = super::wrap::width(&text) < geometry.cols;
-    super::grid::write_row_text(buffer, &text, geometry.cols, erases);
-    if erases {
+    buffer.extend_from_slice(text.as_bytes());
+    if super::wrap::width(&text) < geometry.cols {
         buffer.extend_from_slice(ERASE_LINE.as_bytes());
     }
 }
 
-/// One row's text, from the column a `CUP` just put the caret on, with nothing
-/// written after it on the row: [`row_text`], written as the grid diff writes
-/// cells ([`super::grid::write_row_text`]) -- the clear, the anchor and the
-/// autowrap bracket upstream writes around a unit, on the rows painted whole.
+/// One row of a frame painted whole, from the column a `CUP` just put the caret
+/// on: [`row_text`], written as the grid diff writes cells
+/// ([`super::grid::write_row_text`]) -- the clear, the anchor and the autowrap
+/// bracket upstream's frame diff writes around a unit. The alternate plane's
+/// surface and the band's whole repaints: upstream paints both through that
+/// diff (`terminal_diff.zig:628-640@481104fd`).
 fn write_row(buffer: &mut Vec<u8>, row: &str, cols: u16) {
-    super::grid::write_row_text(buffer, &row_text(row, cols), cols, false);
+    super::grid::write_row_text(buffer, &row_text(row, cols), cols);
 }
 
 /// The window title a session asks for: the session's own title once it has
@@ -8098,9 +8110,10 @@ mod tests {
 
     // -- a variation selector, on the rows written whole --------------------
     //
-    // The full paints write a row's text rather than a grid's cells, and owe it
-    // what the grid diff does for each cell (`super::super::grid`'s tests):
-    // upstream's `src/core/terminal/engine.zig:2557-2592@481104fd`.
+    // The frames painted whole write a row's text rather than a grid's cells,
+    // and owe it what the grid diff does for each cell (`super::super::grid`'s
+    // tests): upstream's `src/core/terminal/engine.zig:2557-2592@481104fd`.
+    // The document's rows are not a frame's (`place`).
 
     const BOLT: &str = "\u{26a1}\u{fe0e}";
 
@@ -8147,27 +8160,21 @@ mod tests {
     }
 
     #[test]
-    fn a_document_row_puts_the_cursor_back_after_a_selector_glyph_and_before_its_erase() {
+    fn a_document_row_is_written_as_it_stands_as_upstreams_document_append_is() {
+        // Upstream writes a document row as its own bytes, outside the frame
+        // diff that anchors (`terminal_diff.zig:1369-1425@481104fd`).
         let geometry = geometry();
         let mut band = Band::new();
         band.commit(&mut Vec::new(), &band_rows(), &geometry, (23, 2))
             .expect("a first frame");
         let mut out = Vec::new();
-        band.append_document(
-            &mut out,
-            0,
-            &[format!("a {BOLT} b"), format!("c {BOLT}")],
-            &geometry,
-        )
-        .expect("an append the check accepted");
+        band.append_document(&mut out, 0, &[format!("a {BOLT} b")], &geometry)
+            .expect("an append the check accepted");
         let text = String::from_utf8(out).expect("utf-8");
+        assert!(text.contains(&format!("a {BOLT} b\u{1b}[K")), "{text:?}");
         assert!(
-            text.contains(&format!("a \u{1b}[2X{BOLT}\u{1b}[5G b\u{1b}[K")),
+            !text.contains("\u{1b}[2X") && !text.contains("G"),
             "{text:?}"
-        );
-        assert!(
-            text.contains(&format!("c \u{1b}[2X{BOLT}\u{1b}[5G\u{1b}[K")),
-            "the erase after the glyph was not anchored: {text:?}"
         );
     }
 
