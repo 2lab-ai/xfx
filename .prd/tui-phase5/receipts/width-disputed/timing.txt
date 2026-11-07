@@ -1,0 +1,8 @@
+# The three snaps regressions.txt shows differ, re-run twice more on each build (runs 2-3; run 1 is regressions.txt's).
+# records start row 5: 1 = the launch notice 'Full access enabled: ...' is on the hint row; submit-multi submit-0.15 row 36: the activity row's word.
+run 1 base: records start row 5 notice=0; submit-multi 0.15 row 36 '  Thinking '
+run 1 new: records start row 5 notice=1; submit-multi 0.15 row 36 '  Generating '
+run 2 base: records start row 5 notice=1; submit-multi 0.15 row 36 '  Generating '
+run 2 new: records start row 5 notice=0; submit-multi 0.15 row 36 '  Generating '
+run 3 base: records start row 5 notice=1; submit-multi 0.15 row 36 '  Generating '
+run 3 new: records start row 5 notice=0; submit-multi 0.15 row 36 '• Generating '
