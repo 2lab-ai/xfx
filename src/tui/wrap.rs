@@ -674,11 +674,13 @@ fn upstream_cells(cluster: &str) -> usize {
 /// terminals draw none; `U+115F`, `U+FFA0` and `U+FFF0`-`U+FFF8` one or two
 /// where libghostty-vt draws none; a jamo cluster with a filler one or two
 /// more than both. A row with one of them is laid out as if it were that
-/// much wider [추론, but for one, captured: in `p5-transcript-diffwide2`'s
+/// much wider [추론, but for two, captured: in `p5-transcript-diffwide2`'s
 /// Ctrl-O line 2, the text after the `U+3164` and `U+1160` stands three cells
 /// left of where the grid holds it -- fx's frame re-anchors there and shows
-/// the three cells blank; the WIDTH-DISPUTED receipt's `green.txt`, line 2's
-/// row]: the frame may skip the `EL`
+/// the three cells blank (the WIDTH-DISPUTED receipt's `green.txt:18`); its
+/// line 5, four `U+1160 U+1F3FD` counted three cells each where tmux draws
+/// two, is cut after two of them, 108 of the row's 112 cells
+/// (`green.txt:21`)]: the frame may skip the `EL`
 /// that would clear the right edge of a row it thinks is full
 /// (`super::frame`'s `place`) and leave a stale cell there; a partial row
 /// update (`super::grid`'s row diff) may leave cells the terminal never moved
