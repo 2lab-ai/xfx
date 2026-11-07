@@ -23,6 +23,7 @@ redactor = Redactor({
     "<tmp>": "<tmp>",
     str(scratch): "<scratch>",
     "<local-path>": "<copy>",
+    "<local-path>": "<copy>",
 })
 
 files = {
@@ -33,8 +34,20 @@ files = {
     "platform.sh": scratch / "tools/platform.sh",
     "gates.sh": scratch / "tools/gates.sh",
 }
-if len(sys.argv) > 3:
+if len(sys.argv) > 3 and sys.argv[3] == "gates":
     files = {"gates.txt": scratch / "gates.log"}
+elif len(sys.argv) > 3 and sys.argv[3] == "c":
+    files = {
+        "c-gate-env-macos.txt": scratch / "gate-env-macos.log",
+        "c-linux.txt": scratch / "linux-c.log",
+        "c-sweep-macos.txt": scratch / "sweep-macos.log",
+        "c-mutants.txt": scratch / "mutants-c.out",
+        "c-mutants.py": scratch / "tools/mutants-c.py",
+        "c-sweep-env.sh": scratch / "tools/sweep-env.sh",
+        "c-gate-env-runs.sh": scratch / "tools/gate-env-runs.sh",
+        "c-linux.sh": scratch / "tools/linux-c.sh",
+        "gates.sh": scratch / "tools/gates.sh",
+    }
 
 for name, source in files.items():
     text = source.read_bytes().decode("utf-8", errors="replace")

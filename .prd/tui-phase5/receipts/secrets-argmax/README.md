@@ -184,10 +184,88 @@ the shim cases are what catch them.
 and time, run in the worktree. Its first line names the commit it ran at: the
 commit before the one that adds `gates.txt`, which changes nothing else.
 Gates: `cargo fmt --check`, `check-no-secrets`, `test-check-no-secrets`,
-`check-xfx-identity`, `check-no-stubs`, `check-preview-contract`,
+`test-gate-env`, `check-xfx-identity`, `check-no-stubs`, `check-preview-contract`,
 `test-preview-contract`, `actionlint .github/workflows/ci.yml`. Its
 `what changed` section shows no Rust source changed, so clippy and `cargo
 test` were not run.
+
+## Round 3 (SECRETS-ARGMAXc): the other gates and GREP_OPTIONS
+
+**The sweep** (`c-sweep-macos.txt`; the same on Linux in `c-linux.txt`,
+second half; `c-sweep-env.sh` ran both). It covers every script `ci.yml`
+runs, plus every `scripts/test-*.sh`, with its grep lines, its other tools,
+and whether it unsets `GREP_OPTIONS`.
+
+**Steerable, now fixed.** At `43ae27de` (the test alone) each gate below
+passes one planted violation under one `GREP_OPTIONS` value on macOS
+(`c-gate-env-macos.txt`, first run: 5 problems, every gate `ok`). At
+`64f5f820` each unsets the variable and refuses it (second run: 5 cases):
+
+| gate | planted violation (`scripts/test-gate-env.sh`) | value | the unset |
+|---|---|---|---|
+| `check-no-stubs.sh` | `todo!()` in `src/zz_planted.rs` (`:84-92`) | `-q`: every marker grep prints nothing | `:39-43` |
+| `check-preview-contract.sh` | README without its `brew install` lines (`:107-110`) | `-v`: "the README carries the command" holds for any README with another line | `:43-47` |
+| `test-preview-contract.sh` | the check's epoch-gate message changed, so `gate-removed` fails for another reason (`:119-132`) | `-v`: "the log names this mutant's break" holds for any log with another line; it reported 24 caught | `:24-28` |
+| `check-tui-preflight-cost.sh` | a `cargo` on PATH printing a run where 1 of 2 tests ran (`:141-164`) | `-v`; and BSD grep's `-v -o` prints every non-matching line, so the measurement count passes too | `:37-41` |
+| `check-usage-clock.sh` | the same `cargo`, 0 tests ran (`:166-171`) | `-v` | `:24-28` |
+
+`check-no-secrets.sh` was fixed in round 2 (`:18-22`, its own `grep-options`
+case).
+
+- **The plants are real.** With every unset removed and every case's
+  value emptied, the test passes: each gate refuses its plant
+  (`c-mutants.txt`: `plants, ...`). On Linux, GNU grep 3.8 ignores the
+  variable, so the test passes with and without the five unsets
+  (`c-linux.txt`: `at the head` and `as at 43ae27de`).
+- **Mutants** (`c-mutants.py` on a `--no-local` clone of `64f5f820`, after an
+  unmodified control run that passed): each gate's unset block removed. Each
+  is caught by its own case only (`c-mutants.txt`): 5 of 5, `no-unset-no-stubs` failing only `no-stubs`, and so on for `preview-contract`, `test-preview-contract`, `tui-preflight-cost` and `usage-clock`.
+- **Wiring:** `ci.yml:133-138` runs `./scripts/test-gate-env.sh` after the
+  secrets test. It takes 118-120 s on macOS, most of it
+  `test-preview-contract`, and 24-26 s on Linux (`c-gate-env-macos.txt`,
+  `c-linux.txt`). It is also added to the gate lists in `README.md`,
+  `CONTRIBUTING.md` and `.prd/02-architecture.md`.
+
+**Not steerable, one line each:**
+- `check-xfx-identity.sh`: all 12 values tried fail one of its own controls
+  or report the planted path (`c-sweep-macos.txt`: `under each
+  GREP_OPTIONS`). Its controls run the same grep both ways: must find in the
+  dirty repository, must not in the clean one. A pattern given in
+  `GREP_OPTIONS` turns their positional patterns into file names.
+- `smoke.sh`: `expect_absent` and `expect_contains` are the same `grep -qF
+  <needle> <file>`. The values that hide a present key, `-x` and `-m 0`, hide
+  `expect_contains`' present needle too, so the run fails (`c-sweep-macos.txt`:
+  `smoke.sh`). `:666` and `:768` have the same shape.
+- `test-check-no-secrets.sh` (`:55`) and `test-gate-env.sh` (`:38`) unset it
+  themselves.
+- `GREP_COLOR`, `GREP_COLORS`: they act only with `--color`, which no gate
+  passes. Output is identical with and without them (`c-sweep-*`: `GREP_COLOR
+  and GREP_COLORS`).
+- BSD `sed`, `awk` and `sort` read only locale variables, plus
+  `POSIXLY_CORRECT` for `awk`'s `sub`/`gsub` backslashes *(not measured here:
+  their macOS man pages)*. `ruby`'s `RUBYOPT` changes what runs only by `-r` of
+  a file on disk *(not measured here)*. `cargo`, `gh`, `jq` and `actionlint`
+  were not swept.
+
+**Leads, measured and not fixed here: git reads its environment too.** On
+both platforms (`c-sweep-macos.txt` and `c-linux.txt`, last three sections):
+- `check-no-secrets.sh` with `GIT_INDEX_FILE` naming an index that lacks the
+  file holding a key: `ok (2 tracked file(s) scanned)`, exit 0.
+- `check-xfx-identity.sh` with `GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0` setting
+  `core.attributesFile` to `*.lock -diff`: `git grep -I` skips `Cargo.lock`,
+  and the retired name in it passes, exit 0. A `~/.gitconfig` or
+  `.git/info/attributes` saying the same would do it without any environment
+  *(not measured here)*.
+- With `GIT_DIR` exported at a decoy repository, `check-xfx-identity.sh`
+  writes its control files into the decoy's index, and
+  `check-preview-contract.sh` writes 5 commits into it. That is the EF1d
+  class, live in two gates.
+
+Why not here: this is a different mechanism from GREP_OPTIONS. Unsetting
+`GIT_INDEX_FILE` changes what a gate sees inside a git hook, where git sets
+it to the index being committed, and the attributes path also arrives
+through config that is not environment. It wants its own unit, cases and
+review.
 
 ## Wiring
 
@@ -213,6 +291,9 @@ gets past it. It reads names on standard input, so it has no ARG_MAX issue.
   receipt and its two runs, each on a disposable copy.
 - `mutants.py`, `mutants.txt`: the mutant driver and its results.
 - `gates.sh`, `gates.txt`: the gates.
+- `c-*`: round 3. `c-sweep-env.sh` (the sweep), `c-gate-env-runs.sh` (the
+  macOS RED and GREEN), `c-linux.sh` (the Linux run, which ends with the
+  sweep), `c-mutants.py`, and their logs.
 - `publish.py`: how the logs got here. One edit beyond redaction: the
   driver's first line in `mutants.txt` named the session shell's `grep`, a
   wrapper the tests never run. `publish.py` replaced it with the `grep` the

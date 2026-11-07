@@ -42,6 +42,7 @@ gate() {
 gate cargo fmt --check
 gate ./scripts/check-no-secrets.sh
 gate ./scripts/test-check-no-secrets.sh
+gate ./scripts/test-gate-env.sh
 gate ./scripts/check-xfx-identity.sh
 gate ./scripts/check-no-stubs.sh
 gate ./scripts/check-preview-contract.sh
