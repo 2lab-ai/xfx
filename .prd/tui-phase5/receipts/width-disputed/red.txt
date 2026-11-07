@@ -1,15 +1,32 @@
-FAIL bytes p5-transcript-diffwide-40x120 full (fx / red)
+FAIL bytes p5-transcript-diffwide full (fx / red)
        1 -  '\x1b[38;5;252m  │ 1 - first line\x1b[39m'
        1 +  '\x1b[38;5;252m  │ 1 + FIRST LINE\x1b[39m'
-       2    '\x1b[38;5;245m  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial\x1b[39m'
-       FAIL 3  : fx '\x1b[38;5;245m  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / red '\x1b[38;5;245m  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAI8'
-FAIL margin p5-transcript-diffwide-40x120 full line 3
-       fx ends '\xad\xad\xad\xadTAIL', 112 characters (112 cells by fx's count)
-       red ends '\xad\xad\xad\xadTAI8', 112 characters (112 cells by fx's count)
-FAIL full p5-transcript-diffwide-40x120 (fx / red), aligned
+       2    'yphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial\x1b[39m'
+       FAIL 3  : fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAI8'
+FAIL margin p5-transcript-diffwide full
+       fx line 3 ends 'wwww\xad\xad\xad\xadTAIL'
+       red line 3 ends 'wwww\xad\xad\xad\xadTAI8', not 'wwww\xad\xad\xad\xadTAIL'
+FAIL full p5-transcript-diffwide (fx / red), aligned
        37 rows the same; only fx: ['│  3    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL', '│  5678', '  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL', '  │     5678']; only red: ['  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice', '* network: provider: gateway · model: fake/model-a · <ms>', '│  3    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAI8', '  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAI8']
-ok   inline p5-transcript-diffwide-40x120 edited
+ok   inline p5-transcript-diffwide edited
        all 41 rows the same
-ok   inline p5-transcript-diffwide-40x120 closed
+ok   inline p5-transcript-diffwide closed
        all 41 rows the same
-5 claims, 2 hold, 3 fail
+FAIL bytes p5-transcript-diffwide2 full (fx / red)
+       1 -  '\x1b[38;5;252m  │ 1 - first line\x1b[39m'
+       1 +  '\x1b[38;5;252m  │ 1 + FIRST LINE\x1b[39m'
+       2    named: fx '́seong halfﾠ︎\x1b[39m   \x1b[38;5;245mx zwjﾠ\\u{200d}y jamoᅟᅠz\x1b[39m' / red 'llﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz\x1b[39m' -- fx's cells are red's with 3 unstyled blank cells before 'x zwj'
+       FAIL 3  : fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAI8'
+       FAIL 4  : fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA\x1b[39m' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTAIL'
+FAIL margin p5-transcript-diffwide2 full
+       fx line 3 ends 'ﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+       red line 3 ends 'ﾠ́ﾠ́ﾠ́ﾠ́TAI8', not 'ﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+       fx line 4 ends 'wwwwwwᅟᅠᅟᅠTA'
+       red line 4 ends 'wwwwᅟᅠᅟᅠTAIL', not 'wwwwwwᅟᅠᅟᅠTA'
+FAIL full p5-transcript-diffwide2 (fx / red), aligned
+       32 rows the same; only fx: ['│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '│  3    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL', '│  4    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA', '│  IL5678', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL', '  │     5678', '  │ 4   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA', '  │     IL5678']; only red: ['  tokens: 1200 in · 40 out', '', '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice', '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\u200dy jamoᅟᅠz', '│  3    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAI8', '│  4    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTAIL', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAI8', '  │ 4   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTAIL']
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+10 claims, 4 hold, 6 fail

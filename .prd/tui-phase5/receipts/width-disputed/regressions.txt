@@ -1,3 +1,4 @@
+# base 20046d6 against the fix 41a3130 (round 2)
 composer-keys-40x120-alt-bs                                            identical
 composer-keys-40x120-cp-effort-esc                                     identical
 composer-keys-40x120-cp-effort                                         identical
@@ -119,7 +120,7 @@ p5-transcript-question-40x120-narrow                                   identical
 p5-transcript-records-40x120-full-records-120                          identical
 p5-transcript-records-40x120-full-records-80                           identical
 p5-transcript-records-40x120-full-records                              identical
-p5-transcript-records-40x120-start                                     rows [5] differ; row 5: base 'full access · model-a' / fix 'full access · model-a                                                Full access enabled: xfx permission checks disabled'
+p5-transcript-records-40x120-start                                     identical
 p5-transcript-resize-40x120-full-pgup-120                              identical
 p5-transcript-resize-40x120-full-pgup-80                               identical
 p5-transcript-resize-40x120-full-pgup-after                            identical
@@ -136,13 +137,13 @@ p5-transcript-resize-40x120-full-tail-80                               identical
 p5-transcript-resize-40x120-start                                      identical
 p5-transcript-submit-40x120-filled                                     identical
 p5-transcript-submit-40x120-second                                     identical
-p5-transcript-submit-40x120-submit-0.15                                identical
+p5-transcript-submit-40x120-submit-0.15                                rows [36] differ; row 36: base '~ Generating (<s>) (↑4 ↓40)' / fix '~ Thinking (<s>) (↑4 ↓0)'
 p5-transcript-submit-40x120-tall                                       identical
 p5-transcript-submit-40x120-tall.full                                  identical
 p5-transcript-submit-multi-40x120-filled                               identical
 p5-transcript-submit-multi-40x120-second                               identical
 p5-transcript-submit-multi-40x120-second.full                          identical
-p5-transcript-submit-multi-40x120-submit-0.15                          rows [36] differ; row 36: base '~ Thinking (<s>) (↑13 ↓0)' / fix '~ Generating (<s>) (↑13 ↓4)'
+p5-transcript-submit-multi-40x120-submit-0.15                          identical
 p5-transcript-tallfirst-40x120-tall                                    identical
 p5-transcript-tallfirst-40x120-tall.full                               identical
 p5-transcript-tools-40x120-end                                         identical
@@ -163,4 +164,4 @@ p5-transcript-tools-40x80-full-tail                                    identical
 p5-transcript-tools-40x80-running                                      identical
 p5-transcript-tz-40x120-full                                           identical
 p5-transcript-tzsys-40x120-full                                        identical
-165 snaps: 162 identical, 3 differ, 0 missing, 0 only in the fix's run
+165 snaps: 163 identical, 2 differ, 0 missing, 0 only in the fix's run

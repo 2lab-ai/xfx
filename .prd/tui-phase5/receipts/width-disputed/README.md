@@ -1,4 +1,4 @@
-# WIDTH-DISPUTED receipt: the soft hyphen and the Hangul fillers take the cells fx counts
+# WIDTH-DISPUTED receipt: a soft hyphen or a Hangul filler takes the cells fx counts, alone or in a cluster
 
 T-U6c found this defect. xfx's painter counted U+00AD, U+1160, U+3164,
 U+FFA0 and U+FFF0-FFF8 as no cells, while tmux 3.7b draws the soft hyphen,
@@ -6,196 +6,313 @@ U+FFA0 and U+FFF0-FFF8 a cell each. So a row clipped at the margin ran past
 it: on Ctrl-O, `p5-transcript-diffwide`'s line ended `…TAI8` where fx's ends
 `…TAIL`.
 
+- **Round 1** (`2f328d47`) fixed each code point standing alone.
+- **Round 2** (`41a31300`) fixes it for the clusters these code points
+  stand in:
+  - a filler followed by a mark, a selector or a joiner (U+FFA0 U+0301);
+  - conjoining jamo with a filler (U+115F U+1160).
+
+  It answers MUST 1 and MUST 2 of the round-1 reviews
+  (`…/p5/WIDTH-DISPUTED/reviews/`).
+
 Width decides what is clipped at the margin, so this is security-adjacent.
 
 - **Branch:** `fix/p5-width-disputed`, cut in the same worktree
   (`.worktrees/feat-p5-transcript-receipts`) from `feat/p5-transcript-receipts`
   at `8837634a`.
-- **The code:** `2f328d47`.
-  - Every `xfx/` capture is from a debug build of it (banner
-    `v0.1.0-2f328d4`).
-  - Every `red/` capture is from a debug build of `20046d63`, whose product
-    code is `8837634a`'s (banner `v0.1.0-20046d6`).
-  - `10ac532e` changes the ledger, a README and one test comment.
+- **The code:** `41a31300`. Every `xfx/` capture is from a debug build of it
+  (banner `v0.1.0-41a3130`). The commits after it change the ledger and this
+  receipt only.
+- **`red/`, the build before:**
+  - `p5-transcript-diffwide`: a build of `20046d63`, whose code is
+    `8837634a`'s (`v0.1.0-20046d6`);
+  - `p5-transcript-diffwide2`, the cluster form: a build of round 1's
+    `2f328d47` (`v0.1.0-2f328d4`), which is the build MUST 1 is about.
 - **fx:** the v0.0.16 reference binary (sha256 `8e6cda2e…`). The guard line
   of each run says it was unchanged.
 
 ## The measures
 
-**fx at 481104fd** counts these code points with `runeWidth`
-(`src/core/shared/display_width.zig:275-282`):
-- 0 for NUL, C0 and C1;
-- 0 for a zero-width continuation (`isZeroWidthContinuation`, `:409-421`).
-  None of these code points is one;
+**fx at 481104fd** counts a line one code point at a time:
+- `displayUnitAt`, `src/core/shared/display_width.zig:234-263`, takes RGI
+  emoji and `base U+FE0E`/`U+FE0F` whole for a variation base and every
+  other code point alone;
+- `runeWidth` (`:275-282`) gives 0 for NUL, C0 and C1;
+- 0 for a combining mark or a joiner (`isZeroWidthContinuation`, `:409-421`;
+  that covers U+0301, U+034F, U+FE0E and U+200D), but none of the 14 is one;
 - 2 for East Asian Wide or emoji presentation (`wide_ranges`,
   `unicode_display_data.zig:41` `0x1100-0x115F` and `:85` `0x3131-0x318E`);
 - 1 for everything else.
 
-That gives U+00AD 1, U+115F 2, U+1160 1, U+3164 2, U+FFA0 1, and U+FFF0-FFF8
-1 each. The same lines hold at c1db9191.
+So the 14 are: U+00AD 1, U+115F 2, U+1160 1, U+3164 2, U+FFA0 1, and
+U+FFF0-FFF8 1 each. In a cluster each keeps its own count, and the mark after
+it counts 0. The same lines hold at c1db9191.
 
-**The terminals**, alone between two markers:
+`markdown::display_width` (`src/markdown/display_width.rs`, `rune_width`
+`:306`, `display_unit_at` `:235`) is that code ported, and it is the oracle
+here.
 
-| | U+00AD | U+115F | U+1160 | U+3164 | U+FFA0 | U+FFF0-FFF8 |
-|---|---|---|---|---|---|---|
-| tmux 3.7b | 1 | 2 | 0 | 0 | 1 | 1 |
-| libghostty-vt 1.3.2 (herdr's) | 1 | 0 | 0 | 0 | 0 | 0 |
-| fx's count | 1 | 2 | 1 | 2 | 1 | 1 |
-| xfx before (`wrap::width`) | 0 | 2 | 0 | 0 | 0 | 0 |
-| xfx after | 1 | 2 | 1 | 2 | 1 | 1 |
+**The terminals and fx's count.** There are 76 forms, each between two
+markers (`clusters.txt`; probes in `probe/`, the cluster versions of
+`scripts/drawn-wider/`'s):
+- each of the 14 alone, and with U+0301, U+FE0E, U+034F or U+200D after it;
+- `U+115F U+1160`, `U+1100 U+1160`, `U+115F U+1161` and
+  `U+1100 U+1160 U+11A8`;
+- `U+3164 U+3164` and `U+00AD U+00AD`.
 
-fx's count is never below what either terminal draws, so a row measured by
-it never runs past the margin.
+**fx's count is below a terminal's advance in none of the 76.** Some of them:
+
+| | tmux 3.7b | libghostty-vt 1.3.2 | fx's count |
+|---|---|---|---|
+| U+00AD, alone or with a mark | 1 | 1 | 1 |
+| U+115F, alone or with a mark | 2 | 0 | 2 |
+| U+1160, alone or with a mark | 0 | 0 | 1 |
+| U+3164, alone or with a mark | 0 | 0 | 2 |
+| U+FFA0, U+FFF0-FFF8, alone or with a mark | 1 | 0 | 1 |
+| U+115F U+1160 | 2 | 0 | 3 |
+| U+1100 U+1160 U+11A8 | 2 | 2 | 4 |
 
 **xfx's measures, and where each is used:**
 - `wrap::width`, through `cluster_cells` and `cluster_width`
   (`src/tui/wrap.rs`), is **the painter's one measure**. It is used by:
-  - `frame::clip`, the frame's grid and the composer layout
-    (`wrap::composer`);
-  - the transcript's wrap, and Ctrl-O's rows (`railed`, `literal`,
-    `diff_rows` through `clip`, `tool_status`);
-  - the approval band and plane (`approval_view`'s `Review::rows` →
-    `safe_rows` → `wrap::wrap`, and `header`).
+  - `frame::clip` and the frame's grid;
+  - the composer (`wrap::composer`, `composer_cells`);
+  - the transcript's wrap;
+  - Ctrl-O (`railed`, `literal`, `diff_rows` through `clip`,
+    `tool_status`);
+  - the approval band and plane (`Review::rows` → `safe_rows` →
+    `wrap::wrap`, and `header`).
 
   The fix is in `cluster_cells`, so every one of these agrees.
-- `markdown::display_width` (`src/markdown/display_width.rs`) is fx's
-  `display_width.zig` ported (`rune_width`, `:306`). It already counted these
-  code points as fx does, and it is unchanged.
-- `approval_view`'s direct `unicode_width` reads:
-  - `uncounted` (`:1073`) decides what the review **names**: unchanged. The
-    review still names every default-ignorable code point, these among them
-    (`every_default_ignorable_code_point_in_text_is_named_and_an_agreed_emoji_kept`
-    passes);
-  - `squeezed` (`:1094`) asks whether the painter counts a cluster as
-    *fewer* cells than its parts. A count that grew cannot newly trip it.
-  - The note at `approval_view.rs:1016-1029` (on `default_ignorable`, `:1030`) stays, with a paragraph on
-    which code points the painter now counts. The rest, U+2065 among them,
-    are still counted as none, and all of them are still named.
+- `approval_view`'s direct `unicode_width` reads are unchanged:
+  - `uncounted` (`:1073`) decides what the review names, and the review
+    still names every default-ignorable code point
+    (`every_default_ignorable_code_point_in_text_is_named_and_an_agreed_emoji_kept`);
+  - `squeezed` (`:1094`) asks whether the painter counts a cluster as fewer
+    cells than its parts, and a count that grew cannot newly trip it.
 
-## What changed (`2f328d47`)
+## What changed
 
-- **`wrap::cluster_cells`:** a cluster that is one of these code points
-  alone takes `drawn_cells`, fx's count. Every other cluster is unchanged.
-- **The test** `the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts`
-  covers the 14 code points: the painter alone and between two letters, and
-  the markdown port. It also checks the margin line (116 cells, so
-  `clip(…, 112)` ends `TAIL`).
-- **`src/tui/drawn_wider.rs`** was regenerated by
-  `scripts/drawn-wider/sweep.sh` (tmux 3.7b and libghostty-vt
-  1.3.2-HEAD-+0f7cd84b8, 1,111,999 scalars) against the new count. It went
-  from 3,892 scalars to 3,881, which is exactly the 11 now counted as tmux
-  draws them: U+00AD, U+FFA0 and U+FFF0-FFF8. No other scalar moved
+**Round 1, `2f328d47`:**
+- the 14 alone took fx's count;
+- `the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts`;
+- `src/tui/drawn_wider.rs` regenerated by `scripts/drawn-wider/sweep.sh`:
+  3,892 → 3,881 scalars, exactly U+00AD, U+FFA0 and U+FFF0-FFF8
   (`sweep.txt`).
+
+**Round 2, `41a31300`:**
+- **`wrap::cluster_cells`:** any cluster that holds one of the 14 is counted
+  by the port, `markdown::display_width::visible_width`, before the U+FE0E
+  arm. `counted_as_upstream` is the predicate and the port is the one
+  count. Every other cluster is unchanged: emoji, an ordinary Hangul
+  syllable, and so on.
+  - Where clusters form: U+3164, U+FFA0, U+115F and U+1160 join a mark, a
+    joiner or the jamo after them.
+  - The soft hyphen and U+FFF0-FFF8 are clusters of their own
+    (Grapheme_Cluster_Break Control).
+- **`U+115F U+1160` counts 3, fx's count**, not 2. It is not kept at 2 as a
+  divergence: under the rule "a cluster that holds one of the 14 counts as
+  fx counts it" it is fx's, and 3 is no fewer than either terminal draws.
+  The ordinary decomposed Hangul of `approval_view.rs:1071-1072`
+  (`U+1100 U+1161`, no filler) is not affected.
+- **The test**
+  `a_cluster_that_holds_a_soft_hyphen_or_a_filler_takes_the_cells_fx_counts`:
+  - every one of the 14, alone and × {U+0301, U+FE0E, U+034F, U+200D}, plus
+    the four jamo clusters;
+  - each checked alone and between two letters, against the port;
+  - and never under the terminal advances measured for ten of them.
+- **The doc comments** on `cluster_cells` and `counted_as_upstream`:
+  - the cluster form;
+  - "never fewer cells than either draws" holds **in the measured forms**;
+  - the over-count (SHOULD a, below).
+- **The `drawn_wider` table is unchanged.** It measures each scalar alone,
+  and round 2 changes no scalar's count alone.
+
+### The over-count (SHOULD a)
+
+fx's count is often *more* than a terminal draws:
+- U+1160 counts 1, and U+3164 2, where both terminals draw none;
+- U+115F, U+FFA0 and U+FFF0-FFF8 count 1 or 2 where libghostty-vt draws
+  none;
+- a jamo cluster with a filler counts 1 or 2 more than both.
+
+A row holding one is laid out as if it were that much wider. None of this
+was captured, so these costs are inferred from the code [추론]:
+- the frame can skip the `EL` of a row it thinks is full (`frame::place`,
+  `frame.rs:2715-2722`) and leave a stale cell at its right edge;
+- a partial row update (`grid.rs:683-697`) can leave cells the terminal
+  never moved over;
+- the composer's caret (`wrap::composer_cells`) sits that many cells right
+  of the text before it.
+
+None of these puts a byte past the margin. This is fx's own count, kept as
+fx keeps it.
 
 ## RED
 
-- **The test** (`red-test.txt`), on `8837634a`'s code with only the test
-  added. The painter counts 13 of the 14 code points as 0 (U+115F is
-  already 2):
-  `[("U+00AD", (0, 0), 1, 1), ("U+1160", (0, 0), 1, 1), ("U+3164", (0, 0), 2, 2), …]`.
-- **The capture** (`red.txt`, `check.py … red`): 5 claims, 2 hold, 3 fail.
-  - `bytes`: line 3 is fx `…\xad\xad\xad\xadTAIL` against red
-    `…\xad\xad\xad\xadTAI8`;
-  - `margin`: red ends `TAI8`;
-  - `full`: besides line 3, the read row `│  3 …TAI8` does not wrap, where
-    fx's wraps to `│  5678`.
+- **Round 2's test** (`red-test-2.txt`), on `d3584529`'s code (round 1's
+  product code) with only the test added. 16 forms are wrong, as (cluster,
+  painter, fx):
+  `("1160 0301", 0, 1)`, `("3164 0301", 0, 2)`, `("FFA0 0301", 0, 1)`,
+  `("FFA0 FE0E", 0, 1)`, `("FFA0 200D", 0, 1)`, `("115F 1160", 2, 3)`,
+  `("1100 1160 11A8", 2, 4)`, and more.
+- **Round 1's test** (`red-test.txt`), on `8837634a`'s code: 13 of the 14
+  alone counted 0.
+- **The captures** (`red.txt`, `check.py … red`): 10 claims, 4 hold, 6 fail.
+  - **`p5-transcript-diffwide2`** (the cluster form) on round 1's build:
+    - line 3, `104 w` + 4×(U+FFA0 U+0301) + `TAIL5678`, ends **`…TAI8`**
+      (fx `…TAIL`). That is the MUST 1 reproduction on tmux;
+    - line 4, `104 w` + 2×(U+115F U+1160) + `TAIL5678`, ends `…TAIL`
+      (fx `…TA`, because fx counts the two jamo clusters 6 cells).
+  - **`p5-transcript-diffwide`** on the base: line 3 ends `…TAI8`.
 
-## GREEN (`green.txt`: 5 claims, 5 hold)
+## GREEN (`green.txt`: 10 claims, 10 hold)
 
-- **`bytes`:** every Ctrl-O diff row is the same bytes on both sides. Line 3's
-  row is
-  `'\x1b[38;5;245m  │ 3   www…www\xad\xad\xad\xadTAIL'`, and line 2 holds all
-  14 code points.
-- **`margin`:** line 3's first row ends `\xad\xad\xad\xadTAIL` on both sides.
-  Nothing is written past the margin.
-- **`full`**, the two screens aligned:
-  - 40 rows are the same, the read row's wrap `│  5678` included (it is
-    laid out by `literal` through `wrap::width`);
-  - only fx shows `  │     5678`, because fx reflows the diff row's rest
-    onto a row of its own and xfx's `diff_rows` clips it. That is the cause
-    `ctrl-o-diff-row-clipped`, below;
-  - only xfx shows the top row `* network: …`, which fx's window, one row
-    later, pushes out of view.
-- **`inline`:** `edited` and `closed` are identical.
+The `bytes` claim compares the diff rows **cell by cell**, text and
+attributes. The rows' raw `capture-pane -e` bytes are the same except where a
+row's first SGR follows a row that only one side has.
 
-## Regressions (`regressions.txt`, `timing.txt`)
+**`p5-transcript-diffwide`:**
+- every Ctrl-O diff row is the same cells, and line 3 ends
+  `\xad\xad\xad\xadTAIL`;
+- aligned, 40 rows are the same. Only fx shows the continuation
+  `  │     5678`;
+- `edited` and `closed` are identical.
+
+**`p5-transcript-diffwide2`:**
+- **margin:**
+  - line 3 ends `\uffa0\u0301`×4`TAIL` on both sides (it was `…TAI8`);
+  - line 4 ends `\u115f\u1160`×2`TA` on both sides (it was `…TAIL`). The
+    row is cut where fx's count, not the terminal's, reaches 112.
+- **bytes:** rows 1-, 1+, 3 and 4 are the same cells.
+- **row 2 is named.** It is the short line with every cluster form. fx's
+  cells are xfx's with three unstyled blank cells before `x zwj`:
+  - fx re-anchors the cursor (`ESC[42G`) after `half` U+FFA0 U+FE0E,
+    because the cluster holds a variation selector;
+  - its count of the U+3164 and U+1160 before it is three cells more than
+    tmux draws;
+  - xfx's row runs on.
+
+  This is fx's frame (`95e6c8fd`), not the count: the cause
+  `frame-variation-selector-anchor`, below.
+- **full, aligned:** 37 rows are the same.
+  - Only fx shows the continuations `  │     5678` and `  │     IL5678`
+    (`ctrl-o-diff-row-clipped`);
+  - the two re-anchored rows, the diff row and the read row of line 2, are
+    named;
+  - only xfx shows the two top rows that fx's later window pushes out.
+- `edited` and `closed` are identical.
+
+## Regressions (`regressions.txt`, `regressions-r1-r2.txt`, `timing.txt`)
 
 All 31 `p5-transcript-*`, `p5-input-*` and `composer-*` scenarios at 40x120,
-plus `p5-transcript-tools` at 40x80, were each captured on the base build and
-on the fix: **165 snaps, 162 identical, 3 differ**. Why each one differs:
+plus `p5-transcript-tools` at 40x80, were captured on the base and on round
+2's build: **165 snaps, 163 identical, 2 differ**.
 
 - **`p5-transcript-diffwide` `full`:** this receipt.
   - Row 30 goes from `TAI8` to `TAIL`.
   - Rows 1-22: the read row `│  3 …` now wraps to `│  5678` as fx's does,
-    so the document is one row taller and the tail window starts a row
-    later.
-- **`p5-transcript-records` `start`, row 5:** the launch notice `Full access
-  enabled: …` on the hint row. Its text holds no disputed code point. Over
-  three runs it showed on the base twice and on the fix once
-  (`timing.txt`).
-- **`p5-transcript-submit-multi` `submit-0.15`, row 36:** the 0.15 s
-  `Thinking` / `Generating` race that T-U6's receipt names. Over three runs
-  each build showed both (`timing.txt`).
+    so the window starts a row later.
+- **`p5-transcript-submit` `submit-0.15`, row 36:** base `Generating`, fix
+  `Thinking`. This is the 0.15 s race below, in the other submit scenario.
 
-Checkers re-run on their committed captures, under this ledger:
-- T-U1+U2's `transcript-wrap/check.py`: 34 claims, 34 hold, its `green.txt`
-  reproduced;
-- T-U6's `transcript-receipts/check.py`: 35 claims, 35 hold, its
-  `green.txt` reproduced. Its captures are `20046d6`'s, from before this fix.
+Round 1's build against round 2's (`regressions-r1-r2.txt`) is 162
+identical, 3 differ. All three are the same two timing rows: `records`
+`start`, and the two `submit-0.15`. **Round 2 changes no snap of these
+scenarios but timing.**
+
+**The timing rows** (`timing.txt`, every run, read from the captures).
+Neither row's text holds a disputed code point:
+
+- **`p5-transcript-submit-multi` `submit-0.15`, row 36.** This is restated
+  from round 1, where the README said "each build showed both". The data
+  did not show that for round 1's build.
+  - base: `Thinking` once in 7 runs, `Generating` 6 times;
+  - round 1's fix: `Generating` 3 times out of 3;
+  - round 2's fix: `Thinking` once in 5 runs, `Generating` 4 times.
+
+  `Thinking` is the rare outcome on every build. Round 1's three runs
+  happened not to catch it.
+- **`p5-transcript-records` `start`, row 5**, the launch notice `Full access
+  enabled: …`: base 2 of 3, round 1 1 of 3, round 2 0 of 1.
+
+The checkers, re-run on their committed captures under this ledger:
+- T-U1+U2's `transcript-wrap/check.py`: 34/34;
+- T-U6's `transcript-receipts/check.py`: 35/35.
+
+Each reproduced its `green.txt`.
 
 ## The ledger
 
-- **`ctrl-o-width-disputed` is removed.** The margin row is the same bytes
-  on both sides.
-- **`ctrl-o-diff-row-clipped`** is a new `[[cause]]` of kind `defect`. It
-  approves nothing.
-  - fx reflows a Ctrl-O diff row longer than the screen onto continuation
-    rows under its gutter (`reflowDiffRow`,
-    `src/ui/render_engine/transcript_blocks.zig:718-766@c1db9191`, the same
-    at 481104fd's `:720-768`). xfx's `diff_rows` clips it at the margin
-    (`src/tui/full_transcript.rs:1958`).
-  - fx's form is c1db919's too, so this is a KEEP gap, not a 0.0.16 change.
-    It is not width: an ASCII line past the margin shows it as well.
-  - It is security-adjacent: Ctrl-O hides the clipped tail. The review
-    already wraps a long line instead of cutting it, for exactly that
-    reason.
-  - It needs its own unit. It is not fixed here, because it changes every
-    long diff line in Ctrl-O, not the disputed code points.
+- **`ctrl-o-width-disputed`** was removed in round 1. Its form is fixed.
+  The cluster form MUST 1 named is fixed here, with its own capture.
+- **`ctrl-o-diff-row-clipped`** (`[[cause]]`, defect).
+  - fx reflows an overlong Ctrl-O diff row (`reflowDiffRow`,
+    `transcript_blocks.zig:718-766@c1db9191`), and xfx's `diff_rows` clips
+    it.
+  - It is a c1db919 KEEP gap, not width.
+  - It now also covers `p5-transcript-diffwide2`.
+- **`frame-variation-selector-anchor`** (`[[cause]]`, unit), new.
+  - fx v0.0.16 writes a cursor column after every glyph whose cluster holds
+    a variation selector (`95e6c8fd`,
+    `src/core/terminal/engine.zig:2572-2588@481104fd`; not at c1db9191).
+    xfx's row writers do not.
+  - It is scoped to `p5-transcript-diffwide2` `full`, the one capture that
+    shows it.
+  - It is not a margin overrun. It is a proposed unit, ENGINE-VS-ANCHOR,
+    not dispatched.
+- **`ctrl-o-drawn-wider-raw`** (`[[cause]]`, defect, owner **CTRLO-WIDER**),
+  for SHOULD c.
+  - At 481104fd fx writes U+0605, U+FF9E, U+302E and the rest of the
+    `drawn_wider` table outside its `isNonPrintingCodepoint` as themselves,
+    and so does xfx's Ctrl-O. The bytes are fx's.
+  - But fx **counts** them one code point at a time:
+    - U+0605 and U+FF9E one cell;
+    - U+302E two (`wide_ranges` `0x2FF0-0x303E`,
+      `unicode_display_data.zig:81`).
+
+    xfx's painter counts them fewer cells than a terminal draws.
+  - So it is the same defect class as this unit, for other scalars. It is
+    kind `defect`, not `unit`.
+  - Its selector is Ctrl-O diff rows holding any of the table's 73 ranges
+    that fx does not name. It is not fixed here.
 
 ## Files
 
-- `fx/`, `xfx/`, `red/`: `p5-transcript-diffwide`'s snaps, redacted.
-- `publish.py`, `check.py`, `regress.py`: the scripts.
-- `green.txt`, `red.txt`, `regressions.txt`, `timing.txt`, `red-test.txt`,
-  `sweep.txt`: their output.
+- `fx/`, `xfx/`, `red/`: both scenarios' snaps, redacted.
+- The scripts: `publish.py`, `check.py`, `regress.py`, and `probe/`
+  (`probe_seq.c` for libghostty-vt, `dsr_seq.py` for tmux, `seqs.txt`).
+- The outputs: `green.txt`, `red.txt`, `regressions.txt`,
+  `regressions-r1-r2.txt`, `timing.txt`, `clusters.txt`, `red-test.txt`,
+  `red-test-2.txt` and `sweep.txt`.
 
 Commands, from the worktree (`R=.prd/tui-phase5/receipts/width-disputed`):
 
 ```
-python3 -I -B $R/publish.py . $R <fx-caps> <fix-caps> <base-caps> 2f328d4 20046d6
+python3 -I -B $R/publish.py . $R p5-transcript-diffwide  <fx-caps> <fix-caps> <base-caps> 41a3130 20046d6
+python3 -I -B $R/publish.py . $R p5-transcript-diffwide2 <fx-caps> <fix-caps> <r1-caps>   41a3130 2f328d4
 python3 -I -B $R/check.py . $R xfx    # green.txt
 python3 -I -B $R/check.py . $R red    # red.txt
 python3 -I -B $R/regress.py . <base-caps> <fix-caps>    # regressions.txt
-scripts/drawn-wider/sweep.sh <libghostty-vt prefix> <work dir>
 ```
 
 ## Gates
 
-The gates ran on `10ac532e`, with this receipt staged. Its product code is
-`2f328d47`'s. `TMPDIR` was `/private/tmp/claude-501/tr`, and each suite ran
-alone, after the idle wait.
+The gates ran on `41a31300`, with the ledger and this receipt staged.
+`TMPDIR` was `/private/tmp/claude-501/tr`, and each suite ran alone, after
+the idle wait.
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 4930 passed, 0 failed, 7 ignored |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 4959 passed, 0 failed, 7 ignored |
+| `cargo test --locked --no-fail-fast` | 4931 passed, 0 failed, 7 ignored |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4960 passed, 0 failed, 7 ignored |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok, ok, ok |
 | `scripts/fxcap/test-sweep.sh` (the ledger changed); the ledger loads with its sources checked | OK, both suites; ok |
-| `check.py … xfx` (`green.txt`) | 5 claims, 5 hold |
-| `check.py … red` (`red.txt`) | 5 claims, 2 hold, 3 fail |
-| `regress.py` (`regressions.txt`) | 165 snaps: 162 identical, 3 differ, each explained above |
+| `check.py … xfx` (`green.txt`) | 10 claims, 10 hold |
+| `check.py … red` (`red.txt`) | 10 claims, 4 hold, 6 fail |
+| `regress.py` base / round 2 (`regressions.txt`) | 165 snaps: 163 identical, 2 differ, each explained above |
+| `regress.py` round 1 / round 2 (`regressions-r1-r2.txt`) | 165 snaps: 162 identical, 3 differ, all timing |
 | `transcript-wrap/check.py`, `transcript-receipts/check.py` | 34/34 and 35/35, their `green.txt` reproduced |
-| `scripts/drawn-wider/sweep.sh` (`sweep.txt`) | 1,111,999 scalars; the table 3,892 → 3,881 |

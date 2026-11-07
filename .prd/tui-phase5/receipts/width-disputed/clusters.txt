@@ -1,0 +1,78 @@
+# sequence | fx's count (the port, one code point at a time) | tmux 3.7b | libghostty-vt 1.3.2
+ad                     fx 1  tmux 1  ghostty 1
+ad 301                 fx 1  tmux 1  ghostty 1
+ad fe0e                fx 1  tmux 1  ghostty 1
+ad 34f                 fx 1  tmux 1  ghostty 1
+ad 200d                fx 1  tmux 1  ghostty 1
+115f                   fx 2  tmux 2  ghostty 0
+115f 301               fx 2  tmux 2  ghostty 0
+115f fe0e              fx 2  tmux 2  ghostty 0
+115f 34f               fx 2  tmux 2  ghostty 0
+115f 200d              fx 2  tmux 2  ghostty 0
+1160                   fx 1  tmux 0  ghostty 0
+1160 301               fx 1  tmux 0  ghostty 0
+1160 fe0e              fx 1  tmux 0  ghostty 0
+1160 34f               fx 1  tmux 0  ghostty 0
+1160 200d              fx 1  tmux 0  ghostty 0
+3164                   fx 2  tmux 0  ghostty 0
+3164 301               fx 2  tmux 0  ghostty 0
+3164 fe0e              fx 2  tmux 0  ghostty 0
+3164 34f               fx 2  tmux 0  ghostty 0
+3164 200d              fx 2  tmux 0  ghostty 0
+ffa0                   fx 1  tmux 1  ghostty 0
+ffa0 301               fx 1  tmux 1  ghostty 0
+ffa0 fe0e              fx 1  tmux 1  ghostty 0
+ffa0 34f               fx 1  tmux 1  ghostty 0
+ffa0 200d              fx 1  tmux 1  ghostty 0
+fff0                   fx 1  tmux 1  ghostty 0
+fff0 301               fx 1  tmux 1  ghostty 0
+fff0 fe0e              fx 1  tmux 1  ghostty 0
+fff0 34f               fx 1  tmux 1  ghostty 0
+fff0 200d              fx 1  tmux 1  ghostty 0
+fff1                   fx 1  tmux 1  ghostty 0
+fff1 301               fx 1  tmux 1  ghostty 0
+fff1 fe0e              fx 1  tmux 1  ghostty 0
+fff1 34f               fx 1  tmux 1  ghostty 0
+fff1 200d              fx 1  tmux 1  ghostty 0
+fff2                   fx 1  tmux 1  ghostty 0
+fff2 301               fx 1  tmux 1  ghostty 0
+fff2 fe0e              fx 1  tmux 1  ghostty 0
+fff2 34f               fx 1  tmux 1  ghostty 0
+fff2 200d              fx 1  tmux 1  ghostty 0
+fff3                   fx 1  tmux 1  ghostty 0
+fff3 301               fx 1  tmux 1  ghostty 0
+fff3 fe0e              fx 1  tmux 1  ghostty 0
+fff3 34f               fx 1  tmux 1  ghostty 0
+fff3 200d              fx 1  tmux 1  ghostty 0
+fff4                   fx 1  tmux 1  ghostty 0
+fff4 301               fx 1  tmux 1  ghostty 0
+fff4 fe0e              fx 1  tmux 1  ghostty 0
+fff4 34f               fx 1  tmux 1  ghostty 0
+fff4 200d              fx 1  tmux 1  ghostty 0
+fff5                   fx 1  tmux 1  ghostty 0
+fff5 301               fx 1  tmux 1  ghostty 0
+fff5 fe0e              fx 1  tmux 1  ghostty 0
+fff5 34f               fx 1  tmux 1  ghostty 0
+fff5 200d              fx 1  tmux 1  ghostty 0
+fff6                   fx 1  tmux 1  ghostty 0
+fff6 301               fx 1  tmux 1  ghostty 0
+fff6 fe0e              fx 1  tmux 1  ghostty 0
+fff6 34f               fx 1  tmux 1  ghostty 0
+fff6 200d              fx 1  tmux 1  ghostty 0
+fff7                   fx 1  tmux 1  ghostty 0
+fff7 301               fx 1  tmux 1  ghostty 0
+fff7 fe0e              fx 1  tmux 1  ghostty 0
+fff7 34f               fx 1  tmux 1  ghostty 0
+fff7 200d              fx 1  tmux 1  ghostty 0
+fff8                   fx 1  tmux 1  ghostty 0
+fff8 301               fx 1  tmux 1  ghostty 0
+fff8 fe0e              fx 1  tmux 1  ghostty 0
+fff8 34f               fx 1  tmux 1  ghostty 0
+fff8 200d              fx 1  tmux 1  ghostty 0
+115f 1160              fx 3  tmux 2  ghostty 0
+1100 1160              fx 3  tmux 2  ghostty 2
+115f 1161              fx 3  tmux 2  ghostty 0
+1100 1160 11a8         fx 4  tmux 2  ghostty 2
+3164 3164              fx 4  tmux 0  ghostty 0
+ad ad                  fx 2  tmux 2  ghostty 2
+76 sequences; fx's count below a terminal's advance in 0
