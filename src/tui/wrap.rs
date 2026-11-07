@@ -583,6 +583,9 @@ pub(crate) fn cluster_width(cluster: &str) -> u16 {
 /// is its port) and what a terminal advances by. The width table's own answer
 /// for the pair is one cell, and a row measured by it would put whatever
 /// follows the sign a cell to the left of where the terminal paints it.
+///
+/// **A soft hyphen and the Hangul fillers take the cells upstream counts**
+/// ([`drawn_cells`]), where the width table counts them as none.
 fn cluster_cells(cluster: &str) -> usize {
     if cluster == "\t" {
         return usize::from(TAB_WIDTH);
@@ -591,10 +594,42 @@ fn cluster_cells(cluster: &str) -> usize {
         return 0;
     }
     let mut chars = cluster.chars();
-    if let (Some(base), Some('\u{fe0e}'), None) = (chars.next(), chars.next(), chars.next()) {
-        return unicode_width::UnicodeWidthChar::width(base).unwrap_or(0);
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(base), Some('\u{fe0e}'), None) => {
+            return unicode_width::UnicodeWidthChar::width(base).unwrap_or(0);
+        }
+        (Some(alone), None, None) => {
+            if let Some(cells) = drawn_cells(alone) {
+                return cells;
+            }
+        }
+        _ => {}
     }
     cluster.width()
+}
+
+/// The cells upstream counts for the default-ignorable code points a terminal
+/// draws -- a soft hyphen (`U+00AD`), the Hangul fillers (`U+115F`, `U+1160`,
+/// `U+3164`, `U+FFA0`) and `U+FFF0`-`U+FFF8` -- each its own cluster here.
+///
+/// The width table counts every one of them as none (Unicode's
+/// `Default_Ignorable_Code_Point`), but terminals do not all draw them as
+/// none: tmux 3.7b gives the soft hyphen, `U+FFA0` and `U+FFF0`-`U+FFF8` a
+/// cell each and `U+115F` two; libghostty-vt gives the soft hyphen one. A row
+/// clipped at the margin by the table's count then ran past it, and the
+/// terminal wrote the row's tail into its last cell (`p5-transcript-diffwide`,
+/// Ctrl-O: `…TAI8` where fx's row ends `…TAIL`). Upstream counts each as one
+/// cell, or two where East Asian Width makes it wide (`runeWidth`,
+/// `src/core/shared/display_width.zig:275-282@481104fd`; `wide_ranges`,
+/// `unicode_display_data.zig:41`, `:85`), and so does its port
+/// ([`crate::markdown::display_width`]): never fewer cells than either
+/// terminal draws, so a row measured by it never runs past the margin.
+fn drawn_cells(character: char) -> Option<usize> {
+    match u32::from(character) {
+        0x00ad | 0x1160 | 0xffa0 | 0xfff0..=0xfff8 => Some(1),
+        0x115f | 0x3164 => Some(2),
+        _ => None,
+    }
 }
 
 /// The cells the composer's gutter takes in front of every row, the first
@@ -1104,6 +1139,57 @@ mod tests {
                 "{text:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts() {
+        // fx v0.0.16's count of each (`runeWidth`,
+        // `src/core/shared/display_width.zig:275-282@481104fd`): none of
+        // them is a zero-width continuation (`:409-421`), so each is one
+        // cell, or two where `wide_ranges` holds it
+        // (`unicode_display_data.zig:41`, `0x1100-0x115F`; `:85`,
+        // `0x3131-0x318E`). The terminals draw them so wide or narrower
+        // (tmux 3.7b: 1, 2, 0, 0, 1, 1; libghostty-vt: 1, 0, 0, 0, 0, 0),
+        // never wider: a row measured by fx's count never runs past the
+        // margin on either.
+        let fx: &[(u32, usize)] = &[
+            (0x00ad, 1),
+            (0x115f, 2),
+            (0x1160, 1),
+            (0x3164, 2),
+            (0xffa0, 1),
+            (0xfff0, 1),
+            (0xfff1, 1),
+            (0xfff2, 1),
+            (0xfff3, 1),
+            (0xfff4, 1),
+            (0xfff5, 1),
+            (0xfff6, 1),
+            (0xfff7, 1),
+            (0xfff8, 1),
+        ];
+        // Every one that is counted otherwise, as (code point, painter, port,
+        // fx): the painter's `width` alone and between two letters, and the
+        // markdown port's.
+        let mut wrong = Vec::new();
+        for &(code, cells) in fx {
+            let alone = char::from_u32(code).expect("a scalar").to_string();
+            let between = format!("a{alone}b");
+            let painter = (usize::from(width(&alone)), usize::from(width(&between)) - 2);
+            let port = crate::markdown::display_width::visible_width(between.as_bytes()) - 2;
+            if painter != (cells, cells) || port != cells {
+                wrong.push((format!("U+{code:04X}"), painter, port, cells));
+            }
+        }
+        assert_eq!(wrong, []);
+        // `p5-transcript-diffwide` line 3: 104 cells of `w`, four soft
+        // hyphens and `TAIL5678` -- 116 cells, so a 112-cell row ends `TAIL`.
+        let line = format!("{}{}TAIL5678", "w".repeat(104), "\u{ad}".repeat(4));
+        assert_eq!(width(&line), 116);
+        assert_eq!(
+            super::super::frame::clip(&line, 112),
+            format!("{}{}TAIL", "w".repeat(104), "\u{ad}".repeat(4))
+        );
     }
 
     #[test]

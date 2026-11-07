@@ -1020,6 +1020,13 @@ enum Emoji {
 /// `U+2065` and `U+FFF0`-`U+FFF8` a cell each; herdr's terminal (libghostty-vt)
 /// gives the soft hyphen one; upstream's own count gives the Hangul fillers
 /// two and most of the rest one (`display_width.zig`, `c1db919`).
+///
+/// The painter now counts the soft hyphen, the Hangul fillers and
+/// `U+FFF0`-`U+FFF8` as upstream does (`super::wrap`'s `drawn_cells`,
+/// WIDTH-DISPUTED), so those no longer run a row past the margin. The rest are
+/// still counted as none -- `U+2065` among them, which tmux draws a cell wide
+/// -- and every one of them is still named here, so a reviewer is shown that
+/// the payload carried one.
 fn default_ignorable(code: u32) -> bool {
     matches!(
         code,
