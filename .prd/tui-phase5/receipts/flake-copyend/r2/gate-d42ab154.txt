@@ -1,0 +1,25 @@
+# gate at d42ab154 (0 paths not committed), load { 14.14 11.57 10.00 }, 02:33:06
+fmt: exit 0 -- 
+clippy: exit 0 -- 
+clippy-fault-injection: exit 0 -- 
+test: exit 0 -- 15 suites: 5230 passed, 0 failed, 7 ignored
+test-fault-injection: exit 0 -- 15 suites: 5267 passed, 0 failed, 7 ignored
+check-no-secrets: exit 0 -- check-no-secrets: ok (12560 tracked file(s) scanned) 
+check-no-stubs: exit 0 -- check-no-stubs: ok 
+check-preview-contract: exit 0 -- check-preview-contract: ok (.github/workflows/preview.yml) 
+check-tui-preflight-cost: exit 0 -- check-tui-preflight-cost: ok 
+check-usage-clock: exit 0 -- check-usage-clock: ok 
+check-xfx-identity: exit 0 -- check-xfx-identity: ok (12560 tracked file(s) scanned) 
+test-check-no-secrets: exit 0 -- test-check-no-secrets: ok nothing-tracked    exit 1 test-check-no-secrets: ok only-a-symlink     exit 1 test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576) 
+test-gate-env: exit 0 -- test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test test-gate-env: ok (5 cases) 
+test-preview-contract: exit 0 -- test-preview-contract: ok (24 mutants caught; the unbroken copy passes) 
+fxcap-test-sweep: exit 0 -- OK Ran 26 tests in 12.398s OK 
+fxcap-test-capture: exit 0 -- Ran 42 tests in 153.778s OK 
+build-release: exit 0 -- 
+smoke: exit 0 -- 47 check(s), 0 failure(s) 
+build-faulty: exit 0 -- 
+smoke-tui: exit 0 -- smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures 
+# done 02:52:16, load { 16.05 16.27 15.38 }
+# test-sweep: Ran 50 tests in 6.403s OK Ran 26 tests in 12.398s OK 
+# smoke: 47 check(s), 0 failure(s)
+# smoke-tui: smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures

@@ -1,0 +1,51 @@
+# RED: hold12.py on the bodies at b26101f3 (round 1's), 02:28:17
+## run 1 a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure, load { 15.84 11.29 9.45 }
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... FAILED
+panicked at src/clipboard.rs:949:13:
+the copy waited for a tool that never answered
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.23s
+## run 1 an_ending_session_joins_a_report_whole_and_gives_its_copy_up, load { 13.86 11.07 9.40 }
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... FAILED
+panicked at src/tui/trace.rs:330:9:
+the end waited on the tool: 11.997190875s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.01s
+## run 2 a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure, load { 13.31 11.09 9.44 }
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... FAILED
+panicked at src/clipboard.rs:949:13:
+the copy waited for a tool that never answered
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.24s
+## run 2 an_ending_session_joins_a_report_whole_and_gives_its_copy_up, load { 13.29 11.15 9.48 }
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... FAILED
+panicked at src/tui/trace.rs:330:9:
+the end waited on the tool: 11.865154625s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.01s
+## run 3 a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure, load { 12.01 10.96 9.44 }
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... FAILED
+panicked at src/clipboard.rs:949:13:
+the copy waited for a tool that never answered
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.21s
+## run 3 an_ending_session_joins_a_report_whole_and_gives_its_copy_up, load { 11.61 10.92 9.44 }
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... FAILED
+panicked at src/tui/trace.rs:330:9:
+the end waited on the tool: 11.999671208s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.03s
+
+# GREEN: hold12.py on the bodies at b0c73b5a (converted), 02:31:04
+## run 1 a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure, load { 10.57 10.86 9.59 }
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.21s
+## run 1 an_ending_session_joins_a_report_whole_and_gives_its_copy_up, load { 9.74 10.65 9.54 }
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.01s
+## run 2 a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure, load { 9.63 10.60 9.53 }
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.22s
+## run 2 an_ending_session_joins_a_report_whole_and_gives_its_copy_up, load { 9.82 10.61 9.55 }
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.01s
+## run 3 a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure, load { 9.63 10.53 9.54 }
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.22s
+## run 3 an_ending_session_joins_a_report_whole_and_gives_its_copy_up, load { 11.46 10.88 9.67 }
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 12.01s
