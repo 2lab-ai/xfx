@@ -533,12 +533,14 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 ///   `writeApprovalDraft`, `approval_ui.zig:1655-1675`) and the composer's
 ///   selection (`appendLayoutUnit`, `input_presentation.zig:995-1021`;
 ///   `super::theme::Palette::reverse`);
-/// * `38 ; 5 ; <n>` -- a 256-colour foreground;
-/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground;
-/// * `48 ; 5 ; <n>`, `48 ; 2 ; <r> ; <g> ; <b>` and `49` -- the one
-///   background the band paints, the `@` file picker's marked row
-///   (`approval_button_inactive_style`, `super::theme::Palette::selected`),
-///   and its close;
+/// * `38 ; 5 ; <n>` -- a 256-colour foreground, every grey the palette and
+///   the highlighter paint;
+/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground, the Ultra
+///   mark's yellow (`super::theme::ULTRA_TRUECOLOR`);
+/// * `48 ; 5 ; <n>` and `49` -- the one background the band paints, the `@`
+///   file picker's marked row (`approval_button_inactive_style`,
+///   `super::theme::Palette::selected`), `48;5` at every depth as upstream's
+///   (`theme.zig:97,140@481104fd`), and its close;
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
 /// invisible and `blink` makes it move. None of them is in upstream's
@@ -570,9 +572,10 @@ fn is_palette_sgr(text: &str) -> bool {
                 // selector. Each one a terminal reads as a number, and nothing
                 // else: an empty one is a zero to a terminal, and a `38;5;`
                 // with the index left off is not a colour this crate writes.
-                let wanted = match params.next() {
-                    Some("5") => 1,
-                    Some("2") => 3,
+                // A direct background is none either.
+                let wanted = match (group, params.next()) {
+                    (_, Some("5")) => 1,
+                    ("38", Some("2")) => 3,
                     _ => return false,
                 };
                 for _ in 0..wanted {
@@ -1399,7 +1402,9 @@ mod tests {
         for painted in [
             "\u{1b}[38;5;240m",
             "\u{1b}[38;5;255m",
-            "\u{1b}[38;2;88;88;88m",
+            // The Ultra mark's yellow where the terminal takes direct colour
+            // (`super::theme::ULTRA_TRUECOLOR`).
+            "\u{1b}[38;2;255;204;0m",
             "\u{1b}[0m",
             "\u{1b}[m",
             // Upstream's text vocabulary: the welcome line's brand, the
@@ -1423,10 +1428,9 @@ mod tests {
             "\u{1b}[0;7m",
             "\u{1b}[27m",
             "\u{1b}[1;7m",
-            // The file picker's marked row: its background, in both
-            // notations, and the background's close.
+            // The file picker's marked row: its background, and the
+            // background's close.
             "\u{1b}[48;5;239m",
-            "\u{1b}[48;2;78;78;78m",
             "\u{1b}[49m",
         ] {
             assert_eq!(
@@ -1446,6 +1450,10 @@ mod tests {
             "\u{1b}[41m",
             "\u{1b}[48;5m",
             "\u{1b}[48;2;1;2m",
+            // A direct background: the palette paints its one background
+            // `48;5` at every depth, as upstream's builtins are
+            // (`theme.zig:97,140@481104fd`), so nothing here writes one.
+            "\u{1b}[48;2;78;78;78m",
             "\u{1b}[31m",
             "\u{1b}[1;8m",
             "\u{1b}[38;5m",

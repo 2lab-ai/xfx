@@ -165,7 +165,7 @@ What is modelled, and nothing else:
   `39`), a text attribute or its close (`1 2 3 4 7 9 22 23 24 27 29` -- the
   reverse pair is a draft's caret cell and a composer selection), one
   foreground colour (`38;5;n`, `38;2;r;g;b`), or one background and its close
-  (`48;5;n`, `48;2;r;g;b`, `49` -- the file picker's), every number a
+  (`48;5;n`, `49` -- the file picker's), every number a
   terminal reads (`0-255`). One group outside it and the whole sequence is a
   finding
 * `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
@@ -658,7 +658,10 @@ class Grid:
                 index += 1
                 continue
             if part in ("38", "48") and index + 1 < len(parts):
-                wanted = {"5": 1, "2": 3}.get(parts[index + 1])
+                # A direct background is no shape the product writes: the
+                # file picker's bar is `48;5` at every depth.
+                shapes = {"5": 1, "2": 3} if part == "38" else {"5": 1}
+                wanted = shapes.get(parts[index + 1])
                 values = parts[index + 2 : index + 2 + (wanted or 0)]
                 if (
                     wanted is not None
@@ -972,9 +975,10 @@ from vt_grid import Grid  # noqa: E402
 # A three-person ZWJ family: five scalars, one cluster, two columns.
 FAMILY = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
 
-# The palette's two spellings (`src/tui/theme.rs:195-227`) and the reset that
-# ends every band row.
-PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;188;188;188m", "\x1b[0m", "\x1b[m")
+# The product's two colour spellings -- a palette grey, `38;5` at every depth
+# (`src/tui/theme.rs` `Palette`), and the Ultra mark's direct yellow
+# (`ULTRA_TRUECOLOR`) -- and the reset that ends every band row.
+PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;255;204;0m", "\x1b[0m", "\x1b[m")
 
 # The background query and the window title (`src/tui/theme.rs:66`,
 # `src/tui/frame.rs`), each in the one terminator the product spells it with
@@ -1156,7 +1160,7 @@ def a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off():
 def an_undeclared_sgr_parameter_is_a_finding():
     for sequence in (
         "\x1b[999m", "\x1b[5m", "\x1b[8m", "\x1b[38;5;m", "\x1b[48;5;256m",
-        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m",
+        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m", "\x1b[48;2;78;78;78m",
     ):
         grid = fed(sequence)
         require(grid.unknown, "%r passed the oracle unremarked" % sequence)
@@ -1200,8 +1204,8 @@ def the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colou
 
 def reverse_video_and_a_background_are_accepted_and_kept_apart():
     """The caret cell's reverse (`7`/`27`) and the picker's background
-    (`48;5;n`, `48;2;r;g;b`, `49`), as `check.rs`'s `wire_color` admits them."""
-    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m", "\x1b[48;2;1;2;3m",
+    (`48;5;n`, `49`), as `check.rs`'s `wire_color` admits them."""
+    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m",
                      "\x1b[0;7m", "\x1b[1;38;5;255;48;5;236m"):
         require(not fed(sequence + "x").unknown, "the product's %r was rejected" % sequence)
     grid = fed("\x1b[0;7m \x1b[0mx\x1b[48;5;236;38;5;250my\x1b[49mz")
