@@ -533,8 +533,7 @@ impl Palette {
     /// A tool group's rows are upstream's statusline grey with a command's
     /// words in the highlighter's ([`COMMAND`]) and the mark in the hint grey,
     /// so on those rows 245 is the statusline's and goes to 241 on a light
-    /// screen -- not to the summary's 247. A cancelled call's line keeps its
-    /// argument in [`TOOL`], 245 on either screen. The highlighter's quieter
+    /// screen -- not to the summary's 247. The highlighter's quieter
     /// greys (a string or a number, 250 and 241) are repainted as the notice
     /// grey they share on dark.
     ///
@@ -547,10 +546,23 @@ impl Palette {
     /// (`tool_group_projection.zig:558-640,742-784@481104fd`), which a
     /// recolouring of what the screen holds cannot reproduce
     /// (`p5-toolgroup-retint`, `.prd/tui-phase5/receipts/inline-code-truecolor/`).
-    /// In a truecolor session the row's own greys -- the statusline's, the
-    /// mark's, a stopped call's argument -- are this palette's and spelt
-    /// `38;2`, so an indexed cell on a tool row is the highlighter's and is
-    /// answered by its roles alone, as on a code row (`p5-toolgroup-retint-tc`).
+    /// In a truecolor session the row's own greys -- the statusline's and the
+    /// mark's -- are this palette's and spelt `38;2`, so an indexed cell on a
+    /// group's row is the highlighter's and is answered by its roles alone, as
+    /// on a code row (`p5-toolgroup-retint-tc`). A light comment's 243 is in
+    /// no other role of the row, so at 256 colours it is answered too: the
+    /// comment comes last.
+    ///
+    /// **A cancelled call's own line is not projected again.** Upstream draws
+    /// that entry's own bytes (`tool_group_projection.zig:649-664@481104fd`),
+    /// which a switch rewrites through the builtin token table
+    /// (`store.zig:3745-3750,3784-3800`) whatever the depth: 255/235, 252/238,
+    /// 250/241 and 245/247. So the line is answered by those four pairs
+    /// ([`HINT`], [`WARNING`] -- the words' grey too --, [`NOTICE`], [`DIM`]):
+    /// its argument, drawn in [`TOOL`]'s 245 on either screen, goes to 247 on a
+    /// light one, a comment drawn dark with it, and a comment drawn light
+    /// (243, in no pair) stays (`p5-toolstop-retint`, `-light`, `-tc`,
+    /// `-light-tc`).
     ///
     /// A code block's rows are the highlighter's greys and nothing else: its
     /// words ([`COMMAND`]), its strings and numbers (the notice grey, as on a
@@ -569,11 +581,12 @@ impl Palette {
         let highlighters = at.depth != self.depth;
         let roles: &[usize] = match row {
             DocumentRow::Plain => return self.document_retint(colour),
-            DocumentRow::ToolGroup | DocumentRow::ToolStopped if highlighters => {
-                &[COMMENT, COMMAND, NOTICE]
-            }
-            DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE],
-            DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
+            DocumentRow::ToolGroup if highlighters => &[COMMENT, COMMAND, NOTICE],
+            // The comment last: its dark 245 is the statusline's, so only its
+            // light 243 reaches it.
+            DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE, COMMENT],
+            // Upstream's token table, at either depth: its four pairs.
+            DocumentRow::ToolStopped => &[WARNING, HINT, NOTICE, DIM],
             DocumentRow::Answer => &[ANSWER],
             DocumentRow::Code => &[COMMENT, COMMAND, NOTICE],
             DocumentRow::Table => return None,
@@ -1331,7 +1344,9 @@ mod tests {
             mode: Mode::Dark,
             depth: Depth::TrueColor,
         };
-        for row in [DocumentRow::ToolGroup, DocumentRow::ToolStopped] {
+        // A stopped call's own line is not projected again: it moves through
+        // upstream's token table (`a_stopped_calls_line_moves_through_upstreams_token_table`).
+        for row in [DocumentRow::ToolGroup] {
             assert_eq!(
                 dark.document_retint_in(row, Color::Indexed(241)),
                 Some("\u{1b}[38;5;250m"),
@@ -1357,15 +1372,10 @@ mod tests {
             assert_eq!(light.document_retint_in(row, Color::Indexed(241)), None);
         }
         // The row's own greys, spelt exactly, keep their roles: the statusline
-        // on a group's row, the argument (245 on either screen) on a stopped
-        // call's.
+        // on a group's row.
         assert_eq!(
             dark.document_retint_in(DocumentRow::ToolGroup, Color::Rgb(98, 98, 98)),
             Some("\u{1b}[38;2;138;138;138m")
-        );
-        assert_eq!(
-            light.document_retint_in(DocumentRow::ToolStopped, Color::Rgb(138, 138, 138)),
-            None
         );
         // At 256 colours the colour alone cannot tell the two apart, and the
         // statusline still wins -- the divergence the next unit owns
@@ -1378,6 +1388,105 @@ mod tests {
             indexed.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(241)),
             Some("\u{1b}[38;5;245m")
         );
+    }
+
+    #[test]
+    fn a_stopped_calls_line_moves_through_upstreams_token_table() {
+        // fx does not project a cancelled call's own line again: it draws the
+        // entry's own bytes (`tool_group_projection.zig:649-664@481104fd`),
+        // which a switch rewrites through the builtin token table
+        // (`store.zig:3745-3750`, pairs `:3784-3800`: 255/235, 252/238,
+        // 250/241, 245/247), at either depth. So the argument's 245 (and a
+        // comment drawn dark in it) goes to 247 on light and back, and a comment
+        // drawn light (243, in no pair) stays (`p5-toolstop-retint`,
+        // `p5-toolstop-retint-light`, and their `-tc`).
+        for depth in [Depth::Ansi256, Depth::TrueColor] {
+            let light = Palette {
+                mode: Mode::Light,
+                depth,
+            };
+            let dark = Palette {
+                mode: Mode::Dark,
+                depth,
+            };
+            for (palette, from, to) in [
+                (light, 245, Some("\u{1b}[38;5;247m")),
+                (light, 250, Some("\u{1b}[38;5;241m")),
+                (light, 252, Some("\u{1b}[38;5;238m")),
+                (light, 255, Some("\u{1b}[38;5;235m")),
+                (light, 243, None),
+                (light, 247, None),
+                (dark, 247, Some("\u{1b}[38;5;245m")),
+                (dark, 241, Some("\u{1b}[38;5;250m")),
+                (dark, 238, Some("\u{1b}[38;5;252m")),
+                (dark, 243, None),
+                (dark, 245, None),
+            ] {
+                assert_eq!(
+                    palette.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(from)),
+                    to,
+                    "{depth:?} {:?} {from}",
+                    palette.mode
+                );
+            }
+        }
+        // The row's own greys in a truecolor session, spelt exactly.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolStopped, Color::Rgb(138, 138, 138)),
+            Some("\u{1b}[38;2;158;158;158m")
+        );
+    }
+
+    #[test]
+    fn a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves() {
+        // A comment drawn light is 243 (`theme.zig:154@481104fd`), a grey no
+        // other role of a tool group's row holds in either mode, so unlike the
+        // dark comment's 245 and the light string's 241 it is no clash with the
+        // statusline: fx projects it again as the dark comment, 245
+        // (`p5-toolgroup-retint-light`, `dark`).
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(243)),
+            Some("\u{1b}[38;5;245m"),
+            "a light comment on a tool row kept its light grey on a dark screen"
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(243)),
+            None
+        );
+        // The comment comes last, so every grey the row's other roles hold is
+        // answered as before: the statusline's 245 and 241 by the statusline
+        // (the two clashes TG-REDRAW owns), the mark, words and strings by
+        // theirs.
+        for (palette, from, to) in [
+            (light, 245, Some("\u{1b}[38;5;241m")),
+            (dark, 241, Some("\u{1b}[38;5;245m")),
+            (light, 255, Some("\u{1b}[38;5;235m")),
+            (dark, 235, Some("\u{1b}[38;5;255m")),
+            (light, 252, Some("\u{1b}[38;5;238m")),
+            (dark, 238, Some("\u{1b}[38;5;252m")),
+            (light, 250, Some("\u{1b}[38;5;241m")),
+            (dark, 245, None),
+            (light, 241, None),
+        ] {
+            assert_eq!(
+                palette.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(from)),
+                to,
+                "{:?} {from}",
+                palette.mode
+            );
+        }
     }
 
     #[test]
@@ -1662,10 +1771,12 @@ mod tests {
             light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
             Some("\u{1b}[38;5;247m")
         );
+        // A cancelled call's argument is drawn 245 on either screen
+        // (`tool_stdout_style`), and a switch to light takes it to 247 as
+        // upstream's token table does (`p5-toolstop-retint`, `light`).
         assert_eq!(
             light.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(245)),
-            None,
-            "a cancelled call's argument is 245 on either screen"
+            Some("\u{1b}[38;5;247m")
         );
         assert_eq!(
             light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(252)),
