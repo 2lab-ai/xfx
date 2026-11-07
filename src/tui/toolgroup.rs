@@ -2370,4 +2370,69 @@ mod tests {
             " \u{b7} 3 subagents \u{b7} 2 commands"
         );
     }
+
+    #[test]
+    fn the_transcripts_row_keeps_what_any_screen_can_show_and_ctrl_o_the_whole() {
+        // T-U4 round 2: a read's, a list's or a pattern's argument is the
+        // model's at any length on fx's Ctrl-O (`formatExpandedChild`, never
+        // clipped) -- up to the stream's 8 MiB here, four times that spelled --
+        // and every redraw of the open group drew it whole in both modes:
+        // 0.46 s a redraw for 8 MiB of `a`, 1.8 s for 4 Mi U+009B, 1.25 GiB
+        // at the peak (receipts/cancel-marker/round2). The transcript's own
+        // row shows at most a screen's width, so it keeps no more than the
+        // widest screen shows, and Ctrl-O's heading keeps it all.
+        let wide = usize::from(u16::MAX) + 1;
+        let cases = [
+            // Past any screen's width.
+            ("a".repeat(3 * wide), None),
+            // Spelled four times as wide as it came.
+            ("\u{9b}".repeat(wide), None),
+            // A cluster that paints one cell, past any screen's bytes, and
+            // what follows it: the row ends `...` where it was cut.
+            (format!("a{}tail", "\u{301}".repeat(wide * 3)), Some("tail")),
+        ];
+        for (pattern, beyond) in cases {
+            let spelled_whole = spelled(&pattern, read::GLOB_FILES.presentation());
+            let mut group = ToolGroup::default();
+            group.start(
+                "1".into(),
+                shown(&read::GLOB_FILES, json!({"pattern": pattern})),
+            );
+            let rows = group.rows(DARK);
+            let whole = format!("{TEXT}\u{2514} Matching {spelled_whole}{RESET}");
+            assert!(
+                rows[1].len() <= 4 * wide + 64,
+                "the transcript's row keeps {} bytes",
+                rows[1].len()
+            );
+            if beyond.is_none() {
+                // Spelled, these are ASCII: a character a cell.
+                let kept = strip(&rows[1]).chars().count();
+                assert!(kept <= wide + 32, "the transcript's row keeps {kept} cells");
+            }
+            // Ctrl-O's heading is the whole argument.
+            let heading = strip(&group.expanded(DARK)[1]);
+            assert!(heading == format!("\u{2514} Matching {spelled_whole}"));
+            // What a screen of any width shows of the transcript's row is
+            // what it showed of the whole one -- unless a cut fell inside it.
+            for cols in [40, 120, 1000, u16::MAX] {
+                let cut = super::super::transcript::ellipsized(&rows[1], cols);
+                let all = super::super::transcript::ellipsized(&whole, cols);
+                match beyond {
+                    None => assert!(cut == all, "{cols} columns"),
+                    Some(tail) => {
+                        assert!(!strip(&cut).contains(tail));
+                        assert!(strip(&all).contains(tail) || cols < 1000);
+                    }
+                }
+            }
+            if beyond.is_some() {
+                assert!(
+                    strip(&rows[1]).ends_with("..."),
+                    "{:?}",
+                    &rows[1][rows[1].len() - 20..]
+                );
+            }
+        }
+    }
 }

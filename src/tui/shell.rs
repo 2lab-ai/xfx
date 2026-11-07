@@ -44629,4 +44629,48 @@ mod tests {
             )]
         );
     }
+
+    #[test]
+    fn a_theme_report_recolours_ctrl_os_cancelled_lines_as_upstreams_token_table_does() {
+        // fx v0.0.16 rewrites a cancelled turn's line and a question's
+        // resolution through its token table on a theme switch
+        // (`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3760`,
+        // `themeOwnsRawEntry` holding `.question_resolution` and
+        // `.turn_cancellation`, `:3802-3812`), and Ctrl-O lays those same
+        // entries out: after the switch both are in the new theme's greys
+        // there, as they are in the document.
+        let mut stopped = shell(40, 120);
+        stopped.route_bytes(b"stream something\r");
+        let _taken = stopped.picks_up();
+        let _ = stopped.take_pending();
+        stopped.route_bytes(&[0x03]);
+        let _ = stopped.take_pending();
+        let mut asked = shell(40, 120);
+        asking_question(&mut asked, a_batch());
+        let _ = asked.document();
+        asked.route_bytes(&[0x1b]);
+        asked.settle_input(Instant::now() + Duration::from_millis(100));
+        let _ = asked.document();
+        for (mut fixture, dark, light) in [
+            (stopped, cancelled_line(PALETTE), cancelled_line(LIGHT)),
+            (
+                asked,
+                super::super::question::cancelled_row(&PALETTE),
+                super::super::question::cancelled_row(&LIGHT),
+            ),
+        ] {
+            fixture.route_bytes(b"\x0f");
+            assert!(
+                fixture.screen_rows().contains(&dark),
+                "{:#?}",
+                fixture.screen_rows()
+            );
+            fixture.route_bytes(b"\x0f");
+            fixture.route_bytes(WENT_LIGHT);
+            fixture.route_bytes(b"\x0f");
+            let full = fixture.screen_rows();
+            assert!(full.contains(&light), "{light:?} in {full:#?}");
+            assert!(!full.contains(&dark), "{full:#?}");
+        }
+    }
 }

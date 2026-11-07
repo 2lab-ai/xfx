@@ -5276,12 +5276,16 @@ mod tests {
                 format!("\u{2514} Edited {}...", a(4_093)),
             ),
             // Past the old 1 KB cut and past a file change's bound: whole, as
-            // on fx -- a read's path, a pattern, a new folder's path.
+            // on fx -- a read's path, a pattern, a listed directory, a new folder's path.
             (read(&a(3_000)), format!("\u{2514} Read {}", a(3_000))),
             (read(&a(20_000)), format!("\u{2514} Read {}", a(20_000))),
             (
                 read::GLOB_FILES.shown(&json!({"pattern": a(20_000)})),
                 format!("\u{2514} Matched {}", a(20_000)),
+            ),
+            (
+                read::LIST_FILES.shown(&json!({"path": a(20_000)})),
+                format!("\u{2514} Listed {}", a(20_000)),
             ),
             (
                 crate::tools::mutate::CREATE_FOLDER.shown(&json!({"path": a(20_000)})),
