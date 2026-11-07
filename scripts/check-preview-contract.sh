@@ -40,6 +40,12 @@
 
 set -euo pipefail
 
+# BSD grep -- macOS's -- puts `GREP_OPTIONS` in front of every argument list:
+# a `-v` there makes "the README carries the install command" true of any
+# README with another line. (GNU grep 3.8 ignores it.) This script's options are its own;
+# scripts/test-gate-env.sh holds it to that.
+unset GREP_OPTIONS
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 

@@ -374,19 +374,40 @@ pub enum ImageReadError {
 }
 
 /// The AppleScript upstream reads the clipboard with
-/// (`loadClipboardImageAttachment`, `image_attachments.zig:1779-1823`): the
-/// clipboard as PNG, written to `path`. The clipboard converts whatever image
-/// it holds on the way out, so what comes back is always a PNG.
-fn clipboard_script(path: &std::path::Path) -> String {
-    format!(
-        "set outFile to POSIX file \"{}\"\n\
+/// (`loadClipboardImageAttachment`, `image_attachments.zig:1998-2006@481104fd`):
+/// the clipboard as PNG, written to `path`. The clipboard converts whatever
+/// image it holds on the way out, so what comes back is always a PNG.
+///
+/// `path` goes into the script as one AppleScript string
+/// ([`applescript_string`]), so no path can end that string and become
+/// script. Upstream's goes in as it is; it is always under the real `/tmp`
+/// and named by upstream itself, as xfx's is ([`snapshot_root`]). `None` for
+/// a path the string cannot hold as it is.
+fn clipboard_script(path: &std::path::Path) -> Option<String> {
+    let path = applescript_string(path)?;
+    Some(format!(
+        "set outFile to POSIX file {path}\n\
          set pngData to the clipboard as \u{ab}class PNGf\u{bb}\n\
          set fileRef to open for access outFile with write permission\n\
          set eof fileRef to 0\n\
          write pngData to fileRef\n\
-         close access fileRef\n",
-        path.display()
-    )
+         close access fileRef\n"
+    ))
+}
+
+/// `path` as an AppleScript string literal, quotes and all: its `\` and `"`
+/// escaped, the backslashes first, so neither can end the string. `None`
+/// for a path that is not UTF-8, which would name another file, or one with
+/// a control character in it.
+fn applescript_string(path: &std::path::Path) -> Option<String> {
+    let path = path.to_str()?;
+    if path.chars().any(char::is_control) {
+        return None;
+    }
+    Some(format!(
+        "\"{}\"",
+        path.replace('\\', "\\\\").replace('"', "\\\"")
+    ))
 }
 
 impl Clipboard {
@@ -396,8 +417,8 @@ impl Clipboard {
     /// never calls it on its UI thread (`crate::tui`'s `clipboard_image`).
     ///
     /// On macOS, upstream's way: `osascript` found on the path writes the
-    /// clipboard as PNG into a directory of this read's own, owner-only, and
-    /// removed again before this returns; an exit status other than 0 is a
+    /// clipboard as PNG into a directory of this read's own under the real
+    /// `/tmp`, owner-only, and removed again before this returns; an exit status other than 0 is a
     /// clipboard with no image. On Linux, the copy tool's other half: `xclip
     /// -selection clipboard -t image/png -o`, its standard output read up to the
     /// ceiling -- where upstream has nothing (`error.Unsupported`), and a
@@ -428,11 +449,22 @@ impl Clipboard {
     fn read_image_with_osascript(
         &self,
     ) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
-        let dir = private_directory("xfx-clipboard")
+        // Under upstream's root, the real `/tmp` (`createTempSnapshotDir`,
+        // `image_attachments.zig:1990@481104fd`), and not `$TMPDIR`: a relative
+        // one would put the read in the working tree, and what it names is
+        // not xfx's to put in a script.
+        let dir = snapshot_root()
+            .and_then(|root| private_directory_in(&root, "xfx-clipboard"))
             .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
         let path = dir.join("clipboard.png");
+        let Some(script) = clipboard_script(&path) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(ImageReadError::Failed(crate::image::io_name(
+                std::io::ErrorKind::InvalidInput,
+            )));
+        };
         let mut command = self.command("osascript");
-        command.arg("-e").arg(clipboard_script(&path));
+        command.arg("-e").arg(script);
         let outcome = crate::process::status(&mut command);
         let read = match outcome {
             Err(err) => Err(ImageReadError::Failed(crate::image::io_name(err.kind()))),
@@ -479,25 +511,19 @@ impl Clipboard {
     }
 }
 
-/// A new directory only this user can enter, under the system's temporary
-/// directory (`$TMPDIR`), named `<prefix>-<random>`: one clipboard read's.
-pub(crate) fn private_directory(prefix: &str) -> std::io::Result<std::path::PathBuf> {
-    private_directory_in(&std::env::temp_dir(), prefix)
-}
-
-/// Where a session's image copies go (`crate::tui`'s paste copies, and an
-/// unsaved session's copy of an attached file): the real path of `/tmp`, as
-/// upstream's (`createTempSnapshotDir`,
-/// `src/core/images/image_attachments.zig:246-273@481104fd`, which takes
+/// Where a session's images go (`crate::tui`'s paste copies, an unsaved
+/// session's copy of an attached file, and a clipboard read's file): the real
+/// path of `/tmp`, as upstream's (`createTempSnapshotDir`,
+/// `src/core/images/image_attachments.zig:248-275@481104fd`, which takes
 /// `realpath("/tmp")`), never `$TMPDIR` as given -- a relative or in-project
 /// `TMPDIR` would put them in the working tree.
 pub(crate) fn snapshot_root() -> std::io::Result<std::path::PathBuf> {
     std::fs::canonicalize("/tmp")
 }
 
-/// [`private_directory`] under `base`, which must be an absolute path: a
-/// relative one names somewhere under whatever folder xfx is in, and no
-/// directory is made there.
+/// A new directory only this user can enter, named `<prefix>-<random>`,
+/// under `base`, which must be an absolute path: a relative one names
+/// somewhere under whatever folder xfx is in, and no directory is made there.
 pub(crate) fn private_directory_in(
     base: &std::path::Path,
     prefix: &str,
@@ -655,6 +681,119 @@ mod tests {
             .said("", true)
             .ran();
         assert_eq!(only_called.reply(), Some("the previous answer"));
+    }
+
+    #[test]
+    fn the_clipboard_reads_path_is_one_string_in_its_script_or_none() {
+        // Upstream's script, with the path as one AppleScript string
+        // (`image_attachments.zig:1998-2006@481104fd`): a `"` or `\` in it
+        // is escaped, so it cannot end the string; a control character, or a
+        // path that is not UTF-8, is refused.
+        let script =
+            clipboard_script(std::path::Path::new("/t\"mp\\x/clipboard.png")).expect("a script");
+        assert_eq!(
+            script.lines().next(),
+            Some("set outFile to POSIX file \"/t\\\"mp\\\\x/clipboard.png\"")
+        );
+        assert_eq!(
+            script.lines().skip(1).collect::<Vec<_>>(),
+            [
+                "set pngData to the clipboard as \u{ab}class PNGf\u{bb}",
+                "set fileRef to open for access outFile with write permission",
+                "set eof fileRef to 0",
+                "write pngData to fileRef",
+                "close access fileRef",
+            ]
+        );
+        for refused in ["/tmp/a\nb/clipboard.png", "/tmp/a\rb", "/tmp/a\tb"] {
+            assert_eq!(
+                clipboard_script(std::path::Path::new(refused)),
+                None,
+                "{refused:?}"
+            );
+        }
+        use std::os::unix::ffi::OsStrExt;
+        let not_utf8 = std::ffi::OsStr::from_bytes(b"/tmp/\xff/clipboard.png");
+        assert_eq!(clipboard_script(std::path::Path::new(not_utf8)), None);
+    }
+
+    /// Runs `script` through the real `/usr/bin/osascript`, given a minute,
+    /// and gives back whether it exited 0 and what it printed; `None` when
+    /// this system has no such program.
+    #[cfg(target_os = "macos")]
+    fn real_osascript(script: &str) -> Option<(bool, String)> {
+        use std::io::Read;
+        let program = std::path::Path::new("/usr/bin/osascript");
+        if !program.exists() {
+            return None;
+        }
+        let mut command = crate::process::command(program);
+        command
+            .arg("-e")
+            .arg(script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        let mut child = crate::process::spawn(&mut command).expect("start osascript");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("wait for osascript") {
+                break status;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("osascript ran past a minute");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let mut printed = String::new();
+        child
+            .stdout
+            .take()
+            .expect("its output")
+            .read_to_string(&mut printed)
+            .expect("read its output");
+        Some((status.success(), printed))
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_hostile_path_is_one_string_to_the_real_applescript_interpreter() {
+        // The escaping, through the interpreter rather than by its text: a
+        // path holding `\`, `"`, `\"` and `" & (do shell script "touch …") & "`
+        // comes back from AppleScript exactly as it went in, the clipboard
+        // script with its clipboard read swapped for a constant writes to
+        // exactly that file, and the shell command never runs.
+        let dir = tempfile::tempdir().expect("a directory");
+        let root = dir.path().canonicalize().expect("its real path");
+        let canary = root.join("canary");
+        let hostile = format!(
+            "x\" & (do shell script \"touch {}\") & \"y\\\\z\\\"w",
+            canary.display()
+        );
+        let path = root.join(&hostile).join("clipboard.png");
+        let text = path.to_str().expect("UTF-8");
+        assert!(text.contains('"') && text.contains('\\'), "{text:?}");
+
+        let literal = applescript_string(&path).expect("a literal");
+        let Some((ok, printed)) = real_osascript(&format!("return {literal}")) else {
+            eprintln!("skipped: no /usr/bin/osascript");
+            return;
+        };
+        assert!(ok, "osascript refused {literal:?}");
+        assert_eq!(printed.strip_suffix('\n'), Some(text));
+        assert!(!canary.exists(), "the path ran a shell command");
+
+        let read = "set pngData to the clipboard as \u{ab}class PNGf\u{bb}";
+        let script = clipboard_script(&path).expect("a script");
+        assert!(script.contains(read), "{script:?}");
+        let script = script.replace(read, "set pngData to \"probe\"");
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("its folder");
+        let (ok, _) = real_osascript(&script).expect("osascript");
+        assert!(ok, "osascript refused {script:?}");
+        assert_eq!(std::fs::read(&path).expect("the file it named"), b"probe");
+        assert!(!canary.exists(), "the script ran a shell command");
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
