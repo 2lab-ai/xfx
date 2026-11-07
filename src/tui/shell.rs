@@ -999,6 +999,10 @@ pub(crate) struct Shell {
     /// (`program_status.zig:62-65`, `:79`). Only a cancelled compaction is an
     /// interrupted turn there (`:7847-7861`).
     compaction_failed: bool,
+    /// A stop's restore cleared the terminal's program status record, and
+    /// the resume's tick owes it again after its frame
+    /// ([`Self::owe_program_status_resume`]).
+    status_resume_owed: bool,
     /// The turn's `■ Cancelled` line, while it waits for a running call to
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
@@ -2357,6 +2361,7 @@ impl Shell {
             interrupt_armed: false,
             cancelling: false,
             compaction_failed: false,
+            status_resume_owed: false,
             cancel_owed: None,
             cancel_covers: 0,
             retry: None,
@@ -10025,7 +10030,7 @@ impl Shell {
 
     /// The OSC 7501 report this tick owes the terminal, if what the session
     /// is doing changed since the last one (`super::event_loop`'s
-    /// `commit_program_status`).
+    /// `commit_tick`).
     ///
     /// Upstream's precedence (`reportProgramStatus`,
     /// `app_worker_runtime.zig:768-791@481104fd`): a permission question --
@@ -10087,6 +10092,26 @@ impl Shell {
     /// (`suspendToJobControl`'s `invalidate`, `main.zig:1050-1055@481104fd`).
     pub(crate) fn program_status_resumed(&mut self) {
         self.program_status.invalidate();
+    }
+
+    /// A stop's restore cleared the record, and the resume's own tick owes
+    /// the report again **after** the frame it repaints: upstream repaints
+    /// inside `suspendToJobControl` and invalidates on the way out of it
+    /// (`defer`, `main.zig:1050-1055@481104fd`). Taken by that tick
+    /// ([`Self::take_program_status_resume`]).
+    pub(crate) fn owe_program_status_resume(&mut self) {
+        self.status_resume_owed = true;
+    }
+
+    /// Whether this tick paints a resume: the reporter is invalidated
+    /// ([`Self::program_status_resumed`]), and the tick writes its report
+    /// after its frame (`super::event_loop`'s `commit_tick`).
+    pub(crate) fn take_program_status_resume(&mut self) -> bool {
+        if !std::mem::take(&mut self.status_resume_owed) {
+            return false;
+        }
+        self.program_status_resumed();
+        true
     }
 
     /// The terminal bells the session owes, taken by the loop that writes them
@@ -10828,7 +10853,18 @@ impl Shell {
                 // usage and never reported to it (`CompactorCaller.send`,
                 // `text_completion.zig:225-284`). The next turn's request,
                 // which carries the compacted conversation, moves it.
-                if feedback != compaction::Feedback::Succeeded && automatic {
+                // One that found nothing to do ended nothing: upstream's
+                // in-turn compaction that compacted nothing lets the turn go
+                // on, or fails it only for an overflow it could not reduce
+                // (`ContextCapacityExceeded`, `orchestrator.zig:7934-7937@481104fd`)
+                // -- the turn's own result either way.
+                let ended = !matches!(
+                    feedback,
+                    compaction::Feedback::Succeeded
+                        | compaction::Feedback::NoOp
+                        | compaction::Feedback::Busy
+                );
+                if ended && automatic {
                     // The turn it ran in did not run, and the row says why: its
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
@@ -44719,6 +44755,36 @@ mod tests {
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None);
+    }
+
+    #[test]
+    fn an_automatic_compaction_that_compacted_nothing_leaves_the_turn_its_own_result() {
+        // Upstream: an in-turn compaction that found nothing to leave out is
+        // no ending of its own (`compacted == null`): the turn goes on, and
+        // only an overflow it could not reduce fails it
+        // (`ContextCapacityExceeded`, `orchestrator.zig:7934-7937@481104fd`)
+        // -- either way the result is the turn's. `NoOp` and `Busy` are
+        // neither a failure nor a stop.
+        for nothing in [compaction::Feedback::NoOp, compaction::Feedback::Busy] {
+            let mut shell = shell(24, 80);
+            let _ = status_of(&mut shell);
+            shell.route_bytes(b"a question\r");
+            let _ = shell.picks_up();
+            shell.apply(UiEvent::TurnStarted);
+            assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(nothing)));
+            assert_eq!(status_of(&mut shell), None, "{nothing:?}: the turn stopped");
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            assert_eq!(
+                status_of(&mut shell).as_deref(),
+                Some("done"),
+                "{nothing:?}: not the turn's own result"
+            );
+        }
     }
 
     #[test]

@@ -804,7 +804,8 @@ fn wait_for_conclusions(sandbox: &Sandbox, count: usize) {
 fn the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out() {
     // OSC 7501 on a real terminal, as upstream writes it (`research/
     // tui-phase5` `osc/w00-w02`, `w09`): `idle` once, after the mode set and
-    // ahead of the first frame; `working` while a turn runs and `done` when
+    // the window title the session starts with, and right ahead of the first
+    // frame's `?2026h`; `working` while a turn runs and `done` when
     // it has answered, each between two frames rather than inside one; and
     // the planned exit's restore clearing the record, with no report after
     // it.
@@ -825,6 +826,15 @@ fn the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out() 
     assert!(
         Some(idle) < text.find("\u{1b}[?2026h"),
         "the launch's report is not ahead of the first frame: {text:?}"
+    );
+    assert!(
+        text[idle + STATUS_IDLE.len()..].starts_with("\u{1b}[?2026h"),
+        "the first frame does not follow the launch's report: {text:?}"
+    );
+    let title = text[..idle].rfind("\u{1b}]2;");
+    assert!(
+        title > text.find(READY) && text[..idle].ends_with('\u{7}'),
+        "the launch's report does not follow its title: {text:?}"
     );
     assert_eq!(text.matches(STATUS).count(), 1, "{text:?}");
 
@@ -1814,11 +1824,21 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     session.wait_for_count(READY, 2);
     assert_raw(modes(&pty));
     // And the resume says it again (`main.zig:1050-1055@481104fd`): the
-    // record the stop cleared is written back, after the clear.
+    // record the stop cleared is written back, after the clear -- and after
+    // the frame the resume repaints, as upstream's repaint inside the suspend
+    // precedes its invalidation (`osc/s02-resumed`).
     let text = session.wait_for_count(STATUS_IDLE, 2);
+    let cleared = text.rfind(ABNORMAL_RESTORE).expect("the stop's restore");
     assert!(
-        text.rfind(STATUS_IDLE) > text.rfind(ABNORMAL_RESTORE),
+        text.rfind(STATUS_IDLE) > Some(cleared),
         "the resume's report came before the stop's clear"
+    );
+    let repainted = text[cleared..]
+        .find(FRAME_END_HIDDEN)
+        .map(|at| at + cleared);
+    assert!(
+        repainted.is_some() && repainted < text.rfind(STATUS_IDLE),
+        "the resume's report came before the frame it repaints: {text:?}"
     );
     // The band comes back too. While the process was stopped the terminal was
     // the shell's, and whatever it wrote is on the rows the band had; a session

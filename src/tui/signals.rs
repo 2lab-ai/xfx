@@ -326,6 +326,13 @@ pub(crate) fn install(wakeup: &Wakeup, blocked: Blocked) -> io::Result<Held> {
     // the transition ends the process on the line above. The flag is read after
     // it, and it cannot change again until the first wait -- see
     // `Held::stopped_before_the_session_began`.
+    //
+    // And the stop handler's record of a restore is taken with it: a stop on
+    // the way in is answered by the caller's `resume` before anything is drawn,
+    // so that record is about a band that never painted, and left standing it
+    // would answer the next bare `kill -CONT` as a plane given back
+    // ([`take_plane_restored`]).
+    let _ = take_plane_restored();
     Ok(Held {
         resumed: take_resumed(),
         during_wait,
@@ -965,6 +972,39 @@ mod tests {
             -1,
             "the handlers were left holding a descriptor the session is about to close"
         );
+    }
+
+    #[test]
+    fn a_stop_before_the_session_began_gives_no_plane_back_to_a_later_continue() {
+        // A session stopped on its way in is answered by `hold`'s `resume`
+        // before anything is drawn. Its handler's record of the restore is
+        // about a band that never painted, and left standing it is what the
+        // next bare `kill -CONT` would read: the plane "given back" and the
+        // program status record rewritten for a stop nothing cleared.
+        let _serialized = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = take_plane_restored();
+        let _ = take_resumed();
+        let wakeup = Wakeup::new().expect("open the self-pipe");
+        let installed = Installed;
+
+        // What `stop_for_job_control` records, and the continue after it.
+        flag_plane_restored();
+        flag_resumed(libc::SIGCONT);
+        let held =
+            install(&wakeup, block_owned().expect("block")).expect("install the handler set");
+        assert!(held.stopped_before_the_session_began());
+        drop(held);
+
+        // A later bare continue: resumed, and nothing given back.
+        flag_resumed(libc::SIGCONT);
+        assert!(take_resumed());
+        assert!(
+            !take_plane_restored(),
+            "the stop before the session began answered a continue no handler did"
+        );
+        drop(installed);
     }
 
     #[test]

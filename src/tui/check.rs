@@ -1299,7 +1299,9 @@ pub(crate) fn preflight(
 ///
 /// Offsets into that vector, from the composer that built it: the window
 /// title, when the update carries one, is `bytes[..lead]`, ahead of the update
-/// as upstream writes it; the opener is `bytes[lead..opener]`, the parts are
+/// as upstream writes it -- or `bytes[..at]` when a program status report
+/// rides the lead after it, as `status` says, and the report is
+/// `bytes[at..lead]`; the opener is `bytes[lead..opener]`, the parts are
 /// `bytes[opener..closer]`, the closer is `bytes[closer..]`. They are claims
 /// about the vector, and [`preflight_update`] decodes each slice to hold the
 /// vector to them.
@@ -1309,6 +1311,11 @@ pub(crate) struct Update<'a> {
     /// The title the lead leaves the window with -- the title it writes, or
     /// the one the window had when there is no lead.
     pub(crate) title: Option<&'a str>,
+    /// Where the report that rides the lead begins, and what it says: one
+    /// report, after the title and nothing else (`super::event_loop`'s
+    /// `commit_tick`, for upstream's launch: `OSC 2`, then `idle`, then the
+    /// first `?2026h`).
+    pub(crate) status: Option<(usize, super::program_status::State)>,
     pub(crate) opener: usize,
     pub(crate) closer: usize,
     /// Whether the update ends with the caret shown: a band frame's caret, or
@@ -1339,7 +1346,12 @@ pub(crate) fn preflight_update(
     bytes: &[u8],
     update: Update<'_>,
 ) -> Result<(), Reject> {
-    if update.lead > update.opener || update.opener > update.closer || update.closer > bytes.len() {
+    let title_end = update.status.map_or(update.lead, |(at, _)| at);
+    if title_end > update.lead
+        || update.lead > update.opener
+        || update.opener > update.closer
+        || update.closer > bytes.len()
+    {
         return Err(Reject::new("an update whose parts are out of order", 0));
     }
     let mut model = seed.clone();
@@ -1350,9 +1362,36 @@ pub(crate) fn preflight_update(
     // The lead: a title and nothing else, outside the update -- no cell, no
     // caret, no cursor, no mode -- as upstream's title is a write between two
     // frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`).
+    // Then, when one rides it, exactly the one report declared, and nothing
+    // else either.
     let caret = model.caret;
     let cursor = model.cursor_visible;
-    apply(&mut model, &bytes[..update.lead], None)?;
+    apply(&mut model, &bytes[..title_end], None)?;
+    if let Some((_, state)) = update.status {
+        // After the title, and only after one: upstream's report follows a
+        // title that was already on its wire.
+        if title_end == 0 || model.shown_title.as_deref() != update.title {
+            return Err(Reject::new(
+                "a program status ahead of its title",
+                title_end,
+            ));
+        }
+        if !model.statuses.is_empty() {
+            return Err(Reject::new(
+                "an update led by something other than its title",
+                title_end,
+            ));
+        }
+        let titled = model.shown_title.clone();
+        apply(&mut model, &bytes[title_end..update.lead], None)?;
+        if model.statuses != [StatusRecord::Reported(state)] || model.shown_title != titled {
+            return Err(Reject::new(
+                "a lead whose report is not the one declared",
+                update.lead,
+            ));
+        }
+        model.statuses.clear();
+    }
     if !model.effects.is_empty()
         || model.sync_sets != 0
         || model.sync_resets != 0
@@ -3045,6 +3084,7 @@ mod tests {
             Update {
                 lead: 0,
                 title: None,
+                status: None,
                 opener,
                 closer: closer_at,
                 cursor_visible: closer.contains("?25h"),
@@ -3117,6 +3157,78 @@ mod tests {
     }
 
     #[test]
+    fn a_lead_admits_one_declared_report_after_its_title_and_nothing_else() {
+        // Upstream's launch: `OSC 2`, then `idle`, then the first `?2026h`
+        // (`osc/w00-start`) -- the report `super::event_loop::commit_tick`
+        // puts in the lead after a title the band already owed.
+        use super::super::program_status::State;
+        const TITLE: &str = "\u{1b}]2;a title\u{7}";
+        const IDLE: &str = "\u{1b}]7501;state=idle:app=xfx\u{1b}\\";
+        let riding = |lead: &str, at: usize, state: State| {
+            let (bytes, mut shape) = led(lead, Some("a title"));
+            shape.status = Some((at, state));
+            (bytes, shape)
+        };
+        let (bytes, shape) = riding(&format!("{TITLE}{IDLE}"), TITLE.len(), State::Idle);
+        preflight_update(&update_seed(), &bytes, shape).expect("the title, then its report");
+        for (lead, at, state, shape_name) in [
+            (
+                format!("{IDLE}{TITLE}"),
+                IDLE.len(),
+                State::Idle,
+                "a program status ahead of its title",
+            ),
+            (
+                IDLE.to_string(),
+                0,
+                State::Idle,
+                "a program status ahead of its title",
+            ),
+            (
+                format!("{TITLE}{IDLE}"),
+                TITLE.len(),
+                State::Working,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}{IDLE}"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}\u{1b}]2;another\u{7}"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}\u{1b}[?25h"),
+                TITLE.len(),
+                State::Idle,
+                "an update led by something other than its title",
+            ),
+            (
+                format!("{TITLE}\u{1b}]7501;state=clear\u{1b}\\"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+        ] {
+            let (bytes, shape) = riding(&lead, at, state);
+            let reject = preflight_update(&update_seed(), &bytes, shape).expect_err(shape_name);
+            assert_eq!(reject.shape(), shape_name, "{lead:?}");
+        }
+        // And a report nobody declared is still a lead that is not a title.
+        let (bytes, shape) = led(&format!("{TITLE}{IDLE}"), Some("a title"));
+        let reject = preflight_update(&update_seed(), &bytes, shape).expect_err("undeclared");
+        assert_eq!(
+            reject.shape(),
+            "an update led by something other than its title"
+        );
+    }
+
+    #[test]
     fn an_update_that_does_not_bracket_all_of_its_parts_is_refused() {
         let shown = "\u{1b}[?2026l\u{1b}[?25h";
         for (document, band, closer, shape) in [
@@ -3180,6 +3292,7 @@ mod tests {
             Update {
                 lead: 0,
                 title: None,
+                status: None,
                 opener,
                 closer,
                 cursor_visible: true,
@@ -3983,6 +4096,7 @@ mod tests {
             let shape = Update {
                 lead: 0,
                 title: None,
+                status: None,
                 opener,
                 closer,
                 cursor_visible: true,

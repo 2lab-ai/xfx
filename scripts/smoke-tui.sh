@@ -3507,8 +3507,37 @@ class Trial:
             if state.is_raw():
                 return state
             if time.time() > deadline:
-                raise Failure("the session never took the terminal back; it is still %r" % state)
+                raise Failure(self._never_raw(state))
             time.sleep(pty.IDLE_POLL)
+
+    def _never_raw(self, state):
+        """What a session that never re-entered raw mode was doing, kept.
+
+        Diagnostics, not a verdict: the child's process state (still stopped,
+        or running on a cooked terminal), how many bytes it had written that
+        nobody had read -- this wait does not drain the master, so a child
+        parked in a write would show here -- and the last bytes the terminal
+        was handed, all in `never-raw.txt` beside the trial's other evidence.
+        """
+        seen = len(self.session.captured)
+        while self.session.pump(0):
+            pass
+        unread = len(self.session.captured) - seen
+        try:
+            child = self.session.state()
+        except OSError as failure:
+            child = ("unknown", str(failure))
+        tail = bytes(self.session.captured[-400:])
+        path = os.path.join(self.dir, "never-raw.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("termios: %r\n" % (state,))
+            handle.write("child: %r\n" % (child,))
+            handle.write("unread on the master when the wait gave up: %d byte(s)\n" % unread)
+            handle.write("last bytes on the wire: %r\n" % (tail,))
+        return (
+            "the session never took the terminal back; it is still %r; the child is %r; "
+            "%d byte(s) were waiting unread on the master (%s)" % (state, child, unread, path)
+        )
 
     # -- evidence ---------------------------------------------------------
 
@@ -4628,7 +4657,10 @@ def first_frame(captured):
 
 
 # The window title a write leads with: `OSC 2`, its text, `BEL`.
-TITLE_LEAD = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07\Z")
+# The title, and the launch's program status report when it rides the lead
+# after it (`event_loop.rs`'s `commit_tick`: fx's launch is `OSC 2`, then
+# `idle`, then the first `?2026h`).
+TITLE_LEAD = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07(?:\x1b\]7501;[\x20-\x7e]*\x1b\\)?\Z")
 
 
 def write_start(captured, begins):
@@ -4640,7 +4672,8 @@ def write_start(captured, begins):
     title"). So what a terminal that tore that write had taken -- the count the
     session reports -- starts at the title, not at the frame. Read off the wire
     rather than assumed: the bytes right before the frame are exactly one title
-    and nothing else, or there is no lead to count.
+    -- and the launch's program status report, which rides the lead after it
+    -- and nothing else, or there is no lead to count.
     """
     lead = TITLE_LEAD.search(captured[:begins])
     return None if lead is None else lead.start()
