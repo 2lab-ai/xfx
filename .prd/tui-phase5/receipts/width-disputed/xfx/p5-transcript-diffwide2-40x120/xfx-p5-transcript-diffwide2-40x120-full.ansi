@@ -1,16 +1,11 @@
 
-[38;5;245m  2026-11-07 12:51:07.208 KST · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 64ms[39m
-  [38;5;250mfinish: stop[39m
-  [38;5;250mtokens: 1200 in · 40 out[39m
-
-[38;5;245m  2026-11-07 12:51:07.017 KST · Prompt[39m
+[38;5;245m  2026-11-07 13:57:11.101 KST · Prompt[39m
 [38;5;255m┃[39m [1medit the file[0m
 
-[38;5;245m  2026-11-07 12:51:07.136 KST · Response[39m
+[38;5;245m  2026-11-07 13:57:11.207 KST · Response[39m
   Editing the file.
 
-[38;5;245m  2026-11-07 12:51:07.136 KST · Tool[39m
+[38;5;245m  2026-11-07 13:57:11.207 KST · Tool[39m
 [38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 edit[39m
 ├ Read wide2.txt
 │[38;5;245m  1    first line[39m
@@ -19,8 +14,11 @@
 [39m│[38;5;245m  5678[39m
 │[38;5;245m  4    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA[39m
 │[38;5;245m  IL5678[39m
+│[38;5;245m  5    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽[39m
+│[38;5;245m  🏽🏽TAIL5678[39m
+│[38;5;245m  6    modﾠ🏽end[39m
 
-[38;5;245m  2026-11-07 12:51:07.136 KST · Tool[39m
+[38;5;245m  2026-11-07 13:57:11.224 KST · Tool[39m
 └ Edited wide2.txt +1 / -1
 
 [38;5;252m  │ 1 - first line[39m
@@ -28,11 +26,13 @@
 [38;5;245m  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\u{200d}y jamoᅟᅠz[39m
 [38;5;245m  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL
   │ 4   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA[39m
+[38;5;245m  │ 5   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽[39m
+[38;5;245m  │ 6   modﾠ🏽end[39m
 
-[38;5;245m  2026-11-07 12:51:07.253 KST · Response[39m
+[38;5;245m  2026-11-07 13:57:11.344 KST · Response[39m
   Edited.
 
-[38;5;245m  2026-11-07 12:51:07.253 KST · Usage[39m
+[38;5;245m  2026-11-07 13:57:11.344 KST · Usage[39m
 [38;5;245m  0s (↑3 ↓120)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m

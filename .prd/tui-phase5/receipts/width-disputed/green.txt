@@ -18,15 +18,19 @@ ok   bytes p5-transcript-diffwide2 full (fx / xfx)
        2    named: fx '́seong halfﾠ︎\x1b[39m   \x1b[38;5;245mx zwjﾠ\\u{200d}y jamoᅟᅠz\x1b[39m' / xfx 'llﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz\x1b[39m' -- fx's cells are xfx's with 3 unstyled blank cells before 'x zwj'
        3    'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
        4    'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA\x1b[39m'  (xfx's first bytes '  │ 4   wwww')
+       5    apart: fx ends 'www🏽🏽🏽 L' / xfx ends 'wwwwww🏽🏽'
+       6    '\x1b[38;5;245m  │ 6   modﾠ🏽end\x1b[39m'
 ok   margin p5-transcript-diffwide2 full
        fx line 3 ends 'ﾠ́ﾠ́ﾠ́ﾠ́TAIL'
        xfx line 3 ends 'ﾠ́ﾠ́ﾠ́ﾠ́TAIL'
        fx line 4 ends 'wwwwwwᅟᅠᅟᅠTA'
        xfx line 4 ends 'wwwwwwᅟᅠᅟᅠTA'
+ok   whole p5-transcript-diffwide2 full
+       line 5 read whole: fx 'wwwww🏽🏽🏽 L5678' / xfx 'ww🏽🏽🏽🏽TAIL5678' -- xfx's rows hold the line; fx's lose '🏽TAI'
 ok   full p5-transcript-diffwide2 (fx / xfx), aligned
-       37 rows the same; only fx: ['│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │     5678', '  │     IL5678']; only xfx: ['', '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice', '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\u200dy jamoᅟᅠz', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz']
+       33 rows the same; only fx: ['│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '│  5    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L', '│  5678', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │     5678', '  │     IL5678', '  │ 5   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L', '  │     5678']; only xfx: ['', '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt', '┃ edit the file', '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\u200dy jamoᅟᅠz', '│  5    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽', '│  🏽🏽TAIL5678', '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz', '  │ 5   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽']
 ok   inline p5-transcript-diffwide2 edited
        all 41 rows the same
 ok   inline p5-transcript-diffwide2 closed
        all 41 rows the same
-10 claims, 10 hold, 0 fail
+11 claims, 11 hold, 0 fail

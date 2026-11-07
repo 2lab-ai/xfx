@@ -1,14 +1,8 @@
-* network: provider: gateway · model: fake/model-a · 143ms
-  finish: stop
-  tokens: 1200 in · 40 out
 
-  2026-11-07 12:48:51.920 KST · Prompt
-┃ edit the file
-
-  2026-11-07 12:48:51.941 KST · Response
+  2026-11-07 13:39:03.552 KST · Response
   Editing the file.
 
-  2026-11-07 12:48:51.941 KST · Tool
+  2026-11-07 13:39:03.552 KST · Tool
 ● 2 tool calls · 1 read · 1 edit
 ├ Read wide2.txt
 │  1    first line
@@ -17,8 +11,11 @@
 │  5678
 │  4    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA
 │  IL5678
+│  5    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L
+│  5678
+│  6    modﾠ🏽end
 
-  2026-11-07 12:48:51.961 KST · Tool
+  2026-11-07 13:39:03.572 KST · Tool
 └ Edited wide2.txt +1 / -1
 
   │ 1 - first line
@@ -28,11 +25,14 @@
   │     5678
   │ 4   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA
   │     IL5678
+  │ 5   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L
+  │     5678
+  │ 6   modﾠ🏽end
 
-  2026-11-07 12:48:52.102 KST · Response
+  2026-11-07 13:39:03.711 KST · Response
   Edited.
 
-  2026-11-07 12:48:52.098 KST · Usage
+  2026-11-07 13:39:03.711 KST · Usage
   0s (↑3 ↓120)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

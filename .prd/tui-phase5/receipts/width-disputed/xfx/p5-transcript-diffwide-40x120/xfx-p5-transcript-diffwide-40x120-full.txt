@@ -2,18 +2,18 @@
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-07 12:51:21.176 KST · Notice
-* network: provider: gateway · model: fake/model-a · 61ms
+  2026-11-07 13:56:57.184 KST · Notice
+* network: provider: gateway · model: fake/model-a · 64ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 12:51:20.982 KST · Prompt
+  2026-11-07 13:56:56.991 KST · Prompt
 ┃ edit the file
 
-  2026-11-07 12:51:21.102 KST · Response
+  2026-11-07 13:56:57.092 KST · Response
   Editing the file.
 
-  2026-11-07 12:51:21.102 KST · Tool
+  2026-11-07 13:56:57.092 KST · Tool
 ● 2 tool calls · 1 read · 1 edit
 ├ Read wide.txt
 │  1    first line
@@ -21,7 +21,7 @@
 │  3    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww­­­­TAIL
 │  5678
 
-  2026-11-07 12:51:21.102 KST · Tool
+  2026-11-07 13:56:57.111 KST · Tool
 └ Edited wide.txt +1 / -1
 
   │ 1 - first line
@@ -29,10 +29,10 @@
   │ 2   soft­hyphen hangulfiller choseongᅟfiller halfﾠfiller spec￰ial
   │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww­­­­TAIL
 
-  2026-11-07 12:51:21.223 KST · Response
+  2026-11-07 13:56:57.232 KST · Response
   Edited.
 
-  2026-11-07 12:51:21.223 KST · Usage
+  2026-11-07 13:56:57.232 KST · Usage
   0s (↑3 ↓120)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

@@ -1,16 +1,11 @@
 
-  2026-11-07 12:51:07.208 KST · Notice
-* network: provider: gateway · model: fake/model-a · 64ms
-  finish: stop
-  tokens: 1200 in · 40 out
-
-  2026-11-07 12:51:07.017 KST · Prompt
+  2026-11-07 13:57:11.101 KST · Prompt
 ┃ edit the file
 
-  2026-11-07 12:51:07.136 KST · Response
+  2026-11-07 13:57:11.207 KST · Response
   Editing the file.
 
-  2026-11-07 12:51:07.136 KST · Tool
+  2026-11-07 13:57:11.207 KST · Tool
 ● 2 tool calls · 1 read · 1 edit
 ├ Read wide2.txt
 │  1    first line
@@ -19,8 +14,11 @@
 │  5678
 │  4    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA
 │  IL5678
+│  5    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽
+│  🏽🏽TAIL5678
+│  6    modﾠ🏽end
 
-  2026-11-07 12:51:07.136 KST · Tool
+  2026-11-07 13:57:11.224 KST · Tool
 └ Edited wide2.txt +1 / -1
 
   │ 1 - first line
@@ -28,11 +26,13 @@
   │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\u{200d}y jamoᅟᅠz
   │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL
   │ 4   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA
+  │ 5   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽
+  │ 6   modﾠ🏽end
 
-  2026-11-07 12:51:07.253 KST · Response
+  2026-11-07 13:57:11.344 KST · Response
   Edited.
 
-  2026-11-07 12:51:07.253 KST · Usage
+  2026-11-07 13:57:11.344 KST · Usage
   0s (↑3 ↓120)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
