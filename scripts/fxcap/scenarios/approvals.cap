@@ -32,13 +32,18 @@ key Enter
 wait 2.5
 snap write-ask
 key C-c
-wait 2.5
+wait 1.25
 # At a permission question Ctrl-C is the question's own deny and arms no
 # exit hint (fx src/ui/input/runtime.zig:63@481104fd, `3 => .deny`; xfx
-# shell.rs ctrl_c_at_a_question_answers_only_the_question_it_is_about),
-# so this returns at once: it is the check's (capfile.py TIMERS), which
-# cannot see the question and counts every Ctrl-C's 3 s.
-until gone press ctrl+c again to exit
+# shell.rs ctrl_c_at_a_question_answers_only_the_question_it_is_about).
+# `absent` looks halfway into the 3 s and fails the run if the hint is up;
+# the check (capfile.py) counts that as no timer, so the snap stays where
+# it was, at 2.5 s, rather than waiting a hint away. The command's
+# question is up by then, and a question owns the hint row (xfx shell.rs
+# `hint_or_key_help`), so here neither look would see a hint armed in
+# error; permissions-midturn, whose turn ends on the refusal, would.
+absent press ctrl+c again to exit
+wait 1.25
 snap after-cc-cmd-ask
 key 2
 wait 2.5

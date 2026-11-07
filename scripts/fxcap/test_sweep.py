@@ -154,8 +154,8 @@ class Normalize(unittest.TestCase):
         readings = [cells.normalize(a, rules, absorb=w) for w in ("after", "before")]
         self.assertEqual(len(cells.differing(cells.normalize(a, rules), b)), 1, "by position alone it moved")
         self.assertEqual(cells.differing(cells.normalize(a, rules), b, readings), [])
-        warn = "full access · model-a" + " " * 52 + "Full access: fx permission checks disabled"
-        right = "full access · model-a" + " " * 51 + "Full access: xfx permission checks disabled"
+        warn = "full access · model-a" + " " * 52 + "Full access enabled: fx permission checks disabled"
+        right = "full access · model-a" + " " * 51 + "Full access enabled: xfx permission checks disabled"
         a = cells.parse(warn)
         readings = [cells.normalize(a, rules, absorb=w) for w in ("after", "before")]
         self.assertEqual(cells.differing(cells.normalize(a, rules), cells.parse(right), readings), [])
@@ -617,7 +617,7 @@ class Capfile(unittest.TestCase):
         self.assertEqual(self.raced(cc % ""), [("fx", "key C-c"), ("xfx", "key C-c")])
         self.assertEqual(self.raced(cc % "until gone Full access\n"), [])
         for line, want in (("type /model", True), ("key Escape", True), ("key -N 2 Escape", True),
-                           ("type hello", False), ("key Enter", False), ("key C-o", False)):
+                           ("type hello", False), ("key Enter", False), ("key C-o", True), ("key -H 1b 5b 49", False)):
             with self.subTest(line=line):
                 got = self.raced(self.YOLO + "wait 4\n%s\nwait 9\nsnap a\n" % line)
                 self.assertEqual(got, [("fx", line), ("xfx", line)] if want else [])
@@ -628,7 +628,11 @@ class Capfile(unittest.TestCase):
         # the row is not in the .cap, so neither is when the warning goes.
         menu = self.YOLO + "wait 1\ntype /model\nkey Enter\nwait 0.5\nkey Escape\nwait %s\n%ssnap a\n"
         both = [("fx", "snap a"), ("xfx", "snap a")]
-        for wait, until, want in (("12", "", both), ("30", "", both), ("12", "until gone Full access\n", []),
+        for wait, until, want in (("12", "", both), ("30", "", both),
+                                  # Gone after a pause is hidden, not spent: only an
+                                  # `until shown` first makes the going count.
+                                  ("12", "until gone Full access\n", both),
+                                  ("12", "until shown Full access\nuntil gone Full access\n", []),
                                   ("0.1", "until shown Full access\n", [])):
             with self.subTest(wait=wait, until=until):
                 self.assertEqual(self.raced(menu % (wait, until)), want)
@@ -645,9 +649,11 @@ class Capfile(unittest.TestCase):
             ("key C-c\nuntil shown press ctrl+c again to exit\nwait 0.3\nsnap a\n", []),
             ("key C-c\nwait 1\ntype x\nwait 2\nsnap a\n", []),
             ("key C-c\nwait 1\nkey Escape\nwait 2\nsnap a\n", []),
-            ("key C-c\nwait 1\npastex 3\nwait 2\nsnap a\n", []),
-            # fx keeps it over a paste frame.
+            # A paste and a terminal report are not keystrokes: both binaries
+            # keep the hint over them (xfx shell.rs `consume`; fx over a paste).
+            ("key C-c\nwait 1\npastex 3\nwait 2\nsnap a\n", both),
             ("key C-c\nwait 1\npaste x\nwait 2\nsnap a\n", both),
+            ("key C-c\nwait 1\nkey -H 1b 5b 3f 39 39 37 3b 32 6e\nwait 2\nsnap a\n", both),
             ("key C-c\nwait 2\nkey C-c\nwait 1\nsnap a\n", []),
             ("keep\nkey C-c\nrelaunch\nwait 3\nsnap a\n", []),
             # A Shift-Tab is not counted; the `until shown` that means it is.
@@ -659,11 +665,67 @@ class Capfile(unittest.TestCase):
                 self.assertEqual(self.raced(cap), want)
 
     def test_a_profile_in_full_access_arms_it_too(self):
+        yolo = {"s.json": '{"permission_mode": "yolo"}\n'}
         for line in ("seed s.json", "homefile .xfx/settings.json s.json"):
             with self.subTest(line=line):
-                self.assertEqual(self.raced(line + "\nwait 4\nsnap start\n", {"s.json": '{"permission_mode": "yolo"}\n'}),
+                self.assertEqual(self.raced(line + "\nwait 4\nsnap start\n", yolo),
                                  [("fx", "snap start"), ("xfx", "snap start")])
         self.assertEqual(self.raced("seed s.json\nwait 4\nsnap start\n", {"s.json": '{"permission_mode":"ask"}\n'}), [])
+        # A profile written between an exit and a relaunch arms it at the relaunch.
+        for line in ("reseed s.json", "rehomefile .xfx/settings.json s.json"):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced("keep\nwait 9\n" + line + "\nrelaunch\nwait 4\nsnap again\n", yolo),
+                                 [("fx", "snap again"), ("xfx", "snap again")])
+
+    def test_an_until_or_absent_counts_only_with_the_timers_exact_text(self):
+        # FLAKE-HINT4 r2 (gpt6 MUST 1): `until gone Full access never-rendered`
+        # is true while the warning is up.
+        both = [("fx", "snap start"), ("xfx", "snap start")]
+        for line, want in (
+            ("until gone Full access", []),
+            ("until gone Full access never-rendered", both),
+            ("until gone Full access enabled", both),
+            ("until gone Full", both),
+            ("absent Full access", []),
+            ("absent Full access never-rendered", both),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(self.YOLO + "wait 3.5\n%s\nsnap start\n" % line), want)
+        hint = "key C-c\nwait 1.5\n%s\nwait 1\nsnap a\n"
+        for line, want in (("absent press ctrl+c again to exit", []), ("absent press ctrl+c", True),
+                           ("until gone press ctrl+c again to exit, please", True)):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(hint % line), [("fx", "snap a"), ("xfx", "snap a")] if want else [])
+        # `until shown` with a longer text sees the row, but says no more of it
+        # than any other row's `until`: it waits as long as it takes.
+        self.assertEqual(self.raced(self.YOLO + "until shown Full access enabled\nsnap start\n"), both)
+
+    def test_absent_says_a_ctrl_c_armed_nothing(self):
+        # approvals' after-cc-cmd-ask (gpt6 MUST 2): a Ctrl-C a question
+        # answers arms no hint. The snap stays at 2.5 s; `absent` halfway
+        # fails the run if the hint is up, and the check takes its word.
+        both = [("fx", "snap after"), ("xfx", "snap after")]
+        self.assertEqual(self.raced("key C-c\nwait 2.5\nsnap after\n"), both)
+        self.assertEqual(self.raced("key C-c\nwait 1.25\nabsent press ctrl+c again to exit\nwait 1.25\nsnap after\n"), [])
+        # Not while the row is paused: a hidden warning is not a spent one.
+        menu = self.YOLO + "wait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
+        self.assertEqual(self.raced(menu), [("fx", "snap a"), ("xfx", "snap a")])
+
+    def test_an_until_shown_nothing_counted_armed_reaches_back_to_the_last_input(self):
+        # opus SHOULD: a Shift-Tab is not counted, but it is input, and the
+        # warning it armed has been up no longer than the time since it.
+        both = [("fx", "snap a"), ("xfx", "snap a")]
+        self.assertEqual(self.raced("key BTab\nwait 3.5\nuntil shown Full access\nsnap a\n"), both)
+        self.assertEqual(self.raced("key BTab\nuntil shown Full access\nwait 0.5\nsnap a\n"), [])
+        self.assertEqual(self.raced("key BTab\nwait 1\nheld\nuntil shown Full access\nsnap a\n"), both)
+
+    def test_an_until_on_another_row_and_a_signal_take_as_long_as_they_take(self):
+        # Each is the only reason these race: two seconds of waits alone do not.
+        both = [("fx", "snap a"), ("xfx", "snap a")]
+        self.assertEqual(self.raced(self.YOLO + "wait 1\nwait 1\nsnap a\n"), [])
+        for line in ("until shown Something else", "until gone Something else", "signal SIGCONT", "held"):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(self.YOLO + "wait 1\n%s\nwait 1\nsnap a\n" % line), both)
 
     def test_each_timer_cites_both_binaries_sources(self):
         for timer in capfile.TIMERS:

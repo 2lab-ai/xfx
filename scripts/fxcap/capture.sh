@@ -97,15 +97,27 @@
 #   until shown <text>     waits until <text> is on the pane's screen (`shown`)
 #   until gone <text>      or is not (`gone`) -- the screen a `snap` writes,
 #                          as plain text, <text> matched as it is on one row
-#                          -- up to 30 s, and fails the run (exit 1), with the
-#                          screen it last read, if it never is: a state of the
-#                          screen, not a moment on the clock, so a snap after
-#                          it does not race a row the binary takes away on a
-#                          timer of its own (the full-access warning's 4 s;
-#                          capfile.py TIMERS lists them, and refuses a snap
-#                          inside one's window that no `until` precedes).
-#                          Prints how long it waited, and how long since the
-#                          binary was launched (or last relaunched).
+#                          -- for 30 s of elapsed time, and fails the run
+#                          (exit 1), with the screen it last read, if it never
+#                          is: a state of the screen, not a moment on the
+#                          clock, so a snap after it does not race a row the
+#                          binary takes away on a timer of its own (the
+#                          full-access warning's 4 s; capfile.py TIMERS lists
+#                          them, and refuses a snap inside one's window that
+#                          no `until` precedes). Prints how long it waited and
+#                          how long since the binary was launched (or last
+#                          relaunched) -- and, for a `gone` whose text was not
+#                          on the screen at its first look, `never seen`: it
+#                          proved nothing came and went.
+#   absent <text>          fails the run (exit 1), with the screen, if <text>
+#                          is on the pane's screen now: a row that must not
+#                          be there at all (the exit hint after a Ctrl-C a
+#                          question answers), checked at a moment rather
+#                          than waited away
+#   expect <label> <text>  fails the run (exit 1) unless the snap <label>
+#                          already written holds <text> on one of its rows:
+#                          the frame itself shows the row the snap is for,
+#                          not only a look taken before it
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
 #   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
@@ -551,7 +563,14 @@ main() {
         local cond=${line#until } text
         text=${cond#* }
         [[ ( $cond == shown\ * || $cond == gone\ * ) && $text =~ [^[:space:]] ]] || { echo "until takes shown <text> or gone <text>, not ${line#until }" >&2; exit 2; } ;;
-      modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets|until)
+      absent\ *)
+        [[ ${line#absent } =~ [^[:space:]] ]] || { echo "absent takes <text>, not ${line#absent }" >&2; exit 2; } ;;
+      expect\ *)
+        local label=${line#expect } text
+        text=${label#* }
+        label=${label%% *}
+        [[ ${line#expect } == *' '* && $text =~ [^[:space:]] ]] || { echo "expect takes <label> <text>, not ${line#expect }" >&2; exit 2; } ;;
+      modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets|until|absent|expect)
         echo "$line takes an argument: see the verbs at the top of capture.sh" >&2; exit 2 ;;
     esac
   done < "$file"
@@ -743,22 +762,43 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         grep -m1 "^\[fakegw\] hold $holds after " "$run/gateway.log" ;;
       release) echo release >> "$run/gw-release" ;;
       until)
-        local cond=${rest%% *} text=${rest#* } screen on
+        local cond=${rest%% *} text=${rest#* } screen on seen='' looks=0 began=$SECONDS
         : > "$run/until"
-        tries=0
         while :; do
           screen=$(tmux -f /dev/null -S "$sock" capture-pane -p -t cap) || { echo "until $cond '$text': the pane is gone" >&2; exit 1; }
           on=0
           [[ $screen != *"$text"* ]] || on=1
+          (( on == 0 )) || seen=1
+          looks=$((looks + 1))
           if [[ $cond == shown ]]; then (( on == 0 )) || break; else (( on == 1 )) || break; fi
-          if (( ++tries >= 600 )); then
-            echo "until $cond '$text': still $( (( on )) && echo shown || echo not shown) after 30 s; the screen's rows that are not blank:" >&2
+          # Elapsed time, whole seconds (bash's own clock: no fork per look).
+          if (( SECONDS - began >= 30 )); then
+            echo "until $cond '$text': still $( (( on )) && echo shown || echo not shown) after $(since "$run/until") s ($looks looks); the screen's rows that are not blank:" >&2
             printf '%s\n' "$screen" | grep -v '^[[:space:]]*$' | sed 's/^/  | /' >&2 || true
             exit 1
           fi
           sleep 0.05
         done
-        echo "until $cond '$text': after $(since "$run/until") s, $(since "$run/launched") s since launch" ;;
+        echo "until $cond '$text': after $(since "$run/until") s, $(since "$run/launched") s since launch$([[ $cond == gone && -z $seen ]] && echo '; never seen')" ;;
+      absent)
+        local screen
+        screen=$(tmux -f /dev/null -S "$sock" capture-pane -p -t cap) || { echo "absent '$rest': the pane is gone" >&2; exit 1; }
+        if [[ $screen == *"$rest"* ]]; then
+          echo "absent '$rest': it is on the screen, $(since "$run/launched") s since launch; the screen's rows that are not blank:" >&2
+          printf '%s\n' "$screen" | grep -v '^[[:space:]]*$' | sed 's/^/  | /' >&2 || true
+          exit 1
+        fi
+        echo "absent '$rest': not on the screen, $(since "$run/launched") s since launch" ;;
+      expect)
+        local label=${rest%% *} text=${rest#* } frame
+        frame=$out/$which-$scenario-$size-$label.txt
+        [[ -f $frame ]] || { echo "expect $label: no snap $label was written before it" >&2; exit 1; }
+        if ! grep -qF -- "$text" "$frame"; then
+          echo "expect $label '$text': the snap does not hold it; its rows that are not blank:" >&2
+          grep -v '^[[:space:]]*$' "$frame" | sed 's/^/  | /' >&2 || true
+          exit 1
+        fi
+        echo "expect $label '$text': the snap holds it" ;;
       type) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" send-keys -t cap -l "$filled" ;;
       paste) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$filled")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
       pastex)

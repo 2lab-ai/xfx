@@ -26,8 +26,13 @@ key Enter
 until shown recovered · attempt 2
 until shown Running sleep 4
 snap rec-0.5
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect rec-0.5 recovered · attempt 2
+expect rec-0.5 Running sleep 4
 wait 0.4
 snap rec-1.4
+expect rec-1.4 recovered · attempt 2
 until gone recovered · attempt 2
 snap rec-1.8
 wait 0.6

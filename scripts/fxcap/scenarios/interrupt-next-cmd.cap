@@ -5,6 +5,10 @@ fx: gateway interrupt-cmd-fx.json
 xfx: gateway interrupt-cmd-xfx.json
 fx: env FX_PERMISSION_MODE=yolo
 xfx: env XFX_PERMISSION_MODE=yolo
+# The full-access warning is up from the first frame (capfile.py TIMERS):
+# seen here, so the `until gone` before the Ctrl-C below is its going and
+# not a look taken before it came.
+until shown Full access
 wait 2
 type run cmd
 key Enter

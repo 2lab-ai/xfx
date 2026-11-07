@@ -163,6 +163,10 @@ class Refusals(unittest.TestCase):
             ("until soon Full access\nsnap a\n", "until takes shown <text> or gone <text>, not soon Full access"),
             ("until shown\nsnap a\n", "until takes shown <text> or gone <text>, not shown"),
             ("until gone   \nsnap a\n", "until takes shown <text> or gone <text>, not gone   "),
+            ("absent\nsnap a\n", "absent takes an argument"),
+            ("absent   \nsnap a\n", "absent takes <text>, not   "),
+            ("expect\nsnap a\n", "expect takes an argument"),
+            ("expect a\nsnap a\n", "expect takes <label> <text>, not a"),
             ("homefile ../x c.json\nsnap a\n", "homefile takes a relative path inside HOME, not ../x"),
         ):
             with self.subTest(cap=cap.split("\n")[0]):
@@ -538,17 +542,53 @@ class Verbs(unittest.TestCase):
     def test_until_fails_the_run_when_the_row_never_comes(self):
         r = capture("wait 0.5\nuntil shown never-on-this-screen\nsnap a\n")
         self.assertEqual(r.code, 1, r.stdout + r.stderr)
-        self.assertIn("until shown 'never-on-this-screen': still not shown after 30 s; the screen's rows that are not blank:", r.stderr)
+        self.assertRegex(r.stderr, r"until shown 'never-on-this-screen': still not shown after (\d+\.\d\d) s \(\d+ looks\); the screen's rows that are not blank:")
+        # Thirty seconds of elapsed time, however many looks that took.
+        waited = float(re.search(r"still not shown after (\d+\.\d\d) s", r.stderr).group(1))
+        self.assertGreaterEqual(waited, 29.0)
+        self.assertLess(waited, 32.0)
         self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
         self.assertIn("guards:", r.stdout, "the guards still ran")
 
     def test_until_fails_the_run_when_the_row_never_goes(self):
         r = capture("wait 0.5\ntype printf 'stays-%s\\n' put\nkey Enter\nuntil shown stays-put\nuntil gone stays-put\nsnap a\n")
         self.assertEqual(r.code, 1, r.stdout + r.stderr)
-        self.assertIn("until gone 'stays-put': still shown after 30 s; the screen's rows that are not blank:", r.stderr)
+        self.assertRegex(r.stderr, r"until gone 'stays-put': still shown after \d+\.\d\d s \(\d+ looks\); the screen's rows that are not blank:")
         self.assertIn("  | stays-put", r.stderr, "the screen it last read")
         self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
         self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_until_gone_says_never_seen_when_its_text_was_not_there_at_all(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nuntil gone X[1]*Y\nuntil gone not-on-this-screen\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"until gone 'X\[1\]\*Y': after \d+\.\d\d s, \d+\.\d\d s since launch\n")
+        self.assertRegex(r.stdout, r"until gone 'not-on-this-screen': after \d+\.\d\d s, \d+\.\d\d s since launch; never seen\n")
+
+    def test_absent_passes_a_screen_without_its_text_and_fails_one_with_it(self):
+        # The injected hint (FLAKE-HINT4 r2): a stub that puts up the Ctrl-C
+        # exit hint where the scenario says none may be. `absent` fails the
+        # run there, with the screen, and nothing after it is snapped.
+        ok = capture("wait 0.5\nabsent press ctrl+c again to exit\nsnap a\n")
+        self.assertEqual(ok.code, 0, ok.stdout + ok.stderr)
+        self.assertRegex(ok.stdout, r"absent 'press ctrl\+c again to exit': not on the screen, \d+\.\d\d s since launch\n")
+        r = capture("wait 0.5\ntype printf 'press ctrl+c %s to exit\\n' again\nkey Enter\n"
+                    "until shown press ctrl+c again to exit\nabsent press ctrl+c again to exit\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("absent 'press ctrl+c again to exit': it is on the screen", r.stderr)
+        self.assertIn("  | press ctrl+c again to exit", r.stderr, "the screen it read")
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_expect_checks_the_frame_a_snap_wrote(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nsnap on\nexpect on X[1]*Y\nuntil gone X[1]*Y\nsnap off\nexpect off X[1]*Y\nsnap never\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("expect on 'X[1]*Y': the snap holds it", r.stdout)
+        self.assertIn("expect off 'X[1]*Y': the snap does not hold it; its rows that are not blank:", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run went on")
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+        missing = capture("wait 0.5\nexpect nothing X\n")
+        self.assertEqual(missing.code, 1, missing.stdout + missing.stderr)
+        self.assertIn("expect nothing: no snap nothing was written before it", missing.stderr)
 
     def test_sockets(self):
         r = capture("env P=@PORT@\nwait 1\ntype exec 3<>/dev/tcp/127.0.0.1/$P\nkey Enter\nwait 0.5\nsockets s\n")

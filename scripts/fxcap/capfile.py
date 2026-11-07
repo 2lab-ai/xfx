@@ -108,24 +108,28 @@ class Timer:
     byte from the gateway, so a snap a second count takes near then shows
     either screen: the race FLAKE-HINT4 removed
     (`.prd/tui-phase5/receipts/flake-hint4/`). `text` is on the screen while
-    the row is. `xfx` and `fx` are where each binary keeps the number.
+    the row is; an `until` or `absent` line speaks of the row only when its
+    text is exactly this. `xfx` and `fx` are where each binary keeps the
+    number.
 
     What arms it is what a .cap says for certain. `launch` matches a line of
-    the binary's environment (`env`) or a file a `seed` or `homefile` line
-    puts in its HOME: armed at launch and again at each `relaunch`. `keys`
-    are tmux key names a `key` line arms it with; `disarms` says any other
-    keystroke (`key`, `type`, `pastex`; fx keeps it over a paste frame) takes
-    it down. A key that only sometimes arms one is not in `keys`: Shift-Tab
-    enters full access from auto and is a menu's own key elsewhere, so a
-    scenario that means it takes its snaps by `until`, and the check counts
-    the warning from that `until shown`.
+    the binary's environment (`env`) or a file a `seed`, `homefile`, `reseed`
+    or `rehomefile` line puts in its HOME: armed at launch and again at each
+    `relaunch`. `keys` are tmux key names a `key` line arms it with; `disarms`
+    says any other keystroke takes it down -- a `key` line or a `type` line,
+    but not a paste (`paste`, `pastex`) and not a `key -H` terminal report:
+    both binaries let those through (xfx shell.rs `consume`, its `disarms`;
+    fx keeps the hint over a paste frame). A key that only sometimes arms one
+    is not in `keys`: Shift-Tab enters full access from auto and is a menu's
+    own key elsewhere, so a scenario that means it takes its snaps by
+    `until`, and the check counts the warning from that `until shown`.
 
     `pauses` matches a line that can take the row from it while it is up --
     a Ctrl-C or an Escape arms a cue that owns the row, a typed `/` opens the
-    command menu -- and its clock stops while it is off the row, so the
-    moment it goes moves by however long that lasts. Such a line inside the
-    window is refused as a snap is; one before it stops the check's clock
-    too (`races`)."""
+    command menu, Ctrl-O opens the full transcript -- and its clock stops
+    while it is off the row, so the moment it goes moves by however long that
+    lasts. Such a line inside the window is refused as a snap is; one before
+    it stops the check's clock too (`races`)."""
 
     def __init__(self, name, seconds, text, xfx, fx, launch=None, keys=(), disarms=False, pauses=None):
         self.name, self.seconds, self.text, self.xfx, self.fx = name, seconds, text, xfx, fx
@@ -146,19 +150,22 @@ TIMERS = (
         "src/tui/permissions.rs:38",
         "src/core/app/app_permission_runtime.zig:21@481104fd",
         launch=re.compile(r'(?i)PERMISSION_MODE=(?:yolo|full-access)\b|"permission_mode"\s*:\s*"(?:yolo|full[- ]access)"'),
-        # The cues and the menu that own the hint row keep the warning off it
-        # (xfx `warning_shown`, src/tui/shell.rs:13616-13641; fx
-        # `dangerStatusText`, src/ui/footer/input_presentation.zig:581-600
-        # @481104fd), and its clock runs only while it is on it
-        # (permissions.rs:409-437; app_permission_runtime.zig:41-67@481104fd).
-        pauses=re.compile(r"^key .*\b(?:C-c|Escape)\b|^type /"),
+        # The cues, the menu and the full transcript keep the warning off the
+        # row (xfx `warning_shown`, src/tui/shell.rs:13616-13641, the full
+        # transcript at :13634-13636; fx `dangerStatusText`,
+        # src/ui/footer/input_presentation.zig:581-600, and
+        # `yolo_warning_visible`, app_render_runtime.zig:1833-1834@481104fd),
+        # and its clock runs only while it is on it (permissions.rs:409-437;
+        # app_permission_runtime.zig:41-67@481104fd).
+        pauses=re.compile(r"^key .*\b(?:C-c|C-o|Escape)\b|^type /"),
     ),
     # Every Ctrl-C arms it but one over a running turn with a draft, one a
     # question answers (src/ui/input/runtime.zig:63@481104fd), and fx's in its
     # model and MCP menus (`handleSemanticCtrlC`,
     # app_input_runtime.zig:1511-1545@481104fd; xfx `Gestures::interrupt`,
-    # src/tui/gesture.rs): armed for each here, and an `until gone` where none
-    # was armed returns at once.
+    # src/tui/gesture.rs): armed for each here. A scenario whose Ctrl-C must
+    # arm nothing says so with `absent` (capture.sh), which fails the run if
+    # the hint is up; an `until gone` where none was armed returns at once.
     Timer(
         "the Ctrl-C exit hint",
         3.0,
@@ -183,6 +190,22 @@ AFTER = 3.0
 SPENDS = {"bells": 0.3, "wire": 0.3, "held": None, "signal": None, "until": None}
 UNBOUNDED = float("inf")
 
+# The lines that hand the binary input a timer can be armed by.
+INPUTS = ("key", "type", "paste", "pastex", "relaunch")
+
+
+def _spend(clock, verb, rest, frozen=False):
+    """`clock` after one line that only passes time, or `clock` itself."""
+    if verb == "wait":
+        try:
+            return (clock[0] + (0.0 if frozen else float(rest)), clock[1] + float(rest))
+        except ValueError:
+            return clock
+    if verb in SPENDS:
+        spent = SPENDS[verb]
+        return (clock[0] + (0.0 if frozen else spent or 0.0), UNBOUNDED if spent is None else clock[1] + spent)
+    return clock
+
 
 def races(reading):
     """Every snap of this reading that a timer's window may hold, one line
@@ -191,21 +214,31 @@ def races(reading):
 
     The seconds since arming are a range [lo, hi]. A `wait` adds its seconds
     to both ends, a verb in SPENDS its fixed time, and one that waits for
-    something else makes hi unbounded. `until shown <text>` naming the
-    timer's text says the row is up: it may have come up only now, so lo is
-    0, and it has not been up longer than it was armed, so hi stays (armed
-    now, when nothing this check sees armed it). `until gone <text>` naming
-    it says it has run out: nothing is armed until it is armed again. A snap
-    whose range meets (seconds - BEFORE, seconds + AFTER) is a race.
+    something else makes hi unbounded. A snap whose range meets
+    (seconds - BEFORE, seconds + AFTER) is a race.
+
+    An `until` or `absent` line counts only when its text is exactly the
+    timer's: `until gone Full access never-rendered` is true while the
+    warning is up, so it says nothing of it.
+
+    - `until shown <text>`: the row is up. It may have come up only now, so
+      lo is 0; it has not been up longer than it was armed, so hi stays --
+      and when nothing this check sees armed it, hi is the time since the
+      last line that handed the binary input, since only input (or a launch)
+      arms one.
+    - `until gone <text>` and `absent <text>`: the row is not up, so nothing
+      is armed until it is armed again -- `absent` fails the run when it is.
+      Not while the row is paused (below): gone then is hidden, not spent.
 
     A line the timer `pauses` on, before its window, takes the row while it
     is surely up, for a time the .cap does not say: from there lo stops
-    growing, until an `until` names the row, so every snap after it is a
-    race until one does."""
+    growing, until an `until shown` names the row, so every snap after it is
+    a race until one does."""
     here = os.path.dirname(reading.path)
     profile = [line for line in reading.lines if line.startswith("env ")]
     for line in reading.lines:
-        path = os.path.join(here, line.split()[-1]) if line.startswith(("seed ", "homefile ")) else None
+        named = line.startswith(("seed ", "homefile ", "reseed ", "rehomefile "))
+        path = os.path.join(here, line.split()[-1]) if named else None
         if path and regular_inside(path, here):
             with open(path, encoding="utf-8", errors="replace") as f:
                 profile.append(f.read())
@@ -215,29 +248,27 @@ def races(reading):
         clock = (0.0, 0.0) if at_launch else None
         # Whether a line before the window took the row: lo stops growing.
         frozen = False
+        # The seconds since the binary was last handed input, or launched.
+        since_input = (0.0, 0.0)
         for line in reading.lines:
             verb, _, rest = line.partition(" ")
+            cond, _, said = rest.partition(" ")
+            names = (verb == "until" and said == timer.text) or (verb == "absent" and rest == timer.text)
             pauses = bool(timer.pauses and timer.pauses.search(line))
             if verb == "relaunch":
                 clock, frozen = (0.0, 0.0) if at_launch else None, False
             elif verb == "key" and any(k in timer.keys for k in rest.split()):
                 clock, frozen = (0.0, 0.0), False
-            elif verb in ("key", "type", "pastex") and timer.disarms:
+            elif timer.disarms and (verb == "type" or (verb == "key" and not rest.startswith("-H "))):
                 clock = None
-            elif verb == "until" and rest.startswith("shown ") and timer.text in rest:
-                clock, frozen = (0.0, clock[1] if clock else 0.0), False
+            elif names and verb == "until" and cond == "shown":
+                clock, frozen = (0.0, clock[1] if clock else since_input[1]), False
             elif clock is None:
-                continue
-            elif verb == "wait":
-                try:
-                    clock = (clock[0] + (0.0 if frozen else float(rest)), clock[1] + float(rest))
-                except ValueError:
-                    pass
-            elif verb == "until" and timer.text in rest:
+                pass
+            elif names and not frozen:
                 clock = None
-            elif verb in SPENDS:
-                spent = SPENDS[verb]
-                clock = (clock[0] + (0.0 if frozen else spent or 0.0), UNBOUNDED if spent is None else clock[1] + spent)
+            elif verb in ("wait",) or verb in SPENDS:
+                clock = _spend(clock, verb, rest, frozen)
             elif pauses and clock[1] <= timer.seconds - BEFORE:
                 frozen = True
             elif (verb in ("snap", "snapfull") or pauses) and \
@@ -248,6 +279,7 @@ def races(reading):
                        timer.name, timer.seconds - BEFORE, timer.seconds + AFTER, timer.text,
                        "" if verb in ("snap", "snapfull") else ": it can take the row, and the clock stops while it is off it")
                 )
+            since_input = (0.0, 0.0) if verb in INPUTS else _spend(since_input, verb, rest)
     return out
 
 

@@ -16,5 +16,9 @@ key C-c
 until shown press ctrl+c again to exit
 wait 0.3
 snap ctrlc
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect ctrlc press ctrl+c again to exit
 wait 1.5
 snap ctrlc-later
+expect ctrlc-later press ctrl+c again to exit
