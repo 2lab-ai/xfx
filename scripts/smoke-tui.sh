@@ -10024,18 +10024,36 @@ def wire_ends_on_a_frame(trial):
     pass writes it (`event_loop.rs`'s `commit_tick`), and the session may
     settle there. Anything else after the close is still an append and still
     waited out.
+
+    **A report is not proof that nothing follows it**, though: the session can
+    write a report after one tick's frame and the next tick's frame a few
+    milliseconds later. So a wire that ends on a frame only once a trailing
+    report is set aside must also be quiet -- one more read that brings no byte
+    in `REPORT_QUIET` -- before the screen counts as settled; bytes that did
+    arrive are read and the wait goes on.
     """
     captured = bytes(trial.session.captured)
+    reported = False
     while True:
-        trimmed = TRAILING_REPORT.sub(b"", captured.rstrip(b"\x07"))
+        unrung = captured.rstrip(b"\x07")
+        trimmed = TRAILING_REPORT.sub(b"", unrung)
         if trimmed == captured:
             break
+        reported = reported or trimmed != unrung
         captured = trimmed
-    return captured.endswith(FRAME_END_BYTES) or captured.endswith(FRAME_CLOSE_BYTES)
+    framed = captured.endswith(FRAME_END_BYTES) or captured.endswith(FRAME_CLOSE_BYTES)
+    if framed and reported and trial.session.pump(REPORT_QUIET):
+        return False
+    return framed
 
 
 # A whole `OSC 7501` report at the very end of the wire.
 TRAILING_REPORT = re.compile(rb"\x1b\]7501;[\x20-\x7e]*\x1b\\\Z")
+
+# How long a wire that ends on a report has to stay still before the frame in
+# front of the report counts as the screen the session settled on: six of the
+# event loop's 8 ms ticks (`event_loop::TICK`).
+REPORT_QUIET = 0.05
 
 
 def cells_wide(text):
