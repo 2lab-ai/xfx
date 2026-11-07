@@ -151,3 +151,168 @@ exit 0, 67 s
 smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures
 
 # done 2026-11-07T17:53:14Z
+
+############ Run 2: dcaa442c (the receipt committed but for this file and the README's gate table), heavy steps under suite-lock.sh
+
+# gates at dcaa442c, 2026-11-07T20:41:51Z; git status --short: 0 entries
+## fmt
+$ cargo fmt --check
+exit 0, 1 s
+
+## clippy
+$ cargo clippy --locked --all-targets -- -D warnings
+exit 0, 13 s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.19s
+
+## clippy-fault
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit 0, 15 s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.92s
+
+## test
+$ suite-lock.sh cargo test --locked --no-fail-fast
+exit 0, 1253 s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.26s
+test result: ok. 4318 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 64.16s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.33s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.57s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.14s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+## test-fault
+$ suite-lock.sh cargo test --locked --features fault-injection --no-fail-fast
+exit 0, 267 s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.22s
+test result: ok. 4341 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 60.41s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.12s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.19s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.10s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.86s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.64s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 190 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.22s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+## identity
+$ scripts/check-xfx-identity.sh
+exit 0, 0 s
+check-xfx-identity: ok (12723 tracked file(s) scanned)
+
+## no-stubs
+$ scripts/check-no-stubs.sh
+exit 0, 10 s
+check-no-stubs: ok
+
+## no-secrets
+$ scripts/check-no-secrets.sh
+exit 0, 41 s
+check-no-secrets: ok (12723 tracked file(s) scanned)
+
+## preview-contract
+$ scripts/check-preview-contract.sh
+exit 0, 3 s
+check-preview-contract: ok (.github/workflows/preview.yml)
+
+## preflight-cost
+$ scripts/check-tui-preflight-cost.sh
+exit 0, 118 s
+check-tui-preflight-cost: ok
+
+## usage-clock
+$ scripts/check-usage-clock.sh
+exit 0, 0 s
+check-usage-clock: ok
+
+## test-no-secrets
+$ scripts/test-check-no-secrets.sh
+exit 0, 107 s
+test-check-no-secrets: ok clean              exit 0
+test-check-no-secrets: ok first-batch        exit 1
+test-check-no-secrets: ok last-batch         exit 1
+test-check-no-secrets: ok dash-n-name        exit 1
+test-check-no-secrets: ok unreadable-middle  exit 1
+test-check-no-secrets: ok grep-options       exit 1
+test-check-no-secrets: ok grep-signal        exit 1
+test-check-no-secrets: ok grep-126           exit 1
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+
+## test-gate-env
+$ scripts/test-gate-env.sh
+exit 0, 103 s
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+
+## test-preview-contract
+$ scripts/test-preview-contract.sh
+exit 0, 47 s
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+
+## test-sweep
+$ scripts/fxcap/test-sweep.sh
+exit 0, 64 s
+
+## test-capture
+$ scripts/fxcap/test-capture.sh
+exit 1, 548 s
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+FAILED (failures=1, errors=1)
+
+## release
+$ cargo build --locked --release
+exit 0, 14 s
+    Finished `release` profile [optimized] target(s) in 14.56s
+
+## faulty
+$ cargo build --locked --release --features fault-injection --target-dir target/faulty
+exit 0, 19 s
+    Finished `release` profile [optimized] target(s) in 19.03s
+
+## smoke
+$ scripts/smoke.sh target/release/xfx <tmp>/smk2/smoke
+exit 0, 10 s
+
+## smoke-tui
+$ suite-lock.sh scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <tmp>/smk2/smoke-tui
+exit 0, 75 s
+
+# done 2026-11-07T21:26:59Z
+
+## test-capture, again under suite-lock.sh (its run above shared the machine: 548 s against run 1's 150 s)
+$ suite-lock.sh scripts/fxcap/test-capture.sh
+exit 1, 531 s
+ERROR: test_models2_and_modelsdelay -- ValueError: substring not found (test_capture.py:455: the second catalog was not served in the log)
+Ran 42 tests; FAILED (errors=1). test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run, which failed in the run above
+(the pane's pid still /bin/sh, its exec not yet done), passed.
+
+## test_models2_and_modelsdelay alone, three times each, under suite-lock.sh: a stub binary (/bin/bash) and fakegw.ts, no xfx,
+## and scripts/fxcap/{capture.sh,test_capture.py,test-capture.sh,fakegw.ts} the same bytes at e6cde019 and here
+$ suite-lock.sh python3 -I scripts/fxcap/test_capture.py Verbs.test_models2_and_modelsdelay
+base e6cde019 (a clone): FAILED, OK, FAILED
+head dcaa442c:           FAILED, FAILED, FAILED
+The base fails it too: the harness's own timing (`models2` 5 s from the gateway's start), FLAKE-HINT4 r2's d40bf1a3
+("`models2` by order"), not this unit's.
