@@ -1,0 +1,21 @@
+# Phase 5 lifecycle (U3): a relative HOME that names a folder the workspace
+# holds. fx v0.0.16 treats it as unset (21a55a45) and saves nothing in it;
+# xfx before U3 made `~/.xfx` there. One prompt, so a session store or a
+# prompt history that kept it leaves a file `workls` lists.
+work p5-relhome-made
+gateway p5-relhome-made-turns.json
+env HOME=relative/home
+keep
+wait 3
+snap h00-launch
+type hello
+key Enter
+wait 3
+snap h01-turn
+type /quit
+key Enter
+wait 2
+relaunch sessions
+wait 4
+snapfull h02-sessions
+workls h03

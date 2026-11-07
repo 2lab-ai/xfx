@@ -2304,9 +2304,13 @@ impl Shell {
             dismissed: Dismissed::default(),
             file_picker: None,
             files: {
+                // `~` is the profile's home, held to `HOME`'s one rule
+                // ([`crate::config::home_dir`]): an empty or relative
+                // `HOME` is no home, so `~/` browses nothing rather than a
+                // folder under the workspace.
                 let mut files = Files::new(
                     config.workspace_root.clone(),
-                    std::env::var_os("HOME").map(std::path::PathBuf::from),
+                    config.home().map(std::path::Path::to_path_buf),
                 );
                 files.set_extra_roots(index_roots(
                     &config.workspace_root,

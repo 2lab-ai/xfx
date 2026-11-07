@@ -140,18 +140,32 @@ fn a_shell_whose_answers_would_go_into_a_pipe_is_refused() {
 
 #[test]
 fn a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation() {
-    let sandbox = Sandbox::new();
-    let pty = Pty::open();
-    let mut command = sandbox.command();
-    command.env_remove("HOME");
-    let mut session = Session::spawn(&pty, command);
+    // An unset `HOME`, and an empty or relative one, which counts as unset
+    // (`crate::config::home_dir`, fx v0.0.16's `homeDir`): the relative
+    // one names a directory under the workspace, which is there, and the shell
+    // makes no profile in it.
+    for home in [None, Some(""), Some("relative/home")] {
+        let sandbox = Sandbox::new();
+        fs::create_dir_all(sandbox.workspace.join("relative/home")).expect("the home it names");
+        let pty = Pty::open();
+        let mut command = sandbox.command();
+        match home {
+            None => command.env_remove("HOME"),
+            Some(home) => command.env("HOME", home),
+        };
+        let mut session = Session::spawn(&pty, command);
 
-    let text = session.wait_for("cannot record");
-    assert!(
-        text.contains("--no-save"),
-        "the refusal must say what is missing and what to use instead: {text}"
-    );
-    assert_eq!(session.wait_exit().code(), Some(1));
+        let text = session.wait_for("cannot record");
+        assert!(
+            text.contains("--no-save"),
+            "the refusal must say what is missing and what to use instead: {text}"
+        );
+        assert_eq!(session.wait_exit().code(), Some(1), "HOME={home:?}");
+        let made: Vec<_> = fs::read_dir(sandbox.workspace.join("relative/home"))
+            .expect("the home it names")
+            .collect();
+        assert!(made.is_empty(), "HOME={home:?} made {made:?}");
+    }
 }
 
 #[test]

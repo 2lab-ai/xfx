@@ -1643,6 +1643,91 @@ fn ask_saves_a_turn_by_default_and_no_save_writes_nothing() {
     );
 }
 
+/// Every path under `root`, directories too, relative to it and sorted: what
+/// a run made shows up here even when it made only a directory.
+fn tree(root: &Path) -> Vec<PathBuf> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.expect("entry").path();
+            out.push(
+                path.strip_prefix(root)
+                    .expect("under the root")
+                    .to_path_buf(),
+            );
+            if fs::symlink_metadata(&path).expect("metadata").is_dir() {
+                walk(root, &path, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere() {
+    // fx v0.0.16 reads `HOME` only when it is absolute (`homeDir`,
+    // `src/core/shared/io.zig:475-483@481104fd`, 21a55a45). Each value here
+    // names a directory that **is there** from the workspace -- `../home` is
+    // the sandbox's own home -- so a reader that kept it would find a home to
+    // make `.xfx` in, and the sandbox's tree would change.
+    for home in ["relative/home", "./home", "~", "../home", "a/../home", ""] {
+        let sandbox = Sandbox::new();
+        if !home.is_empty() {
+            fs::create_dir_all(sandbox.workspace.join(home)).expect("the directory HOME names");
+        }
+        let root = sandbox
+            .workspace
+            .parent()
+            .expect("the sandbox root")
+            .to_path_buf();
+        let before = tree(&root);
+        let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["recorded nowhere"]))]);
+        let url = gateway.chat_url();
+        let mut env = gateway_env(&url, TEST_KEY);
+        env.push(("HOME", home));
+
+        for (args, kind) in [
+            (&["sessions"][..], "sessions"),
+            (&["session", "last"][..], "session"),
+        ] {
+            let run = sandbox.run(args, &env);
+            assert_eq!(
+                (run.code, run.stdout.as_str(), run.stderr.as_str()),
+                (
+                    Some(1),
+                    "",
+                    format!("xfx {kind}: HOME is not set\n").as_str()
+                ),
+                "`xfx {kind}` with HOME={home:?} is upstream's refusal"
+            );
+        }
+        // A writer refuses rather than making a profile under the workspace.
+        let ask = sandbox.run(&["ask", "remember this"], &env);
+        assert_eq!(ask.code, Some(1), "HOME={home:?}: {}", ask.stderr);
+        assert!(ask.stderr.contains("no home directory"), "{}", ask.stderr);
+        let setup = sandbox.run(&["setup", "gateway"], &env);
+        assert_eq!(setup.code, Some(1), "HOME={home:?}: {}", setup.stderr);
+        // A reader reports no store rather than reading a relative one.
+        let doctor = sandbox.run(&["doctor"], &env);
+        assert!(
+            doctor
+                .stdout
+                .contains("cannot read the session store: HOME is not set"),
+            "HOME={home:?}: {}",
+            doctor.stdout
+        );
+        assert_eq!(sandbox.run(&["status"], &env).code, Some(0));
+
+        assert_eq!(tree(&root), before, "HOME={home:?} wrote into the sandbox");
+        ask.assert_no_secret();
+    }
+}
+
 #[test]
 fn a_saved_turn_records_its_tokens_and_no_usage_ledger() {
     // A turn the Gateway billed in full, in the shape it streams one
