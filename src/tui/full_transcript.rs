@@ -707,8 +707,9 @@ const ESCAPE_KEPT_BYTES: usize = 64;
 /// kept past its last whole character is cut on that character rather than
 /// inside it.
 fn command_stream(raw: &str) -> String {
+    // fx's `EscapeState` (`:29-35`).
     #[derive(PartialEq)]
-    enum Escape {
+    enum EscapeState {
         None,
         Escape,
         Csi,
@@ -719,7 +720,7 @@ fn command_stream(raw: &str) -> String {
         out: String,
         line_start: usize,
         pending_cr: bool,
-        state: Escape,
+        state: EscapeState,
         kept: String,
         overflow: bool,
     }
@@ -736,7 +737,7 @@ fn command_stream(raw: &str) -> String {
             }
         }
         fn reset(&mut self) {
-            self.state = Escape::None;
+            self.state = EscapeState::None;
             self.kept.clear();
             self.overflow = false;
         }
@@ -757,16 +758,16 @@ fn command_stream(raw: &str) -> String {
         /// `consumeEscapeByte`: whether `character` was the sequence's.
         fn escape(&mut self, character: char) -> bool {
             match self.state {
-                Escape::None => false,
-                Escape::Escape => match character {
+                EscapeState::None => false,
+                EscapeState::Escape => match character {
                     '[' => {
                         self.keep(character);
-                        self.state = Escape::Csi;
+                        self.state = EscapeState::Csi;
                         true
                     }
                     ']' => {
                         self.keep(character);
-                        self.state = Escape::Osc;
+                        self.state = EscapeState::Osc;
                         true
                     }
                     '\u{40}'..='\u{5f}' => {
@@ -778,7 +779,7 @@ fn command_stream(raw: &str) -> String {
                         false
                     }
                 },
-                Escape::Csi => {
+                EscapeState::Csi => {
                     self.keep(character);
                     if ('\u{40}'..='\u{7e}').contains(&character) {
                         self.reset();
@@ -787,21 +788,21 @@ fn command_stream(raw: &str) -> String {
                     }
                     true
                 }
-                Escape::Osc => {
+                EscapeState::Osc => {
                     self.keep(character);
                     if character == '\u{7}' {
                         self.reset();
                     } else if character == '\u{1b}' {
-                        self.state = Escape::OscEscape;
+                        self.state = EscapeState::OscEscape;
                     }
                     true
                 }
-                Escape::OscEscape => {
+                EscapeState::OscEscape => {
                     self.keep(character);
                     if character == '\\' {
                         self.reset();
                     } else if character != '\u{1b}' {
-                        self.state = Escape::Osc;
+                        self.state = EscapeState::Osc;
                     }
                     true
                 }
@@ -823,7 +824,7 @@ fn command_stream(raw: &str) -> String {
             }
             match character {
                 '\u{1b}' => {
-                    self.state = Escape::Escape;
+                    self.state = EscapeState::Escape;
                     self.kept.clear();
                     self.overflow = false;
                     self.keep(character);
@@ -847,7 +848,7 @@ fn command_stream(raw: &str) -> String {
         out: String::with_capacity(raw.len()),
         line_start: 0,
         pending_cr: false,
-        state: Escape::None,
+        state: EscapeState::None,
         kept: String::new(),
         overflow: false,
     };
@@ -856,7 +857,7 @@ fn command_stream(raw: &str) -> String {
     }
     // `finish`.
     decoder.pending_cr = false;
-    if decoder.state != Escape::None {
+    if decoder.state != EscapeState::None {
         decoder.flush_incomplete();
     }
     decoder.out
