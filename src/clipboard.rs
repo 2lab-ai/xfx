@@ -1384,22 +1384,45 @@ pub(crate) mod fake {
             std::fs::write(self.path("fail"), "").expect("arm the failure");
         }
 
-        /// A line of a tool's body that waits, polling, until [`Self::open`]
-        /// is called: what comes after it runs at a point in the case's order
-        /// of events rather than after a second count.
+        /// Lines of a tool's body that wait, polling, until [`Self::open`]
+        /// is called: what comes after them runs at a point in the case's
+        /// order of events rather than after a second count.
+        ///
+        /// A wait nobody ends is not a hang. The tool gives up after
+        /// [`Self::GATE_LOOKS`] looks, says so ([`Self::gave_up`]) and exits
+        /// 1, so a case that never opens its gate -- a start that waits for
+        /// its tool, an end that never kills it -- fails rather than waits
+        /// for ever. And it ends as soon as its directory is gone: a case
+        /// that failed, or a test binary killed, leaves no tool polling.
         pub(crate) fn gate() -> String {
             Self::gate_after(Self::GATE_LOOKS)
         }
 
-        /// How many times a tool looks for its gate before it gives up.
+        /// How many times a tool looks for its gate before it gives up. Each
+        /// look sleeps 0.01 s, so at least two minutes: past the minute a
+        /// case gives a tool to start or to answer (`START_PATIENCE`,
+        /// `crate::tui::copy`'s `LOADED`), whose watchdogs open a gate
+        /// first.
         pub(crate) const GATE_LOOKS: u32 = 12_000;
 
         /// [`Self::gate`], giving up after `looks` looks.
-        pub(crate) fn gate_after(_looks: u32) -> String {
-            "while [ ! -f \"${0%/*}/open\" ]; do sleep 0.01; done\n".to_owned()
+        pub(crate) fn gate_after(looks: u32) -> String {
+            format!(
+                concat!(
+                    "n=0\n",
+                    "until [ -f \"${{0%/*}}/open\" ]; do\n",
+                    "  [ -d \"${{0%/*}}\" ] || exit 1\n",
+                    "  [ \"$n\" -lt {looks} ] || {{ : > \"${{0%/*}}/gave-up\"; exit 1; }}\n",
+                    "  n=$((n + 1))\n",
+                    "  sleep 0.01\n",
+                    "done\n",
+                ),
+                looks = looks
+            )
         }
 
-        /// Whether a tool gave up waiting at its gate.
+        /// Whether a tool gave up waiting at its gate ([`Self::gate`]):
+        /// nobody opened it in [`Self::GATE_LOOKS`] looks.
         pub(crate) fn gave_up(&self) -> bool {
             self.path("gave-up").exists()
         }

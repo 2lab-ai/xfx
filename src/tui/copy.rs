@@ -249,7 +249,9 @@ mod tests {
     }
 
     /// A tool that keeps what it is fed once its gate is open
-    /// ([`FakeTool::gate`]), and says who it is before it waits there.
+    /// ([`FakeTool::gate`]), and says who it is before it waits there. Each
+    /// case that gates its tool first asks whether the gate gave up: a case
+    /// that would have waited for ever fails there, with the reason.
     fn gated() -> FakeTool {
         FakeTool::running(&format!(
             "echo $$ > \"${{0%/*}}/hung\"\n{}cat > \"${{0%/*}}/copied\"",
@@ -277,6 +279,10 @@ mod tests {
             }
             began.elapsed() >= LOADED
         });
+        assert!(
+            !tool.gave_up(),
+            "nobody opened the gate: the start or the end waited for the tool"
+        );
         assert!(looked, "the end gave a copy still running no grace");
         assert_eq!(tool.copied().as_deref(), Some("the reply".as_bytes()));
     }
@@ -297,6 +303,10 @@ mod tests {
         }
         let pid = tool.hung().expect("the tool started");
         copies.errands.end(|_| true);
+        assert!(
+            !tool.gave_up(),
+            "the end waited for the tool until its gate gave up"
+        );
         assert!(!FakeTool::alive(pid), "the tool outlived the session");
         tool.open();
         assert_eq!(tool.copied(), None, "a copy given up landed");
@@ -326,6 +336,10 @@ mod tests {
             })
         };
         assert!(copies.start(Arc::from("reply")));
+        assert!(
+            !tool.gave_up(),
+            "starting a copy waited for the tool until its gate gave up"
+        );
         assert_eq!(copies.finished(), None, "a copy still running was answered");
         cancel.send(()).expect("the watchdog is waiting");
         assert!(
