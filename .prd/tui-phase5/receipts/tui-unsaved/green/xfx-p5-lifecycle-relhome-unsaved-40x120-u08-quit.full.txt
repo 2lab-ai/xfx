@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-9f0e4a6 [debug] · Run /help for commands
+x𝒇x v0.1.0-d87d448 [debug] · Run /help for commands
 
 ! history: durable prompt history unavailable
 
@@ -13,7 +13,7 @@ x𝒇x v0.1.0-9f0e4a6 [debug] · Run /help for commands
 ! session: /fork needs a saved session
 
 ✗ session: no active session to rename
-x𝒇x v0.1.0-9f0e4a6 [debug] · Run /help for commands
+x𝒇x v0.1.0-d87d448 [debug] · Run /help for commands
 
 ┃ again
 
@@ -53,4 +53,4 @@ x𝒇x v0.1.0-9f0e4a6 [debug] · Run /help for commands
 
 
 
-Pane is dead (status 0, Sat Nov  7 13:38:24 2026)
+Pane is dead (status 0, Sat Nov  7 14:17:34 2026)

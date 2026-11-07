@@ -15,7 +15,8 @@ Binaries (sha256 prefix of `target/debug/xfx`):
 - RED `715a65de…`, built at `771b428b` (banner `v0.1.0-771b428`).
 - Round 1 GREEN `6c3d4d49…`, built at `83d06be6` (banner `v0.1.0-83d06be`). Round 2 RED for the image pair is this binary: `src/` is unchanged from `83d06be6` to `82919cc0` (`git diff --stat 83d06be6 82919cc0 -- src tests Cargo.toml Cargo.lock build.rs` is empty).
 - Round 2 GREEN `a1fbfed4…`, built at `a38a413c` (banner `v0.1.0-a38a413`).
-- **GREEN `821508c0…`, built at `9f0e4a66` (banner `v0.1.0-9f0e4a6`)**: every capture now in `green/`, from the sweep that `green.txt` scores.
+- L-U3c GREEN `821508c0…`, built at `9f0e4a66` (banner `v0.1.0-9f0e4a6`).
+- **GREEN `c32f85d5…`, built at `d87d448b` (banner `v0.1.0-d87d448`)**: every capture now in `green/`, from the sweep that `green.txt` scores.
 
 fx is v0.0.16 (`8e6cda2e…`), checked by `capture.sh` around every run.
 
@@ -145,6 +146,25 @@ fx titles only an active, saved session (`activeSessionId(app) orelse return`, `
 - **Wording fixes.**
   - `links.rs` and `docs/parity.md` now say that a git the terminal runs in another folder reads `<folder>/<HOME>/.gitconfig`, which the walk does not seed.
   - The fx citation for `activeSessionId` is now `:3036`.
+
+## L-U3d: the copy on every route, under a trusted root, never through a link
+
+- **MUST (opus-c).** `0412de84` made the copy only on `/image` (`Shell::attach`). A pasted or dropped path (`paste_paths`) and a path typed into the prompt (`attach_typed`) built `Image::new` and attached with no copy, so the note named nothing there.
+  - fx captures on all three routes: `insertImageAtCursor` (`src/core/images/image_commands.zig:137-140@481104fd`), the paste route (`input_paste_runtime.zig:490-493`) and the typed-path route (`captureExtractedImages`, `input_submit_runtime.zig:1218-1223`).
+  - Fix: `Shell::captured` is the one step, called from all three routes.
+  - RED (`red-tests-r5.txt`): `an_unsaved_pasted_or_dropped_path_makes_the_files_copy` and `an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent` fail on `0412de84`'s shell with "image #1 has no temporary copy"; `an_unsaved_slash_image_makes_the_files_copy` passes there. Mutant D (the two routes skip `captured`) fails both.
+- **A failed copy refuses the attachment**, as fx's capture does (`captureImageAttachmentForAdmission`, `image_attachments.zig:328-347`), with `✗ images: failed to attach image: <name>`.
+  - `/image` puts no badge in, a pasted path stays words, and a typed path stops the prompt with the draft kept, discarding the copies already made for it.
+  - Pinned by `an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route`. Mutant E (the base's `.ok()`) fails it.
+- **Collision fallback.** A name already there is removed and made again with `create_new`, so a planted symbolic or hard link is unlinked and its target left alone. A failed write removes its file.
+  - Pinned by `a_link_planted_at_a_copys_name_is_unlinked_and_its_target_left_alone`; the base's write-and-truncate reopen fails it ("image-2.bin is still a link").
+- **Temp root.** The copies' root is fx's, `canonicalize("/tmp")` (`createTempSnapshotDir`, `image_attachments.zig:246-273`), not `$TMPDIR` as given. `private_directory_in` refuses a relative base.
+  - Pinned by `the_copies_live_under_the_real_tmp_whatever_tmpdir_says_and_never_under_a_relative_base` and the TUI test `with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir`. That one checks the tree while the session holds the copy, and fails on the base root with "the copy landed in the sandbox".
+  - The clipboard read's own scratch directory keeps `$TMPDIR`, now refused when relative.
+- **Cleanup** is best effort: on a normal exit or a panic's unwind. A `SIGINT`, `SIGTERM` or `SIGHUP` re-raises without destructors, and the copies stay `0600` in their `0700` directory, as paste copies always have (`docs/parity.md`).
+- The stale comments in `machine.rs` and `store.rs` now say the `own_copy` rule.
+- **GREEN** (`green.txt`): the same 15 of 17 normalized-identical pairs, the five workspace listings byte-identical, one image per request as fx's.
+- A clipboard paste whose copy cannot be written keeps its existing behaviour: the badge with its name and no link. Only the attach routes refuse.
 
 ## Pins (Opus SHOULD 2-4)
 
