@@ -187,6 +187,10 @@ pub(crate) fn prose(text: &str, cols: u16, gutter: u16, opening: Opening) -> Vec
 /// `:524-579`): the same wrap with no markdown read into it -- no
 /// continuation, every row begins at the rail -- and a long run of zero-width
 /// units rowed ([`ZERO_WIDTH_ROW_BYTES`]).
+///
+/// Only the tests read the rows alone; the screen draws through
+/// [`literal_drawn`].
+#[cfg(test)]
 pub(crate) fn literal(text: &str, cols: u16, gutter: u16) -> Vec<Row> {
     Layout::new(text, cols, gutter, true, Opening::Line)
         .run()
@@ -195,7 +199,7 @@ pub(crate) fn literal(text: &str, cols: u16, gutter: u16) -> Vec<Row> {
         .collect()
 }
 
-/// [`literal`]'s rows as the text to draw: each tab written as the spaces the
+/// `literal`'s rows as the text to draw: each tab written as the spaces the
 /// wrap gave it where it met it, and kept so when the reflow moves it down with
 /// its word.
 ///

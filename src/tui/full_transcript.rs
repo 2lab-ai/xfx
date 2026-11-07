@@ -2046,7 +2046,7 @@ fn unpainted(text: &str) -> String {
 /// (`renderCommandOutputRecordWithPrimaryGutter`).
 ///
 /// Wrapped by upstream's assistant wrap in its literal form
-/// ([`super::prose::literal`]), as both of upstream's are: no word is left
+/// ([`super::prose::literal_drawn`]), as both of upstream's are: no word is left
 /// alone on a line's last row, and no markdown is read into the text.
 fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
     let rail = 1 + wrap::width(gutter);
