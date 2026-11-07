@@ -1,4 +1,4 @@
-//! Which MCP a server speaks: fx v0.0.16's version detection, ported whole
+//! Which MCP a server speaks: fx v0.0.16's version detection core, ported
 //! (`vercel-labs/fx@481104fd src/mcp/core/era.zig`).
 //!
 //! A start asks `server/discover` with the newest version first -- the
@@ -14,12 +14,21 @@
 //! a string a server sent -- a server's version list arrives as a [`Listed`]
 //! mask over the client's own versions, so a hostile list has nowhere to go
 //! but that mask. The `classify_*` functions turn an answer into an event, and
-//! [`meta`] writes the `_meta` a request carries. The runtime drives it
-//! (`super::runtime`), one blocking exchange at a time.
+//! [`meta`] writes the `_meta` a request carries. Answers are read from their
+//! raw text, as fx reads them ([`super::wire`]).
+//!
+//! The runtime drives detection only (`super::runtime`, one blocking exchange
+//! at a time): [`Event::OperationSent`], [`Event::OperationVersionRejected`]
+//! and [`classify_operation_rejection`] -- an operation's version switch on
+//! -32022 -- are here, and tested with the rest of the core, but nothing
+//! sends them yet. That is MCP-E2's, with the rest of what fx does once a
+//! 2026 server is ready.
 
 use std::time::Duration;
 
 use serde_json::{Map, Value};
+
+use super::wire;
 
 /// The most modern versions a client may prefer (`max_preferred`).
 pub const MAX_PREFERRED: usize = 8;
@@ -512,44 +521,6 @@ impl Detector {
 // answers
 // ---------------------------------------------------------------------------
 
-/// What a result says about itself (`ResultKind`, `wire.zig:52-60`): a
-/// missing `resultType` means complete, and an unknown one is unrecognized.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResultKind {
-    Complete,
-    InputRequired,
-    Unrecognized,
-}
-
-/// A result's kind (`resultKind`, `wire.zig:328-335`).
-pub fn result_kind(result: &Map<String, Value>) -> ResultKind {
-    match result.get("resultType") {
-        None => ResultKind::Complete,
-        Some(Value::String(kind)) if kind == "complete" => ResultKind::Complete,
-        Some(Value::String(kind)) if kind == "input_required" => ResultKind::InputRequired,
-        Some(_) => ResultKind::Unrecognized,
-    }
-}
-
-/// A JSON-RPC answer's body (`Response.body`, `wire.zig:40-50`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Body<'a> {
-    Result(&'a Map<String, Value>),
-    Failure {
-        code: i64,
-        message: &'a str,
-        data: Option<&'a Value>,
-    },
-}
-
-/// An answer as fx's decoder reads it (`decode`, `wire.zig:106-131`): its
-/// id when it is one the client could have issued, and its body.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Response<'a> {
-    pub id: Option<u64>,
-    pub body: Body<'a>,
-}
-
 /// The JSON-RPC error codes the detection reads (`code`, `wire.zig:20-31`).
 pub mod code {
     pub const INVALID_REQUEST: i64 = -32600;
@@ -559,107 +530,34 @@ pub mod code {
     pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
 }
 
-/// Reads `frame` as fx reads a response (`decode`, `wire.zig:106-131`;
-/// `failureOf`, `:337-350`): `jsonrpc` exactly `"2.0"`, no `method` and no
-/// `params`, exactly one of `result` -- an object -- and `error` -- an object
-/// with an integer `code` and a string `message`. What fails says why, in
-/// fx's words (`onRefusedLine`, `src/mcp/server.zig:777-783@481104fd`).
-pub fn decode_response(frame: &Value) -> Result<Response<'_>, &'static str> {
-    let Value::Object(fields) = frame else {
-        return Err("it isn't valid JSON-RPC");
-    };
-    if fields.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return Err("its jsonrpc isn't \"2.0\"");
+/// The client versions a raw JSON array of strings lists (`listedIn`,
+/// `era.zig:370-377`): only a string written exactly as the client's own,
+/// without escapes, counts, and other elements are skipped
+/// ([`wire::array_has_string`]); a string is only ever compared, never kept.
+pub fn listed_in(config: &Config, array: &str) -> Result<Listed, wire::DecodeError> {
+    let mut listed = Listed::default();
+    for version in config.legacy {
+        // `or`, as fx's: once one is found the rest are not looked at.
+        listed.legacy = listed.legacy || wire::array_has_string(array, version)?;
     }
-    let (result, error) = (fields.get("result"), fields.get("error"));
-    if fields.contains_key("method")
-        || fields.contains_key("params")
-        || result.is_some() == error.is_some()
-    {
-        return Err("it has both a result and an error, or neither");
-    }
-    let id = own_id(fields.get("id"))?;
-    if let Some(result) = result {
-        let Value::Object(result) = result else {
-            return Err("its result isn't an object");
-        };
-        return Ok(Response {
-            id,
-            body: Body::Result(result),
-        });
-    }
-    let Some(Value::Object(error)) = error else {
-        return Err("its error isn't an error object");
-    };
-    let code = error
-        .get("code")
-        .and_then(Value::as_i64)
-        .ok_or("its error isn't an error object")?;
-    let message = error
-        .get("message")
-        .and_then(Value::as_str)
-        .ok_or("its error isn't an error object")?;
-    Ok(Response {
-        id,
-        body: Body::Failure {
-            code,
-            message,
-            data: error.get("data"),
-        },
-    })
-}
-
-/// The id of an answer when it is one the client could have issued: a
-/// non-negative integer, or a string of plain decimal digits without a
-/// leading zero (some servers echo ids as strings); `None` for a null, absent
-/// or negative one (`ownId`, `decimal`, `wire.zig:300-326`).
-pub fn own_id(raw: Option<&Value>) -> Result<Option<u64>, &'static str> {
-    match raw {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(number)) => Ok(number.as_u64()),
-        Some(Value::String(digits)) => Ok(decimal(digits)),
-        Some(_) => Err("it isn't valid JSON-RPC"),
-    }
-}
-
-/// Plain decimal digits without a leading zero, as the client writes its
-/// ids (`decimal`, `wire.zig:313-326`).
-pub fn decimal(digits: &str) -> Option<u64> {
-    if digits.is_empty() || (digits.len() > 1 && digits.starts_with('0')) {
-        return None;
-    }
-    if !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    digits.parse().ok()
-}
-
-/// The client versions a JSON array of strings lists (`listedIn`,
-/// `era.zig:370-377`); `None` when it is not an array. Other elements are
-/// skipped, and a string is only ever compared, never kept.
-pub fn listed_in(config: &Config, array: &Value) -> Option<Listed> {
-    let Value::Array(items) = array else {
-        return None;
-    };
-    let lists = |version: &str| items.iter().any(|item| item.as_str() == Some(version));
-    let mut listed = Listed {
-        legacy: config.legacy.iter().any(|version| lists(version)),
-        ..Listed::default()
-    };
     for (i, version) in config.preferred.iter().enumerate() {
-        if lists(version) {
+        if wire::array_has_string(array, version)? {
             listed.preferred |= 1u8 << i;
         }
     }
-    Some(listed)
+    Ok(listed)
 }
 
 /// The versions in the `supported` list of a -32022 error's data, if any
 /// (`supportedIn`, `era.zig:380-384`).
-fn supported_in(config: &Config, data: Option<&Value>) -> Listed {
-    data.and_then(|data| data.get("supported"))
-        .and_then(|supported| listed_in(config, supported))
-        .unwrap_or_default()
+fn supported_in(config: &Config, data: Option<&str>) -> Listed {
+    let Some(data) = data else {
+        return Listed::default();
+    };
+    let Ok([Some(supported)]) = wire::object_fields(data, ["supported"]) else {
+        return Listed::default();
+    };
+    listed_in(config, supported).unwrap_or_default()
 }
 
 /// The event for the answer to the current probe (`classifyDiscover`,
@@ -667,23 +565,23 @@ fn supported_in(config: &Config, data: Option<&Value>) -> Listed {
 /// DiscoverResult, so it counts as legacy, like every error that isn't a
 /// recognized modern one. So does a result whose `resultType` isn't
 /// complete.
-pub fn classify_discover(config: &Config, body: Body<'_>) -> Event {
+pub fn classify_discover(config: &Config, body: wire::Body<'_>) -> Event {
     match body {
-        Body::Result(result) => {
-            if result_kind(result) != ResultKind::Complete {
+        wire::Body::Result { raw, kind } => {
+            if kind != wire::ResultKind::Complete {
                 return Event::LegacyAnswer;
             }
-            match result
-                .get("supportedVersions")
-                .and_then(|list| listed_in(config, list))
-            {
-                Some(listed) => Event::DiscoverResult(listed),
-                None => Event::LegacyAnswer,
+            let Ok([Some(list)]) = wire::object_fields(raw, ["supportedVersions"]) else {
+                return Event::LegacyAnswer;
+            };
+            match listed_in(config, list) {
+                Ok(listed) => Event::DiscoverResult(listed),
+                Err(_) => Event::LegacyAnswer,
             }
         }
-        Body::Failure { code, data, .. } => match code {
+        wire::Body::Failure(failure) => match failure.code {
             code::UNSUPPORTED_PROTOCOL_VERSION => {
-                Event::UnsupportedVersion(supported_in(config, data))
+                Event::UnsupportedVersion(supported_in(config, failure.data))
             }
             code::HEADER_MISMATCH | code::MISSING_REQUIRED_CLIENT_CAPABILITY => {
                 Event::ModernRejection
@@ -697,17 +595,17 @@ pub fn classify_discover(config: &Config, body: Body<'_>) -> Event {
 /// JSON-RPC message in its body, if any (`classifyDiscoverHttp`,
 /// `era.zig:411-415`). A 404 with -32601 is a modern server without
 /// discovery; a body that isn't a JSON-RPC message counts as legacy.
-pub fn classify_discover_http(config: &Config, status: u16, body: Option<Body<'_>>) -> Event {
+pub fn classify_discover_http(config: &Config, status: u16, body: Option<wire::Body<'_>>) -> Event {
     let Some(body) = body else {
         return Event::LegacyAnswer;
     };
     if status == 404
         && matches!(
             body,
-            Body::Failure {
+            wire::Body::Failure(wire::Failure {
                 code: code::METHOD_NOT_FOUND,
                 ..
-            }
+            })
         )
     {
         return Event::DiscoverNotImplemented;
@@ -716,13 +614,18 @@ pub fn classify_discover_http(config: &Config, status: u16, body: Option<Body<'_
 }
 
 /// The event for the answer to `initialize` (`classifyInitialize`,
-/// `era.zig:420-444`). An error hints at a modern server when it is a
-/// recognized modern error, or names a preferred version in its supported
-/// list or message.
-pub fn classify_initialize(config: &Config, body: Body<'_>) -> Event {
+/// `era.zig:420-444`). Its `protocolVersion` must be written plainly: one
+/// written with escapes is another version (`plainString`). An error hints
+/// at a modern server when it is a recognized modern error, or names a
+/// preferred version in its supported list or message.
+pub fn classify_initialize(config: &Config, body: wire::Body<'_>) -> Event {
     match body {
-        Body::Result(result) => {
-            let Some(version) = result.get("protocolVersion").and_then(Value::as_str) else {
+        wire::Body::Result { raw, .. } => {
+            let version = match wire::object_fields(raw, ["protocolVersion"]) {
+                Ok([Some(found)]) => wire::plain_string(found),
+                _ => None,
+            };
+            let Some(version) = version else {
                 return Event::InitializeResult(Version::Other);
             };
             if let Some(i) = config.legacy.iter().position(|v| *v == version) {
@@ -733,33 +636,26 @@ pub fn classify_initialize(config: &Config, body: Body<'_>) -> Event {
             }
             Event::InitializeResult(Version::Other)
         }
-        Body::Failure {
-            code,
-            message,
-            data,
-        } => {
+        wire::Body::Failure(failure) => {
             let modern_code = matches!(
-                code,
+                failure.code,
                 code::UNSUPPORTED_PROTOCOL_VERSION
                     | code::HEADER_MISMATCH
                     | code::MISSING_REQUIRED_CLIENT_CAPABILITY
             );
-            let named = supported_in(config, data).preferred != 0
-                || config.preferred.iter().any(|v| message.contains(v));
+            let named = supported_in(config, failure.data).preferred != 0
+                || config.preferred.iter().any(|v| failure.message.contains(v));
             Event::InitializeError(modern_code || named)
         }
     }
 }
 
 /// The event for -32022 in reply to an operation request
-/// (`classifyOperationRejection`, `era.zig:447-450`).
-pub fn classify_operation_rejection(
-    config: &Config,
-    code: i64,
-    data: Option<&Value>,
-) -> Option<Event> {
-    (code == code::UNSUPPORTED_PROTOCOL_VERSION)
-        .then(|| Event::OperationVersionRejected(supported_in(config, data)))
+/// (`classifyOperationRejection`, `era.zig:447-450`). Not driven yet: an
+/// operation's version switch is MCP-E2's.
+pub fn classify_operation_rejection(config: &Config, failure: wire::Failure<'_>) -> Option<Event> {
+    (failure.code == code::UNSUPPORTED_PROTOCOL_VERSION)
+        .then(|| Event::OperationVersionRejected(supported_in(config, failure.data)))
 }
 
 fn index(i: usize) -> u8 {

@@ -16,6 +16,7 @@
 //! | [`config`] | `~/.xfx/mcp.json`, `.mcp.json`, and the trust choices in `settings.json` |
 //! | [`transport`] | one request over stdio or HTTP, synchronously, with a deadline |
 //! | [`era`] | which MCP a server speaks: fx's version detection, pure |
+//! | [`wire`] | a JSON-RPC message read from its raw text, as fx reads one |
 //! | [`runtime`] | the live servers, their state machine, reload, and every operation |
 //! | [`catalog`] | the model's servers block, `capability_search`, selected schemas, result envelopes |
 //! | [`command`] | `/mcp`'s text subcommands |
@@ -49,6 +50,7 @@ pub mod era;
 pub mod names;
 pub mod runtime;
 pub mod transport;
+pub mod wire;
 
 #[cfg(test)]
 mod tests;

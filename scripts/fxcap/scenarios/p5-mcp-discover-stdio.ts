@@ -21,6 +21,23 @@
 //   hostile    answers `server/discover` with a complete result whose version list holds
 //              only near misses (escapes around "2026-07-28", a 64 KiB string) and whose
 //              instructions are terminal escapes: it lists no version a client speaks
+//   banner     a 2026-07-28 server, as `modern`, that writes a line that is not JSON-RPC
+//              (`Server started on stdio`) just before its discover answer: fx keeps such a line
+//              aside and reads the answer after it (`onRefusedLine`, `keepStray`,
+//              src/mcp/server.zig:769-776@481104fd)
+//   asks       a 2025 server that asks the client `ping` (id "q1") before it answers
+//              `server/discover` with -32601, and `ping` (id "q2") before it answers
+//              `initialize`: fx answers a server's request only in a 2025 session, which starts
+//              with `initialize` (`legacyEra`, src/mcp/server.zig:846-849, :1152-1154@481104fd)
+//   escaped    answers `server/discover` with a complete result listing 2026-07-28 and
+//              2025-11-25, each written with an escape (`\u002d` for a hyphen), then a 2025
+//              server: fx compares versions as written (`plainString`, era.zig:425@481104fd)
+//   doubled    answers `server/discover` with a complete result naming `supportedVersions`
+//              twice, 2026-07-28 then none, then a 2025 server: a field named twice says
+//              nothing (`objectFields`, src/mcp/protocol/wire.zig:142-146@481104fd)
+//   deep:<n>   answers `server/discover` with a complete result whose `supportedVersions` is <n>
+//              nested arrays, then a 2025 server: a line too deep for fx's decoder is no
+//              answer, and one it can read lists no version
 // In the 2025 modes `initialize` is answered at 2025-06-18 (2024-11-05 in old2024),
 // `notifications/initialized` with nothing, `tools/list` with one tool `echo`, and
 // `tools/call` with `DISCOVER_<MODE>_RESULT:<text>`. Any other method: -32601.
@@ -30,19 +47,22 @@
 // scenario log the same bytes.
 import { appendFileSync } from "node:fs";
 
-const mode = process.argv[2] ?? "";
-if (!["modern", "silent", "old2024", "malformed", "hostile"].includes(mode)) {
+const arg = process.argv[2] ?? "";
+const depth = /^deep:\d{1,5}$/.test(arg) ? Number(arg.slice(5)) : 0;
+const mode = depth > 0 ? "deep" : arg;
+if (!["modern", "silent", "old2024", "malformed", "hostile", "banner", "asks", "escaped", "doubled", "deep"].includes(mode)) {
   console.error(`p5-mcp-discover-stdio: unknown mode ${JSON.stringify(mode)}`);
   process.exit(2);
 }
 const wireLog = process.env.MCPSTDIO_WIRE_LOG;
+const modern = mode === "modern" || mode === "banner";
 const resultTag = `DISCOVER_${mode.toUpperCase()}_RESULT`;
 let count = 0;
 let pending = Buffer.alloc(0);
 
 const send = (message: object) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const answer = (id: unknown, result: object) =>
-  send({ jsonrpc: "2.0", id, result: mode === "modern" ? { resultType: "complete", ...result } : result });
+  send({ jsonrpc: "2.0", id, result: modern ? { resultType: "complete", ...result } : result });
 const failure = (id: unknown, code: number, message: string) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
 const echo = {
@@ -61,6 +81,9 @@ function modernMeta(message: any): boolean {
 
 function discover(id: unknown) {
   switch (mode) {
+    case "banner":
+      process.stdout.write("Server started on stdio\n");
+      // falls through: the answer follows the banner
     case "modern":
       return answer(id, {
         supportedVersions: ["2026-07-28"],
@@ -82,6 +105,21 @@ function discover(id: unknown) {
           instructions: "\u001b]0;pwned\u0007\u001b[2J",
         },
       });
+    case "asks":
+      send({ jsonrpc: "2.0", id: "q1", method: "ping" });
+      return failure(id, -32601, "Method not found");
+    case "escaped":
+      return process.stdout.write(
+        `{"jsonrpc":"2.0","id":${JSON.stringify(id)},"result":{"resultType":"complete","supportedVersions":["2026\\u002d07-28","2025\\u002d11-25"],"capabilities":{"tools":{}}}}\n`,
+      );
+    case "doubled":
+      return process.stdout.write(
+        `{"jsonrpc":"2.0","id":${JSON.stringify(id)},"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"supportedVersions":[],"capabilities":{"tools":{}}}}\n`,
+      );
+    case "deep":
+      return process.stdout.write(
+        `{"jsonrpc":"2.0","id":${JSON.stringify(id)},"result":{"resultType":"complete","supportedVersions":${"[".repeat(depth)}${"]".repeat(depth)}}}\n`,
+      );
     default:
       return failure(id, -32601, "Method not found");
   }
@@ -91,14 +129,17 @@ function handle(message: any) {
   count += 1;
   if (wireLog) appendFileSync(wireLog, `${JSON.stringify({ sequence: count, message })}\n`);
   const id = message.id;
+  // A response to the server's own request is logged and needs nothing more.
+  if (message.method === undefined) return;
   if (message.method === "server/discover") return discover(id);
   if (id === undefined) return;
-  if (mode === "modern") {
+  if (modern) {
     if (message.method === "initialize") return failure(id, -32601, "Method not found");
     if (!modernMeta(message)) return failure(id, -32602, "Missing modern request metadata");
   }
   switch (message.method) {
     case "initialize":
+      if (mode === "asks") send({ jsonrpc: "2.0", id: "q2", method: "ping" });
       return answer(id, {
         protocolVersion: mode === "old2024" ? "2024-11-05" : "2025-06-18",
         capabilities: { tools: {} },

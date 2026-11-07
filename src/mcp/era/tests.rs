@@ -383,8 +383,11 @@ fn minus_32022_retries_with_a_listed_version_and_names_only_the_legacy_one_to_fa
     );
 }
 
-fn body(frame: &Value) -> Body<'_> {
-    decode_response(frame).expect("a response").body
+fn body(raw: &str) -> wire::Body<'_> {
+    match wire::decode(raw).expect("a message") {
+        wire::Message::Response(r) => r.body,
+        other => panic!("not a response: {other:?}"),
+    }
 }
 
 #[test]
@@ -396,8 +399,8 @@ fn initialize_may_agree_on_an_older_2025_version_which_the_detector_keeps() {
         step(&mut d, Event::LegacyAnswer).effects,
         [Effect::SendInitialize]
     );
-    let frame = json!({"jsonrpc": "2.0", "id": 2, "result": {"protocolVersion": "2025-03-26"}});
-    let answer = classify_initialize(&d.config, body(&frame));
+    let frame = r#"{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-03-26"}}"#;
+    let answer = classify_initialize(&d.config, body(frame));
     assert_eq!(
         step(&mut d, answer).effects,
         [Effect::SendInitialized, Effect::Ready(Version::Legacy(2))]
@@ -509,90 +512,89 @@ fn classifies_answers_by_their_content() {
     let listed = |preferred: u8, legacy: bool| Listed { preferred, legacy };
     let cases = [
         (
-            json!({"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2027-01-01","2025-11-25"]}}),
+            r#"{"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2027-01-01","2025-11-25"]}}"#,
             Event::DiscoverResult(listed(0b10, true)),
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"result":{}}),
+            r#"{"jsonrpc":"2.0","id":1,"result":{}}"#,
             Event::LegacyAnswer,
         ),
         // Only a complete result is a DiscoverResult.
         (
-            json!({"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","supportedVersions":["2025-11-25"]}}),
+            r#"{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","supportedVersions":["2025-11-25"]}}"#,
             Event::DiscoverResult(listed(0, true)),
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"result":{"resultType":"input_required","supportedVersions":["2027-01-01"]}}),
+            r#"{"jsonrpc":"2.0","id":1,"result":{"resultType":"input_required","supportedVersions":["2027-01-01"]}}"#,
             Event::LegacyAnswer,
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"result":{"resultType":"bogus","supportedVersions":["2027-01-01"]}}),
+            r#"{"jsonrpc":"2.0","id":1,"result":{"resultType":"bogus","supportedVersions":["2027-01-01"]}}"#,
             Event::LegacyAnswer,
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"error":{"code":-32022,"message":"x","data":{"supported":["2026-07-28"]}}}),
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32022,"message":"x","data":{"supported":["2026-07-28"]}}}"#,
             Event::UnsupportedVersion(listed(1, false)),
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"error":{"code":-32022,"message":"x"}}),
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32022,"message":"x"}}"#,
             Event::UnsupportedVersion(Listed::default()),
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"error":{"code":-32021,"message":"x"}}),
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32021,"message":"x"}}"#,
             Event::ModernRejection,
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}),
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#,
             Event::LegacyAnswer,
         ),
         (
-            json!({"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"x"}}),
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"x"}}"#,
             Event::LegacyAnswer,
         ),
     ];
     for (frame, event) in cases {
-        assert_eq!(classify_discover(&TEST, body(&frame)), event, "{frame}");
+        assert_eq!(classify_discover(&TEST, body(frame)), event, "{frame}");
     }
     let init_cases = [
         (
-            json!({"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-11-25"}}),
+            r#"{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-11-25"}}"#,
             Event::InitializeResult(Version::Legacy(0)),
         ),
         (
-            json!({"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-06-18"}}),
+            r#"{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-06-18"}}"#,
             Event::InitializeResult(Version::Legacy(1)),
         ),
         (
-            json!({"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-03-26"}}),
+            r#"{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025-03-26"}}"#,
             Event::InitializeResult(Version::Legacy(2)),
         ),
         (
-            json!({"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2024-11-05"}}),
+            r#"{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2024-11-05"}}"#,
             Event::InitializeResult(Version::Other),
         ),
         (
-            json!({"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}),
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#,
             Event::InitializeError(false),
         ),
         (
-            json!({"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"use 2026-07-28"}}),
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"use 2026-07-28"}}"#,
             Event::InitializeError(true),
         ),
         (
-            json!({"jsonrpc":"2.0","id":2,"error":{"code":-32022,"message":"x"}}),
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32022,"message":"x"}}"#,
             Event::InitializeError(true),
         ),
     ];
     for (frame, event) in init_cases {
-        assert_eq!(classify_initialize(&TEST, body(&frame)), event, "{frame}");
+        assert_eq!(classify_initialize(&TEST, body(frame)), event, "{frame}");
     }
 }
 
 #[test]
 fn over_http_404_with_minus_32601_to_the_probe_is_a_modern_server_without_discovery() {
-    let frame =
-        json!({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}});
-    let not_found = body(&frame);
+    let frame = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#;
+    let not_found = body(frame);
     assert_eq!(
         classify_discover_http(&TEST, 404, Some(not_found)),
         Event::DiscoverNotImplemented
@@ -662,86 +664,56 @@ fn writes_the_detection_messages_in_fxs_order() {
 }
 
 #[test]
-fn a_reply_fx_would_refuse_is_refused_with_fxs_reason() {
-    let cases = [
-        (json!({"id": 1, "result": {}}), "its jsonrpc isn't \"2.0\""),
-        (
-            json!({"jsonrpc": "1.0", "id": 1, "result": {}}),
-            "its jsonrpc isn't \"2.0\"",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1}),
-            "it has both a result and an error, or neither",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1, "result": {}, "error": {"code": 1, "message": "x"}}),
-            "it has both a result and an error, or neither",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1, "result": []}),
-            "its result isn't an object",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1, "result": "\u{1b}]0;x\u{7}"}),
-            "its result isn't an object",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1, "error": {"code": 1.5, "message": "x"}}),
-            "its error isn't an error object",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1, "error": {"message": "x"}}),
-            "its error isn't an error object",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": 1, "error": "boom"}),
-            "its error isn't an error object",
-        ),
-        (
-            json!({"jsonrpc": "2.0", "id": true, "result": {}}),
-            "it isn't valid JSON-RPC",
-        ),
-        (json!([1]), "it isn't valid JSON-RPC"),
-    ];
-    for (frame, why) in cases {
-        assert_eq!(decode_response(&frame).err(), Some(why), "{frame}");
-    }
-    // Ids the client could have issued, as fx reads them.
-    for (id, own) in [
-        (json!(7), Some(7)),
-        (json!("7"), Some(7)),
-        (json!("07"), None),
-        (json!(-1), None),
-        (json!(1.5), None),
-        (Value::Null, None),
-    ] {
-        let frame = json!({"jsonrpc": "2.0", "id": id, "result": {}});
-        assert_eq!(decode_response(&frame).map(|r| r.id), Ok(own), "{frame}");
-    }
-}
-
-#[test]
 fn a_version_list_is_only_compared_never_kept() {
-    // A hostile list: escapes, a near miss, a non-string, a huge string, a
-    // nested array. Only exact strings of the client's own count.
+    // A hostile list: escapes around the version, a near miss, a non-string,
+    // a huge string, a nested array, an escaped spelling. Only a string
+    // written exactly as the client's own counts.
     let huge = "2026-07-28".repeat(100_000);
-    let list = json!([
-        "\u{1b}[2J2026-07-28",
-        "2026-07-28\u{7}",
-        7,
-        huge,
-        ["2026-07-28"],
-        "2026-07"
-    ]);
-    assert_eq!(listed_in(&Config::FX, &list), Some(Listed::default()));
-    assert_eq!(listed_in(&Config::FX, &json!("2026-07-28")), None);
-    assert_eq!(listed_in(&Config::FX, &json!({"2026-07-28": true})), None);
+    let list = format!(
+        r#"["\u001b[2J2026-07-28", "2026-07-28\u0007", 7, "{huge}", ["2026-07-28"], "2026-07", "2026\u002d07-28"]"#
+    );
+    assert_eq!(listed_in(&Config::FX, &list), Ok(Listed::default()));
     assert_eq!(
-        listed_in(&Config::FX, &json!(["x", "2026-07-28", "2025-03-26"])),
-        Some(Listed {
+        listed_in(&Config::FX, r#""2026-07-28""#),
+        Err(wire::DecodeError::NotAnArray)
+    );
+    assert_eq!(
+        listed_in(&Config::FX, r#"{"2026-07-28": true}"#),
+        Err(wire::DecodeError::NotAnArray)
+    );
+    assert_eq!(
+        listed_in(&Config::FX, r#"["x", "2026-07-28", "2025-03-26"]"#),
+        Ok(Listed {
             preferred: 1,
             legacy: true
         })
+    );
+}
+
+#[test]
+fn an_escaped_version_is_another_version_and_a_doubled_field_no_answer() {
+    // `plainString` (`era.zig:425`): `initialize` answered with an escaped
+    // spelling of a 2025 version agrees on no version fx speaks.
+    let escaped = r#"{"jsonrpc":"2.0","id":2,"result":{"protocolVersion":"2025\u002d06-18"}}"#;
+    assert_eq!(
+        classify_initialize(&Config::FX, body(escaped)),
+        Event::InitializeResult(Version::Other)
+    );
+    let supported = r#"{"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2026\u002d07-28","2025\u002d11-25"]}}"#;
+    assert_eq!(
+        classify_discover(&Config::FX, body(supported)),
+        Event::DiscoverResult(Listed::default())
+    );
+    // A doubled `supportedVersions` is no DiscoverResult; a doubled envelope
+    // field is no message at all.
+    let doubled = r#"{"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2026-07-28"],"supportedVersions":[]}}"#;
+    assert_eq!(
+        classify_discover(&Config::FX, body(doubled)),
+        Event::LegacyAnswer
+    );
+    assert_eq!(
+        wire::decode(r#"{"jsonrpc":"2.0","id":1,"id":1,"result":{}}"#).err(),
+        Some(wire::DecodeError::DuplicateField)
     );
 }
 

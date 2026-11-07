@@ -75,22 +75,14 @@ fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
 why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:416"]
-
-[[normalization]]
-id = "mcphttp-port"
-fx = '(?<=http://127\.0\.0\.1:)\d{4,5}(?=/mcp\b)'
-xfx = '(?<=http://127\.0\.0\.1:)\d{4,5}(?=/mcp\b)'
-replace = "<mcpport>"
-why = "capture.sh starts each run's HTTP MCP server (`mcphttp`) on a loopback port the OS picks, so a server's `url` row names a different port on each side. Only a 4- or 5-digit port before `/mcp` is rewritten: a fixed one in a profile (`127.0.0.1:9`) is compared."
-source = ["scripts/fxcap/capture.sh:570"]
+source = ["scripts/fxcap/capture.sh:430"]
 
 [[normalization]]
 id = "capture-tmpdir"
 fx = '(?<=fxcap\.XXXXXX/)fxtmp\b'
 replace = "xfxtmp"
 why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. After run-directory, on fx's side."
-source = ["scripts/fxcap/capture.sh:252-254"]
+source = ["scripts/fxcap/capture.sh:266-268"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -152,7 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:786"]
+source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:794"]
 
 [[normalization]]
 id = "session-id"

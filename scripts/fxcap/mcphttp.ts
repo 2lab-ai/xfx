@@ -44,6 +44,17 @@
 //   hostile   `ready`, except that `server/discover` gets a complete result listing only near
 //             misses (escapes around "2026-07-28", a 64 KiB string) and instructions that are
 //             terminal escapes
+//   ssehold   `modern`, except that `server/discover` is answered on an event stream that stays
+//             open after its one event: fx reads each event as it comes (`readEvents`,
+//             src/mcp/io/http.zig:643-692@481104fd) and is ready at once
+//   sseidless `ready`, except that `server/discover` is answered on an event stream with an
+//             error that has no id, which answers the POST it came on (src/mcp/server.zig:
+//             1155-1158@481104fd): a legacy answer, so `initialize` follows at once
+//   ssestrid  `modern`, except that the discover answer comes on an event stream and names
+//             its id as a string of digits, which fx reads as its own (`ownId`, wire.zig:300)
+//   ssefail   `modern`, except that the discover answer comes on an event stream under HTTP
+//             500: fx reads an event stream's answers whatever the status (`readEvents`,
+//             src/mcp/io/http.zig:643-692@481104fd), so it is ready at 2026-07-28
 //
 // Every request is one line on stdout, once answered: the time in ms since the server started,
 // the HTTP method and path, the JSON-RPC method and id, whether it carried a session id, which
@@ -57,7 +68,7 @@ if (!modeFile) {
 }
 const started = Date.now();
 const log = (m: string) => console.log(`[mcphttp] ${m}`);
-const modes = new Set(["ready", "methodnotfound", "hang", "fail", "rpcerror", "modern", "notimpl", "old2024", "malformed", "hostile"]);
+const modes = new Set(["ready", "methodnotfound", "hang", "fail", "rpcerror", "modern", "notimpl", "old2024", "malformed", "hostile", "ssehold", "sseidless", "ssestrid", "ssefail"]);
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const session = "fxcap-session-1";
 
@@ -174,7 +185,39 @@ function modern(httpMethod: string, message: any, version: string | null, notimp
   }
 }
 
+const encoder = new TextEncoder();
+const event = (frame: object) => encoder.encode(`event: message\ndata: ${JSON.stringify(frame)}\n\n`);
+const discoverResult = (id: unknown) => ({
+  jsonrpc: "2.0",
+  id,
+  result: {
+    resultType: "complete",
+    supportedVersions: ["2026-07-28"],
+    capabilities: { tools: {} },
+    _meta: { "io.modelcontextprotocol/serverInfo": { name: "fxcap-mcphttp-modern" } },
+  },
+});
+const sse = (stream: ReadableStream, status = 200) =>
+  new Response(stream, { status, headers: { "content-type": "text/event-stream" } });
+
+// The SSE discover modes: the answer as an event, the stream held open (`ssehold`) or ended.
+const sseModes = ["ssehold", "sseidless", "ssestrid", "ssefail"];
+function sseDiscover(now: string, message: any): Response | null {
+  if (!sseModes.includes(now) || message?.method !== "server/discover") return null;
+  if (now === "ssehold") {
+    return sse(new ReadableStream({ start(c) { c.enqueue(event(discoverResult(message.id))); } }));
+  }
+  const frame = now === "sseidless"
+    ? { jsonrpc: "2.0", id: null, error: { code: -32601, message: "Method not found" } }
+    : discoverResult(now === "ssestrid" ? String(message.id) : message.id);
+  return sse(new ReadableStream({ start(c) { c.enqueue(event(frame)); c.close(); } }), now === "ssefail" ? 500 : 200);
+}
+
 function answerIn(now: string, httpMethod: string, message: any, version: string | null): Response {
+  const streamed = httpMethod === "POST" ? sseDiscover(now, message) : null;
+  if (streamed) return streamed;
+  if (now === "ssehold" || now === "ssestrid" || now === "ssefail") return modern(httpMethod, message, version, false);
+  if (now === "sseidless") return ready(httpMethod, message);
   if (now === "ready") return ready(httpMethod, message);
   if (now === "modern" || now === "notimpl") return modern(httpMethod, message, version, now === "notimpl");
   if (now === "old2024") return ready(httpMethod, message, "404", true);

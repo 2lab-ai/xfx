@@ -1,0 +1,14 @@
+# p5 mcp discover: a 2025 stdio server that asks the client `ping` while the probe waits
+# and again while `initialize` does (p5-mcp-discover-stdio.ts `asks`). fx v0.0.16 answers
+# a server's request only in a 2025 session (`legacyEra`, src/mcp/server.zig:846-849,
+# :1152-1154@481104fd): the first ping goes unanswered, the second is answered. `home wire`
+# is what the server was sent, the client's answers included.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-asks-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-asks-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+home wire

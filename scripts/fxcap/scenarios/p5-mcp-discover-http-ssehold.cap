@@ -1,0 +1,14 @@
+# p5 mcp discover: a 2026-07-28 HTTP server whose `server/discover` answer comes as one event on a stream
+# it then holds open (mcphttp.ts `ssehold`). fx v0.0.16 reads each event as it comes
+# (`readEvents`, src/mcp/io/http.zig:643-692@481104fd), so it is ready at 2026-07-28 at once.
+# `gwlog` copies the server log.
+mcphttp ssehold
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+gwlog

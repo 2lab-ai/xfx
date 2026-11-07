@@ -156,7 +156,7 @@ class Refusals(unittest.TestCase):
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
-            ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed or hostile, not sometimes"),
+            ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
@@ -887,6 +887,37 @@ class McpHttp(unittest.TestCase):
         self.assertIn("\x1b", result["instructions"])
 
 
+    def test_the_sse_modes_answer_discover_on_an_event_stream(self):
+        def events(mode):
+            write(self.mode, mode + "\n")
+            msg = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
+            c = http.client.HTTPConnection("127.0.0.1", s.port, timeout=5)
+            try:
+                c.request("POST", "/mcp", body=json.dumps(msg), headers={"content-type": "application/json"})
+                r = c.getresponse()
+                kind = r.getheader("content-type")
+                # The first event, read as it comes: `ssehold` never ends.
+                line = r.fp.readline()
+                while not line.startswith(b"data: "):
+                    line = r.fp.readline()
+                return r.status, kind, json.loads(line[len(b"data: "):])
+            finally:
+                c.close()
+
+        s = self.server("ssehold")
+        status, kind, frame = events("ssehold")
+        self.assertEqual((status, kind, frame["id"], frame["result"]["supportedVersions"]), (200, "text/event-stream", 1, ["2026-07-28"]))
+        self.assertEqual(events("ssestrid")[2]["id"], "1")
+        self.assertEqual(events("ssefail")[0::2][0], 500)
+        self.assertEqual(events("ssefail")[2]["id"], 1)
+        self.assertEqual(events("sseidless")[2], {"jsonrpc": "2.0", "id": None, "error": {"code": -32601, "message": "Method not found"}})
+        # Anything but discover is the mode's plain server, and a mode that is
+        # no SSE mode answers discover as before.
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
+        write(self.mode, "ready\n")
+        self.assertEqual(self.rpc(s, "server/discover", 3)[0::2], (404, None))
+
+
 class McpDiscoverStdio(unittest.TestCase):
     """scenarios/p5-mcp-discover-stdio.ts, the p5-mcp-discover scenarios' stdio server."""
 
@@ -949,6 +980,30 @@ class McpDiscoverStdio(unittest.TestCase):
         result = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})["result"]
         self.assertNotIn("2026-07-28", result["supportedVersions"])
         self.assertIn("\x1b", result["instructions"])
+
+    def test_banner_asks_escaped_doubled_and_deep(self):
+        self.start("banner")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        self.assertEqual(self.p.stdout.readline(), b"Server started on stdio\n")
+        self.assertEqual(json.loads(self.p.stdout.readline())["result"]["supportedVersions"], ["2026-07-28"])
+        self.stop()
+        self.start("asks")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        self.assertEqual(json.loads(self.p.stdout.readline()), {"jsonrpc": "2.0", "id": "q1", "method": "ping"})
+        self.assertEqual(json.loads(self.p.stdout.readline())["error"]["code"], -32601)
+        self.send({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+        self.assertEqual(json.loads(self.p.stdout.readline()), {"jsonrpc": "2.0", "id": "q2", "method": "ping"})
+        self.assertEqual(json.loads(self.p.stdout.readline())["result"]["protocolVersion"], "2025-06-18")
+        self.stop()
+        for mode, raw in (
+            ("escaped", b'"supportedVersions":["2026\\u002d07-28","2025\\u002d11-25"]'),
+            ("doubled", b'"supportedVersions":["2026-07-28"],"supportedVersions":[]'),
+            ("deep:3", b'"supportedVersions":[[[]]]'),
+        ):
+            self.start(mode)
+            self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+            self.assertIn(raw, self.p.stdout.readline(), mode)
+            self.stop()
 
     def test_an_unknown_mode_is_refused(self):
         p = subprocess.run([BUN, DISCOVER_STDIO, "bogus"], stdin=subprocess.DEVNULL, capture_output=True, timeout=30)

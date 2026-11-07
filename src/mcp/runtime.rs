@@ -68,7 +68,7 @@ use super::config::{
 };
 use super::era::{self, Meta};
 use super::transport::{Exit, HttpTransport, Reply, StdioTransport, Transport, WireEra};
-use super::{names::ToolNames, McpError};
+use super::{names::ToolNames, wire, McpError};
 use crate::gateway::CancelToken;
 
 /// How many pages of a list are read before the list is called complete.
@@ -1014,6 +1014,15 @@ impl McpRuntime {
         self.state().servers.clone()
     }
 
+    /// How many probes server `name`'s live connection stopped waiting for
+    /// are still open ([`Transport::probes_open`]).
+    #[cfg(test)]
+    pub(crate) fn probes_open(&self, name: &str) -> usize {
+        self.server(name)
+            .and_then(|server| server.live().transport.clone())
+            .map_or(0, |transport| transport.probes_open())
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
     }
@@ -1370,7 +1379,8 @@ impl McpRuntime {
             Kind::Stdio => Arc::new(
                 StdioTransport::spawn(&config.command, &config.args, &config.env, None)
                     .map_err(started)?
-                    .with_ids(Arc::clone(&server.ids)),
+                    .with_ids(Arc::clone(&server.ids))
+                    .with_idle(config.operation_timeout()),
             ),
             Kind::Http => Arc::new(
                 HttpTransport::open(
@@ -1378,7 +1388,8 @@ impl McpRuntime {
                     &http_headers(config, &*self.environment).map_err(started)?,
                 )
                 .map_err(started)?
-                .with_ids(Arc::clone(&server.ids)),
+                .with_ids(Arc::clone(&server.ids))
+                .with_idle(config.operation_timeout()),
             ),
             Kind::Sse => return Err(started(McpError::Named("McpTransportUnsupported"))),
         };
@@ -1482,7 +1493,7 @@ impl McpRuntime {
                 match *effect {
                     era::Effect::SendDiscover(index) => send = Some(Outgoing::Discover(index)),
                     era::Effect::ArmProbeTimer { probe, after } => {
-                        probe_due = (probe, Instant::now() + after.min(left()));
+                        probe_due = (probe, Instant::now() + probe_wait(after, left()));
                     }
                     era::Effect::SendInitialize => send = Some(Outgoing::Initialize),
                     era::Effect::SendInitialized => transport
@@ -1504,11 +1515,17 @@ impl McpRuntime {
                     McpError::Named("McpUnsupportedProtocolVersion"),
                 ))?;
             }
+            // The era each message goes out in: probing drops a session a
+            // fallback began, and `initialize` begins one (`send_discover`,
+            // `startSession`, `src/mcp/server.zig:2027-2034`, `:1358-1359`;
+            // `legacyEra`, `:888-891@481104fd`).
             let event = match send {
                 Some(Outgoing::Discover(index)) => {
+                    transport.set_era(WireEra::Detecting);
                     self.probe(server, transport, &config, index, probe_due, &mut said)?
                 }
                 Some(Outgoing::Initialize) => {
+                    transport.set_era(WireEra::Initializing);
                     self.initialize(server, transport, &config, left, &mut said)?
                 }
                 None => return Err((Step::Detect, McpError::Named("McpInitializeFailed"))),
@@ -1566,11 +1583,11 @@ impl McpRuntime {
     /// event its answer -- or its silence -- is (`classifyDiscover`,
     /// `classifyDiscoverHttp`, `era.zig:386-415@481104fd`).
     ///
-    /// On stdio a reply that is not valid JSON-RPC fails the probe, which is
-    /// a legacy answer (`onRefusedLine`, `src/mcp/server.zig:769-790`); an
-    /// error without an id is one too (`:1159-1160`); a line that is not JSON
-    /// answers nothing, so the probe waits out its timer; and a process that
-    /// is gone ends the start. Over HTTP a body that holds no JSON-RPC answer
+    /// On stdio a line fx's decoder refuses that names the probe fails it,
+    /// which is a legacy answer (`onRefusedLine`, `src/mcp/server.zig:
+    /// 769-790`); an error without an id is one too (`:1159-1160`); any other
+    /// line answers nothing, so the probe waits on; and a process that is
+    /// gone ends the start. Over HTTP a body that holds no JSON-RPC answer
     /// is a legacy answer whatever its status, a broken connection is sent
     /// again once and then waits out the timer (`max_attempts = 2`,
     /// `http_modern.zig:21-24`; `endAttempt`, `server.zig:1242-1257`), and an
@@ -1610,7 +1627,6 @@ impl McpRuntime {
                 McpError::Named("Cancelled" | "McpAuthenticationRequired") => {
                     return Err((Step::Discover, error))
                 }
-                McpError::Named("McpInvalidJson") if !http => {}
                 error if !http => return Err((Step::Discover, error)),
                 McpError::Named("ResponseTooLarge") => {}
                 _ => {
@@ -1627,8 +1643,8 @@ impl McpRuntime {
 
     /// `initialize`, and the event its answer is (`classifyInitialize`,
     /// `era.zig:417-444@481104fd`). It waits what is left of the start; on
-    /// stdio an invalid reply is an error the request fails with (whose
-    /// words may hint at a modern server), a line that is not JSON answers
+    /// stdio a refused line naming it is an error the request fails with
+    /// (whose words may hint at a modern server), any other line answers
     /// nothing, and a process that is gone ends the start; over HTTP an
     /// initialize that ends without an answer is rejected (`onInitializeEnded`,
     /// `src/mcp/server.zig:1598-1603`).
@@ -1641,7 +1657,6 @@ impl McpRuntime {
         said: &mut Said,
     ) -> Result<era::Event, (Step, McpError)> {
         let http = server.config.transport != Kind::Stdio;
-        let deadline = Instant::now() + left();
         let reply = transport.detect(
             "initialize",
             era::initialize_params(config),
@@ -1651,36 +1666,30 @@ impl McpRuntime {
         );
         match reply {
             Ok(Reply {
-                frame: Some(frame), ..
+                frame: Some(frame),
+                refused,
+                ..
             }) => {
-                let event = match era::decode_response(&frame) {
-                    Ok(response) => {
-                        said.keep(response.body);
-                        era::classify_initialize(config, response.body)
-                    }
-                    Err(_) if http => era::Event::InitializeError(false),
-                    Err(why) => {
-                        let message = invalid_reply(why, &frame);
-                        era::classify_initialize(
-                            config,
-                            era::Body::Failure {
-                                code: era::code::INVALID_REQUEST,
-                                message: &message,
-                                data: None,
-                            },
-                        )
-                    }
+                let message = refused.map(|why| refused_message(why, &frame));
+                let body = match &message {
+                    Some(message) => Some(refused_body(message)),
+                    None => match wire::decode(&frame) {
+                        Ok(wire::Message::Response(response)) => Some(response.body),
+                        _ => None,
+                    },
                 };
-                Ok(event)
+                Ok(match body {
+                    Some(body) => {
+                        said.keep(body);
+                        era::classify_initialize(config, body)
+                    }
+                    None => era::Event::InitializeError(false),
+                })
             }
             Ok(Reply { frame: None, .. }) => Ok(era::Event::InitializeError(false)),
             Err(McpError::Named("McpRequestTimedOut")) => Ok(era::Event::InitializeTimedOut),
             Err(error @ McpError::Named("Cancelled" | "McpAuthenticationRequired")) => {
                 Err((Step::Initialize, error))
-            }
-            Err(McpError::Named("McpInvalidJson")) if !http => {
-                wait_out(deadline, &server.cancel).map_err(|error| (Step::Initialize, error))?;
-                Ok(era::Event::InitializeTimedOut)
             }
             Err(error) if !http => Err((Step::Initialize, error)),
             Err(_) => Ok(era::Event::InitializeError(false)),
@@ -2248,14 +2257,17 @@ struct Said {
 }
 
 impl Said {
-    fn keep(&mut self, body: era::Body<'_>) {
-        if let era::Body::Result(result) = body {
-            self.capabilities = result.get("capabilities").cloned();
-            self.instructions = result
-                .get("instructions")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-        }
+    /// A result's capabilities and instructions, read from its raw text as
+    /// fx reads them: a result whose fields fx's decoder refuses -- one named
+    /// twice -- says neither, and instructions that are not a string are none.
+    fn keep(&mut self, body: wire::Body<'_>) {
+        let wire::Body::Result { raw, .. } = body else {
+            return;
+        };
+        let [capabilities, instructions] =
+            wire::object_fields(raw, ["capabilities", "instructions"]).unwrap_or([None, None]);
+        self.capabilities = capabilities.and_then(|raw| serde_json::from_str(raw).ok());
+        self.instructions = instructions.and_then(wire::decode_string);
     }
 }
 
@@ -2270,14 +2282,27 @@ fn wire_era(config: &era::Config, version: era::Version) -> Option<(&'static str
     }
 }
 
-/// The event a probe's reply is: on stdio, an invalid reply or an error
-/// without an id is a legacy answer; over HTTP, a body without a valid
-/// answer is none.
+/// The event a probe's reply is (`onStdioAnswer`, `onMessage`,
+/// `src/mcp/server.zig:835-850`, `:1154-1172@481104fd`): on stdio a refused
+/// line naming the probe fails it with -32600, an error without an id while
+/// it waits is a legacy answer, and an answer is classified; over HTTP the
+/// answer, or the status without one, is.
 fn probe_event(config: &era::Config, reply: &Reply, http: bool, said: &mut Said) -> era::Event {
-    let response = reply
-        .frame
-        .as_ref()
-        .and_then(|frame| era::decode_response(frame).ok());
+    let Some(frame) = reply.frame.as_deref() else {
+        return if http {
+            era::classify_discover_http(config, reply.status, None)
+        } else {
+            era::Event::LegacyAnswer
+        };
+    };
+    if let Some(why) = reply.refused {
+        let message = refused_message(why, frame);
+        return era::classify_discover(config, refused_body(&message));
+    }
+    let response = match wire::decode(frame) {
+        Ok(wire::Message::Response(response)) => Some(response),
+        _ => None,
+    };
     if http {
         let body = response.map(|response| response.body);
         if let Some(body) = body {
@@ -2290,23 +2315,30 @@ fn probe_event(config: &era::Config, reply: &Reply, http: bool, said: &mut Said)
             said.keep(response.body);
             era::classify_discover(config, response.body)
         }
-        // An error without an id while the probe waits, or a reply fx
-        // refuses (-32600, which is no recognized modern error).
+        // An error without an id while the probe waits (`:1159-1160`).
         _ => era::Event::LegacyAnswer,
     }
 }
 
-/// The message of a refused reply's failure, as fx writes it
-/// (`onRefusedLine`, `src/mcp/server.zig:769-790@481104fd`): what was wrong,
-/// and the start of what came, at most 80 bytes and never a cut character.
-fn invalid_reply(why: &str, frame: &Value) -> String {
-    let line = frame.to_string();
-    let mut end = line.len().min(80);
-    while !line.is_char_boundary(end) {
-        end -= 1;
-    }
-    let cut = if end < line.len() { "..." } else { "" };
-    format!("invalid reply ({why}): {}{cut}", &line[..end])
+/// The message, as a JSON string, a refused line fails its request with
+/// (`onRefusedLine`, `src/mcp/server.zig:772-790@481104fd`).
+fn refused_message(why: &str, line: &str) -> String {
+    serde_json::to_string(&wire::invalid_reply(why, line)).expect("a string")
+}
+
+/// The failure a refused line is: -32600 with `message`.
+fn refused_body(message: &str) -> wire::Body<'_> {
+    wire::Body::Failure(wire::Failure {
+        code: era::code::INVALID_REQUEST,
+        message,
+        data: None,
+    })
+}
+
+/// How long a probe waits: its timer, cut to what is left of the start
+/// (`startLeft`, `src/mcp/server.zig:966-971@481104fd`).
+pub(crate) fn probe_wait(after: Duration, left: Duration) -> Duration {
+    after.min(left)
 }
 
 /// Waits until `deadline`, or until `cancel`.

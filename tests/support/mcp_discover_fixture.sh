@@ -18,16 +18,33 @@
 #               not JSON, then a 2025 server
 #   idless      discover answered with an error without an id, then a 2025
 #               server
-#   deep        discover answered with a result nested 4096 levels deep, then
+#   deep[:<n>]  discover answered with a complete result whose
+#               `supportedVersions` is <n> nested arrays (4096 by default), then
 #               a 2025 server
 #   rejected    discover answered with -32021: a modern server that refuses
 #   legacyonly  discover answered with -32022 listing only 2025-11-25, then a
 #               2025 server
 #   quiet       discover answered with -32022 listing 2026-07-28, then silence
+#   escaped     discover answered with a complete result listing 2026-07-28
+#               and 2025-11-25 each written with an escape (`\u002d` for a
+#               hyphen), then a 2025 server
+#   doubled     discover answered with a complete result naming
+#               `supportedVersions` twice, 2026-07-28 then none, then a 2025
+#               server
+#   banner      `modern`, but a line that is not JSON-RPC (`Server started on
+#               stdio`) comes just before the discover answer
+#   asks        a 2025 server that asks `ping` (id "q1") before it answers
+#               discover with -32601, and `ping` (id "q2") before it answers
+#               `initialize`: an answer to either is the next line it reads,
+#               and logged
 # A 2025 server answers `initialize` with 2025-06-18 (2024-11-05 in old2024),
 # takes notifications, and has one tool `echo`. When MCP_FIXTURE_LOG names a
 # file, every frame it reads is appended there.
 mode=${MCP_DISCOVER_MODE:-modern}
+depth=4096
+case "$mode" in
+  deep:*) depth=${mode#deep:}; mode=deep ;;
+esac
 discovered=0
 while IFS= read -r line; do
   if [ -n "${MCP_FIXTURE_LOG:-}" ]; then
@@ -42,7 +59,8 @@ while IFS= read -r line; do
   if [ "$method" = "server/discover" ]; then
     discovered=$((discovered + 1))
     case "$mode" in
-      modern)
+      modern|banner)
+        [ "$mode" = banner ] && printf 'Server started on stdio\n'
         printf '{"jsonrpc":"2.0","id":%s,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"instructions":"modern fixture"}}\n' "$id" ;;
       silent) ;;
       malformed)
@@ -54,11 +72,18 @@ while IFS= read -r line; do
       idless)
         printf '{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}\n' ;;
       deep)
-        awk -v id="$id" 'BEGIN { s = ""; for (i = 0; i < 4096; i++) s = s "["; for (i = 0; i < 4096; i++) s = s "]"; printf "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"supportedVersions\":%s}}\n", id, s }' ;;
+        awk -v id="$id" -v n="$depth" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "["; for (i = 0; i < n; i++) s = s "]"; printf "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"resultType\":\"complete\",\"supportedVersions\":%s}}\n", id, s }' ;;
       rejected)
         printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32021,"message":"\\u001b[31mmissing capability"}}\n' "$id" ;;
       legacyonly)
         printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32022,"message":"unsupported","data":{"supported":["2025-11-25"]}}}\n' "$id" ;;
+      escaped)
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"resultType":"complete","supportedVersions":["2026\\u002d07-28","2025\\u002d11-25"],"capabilities":{"tools":{}}}}\n' "$id" ;;
+      doubled)
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"supportedVersions":[],"capabilities":{"tools":{}}}}\n' "$id" ;;
+      asks)
+        printf '{"jsonrpc":"2.0","id":"q1","method":"ping"}\n'
+        printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id" ;;
       quiet)
         if [ "$discovered" -eq 1 ]; then
           printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32022,"message":"unsupported","data":{"supported":["2026-07-28"]}}}\n' "$id"
@@ -69,7 +94,7 @@ while IFS= read -r line; do
     continue
   fi
   [ -n "$id" ] || continue
-  if [ "$mode" = "modern" ]; then
+  if [ "$mode" = "modern" ] || [ "$mode" = "banner" ]; then
     if [ "$method" = "initialize" ]; then
       printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id"
       continue
@@ -81,6 +106,7 @@ while IFS= read -r line; do
   fi
   case "$method" in
     initialize)
+      [ "$mode" = "asks" ] && printf '{"jsonrpc":"2.0","id":"q2","method":"ping"}\n'
       version=2025-06-18
       [ "$mode" = "old2024" ] && version=2024-11-05
       printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","capabilities":{"tools":{}},"serverInfo":{"name":"discover-fixture","version":"1"}}}\n' "$id" "$version"
