@@ -49,7 +49,7 @@ for name, side in (("reference", base), ("train", head)):
 dropped, gained, moved = [], [], []
 for key in shared:
     b, h = base[key], head[key]
-    rows = lambda p: {(r["fx"], r["xfx"]) for r in p["rows"]}  # noqa: E731
+    rows = lambda p: {(r["fx"], r["xfx"]) for r in p.get("rows", [])}  # noqa: E731
     if b["verdict"] != h["verdict"]:
         moved.append("%s %s: %s -> %s" % (key[0], key[1], b["verdict"], h["verdict"]))
         if b["verdict"] in PASS and h["verdict"] not in PASS:

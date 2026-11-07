@@ -252,7 +252,39 @@ scenarios `until shown TAIL5678` (`TAIL`) before `snap answer` and
 
 **Pairs** (`pairs.txt`):
 
-PAIRS
+The four on `e6cde019` and on `0b4807bc`, swept alone (`sweep.sh --only 'p5-ctrlo-wider-*'`), the head's ledger on both:
+
+| scenario | snap | base (e6cde019), rows differing | head (0b4807bc), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | unresolved-defect (16) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | normalized-identical (0) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-inline | answer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | unresolved-defect (12) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | approved-divergence (1) | approved-divergence (1) | inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | composer | approved-divergence (1) | approved-divergence (1) | inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | margin | approved-divergence (1) | approved-divergence (1) | inline-band-row-anchor |
+
+- **Part 1 is fx's cells on all three surfaces:** `p5-ctrlo-wider-diff`
+  `full` (Ctrl-O: read rows and diff rows, `a` U+302E twice at the margin,
+  `কা`, U+E0000, U+1F1E6) and `p5-ctrlo-wider-inline` `answer`, `composer`
+  (the caret at fx's column, `.cursor`), `margin` go from 16, 8, 8 and 12
+  differing rows on the base to normalized-identical. `green.txt` and
+  `red.txt` are the same pairs through `cells.py` (wall clock not
+  normalized there: the 4 rows of `-diff` `full` at the head are the
+  timestamps).
+- **Part 2, the one pair that leaves the pass set:** `p5-ctrlo-wider-diff-fam`
+  `full`, normalized-identical on the base -- fx's bytes copied, fx's lost
+  glyphs with them -- and approved-divergence at the head, the 14 rows the
+  names change (`ctrl-o-drawn-wider-named`). That is the decision, not a
+  regression.
+- `p5-ctrlo-wider-inline-fam`: approved-divergence on both, one row each
+  (`inline-band-row-anchor`): the answer's short row, which fx's live write
+  overwrites and xfx's document row does not; every other row the same.
 
 ## The ledger
 
@@ -266,7 +298,34 @@ PAIRS
 
 ## The sweeps
 
-SWEEPS
+Both full sweeps, every scenario (317, 1,704 pairs), `--jobs 2`: the base's
+binary (`sweep-base.md`) and the head's (`sweep-head.md`), both rescored with
+the head's ledger; `compare_sweeps.py` (train 3's `compare.py`, reading a
+pair with no rows) over them: `compare-sweeps.txt`.
+
+- The head's sweep ran at a load of 11 to 34 alongside other workers'
+  suites: 30 pairs timed out (nine scenarios, runs 445-459) and two
+  catalog-timing pairs moved (`h1-models2` `before`, `model-column-idle`
+  `col-typed`; `modelsdown 9000` and `models2` against fixed waits). Run
+  again under `suite-lock.sh` (`sweep-rerun.txt`): every one is the base's
+  verdict or better.
+- **After the reruns: pass on the base 1,041 of 1,704, on the head 1,049.**
+  One pair passes on the base and not on the head: `p5-ctrlo-wider-diff-fam`
+  `full`, above. Nine go the other way: the four of part 1, and five timing
+  pairs that failed on the base's run and passed on the head's or its rerun
+  (`model-column-idle` `col-down` and `col-idle`, `model-reask`
+  `menu-failed`, `h1-models2` `after`, `p5-transcript-records` `start`, the
+  launch notice's timer) -- none of them holds a width-disputed scalar.
+- **No pre-existing scenario's screen holds a scalar whose count or spelling
+  changed:** none of the head sweep's xfx screens outside the four holds one
+  of `FX_COUNTED`'s 3,838 or of the 43 (checked over every `.txt`; the one
+  scenario whose turns hold U+FE0F, `p5-transcript-diffwrap2`, puts it right
+  after a tab, which no surface draws and `drawn_wider_named` leaves as it
+  is). The other screens that moved between the two sweeps moved on both
+  binaries' timing (fx's moved too: 293 fx screens differ between the two
+  runs of the same fx).
+- Two pairs fail on both, fx's side: `p5-panels-badsettings` (fx's pane
+  closes before its first snap, three runs of three, rerun included).
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
@@ -314,4 +373,4 @@ Run 1 at `69b1b539` (the code of `0b4807bc`, the scenarios and the ledger), CI's
 
 `cargo test --locked --no-fail-fast`: 15 test binaries, 5,230 passed, 0 failed, 7 ignored; with `--features fault-injection`, 5,267 passed, 0 failed, 7 ignored. `smoke.sh`: 47 checks, 0 failures. `smoke-tui.sh`: 37 scenarios and the oracle, 1,127 checks, 0 failures.
 
-RUN2
+Run 2, at the final head (the receipt committed), under `suite-lock.sh` for the two full test suites and smoke-tui: below, when it ran.

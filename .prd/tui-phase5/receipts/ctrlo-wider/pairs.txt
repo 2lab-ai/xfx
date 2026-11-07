@@ -1,0 +1,15 @@
+# python3 -I pairs.py <sweep of the four on e6cde019> <sweep of the four on 0b4807bc>: sweep.sh --only 'p5-ctrlo-wider-*' --jobs 2, the same scenarios and ledger (69b1b539's)
+| scenario | snap | base (e6cde019), rows differing | head (0b4807bc), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | unresolved-defect (16) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | normalized-identical (0) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-inline | answer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | unresolved-defect (12) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | approved-divergence (1) | approved-divergence (1) | inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | composer | approved-divergence (1) | approved-divergence (1) | inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | margin | approved-divergence (1) | approved-divergence (1) | inline-band-row-anchor |
