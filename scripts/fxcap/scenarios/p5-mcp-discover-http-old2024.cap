@@ -1,4 +1,4 @@
-# p5 mcp discover: an HTTP server that only speaks 2024-11-05 (mcphttp.ts `old2024`):
+# p5 mcp discover (read at ~6 s, between the third try and the fourth, 1+2+4 s of backoff): an HTTP server that only speaks 2024-11-05 (mcphttp.ts `old2024`):
 # discover 404, then `initialize` answered with 2024-11-05 -- unsupported_version
 # (src/core/mcp_host/runtime.zig:2296@481104fd), retrying.
 mcphttp old2024
@@ -8,6 +8,6 @@ gateway p5-mcp-hello.json
 wait 6
 type /mcp show fixture
 key Enter
-wait 3
+wait 1
 snap show
 gwlog

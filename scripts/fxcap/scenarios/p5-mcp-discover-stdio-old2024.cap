@@ -1,4 +1,4 @@
-# p5 mcp discover: a stdio server that only speaks 2024-11-05
+# p5 mcp discover (read at ~6 s, between the third try and the fourth, 1+2+4 s of backoff): a stdio server that only speaks 2024-11-05
 # (p5-mcp-discover-stdio.ts `old2024`): it does not know `server/discover`, and answers
 # `initialize` with 2024-11-05, which fx v0.0.16 no longer speaks -- `unsupported_version`,
 # "it answered with an MCP version fx doesn't support (fx speaks 2025-03-26 and newer)"
@@ -10,6 +10,6 @@ gateway p5-mcp-hello.json
 wait 5
 type /mcp show fixture
 key Enter
-wait 3
+wait 1
 snap show
 home wire

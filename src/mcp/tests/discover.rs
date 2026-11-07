@@ -429,6 +429,14 @@ fn discover_http(mode: &'static str) -> (u16, Arc<Mutex<Vec<Seen>>>) {
                         return;
                     }
                     if !request_line.starts_with("POST") {
+                        // A session's end (`DELETE`) or a listen (`GET`),
+                        // logged by its HTTP method.
+                        entry.method = request_line
+                            .split(' ')
+                            .next()
+                            .unwrap_or_default()
+                            .to_string();
+                        log.lock().unwrap().push(entry);
                         let _ = stream.write_all(
                             b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n",
                         );
@@ -583,11 +591,18 @@ fn a_bare_404_is_a_2025_server_whose_initialize_carries_no_version_header() {
         ]
     );
     runtime.shutdown();
+    // The session it took is ended at the close.
+    std::thread::sleep(Duration::from_millis(300));
+    let last = log.lock().unwrap().last().cloned().expect("a request");
+    assert_eq!(
+        (last.method.as_str(), last.session.as_deref()),
+        ("DELETE", Some("s-1"))
+    );
 }
 
 #[test]
 fn an_http_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words() {
-    let (port, _) = discover_http("old2024");
+    let (port, log) = discover_http("old2024");
     let home = Home::new();
     let runtime = http_runtime(&home, port);
     runtime.set_retry(ONCE);
@@ -601,6 +616,18 @@ fn an_http_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words() {
         )
     );
     runtime.shutdown();
+    // The session initialize offered was never taken, so none is ended: no
+    // `DELETE` (`onInitializeAnswer` keeps the incoming id only for an
+    // accepted answer, `src/mcp/server.zig:1574-1593`).
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        log.lock()
+            .unwrap()
+            .iter()
+            .map(|s| s.method.clone())
+            .collect::<Vec<_>>(),
+        ["server/discover", "initialize"]
+    );
 }
 
 #[test]

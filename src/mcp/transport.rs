@@ -1183,6 +1183,8 @@ pub struct HttpTransport {
     alive: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<String>>>,
     era: Arc<Mutex<WireEra>>,
+    session_id: Arc<Mutex<Option<String>>>,
+    incoming_session: Arc<Mutex<Option<String>>>,
 }
 
 /// What every request carries besides its body.
@@ -1190,7 +1192,13 @@ struct HttpTarget {
     url: String,
     headers: Vec<(String, String)>,
     era: Arc<Mutex<WireEra>>,
+    /// The session's id, sent back on its every request.
     session_id: Arc<Mutex<Option<String>>>,
+    /// The id `initialize`'s answer brought, which is the session's only once
+    /// that answer is accepted (`incoming_session`, `onInitializeAnswer`,
+    /// `src/mcp/server.zig:1574-1593@481104fd`): a server refused for its
+    /// version opened no session, and is sent no `DELETE`.
+    incoming_session: Arc<Mutex<Option<String>>>,
 }
 
 impl HttpTransport {
@@ -1200,11 +1208,14 @@ impl HttpTransport {
         let alive = Arc::new(AtomicBool::new(true));
         let failure = Arc::new(Mutex::new(None));
         let era = Arc::new(Mutex::new(WireEra::Detecting));
+        let session_id = Arc::new(Mutex::new(None));
+        let incoming_session = Arc::new(Mutex::new(None));
         let target = HttpTarget {
             url: url.to_string(),
             headers: headers.to_vec(),
             era: Arc::clone(&era),
-            session_id: Arc::new(Mutex::new(None)),
+            session_id: Arc::clone(&session_id),
+            incoming_session: Arc::clone(&incoming_session),
         };
         let thread_alive = Arc::clone(&alive);
         std::thread::Builder::new()
@@ -1218,6 +1229,8 @@ impl HttpTransport {
             alive,
             failure,
             era,
+            session_id,
+            incoming_session,
         })
     }
 
@@ -1328,6 +1341,17 @@ impl Transport for HttpTransport {
     }
 
     fn set_era(&self, era: WireEra) {
+        let incoming = self
+            .incoming_session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let WireEra::Legacy(_) = era {
+            *self
+                .session_id
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = incoming;
+        }
         *self.era.lock().unwrap_or_else(PoisonError::into_inner) = era;
     }
 
@@ -1538,7 +1562,7 @@ async fn post(
         return Err(McpError::Named("UnexpectedHttpStatus"));
     }
     if modern.is_none() {
-        keep_session(target, &response)?;
+        keep_session(&target.session_id, &response)?;
     }
     let media = media_type(&response).ok_or(McpError::Named("MissingContentType"))?;
     let body = read_bounded(response).await?;
@@ -1572,7 +1596,7 @@ async fn detect_reply(
 ) -> Result<Reply, McpError> {
     let status = response.status();
     if method == "initialize" {
-        keep_session(target, &response)?;
+        keep_session(&target.incoming_session, &response)?;
     }
     if status == reqwest::StatusCode::ACCEPTED {
         return Err(McpError::Named("McpNoResult"));
@@ -1631,9 +1655,12 @@ fn media_type(response: &reqwest::Response) -> Option<String> {
         })
 }
 
-/// Keeps the session id a 2025 server hands out, when it is one fx would
-/// echo (`validSessionId`, `http_headers.zig:275-281@481104fd`).
-fn keep_session(target: &HttpTarget, response: &reqwest::Response) -> Result<(), McpError> {
+/// Keeps the session id a 2025 server hands out in `slot`, when it is one fx
+/// would echo (`validSessionId`, `http_headers.zig:275-281@481104fd`).
+fn keep_session(
+    slot: &Mutex<Option<String>>,
+    response: &reqwest::Response,
+) -> Result<(), McpError> {
     if let Some(value) = response
         .headers()
         .get("mcp-session-id")
@@ -1643,10 +1670,7 @@ fn keep_session(target: &HttpTarget, response: &reqwest::Response) -> Result<(),
             && value.len() <= 1024
             && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
         {
-            *target
-                .session_id
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(value.to_string());
+            *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(value.to_string());
         } else {
             return Err(McpError::Named("InvalidMcpSessionId"));
         }

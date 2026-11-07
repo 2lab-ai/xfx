@@ -1,4 +1,4 @@
-# p5 mcp discover: an HTTP server whose `server/discover` result lists only near misses
+# p5 mcp discover (read at ~6 s, between the third try and the fourth, 1+2+4 s of backoff): an HTTP server whose `server/discover` result lists only near misses
 # of the client's versions, with instructions that are terminal escapes (mcphttp.ts
 # `hostile`): no shared version (era.zig:206@481104fd), retrying. Nothing it wrote reaches
 # the screen.
@@ -9,6 +9,6 @@ gateway p5-mcp-hello.json
 wait 6
 type /mcp show fixture
 key Enter
-wait 3
+wait 1
 snap show
 gwlog

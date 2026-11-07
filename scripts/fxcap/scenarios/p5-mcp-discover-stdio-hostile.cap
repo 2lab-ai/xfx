@@ -1,4 +1,4 @@
-# p5 mcp discover: a stdio server whose `server/discover` result lists only near misses
+# p5 mcp discover (read at ~6 s, between the third try and the fourth, 1+2+4 s of backoff): a stdio server whose `server/discover` result lists only near misses
 # of the client's versions -- escapes around "2026-07-28", a 64 KiB string -- with
 # instructions that are terminal escapes (p5-mcp-discover-stdio.ts `hostile`). fx v0.0.16
 # keeps none of it (a list is a mask over its own versions, era.zig:28-37@481104fd): no
@@ -10,6 +10,6 @@ gateway p5-mcp-hello.json
 wait 5
 type /mcp show fixture
 key Enter
-wait 3
+wait 1
 snap show
 home wire

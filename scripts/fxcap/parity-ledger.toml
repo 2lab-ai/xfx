@@ -78,6 +78,14 @@ why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a
 source = ["scripts/fxcap/capture.sh:416"]
 
 [[normalization]]
+id = "mcphttp-port"
+fx = '(?<=http://127\.0\.0\.1:)\d{4,5}(?=/mcp\b)'
+xfx = '(?<=http://127\.0\.0\.1:)\d{4,5}(?=/mcp\b)'
+replace = "<mcpport>"
+why = "capture.sh starts each run's HTTP MCP server (`mcphttp`) on a loopback port the OS picks, so a server's `url` row names a different port on each side. Only a 4- or 5-digit port before `/mcp` is rewritten: a fixed one in a profile (`127.0.0.1:9`) is compared."
+source = ["scripts/fxcap/capture.sh:570"]
+
+[[normalization]]
 id = "capture-tmpdir"
 fx = '(?<=fxcap\.XXXXXX/)fxtmp\b'
 replace = "xfxtmp"
