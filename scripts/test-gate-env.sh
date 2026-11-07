@@ -330,6 +330,13 @@ cp "$work/attributes" "$ilock/.gitattributes"
 refuses attributes-untracked "$content_found" "$ilock/scripts/check-xfx-identity.sh"
 rm -f "$ilock/.gitattributes"
 
+# The identity scan reads the names `git grep -l -z` prints; a config that
+# colours git grep's output would colour those names, and a coloured name is
+# no file.
+git -C "$ilock" config color.grep always
+refuses identity-color-grep "$content_found" "$ilock/scripts/check-xfx-identity.sh"
+git -C "$ilock" config --unset color.grep
+
 if [ "$failures" -ne 0 ]; then
 	printf 'test-gate-env: %d problem(s), %d case(s) passed\n' "$failures" "$passed" >&2
 	exit 1
