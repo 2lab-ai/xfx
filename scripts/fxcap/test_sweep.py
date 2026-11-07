@@ -686,11 +686,14 @@ class Capfile(unittest.TestCase):
             ("until gone Full access never-rendered", both),
             ("until gone Full access enabled", both),
             ("until gone Full", both),
-            ("absent Full access", []),
-            ("absent Full access never-rendered", both),
         ):
             with self.subTest(line=line):
                 self.assertEqual(self.raced(self.YOLO + "wait 3.5\n%s\nsnap start\n" % line), want)
+        # `absent` over the warning an `until shown` saw (an `absent` never
+        # speaks for the one a launch armed: test_absent_says_a_ctrl_c_armed_nothing).
+        for line, want in (("absent Full access", []), ("absent Full access never-rendered", both)):
+            with self.subTest(line=line):
+                self.assertEqual(self.raced(self.YOLO + "until shown Full access\nwait 3.5\n%s\nsnap start\n" % line), want)
         hint = "key C-c\nwait 1.5\n%s\nwait 1\nsnap a\n"
         for line, want in (("absent press ctrl+c again to exit", []), ("absent press ctrl+c", True),
                            ("until gone press ctrl+c again to exit, please", True)):
@@ -710,11 +713,38 @@ class Capfile(unittest.TestCase):
         # Too soon to say anything: the hint may not be drawn yet.
         self.assertEqual(self.raced("key C-c\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), both)
         self.assertEqual(self.raced("key C-c\nwait 0.5\nabsent press ctrl+c again to exit\nwait 2\nsnap after\n"), both)
-        self.assertEqual(self.raced(self.YOLO + "wait 2\nabsent Full access\nwait 2\nsnap a\n"), [("fx", "snap a"), ("xfx", "snap a")])
-        self.assertEqual(self.raced(self.YOLO + "wait 3\nabsent Full access\nwait 1\nsnap a\n"), [])
+        snap_a = [("fx", "snap a"), ("xfx", "snap a")]
+        # The warning a launch armed (opus r2 SHOULD 1): the check knows it is
+        # armed, so an `absent` that passes there looked where it was not yet
+        # drawn, however long after the launch; only the screen showing it
+        # (`until shown`) and then not (`until gone`, `absent`) counts it gone.
+        self.assertEqual(self.raced(self.YOLO + "wait 2\nabsent Full access\nwait 2\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced(self.YOLO + "wait 3\nabsent Full access\nwait 1\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced(self.YOLO + "wait 3.5\nabsent Full access\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced(self.YOLO + "until shown Full access\nwait 0.5\nabsent Full access\nwait 3.5\nsnap a\n"), [])
+        # A relaunch arms it again, unseen.
+        self.assertEqual(self.raced("keep\n" + self.YOLO + "until shown Full access\nwait 1\nrelaunch\nwait 3\nabsent Full access\nwait 1\nsnap a\n"),
+                         snap_a)
+        # A row an `until shown` saw is drawn: `absent` needs no settle after it.
+        self.assertEqual(self.raced("key C-c\nuntil shown press ctrl+c again to exit\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), [])
         # Not while the row is paused: a hidden warning is not a spent one.
         menu = self.YOLO + "wait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
-        self.assertEqual(self.raced(menu), [("fx", "snap a"), ("xfx", "snap a")])
+        self.assertEqual(self.raced(menu), snap_a)
+        menu = self.YOLO + "until shown Full access\nwait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
+        self.assertEqual(self.raced(menu), snap_a)
+
+    def test_settle_is_an_allowance_for_a_key_only(self):
+        # A row a key arms may not be drawn yet just after the key: an
+        # `absent` that soon says nothing. The allowance is measured, and well
+        # inside the row's own time. A row only a launch arms has none: no
+        # `absent` speaks for it (above).
+        for timer in capfile.TIMERS:
+            with self.subTest(timer=timer.name):
+                if timer.keys:
+                    self.assertIsInstance(timer.settle, float)
+                    self.assertLess(timer.settle, timer.seconds)
+                else:
+                    self.assertIsNone(timer.settle)
 
     def test_an_until_shown_nothing_counted_armed_reaches_back_to_the_last_input(self):
         # opus SHOULD: a Shift-Tab is not counted, but it is input, and the
