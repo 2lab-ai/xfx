@@ -1,0 +1,31 @@
+# RED: the three tests on e6cde019's product code (the FX_COUNTED data const and the tests added, counted_as_upstream unchanged)
+# cargo test --locked --lib -- <the three>
+
+running 3 tests
+test tui::wrap::tests::a_cluster_with_one_of_them_takes_the_cells_fx_counts_and_a_flag_stays_two ... FAILED
+test tui::wrap::tests::the_scalars_a_terminal_drew_wider_take_the_cells_fx_counts ... FAILED
+test tui::wrap::tests::no_other_scalar_is_counted_otherwise ... ok
+
+failures:
+
+---- tui::wrap::tests::a_cluster_with_one_of_them_takes_the_cells_fx_counts_and_a_flag_stays_two stdout ----
+
+assertion `left == right` failed: "ক\u{9be}"
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::wrap::tests::the_scalars_a_terminal_drew_wider_take_the_cells_fx_counts stdout ----
+
+assertion `left == right` failed: (scalar, painter, fx): [("U+0605", (0, 0), 1), ("U+070F", (0, 0), 1), ("U+0890", (0, 0), 1), ("U+0891", (0, 0), 1), ("U+08E2", (0, 0), 1), ("U+09BE", (0, 0), 1), ("U+09D7", (0, 0), 1), ("U+0B3E", (0, 0), 1), ("U+0B57", (0, 0), 1), ("U+0BBE", (0, 0), 1), ("U+0BD7", (0, 0), 1), ("U+0CC0", (0, 0), 1)]
+  left: 3838
+ right: 0
+
+
+failures:
+    tui::wrap::tests::a_cluster_with_one_of_them_takes_the_cells_fx_counts_and_a_flag_stays_two
+    tui::wrap::tests::the_scalars_a_terminal_drew_wider_take_the_cells_fx_counts
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4321 filtered out; finished in 3.96s
+
+error: test failed, to rerun pass `--lib`
