@@ -1,0 +1,40 @@
+  system prompt: ready · 6249 bytes
+  tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+  more)
+  skills: loading
+  mcp: none
+
+  2026-11-07 09:56:22.808 KST · Notice
+* network: provider: gateway · model: fake/model-a · 16ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:56:22.946 KST · Notice
+* network: provider: gateway · model: fake/model-a · 135ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:56:22.787 KST · Prompt
+┃ edit the file
+
+  2026-11-07 09:56:22.808 KST · Response
+  Editing the file.
+
+  2026-11-07 09:56:22.808 KST · Tool
+● 1 tool call · 1 edit
+└ Edited ctl.txt +1 / -1
+
+  │ 1   before\x1b[2Jcleared
+  │ 2   second \u{009b}line
+  │ 3 - third line
+  │ 3 + THIRD LINE
+
+  2026-11-07 09:56:22.946 KST · Response
+  Edited.
+
+  2026-11-07 09:56:22.944 KST · Usage
+  0s (↑3 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

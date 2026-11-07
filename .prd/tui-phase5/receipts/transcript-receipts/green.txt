@@ -1,0 +1,97 @@
+ok   build p5-transcript-submit (xfx)
+       before-submit.wire writes the banner of 4aca257 once
+       after-submit.wire writes the banner of 4aca257 once
+ok   replay p5-transcript-submit
+       fx  the whole wire replayed is the `second` snap, all 41 rows
+       xfx the whole wire replayed is the `second` snap, all 41 rows
+ok   frame p5-transcript-submit
+       fx frame 1: composer empty; the card ['second prompt'] at rows 34-34, under '  <wall> (↑4 ↓40)'
+       xfx frame 1: composer empty; the card ['second prompt'] at rows 34-34, under '  <wall> (↑4 ↓40)'
+ok   same p5-transcript-submit fx frame1 / xfx frame1
+       rows 1-35 and 37-40 the same; row 36, the activity row, set aside: fx '• Thinking' / xfx '~ Thinking (<s>) (↑4 ↓0)'
+ok   inline p5-transcript-submit filled
+       all 41 rows the same
+ok   same p5-transcript-submit fx submit-0.15 / xfx submit-0.15
+       rows 1-35 and 37-40 the same; row 36, the activity row, set aside: fx '~ Generating (<s>) (↑4 ↓4)' / xfx '~ Generating (<s>) (↑4 ↓40)'
+ok   inline p5-transcript-submit second
+       all 41 rows the same
+ok   build p5-transcript-submit-multi (xfx)
+       before-submit.wire writes the banner of 4aca257 once
+       after-submit.wire writes the banner of 4aca257 once
+ok   replay p5-transcript-submit-multi
+       fx  the whole wire replayed is the `second` snap, all 41 rows
+       xfx the whole wire replayed is the `second` snap, all 41 rows
+ok   frame p5-transcript-submit-multi
+       fx frame 1: composer empty; the card ['multi line three'] at rows 34-34, under '  <wall> (↑4 ↓40)'
+       fx frame 2: composer empty; the card ['multi line one', 'multi line two', 'multi line three'] at rows 32-34, under '  <wall> (↑4 ↓40)'
+       xfx frame 1: composer empty; the card ['multi line one', 'multi line two', 'multi line three'] at rows 32-34, under '  <wall> (↑4 ↓40)'
+ok   same p5-transcript-submit-multi fx frame2 / xfx frame1
+       rows 1-35 and 37-40 the same; row 36, the activity row, set aside: fx '• Thinking' / xfx '~ Thinking (<s>) (↑13 ↓0)'
+ok   inline p5-transcript-submit-multi filled
+       all 41 rows the same
+ok   inline p5-transcript-submit-multi second
+       all 41 rows the same
+ok   inline p5-transcript-submit-multi second.full
+       all 78 rows the same
+ok   whole p5-transcript-tallfirst tall.full
+       fx  all 60 card rows once, in order, rows 3-62 of 71, under the banner and one blank row
+       xfx all 60 card rows once, in order, rows 3-62 of 71, under the banner and one blank row
+ok   inline p5-transcript-tallfirst tall.full
+       all 71 rows the same
+ok   inline p5-transcript-tallfirst tall
+       all 41 rows the same
+ok   whole p5-transcript-submit tall.full
+       fx  all 60 card rows once, in order, rows 73-132 of 141, under the previous turn's summary '  <wall> (↑4 ↓40)' and one blank row
+       xfx all 60 card rows once, in order, rows 73-132 of 141, under the previous turn's summary '  <wall> (↑4 ↓40)' and one blank row
+ok   inline p5-transcript-submit tall.full
+       all 141 rows the same
+ok   inline p5-transcript-submit tall
+       all 41 rows the same
+ok   spelled p5-transcript-diffctl full (ctrl-o)
+       fx  4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 4 diff rows, each the file's line as xfx spells it; none holds a hidden character
+       1   spelled apart: fx 'before\\x1b[2Jcleared' / xfx 'before\\u{001B}[2Jcleared'
+       2   spelled apart: fx 'second \\u{009b}line' / xfx 'second \\u{009B}line'
+       2 rows the same cell by cell, 2 spelled apart with fx's styles
+ok   spelled p5-transcript-diffodd full (ctrl-o)
+       fx  7 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 7 diff rows, each the file's line as xfx spells it; none holds a hidden character
+       2   spelled apart: fx 'tab     here' / xfx 'tab\\there'
+       3   spelled apart: fx 'bidi \\u{202e} reversed' / xfx 'bidi \\u{202E} reversed'
+       4   spelled apart: fx 'zero\\u{200b}width \\u{feff} bom' / xfx 'zero\\u{200B}width \\u{FEFF} bom'
+       5   spelled apart: fx 'crlf line' / xfx 'crlf line\\r'
+       6   spelled apart: fx 'del \\x7f and literal \\x1b text' / xfx 'del \\u{007F} and literal \\\\x1b text'
+       2 rows the same cell by cell, 5 spelled apart with fx's styles
+ok   spelled p5-transcript-diffask ask (review)
+       fx  4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 4 diff rows, each the file's line as xfx spells it; none holds a hidden character
+       1   spelled apart: fx 'before\\x1b[2Jcleared' / xfx 'before\\u{001B}[2Jcleared'
+       2   spelled apart: fx 'second \\u{009b}line' / xfx 'second \\u{009B}line'
+       2 rows the same cell by cell, 2 spelled apart with fx's styles
+ok   spelled p5-transcript-diffask full (ctrl-o)
+       fx  4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 4 diff rows, each the file's line as xfx spells it; none holds a hidden character
+       1   spelled apart: fx 'before\\x1b[2Jcleared' / xfx 'before\\u{001B}[2Jcleared'
+       2   spelled apart: fx 'second \\u{009b}line' / xfx 'second \\u{009B}line'
+       2 rows the same cell by cell, 2 spelled apart with fx's styles
+ok   refused p5-transcript-diffbad full
+       fx  edits it: 4 diff rows, its stray bytes spelled ['bad \\xff byte', 'lone \\xc3 lead']
+       xfx no diff row; '└ Failed bad.txt: edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first'
+ok   nodiff p5-transcript-diffctl edited
+       fx  no diff row; '└ Edited ctl.txt +1 / -1'
+       xfx no diff row; '└ Edited ctl.txt +1 / -1'
+ok   nodiff p5-transcript-diffodd edited
+       fx  no diff row; '└ Edited odd.txt +1 / -1'
+       xfx no diff row; '└ Edited odd.txt +1 / -1'
+ok   inline p5-transcript-diffodd edited
+       all 41 rows the same
+ok   inline p5-transcript-diffodd closed
+       all 41 rows the same
+ok   inline p5-transcript-diffask applied
+       all 41 rows the same
+ok   inline p5-transcript-diffask closed
+       all 41 rows the same
+31 claims, 31 hold, 0 fail
+findings (no claim covers these rows): 2
+       p5-transcript-diffodd full row 16 '│  3    bidi \u202e reversed': U+202E as itself
+       p5-transcript-diffodd full row 17 '│  4    zero\u200bwidth \ufeff bom': U+200B, U+FEFF as itself
