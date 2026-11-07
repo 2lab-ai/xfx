@@ -1,0 +1,63 @@
+# a throwaway clone (git clone --no-local) at 58b463c8, the base, with a253f7bf's three test blocks
+# appended to src/tui/grid.rs, frame.rs and check.rs and no other change
+# TMPDIR=<short> cargo test --locked --lib -- <the unit's 18 filters>
+test tui::grid::tests::a_glyph_without_a_selector_needs_no_anchor ... ok
+test tui::check::tests::an_anchor_off_the_screen_or_from_nowhere_is_refused ... FAILED
+test tui::grid::tests::a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it ... FAILED
+test tui::grid::tests::a_wide_selector_glyph_at_the_margin_is_written_with_autowrap_on_and_not_anchored ... FAILED
+test tui::check::tests::a_clear_past_the_margin_or_from_nowhere_is_refused ... FAILED
+test tui::check::tests::a_clear_takes_the_whole_of_a_wide_cluster_it_covers_half_of ... FAILED
+test tui::grid::tests::a_wide_unit_with_any_suffix_at_the_margin_is_written_with_autowrap_on ... FAILED
+test tui::grid::tests::a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it ... FAILED
+test tui::grid::tests::a_narrow_glyph_with_a_selector_clears_nothing_and_still_puts_the_cursor_back ... FAILED
+test tui::grid::tests::a_selector_glyph_with_nothing_after_it_is_not_anchored ... FAILED
+test tui::check::tests::a_cleared_and_reanchored_selector_glyph_is_accepted ... FAILED
+test tui::frame::tests::the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too ... FAILED
+test tui::frame::tests::a_band_row_ending_in_a_suffixed_wide_unit_at_the_margin_is_guarded_and_accepted ... FAILED
+test tui::check::tests::the_autowrap_bracket_around_one_margin_unit_leaves_the_mode_as_it_was ... FAILED
+test tui::grid::tests::the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end ... FAILED
+test tui::check::tests::an_autowrap_bracket_around_anything_else_is_a_mode_change ... ok
+test tui::check::tests::an_anchor_inside_a_link_is_accepted ... FAILED
+test tui::grid::tests::a_wide_unit_without_a_suffix_or_short_of_the_margin_is_not_guarded ... ok
+test tui::frame::tests::a_document_row_is_written_as_it_stands_as_upstreams_document_append_is ... ok
+test tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph ... FAILED
+test tui::frame::tests::the_full_transcripts_read_row_lands_x_where_upstream_does ... FAILED
+thread 'tui::check::tests::an_anchor_off_the_screen_or_from_nowhere_is_refused' panicked at src/tui/check.rs:4628:9:
+  left: "a control sequence outside the alphabet"
+ right: "a caret placed off the screen"
+thread 'tui::grid::tests::a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it' panicked at src/tui/grid.rs:1697:9:
+  left: "\u{1b}[10;1Ha ⚡\u{fe0e} b"
+ right: "\u{1b}[10;1Ha \u{1b}[2X⚡\u{fe0e}\u{1b}[5G b"
+thread 'tui::grid::tests::a_wide_selector_glyph_at_the_margin_is_written_with_autowrap_on_and_not_anchored' panicked at src/tui/grid.rs:1767:9:
+  left: "\u{1b}[10;1Hxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx⚡\u{fe0e}"
+ right: "\u{1b}[10;1Hxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u{1b}[?7h\u{1b}[2X⚡\u{fe0e}\u{1b}[?7l"
+thread 'tui::check::tests::a_clear_past_the_margin_or_from_nowhere_is_refused' panicked at src/tui/check.rs:4642:9:
+  left: "a control sequence outside the alphabet"
+ right: "an erase past the last column"
+thread 'tui::check::tests::a_clear_takes_the_whole_of_a_wide_cluster_it_covers_half_of' panicked at src/tui/check.rs:4660:10:
+a clear: Reject { shape: "a control sequence outside the alphabet", at: 21, cell: None }
+thread 'tui::grid::tests::a_wide_unit_with_any_suffix_at_the_margin_is_written_with_autowrap_on' panicked at src/tui/grid.rs:1780:9:
+  left: "\u{1b}[10;1Hxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx👨\u{200d}👩\u{200d}👧"
+ right: "\u{1b}[10;1Hxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u{1b}[?7h👨\u{200d}👩\u{200d}👧\u{1b}[?7l"
+thread 'tui::grid::tests::a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it' panicked at src/tui/grid.rs:1707:9:
+  left: "\u{1b}[10;1Ha ☀\u{fe0f} b"
+ right: "\u{1b}[10;1Ha \u{1b}[2X☀\u{fe0f}\u{1b}[5G b"
+thread 'tui::grid::tests::a_narrow_glyph_with_a_selector_clears_nothing_and_still_puts_the_cursor_back' panicked at src/tui/grid.rs:1718:9:
+  left: "\u{1b}[10;1Ha ☀\u{fe0e} b"
+ right: "\u{1b}[10;1Ha ☀\u{fe0e}\u{1b}[4G b"
+thread 'tui::grid::tests::a_selector_glyph_with_nothing_after_it_is_not_anchored' panicked at src/tui/grid.rs:1737:9:
+  left: "\u{1b}[10;1Ha ⚡\u{fe0e}"
+ right: "\u{1b}[10;1Ha \u{1b}[2X⚡\u{fe0e}"
+thread 'tui::check::tests::a_cleared_and_reanchored_selector_glyph_is_accepted' panicked at src/tui/check.rs:4556:14:
+the anchor the painter writes: Reject { shape: "a control sequence outside the alphabet", at: 9, cell: None }
+thread 'tui::frame::tests::the_whole_band_repaint_and_the_return_from_the_other_plane_anchor_too' panicked at src/tui/frame.rs:8186:9:
+thread 'tui::frame::tests::a_band_row_ending_in_a_suffixed_wide_unit_at_the_margin_is_guarded_and_accepted' panicked at src/tui/frame.rs:8173:9:
+thread 'tui::check::tests::the_autowrap_bracket_around_one_margin_unit_leaves_the_mode_as_it_was' panicked at src/tui/check.rs:4594:14:
+the bracket the painter writes: Reject { shape: "a control sequence outside the alphabet", at: 90, cell: None }
+thread 'tui::grid::tests::the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end' panicked at src/tui/grid.rs:1751:9:
+  left: "\u{1b}[10;3H⚡\u{fe0e}\u{1b}[K"
+ right: "\u{1b}[10;3H\u{1b}[2X⚡\u{fe0e}\u{1b}[5G\u{1b}[K"
+thread 'tui::check::tests::an_anchor_inside_a_link_is_accepted' panicked at src/tui/check.rs:4575:9:
+thread 'tui::frame::tests::the_whole_surface_puts_the_cursor_back_after_a_selector_glyph' panicked at src/tui/frame.rs:8122:9:
+thread 'tui::frame::tests::the_full_transcripts_read_row_lands_x_where_upstream_does' panicked at src/tui/frame.rs:8137:9:
+test result: FAILED. 4 passed; 17 failed; 0 ignored; 0 measured; 4253 filtered out; finished in 0.01s

@@ -1,0 +1,33 @@
+## toolgroup-ctrlo-record-short covers (ledger._covers)
+p5-toolgroup-ctrlo     full-light row 34 fx  '  XXXXXXXXXXXXXXXXXXXXXXX KST · Usage'  False
+p5-toolgroup-ctrlo     full-light row 35 fx  '  <wall> (↑4 ↓80)'                      False
+p5-toolgroup-ctrlo     full-light row 36 fx  ''                                       False
+p5-toolgroup-ctrlo     full-light row 34 xfx ''                                       True
+p5-toolgroup-ctrlo     full-light row 37 xfx ''                                       True
+p5-toolgroup-ctrlo     full-light row 35 xfx '  any text'                             False
+p5-toolgroup-ctrlo     full-light row 33 xfx ''                                       False
+p5-toolgroup-ctrlo     full-light row 38 xfx ''                                       False
+p5-toolgroup-ctrlo-tc  full-light row 34 fx  '  XXXXXXXXXXXXXXXXXXXXXXX KST · Usage'  False
+p5-toolgroup-ctrlo-tc  full-light row 35 fx  '  <wall> (↑4 ↓80)'                      False
+p5-toolgroup-ctrlo-tc  full-light row 36 fx  ''                                       False
+p5-toolgroup-ctrlo-tc  full-light row 34 xfx ''                                       True
+p5-toolgroup-ctrlo-tc  full-light row 37 xfx ''                                       True
+p5-toolgroup-ctrlo-tc  full-light row 35 xfx '  any text'                             False
+p5-toolgroup-ctrlo-tc  full-light row 33 xfx ''                                       False
+p5-toolgroup-ctrlo-tc  full-light row 38 xfx ''                                       False
+
+## the Ctrl-O pairs: round 2's head sweep against this one (same fx, same xfx f482d340)
+pairs 12 / 12, same pairs: True
+p5-toolgroup-ctrlo     dark             normalized-identical   causes=[] uncaused=0 aligned=0  same
+p5-toolgroup-ctrlo     dark-again       normalized-identical   causes=[] uncaused=0 aligned=0  same
+p5-toolgroup-ctrlo     full-dark        unresolved-defect      causes=['session-record', 'tool-schema', 'toolgroup-ctrlo-record-short'] uncaused=0 aligned=12  same
+p5-toolgroup-ctrlo     full-dark-again  unresolved-defect      causes=['session-record', 'tool-schema', 'toolgroup-ctrlo-record-short'] uncaused=0 aligned=12  same
+p5-toolgroup-ctrlo     full-light       unresolved-defect      causes=['session-record', 'tool-schema', 'toolgroup-ctrlo-record-short'] uncaused=0 aligned=12  same
+p5-toolgroup-ctrlo     light            normalized-identical   causes=[] uncaused=0 aligned=0  same
+p5-toolgroup-ctrlo-tc  dark             unresolved-defect      causes=['truecolor-grey-notation'] uncaused=0 aligned=12  same
+p5-toolgroup-ctrlo-tc  dark-again       unresolved-defect      causes=['truecolor-grey-notation'] uncaused=0 aligned=12  same
+p5-toolgroup-ctrlo-tc  full-dark        unresolved-defect      causes=['session-record', 'truecolor-grey-notation'] uncaused=0 aligned=54  same
+p5-toolgroup-ctrlo-tc  full-dark-again  unresolved-defect      causes=['session-record', 'truecolor-grey-notation'] uncaused=0 aligned=54  same
+p5-toolgroup-ctrlo-tc  full-light       unresolved-defect      causes=['session-record', 'truecolor-grey-notation'] uncaused=0 aligned=54  same
+p5-toolgroup-ctrlo-tc  light            unresolved-defect      causes=['truecolor-grey-notation'] uncaused=0 aligned=12  same
+moved: 0

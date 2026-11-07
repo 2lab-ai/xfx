@@ -1,0 +1,22 @@
+ok   anchor p5-transcript-diffwide2 full (fx / xfx)
+       read row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' -- every cell the same
+       diff row: fx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ' junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' -- every cell the same
+ok   aligned p5-transcript-diffwide2 full (fx / xfx)
+       35 rows the same; 12 rows one side holds alone
+       fx row 14 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L': filler-modifier-count, ctrl-o-diff-row-clipped
+       fx row 15 '│  5678': filler-modifier-count, ctrl-o-diff-row-clipped
+       fx row 25 '  │     5678': ctrl-o-diff-row-clipped
+       fx row 27 '  │     IL5678': ctrl-o-diff-row-clipped
+       fx row 28 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L': filler-modifier-count, ctrl-o-diff-row-clipped
+       fx row 29 '  │     5678': ctrl-o-diff-row-clipped
+       xfx row 1: blank
+       xfx row 2 '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt': ctrl-o-diff-row-clipped
+       xfx row 3 '┃ edit the file': ctrl-o-diff-row-clipped
+       xfx row 17 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽': filler-modifier-count, ctrl-o-diff-row-clipped
+       xfx row 18 '│  🏽🏽TAIL5678': filler-modifier-count, ctrl-o-diff-row-clipped
+       xfx row 29 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽': filler-modifier-count, ctrl-o-diff-row-clipped
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+4 claims, 4 hold, 0 fail

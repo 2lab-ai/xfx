@@ -9583,10 +9583,18 @@ impl Shell {
             return;
         };
         // What each row is, recorded with it for a theme report: the group's
-        // own rows by the group, and the lines written under it plain.
+        // own rows by the group, and the lines written under it plain. The
+        // group's header and call rows go with their drawings in both modes,
+        // which a report puts back on them -- as upstream projects the group
+        // again in the new theme -- rather than recolouring them.
         let mut kinds = self.group.kinds();
         kinds.resize(rows.len(), DocumentRow::Plain);
-        if self.transcript.queue_block(rows, kinds) {
+        let mut redraws = self.group.redraws(self.palette, &rows);
+        redraws.resize(rows.len(), None);
+        if self
+            .transcript
+            .queue_block(rows, kinds, redraws, self.palette.mode)
+        {
             self.owed();
         }
     }
@@ -17632,6 +17640,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["answered".to_string()],
                 kinds: Vec::new(),
+                redraws: Vec::new(),
                 release: 0,
             }]
         );
@@ -17662,12 +17671,14 @@ mod tests {
                     scroll: 2,
                     rows: vec!["first".to_string(), String::new()],
                     kinds: Vec::new(),
+                    redraws: Vec::new(),
                     release: 0,
                 },
                 Append {
                     scroll: 0,
                     rows: vec!["second".to_string()],
                     kinds: Vec::new(),
+                    redraws: Vec::new(),
                     release: 0,
                 },
             ]
@@ -17708,6 +17719,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                redraws: Vec::new(),
                 release: 0,
             }]
         );
@@ -17733,6 +17745,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                redraws: Vec::new(),
                 release: 0,
             }],
             "the text was written as the one 25-column row the wider screen \
@@ -17756,6 +17769,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["abc".to_string(), String::new()],
                 kinds: Vec::new(),
+                redraws: Vec::new(),
                 release: 0,
             }]
         );
@@ -17903,12 +17917,14 @@ mod tests {
                     scroll: 1,
                     rows: vec![card_row("ask me")],
                     kinds: Vec::new(),
+                    redraws: Vec::new(),
                     release: 0,
                 },
                 Append {
                     scroll: 1,
                     rows: vec![String::new()],
                     kinds: Vec::new(),
+                    redraws: Vec::new(),
                     release: 0,
                 },
             ]
@@ -31100,12 +31116,14 @@ mod tests {
                         scroll: 1,
                         rows: vec!["  the next answer".to_string()],
                         kinds: Vec::new(),
+                        redraws: Vec::new(),
                         release: 0,
                     },
                     Append {
                         scroll: 1,
                         rows: vec![String::new()],
                         kinds: Vec::new(),
+                        redraws: Vec::new(),
                         release: 0,
                     },
                 ],

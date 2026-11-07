@@ -1,0 +1,32 @@
+# The two tests, written before the fix, run on dd0e4e21's code (the tests
+# alone added): cargo test --locked --lib -- <the two names>
+
+running 2 tests
+test tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell ... FAILED
+test tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell stdout ----
+
+thread 'tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell' (278150045) panicked at src/tui/full_transcript.rs:3451:9:
+assertion `left == right` failed
+  left: ["  │ 1 +         cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "ZW"]
+ right: ["  │ 1 +         cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccZ", "W"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop stdout ----
+
+thread 'tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop' (278150046) panicked at src/tui/full_transcript.rs:3406:9:
+assertion `left == right` failed
+  left: ["  │ 1 +         bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bbbbZ"]
+ right: ["  │ 1 +         bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bbbb    Z"]
+
+
+failures:
+    tui::full_transcript::tests::a_tab_after_a_row_the_walker_filled_puts_the_next_character_over_its_last_cell
+    tui::full_transcript::tests::a_tab_the_walker_meets_on_a_row_it_ran_on_goes_to_that_rows_next_stop
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,25 @@
+# Phase 5 transcript (DIFF-WRAP): a write of a new file whose lines are too
+# long for the screen, each at the margin in another way -- a wide character
+# (CJK, an emoji), an ESC and a U+202E fx spells (`\x1b`, `\u{202e}`), a tab
+# before an overflow and one a cell short of the last column, a mark joined
+# to the last column's character, a line that fills the row exactly, one
+# that takes three. Ctrl-O over the change: fx reflows each line under its
+# gutter (`reflowDiffRow`, transcript_blocks.zig:720-768@481104fd).
+gateway p5-transcript-diffwrap-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+keep
+wait 4
+type write the file
+wait 1
+key Enter
+wait 5
+snap edited
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+snap closed
+gwlog

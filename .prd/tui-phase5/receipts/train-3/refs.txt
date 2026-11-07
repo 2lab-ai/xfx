@@ -1,0 +1,134 @@
+# head ebba626d; sides: main e51685d6, DIFF-WRAP 82442e28, EVA 8d802907, TG-REDRAW ec390074
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:816]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:841]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:522, scripts/fxcap/parity-ledger.toml:533]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:727]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:805]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:701]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:673]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:739]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+docs/parity.md:241	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | DIFF-WRAP* = row | EVA* = row | TG-REDRAW* = row
+scripts/fxcap/capture.sh:252-254	[scripts/fxcap/parity-ledger.toml:85]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+scripts/fxcap/capture.sh:416	[scripts/fxcap/parity-ledger.toml:78]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+scripts/fxcap/capture.sh:786	[scripts/fxcap/parity-ledger.toml:147]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:622, docs/parity.md:237]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:701]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:794]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:794]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:725]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:713]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:631]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:839]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:970, docs/parity.md:176]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:531, docs/parity.md:158]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:531, docs/parity.md:158]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:796]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:851]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:725, scripts/fxcap/parity-ledger.toml:748, scripts/fxcap/parity-ledger.toml:760, scripts/fxcap/parity-ledger.toml:771, scripts/fxcap/parity-ledger.toml:782, scripts/fxcap/parity-ledger.toml:827]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/drawn_wider.rs:50-67	[scripts/fxcap/parity-ledger.toml:499]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/full_transcript.rs:492	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:874, scripts/fxcap/parity-ledger.toml:887]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:979]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:839]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/shell.rs:184	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/shell.rs:1583	[scripts/fxcap/parity-ledger.toml:863]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/shell.rs:12267	[scripts/fxcap/parity-ledger.toml:511]
+    main* -> 12275 MOVED | DIFF-WRAP -> 12350 | EVA -> 12350 | TG-REDRAW -> 12342
+src/tui/shell.rs:37272	[scripts/fxcap/parity-ledger.toml:760]
+    main -> 37290 | DIFF-WRAP* -> 37374 MOVED | EVA* -> 37374 MOVED | TG-REDRAW* -> 37356 MOVED
+src/tui/shell.rs:37356	[scripts/fxcap/parity-ledger.toml:737, scripts/fxcap/parity-ledger.toml:748, scripts/fxcap/parity-ledger.toml:771, scripts/fxcap/parity-ledger.toml:827]
+    main* -> 37374 MOVED | DIFF-WRAP -> 37458 | EVA -> 37458 | TG-REDRAW -> 37440
+src/tui/toolgroup.rs:618	[scripts/fxcap/parity-ledger.toml:543]
+    main* -> 707 MOVED | DIFF-WRAP* -> 707 MOVED | EVA* -> 707 MOVED | TG-REDRAW* =
+src/tui/toolgroup.rs:657	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:782]
+    main* -> 746 MOVED | DIFF-WRAP* -> 746 MOVED | EVA* -> 746 MOVED | TG-REDRAW* =
+src/tui/toolgroup.rs:705	[scripts/fxcap/parity-ledger.toml:391]
+    main* -> 794 MOVED | DIFF-WRAP* -> 794 MOVED | EVA* -> 794 MOVED | TG-REDRAW* =
+src/tui/toolgroup.rs:819	[scripts/fxcap/parity-ledger.toml:405]
+    main* -> 908 MOVED | DIFF-WRAP* -> 908 MOVED | EVA* -> 908 MOVED | TG-REDRAW* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+src/tui/wrap.rs:622	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | DIFF-WRAP* = | EVA* = | TG-REDRAW* =
+# 66 references; 17 (side, reference) pairs MOVED; * = the side's own text cites it

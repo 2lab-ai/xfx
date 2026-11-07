@@ -313,7 +313,10 @@ pub(crate) enum DocumentRow {
     /// Every row that is none of the below.
     #[default]
     Plain,
-    /// A tool group's header (`●`) or one of its call rows (`├`, `└`).
+    /// A tool group's header (`●`) or one of its call rows (`├`, `└`), which
+    /// a theme report draws again from its writer's drawings of it
+    /// ([`Redraw`]) and never recolours by colour
+    /// ([`Palette::document_retint_in`]).
     ToolGroup,
     /// A cancelled call's own line under its group (`■`).
     ToolStopped,
@@ -330,6 +333,45 @@ pub(crate) enum DocumentRow {
     /// takes no theme, `transcript_blocks.zig:980-984`), so a table's inline
     /// code and links keep the shade they were drawn in.
     Table,
+}
+
+/// A document row **as its writer draws it in each mode**, at the session's
+/// depth, recorded with the row ([`super::transcript::Append::redraws`], kept
+/// per line by `super::grid::Grid`): what a theme report puts back on the row
+/// in place of recolouring what it holds.
+///
+/// A tool group's row is the one so recorded (`super::toolgroup`), because
+/// upstream does not recolour it: it projects the group again in the theme
+/// then in force (`tool_group_projection.zig:558-640,742-784@481104fd`). Two
+/// finished drawings rather than the group they came from, so the grid that
+/// keeps them knows nothing of tool calls and the drawing a report puts back
+/// is the writer's own, byte for byte -- whatever notation the palette spells
+/// its greys in.
+///
+/// Shared, not copied: a row is handed from the group to the transcript, the
+/// append and the grid's two copies of the screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Redraw(std::sync::Arc<[String; 2]>);
+
+impl Redraw {
+    /// The row drawn in the dark palette and in the light one.
+    pub(crate) fn new(dark: String, light: String) -> Self {
+        Self(std::sync::Arc::new([dark, light]))
+    }
+
+    /// The row as it is drawn in `mode`.
+    pub(crate) fn drawn(&self, mode: Mode) -> &str {
+        match mode {
+            Mode::Dark => &self.0[0],
+            Mode::Light => &self.0[1],
+        }
+    }
+
+    /// Both drawings, each changed by `cut` -- cut to the width the row is
+    /// written at (`super::transcript`'s `ellipsized`).
+    pub(crate) fn map(&self, mut cut: impl FnMut(&str) -> String) -> Self {
+        Self::new(cut(&self.0[0]), cut(&self.0[1]))
+    }
 }
 
 impl Palette {
@@ -530,28 +572,17 @@ impl Palette {
 
     /// [`Self::document_retint`], for a cell on a row of the kind given.
     ///
-    /// A tool group's rows are upstream's statusline grey with a command's
-    /// words in the highlighter's ([`COMMAND`]) and the mark in the hint grey,
-    /// so on those rows 245 is the statusline's and goes to 241 on a light
-    /// screen -- not to the summary's 247. The highlighter's quieter
-    /// greys (a string or a number, 250 and 241) are repainted as the notice
-    /// grey they share on dark.
-    ///
-    /// **At 256 colours two cells of a tool row cannot be told apart, and the
-    /// ambiguity is that depth's alone.** On light a string's 241 is also the
-    /// statusline's, and on dark a comment's 245 is too, so the statusline
-    /// wins both: a string drawn light goes to 245 on a dark screen, not 250,
-    /// and a comment drawn dark to 241, not 243. Upstream does not recolour a
-    /// tool row; it projects the group again in the new theme
-    /// (`tool_group_projection.zig:558-640,742-784@481104fd`), which a
-    /// recolouring of what the screen holds cannot reproduce
-    /// (`p5-toolgroup-retint`, `.prd/tui-phase5/receipts/inline-code-truecolor/`).
-    /// In a truecolor session the row's own greys -- the statusline's and the
-    /// mark's -- are this palette's and spelt `38;2`, so an indexed cell on a
-    /// group's row is the highlighter's and is answered by its roles alone, as
-    /// on a code row (`p5-toolgroup-retint-tc`). A light comment's 243 is in
-    /// no other role of the row, so at 256 colours it is answered too: the
-    /// comment comes last.
+    /// **A tool group's rows answer nothing** ([`DocumentRow::ToolGroup`]):
+    /// upstream does not recolour them, it projects the group again in the
+    /// theme then in force (`formatGroupBlock`,
+    /// `tool_group_projection.zig:558-640@481104fd`; the command through
+    /// `highlightCommandPhrase` with `shared_theme.current()`, `:742-784`), so
+    /// a theme report draws each of them again from what its writer recorded
+    /// with it ([`Redraw`], `super::grid::Grid::retint_document`). A
+    /// recolouring by colour could not: at 256 colours a string's light 241
+    /// and a comment's dark 245 are the statusline's own greys in that mode,
+    /// and no rule over a cell's colour tells them apart
+    /// (`p5-toolgroup-retint`, `-light`).
     ///
     /// **A cancelled call's own line is not projected again.** Upstream draws
     /// that entry's own bytes (`tool_group_projection.zig:649-664@481104fd`),
@@ -565,26 +596,23 @@ impl Palette {
     /// `-light-tc`).
     ///
     /// A code block's rows are the highlighter's greys and nothing else: its
-    /// words ([`COMMAND`]), its strings and numbers (the notice grey, as on a
-    /// tool group's row) and its comments ([`COMMENT`]) -- so on those rows a
+    /// words ([`COMMAND`]), its strings and numbers (the notice grey they
+    /// share on dark) and its comments ([`COMMENT`]) -- so on those rows a
     /// dark `245` is a comment and goes to `243`, which is the colour upstream
     /// draws the block in again after a switch, and a light `243` comes back.
     ///
-    /// A table's rows answer nothing ([`DocumentRow::Table`]).
+    /// A table's rows answer nothing ([`DocumentRow::Table`]), and neither do
+    /// a tool group's (above).
     pub(crate) fn document_retint_in(
         &self,
         row: DocumentRow,
         colour: Color,
     ) -> Option<&'static str> {
         let at = self.painter_of(colour);
-        // An indexed cell in a truecolor session ([`Self::painter_of`]).
-        let highlighters = at.depth != self.depth;
         let roles: &[usize] = match row {
             DocumentRow::Plain => return self.document_retint(colour),
-            DocumentRow::ToolGroup if highlighters => &[COMMENT, COMMAND, NOTICE],
-            // The comment last: its dark 245 is the statusline's, so only its
-            // light 243 reaches it.
-            DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE, COMMENT],
+            // Drawn again, never recoloured.
+            DocumentRow::ToolGroup => return None,
             // Upstream's token table, at either depth: its four pairs.
             DocumentRow::ToolStopped => &[WARNING, HINT, NOTICE, DIM],
             DocumentRow::Answer => &[ANSWER],
@@ -1266,14 +1294,15 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx() {
+    fn a_truecolor_sessions_code_and_stopped_rows_recolour_their_indexed_greys_as_fx() {
         // The highlighter paints a code block and a command's words in `38;5`
         // at every depth (`theme.zig:107-115,150-158@481104fd`), and fx draws
         // a block again in the new theme (`transcript_blocks.zig:2023-2029`)
-        // and projects a tool group again in it
-        // (`tool_group_projection.zig:558-640,742-784`) whatever the terminal
-        // claimed. So in a truecolor session those cells move as they do in a
-        // 256-colour one, spelt as they were drawn.
+        // and rewrites a cancelled call's own line through its token table
+        // (`store.zig:3745-3750`) whatever the terminal claimed. So in a
+        // truecolor session those cells move as they do in a 256-colour one,
+        // spelt as they were drawn. A tool group's rows are not recoloured at
+        // all: they are drawn again (`a_tool_groups_rows_answer_no_colour_at_either_depth`).
         let light = Palette {
             mode: Mode::Light,
             depth: Depth::TrueColor,
@@ -1286,7 +1315,6 @@ mod tests {
             (DocumentRow::Code, 245, "\u{1b}[38;5;243m"),
             (DocumentRow::Code, 252, "\u{1b}[38;5;238m"),
             (DocumentRow::Code, 250, "\u{1b}[38;5;241m"),
-            (DocumentRow::ToolGroup, 252, "\u{1b}[38;5;238m"),
             (DocumentRow::ToolStopped, 252, "\u{1b}[38;5;238m"),
         ] {
             assert_eq!(
@@ -1299,7 +1327,7 @@ mod tests {
             (DocumentRow::Code, 243, "\u{1b}[38;5;245m"),
             (DocumentRow::Code, 238, "\u{1b}[38;5;252m"),
             (DocumentRow::Code, 241, "\u{1b}[38;5;250m"),
-            (DocumentRow::ToolGroup, 238, "\u{1b}[38;5;252m"),
+            (DocumentRow::ToolStopped, 238, "\u{1b}[38;5;252m"),
         ] {
             assert_eq!(
                 dark.document_retint_in(row, Color::Indexed(from)),
@@ -1307,11 +1335,6 @@ mod tests {
                 "{row:?} {from}"
             );
         }
-        // The palette's own grey on a tool group's row is still spelt exactly.
-        assert_eq!(
-            light.document_retint_in(DocumentRow::ToolGroup, Color::Rgb(138, 138, 138)),
-            Some("\u{1b}[38;2;98;98;98m")
-        );
         // A table keeps what it was drawn in, at this depth too
         // (`store.zig:3758`), and a link is nobody's grey.
         for index in [255, 235, 245, 252] {
@@ -1325,68 +1348,32 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways() {
+    fn a_tool_groups_rows_answer_no_colour_at_either_depth() {
         // fx projects a tool group again in the new theme on a switch
         // (`tool_group_projection.zig:558-640`, the command through
         // `highlightCommandPhrase` in `shared_theme.current()`, `:742-784`,
-        // `@481104fd`), so a command's string goes 250 -> 241 -> 250 and its
-        // comment 245 -> 243 -> 245 (`p5-toolgroup-retint-tc`). In a truecolor
-        // session the row's own greys -- the statusline's, the mark's, a
-        // stopped call's argument -- are this palette's, spelt `38;2`, so an
-        // indexed cell there is the highlighter's and nothing else: a light
-        // `241` is a string, never the statusline (which would make it 245),
-        // and a dark `245` is a comment, never the statusline (241).
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::TrueColor,
-        };
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::TrueColor,
-        };
-        // A stopped call's own line is not projected again: it moves through
-        // upstream's token table (`a_stopped_calls_line_moves_through_upstreams_token_table`).
-        let row = DocumentRow::ToolGroup;
-        assert_eq!(
-            dark.document_retint_in(row, Color::Indexed(241)),
-            Some("\u{1b}[38;5;250m"),
-            "{row:?}: a light string was taken for the statusline"
-        );
-        assert_eq!(
-            light.document_retint_in(row, Color::Indexed(250)),
-            Some("\u{1b}[38;5;241m"),
-            "{row:?}"
-        );
-        assert_eq!(
-            light.document_retint_in(row, Color::Indexed(245)),
-            Some("\u{1b}[38;5;243m"),
-            "{row:?}: a dark comment was taken for the statusline"
-        );
-        assert_eq!(
-            dark.document_retint_in(row, Color::Indexed(243)),
-            Some("\u{1b}[38;5;245m"),
-            "{row:?}"
-        );
-        // Already in the grey in force.
-        assert_eq!(dark.document_retint_in(row, Color::Indexed(250)), None);
-        assert_eq!(light.document_retint_in(row, Color::Indexed(241)), None);
-        // The row's own greys, spelt exactly, keep their roles: the statusline
-        // on a group's row.
-        assert_eq!(
-            dark.document_retint_in(DocumentRow::ToolGroup, Color::Rgb(98, 98, 98)),
-            Some("\u{1b}[38;2;138;138;138m")
-        );
-        // At 256 colours the colour alone cannot tell the two apart, and the
-        // statusline still wins -- the divergence the next unit owns
-        // (`docs/parity.md`, the coloured output row).
-        let indexed = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        assert_eq!(
-            indexed.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(241)),
-            Some("\u{1b}[38;5;245m")
-        );
+        // `@481104fd`); it never recolours what the row holds. At 256 colours
+        // no rule over a cell's colour could: a light string's 241 and a dark
+        // comment's 245 are the statusline's own greys in that mode
+        // (`p5-toolgroup-retint`). So the row's cells answer nothing here, in
+        // either notation, mode or depth -- the row is drawn again from its
+        // writer's drawings (`super::super::grid::Grid::retint_document`) --
+        // and nothing about this depends on how the palette spells its greys.
+        for mode in [Mode::Dark, Mode::Light] {
+            for depth in [Depth::Ansi256, Depth::TrueColor] {
+                let palette = Palette { mode, depth };
+                for index in [235, 238, 241, 243, 245, 247, 250, 252, 255] {
+                    let level = 8 + (index - 232) * 10;
+                    for colour in [Color::Indexed(index), Color::Rgb(level, level, level)] {
+                        assert_eq!(
+                            palette.document_retint_in(DocumentRow::ToolGroup, colour),
+                            None,
+                            "{mode:?} {depth:?} {colour:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -1438,54 +1425,6 @@ mod tests {
             light.document_retint_in(DocumentRow::ToolStopped, Color::Rgb(138, 138, 138)),
             Some("\u{1b}[38;2;158;158;158m")
         );
-    }
-
-    #[test]
-    fn a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves() {
-        // A comment drawn light is 243 (`theme.zig:154@481104fd`), a grey no
-        // other role of a tool group's row holds in either mode, so unlike the
-        // dark comment's 245 and the light string's 241 it is no clash with the
-        // statusline: fx projects it again as the dark comment, 245
-        // (`p5-toolgroup-retint-light`, `dark`).
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
-        assert_eq!(
-            dark.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(243)),
-            Some("\u{1b}[38;5;245m"),
-            "a light comment on a tool row kept its light grey on a dark screen"
-        );
-        assert_eq!(
-            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(243)),
-            None
-        );
-        // The comment comes last, so every grey the row's other roles hold is
-        // answered as before: the statusline's 245 and 241 by the statusline
-        // (the two clashes TG-REDRAW owns), the mark, words and strings by
-        // theirs.
-        for (palette, from, to) in [
-            (light, 245, Some("\u{1b}[38;5;241m")),
-            (dark, 241, Some("\u{1b}[38;5;245m")),
-            (light, 255, Some("\u{1b}[38;5;235m")),
-            (dark, 235, Some("\u{1b}[38;5;255m")),
-            (light, 252, Some("\u{1b}[38;5;238m")),
-            (dark, 238, Some("\u{1b}[38;5;252m")),
-            (light, 250, Some("\u{1b}[38;5;241m")),
-            (dark, 245, None),
-            (light, 241, None),
-        ] {
-            assert_eq!(
-                palette.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(from)),
-                to,
-                "{:?} {from}",
-                palette.mode
-            );
-        }
     }
 
     #[test]
@@ -1753,18 +1692,19 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_groups_row_answers_its_colours_as_the_groups() {
+    fn a_rows_colours_are_answered_as_the_kind_its_writer_recorded() {
         // The row's kind is recorded when it is written (the group's
         // `kinds`), not read off its first cell -- which is what let a
         // question's `■ Cancelled` row, in the outcome grey, pass for a tool
-        // group's stopped call.
+        // group's stopped call. A group's own rows answer nothing: they are
+        // drawn again.
         let light = Palette {
             mode: Mode::Light,
             depth: Depth::Ansi256,
         };
         assert_eq!(
             light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(245)),
-            Some("\u{1b}[38;5;241m")
+            None
         );
         assert_eq!(
             light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
@@ -1776,10 +1716,6 @@ mod tests {
         assert_eq!(
             light.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(245)),
             Some("\u{1b}[38;5;247m")
-        );
-        assert_eq!(
-            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(252)),
-            Some("\u{1b}[38;5;238m")
         );
     }
 }

@@ -1,0 +1,385 @@
+# compare.py <main e51685d6's sweep> <the train head's sweep (b4e0d06e)>, same selection, scenarios and ledger.
+# A sweep's scratch directory (a fresh random name per run) is written <run-dir> where a row cut short by
+# compare.py's 70-character tail left only its end: read-failures' fx row names a path under it.
+pairs: reference 347, train 347, shared 347; only the reference: 0
+reference: 347 pairs, pass 167; approved-divergence 3, identical 14, normalized-identical 153, unresolved-defect 177
+train: 347 pairs, pass 178; approved-divergence 4, identical 14, normalized-identical 164, unresolved-defect 165
+p5-toolgroup-ctrlo dark-again: 1 differing rows left, 0 new
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+p5-toolgroup-ctrlo light: 1 differing rows left, 0 new
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+p5-toolgroup-live dark: 1 differing rows left, 0 new
+    left: fx '└ Ran sleep 5 && echo "hi" 42 # note' / xfx '└ Ran sleep 5 && echo "hi" 42 # note'
+p5-toolgroup-live running-light: 1 differing rows left, 0 new
+    left: fx '└ Running sleep 5 && echo "hi" 42 # note' / xfx '└ Running sleep 5 && echo "hi" 42 # note'
+p5-toolgroup-retint dark-again: 1 differing rows left, 0 new
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+p5-toolgroup-retint light: 1 differing rows left, 0 new
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+p5-toolgroup-retint-light dark: 1 differing rows left, 0 new
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+p5-toolgroup-retint-light light-again: 1 differing rows left, 0 new
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+p5-toolstop-retint dark-again: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint light: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light dark: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light light-again: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-transcript-diffwide full: 28 differing rows left, 0 new
+    left: fx '' / xfx '  Editing the file.'
+    left: fx '' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '' / xfx '│  5678'
+    left: fx '' / xfx '┃ edit the file'
+    left: fx '' / xfx '└ Edited wide.txt +1 / -1'
+    left: fx '  Editing the file.' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx ''
+    left: fx '  finish: stop' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  finish: tool_calls' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  finish: stop'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  finish: tool_calls'
+    left: fx '  │     5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL'
+    left: fx '  │ 1 + FIRST LINE' / xfx '  │ 1 - first line'
+    left: fx '  │ 1 - first line' / xfx ''
+    left: fx '  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial' / xfx '  │ 1 + FIRST LINE'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / xfx '  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial'
+    left: fx '* network: provider: gateway · model: fake/model-a · <ms>' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '│  1    first line' / xfx '├ Read wide.txt'
+    left: fx '│  2    soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial' / xfx '│  1    first line'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / xfx '│  2    soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial'
+    left: fx '│  5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL'
+    left: fx '┃ edit the file' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '└ Edited wide.txt +1 / -1' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '├ Read wide.txt' / xfx '● 2 tool calls · 1 read · 1 edit'
+    left: fx '● 2 tool calls · 1 read · 1 edit' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+p5-transcript-diffwide2 full: 26 differing rows left, 4 new
+    left: fx '' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    left: fx '  Editing the file.' / xfx '┃ edit the file'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '│  🏽🏽TAIL5678'
+    left: fx '  │     5678' / xfx '  │ 1 + FIRST LINE'
+    left: fx '  │     5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    left: fx '  │     IL5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+    left: fx '  │ 1 + FIRST LINE' / xfx '└ Edited wide2.txt +1 / -1'
+    left: fx '  │ 1 - first line' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx ''
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / xfx '  │ 1 - first line'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '  │ 2   fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+    left: fx '│  1    first line' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / xfx '● 2 tool calls · 1 read · 1 edit'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / xfx '├ Read wide2.txt'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / xfx '│  2    fillﾠ́er hanǵul junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx '│  5678'
+    left: fx '│  5678' / xfx '│  1    first line'
+    left: fx '│  5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+    left: fx '│  6    modﾠ🏽end' / xfx '│  IL5678'
+    left: fx '│  IL5678' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+    left: fx '└ Edited wide2.txt +1 / -1' / xfx '│  6    modﾠ🏽end'
+    left: fx '├ Read wide2.txt' / xfx ''
+    left: fx '● 2 tool calls · 1 read · 1 edit' / xfx '  Editing the file.'
+    NEW:  fx '  │     5678' / xfx '  │     🏽🏽TAIL5678'
+    NEW:  fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    NEW:  fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+    NEW:  fx '│  5678' / xfx '│  🏽🏽TAIL5678'
+p5-transcript-diffwrap full: 28 differing rows left, 0 new
+    left: fx '' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '' / xfx '  finish: tool_calls'
+    left: fx '  Writing the file.' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  │     02e}END' / xfx '● 1 tool call · 1 write'
+    left: fx '  │     1b[2JEND' / xfx ''
+    left: fx '  │     Z' / xfx 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+    left: fx '  │     ddddddddddd' / xfx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    left: fx '  │     gggggggggggggggggggggggggg' / xfx 'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg'
+    left: fx 'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' / xfx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL'
+    left: fx '  │     漢TAIL' / xfx '┃ write the file'
+    left: fx '  │     😀TAIL' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' / xfx ''
+    left: fx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x' / xfx '  Writing the file.'
+    left: fx 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\u{2' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' / xfx '└ Wrote wrap.txt +9'
+    left: fx 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee X' / xfx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    left: fx 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff́f' / xfx 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\u{2'
+    left: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL' / xfx 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    left: fx 'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' / xfx 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff́f'
+    left: fx 'Y' / xfx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x'
+    left: fx 'ddddd' / xfx ''
+    left: fx '┃ write the file' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '└ Wrote wrap.txt +9' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '● 1 tool call · 1 write' / xfx '  finish: stop'
+p5-transcript-diffwrap2 full: 29 differing rows left, 0 new
+    left: fx '' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '  │      Y' / xfx ''
+    left: fx '  │      ee     f' / xfx ''
+    left: fx '  │      gggg' / xfx '  │  8 + eight'
+    left: fx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' / xfx '┃ write the file'
+    left: fx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccZ' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' / xfx '└ Wrote tabs.txt +20'
+    left: fx '  │  5 + x      y' / xfx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    left: fx '  │  6 + six' / xfx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    left: fx '  │  7 + seven' / xfx 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+    left: fx '  │  8 + eight' / xfx 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+    left: fx '  │  9 + nine' / xfx '  │  5 + x      y'
+    left: fx '  │ 10 + ten' / xfx '  │  6 + six'
+    left: fx 'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg' / xfx '  │  7 + seven'
+    left: fx 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh  Q' / xfx '  │  9 + nine'
+    left: fx 'iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii Z' / xfx '  │ 10 + ten'
+    left: fx 'jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj' / xfx 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+    left: fx 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1Z' / xfx 'jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj'
+    left: fx 'lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllZ' / xfx 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk1️'
+    left: fx 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmeZ' / xfx 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmé'
+    left: fx '  │ 18 + p      q' / xfx '  │ 18 + p      ́q'
+    left: fx '  │ 19 + r      s' / xfx '  │ 19 + r      ️s'
+    left: fx 'W' / xfx 'gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg'
+    left: fx 'W' / xfx 'lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll1'
+    left: fx 'W' / xfx '● 1 tool call · 1 write'
+    left: fx 'aaaaaa  X' / xfx '  Writing the file.'
+    left: fx 'bbbb    Z' / xfx ''
+    left: fx '漢W' / xfx 'iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii漢'
+read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
+    left: fx '<run-dir>/fxcap.XXXXXX/work/src","error":"NotRegularFi' / xfx ''
+    left: fx '├ Failed src' / xfx '<run-dir>/fxcap.XXXXXX/work/src","error":"NotRegularFi'
+    NEW:  fx '<run-dir>/fxcap.XXXXXX/work/src","error":"NotRegularFi' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '<run-dir>/fxcap.XXXXXX/work/src","error":"NotRegularFi'
+verdicts moved: 12
+    p5-toolgroup-ctrlo dark-again: unresolved-defect -> normalized-identical
+    p5-toolgroup-ctrlo light: unresolved-defect -> normalized-identical
+    p5-toolgroup-live dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-live running-light: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint dark-again: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint light: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-light dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-retint-light light-again: unresolved-defect -> normalized-identical
+    p5-transcript-diffwide full: unresolved-defect -> normalized-identical
+    p5-transcript-diffwide2 full: unresolved-defect -> approved-divergence
+    p5-transcript-diffwrap full: unresolved-defect -> normalized-identical
+    p5-transcript-diffwrap2 full: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 89
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    links full
+    p5-call-row-safe full
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-dark
+    p5-toolgroup-live running-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-anchormid running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools end
+    p5-transcript-tools end.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tools running
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    timeout live-ctrl-o
+xfx screens not the same in the two sweeps: 125
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    links answered
+    links full
+    links second
+    links second.full
+    p5-call-row-safe full
+    p5-inline-code-table dark
+    p5-inline-code-table dark-again
+    p5-inline-code-table light
+    p5-inline-code-table-light-tc dark
+    p5-inline-code-table-light-tc light
+    p5-inline-code-table-light-tc light-again
+    p5-toolgroup-ctrlo dark
+    p5-toolgroup-ctrlo dark-again
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo light
+    p5-toolgroup-ctrlo-tc dark
+    p5-toolgroup-ctrlo-tc dark-again
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-ctrlo-tc light
+    p5-toolgroup-live dark
+    p5-toolgroup-live running-light
+    p5-toolgroup-live-tc running-dark
+    p5-toolgroup-retint dark-again
+    p5-toolgroup-retint light
+    p5-toolgroup-retint-light dark
+    p5-toolgroup-retint-light light
+    p5-toolgroup-retint-light light-again
+    p5-toolgroup-retint-light-tc dark
+    p5-toolgroup-retint-light-tc light
+    p5-toolgroup-retint-light-tc light-again
+    p5-toolstop-retint dark-again
+    p5-toolstop-retint light
+    p5-toolstop-retint-light dark
+    p5-toolstop-retint-light light-again
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe end
+    p5-transcript-safe end.full
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools resumed
+    resume-tools resumed.full
+    resume-tools write-ask
+    timeout live-ctrl-o
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 2
