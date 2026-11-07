@@ -502,7 +502,7 @@ reason = "fx v0.0.16 writes an answer's text as itself, and every scalar a termi
 owner = "CTRLO-WIDER"
 resolution = "fx names them in an answer and a prompt's row, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:2666", "src/tui/shell.rs:12534", "docs/parity.md:237"]
+source = ["src/tui/full_transcript.rs:2666", "src/tui/shell.rs:12531", "docs/parity.md:237"]
 
 [[divergence]]
 id = "inline-band-row-anchor"
@@ -920,7 +920,7 @@ owner = "unowned (h1-resize's `small` and `large` rows are this too, and no caus
 scenarios = ["p5-ctrlo-wider-inline-fam"]
 snaps = ["resized"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:15276"]
+xfx = ["src/tui/shell.rs:15273"]
 fx = ["src/ui/resize_runtime.zig:766-767@c1db9191"]
 why = "fx v0.0.16 answers a resize that changes the screen's size by clearing the screen and its scrollback and writing the document again at the new width (`requestTerminalResetAfterResize`): the wire after `resize 40x140` opens `ESC[0m ESC[2J ESC[3J ESC[H` and writes every row again (`fx/p5-ctrlo-wider-inline-fam-40x120/fx-p5-ctrlo-wider-inline-fam-40x120-resized.wire`, .prd/tui-phase5/receipts/ctrlo-wider/). xfx solves the band and the unfinished line again and leaves every finished row to the terminal (`Shell::resize`: the band and the unfinished line, and nothing above them). So after the widening fx's answer stands at 140 columns -- 117 `w`, U+261D and `TAIL5678` on one row -- and xfx's at the 120 it was written at, and every row under it stands apart. Not the naming: a plain answer does the same (`h1-resize`)."
 
