@@ -195,6 +195,44 @@ pub(crate) fn literal(text: &str, cols: u16, gutter: u16) -> Vec<Row> {
         .collect()
 }
 
+/// [`literal`]'s rows as the text to draw: each tab written as the spaces the
+/// wrap gave it where it met it, and kept so when the reflow moves it down with
+/// its word.
+///
+/// That is what upstream draws: its wrap writes a tab into its output as the
+/// spaces to the next stop the moment it measures it
+/// (`assistant_wrap.zig:163-174@481104fd`), and `reflowAtWordBreak`
+/// (`:729-775`) moves those spaces, as they are, to the continuation row
+/// (`p5-transcript-safetab`: `aaa b<TAB>x…` at 120 columns is `aaa` over
+/// `b x…`, one space). A tab measured again where it lands would be wider than
+/// the row was measured for, and the row's last characters would be cut off
+/// by the clip.
+pub(crate) fn literal_drawn(text: &str, cols: u16, gutter: u16) -> Vec<String> {
+    let (rows, tabs) = Layout::new(text, cols, gutter, true, Opening::Line).run_with_tabs();
+    let mut next = 0usize;
+    rows.into_iter()
+        .map(|laid| {
+            let Row { start, end, .. } = laid.row;
+            let mut out = String::with_capacity(end - start);
+            let mut written = start;
+            while let Some(&(at, cells)) = tabs.get(next) {
+                if at >= end {
+                    break;
+                }
+                next += 1;
+                if at < start {
+                    continue;
+                }
+                out.push_str(&text[written..at]);
+                out.extend(std::iter::repeat_n(' ', cells));
+                written = at + 1;
+            }
+            out.push_str(&text[written..end]);
+            out
+        })
+        .collect()
+}
+
 /// `row` -- the text of one prose row -- with every tab written as the spaces
 /// to the next stop, the row's first cell being screen column `first_col`
 /// (one-based) on a screen `cols` wide (`:163-174`).
@@ -294,6 +332,9 @@ struct Layout<'a> {
     breaks: Breaks,
     has_word: bool,
     zero_run: usize,
+    /// Each tab's byte offset and the cells it moved to its stop, where it was
+    /// met ([`literal_drawn`]).
+    tabs: Vec<(usize, usize)>,
 }
 
 impl<'a> Layout<'a> {
@@ -319,6 +360,7 @@ impl<'a> Layout<'a> {
             breaks: Breaks::default(),
             has_word: false,
             zero_run: 0,
+            tabs: Vec::new(),
         };
         if let (false, Opening::Continued(_)) = (literal, opening) {
             let next = first_visible_width(text).map_or(1, usize::from);
@@ -328,7 +370,12 @@ impl<'a> Layout<'a> {
         layout
     }
 
-    fn run(mut self) -> Vec<ProseRow> {
+    fn run(self) -> Vec<ProseRow> {
+        self.run_with_tabs().0
+    }
+
+    /// [`Self::run`], and where each tab stood and the cells it took.
+    fn run_with_tabs(mut self) -> (Vec<ProseRow>, Vec<(usize, usize)>) {
         let text = self.text;
         for unit in units(text, self.literal) {
             let wrap::Painted {
@@ -347,7 +394,9 @@ impl<'a> Layout<'a> {
                 // A tab never wraps: it moves to the next stop, the last column
                 // at most, and whatever follows it does the wrapping.
                 let next = next_tab_stop(self.gutter + self.col, self.screen);
+                let was = self.col;
                 self.col = self.col.max(next.saturating_sub(self.gutter));
+                self.tabs.push((at, self.col - was));
                 self.zero_run = 0;
                 continue;
             }
@@ -422,7 +471,7 @@ impl<'a> Layout<'a> {
         }
         let width = self.col.saturating_sub(self.first_col);
         self.push(text.len(), width);
-        self.rows
+        (self.rows, self.tabs)
     }
 
     /// The space at `at..end` crosses the margin: moves the row's last word
@@ -1454,6 +1503,23 @@ mod tests {
     }
 
     // -- tabs --------------------------------------------------------------
+
+    #[test]
+    fn a_literal_tab_is_drawn_in_the_cells_it_was_measured_in_where_it_moves_down() {
+        // `p5-transcript-safetab`'s first line at 20 columns behind a two-cell
+        // rail: `b`'s tab is one cell where it is met (screen column 8 to 9);
+        // the next word crosses, `b` and the tab move down, and the tab is
+        // still the one space fx moved (`reflowAtWordBreak`,
+        // `assistant_wrap.zig:729-775@481104fd`), not the five it would be
+        // measured again from column 4.
+        assert_eq!(
+            literal_drawn("aaa b\t1234567890123", 18, 2),
+            ["aaa ", "b 1234567890123"]
+        );
+        // A tab that does not move is the spaces to its stop, as before.
+        assert_eq!(literal_drawn("a\tb", 78, 2), ["a     b"]);
+        assert_eq!(literal_drawn("no tab", 78, 2), ["no tab"]);
+    }
 
     #[test]
     fn a_tab_stops_every_eight_columns_of_the_screen() {

@@ -34,7 +34,9 @@ unresolved -- `kind` decision (awaiting the user), unit (owned by a unit in
 flight), nondeterminism (the scenario waits on time; `fix` says how to make
 it wait on content), scenario (the .cap itself is wrong; `fix`), defect
 (`xfx` and `fx` name the two source lines) -- and who owns the fix. Same selectors; the first cause in the file that covers a
-row is that row's.
+row is that row's. A cause may say `expires = "date:YYYY-MM-DD"`: after that
+date it covers nothing (`live_causes`), so its rows are listed again as rows
+no cause covers -- the owner's date has passed.
 
 Every divergence is scoped to the pins (`[[pin]]`, by sha256) it was recorded
 against: a sweep against another fx applies none of them until they are
@@ -228,7 +230,16 @@ def load(path, repo_root=None):
         whole = bool(c.get("whole_snap", False))
         if not rows and not rx and not whole:
             raise LedgerError("%s: no row selector and not whole_snap" % where)
-        causes.append(dict(c, kind=kinds, rows=rows, regexes=rx, whole_snap=whole))
+        expiry_date = None
+        if "expires" in c:
+            m = EXPIRES.match(c["expires"]) if isinstance(c["expires"], str) else None
+            if not m or not m.group("date"):
+                raise LedgerError("%s: a cause expires at date:YYYY-MM-DD, not %r" % (where, c["expires"]))
+            try:
+                expiry_date = datetime.date.fromisoformat(m.group("date"))
+            except ValueError:
+                raise LedgerError("%s: %s is no date" % (where, m.group("date")))
+        causes.append(dict(c, kind=kinds, rows=rows, regexes=rx, whole_snap=whole, expiry_date=expiry_date))
     return {"pins": pins, "normalizations": norms, "divergences": divs, "causes": causes, "path": path}
 
 
@@ -289,6 +300,12 @@ def active(ledger, pin_name, today=None):
         and pin_name in d["pins"]
         and (d["expiry_date"] is None or today <= d["expiry_date"])
     ]
+
+
+def live_causes(ledger, today=None):
+    """The causes not past their date: one past it covers nothing."""
+    today = today or datetime.date.today()
+    return [c for c in ledger["causes"] if c["expiry_date"] is None or today <= c["expiry_date"]]
 
 
 def expired(ledger, pin_name, today=None):

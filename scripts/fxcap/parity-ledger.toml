@@ -354,11 +354,11 @@ class = "unsafe-to-copy"
 pins = ["v0.0.16"]
 scenarios = ["p5-transcript-safe"]
 snaps = ["full*"]
-fx_row = '^│ a‮b​c﻿de\\u\{009b\}f {8}g$'
-xfx_row = '^│ a\\u\{202e\}b\\u\{200b\}c\\u\{feff\}de\\u\{009b\}f {8}g$'
-reason = "fx v0.0.16's Ctrl-O spells a right-to-left override, a zero-width space and a byte-order mark as `\\u{NNNN}` in a call's argument and result rows (`TerminalSafeIndentedWriter`, `src/ui/full_transcript_screen.zig:5147-5194@481104fd`, through `terminalSafeToken`, `src/core/shared/text_utils.zig:643-667@481104fd`) but hands them to the terminal as themselves in a command's output: its decoder escapes only C0 and C1 there (`src/core/tooling/command_output_content.zig:160-173@481104fd`). Those code points reorder or hide the text around them, and a command's output is whatever the command printed, so xfx names them on that row too, as on the other two; the row is 8 cells wider for each. The Arabic letter mark (U+061C), which fx writes as itself on all three, is named on all three for the same reason (`approval_view`'s `reorders`); no capture has one."
+fx_row = '^│ a‮b​c﻿de\\u\{009b\}f {8}g؜h⁧i$|^│  command: : .A\\u\{202e\}B\\u\{200b\}C\\u\{feff\}D\\x1b\[2JE\\u\{009b\}F {4}G؜H\\u\{2067\}I.; cat safe\.txt # \\x0d$|^│  1 {4}a\\u\{202e\}b\\u\{200b\}c\\u\{feff\}d\\x1b\[2Je\\u\{009b\}f {4}g؜h\\u\{2067\}i\\x0d$'
+xfx_row = '^│ a\\u\{202e\}b\\u\{200b\}c\\u\{feff\}de\\u\{009b\}f {8}g\\u\{061c\}h\\u\{2067\}i$|^│  command: : .A\\u\{202e\}B\\u\{200b\}C\\u\{feff\}D\\x1b\[2JE\\u\{009b\}F {4}G\\u\{061c\}H\\u\{2067\}I.; cat safe\.txt # \\x0d$|^│  1 {4}a\\u\{202e\}b\\u\{200b\}c\\u\{feff\}d\\x1b\[2Je\\u\{009b\}f {4}g\\u\{061c\}h\\u\{2067\}i\\x0d$'
+reason = "fx v0.0.16's Ctrl-O spells the zero-width and directional marks, the isolates and the byte-order mark as `\\u{NNNN}` in a call's argument and result rows (`TerminalSafeIndentedWriter`, `src/ui/full_transcript_screen.zig:5147-5194@481104fd`, through `terminalSafeToken` and `isNonPrintingCodepoint`, `src/core/shared/text_utils.zig:643-667,703-708@481104fd`) but hands them to the terminal as themselves in a command's output: its decoder escapes only C0 and C1 there (`src/core/tooling/command_output_content.zig:160-173@481104fd`). And it writes the Arabic letter mark (U+061C), which reorders the text around it as the marks it names do (`approval_view`'s `reorders`), as itself on all three rows. Those code points reorder or hide the text around them, and the rows are a model's, a file's or a command's text, so xfx names them on every row: the command row (`p5-transcript-safe`: U+202E, U+200B, U+FEFF, U+061C, U+2067) and U+061C on the argument and read rows. Each named mark makes the row 8 cells wider; the wrap measures the spelled text."
 owner = "T-U1-SAFE"
-resolution = "fx names the marks in a command's output in a later pin, or the user takes fx's raw marks"
+resolution = "fx names the marks in a command's output and U+061C in a later pin, or the user takes fx's raw marks"
 expires = "date:2026-12-04"
 source = ["docs/parity.md:238", "src/tui/full_transcript.rs:486"]
 
@@ -383,6 +383,19 @@ source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 # .prd/tui-phase4/receipts/sweep/ has the table.
 
 # (b) units in flight, the specific rows first.
+
+[[cause]]
+id = "ctrl-o-call-row-spelling"
+kind = "unit"
+owner = "CALLROW-SAFE fix/p5-call-row-spelling (from 151dde9f), to land before train 2 merges"
+scenarios = ["p5-transcript-safe"]
+snaps = ["*"]
+fx_row = '^[├└] Ran : '
+xfx_row = '^[├└] Ran : '
+expires = "date:2026-11-10"
+xfx = ["src/tui/toolgroup.rs:538"]
+fx = ["src/core/tooling/tool_presentation.zig:432-447@481104fd", "src/core/shared/text_utils.zig:353-390@481104fd"]
+why = "A call's own row -- in the transcript and as Ctrl-O's heading -- shows its argument through `spelled`, which makes every control a space and leaves the marks as they are: `p5-transcript-safe`'s command reads `: 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G<U+061C>H<U+2067>I'` there, where fx spells it `: 'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F\\x09G<U+061C>H\\u{2067}I'` (`formatRunCommandDetailBounded` through `encodeTerminalSafe`, the tab `\\x09`, the line's last carriage return gone with the trailing space). Not this screen's detail rows (`ctrl-o-command-marks`, T-U1-SAFE). CALLROW-SAFE owns it and lands before train 2 merges; past its date this cause covers nothing (scripts/fxcap/ledger.py `live_causes`), so the rows show again as rows no cause covers."
 
 [[cause]]
 id = "cancelled-marker"
@@ -543,18 +556,6 @@ xfx_row = 'request failed: SubscriptionNativeImageUnavailable'
 why = "For a model without native image input fx forces a `vision` call answered by a second model (google/gemini-2.5-flash, orchestrator.zig:5970); xfx refuses (src/image.rs:95). Routing a user's image to a model they did not pick is theirs to decide; docs/parity.md:175 records it deferred, the ledger may not approve it until asked."
 
 # (d) defects with no owner yet.
-
-[[cause]]
-id = "ctrl-o-call-row-spelling"
-kind = "defect"
-owner = "unowned (the call row's argument, src/tui/toolgroup.rs `spelled`, whose length T-U4 owns)"
-scenarios = ["p5-transcript-safe"]
-snaps = ["*"]
-fx_row = '^[├└] Ran printf '
-xfx_row = '^[├└] Ran printf '
-xfx = ["src/tui/toolgroup.rs:538"]
-fx = ["src/core/tooling/tool_presentation.zig:445@c1db9191", "src/core/shared/text_utils.zig:343@c1db9191"]
-why = "A call's own row -- in the transcript and as Ctrl-O's heading -- shows its argument through `spelled`, which makes every control a space and leaves the marks as they are: `p5-transcript-safe`'s command reads `'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G'` there, where fx spells it `'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F\\x09G'` (`encodeTerminalSafe`, the tab `\\x09` and the line's last carriage return gone with the trailing space). Not this screen's detail rows (`ctrl-o-command-marks`, T-U1-SAFE): the row is the transcript's too, and its projection (length, `…`) is T-U4's."
 
 [[cause]]
 id = "provider-label"

@@ -462,7 +462,9 @@ def score(units, out, size, led, pin):  # noqa: C901
                                     usage[e]["rows"] += 1
                                     usage[e]["snaps"].add("%s/%s" % (u.name, label))
                         else:
-                            pair["causes"], pair["unattributed"] = attribute(left, u.name, label, led["causes"])
+                            pair["causes"], pair["unattributed"] = attribute(
+                                left, u.name, label, ledgermod.live_causes(led)
+                            )
                     pair["verdict"] = verdict
                     if diff:
                         pair["unaligned"] = cells.unaligned(na, nb)

@@ -5,6 +5,7 @@ usage: scripts/fxcap/test-sweep.sh   (python3 -I scripts/fxcap/test_sweep.py)
 """
 
 import atexit
+import datetime
 import glob
 import hashlib
 import json
@@ -425,6 +426,30 @@ class Ledger(unittest.TestCase):
         ):
             with self.assertRaises(ledgermod.LedgerError, msg=(kind, extra)):
                 ledgermod.load(ledger_file(LEDGER_TOML, cause % (kind, extra)), REPO)
+
+    def test_a_cause_past_its_date_covers_nothing(self):
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "c"
+            kind = "unit"
+            owner = "U-1"
+            scenarios = ["*"]
+            snaps = ["*"]
+            fx_row = '^fx says'
+            why = "w"
+            %s
+            """
+        )
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % 'expires = "date:2026-01-02"'), REPO)
+        live = lambda day: [c["id"] for c in ledgermod.live_causes(led, datetime.date(2026, 1, day))]
+        self.assertEqual(live(2), ["c"])
+        self.assertEqual(live(3), [])
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % ""), REPO)
+        self.assertEqual([c["id"] for c in ledgermod.live_causes(led)], ["c"])
+        for bad in ('expires = "pin:b"', 'expires = "2026-01-02"', 'expires = "date:2026-02-30"'):
+            with self.assertRaises(ledgermod.LedgerError, msg=bad):
+                ledgermod.load(ledger_file(LEDGER_TOML, cause % bad), REPO)
 
     def test_the_repos_ledger_loads_and_every_source_it_cites_exists(self):
         led = ledgermod.load(LEDGER, REPO)

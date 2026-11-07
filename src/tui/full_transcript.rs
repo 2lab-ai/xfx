@@ -729,7 +729,15 @@ fn command_stream(raw: &str) -> String {
             use std::fmt::Write as _;
             let _ = write!(self.out, "\\x{:02x}", u32::from(character));
         }
+        /// `recordEscapeByte` (`:255-262`): the sequence's first
+        /// [`ESCAPE_KEPT_BYTES`], then nothing -- once it has overflowed, a
+        /// shorter character after it is not kept either. A character is kept
+        /// whole or not at all, where fx keeps bytes: one that would straddle
+        /// the 64th byte ends what is kept one character early.
         fn keep(&mut self, character: char) {
+            if self.overflow {
+                return;
+            }
             if self.kept.len() + character.len_utf8() <= ESCAPE_KEPT_BYTES {
                 self.kept.push(character);
             } else {
@@ -2052,15 +2060,12 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
             continue;
         }
-        for row in super::prose::literal(line, width, rail) {
-            // A command's tab, as the spaces to the stop the wrap measured it
-            // to: a column of the screen, the rail and the gutter included
-            // (`wrapLiteralCommandOutput`, `assistant_wrap.zig:524-546@481104fd`).
-            let piece = super::prose::expand_tabs(
-                &line[row.start..row.end],
-                usize::from(rail) + 1,
-                usize::from(cols),
-            );
+        // A command's tab, as the spaces the wrap measured it to where it met
+        // it -- a stop of the screen, the rail and the gutter included -- and
+        // as many where the reflow moved it down with its word
+        // (`wrapLiteralCommandOutput`, `assistant_wrap.zig:524-546@481104fd`;
+        // [`super::prose::literal_drawn`]).
+        for piece in super::prose::literal_drawn(line, width, rail) {
             let piece = piece.trim_end_matches([' ', '\n']);
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
@@ -3759,6 +3764,13 @@ mod tests {
             kept.len(),
             "\\x1b".len() + ESCAPE_KEPT_BYTES - 1 + "...".len()
         );
+        // At the 64th byte: `ESC ]` and 61 bytes are 63, `é` would be the 64th
+        // and 65th, so it ends what is kept -- and the `b` after it, which
+        // would fit, is not kept either, as fx keeps nothing past its 64th
+        // byte (`recordEscapeByte`, `:255-262`). fx keeps `é`'s first byte;
+        // a character here is kept whole or not at all.
+        let osc = format!("\u{1b}]{}\u{e9}b", "a".repeat(61));
+        assert_eq!(command_stream(&osc), format!("\\x1b]{}...", "a".repeat(61)));
         // Each stream is its own: stdout's carriage return does not reach
         // into stderr.
         let framed = "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\nout\r</stdout>\n<stderr>\nerr\n</stderr>\n";
@@ -3775,14 +3787,15 @@ mod tests {
 
     /// `p5-transcript-safe`'s step: a command whose own text carries a
     /// right-to-left override, a zero-width space, a byte-order mark, an
-    /// `ESC[2J`, the C1 `U+009B`, a tab and -- after a comment -- a trailing
-    /// carriage return, printing a file that holds the same and ends its line
-    /// on CRLF, then a line a bare carriage return rewrites; then a read of
-    /// that file. Each detail as the bridge hands it over (`made_inert`).
+    /// `ESC[2J`, the C1 `U+009B`, a tab, the Arabic letter mark, a
+    /// right-to-left isolate and -- after a comment -- a trailing carriage
+    /// return, printing a file that holds the same and ends its line on CRLF,
+    /// then a line a bare carriage return rewrites; then a read of that file.
+    /// Each detail as the bridge hands it over (`made_inert`).
     fn unsafe_detail_record() -> FullTranscript {
         let command_text =
-            "printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D\u{1b}[2JE\u{9b}F\tG' >/dev/null; cat safe.txt # \r";
-        let file = "a\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\r\nover\rX\n";
+            ": 'A\u{202e}B\u{200b}C\u{feff}D\u{1b}[2JE\u{9b}F\tG\u{61c}H\u{2067}I'; cat safe.txt # \r";
+        let file = "a\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\u{61c}h\u{2067}i\r\nover\rX\n";
         let mut record = record();
         let detail = |record: &mut FullTranscript, id: &str, detail: Detail| {
             record.observe(&UiEvent::ToolDetail {
@@ -3811,7 +3824,7 @@ mod tests {
             "r",
             Detail::Arguments(arguments("read_file", &input)),
         );
-        let read = "<path>safe.txt</path>\n<content>\n1\ta\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\r\n2\tover\rX\n</content>";
+        let read = "<path>safe.txt</path>\n<content>\n1\ta\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\u{61c}h\u{2067}i\r\n2\tover\rX\n</content>";
         detail(&mut record, "r", result("read_file", read));
         record.tool_finished("r", true, "", Outcome::Finished, None);
         record
@@ -3856,9 +3869,11 @@ mod tests {
         // (`full_transcript_screen.zig:6681-6695@481104fd`, `:5147-5194`): a tab
         // four spaces, every other control `\xNN` -- the trailing carriage
         // return too -- and the marks `\u{NNNN}` (`terminalSafeToken`,
-        // `text_utils.zig:643-667@481104fd`).
+        // `text_utils.zig:643-667@481104fd`), the isolate among them; the
+        // Arabic letter mark, which fx writes as itself, is named too
+        // (`ctrl-o-command-marks`).
         let rows = screen(&unsafe_detail_record());
-        let row = "\u{2502}  command: printf '%s\\n' 'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F    G' >/dev/null; cat safe.txt # \\x0d";
+        let row = "\u{2502}  command: : 'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F    G\\u{061c}H\\u{2067}I'; cat safe.txt # \\x0d";
         assert!(rows.iter().any(|shown| shown == row), "{rows:#?}");
     }
 
@@ -3869,7 +3884,7 @@ mod tests {
         // line's carriage return `\x0d`, the bare one too.
         let rows = screen(&unsafe_detail_record());
         for row in [
-            "\u{2502}  1    a\\u{202e}b\\u{200b}c\\u{feff}d\\x1b[2Je\\u{009b}f    g\\x0d",
+            "\u{2502}  1    a\\u{202e}b\\u{200b}c\\u{feff}d\\x1b[2Je\\u{009b}f    g\\u{061c}h\\u{2067}i\\x0d",
             "\u{2502}  2    over\\x0dX",
         ] {
             assert!(
@@ -3897,7 +3912,7 @@ mod tests {
         assert_eq!(
             rows[at..at + 2],
             [
-                "\u{2502} a\\u{202e}b\\u{200b}c\\u{feff}de\\u{009b}f        g",
+                "\u{2502} a\\u{202e}b\\u{200b}c\\u{feff}de\\u{009b}f        g\\u{061c}h\\u{2067}i",
                 "\u{2502} X",
             ]
         );
@@ -3907,14 +3922,77 @@ mod tests {
     fn no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width() {
         let record = unsafe_detail_record();
         for cols in [10u16, 24, 80, 120] {
-            let rows = record.rows(cols, 40, DARK, "");
+            // Every row the record lays out at this width, not one page of it.
+            let (total, _) = record.measure(cols, DARK);
+            let rows = record.window(0, total, cols, DARK);
+            assert_eq!(rows.len(), total, "{cols}");
+            if cols == 10 {
+                assert!(total > Layout::of(40).viewport, "{total} rows fit one page");
+            }
             for row in &rows {
                 assert!(wrap::width(row) <= cols, "{cols}: {row:?}");
             }
-            // The detail rows: those on the rail, the calls' own rows aside.
-            for row in rows.iter().filter(|row| row.starts_with('\u{2502}')) {
+            // The detail rows: the rail, then the detail's grey (`railed`,
+            // `literal`). Not the calls' own rows, whose wrapped rows stand
+            // under the rail too (`tool_status`'s `│ `, which the whole layout
+            // shows at 10 columns): those are CALLROW-SAFE's
+            // (`ctrl-o-call-row-spelling`).
+            let detail = format!("\u{2502}{}", DARK.dim());
+            let details: Vec<&String> =
+                rows.iter().filter(|row| row.starts_with(&detail)).collect();
+            assert!(details.len() >= 5, "{cols}: {details:?}");
+            for row in details {
                 assert!(!row.chars().any(obeyed_or_hidden), "{cols}: {row:?}");
                 assert!(only_colours(row), "{cols}: {row:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_spelled_token_may_be_cut_and_every_piece_of_it_is_inert_ascii() {
+        // No spelling is kept whole. A command's C1 control is spelled by
+        // `command_stream` before the result is bounded, so the bound can cut
+        // `\u{009b}` to `\u{`; what is left is three printable characters.
+        let raw = format!("{}\u{9b}", "a".repeat(RESULT_BYTES - 3));
+        let framed = format!(
+            "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\n{raw}\n</stdout>\n<stderr>\n</stderr>\n"
+        );
+        let Detail::Command { output, .. } = result("terminal", &framed).made_inert() else {
+            panic!("not a command");
+        };
+        let (kept, more) = output.split_once('\n').expect("the bound's line");
+        assert_eq!(kept.len(), RESULT_BYTES);
+        assert!(kept.ends_with("a\\u{"), "{:?}", &kept[kept.len() - 8..]);
+        assert!(kept.chars().all(|c| c.is_ascii_graphic()));
+        assert_eq!(more, "\u{2026} 5 more bytes are in the session's log");
+        // A result is bounded first and spelled after, so its cut falls on
+        // the file's own characters: an `ESC` cut from its `[2J` is `\x1b`.
+        let raw = format!("{}\u{1b}[2J", "a".repeat(RESULT_BYTES - 1));
+        let Detail::Result(text) = result("read_file", &raw).made_inert() else {
+            panic!("not a result");
+        };
+        let (kept, _) = text.split_once('\n').expect("the bound's line");
+        assert!(kept.ends_with("a\\x1b"), "{:?}", &kept[kept.len() - 8..]);
+        assert!(!text.contains('\u{1b}'));
+        // And a row can break inside a spelling: each piece is ASCII, and
+        // the rows read back to it.
+        for (rows, width) in [
+            (railed("\\u{202e}", " ", 6, DARK), 6),
+            (literal("\\u{202e}", 7, DARK), 7),
+        ] {
+            let rows = plain(&rows);
+            assert!(rows.len() > 1, "{rows:?}");
+            let joined: String = rows
+                .iter()
+                .map(|row| row.trim_start_matches('\u{2502}').trim_start())
+                .collect();
+            assert_eq!(joined, "\\u{202e}", "{rows:?}");
+            for row in &rows {
+                assert!(wrap::width(row) <= width, "{row:?}");
+                assert!(row
+                    .chars()
+                    .skip(1)
+                    .all(|c| c.is_ascii_graphic() || c == ' '));
             }
         }
     }
@@ -3930,6 +4008,42 @@ mod tests {
         assert_eq!(
             plain(&railed("a\n\nb", " ", 40, DARK)),
             ["\u{2502} a", "\u{2502} ", "\u{2502} b"]
+        );
+    }
+
+    #[test]
+    fn a_command_lines_tab_loses_no_character_when_its_word_moves_down() {
+        // T-U1-SAFE review (gpt6, MUST 1): a tab measured where it stood, then
+        // moved down with its word by the reflow (`reflowAtWordBreak`,
+        // `assistant_wrap.zig:729-775@481104fd`), must not be drawn wider
+        // where it lands and cut a character off the row's end.
+        for line in [
+            "aaa b\t1234567890123",
+            "aaaa bbbbbb\t123456789012",
+            "aaaaaaaaaa b\t12345678901234567890",
+            "aa b\tc\td 12345678901234567 e\tf",
+        ] {
+            let sent: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            for cols in 8u16..=48 {
+                let rows = plain(&railed(line, " ", cols, DARK));
+                let kept: String = rows
+                    .iter()
+                    .flat_map(|row| row.chars().skip(1))
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                assert_eq!(kept, sent, "{line:?} at {cols}: {rows:#?}");
+                for row in &rows {
+                    assert!(wrap::width(row) <= cols, "{line:?} at {cols}: {row:?}");
+                }
+            }
+        }
+        // fx's own row for the review's case: fx's wrap writes a tab as the
+        // spaces to its stop where it meets it (`assistant_wrap.zig:163-174`),
+        // so the word it moves down keeps that one space
+        // (`p5-transcript-safetab`).
+        assert_eq!(
+            plain(&railed("aaa b\t1234567890123", " ", 20, DARK)),
+            ["\u{2502} aaa", "\u{2502} b 1234567890123"]
         );
     }
 
