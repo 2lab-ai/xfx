@@ -627,6 +627,9 @@ pub(crate) struct TerminalModel {
     /// presented, where upstream shows it after (`terminal_diff.zig:643-644`).
     shown_in_update: bool,
     shown_title: Option<String>,
+    /// `OSC 2`s this vector wrote, whatever they said: a title written again
+    /// with the same text leaves [`Self::shown_title`] as it was.
+    titles: u16,
     /// `CSI 22 ; 2 t` pushes and `CSI 23 ; 2 t` pops.
     title_stack: u8,
     modes: ModeSet,
@@ -679,6 +682,7 @@ impl TerminalModel {
             sync_resets: 0,
             shown_in_update: false,
             shown_title: None,
+            titles: 0,
             title_stack,
             modes,
             scrollback_erased: false,
@@ -1382,9 +1386,9 @@ pub(crate) fn preflight_update(
                 title_end,
             ));
         }
-        let titled = model.shown_title.clone();
+        let titles = model.titles;
         apply(&mut model, &bytes[title_end..update.lead], None)?;
-        if model.statuses != [StatusRecord::Reported(state)] || model.shown_title != titled {
+        if model.statuses != [StatusRecord::Reported(state)] || model.titles != titles {
             return Err(Reject::new(
                 "a lead whose report is not the one declared",
                 update.lead,
@@ -2586,6 +2590,7 @@ fn operating_system_command(
             return Err(Reject::new("a title carrying a control character", at));
         }
         model.shown_title = Some(title.to_string());
+        model.titles = model.titles.saturating_add(1);
     } else if body == "11;?" {
         if terminator != 2 {
             return Err(Reject::new(
@@ -3198,6 +3203,12 @@ mod tests {
             ),
             (
                 format!("{TITLE}{IDLE}\u{1b}]2;another\u{7}"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}{TITLE}"),
                 TITLE.len(),
                 State::Idle,
                 "a lead whose report is not the one declared",

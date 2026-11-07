@@ -608,6 +608,15 @@ const ULTRAFAST_USAGE: &str = "usage: /ultrafast [on|off|status]";
 /// `/fast`, or `/ultrafast` with a word it knows: the command as given,
 /// before the catalog row it is judged against is known
 /// ([`Shell::held_speed`]).
+/// What the program status says the session is doing, owned
+/// ([`Shell::status_activity`]): what [`program_status::Activity`] borrows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StatusActivity {
+    Blocked(program_status::Blocked, String),
+    Working,
+    Settled,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpeedCommand {
     /// `/fast`: a toggle.
@@ -989,16 +998,23 @@ pub(crate) struct Shell {
     /// conclusion that ends it says nothing the line has not.
     cancelling: bool,
     /// The turn in hand stopped because an automatic compaction inside it
-    /// failed -- not because the user stopped it.
+    /// failed -- not because the user stopped it -- and that failure is
+    /// already the turn's result.
     ///
     /// It rides with [`Self::cancelling`], which keeps the turn's conclusion
-    /// silent (the row has said why), and the program status reads it first:
-    /// upstream finishes such a turn `.failed` -- the compaction's error
-    /// leaves the turn (`orchestrator.zig:7864-7865@481104fd`) and the turn is
-    /// finished `.failed` (`:5615-5618`) -- which is `error`
-    /// (`program_status.zig:62-65`, `:79`). Only a cancelled compaction is an
-    /// interrupted turn there (`:7847-7861`).
+    /// silent (the row has said why). Upstream finishes such a turn `.failed`
+    /// -- the compaction's error leaves the turn
+    /// (`orchestrator.zig:7864-7865@481104fd`) and the turn is finished
+    /// `.failed` (`:5615-5618`) -- which is `error` (`program_status.zig:62-65`,
+    /// `:79`), in the same pass that puts the failure on the row
+    /// (`osc/o01-failed`: `error`, then `Compaction failed.`). The runtime here
+    /// says the compaction settled and then, apart, that the turn ended, so
+    /// the result is noted at the settle and the turn's end notes nothing.
+    /// Only a cancelled compaction is an interrupted turn there (`:7847-7861`).
     compaction_failed: bool,
+    /// This session's own input moved the program status to work or to a
+    /// question since the last tick ([`Self::take_status_moved_by_input`]).
+    status_moved_by_input: bool,
     /// A stop's restore cleared the terminal's program status record, and
     /// the resume's tick owes it again after its frame
     /// ([`Self::owe_program_status_resume`]).
@@ -2361,6 +2377,7 @@ impl Shell {
             interrupt_armed: false,
             cancelling: false,
             compaction_failed: false,
+            status_moved_by_input: false,
             status_resume_owed: false,
             cancel_owed: None,
             cancel_covers: 0,
@@ -4392,10 +4409,11 @@ impl Shell {
                 // (`app_process_runtime.zig:70`, `:164`) -- are about those
                 // alone. A provider switch, a listing or a `/workspace` that
                 // ends here ran no turn, and has no result to report.
-                let outcome = self.tally.started.is_some().then(|| {
-                    if std::mem::take(&mut self.compaction_failed) {
-                        program_status::Outcome::Failed
-                    } else if self.cancelling {
+                // A turn an automatic compaction failed had its result noted
+                // when the compaction settled ([`Self::compaction_failed`]).
+                let noted = std::mem::take(&mut self.compaction_failed);
+                let outcome = (self.tally.started.is_some() && !noted).then(|| {
+                    if self.cancelling {
                         program_status::Outcome::Interrupted
                     } else if failure.is_some() {
                         program_status::Outcome::Failed
@@ -10047,32 +10065,45 @@ impl Shell {
     /// (`p5-lifecycle-osc-picker`). And none of it once the user has stopped
     /// it -- a turn or a compaction being cancelled is already waiting for
     /// the next instruction (`cancellation_stops_turn`). A turn an automatic
-    /// compaction failed is not one the user stopped: it is working until it
-    /// ends, and then an error ([`Self::compaction_failed`]).
+    /// compaction failed has its result already: `error`
+    /// ([`Self::compaction_failed`]).
     pub(crate) fn take_program_status(&mut self) -> Option<program_status::Report> {
-        let label;
-        let activity = if let Some(request) = self
+        let activity = self.status_activity();
+        self.program_status.update(match &activity {
+            StatusActivity::Blocked(kind, message) => program_status::Activity::Blocked {
+                kind: *kind,
+                message,
+            },
+            StatusActivity::Working => program_status::Activity::Working,
+            StatusActivity::Settled => program_status::Activity::Settled,
+        })
+    }
+
+    /// What the program status says the session is doing now
+    /// ([`Self::take_program_status`]'s precedence), owned, so that one
+    /// reading can be compared with another across a keystroke.
+    fn status_activity(&self) -> StatusActivity {
+        if let Some(request) = self
             .panel
             .as_ref()
             .map(Panel::request)
             .or_else(|| self.alternate.as_ref().map(ApprovalScreen::request))
         {
-            label = program_status::permission_label(request);
-            program_status::Activity::Blocked {
-                kind: program_status::Blocked::Permission,
-                message: &label,
-            }
+            StatusActivity::Blocked(
+                program_status::Blocked::Permission,
+                program_status::permission_label(request),
+            )
         } else if let Some(confirm) = &self.rule_confirm {
-            program_status::Activity::Blocked {
-                kind: program_status::Blocked::Permission,
-                message: program_status::rule_label(confirm.confirmation().question),
-            }
+            StatusActivity::Blocked(
+                program_status::Blocked::Permission,
+                program_status::rule_label(confirm.confirmation().question).to_string(),
+            )
         } else if let Some(ask) = &self.ask {
-            program_status::Activity::Blocked {
-                kind: program_status::Blocked::Question,
-                message: ask.question(),
-            }
-        } else if (!self.cancelling || self.compaction_failed)
+            StatusActivity::Blocked(
+                program_status::Blocked::Question,
+                ask.question().to_string(),
+            )
+        } else if !self.cancelling
             && (self.activity.working()
                 || !self.prompts.is_empty()
                 || self
@@ -10080,11 +10111,28 @@ impl Shell {
                     .as_ref()
                     .is_some_and(|compaction| compaction.active() && !compaction.stopped()))
         {
-            program_status::Activity::Working
+            StatusActivity::Working
         } else {
-            program_status::Activity::Settled
-        };
-        self.program_status.update(activity)
+            StatusActivity::Settled
+        }
+    }
+
+    /// Whether this session's own input moved the program status to work or
+    /// to a question since this was last asked -- a prompt sent, a question
+    /// or a permission answered, a `/compact`, a rule change's confirmation.
+    ///
+    /// Taken by the tick that commits the frame those keys asked for
+    /// (`super::event_loop`'s `commit_tick`), which writes the report after
+    /// that frame: upstream's loop reports while it collects facts and handles
+    /// the keys after it (`src/ui/event_loop.zig:78-117@481104fd`), so what a
+    /// key did is on the frame that key's pass commits, and the report of it
+    /// is the next pass's (`osc/w02-done`: the prompt's `Thinking`, then
+    /// `working`). **A stop is not one**: upstream's screen says a turn
+    /// stopped only when the turn has (`osc/i01-after-esc`: `idle`, then
+    /// `Cancelled`), and the line xfx writes at the keystroke is that one, so
+    /// the stop's `idle` stays ahead of the frame that carries it.
+    pub(crate) fn take_status_moved_by_input(&mut self) -> bool {
+        std::mem::take(&mut self.status_moved_by_input)
     }
 
     /// Somebody else has had the terminal -- a stop, whose restore cleared
@@ -10869,9 +10917,13 @@ impl Shell {
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
                     self.cancelling = true;
-                    // And unless the user stopped it, the turn failed: that is
-                    // what the program status reports ([`Self::compaction_failed`]).
-                    self.compaction_failed = feedback != compaction::Feedback::Cancelled;
+                    // And unless the user stopped it, the turn failed, and that
+                    // is its result now ([`Self::compaction_failed`]).
+                    if feedback != compaction::Feedback::Cancelled && self.tally.started.is_some() {
+                        self.compaction_failed = true;
+                        self.program_status
+                            .turn_finished(program_status::Outcome::Failed);
+                    }
                 }
             }
         }
@@ -11121,6 +11173,19 @@ impl Shell {
     /// event: the bytes of one read arrived together, and a Ctrl-C burst whose
     /// two bytes timed each other out would be two unrelated keystrokes.
     fn consume(&mut self, events: Vec<Input>, now: Instant) {
+        if events.is_empty() {
+            return;
+        }
+        let before = self.status_activity();
+        self.consume_inputs(events, now);
+        let after = self.status_activity();
+        if after != before && after != StatusActivity::Settled {
+            self.status_moved_by_input = true;
+        }
+    }
+
+    /// [`Self::consume`]'s inputs, one by one.
+    fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
             // After every input, the one before this included: a `C-p` flow
             // that ended gives its draft back before the next key lands
@@ -14669,6 +14734,12 @@ impl Shell {
             self.session_title.as_deref(),
             &self.workspace,
         ))
+    }
+
+    /// Whether a window title this session wants has not yet been handed to
+    /// the band ([`Self::take_title`]) -- one the tick's own events asked for.
+    pub(crate) fn owes_title(&self) -> bool {
+        self.title_owed
     }
 
     /// Gives the session its title, from the prompt of the turn that just
@@ -44709,9 +44780,13 @@ mod tests {
     fn an_automatic_compaction_that_fails_inside_a_turn_is_that_turns_error() {
         // Upstream: the compaction's error leaves the turn
         // (`orchestrator.zig:7864-7865@481104fd`), which is finished `.failed`
-        // (`:5615-5618`) -- `error` (`program_status.zig:62-65`, `:79`). The
-        // turn stays `working` until it ends, and its conclusion still says
-        // nothing (the row has said why).
+        // (`:5615-5618`) -- `error` (`program_status.zig:62-65`, `:79`) -- in
+        // the same pass that puts the failure on the row, so its `error` is
+        // ahead of the frame that shows `Compaction failed.`
+        // (`osc/o01-failed`). The runtime here says the compaction settled
+        // and then, separately, that the turn ended: the result is the
+        // settle's, the turn's end adds nothing, and its conclusion still
+        // says nothing (the row has said why).
         let mut shell = shell(24, 80);
         let _ = status_of(&mut shell);
         shell.route_bytes(b"third question\r");
@@ -44725,16 +44800,20 @@ mod tests {
             compaction::Feedback::Failed,
         )));
         assert_eq!(
-            status_of(&mut shell),
-            None,
-            "a failed compaction is not a stopped turn"
+            status_of(&mut shell).as_deref(),
+            Some("error"),
+            "the failure that ended the turn was not its result"
         );
         let _ = shell.document();
         shell.apply(UiEvent::TurnEnded {
             failure: Some("compaction failed".into()),
         });
         shell.work.give_back();
-        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+        assert_eq!(
+            status_of(&mut shell),
+            None,
+            "the turn's end reported it again"
+        );
         assert!(
             !shell.document().iter().any(|row| row.contains("system:")),
             "the conclusion said something the row had"

@@ -1088,13 +1088,22 @@ fn commit_counted(
 ///   upstream's turn sets its title after it reported `done`
 ///   (`osc/w02-done`).
 /// * **After a title the band already owed when the tick began** -- the
-///   launch's ([`launch_title`]), or one an earlier frame did not land.
-///   Upstream writes a title the moment it is set, so that one is on its wire
-///   before this tick's report: the report rides the frame's lead, after the
-///   title and ahead of its `?2026h` ([`commit_primary`]), so the band stays
-///   the title's only writer. On a tick with no primary frame to ride -- the
-///   other plane, a screen no band fits on, a frame nothing asked for -- it
-///   goes out on its own after the frame.
+///   launch's ([`launch_title`]), or one an earlier frame did not land -- and
+///   that the tick's own events did not replace. Upstream writes a title the
+///   moment it is set, so that one is on its wire before this tick's report:
+///   the report rides the frame's lead, after the title and ahead of its
+///   `?2026h` ([`commit_primary`]), so the band stays the title's only writer.
+///   A title the tick's events asked for over it is the frame's, behind the
+///   report, as above. The other plane and a screen no band fits on are no
+///   frame to ride: there the report goes out on its own **ahead** of the
+///   frame, as on any tick. Only a tick that held it for the lead and then
+///   built no update at all writes it on its own after the frame.
+/// * **After the frame a keystroke asked for**, when this session's own
+///   input moved the status to work or to a question
+///   ([`Shell::take_status_moved_by_input`]): upstream handles the keys after
+///   it reports, so what they did is on that pass's frame and reported by the
+///   next (`osc/w02-done`: the prompt's `Thinking`, then `working`). A stop
+///   is not one ([`Shell::take_status_moved_by_input`] says why).
 /// * **After the frame of a resume.** Upstream repaints inside
 ///   `suspendToJobControl` and invalidates its reporter on the way out
 ///   (`defer`, `main.zig:1050-1055`), so the record the stop's restore
@@ -1116,10 +1125,13 @@ fn commit_tick(
     reconciled: Reconciled,
 ) -> io::Result<()> {
     let resumed = shell.take_program_status_resume();
+    let keyed = shell.take_status_moved_by_input();
+    let after_frame = resumed || keyed;
     let mut lead = None;
-    if !resumed {
+    if !after_frame {
         if let Some(report) = take_checked_status(shell, failures, now)? {
             let rides = band.title_owed().is_some()
+                && !shell.owes_title()
                 && !band.on_alternate()
                 && shell.screen_owner() == super::shell::ScreenOwner::Primary
                 && !shell.blind();
@@ -1134,7 +1146,7 @@ fn commit_tick(
     if let Some(report) = lead {
         write_program_status(&report, out, failures, now)?;
     }
-    if resumed {
+    if after_frame {
         if let Some(report) = take_checked_status(shell, failures, now)? {
             write_program_status(&report, out, failures, now)?;
         }
@@ -12999,6 +13011,143 @@ mod tests {
             "the report went ahead of the frame: {tick:?}"
         );
         assert_eq!(tick[report], IDLE.as_bytes(), "{tick:?}");
+    }
+
+    const WORKING: &str = "\u{1b}]7501;state=working:app=xfx\u{1b}\\";
+
+    #[test]
+    fn a_working_a_keystroke_caused_follows_the_frame_that_shows_the_keystroke() {
+        // Upstream's loop reports while it collects facts and handles the
+        // keys after (`src/ui/event_loop.zig:78-117@481104fd`), so what a key
+        // does is on the frame that key's turn commits -- the prompt and its
+        // `Thinking` -- and the report of it is the next turn's
+        // (`osc/w02-done`: the `Thinking` frame, then `working`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let frame = tick
+            .iter()
+            .position(|vector| holds(vector, BEGIN_FRAME.as_bytes()))
+            .unwrap_or_else(|| panic!("the keystroke painted nothing: {tick:?}"));
+        let report = tick
+            .iter()
+            .position(|vector| holds(vector, REPORT))
+            .unwrap_or_else(|| panic!("no working: {tick:?}"));
+        assert!(
+            frame < report,
+            "the keystroke's working went ahead of the frame that shows it: {tick:?}"
+        );
+        assert_eq!(tick[report], WORKING.as_bytes(), "{tick:?}");
+    }
+
+    #[test]
+    fn a_stop_a_keystroke_asked_for_is_reported_ahead_of_the_frame_that_shows_it() {
+        // The other half: upstream's stop is on its screen only when the turn
+        // says it has stopped (`osc/i01-after-esc`: `idle`, then the
+        // `Cancelled` line), and xfx writes that line at the keystroke -- so
+        // the stop's `idle` stays ahead of the frame that carries it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == IDLE.as_bytes())
+            .unwrap_or_else(|| panic!("the stop reported nothing: {tick:?}"));
+        let cancelled = tick
+            .iter()
+            .position(|vector| holds(vector, "Cancelled".as_bytes()))
+            .unwrap_or_else(|| panic!("the stop wrote no Cancelled line: {tick:?}"));
+        assert!(report < cancelled, "{tick:?}");
+    }
+
+    #[test]
+    fn a_title_its_tick_asked_for_over_one_still_owed_follows_the_report() {
+        // A title an earlier frame did not land is still the band's when a
+        // tick's own events ask for another and a report is owed: upstream
+        // wrote the first when it was set, and writes the report and then the
+        // new one (`osc/w02-done`'s order: the report, `OSC 2`, the frame).
+        struct RefusesOnce {
+            armed: bool,
+            vectors: Vec<Vec<u8>>,
+        }
+        impl Sink for RefusesOnce {
+            fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+                if self.armed && bytes.starts_with(b"\x1b]2;first") {
+                    self.armed = false;
+                    return Err(Emit::ZeroProgress(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "not now",
+                    )));
+                }
+                self.vectors.push(bytes.to_vec());
+                Ok(())
+            }
+        }
+        let tick = |shell: &mut Shell, band: &mut Band, out: &mut RefusesOnce| {
+            commit_counted(
+                shell,
+                band,
+                out,
+                &mut FrameFailures::default(),
+                Instant::now(),
+                Reconciled,
+            )
+            .expect("the tick");
+        };
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = RefusesOnce {
+            armed: true,
+            vectors: Vec::new(),
+        };
+        launch_title(&mut shell, &mut band);
+        tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::SessionTitled("first".into()));
+        tick(&mut shell, &mut band, &mut out);
+        assert!(!out.armed, "no frame carried the first title");
+        assert_eq!(
+            band.title_owed(),
+            Some("first"),
+            "the refused title is not owed"
+        );
+        let before = out.vectors.len();
+        shell.apply(UiEvent::SessionTitled("second".into()));
+        shell.apply(UiEvent::TurnStarted);
+        tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes())
+            .unwrap_or_else(|| {
+                panic!(
+                    "the report did not go out on its own: {:?}",
+                    tick.iter()
+                        .map(|v| String::from_utf8_lossy(v))
+                        .collect::<Vec<_>>()
+                )
+            });
+        let titled = tick
+            .iter()
+            .position(|vector| vector.starts_with(b"\x1b]2;second"))
+            .unwrap_or_else(|| panic!("no frame led with the new title: {tick:?}"));
+        assert!(report < titled, "{tick:?}");
     }
 
     #[test]

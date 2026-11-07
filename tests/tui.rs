@@ -850,6 +850,14 @@ fn the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out() 
         })
         .collect();
     assert_eq!(reports, [STATUS_IDLE, STATUS_WORKING, STATUS_DONE]);
+    // And the keystroke's `working` after the frame that shows what the key
+    // did -- the prompt's `Thinking` -- as upstream reports a key's work on
+    // the pass after the one that handled it (`osc/w02-done`).
+    let thinking = text.find("Thinking");
+    assert!(
+        thinking.is_some() && thinking < text.find(STATUS_WORKING),
+        "the keystroke's working went ahead of the frame that shows it: {text:?}"
+    );
     // Between frames: never inside an update a frame opened.
     for (at, _) in text.match_indices(STATUS) {
         let opened = text[..at].rfind("\u{1b}[?2026h");
