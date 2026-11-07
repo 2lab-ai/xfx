@@ -1,18 +1,25 @@
-# Phase 5 T-U1/T-U2 across a width change: p5-transcript-anchormid's view, a
-# page up mid-document while the command runs, then the window narrowed to 80
-# columns with Ctrl-O still up (every entry is laid out again, the wrapped
-# heading takes more rows) and widened back; then the command settles under
-# the narrow-then-wide view. fx re-selects its bookmark on a width change
-# (`prepare_projection`, transcript_presentation.zig:115-122@481104fd).
-# fx's `shell`/`run` is xfx's `terminal`/`exec`; TZ=UTC on both (T-U5).
-fx: gateway p5-transcript-anchor-turns.json
-xfx: gateway p5-transcript-anchor-xfx.json
+# Phase 5 T-U1/T-U2 across a width change, with its own turns: the anchor
+# turn's command sleeps 20 s, so every snap until `full-pgup-after` is taken
+# while it runs and the record is still. At 120 columns: the tail, a page up,
+# three rows up and back. Narrowed to 80 with Ctrl-O up (every entry is laid
+# out again and the wrapped heading takes more rows): the pinned view, then
+# the tail at 80, a page above it, three rows up and back. Widened back to
+# 120: the pinned view, the tail, a page above it, three rows up and back;
+# then the command settles under that view. Each arrow window is what gives
+# every row of the page under it a partner on fx's screen.
+# A width change is a rebuild on fx's screen: the page laid out at the old
+# width is the one the position is pinned on (`presentationForRebuiltPage`,
+# src/ui/transcript/runtime.zig:11584-11590@481104fd). fx's `shell`/`run` is
+# xfx's `terminal`/`exec`; TZ=UTC on both (T-U5).
+fx: gateway p5-transcript-resize-turns.json
+xfx: gateway p5-transcript-resize-xfx.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
 xfx: env XFX_PERMISSION_MODE=yolo
 env TZ=UTC
 work p5-transcript-ws
 wait 4
+snap start
 type read and wait
 wait 1
 key Enter
@@ -21,23 +28,43 @@ key C-o
 wait 2
 snap full-running
 key PPage
-wait 1
+wait 0.8
 snap full-pgup
-resize 40x80
-wait 1.5
-snap full-pgup-80
-key C-o
+key Up
 wait 0.5
-key C-o
-wait 1.5
+snap full-pgup-up
+key Down
+wait 0.5
+snap full-pgup-back
+resize 40x80
+wait 1.2
+snap full-pgup-80
+key NPage NPage NPage
+wait 0.8
 snap full-tail-80
+key PPage
+wait 0.8
+snap full-tail-80-pgup
+key Up
+wait 0.5
+snap full-tail-80-up
+key Down
+wait 0.5
 resize 40x120
-wait 1.5
+wait 1.2
+snap full-pgup-120
+key NPage NPage NPage
+wait 0.8
 snap full-tail-120
 key PPage
-wait 1
-snap full-pgup-120
-wait 9
+wait 0.8
+snap full-tail-120-pgup
+key Up
+wait 0.5
+snap full-tail-120-up
+key Down
+wait 0.5
+wait 11
 snap full-pgup-after
 key C-o
 wait 1

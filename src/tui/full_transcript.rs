@@ -913,7 +913,7 @@ impl View {
         palette: Palette,
     ) -> Selected {
         let (total, items) = record.measure(cols, palette);
-        let mut reading = self.reading.get().prepare_projection(cols);
+        let mut reading = self.reading.get();
         if let Some(page) = self.page.borrow().as_ref() {
             if page.cols != cols || page.revision != record.revision {
                 reading = reading.pin_reading_position(&page.items);
@@ -1494,8 +1494,13 @@ impl FullTranscript {
             Body::Tool(call) => (Some(Kind::Tool), self.tool_rows(call, cols, palette)),
             // Upstream heads only the entries it has a kind for
             // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
-            // question's resolution is not one of them.
-            Body::Block(rows) => (None, rows.iter().map(|row| ellipsized(row, cols)).collect()),
+            // question's resolution is not one of them. Its rows are the ones
+            // written at the width of the moment; one wider than this screen
+            // runs on to the next row, as upstream's row walker lets it.
+            Body::Block(rows) => (
+                None,
+                rows.iter().flat_map(|row| run_on(row, cols)).collect(),
+            ),
         }
     }
 
@@ -1613,8 +1618,8 @@ impl FullTranscript {
         // 6594-6619@481104fd`, 78424464).
         let plain_heading = unpainted(&heading);
         let first_line = plain_heading.split(['\n', '\r']).next().unwrap_or_default();
-        let heading_fits = markdown::display_width::visible_width_ignoring_ansi(heading.as_bytes())
-            <= usize::from(cols);
+        // Measured as the screen measures it (`tool_status`'s measure).
+        let heading_fits = wrap::width(&heading) <= cols;
         rows.extend(tool_status::expanded_rows(&heading, cols));
         if call.change.is_none() {
             for argument in &call.arguments {
@@ -1837,6 +1842,50 @@ fn literal(text: &str, cols: u16, palette: Palette) -> Vec<String> {
         }
         rows.push(format!("\u{2502}{dim}{GUTTER}{piece}{reset}"));
     }
+    rows
+}
+
+/// A row written at another width, laid out at `cols` as upstream's row walker
+/// lays out a static row (`ProjectionRowWalker.appendWithSoftWrapPrefix`,
+/// `full_transcript_screen.zig:3968-4039@481104fd`): every character where it
+/// is, and one whose cells would pass the last column on the next row, as a
+/// terminal wraps it -- no indent, mid-word. The walker writes the row as one
+/// stream, so what it has switched on is still on past the wrap; here each
+/// row is a row of its own, so a row that runs on is closed and the next
+/// reopens it (`super::pacer::SgrState`, the frame's own model of a row's
+/// colours). A row that fits is the row as it is.
+fn run_on(row: &str, cols: u16) -> Vec<String> {
+    if wrap::width(row) <= cols || cols == 0 {
+        return vec![row.to_string()];
+    }
+    let reset = "\u{1b}[0m";
+    let mut rows = Vec::new();
+    let mut pen = super::pacer::SgrState::default();
+    let mut piece = String::new();
+    let mut used = 0u16;
+    let mut rest = row;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            pen.observe(&rest[..len]);
+            piece.push_str(&rest[..len]);
+            rest = &rest[len..];
+            continue;
+        }
+        let Some(cluster) = wrap::first_cluster(rest) else {
+            break;
+        };
+        rest = &rest[cluster.len()..];
+        let width = wrap::cluster_width(cluster);
+        if width > 0 && used + width > cols && used > 0 {
+            piece.push_str(reset);
+            rows.push(std::mem::take(&mut piece));
+            piece.push_str(&pen.reopen());
+            used = 0;
+        }
+        piece.push_str(cluster);
+        used += width;
+    }
+    rows.push(piece);
     rows
 }
 
@@ -3154,6 +3203,47 @@ mod tests {
     }
 
     #[test]
+    fn a_resolution_wider_than_a_narrowed_screen_runs_on_to_the_next_row() {
+        // fx v0.0.16 keeps the rows it composed at the width of the moment
+        // and walks a row wider than the screen onto the next one, cell by
+        // cell and in its colours, as a terminal wraps it
+        // (`ProjectionRowWalker.appendWithSoftWrapPrefix`,
+        // `full_transcript_screen.zig:3968-4039@481104fd`):
+        // `p5-transcript-question` at 60 columns, `  1) Which of the two
+        // storage engines should the nightly imp` / `ort job write …`.
+        let question = "  1) Which of the two storage engines should the nightly import job write its staging tables into before it runs the";
+        let mut record = record();
+        record.prompt("pick a storage engine");
+        record.block(&[
+            question.to_string(),
+            "     checks?".to_string(),
+            format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
+        ]);
+        let rows = record_at(&record, 60);
+        assert_eq!(
+            &rows[3..7],
+            [
+                &question[..60],
+                &question[60..],
+                "     checks?",
+                "     Postgres with the log",
+            ]
+        );
+        assert!(!rows.concat().contains('\u{2026}'));
+        // A colour in force where a row runs on is in force on the next.
+        let painted = record.rows(20, 40, DARK, "");
+        let at = plain(&painted)
+            .iter()
+            .position(|row| row == "     Postgres with t")
+            .expect("the resolution's third row");
+        assert!(painted[at].starts_with(DARK.dim()), "{:?}", painted[at]);
+        assert_eq!(plain(&painted)[at + 1], "he log");
+        for row in &painted {
+            assert!(wrap::width(row) <= 20, "{row:?}");
+        }
+    }
+
+    #[test]
     fn details_that_arrive_before_the_calls_row_wait_for_it_and_die_with_the_turn() {
         let mut record = record();
         record.observe(&UiEvent::ToolDetail {
@@ -3833,19 +3923,23 @@ mod tests {
         let mut record = reading_session("read and wait");
         record.open();
         let tail = screen(&record);
+        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
+        let before = screen(&record);
+        settle_under(&mut record);
+        let after = screen(&record);
+        // The hold first, so that a build without the wrap (one whose
+        // heading never changes height) is held to it too.
+        assert_eq!(after[..36], before[..36]);
+        // And it still moves from where it is.
+        assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
+        assert_eq!(screen(&record)[0], before[3]);
+        // What the rebuild changed below the view: the `Running` heading,
+        // two rows wrapped, is a `Ran` one of one row.
         let heading = tail
             .iter()
             .position(|row| row.starts_with("\u{2514} Running sleep 9;"))
             .expect("the heading");
         assert_eq!(tail[heading + 1], "  zz", "the heading wraps to two rows");
-        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
-        let before = screen(&record);
-        settle_under(&mut record);
-        let after = screen(&record);
-        assert_eq!(after[..36], before[..36]);
-        // And it still moves from where it is.
-        assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
-        assert_eq!(screen(&record)[0], before[3]);
     }
 
     #[test]
@@ -3882,11 +3976,31 @@ mod tests {
     }
 
     #[test]
+    fn a_reader_among_the_records_keeps_its_row_when_the_width_changes() {
+        // fx v0.0.16 `p5-transcript-records`: from the top, Down once puts
+        // the `* session:` record's first row at row 1; at 80 columns and
+        // back at 120 it is still row 1 (`a_width_change_is_a_rebuild` in
+        // `position`'s docs).
+        let mut record = reading_session("read and wait");
+        settle_under(&mut record);
+        record.open();
+        while record.key(Action::PageUp, 120, 40, DARK) == Reply::Moved {}
+        assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
+        let wide = screen(&record);
+        assert!(wide[0].starts_with("* session:"), "{wide:?}");
+        let narrow = screen_at(&record, 80);
+        assert!(narrow[0].starts_with("* session:"), "{narrow:?}");
+        assert_eq!(screen(&record)[0], wide[0]);
+    }
+
+    #[test]
     fn a_width_change_keeps_the_entry_the_reader_was_in() {
-        // `prepare_projection` (`transcript_presentation.zig:115-122@481104fd`):
-        // at 80 columns the prompt above the view takes another row and the
-        // answer below it two more; the reader stays in the same line of the
-        // same read.
+        // A width change is a rebuild: the position is pinned on the page
+        // laid out at the old width and found on the new one
+        // (`presentationForRebuiltPage`, `transcript/runtime.zig:
+        // 11584-11590@481104fd`). At 80 columns the prompt above the view
+        // takes another row and the answer below it two more; the reader
+        // stays in the same line of the same read.
         let mut record = reading_session(&"read and wait ".repeat(14));
         record.answer(&"tail words ".repeat(30));
         record.open();

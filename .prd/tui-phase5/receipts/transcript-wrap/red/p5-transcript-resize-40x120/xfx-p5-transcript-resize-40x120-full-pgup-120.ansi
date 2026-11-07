@@ -1,7 +1,12 @@
+│[38;5;245m  6     a line 6 of the a file[39m
+│[38;5;245m  7     a line 7 of the a file[39m
+│[38;5;245m  8     a line 8 of the a file[39m
+│[38;5;245m  9     a line 9 of the a file[39m
+│[38;5;245m  10    a line 10 of the a file[39m
 │[38;5;245m  11    a line 11 of the a file[39m
 │[38;5;245m  12    a line 12 of the a file[39m
 
-[38;5;245m  2026-11-06 21:41:10.249 UTC · Tool[39m
+[38;5;245m  2026-11-06 23:42:52.171 UTC · Tool[39m
 ├ Read b.txt
 │[38;5;245m  1     b line 1 of the b file[39m
 │[38;5;245m  2     b line 2 of the b file[39m
@@ -16,7 +21,7 @@
 │[38;5;245m  11    b line 11 of the b file[39m
 │[38;5;245m  12    b line 12 of the b file[39m
 
-[38;5;245m  2026-11-06 21:41:10.268 UTC · Tool[39m
+[38;5;245m  2026-11-06 23:42:52.189 UTC · Tool[39m
 ├ Read c.txt
 │[38;5;245m  1     c line 1 of the c file[39m
 │[38;5;245m  2     c line 2 of the c file[39m
@@ -29,11 +34,6 @@
 │[38;5;245m  9     c line 9 of the c file[39m
 │[38;5;245m  10    c line 10 of the c file[39m
 │[38;5;245m  11    c line 11 of the c file[39m
-│[38;5;245m  12    c line 12 of the c file[39m
-
-[38;5;245m  2026-11-06 21:41:10.268 UTC · Tool[39m
-├ Read d.txt
-│[38;5;245m  1     d line 1 of the d file[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
 

@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-e21d3aa [debug] · Run /help for commands
+x𝒇x v0.1.0-52b150c [debug] · Run /help for commands
 
 ┃ read and wait
 

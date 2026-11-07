@@ -1,0 +1,25 @@
+== mutant: none
+   round 1 pair.py (PAGE_OFFSET=2): exit 0  aligned: 4 rows without a match, 0 unexplained
+   check.py:                        exit 0  7 claims, 7 hold, 0 fail
+   sweep, round 1 ledger:           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=full-transcript-shift | rows no cause covers: 0
+   sweep, this ledger   :           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=transcript-page-offset | rows no cause covers: 0
+== mutant: xfx full-pgup row 1, the top edge, its last digit (that window only)
+   round 1 pair.py (PAGE_OFFSET=2): exit 0  aligned: 4 rows without a match, 0 unexplained
+   check.py:                        exit 1  FAIL stitch p5-transcript-anchormid 40x120 [full-pgup-up full-pgup full-running] | FAIL xfx full-pgup-up: its last 33 rows are not the next window's first
+   sweep, round 1 ledger:           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=full-transcript-shift | rows no cause covers: 0
+   sweep, this ledger   :           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=transcript-page-offset | rows no cause covers: 0
+== mutant: xfx full-pgup row 1, the top edge, its last digit, in both windows that show it
+   round 1 pair.py (PAGE_OFFSET=2): exit 0  aligned: 4 rows without a match, 0 unexplained
+   check.py:                        exit 1  FAIL stitch p5-transcript-anchormid 40x120 [full-pgup-up full-pgup full-running] | FAIL bottom-up, fx '│  7     a line 7 of the a file' / xfx '│  7     a line 8 of the a file'
+   sweep, round 1 ledger:           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=full-transcript-shift | rows no cause covers: 0
+   sweep, this ledger   :           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=transcript-page-offset | rows no cause covers: 0
+== mutant: fx full-pgup row 36, the bottom edge: the header's `Tool` -> `Toil`
+   round 1 pair.py (PAGE_OFFSET=2): exit 0  aligned: 4 rows without a match, 0 unexplained
+   check.py:                        exit 1  FAIL stitch p5-transcript-anchormid 40x120 [full-pgup-up full-pgup full-running] | FAIL bottom-up, fx '  XXXXXXXXXXXXXXXXXXXXXXXXXXX · Toil' / xfx '  XXXXXXXXXXXXXXXXXXXXXXXXXXX · Tool'
+   sweep, round 1 ledger:           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=full-transcript-shift | rows no cause covers: 0
+   sweep, this ledger   :           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=transcript-page-offset | rows no cause covers: 0
+== mutant: xfx full-pgup row 12, mid-page, its last digit, in both windows that show it
+   round 1 pair.py (PAGE_OFFSET=2): exit 1  aligned: 6 rows without a match, 2 unexplained
+   check.py:                        exit 1  FAIL stitch p5-transcript-anchormid 40x120 [full-pgup-up full-pgup full-running] | FAIL bottom-up, fx '│  3     b line 3 of the b file' / xfx '│  3     b line 4 of the b file'
+   sweep, round 1 ledger:           exit 0  p5-transcript-anchormid-40x120           full-pgup            unresolved-defect      causes=full-transcript-shift | rows no cause covers: 0
+   sweep, this ledger   :           exit 1  NO CAUSE fx  row 10  │  3     b line 3 of the b file | NO CAUSE xfx row 12  │  3     b line 4 of the b file | rows no cause covers: 2
