@@ -13117,6 +13117,182 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking() {
+        // Upstream's stop stays requested until the worker takes the next
+        // item (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`; the
+        // stopped turn's `finishProcessing` leaves it, `:1541-1563`), and
+        // while it is, nothing is busy (`cancellation_stops_turn`,
+        // `app_worker_runtime.zig:785-788`, `:762-765`). A prompt typed under
+        // it is on its keystroke's frame with its activity, which reads no
+        // cancel (`pendingPromptActivityVisible`,
+        // `app_render_runtime.zig:286-290`), and is reported `working` on the
+        // pass the worker takes it: the `Thinking` frame, then `working`, as a
+        // prompt typed at an idle session is. Here the stop keeps the status
+        // settled across the keystroke, so nothing marks the prompt as typed,
+        // and the stopped turn's end turns the waiting prompt into `working`
+        // before any frame shows its `Thinking`.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports().last().map(String::as_str), Some(IDLE));
+        // Typed before the stopped turn has said it ended.
+        shell.route_bytes(b"next\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            !out.vectors[before..]
+                .iter()
+                .any(|vector| holds(vector, REPORT)),
+            "the waiting prompt's working went ahead of any frame that shows its turn: {:?}",
+            &out.vectors[before..]
+        );
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[started..];
+        let frame = tick
+            .iter()
+            .position(|vector| holds(vector, b"Thinking"))
+            .unwrap_or_else(|| panic!("the started turn painted no Thinking: {tick:?}"));
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes())
+            .unwrap_or_else(|| panic!("no working: {tick:?}"));
+        assert!(frame < report, "{tick:?}");
+    }
+
+    #[test]
+    fn a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does() {
+        // A prompt the runtime has not started -- behind a provider switch, a
+        // `/workspace` or a fork, which are runtime work here -- is upstream's
+        // pending submission: its card is adopted at the keystroke and it is
+        // queued once it may run (`adoptPendingUserPrompt`,
+        // `finalizePendingSubmission`, `main.zig:1234-1266@481104fd`), held
+        // meanwhile while the provider is prepared
+        // (`collectPendingSubmissionFacts`, `input_submit_runtime.zig:310-405`;
+        // `providerPreparationPending`, `app_auth_runtime.zig:1829-1834`), and
+        // until it is queued nothing is busy (`app_worker_runtime.zig:762-765`).
+        // So no report while it is held, `working` after the frame that shows
+        // its turn once it starts, and nothing at all when it is dropped
+        // before that -- a stop, a reset, a session replaced.
+        #[derive(Debug, Clone, Copy)]
+        enum Exit {
+            Start,
+            Stop,
+            Reset,
+            Replace,
+        }
+        for exit in [Exit::Start, Exit::Stop, Exit::Reset, Exit::Replace] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            for _ in 0..3 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            assert_eq!(
+                out.reports(),
+                [IDLE],
+                "{exit:?}: the held prompt was reported"
+            );
+            let before = out.vectors.len();
+            match exit {
+                Exit::Start => shell.apply(UiEvent::TurnStarted),
+                Exit::Stop => shell.route_bytes(&[0x03]),
+                Exit::Reset => shell.route_bytes(b"/new\r"),
+                Exit::Replace => shell.apply(UiEvent::Resumed(one_saved_turn())),
+            }
+            for _ in 0..2 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let ticks = &out.vectors[before..];
+            match exit {
+                Exit::Start => {
+                    let frame = ticks.iter().position(|vector| holds(vector, b"Thinking"));
+                    let report = ticks
+                        .iter()
+                        .position(|vector| vector.as_slice() == WORKING.as_bytes());
+                    assert!(
+                        frame.is_some() && report.is_some() && frame < report,
+                        "{exit:?}: {ticks:?}"
+                    );
+                    assert_eq!(out.reports(), [IDLE, WORKING], "{exit:?}");
+                }
+                Exit::Stop | Exit::Reset | Exit::Replace => {
+                    assert_eq!(out.reports(), [IDLE], "{exit:?}: {ticks:?}");
+                }
+            }
+            // And the hold is over: nothing of it is left for a later tick.
+            assert_eq!(
+                shell.take_status_moved_by_input(),
+                super::super::shell::Keyed::No,
+                "{exit:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle() {
+        // Upstream's bootstrap writes the title before its loop runs, and the
+        // loop's first pass reports before it handles a key
+        // (`src/ui/event_loop.zig:78-117@481104fd`): `idle` first whatever
+        // was typed while the launch probe read the terminal, on the first
+        // frame's lead, and the keys' `working` after the frame that shows
+        // their turn. The probe's leftovers are routed before the first tick
+        // ([`session`]).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        shell.route_read(b"typed ahead\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports().len(),
+            1,
+            "the launch's idle went missing, or more went with it"
+        );
+        let first = out
+            .vectors
+            .iter()
+            .position(|vector| holds(vector, REPORT))
+            .expect("a report");
+        assert_eq!(
+            after_title(&out.vectors[first]).map(|end| &out.vectors[first][end..][..IDLE.len()]),
+            Some(IDLE.as_bytes()),
+            "the launch's idle is not on the first frame's lead: {:?}",
+            out.vectors[first]
+        );
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[started..];
+        let frame = tick.iter().position(|vector| holds(vector, b"Thinking"));
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes());
+        assert!(
+            frame.is_some() && report.is_some() && frame < report,
+            "{tick:?}"
+        );
+    }
+
+    #[test]
     fn a_title_its_tick_asked_for_over_one_still_owed_follows_the_report() {
         // A title an earlier frame did not land is still the band's when a
         // tick's own events ask for another and a report is owed: upstream

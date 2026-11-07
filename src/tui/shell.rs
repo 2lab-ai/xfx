@@ -45086,6 +45086,44 @@ mod tests {
     }
 
     #[test]
+    fn an_automatic_compaction_failure_whose_place_comes_back_before_the_turn_ends_is_one_error() {
+        // The runtime sends `TurnEnded` (`worker.rs`'s turn loop) before it
+        // gives its place in the queue back, so a tick can settle the band
+        // between the compaction's failure and the turn's end -- the order
+        // the test above never takes. One `error`, as upstream's turn has one
+        // result (`program_status.zig:62-65@481104fd`): no `working` while the
+        // turn winds down, and nothing more when it ends.
+        let mut shell = shell(24, 80);
+        let _ = status_of(&mut shell);
+        shell.route_bytes(b"third question\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            status_of(&mut shell),
+            None,
+            "the settled band read the failed turn as working again"
+        );
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("compaction failed".into()),
+        });
+        assert_eq!(
+            status_of(&mut shell),
+            None,
+            "the turn's end reported it again"
+        );
+    }
+
+    #[test]
     fn an_automatic_compaction_that_fails_inside_a_turn_is_that_turns_error() {
         // Upstream: the compaction's error leaves the turn
         // (`orchestrator.zig:7864-7865@481104fd`), which is finished `.failed`
