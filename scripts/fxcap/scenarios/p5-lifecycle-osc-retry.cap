@@ -1,0 +1,15 @@
+# Phase 5 L-U1: a turn whose every request answers 502 stays `working` while
+# it waits to retry -- a retry is not a result. Read early, at 0.3 s, and
+# nothing after: xfx's turn gives up after its third attempt
+# (`gateway::DEFAULT_MAX_ATTEMPTS`, the `transport-owned retry` row) -- with
+# two Escapes at 0.45 s and later it had failed before the second landed --
+# where fx v0.0.16 keeps retrying, so nothing later in the turn is the same
+# turn on both. The stop's `idle` is p5-lifecycle-osc-interrupt's.
+gateway p5-lifecycle-retry-turns.json
+xfx: env XFX_SOUND=off
+keep
+wait 4
+type retry please
+key Enter
+wait 0.3
+wire r00-retrying

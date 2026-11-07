@@ -1,0 +1,44 @@
+[
+ {
+  "tool": {
+   "name": "shell",
+   "input": {
+    "request": {
+     "action": "run",
+     "command": "echo \u202eevil\u202c\tdone > out.txt",
+     "yield_time_ms": 30000
+    }
+   }
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-SHELL."
+  ]
+ },
+ {
+  "tool": {
+   "name": "ask_user_question",
+   "input": {
+    "questions": [
+     {
+      "question": "Pick\u001b]2;owned\u0007 a\u0085branch\u202e?\n\tnow \u009b31m",
+      "options": [
+       {
+        "label": "main"
+       },
+       {
+        "label": "dev"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-QUESTION."
+  ]
+ }
+]

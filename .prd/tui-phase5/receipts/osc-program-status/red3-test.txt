@@ -1,0 +1,18 @@
+# Round 3's RED: the five new unit tests on 7d8b2c10's code with only the launch_title helper
+# added (no splice into the lead, no deferred resume report, no startup-stop drain, no NoOp/Busy
+# narrowing). cargo test --locked --lib -- <the five>; 4 fail, and the regression guard passes.
+test tui::signals::tests::a_stop_before_the_session_began_gives_no_plane_back_to_a_later_continue ... FAILED
+test tui::shell::tests::an_automatic_compaction_that_compacted_nothing_leaves_the_turn_its_own_result ... FAILED
+test tui::event_loop::tests::the_launchs_report_follows_the_title_it_starts_with_and_leads_its_first_update ... FAILED
+test tui::event_loop::tests::a_resumes_report_follows_the_frame_the_resume_repaints ... FAILED
+test tui::event_loop::tests::a_title_its_own_tick_asked_for_follows_that_ticks_report ... ok
+thread 'tui::signals::tests::a_stop_before_the_session_began_gives_no_plane_back_to_a_later_continue' panicked at src/tui/signals.rs:996:9:
+the stop before the session began answered a continue no handler did
+thread 'tui::shell::tests::an_automatic_compaction_that_compacted_nothing_leaves_the_turn_its_own_result' panicked at src/tui/shell.rs:44746:13:
+assertion `left == right` failed: NoOp: not the turn's own result
+  left: Some("error")
+thread 'tui::event_loop::tests::the_launchs_report_follows_the_title_it_starts_with_and_leads_its_first_update' panicked at src/tui/event_loop.rs:12780:13:
+the report's vector does not lead with the title: "\u{1b}]7501;state=idle:app=xfx\u{1b}\\"
+thread 'tui::event_loop::tests::a_resumes_report_follows_the_frame_the_resume_repaints' panicked at src/tui/event_loop.rs:12867:9:
+the report went ahead of the frame: [[27, 93, 55, 53, 48, 49, 59, 115, 116, 97, 116, 101, 61, 105, 100, 108, 101, 58, 97, 112, 112, 61, 120, 102, 120, 27, 92], [27, 93, 50, 59, 120, 102, 120, 32, 118, 48, 46, 49, 46, 48, 32, 124, 32, 119, 1
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4280 filtered out; finished in 0.03s

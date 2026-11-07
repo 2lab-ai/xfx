@@ -1,0 +1,26 @@
+# Phase 5 L-U1: work that is not a turn and not a /compact reports nothing.
+# fx v0.0.16's worker runs two kinds of work, a prompt and a compaction
+# (`WorkItem`, `src/core/agent/worker_runtime.zig:167-170@481104fd`), so its
+# `busy` -- `processing or queued_count > 0` -- never covers the `/resume`
+# listing, which it polls (`pollSessionPicker`). After a turn, `/resume`'s
+# picker opens, Escape closes it, and the record still says `done`; the exit
+# clears it.
+gateway p5-lifecycle-one-turn.json
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+wait 3
+wire p00-done
+type /resume
+key Enter
+wait 2
+wire p01-picker
+key Escape
+wait 1
+wire p02-closed
+keep
+type /quit
+key Enter
+wait 2
+wire p03-exit

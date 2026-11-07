@@ -1,0 +1,21 @@
+# Phase 5 L-U1: a turn held mid-stream (working), stopped with two Escapes:
+# idle, not error and not done; the exit clears the record.
+gateway p5-lifecycle-osc-interrupt-turns.json
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+held
+wire i00-working
+key Escape
+wait 0.2
+key Escape
+wait 1.5
+wire i01-after-esc
+release
+wait 1
+keep
+type /quit
+key Enter
+wait 2
+wire i02-exit

@@ -1,0 +1,292 @@
+# P5 L-U1+U2, round 5 (L-U1+U2e). Every gate below ran on the tree of 75f70b03d260, the code the
+# receipt names (the commits after it add .prd/ files only), one step at a time, TMPDIR=<tmp>/osc,
+# macOS. Paths are redacted: <worktree>, <tmp>, <scratch>. Logs: <scratch>/gates5/*.log.
+# The heavy steps (both test suites, the fxcap test scripts, smoke, smoke-tui) ran under the
+# machine's suite lock (<tmp>/bin/suite-lock.sh: two heavy jobs at a time across every worker),
+# added 05:20 while the sweep below was running; the sweep began before it (base 02:42, head 04:10)
+# and was not restarted. Earlier rounds' gate records are this file's history (round 4's: b0fe0c09).
+
+## summary.log (gates5.sh: every step of ci.yml -- fmt, clippy x2, test --all-targets, the
+## fault-injection suite in full, no-stubs, no-secrets, test-check-no-secrets, test-gate-env,
+## identity, check-preview-contract, test-preview-contract, check-tui-preflight-cost,
+## check-usage-clock, the release and faulty builds and what each says it was built from,
+## smoke.sh, smoke-tui -- and sweep.yml's test-sweep and test-capture)
+head 75f70b03d260199e1c417e6ebf62061a5593e751
+fmt exit=0 (1s)
+clippy exit=0 (24s)
+clippy-fi exit=0 (22s)
+test exit=0 (283s)
+test-fi exit=0 (354s)
+stubs exit=0 (8s)
+secrets exit=0 (24s)
+test-check-no-secrets exit=0 (110s)
+test-gate-env exit=0 (120s)
+identity exit=0 (1s)
+contract exit=0 (1s)
+test-contract exit=0 (57s)
+preflight-cost exit=0 (109s)
+usage-clock exit=0 (10s)
+test-sweep exit=0 (94s)
+test-capture exit=0 (144s)
+build-release exit=0 (13s)
+build-faulty exit=0 (15s)
+revision exit=0 (1s)
+smoke exit=0 (407s)
+smoke-tui exit=0 (63s)
+gates-done
+
+## fmt
+(no output)
+
+## clippy
+   Compiling xfx v0.1.0 (<worktree>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.57s
+
+## clippy-fi
+   Compiling xfx v0.1.0 (<worktree>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.55s
+
+## test: 14 test binaries, 5268 passed, 0 failed, 7 ignored
+test result: ok. 4355 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 47.16s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.85s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.58s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.60s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+test result: ok. 178 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.09s
+
+## test-fi: 15 test binaries, 5306 passed, 0 failed, 7 ignored
+test result: ok. 4378 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.54s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.66s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.70s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 44.13s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+## stubs
+check-no-stubs: ok
+
+## secrets
+check-no-secrets: ok (12822 tracked file(s) scanned)
+
+## test-check-no-secrets
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+
+## test-gate-env
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+
+## identity
+check-xfx-identity: ok (12822 tracked file(s) scanned)
+
+## contract
+check-preview-contract: ok (.github/workflows/preview.yml)
+
+## test-contract
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+
+## preflight-cost
+preflight 200x300 full: 61292 bytes in 995.243µs mean, 940.875µs min, 997µs median, 1.08475ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 468.831µs mean, 463.5µs min, 468.584µs median, 473.125µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 655.493µs mean, 647.834µs min, 657.75µs median, 667.916µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 335.522µs mean, 331.333µs min, 334.041µs median, 349.292µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.190447ms mean, 1.179417ms min, 1.188542ms median, 1.207166ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+
+## usage-clock
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+
+## test-sweep
+OK
+..........................
+----------------------------------------------------------------------
+Ran 26 tests in 87.875s
+
+OK
+
+## test-capture
+..........................................
+----------------------------------------------------------------------
+Ran 42 tests in 142.951s
+
+OK
+
+## smoke
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <tmp>/osc-smoke-cli7
+
+## build-release
+   Compiling xfx v0.1.0 (<worktree>)
+    Finished `release` profile [optimized] target(s) in 13.09s
+
+## build-faulty
+   Compiling xfx v0.1.0 (<worktree>)
+    Finished `release` profile [optimized] target(s) in 14.51s
+
+## revision: `xfx status` of each binary (target/release/xfx, then target/faulty/release/xfx)
+[status] build_revision=75f70b03d260
+[status] build_revision=75f70b03d260
+
+## smoke-tui
+xfx smoke-tui
+  binary:   <worktree>/target/release/xfx
+  faulty:   <worktree>/target/faulty/release/xfx
+  evidence: <tmp>/osc-smoke10
+
+  0-oracle-falsification                ok
+  1-launch-and-band-ownership           ok
+  2-cursor-probe-and-scrollback-push    ok
+  3-restore-matrix                      ok
+  3b-shutdown-drain                     ok
+  3c-partial-frame-containment          ok
+  3d-primary-band-recovery              ok
+  3e-alternate-repaint-recovery         ok
+  3f-job-control                        ok
+  3g-inherited-ignores                  ok
+  4-raw-mode-positively-entered         ok
+  5-editor-basics                       ok
+  6-soft-wrap-and-growth-cap            ok
+  7-multiline-and-paste-framing         ok
+  8-streaming-render                    ok
+  9-activity-row                        ok
+  10-approval-panel                     ok
+  10b-approval-mid-turn                 ok
+  11-ctrl-c-as-a-byte                   ok
+  12-theme-detection                    ok
+  13-cell-diff-correctness              ok
+  14-no-op-frame-skip                   ok
+  15-resize-reflow                      ok
+  16-slash-menu                         ok
+  17-history                            ok
+  17b-quit-and-resume                   ok
+  18-provider-switch                    ok
+  19-model-catalog-and-context-meter    ok
+  20-alternate-screen-approval          ok
+  21-paste-entities                     ok
+  22-edit-history                       ok
+  23-question-panel                     ok
+  23b-question-cancelled                ok
+  24-approval-readiness                 ok
+  25-amended-approval                   ok
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+evidence: <tmp>/osc-smoke10
+
+## the parity sweep: every scenario (scripts/fxcap/sweep.sh --jobs 3, no --only), fx v0.0.16
+## against the e6cde019 base's debug build, then the head's (75f70b03)
+base: pass = 1037 / 1692 = 61.3%; unresolved 614, failed 2, timeout 0
+head: pass = 1017 / 1692 = 60.1%; unresolved 602, failed 2, timeout 33
+
+per-pair, against base (1692 pairs):
+  head: 1692 shared pairs, 1017 pass; gained 6, lost 26, other verdict changes 11; pairs only here 0, only in base 0
+    gained model-column-reask/col-back: unresolved-defect -> normalized-identical
+    gained model-parked/menu-loading: unresolved-defect -> normalized-identical
+    gained model-reask/menu-failed: unresolved-defect -> normalized-identical
+    gained p5-input-model-fail/fail-open: unresolved-defect -> normalized-identical
+    gained resume-paging/query-ve: unresolved-defect -> normalized-identical
+    gained resume-paging/query-ve-down3: unresolved-defect -> normalized-identical
+    LOST   image-composer/lookalike: normalized-identical -> timeout
+    LOST   image-composer/lookalike-sent: normalized-identical -> timeout
+    LOST   image-composer/oversized: normalized-identical -> timeout
+    LOST   image-composer/recalled: normalized-identical -> timeout
+    LOST   image-composer/recalled-sent: normalized-identical -> timeout
+    LOST   image-composer/recovered: normalized-identical -> timeout
+    LOST   image-composer/yanked: normalized-identical -> timeout
+    LOST   image-composer/yanked-sent: normalized-identical -> timeout
+    LOST   interrupt-retry/r0.15: normalized-identical -> unresolved-defect
+    LOST   p5-effort-fork-fork/continued: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/down: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/esc: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/forked: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/forked.full: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/menu: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/quit: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/resume: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/resume-both: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/resume-both-down: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/resumed-fork: identical -> timeout
+    LOST   p5-effort-fork-fork/slash-fo: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/up1: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/up2: normalized-identical -> timeout
+    LOST   p5-effort-fork-fork/up3-clamp: normalized-identical -> timeout
+    LOST   p5-transcript-resize/start: normalized-identical -> unresolved-defect
+    LOST   rules-read-auto/grep-no: normalized-identical -> timeout
+    moved  p5-effort-fork-fork/status: approved-divergence-cascade -> timeout
+    moved  p5-transcript-submit/filled: identical -> normalized-identical
+    moved  p5-transcript-submit/second: identical -> normalized-identical
+    moved  rules-read-auto/grep-amend: unresolved-defect -> timeout
+    moved  rules-read-auto/grep-ask: unresolved-defect -> timeout
+    moved  rules-read-auto/listed: unresolved-defect -> timeout
+    moved  rules-read-auto/read-ask: unresolved-defect -> timeout
+    moved  rules-read-auto/read-esc: unresolved-defect -> timeout
+    moved  rules-read-auto/remember-done: unresolved-defect -> timeout
+    moved  rules-read-auto/remember-prompt: unresolved-defect -> timeout
+    moved  rules-read-auto/remembered: unresolved-defect -> timeout
+
+xfx banners in each sweep's scoreboard.md:
+  sweep5-base: x𝒇x v0.1.0-e6cde01
+  sweep5-head: x𝒇x v0.1.0-75f70b0
+
+Timing in the full runs, the three scenarios that timed out (sweep5-*.log), xfx and fx the same minute:
+  base [37/653] fx p5-effort-fork-fork: ran (38s)
+  base [38/653] fx rules-read-auto: ran (44s)
+  base [39/653] fx image-composer: ran (46s)
+  base [40/653] xfx p5-effort-fork-fork: ran (38s)
+  base [41/653] xfx rules-read-auto: ran (36s)
+  base [42/653] xfx image-composer: ran (37s)
+  head [37/653] fx p5-effort-fork-fork: ran (78s)
+  head [38/653] fx image-composer: ran (88s)
+  head [39/653] fx rules-read-auto: ran (102s)
+  head [40/653] xfx p5-effort-fork-fork: timeout (115s)
+  head [41/653] xfx image-composer: timeout (112s)
+  head [42/653] xfx rules-read-auto: timeout (111s)
+
+The five scenarios whose pairs the head run lost, again under the suite lock, base then head
+(sweep.sh --jobs 3 --only image-composer --only p5-effort-fork-fork --only rules-read-auto --only interrupt-retry --only p5-transcript-resize):
+  base: pass = 30 / 55 = 54.5%; unresolved 24, failed 0, timeout 0  [x𝒇x v0.1.0-e6cde01]
+  head: pass = 30 / 55 = 54.5%; unresolved 24, failed 0, timeout 0  [x𝒇x v0.1.0-75f70b0]
+per-pair, against base (55 pairs):
+  head: 55 shared pairs, 30 pass; gained 0, lost 0, other verdict changes 0; pairs only here 0, only in base 0
+per-pair, against full-run-base (1692 pairs):
+  locked-rerun-head: 55 shared pairs, 30 pass; gained 0, lost 0, other verdict changes 0; pairs only here 0, only in full-run-base 1637
+

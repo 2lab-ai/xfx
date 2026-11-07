@@ -1,0 +1,25 @@
+# Phase 5 L-U2: a stop after a finished turn clears the record, and the
+# resume reports again -- idle, because the result was already reported.
+# Under `jobctl`, so a stop really stops. fx stops on a typed Ctrl-Z
+# (`app_input_runtime.zig:862-866`); a typed Ctrl-Z binds nothing in xfx
+# (docs/parity.md, the full-screen TUI row), whose stop is a SIGTSTP, so each
+# product is stopped its own way and both are continued with SIGCONT.
+gateway p5-lifecycle-one-turn.json
+jobctl
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+wait 3
+wire s00-done
+fx: key C-z
+xfx: signal TSTP
+wait 1
+wire s01-stopped
+signal CONT
+wait 2
+wire s02-resumed
+type second question
+key Enter
+wait 3
+wire s03-next-turn

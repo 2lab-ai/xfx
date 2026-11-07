@@ -1,0 +1,16 @@
+# Phase 5 L-U1: `ask` on a terminal writes no program status. The TUI is
+# left with `/quit` (idle, then the clear), and the binary is started again
+# in the same pane as `ask hello`: it answers, and the wire after the
+# relaunch carries no `OSC 7501` -- fx v0.0.16's reports come from its
+# interactive shell alone.
+gateway p5-lifecycle-one-turn.json
+xfx: env XFX_SOUND=off
+keep
+wait 4
+type /quit
+key Enter
+wait 2
+wire a00-quit
+relaunch ask hello
+wait 5
+wire a01-ask
