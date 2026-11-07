@@ -31,11 +31,15 @@ Each is `git merge --no-ff`, in this order. "Base" is git's merge base.
 | 7 | `origin/main` (#75) | `6066d67e` | `587f94ee` | `4e68d4d3` | none |
 
 After them: `37f5275a` (a ledger line #75 moved), `554c234f` (the submit
-snaps held), `8cd00233`, `bca3e793` and `97644085` (the ledger, below).
-The sweep's binary is `bca3e793`'s; `97644085` and this receipt change no
-compiled file (`git diff bca3e793 HEAD -- src tests build.rs Cargo.toml
-Cargo.lock` is empty), and every scoreboard here is rescored with the ledger
-as committed (`sweep.sh --rescore`).
+snaps held), `8cd00233`, `bca3e793` and `97644085` (the ledger, below),
+`f4af7b0a` (this receipt), and round 2's `5f2d0b88` (the MCP row's bound,
+two tests, the anchored selectors; "Round 2" below) and its receipt commit.
+The main sweep's binary is `bca3e793`'s, and the ledger and receipt commits
+after it change no compiled file. Round 2 changes only an MCP row's reason
+(the MCP arm, `server_spelled`, a new function in `src/mcp/mod.rs`), so
+`p5-mcp-*` and `p5-input-mcp` were swept again at `5f2d0b88`. Every
+scoreboard here is rescored with the ledger as committed (`sweep.sh
+--rescore`).
 
 Where a `docs/parity.md` hunk held whole table rows, each row was merged
 against the merge base by itself: a row one side changed is that side's; a
@@ -116,20 +120,34 @@ CALLROW-SAFE.
   3. `target()`: `main`'s MCP arm first (the server's name through
      `crate::mcp::terminal_safe`, unchanged), then CALLROW-SAFE's
      `spelled(target, activity)` for every other call.
-  4. `phrase()`, a failure: `main`'s MCP arm as it was (a non-empty reason
-     through `server_spelled`), then CALLROW-SAFE's arm for every other call
-     (flatten, then test for empty). Two arms, not one: one arm would carry
-     CALLROW-SAFE's test-after-flattening onto MCP rows, which neither unit
-     reviewed.
+  4. `phrase()`, a failure: `main`'s MCP arm (its reason through
+     `server_spelled`), then CALLROW-SAFE's arm for every other call
+     (flatten, then test for empty). The two differ in their spelling, not
+     in their test. As merged, the MCP arm tested the reason before spelling
+     it, but the channel had flattened it already (`bridge.rs:515`), so a
+     reason of white space alone showed `Failed mcp_x` with no `: ` on the
+     live path either way. Since round 2 (below) the MCP arm tests after its
+     own spelling, fx's rule, whatever path reaches it.
   5. tests: both added after the same test; `main`'s MCP tests, then
      CALLROW-SAFE's.
-- The seam with no conflict: CALLROW-SAFE's `bridge.rs` spells every call's
-  argument and reason as it crosses (`spelled_shown`, `toolgroup::flattened`),
-  MCP calls included, before `main`'s row spells an MCP name or reason
-  again with `crate::mcp::terminal_safe`. Both write fx's `encodeTerminalSafe`
-  forms, both leave printable ASCII as it is, and both bound at 256 bytes
-  with `...` (`REASON_BYTES`, `TERMINAL_SAFE_MAX_BYTES`), so the second pass
-  meets nothing it would change. `main`'s MCP row tests pass (gates below).
+- The seam with no conflict, which round 2 (below) had to fix. CALLROW-SAFE's
+  `bridge.rs` spells every call's argument and reason as it crosses
+  (`spelled_shown`, `toolgroup::flattened`: fx's `encodeTerminalSafe` set
+  and U+061C), MCP calls included. `main`'s MCP row then spells the name
+  with `crate::mcp::terminal_safe` and the reason with `server_spelled`,
+  whose set is wider: `approval_view::command_text` also names the
+  default-ignorable, drawn-wider and uncounted code points (U+FE0F, U+00AD,
+  U+3164, ...) that the channel leaves raw.
+  - For a character both name, both write the same token, and neither
+    touches printable ASCII, so a `\` is never spelled twice and nothing raw
+    gets through.
+  - An MCP name is an alias of `[A-Za-z0-9_-]` (`src/mcp/names.rs`), which
+    neither pass changes.
+  - A reason could be cut wrong: the row's 256-byte bound ran a character at
+    a time over the channel's spelled text, so where the wider set carried a
+    reason past the bound the cut could fall inside one of the channel's
+    escapes (RED below: the row ended `\x1b\...`). Round 2 cuts between
+    tokens.
 - `docs/parity.md`: `full-screen TUI` merged word by word (L-U4, T-U6, and
   CALLROW-SAFE's "each argument spelled as fx spells a command's row"). `full
   transcript (C-o)`: one word-level conflict, at the open item CALLROW-SAFE
@@ -218,8 +236,8 @@ a unit's decision.
   that scenario's command row (the transcript's, and Ctrl-O's heading)
   differs from fx's there. Checked on `end` and `end.full`: the one
   differing row is row 8, and with `\u{061c}` read back as U+061C xfx's row
-  is fx's text. Its selectors name that row only (`^[├└] Ran : .*G` + the
-  mark + `H\u{2067}I`, one form per side). With it, `end`/`end.full` are
+  is fx's text. Its selectors name that whole row, `^` to `$`, one form per
+  side (anchored in round 2). With it, `end`/`end.full` are
   approved-divergence and `full`/`full-pgup` have no row without a cause.
 - `diffctl-xfx-reads-first` (cause, kind scenario, owner T-U6): see merge 7.
 - `upgrade-update-alias` (cause, kind defect, owner "unowned (the upgrade
@@ -387,6 +405,129 @@ name those rows whole as they stand at 120 columns, do not reach the pieces
 (`G\` / `u{061c}H...`). Both decisions cover those rows; the selectors are
 width-bound, as `ctrl-o-command-marks` was in T-U1-SAFE.
 
+## Round 2: the resolution review's fixes
+
+Both engines approved with fixes. Code head `5f2d0b88`.
+
+### MUST: the bridge-to-MCP-row seam
+
+- **The defect.** See merge 6: `main`'s MCP row cut a reason the channel had
+  already spelled one character at a time, so its 256-byte bound could fall
+  inside one of the channel's escapes.
+- **The fix** (`5f2d0b88`):
+  - `crate::mcp::terminal_safe_respelled` is `terminal_safe`'s tokens and
+    bound, with each escape the channel writes (`\xNN`, `\u{N...}`, as
+    `tools::question::terminal_safe` writes them) taken as one token that is
+    never cut.
+  - `server_spelled` uses it, so the row is what one pass over the server's
+    words gives: `main`'s wider set and `main`'s bound.
+  - The MCP arm tests the reason after spelling it.
+  - CALLROW-SAFE's non-MCP rows are untouched: the change is the MCP arm,
+    `server_spelled` and a new function (`git diff f4af7b0a 5f2d0b88 --
+    src` is `src/mcp/mod.rs`, the new function; `src/tui/toolgroup.rs`, the
+    MCP arm, `server_spelled` and a test; and `src/tui/shell.rs`, a test).
+- **Why not have the channel leave an MCP reason to the row.** At
+  `ToolResult` the channel has no presentation to tell an MCP call by, only
+  the name, and a name is no test: `mcp_select_tool` is a registry meta tool
+  (`src/tools/mcp.rs:120`). Spelling every reason as it crosses is also
+  CALLROW-SAFE's reviewed guarantee to every consumer of the event.
+- **RED**, at `f4af7b0a` with the test alone added (`seam-red.txt`):
+  `tui::shell::tests::an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once`
+  drives `UiEvent::ToolStart`/`ToolResult{..}.made_inert()` for
+  `mcp_web_echo` into the shell. The reason holds a literal `\`, a tab,
+  U+00AD, U+202E, BEL, 155 `A`, six U+FE0F and three ESC. The document's row
+  ends `\u{fe0f}`x6 `\x1b\...` where one pass over the words ends `\x1b...`
+  (`shell.rs`'s first row assertion).
+- **GREEN**, at `5f2d0b88` (`seam-green.txt`):
+  - that test passes: the row is the one-pass row in the document and on
+    Ctrl-O;
+  - three reasons of white space alone (`"   "`, `" \t\r\n "`, VT+FF) give
+    `└ Failed mcp_web_echo` with no `: ` on both views.
+  - `tui::toolgroup::tests::an_mcp_reason_spelled_by_the_channel_is_cut_as_one_pass_cuts_the_raw_one`:
+    the channel's spelling then the row's equals one pass over the raw words
+    at every length from 150 to 299, for three tails. Between them the tails
+    hold U+FE0F, ESC, U+00AD, U+202E, C1, DEL, a literal `\`, U+061C, U+FEFF,
+    U+200B, U+3164, VT and white space. The result is a fixed point of the
+    row's spelling.
+  - The same test covers text that only looks like an escape (a server's
+    literal `\x1b`). It reads the same as the channel's own escape once
+    spelled, so the row keeps it whole and within the bound. The channel's
+    own bound, CALLROW-SAFE's, may cut it as it cuts any printable text.
+  - `main`'s `a_servers_words_in_a_failed_mcp_calls_row_are_written_out_not_obeyed`
+    passes unchanged.
+- **fx for white space alone.** `failureStatusDetail`'s dynamic-tool branch
+  returns null when `encodeTerminalSafeInline` leaves nothing
+  (`src/core/agent/runtime/tool_presentation.zig:1490-1493@481104fd`), and
+  the row is then the base alone (`:1283`). Before this train xfx's live
+  row was `Failed mcp_x: `: `main`'s channel blanked controls but kept white
+  space, so the arm saw a non-empty reason.
+- **The sweep cannot show this.** `p5-mcp-*`'s failure reasons are JSON
+  envelopes (cause `mcp-call-error-text`). It is still swept below, at this
+  code.
+
+### SHOULDs
+
+1. **`call-row-arabic-letter-mark`'s selectors** name the whole row, `^`
+   to `$`, as `ctrl-o-command-marks`' do. Rescored at `bca3e793`'s sweep: no
+   pair's verdict, causes or unattributed rows change.
+2. **T-U6's `check.py` on the train's captures** (`t6-check.txt`):
+   - Which captures: `bca3e793`'s build, held `submit-0.15` snaps included,
+     `frames.py`'s replays of their wires, and a copy of `check.py` whose
+     `BUILD["xfx"]` is `bca3e79`, the build of these captures.
+   - Result: **35 claims, 35 hold**, as T-U6's `green.txt`. Findings: 2 where
+     T-U6 had 4. `diffodd` `full`'s raw U+202E/U+200B/U+FEFF are gone
+     (T-U1-SAFE), and xfx's `diffwide` line 3 ends `TAIL` as fx's does
+     (WIDTH-DISPUTED).
+   - The T7 claim `same ... submit-0.15` holds on the held snap. Its label
+     now names the snap taken at the held first chunk, not 0.15 s after
+     Enter. T-U6's receipt and its captures, which are 0.15 s ones, are left
+     as they were.
+3. **40x60 `p5-transcript-safe` `full`/`full-pgup`: out of scope.**
+   - The brief's sweep size is 40x120, and so is CI's.
+   - At 60 columns the U+061C rows wrap, and both divergences' selectors
+     name whole rows (anchored since SHOULD 1).
+   - Naming the pieces (`G\`, `│ u{061c}H...`, `│ {2067}i`) would take
+     selectors loose enough to cover other rows of the scenario, which is
+     what SHOULD 1 removes.
+   - Those rows show; they hide nothing.
+
+### The MCP sweep
+
+Builds: base `6066d67e` (`v0.1.0-6066d67`); the train at `f4af7b0a`
+(`v0.1.0-f4af7b0`, before the fix) and at `5f2d0b88` (`v0.1.0-5f2d0b8`,
+the fix). fx v0.0.16. `sweep.sh --jobs 2 --only 'p5-mcp-*' --only
+p5-input-mcp` at 40x120, and `--size 40x60 --only p5-mcp-menu-new`, one
+sweep per build (`sweep-mcp-base-*.md`, `sweep-mcp-fix-*.md`). Counts are
+identical-or-normalized / approved / total, as the epic-2 integration
+receipt counts them.
+
+| scenario | epic-2 integration | base `6066d67e` | train `f4af7b0a` | train `5f2d0b88` |
+|---|---|---|---|---|
+| `p5-mcp-*` (20), 40x120 | 85 / 1 / 146 | 87 / 0 / 146 | 87 / 0 / 146 | **87 / 0 / 146** |
+| `p5-mcp-menu-new` 40x60 | 22 / 1 / 34 | 22 / 1 / 34 | 22 / 1 / 34 | **22 / 1 / 34** |
+| `p5-input-mcp` | 9 / 0 / 9 | 9 / 0 / 9 | 9 / 0 / 9 | **9 / 0 / 9** |
+
+- Per scenario, every build has epic-2's count. There are two exceptions,
+  and each is one pair more passing on the base as well: `p5-mcp-live` 3 /
+  0 / 6, and `p5-mcp-menu-new` 23 / 0 / 34 at 40x120 (its approved pair
+  passes). Those come from `main` since epic-2, not from the train.
+- Pair by pair, both train builds give the base's verdict on all 155 pairs
+  at 40x120 and all 34 at 40x60, with the same rows unattributed: no
+  regression, and no pair passes on one build and not on another.
+- `p5-mcp-menu-old` (10) and `p5-mcp-fail` (4), which read 8 and 3 on a
+  first run of the epic-2 preview, read 10 and 4 on all three builds here,
+  so nothing needed a re-run.
+
+### Round 2 gates (`5f2d0b88`, one at a time)
+
+| gate | result |
+|---|---|
+| fmt, clippy, clippy with fault-injection | ok |
+| identity / stubs / secrets, the ledger loading with its sources checked | ok |
+| `scripts/fxcap/test-sweep.sh` | 50 + 26 OK |
+| `cargo test --locked --no-fail-fast` | 5155 passed, 0 failed, 7 ignored |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5192 passed, 0 failed, 7 ignored |
+
 ## Files
 
 - `ci-report.md`: `ci-sweep.sh`'s report as it ran (`bca3e793`'s ledger).
@@ -395,6 +536,11 @@ width-bound, as `ctrl-o-command-marks` was in T-U1-SAFE.
   selection, head and base, rescored with the committed ledger.
 - `sweep-40x60.md`: CALLROW-SAFE's two 40x60 scenarios.
 - `units.txt`: each unit's GREEN xfx captures against the train's.
+- `seam-red.txt`, `seam-green.txt`: round 2's seam test at `f4af7b0a` with
+  the test alone added, and at `5f2d0b88`.
+- `t6-check.txt`: T-U6's `check.py` on the train's captures.
+- `sweep-mcp-base-120.md`, `sweep-mcp-base-60.md`, `sweep-mcp-fix-120.md`,
+  `sweep-mcp-fix-60.md`: the MCP sweeps on the base and at `5f2d0b88`.
 
 Every file went through `scripts/fxcap/redact.py` (the sweep's own writer,
 and the comparison's both sides).
