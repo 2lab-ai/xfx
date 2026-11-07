@@ -1017,10 +1017,11 @@ pub(crate) struct Shell {
     /// already the turn's result.
     ///
     /// It rides with [`Self::cancelling`], which keeps the turn's conclusion
-    /// silent (the row has said why), and outlives it: the band clears
-    /// `cancelling` once no place is held, which can be before the turn's end
-    /// is read ([`Self::settle_band`]), and the status reads the turn as
-    /// settled until `TurnEnded` takes this (or a new turn clears it).
+    /// silent (the row has said why), and the status reads the turn as
+    /// settled until `TurnEnded` takes this -- or a new turn clears it, or a
+    /// reset drops it with the conversation ([`Self::reset_session`]). The
+    /// band's settle takes neither while the turn's end is still to be read
+    /// ([`Self::settle_band`]).
     /// Upstream finishes such a turn `.failed`
     /// -- the compaction's error leaves the turn
     /// (`orchestrator.zig:7864-7865@481104fd`) and the turn is finished
@@ -14785,6 +14786,11 @@ impl Shell {
         self.cancelling = false;
         self.cancel_owed = None;
         self.cancel_covers = 0;
+        // So is a failed automatic compaction's turn: its result was reported
+        // when the compaction settled, and the end that would have taken this
+        // is drained. Kept, it would read the next conversation's first prompt
+        // or `/compact` as settled ([`Self::status_activity`]).
+        self.compaction_failed = false;
         self.retry = None;
         // A compaction's sentence is about the conversation being dropped
         // (`retireLiveSessionCompaction`, `app_session_runtime.zig:1958-1964`).
