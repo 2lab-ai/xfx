@@ -1,0 +1,16 @@
+diff --git a/src/tui/file_index.rs b/src/tui/file_index.rs
+index e5ab6f57..d28b910d 100644
+--- a/src/tui/file_index.rs
++++ b/src/tui/file_index.rs
+@@ -861,6 +861,11 @@ fn load(
+     stop: &AtomicBool,
+     tx: &mpsc::Sender<Published>,
+ ) {
++    // RED/GREEN fault: the worker's git start takes 8 s (P5-FLAKE-FILELIST).
++    #[cfg(test)]
++    if git.is_some() {
++        std::thread::sleep(std::time::Duration::from_secs(8));
++    }
+     let Ok(entries) = discover_roots(root, extra, git, stop) else {
+         let _ = tx.send(Published::Failed);
+         return;

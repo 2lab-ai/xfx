@@ -2043,17 +2043,31 @@ mod tests {
 
     #[test]
     fn the_panels_session_and_ultrafast_change_nothing_the_status_command_prints() {
+        // An id no other field can hold. `workspace` is a temporary directory
+        // (`.tmp` and six random letters and digits) and `build_revision` is
+        // hex; the dashes are in neither. The id was `s1`, which the random
+        // part spelled about once in 770 runs (PR #66's CI, 2026-11-06).
+        const ID: &str = "session-id-under-test-7f3a";
         let (_workspace, config) = keyed_config();
         let plain = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
         let mut shown = plain.clone();
         shown.session = Some(ShellSession::Open {
-            id: "s1".to_string(),
+            id: ID.to_string(),
             saved: true,
         });
         shown.ultrafast_requested = !plain.ultrafast_requested;
         assert_eq!(shown.render_text(), plain.render_text());
         assert_eq!(shown.render_json(), plain.render_json());
-        assert!(!shown.render_json().contains("s1"));
+        let json = shown.render_json();
+        assert!(!json.contains(ID), "{json}");
+        let fields: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&json).expect("one JSON object");
+        assert!(
+            !fields
+                .keys()
+                .any(|key| key == "session" || key.contains("ultrafast")),
+            "{json}"
+        );
     }
 
     // -- sessions ----------------------------------------------------------

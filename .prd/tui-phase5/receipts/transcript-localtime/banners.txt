@@ -1,0 +1,12 @@
+Row 1 of every banner-bearing snap in the two capture runs (13 runs, 65 snaps each; a Ctrl-O snap's row 1 is a record, not the banner), counted:
+
+RED, the base binary (built at 6c99caa5, a clean tree):
+  33 x𝒇x v0.1.0-6c99caa [debug] · Run /help for commands
+
+GREEN, the binary built after commit 29bbc118:
+  33 x𝒇x v0.1.0-29bbc11 [debug] · Run /help for commands
+
+The GREEN binary's own revision string (strings <bin> | grep):
+29bbc11812de
+
+The tz/tzsys full snaps committed under red/ and xfx/ come from these same two binaries, in these same two runs.

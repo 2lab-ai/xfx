@@ -1,0 +1,40 @@
+│  10    d line 10 of the d file
+│  11    d line 11 of the d file
+│  12    d line 12 of the d file
+
+  2026-11-06 21:40:49.683 UTC · Tool
+├ Read e.txt
+│  1     e line 1 of the e file
+│  2     e line 2 of the e file
+│  3     e line 3 of the e file
+│  4     e line 4 of the e file
+│  5     e line 5 of the e file
+│  6     e line 6 of the e file
+│  7     e line 7 of the e file
+│  8     e line 8 of the e file
+│  9     e line 9 of the e file
+│  10    e line 10 of the e file
+│  11    e line 11 of the e file
+│  12    e line 12 of the e file
+
+  2026-11-06 21:40:50.243 UTC · Tool
+├ Subagent finished · inspect alpha and report one line
+│ model-a
+│  action: run
+│  {"ok":true,"result":"Child finished.","error_code":null}
+
+  2026-11-06 21:40:50.243 UTC · Tool
+└ Subagent finished · inspect beta and report one line
+  model-a
+│  action: run
+│  {"ok":true,"result":"Child finished.","error_code":null}
+
+  2026-11-06 21:40:51.237 UTC · Response
+  All checked.
+
+  2026-11-06 21:40:51.228 UTC · Usage
+  13s (↑5 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ pick a storage engine
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Which of the two storage engines should the nightly import job write its staging tables into before it runs the
+  checks?
+
+    1) Postgres with the             Relational, strong consistency
+       write-ahead log kept on the
+       fast local disk
+    2) SQLite
+    3) Other
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,12 @@
+The new pty test (tests/tui.rs) on the base's src (6c99caa5), in a throwaway clone: cargo test --locked --test tui ctrl_o_
+
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... FAILED
+test ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft ... ok
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 169 filtered out; finished in 1.49s
+
+thread 'ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes' (<tid>) panicked at tests/tui.rs:6796:5:
+  header on the screen: 2026-11-06 23:18:38.087 UTC · Notice
+  header on the screen: 2026-11-06 23:18:37.922 UTC · Prompt
+  header on the screen: 2026-11-06 23:18:38.052 UTC · Tool
+  header on the screen: 2026-11-06 23:18:38.171 UTC · Response
+  header on the screen: 2026-11-06 23:18:38.171 UTC · Usage

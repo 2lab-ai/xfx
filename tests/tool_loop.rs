@@ -4550,29 +4550,48 @@ async fn a_command_the_person_stopped_leaves_the_request_that_asked_for_it_count
     // The stop reaches a running command at once (`terminal::supervise`), and
     // the turn still settles: the request that asked for the command is in the
     // turn's frame, for `/usage`, at what it reported.
+    //
+    // The stop comes once the command has written `began`, so the request
+    // that asked for it has answered and the command is running. It used to
+    // come 300 ms after the turn was built, and a turn slower than that to
+    // reach its first request was stopped before asking anything: no
+    // `Settled(40)`, and no command to stop.
     let tree = Tree::new();
     let cancel = CancelToken::new();
     let prompter = ScriptedAmender::new(vec![Amendment::plain()], cancel.clone());
     let provider = StreamingProvider::new(vec![(
-        vec![Chunk::ToolInput("{\"command\":\"sleep 30\"}")],
+        vec![Chunk::ToolInput(
+            "{\"command\":\"echo began > began; sleep 30\"}",
+        )],
         reporting(
             calls_step(vec![ToolCall {
                 id: "c1".to_string(),
                 name: "terminal".to_string(),
-                input: json!({ "action": "exec", "command": "sleep 30" }),
+                input: json!({ "action": "exec", "command": "echo began > began; sleep 30" }),
             }]),
             Some(40),
         ),
     )]);
-    // From another thread: the command holds this one while it runs.
+    // From another thread: the command holds this one while it runs. It runs
+    // in the tree's root, so `began` lands there.
     let stopper = cancel.clone();
+    let marker = tree.root().join("began");
     let stop = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        // A fresh shell on a loaded runner can take seconds to start; a wait
+        // that ends is a failure with a name rather than a hang.
+        let patience = std::time::Duration::from_secs(60);
+        let started = std::time::Instant::now();
+        while !marker.exists() && started.elapsed() < patience {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let began = marker.exists();
+        // Stopped either way, so a command that never began cannot hold the
+        // turn for its 30 s.
         stopper.cancel();
+        (began, std::time::Instant::now())
     });
     let mut sink = Counted::default();
     let mut journal = RecordingJournal::default();
-    let started = std::time::Instant::now();
     let _ = run_turn_saved(
         asking_turn(
             "run it",
@@ -4586,9 +4605,15 @@ async fn a_command_the_person_stopped_leaves_the_request_that_asked_for_it_count
         &mut journal,
     )
     .await;
-    stop.join().expect("the stopper");
+    let returned = std::time::Instant::now();
+    let (began, stopped_at) = stop.join().expect("the stopper");
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(10),
+        began,
+        "the command never wrote `began`, so nothing was stopped"
+    );
+    // From the stop: the wait for `began` is not the command running on.
+    assert!(
+        returned.saturating_duration_since(stopped_at) < std::time::Duration::from_secs(10),
         "the command ran on"
     );
     assert_eq!(sink.progress.last(), Some(&Progress::Settled(40)));

@@ -1,0 +1,1 @@
+[{"delayMs": 60, "chunks": ["Run `zig build` first.\n\n| Ste", "p | Command |\n|------|-------", "--|\n| build | `zig build` |\n|", " test | `zig build test` and ", "[the docs](https://example.co", "m/docs) |\n\nDone with `everyth", "ing`.\n"]}, {"delayMs": 60, "chunks": ["Spare ", "answer."]}]

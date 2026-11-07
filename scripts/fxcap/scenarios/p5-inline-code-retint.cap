@@ -1,0 +1,21 @@
+# P5 U3 (fx 5e32bce2): inline code is the brightest neutral, 255 dark and 235
+# light, and a live theme switch recolours an answer already on the screen:
+# its inline code, and a code block's comment, keyword, string and number.
+# The run starts dark (no FX_THEME/XFX_THEME pin: a pin locks live updates
+# out), then the terminal reports light and then dark again, as a terminal
+# that took the `?2031` subscription does (`CSI ? 997 ; 2 n` / `; 1 n`,
+# fx `theme_monitor.zig`, xfx `src/tui/theme.rs`).
+gateway p5-inline-code-retint-turns.json
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type show me the code
+wait 1
+key Enter
+wait 8
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark-again

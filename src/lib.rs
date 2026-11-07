@@ -21,6 +21,7 @@
 //! - [`usage`]: what the provider says the account has spent, for `/usage`
 //! - [`interactive`]: the line-oriented shell a bare `xfx` runs
 //! - [`trace`]: `/trace`'s private diagnostic report, for both shells
+//! - `local_time`: a moment's reading in the user's time zone, for a screen
 //! - [`tui`]: the opt-in raw-mode shell `XFX_TUI=1` runs in its place
 //! - [`app`]: composition and dispatch
 //!
@@ -38,6 +39,7 @@ pub mod gateway;
 pub mod image;
 pub mod interactive;
 pub mod llmux;
+pub(crate) mod local_time;
 pub mod markdown;
 pub mod mcp;
 pub mod output;

@@ -1,0 +1,40 @@
+
+  2026-11-06 21:33:58.015 UTC · Response
+  Run zig build test before you push, and read src/ui/render.zig first.
+
+  Steps:
+
+  1. Step 1 runs cmd-1 --flag on the tree
+  2. Step 2 runs cmd-2 --flag on the tree
+  3. Step 3 runs cmd-3 --flag on the tree
+  4. Step 4 runs cmd-4 --flag on the tree
+  5. Step 5 runs cmd-5 --flag on the tree
+  6. Step 6 runs cmd-6 --flag on the tree
+  7. Step 7 runs cmd-7 --flag on the tree
+  8. Step 8 runs cmd-8 --flag on the tree
+  9. Step 9 runs cmd-9 --flag on the tree
+  10. Step 10 runs cmd-10 --flag on the tree
+  11. Step 11 runs cmd-11 --flag on the tree
+  12. Step 12 runs cmd-12 --flag on the tree
+
+  A list that starts at nine:
+
+  9. item 9 with code9
+  10. item 10 with code10
+  11. item 11 with code11
+
+  • bullet with inline code
+    • nested bullet
+
+  ─ sh ─────────
+  zig build test
+  ──────────────
+
+  Done with everything.
+
+  2026-11-06 21:33:59.646 UTC · Usage
+  1s (↑4 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

@@ -31,7 +31,7 @@ fn backslash_escapes_survive_heading_preprocessing_and_code_spans() {
     processor.push("## \\*\\*literal bold\\*\\* and `\\*code\\*`\n", &mut out);
     assert_eq!(
         text(&out),
-        "\x1b[1m**literal bold** and \x1b[38;5;245m\\*code\\*\x1b[39m\x1b[22m\n"
+        "\x1b[1m**literal bold** and \x1b[38;5;255m\\*code\\*\x1b[39m\x1b[22m\n"
     );
 }
 
@@ -282,7 +282,7 @@ fn underscore_emphasis_preserves_code_literals_and_keeps_unpaired_markers_litera
         concat!(
             "_unclosed\n",
             "__unclosed\n",
-            "\x1b[38;5;245m_literal_ __literal__\x1b[39m\n",
+            "\x1b[38;5;255m_literal_ __literal__\x1b[39m\n",
         )
     );
 }
@@ -361,7 +361,7 @@ fn double_backtick_code_span_keeps_inner_backticks_and_trims_one_padding_space()
     processor.push("use `` a ` b `` and ``x`` here\n", &mut out);
     assert_eq!(
         text(&out),
-        "use \x1b[38;5;245ma ` b\x1b[39m and \x1b[38;5;245mx\x1b[39m here\n"
+        "use \x1b[38;5;255ma ` b\x1b[39m and \x1b[38;5;255mx\x1b[39m here\n"
     );
 }
 
@@ -373,7 +373,7 @@ fn code_span_closes_only_on_a_backtick_run_of_the_same_length() {
     processor.push("`a``b` and ``` lonely **bold**\n", &mut out);
     assert_eq!(
         text(&out),
-        "\x1b[38;5;245ma``b\x1b[39m and ``` lonely \x1b[1mbold\x1b[22m\n"
+        "\x1b[38;5;255ma``b\x1b[39m and ``` lonely \x1b[1mbold\x1b[22m\n"
     );
 }
 
@@ -423,7 +423,7 @@ fn code_span_content_is_not_entity_decoded_but_prose_is() {
     );
     assert_eq!(
         text(&out),
-        "a & b <c> \"d\" 'e' \u{2192} \x1b[38;5;245m&amp;\x1b[39m &unknown; &amp\n"
+        "a & b <c> \"d\" 'e' \u{2192} \x1b[38;5;255m&amp;\x1b[39m &unknown; &amp\n"
     );
 }
 
@@ -435,7 +435,7 @@ fn heading_strips_emphasis_markers_around_a_multi_backtick_code_span() {
     processor.push("## Run ``**raw**`` now\n", &mut out);
     assert_eq!(
         text(&out),
-        "\x1b[1mRun \x1b[38;5;245m**raw**\x1b[39m now\x1b[22m\n"
+        "\x1b[1mRun \x1b[38;5;255m**raw**\x1b[39m now\x1b[22m\n"
     );
 }
 
@@ -445,7 +445,7 @@ fn inline_code_backticks_wrap_with_ansi() {
     let mut out = Vec::new();
 
     processor.push("run `zig build` now\n", &mut out);
-    assert_eq!(text(&out), "run \x1b[38;5;245mzig build\x1b[39m now\n");
+    assert_eq!(text(&out), "run \x1b[38;5;255mzig build\x1b[39m now\n");
 }
 
 #[test]
@@ -455,7 +455,7 @@ fn inline_code_uses_the_selected_light_background() {
     let mut out = Vec::new();
 
     processor.push("run `zig build` now\n", &mut out);
-    assert_eq!(text(&out), "run \x1b[38;5;247mzig build\x1b[39m now\n");
+    assert_eq!(text(&out), "run \x1b[38;5;235mzig build\x1b[39m now\n");
 }
 
 #[test]

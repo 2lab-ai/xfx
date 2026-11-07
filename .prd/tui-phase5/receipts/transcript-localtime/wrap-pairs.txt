@@ -1,0 +1,37 @@
+T-U1+U2's pairs (their pair.py, their fx/ snaps, PAGE_OFFSET=2, causes session-record tool-schema) on this branch's GREEN; 'same' = the report equals theirs in pairs/green/ (the old full mask, X{27}, spelled back):
+p5-transcript-anchor-40x120-end                  same   aligned: 0 rows without a match, 0 unexplained
+p5-transcript-anchor-40x120-full-pgup            same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-anchor-40x120-full-pgup2-after     same   aligned: 8 rows without a match, 0 unexplained
+p5-transcript-anchor-40x120-full-pgup2           same   aligned: 8 rows without a match, 0 unexplained
+p5-transcript-anchor-40x120-full-running         same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-anchor-40x120-running              same   aligned: 0 rows without a match, 0 unexplained
+p5-transcript-anchormid-40x120-end               same   aligned: 0 rows without a match, 0 unexplained
+p5-transcript-anchormid-40x120-full-end          same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-anchormid-40x120-full-pgup-after   same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-anchormid-40x120-full-pgup         same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-anchormid-40x120-full-running      same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-anchormid-40x120-running           same   aligned: 0 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-pgup-120        same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-pgup-80         same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-pgup-after      same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-pgup            same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-running         same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-tail-120        same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-resize-40x120-full-tail-80         same   aligned: 4 rows without a match, 0 unexplained
+p5-transcript-tools-40x120-end.full              same   aligned: 10 rows without a match, 10 unexplained
+p5-transcript-tools-40x120-end                   same   aligned: 10 rows without a match, 10 unexplained
+p5-transcript-tools-40x120-full-pgup-after       same   aligned: 28 rows without a match, 21 unexplained
+p5-transcript-tools-40x120-full-pgup             same   aligned: 12 rows without a match, 0 unexplained
+p5-transcript-tools-40x120-full-running          same   aligned: 12 rows without a match, 0 unexplained
+p5-transcript-tools-40x120-full-tail-up4         same   aligned: 26 rows without a match, 24 unexplained
+p5-transcript-tools-40x120-full-tail             same   aligned: 28 rows without a match, 21 unexplained
+p5-transcript-tools-40x120-running               same   aligned: 0 rows without a match, 0 unexplained
+p5-transcript-tools-40x80-end.full               same   aligned: 10 rows without a match, 10 unexplained
+p5-transcript-tools-40x80-end                    same   aligned: 10 rows without a match, 10 unexplained
+p5-transcript-tools-40x80-full-pgup-after        same   aligned: 28 rows without a match, 21 unexplained
+p5-transcript-tools-40x80-full-pgup              same   aligned: 12 rows without a match, 0 unexplained
+p5-transcript-tools-40x80-full-running           same   aligned: 12 rows without a match, 0 unexplained
+p5-transcript-tools-40x80-full-tail-up4          same   aligned: 26 rows without a match, 24 unexplained
+p5-transcript-tools-40x80-full-tail              same   aligned: 28 rows without a match, 21 unexplained
+p5-transcript-tools-40x80-running                same   aligned: 0 rows without a match, 0 unexplained
+35 same, 0 other

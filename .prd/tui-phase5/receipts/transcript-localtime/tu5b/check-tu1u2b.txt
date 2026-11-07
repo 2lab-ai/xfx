@@ -1,0 +1,115 @@
+T-U1U2b's check.py (their claims, their fx/ snaps) on the merged head c84392a3's captures as xfx/:
+ok   stitch p5-transcript-tools 40x120 [full-running]
+       fx   31 rows joined; taken out: tool-schema 2, session-record 2, tools-list 2
+       xfx  27 rows joined; taken out: tools-list 2
+       compared bottom-up: 26 rows the same; above them only fx covers 0, only xfx 0
+ok   hold p5-transcript-tools 40x120 full-running == full-pgup
+       fx  all 36 rows the same; row 1 '<banner>'
+       xfx all 36 rows the same; row 1 '<banner>'
+ok   stitch p5-transcript-tools 40x80 [full-running]
+       fx   35 rows joined; taken out: tool-schema 2, session-record 2, tools-list 2
+       xfx  31 rows joined; taken out: tools-list 2
+       compared bottom-up: 30 rows the same; above them only fx covers 0, only xfx 0
+ok   hold p5-transcript-tools 40x80 full-running == full-pgup
+       fx  all 36 rows the same; row 1 '<banner>'
+       xfx all 36 rows the same; row 1 '<banner>'
+ok   inline p5-transcript-tools 40x120 running
+       all 41 rows the same
+ok   inline p5-transcript-tools 40x80 running
+       all 41 rows the same
+ok   stitch p5-transcript-anchormid 40x120 [full-pgup-up full-pgup full-running]
+       fx   75 rows joined; taken out: tool-schema 2
+       xfx  75 rows joined; taken out: 
+       compared bottom-up: 73 rows the same; above them only fx covers 0, only xfx 2
+ok   inside p5-transcript-anchormid 40x120 full-pgup, in running
+       fx  found whole, 70 rows from the document's end
+       xfx found whole, 72 rows from the document's end
+       fx's window starts 2 rows later than xfx's
+ok   hold p5-transcript-anchormid 40x120 full-pgup == full-pgup-back
+       fx  all 36 rows the same; row 1 '│  9     a line 9 of the a file'
+       xfx all 36 rows the same; row 1 '│  7     a line 7 of the a file'
+ok   hold p5-transcript-anchormid 40x120 full-pgup == full-pgup-after
+       fx  all 36 rows the same; row 1 '│  9     a line 9 of the a file'
+       xfx all 36 rows the same; row 1 '│  7     a line 7 of the a file'
+ok   stitch p5-transcript-anchormid 40x120 [full-end]
+       fx   36 rows joined; taken out: tool-schema 2
+       xfx  36 rows joined; taken out: 
+       compared bottom-up: 34 rows the same; above them only fx covers 0, only xfx 2
+ok   inline p5-transcript-anchormid 40x120 running
+       all 41 rows the same
+ok   inline p5-transcript-anchormid 40x120 end
+       all 41 rows the same
+ok   stitch p5-transcript-anchor 40x120 [full-pgup2 full-pgup full-running]
+       fx  108 rows joined; taken out: tool-schema 2, session-record 2, tools-list 2
+       xfx full-pgup2: at the top; it overlaps the next window by 3 rows
+       xfx 105 rows joined; taken out: tools-list 2
+       compared bottom-up: 103 rows the same; above them only fx covers 0, only xfx 1
+ok   insert p5-transcript-anchor 40x120 full-pgup2 -> full-pgup2-after
+       fx  rows 1-19 the same; a 5-row record at row 20; the 12 rows under it are the ones that were at row 20 on
+       xfx rows 1-18 the same; a 5-row record at row 19; the 13 rows under it are the ones that were at row 19 on
+ok   inline p5-transcript-anchor 40x120 running
+       all 41 rows the same
+ok   inline p5-transcript-anchor 40x120 end
+       all 41 rows the same
+ok   stitch p5-transcript-resize 40x120 [full-pgup-up full-pgup full-running]
+       fx   75 rows joined; taken out: tool-schema 2
+       xfx  75 rows joined; taken out: 
+       compared bottom-up: 73 rows the same; above them only fx covers 0, only xfx 2
+ok   inside p5-transcript-resize 40x120 full-pgup, in running-120
+       fx  found whole, 70 rows from the document's end
+       xfx found whole, 72 rows from the document's end
+       fx's window starts 2 rows later than xfx's
+ok   hold p5-transcript-resize 40x120 full-pgup == full-pgup-back
+       fx  all 36 rows the same; row 1 '│  9     a line 9 of the a file'
+       xfx all 36 rows the same; row 1 '│  7     a line 7 of the a file'
+ok   row1 p5-transcript-resize 40x120 full-pgup, full-pgup-80
+       fx  row 1 '│  9     a line 9 of the a file' in both
+       xfx row 1 '│  7     a line 7 of the a file' in both
+ok   stitch p5-transcript-resize 40x120 [full-tail-80-up full-tail-80-pgup full-tail-80]
+       fx   75 rows joined; taken out: tool-schema 2
+       xfx  75 rows joined; taken out: 
+       compared bottom-up: 73 rows the same; above them only fx covers 0, only xfx 2
+ok   inside p5-transcript-resize 40x120 full-pgup-80, in running-80
+       fx  found whole, 70 rows from the document's end
+       xfx found whole, 72 rows from the document's end
+       fx's window starts 2 rows later than xfx's, as at full-pgup: the same rows of the same entry
+ok   inside p5-transcript-resize 40x120 full-tail-80-pgup, in running-80
+       fx  found whole, 70 rows from the document's end
+       xfx found whole, 72 rows from the document's end
+       fx's window starts 2 rows later than xfx's
+ok   row1 p5-transcript-resize 40x120 full-tail-80-pgup, full-pgup-120
+       fx  row 1 '│  9     a line 9 of the a file' in both
+       xfx row 1 '│  7     a line 7 of the a file' in both
+ok   stitch p5-transcript-resize 40x120 [full-tail-120-up full-tail-120-pgup full-tail-120]
+       fx   75 rows joined; taken out: tool-schema 2
+       xfx  75 rows joined; taken out: 
+       compared bottom-up: 73 rows the same; above them only fx covers 0, only xfx 2
+ok   inside p5-transcript-resize 40x120 full-pgup-120, in running-120b
+       fx  found whole, 70 rows from the document's end
+       xfx found whole, 72 rows from the document's end
+       fx's window starts 2 rows later than xfx's, as at full-tail-80-pgup: the same rows of the same entry
+ok   hold p5-transcript-resize 40x120 full-tail-120-pgup == full-pgup-after
+       fx  all 36 rows the same; row 1 '│  9     a line 9 of the a file'
+       xfx all 36 rows the same; row 1 '│  7     a line 7 of the a file'
+ok   top p5-transcript-records 40x120 [full-records full-records-80 full-records-120]
+       full-records: 33 rows the same from the top (fx took out 2 session-record rows)
+       full-records-80: 33 rows the same from the top (fx took out 2 session-record rows)
+       full-records-120: 33 rows the same from the top (fx took out 2 session-record rows)
+ok   row1 p5-transcript-records 40x120 full-records, full-records-80
+       fx  row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
+       xfx row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
+ok   row1 p5-transcript-records 40x120 full-records, full-records-120
+       fx  row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
+       xfx row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
+ok   stitch p5-transcript-question 40x120 [full-120]
+       fx   32 rows joined; taken out: session-record 2, tools-list 2
+       xfx  30 rows joined; taken out: tools-list 2
+       compared bottom-up: 29 rows the same; above them only fx covers 0, only xfx 0
+ok   stitch p5-transcript-question 40x120 [full-60]
+       fx   36 rows joined; taken out: session-record 2, tools-list 3
+       xfx  34 rows joined; taken out: tools-list 3
+       compared bottom-up: 32 rows the same; above them only fx covers 0, only xfx 0
+ok   inline p5-transcript-question 40x120 answered
+       all 41 rows the same
+34 claims, 34 hold, 0 fail
+exit 0

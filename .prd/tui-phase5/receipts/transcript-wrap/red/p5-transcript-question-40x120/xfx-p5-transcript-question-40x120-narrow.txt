@@ -1,0 +1,40 @@
+┃ pick a storage engine
+
+  1) Which of the two storage engines should the nightly imp
+ort job write its staging tables into before it runs the
+     checks?
+     Postgres with the write-ahead log kept on the fast loca
+l disk
+
+  Got it.
+
+  3s (↑6 ↓80)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┃
+
+auto · model-a
