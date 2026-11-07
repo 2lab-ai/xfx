@@ -1,0 +1,348 @@
+# compare.py <mcp-e's own head sweep, rescored with the train's ledger> <the train head's sweep (3bd15c89)>
+pairs: reference 177, train 526, shared 177; only the reference: 0
+reference: 177 pairs, pass 131; approved-divergence 1, normalized-identical 131, unresolved-defect 45
+train: 177 pairs, pass 133; normalized-identical 133, unresolved-defect 44
+p5-mcp-menu-new approve-confirm: 1 differing rows left, 0 new
+    left: fx 'worktrees/feat-p5-mcp-discover/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx 'worktrees/feat-p5-mcp-discover/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+p5-mcp-menu-old prompts: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-verbs add-badname: 2 differing rows left, 2 new
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-new-http: 4 differing rows left, 4 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-new-syntax: 4 differing rows left, 4 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-old-http: 4 differing rows left, 4 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-old-syntax: 4 differing rows left, 4 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs auth-remote: 37 differing rows left, 18 new
+    left: fx '' / xfx '    next       /mcp approve proj'
+    left: fx '' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '' / xfx '  fixture  ~/.xfx/mcp.json  stdio      ready, 1 tool'
+    left: fx '' / xfx '! mcp: /mcp auth is now /mcp login NAME.'
+    left: fx '' / xfx '! mcp: Interactive MCP authentication is unavailable here.'
+    left: fx '' / xfx '! mcp: fixture runs a command, so it has no login.'
+    left: fx '' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '' / xfx '┃'
+    left: fx '      echo  Echo text through the legacy MCP fixture' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    status     ready, 1 tool'
+    left: fx '<checkout>/scripts/fxcap/' / xfx '* mcp: remote'
+    left: fx "    error      it refused or never answered xfx's initialize request" / xfx '    source     .mcp.json'
+    left: fx '    next       /mcp approve proj' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    source     .mcp.json' / xfx '    transport  http'
+    left: fx '    source     ~/.xfx/mcp.json' / xfx '    transport  stdio'
+    left: fx '    source     ~/.xfx/mcp.json' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '    status     ready, 1 tool' / xfx '  proj     .mcp.json        stdio      waiting for approval'
+    left: fx '    status     retrying' / xfx '    status     waiting for approval'
+    left: fx '    status     waiting for approval' / xfx '      echo  Echo text through the legacy MCP fixture'
+    left: fx '    tools      1' / xfx '<checkout>/scripts/fxcap/'
+    left: fx '    transport  http' / xfx '    transport  stdio'
+    left: fx '    transport  stdio' / xfx ''
+    left: fx '    transport  stdio' / xfx '* mcp: fixture'
+    left: fx '    url        http://127.0.0.1:9/mcp' / xfx '<checkout>/scripts/fxcap/'
+    left: fx '    version    2025-03-26' / xfx ''
+    left: fx '  proj     .mcp.json       stdio      waiting for approval' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx ''
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    status     retrying'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    version    2025-03-26'
+    left: fx '! mcp: /mcp auth is now /mcp login NAME.' / xfx ''
+    left: fx "p: Couldn't sign in to remote: xfx couldn't find how to sign in to it." / xfx ''
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '* mcp: fixture' / xfx '  remote   ~/.xfx/mcp.json  http       connecting'
+    left: fx '* mcp: proj' / xfx '    tools      1'
+    left: fx '* mcp: remote' / xfx '* mcp: proj'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx ''
+    left: fx '┃' / xfx ''
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx "    error      it refused or never answered xfx's initialize request" / xfx '! mcp: fixture runs a command, so it has no login.'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    source     ~/.xfx/mcp.json' / xfx ''
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '    status     waiting for approval' / xfx '    status     retrying'
+    NEW:  fx '    transport  http' / xfx '    source     .mcp.json'
+    NEW:  fx '    transport  stdio' / xfx '    transport  http'
+    NEW:  fx '    url        http://127.0.0.1:9/mcp' / xfx '    next       /mcp approve proj'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '  proj     .mcp.json       stdio      waiting for approval' / xfx '  proj     .mcp.json        stdio      waiting for approval'
+    NEW:  fx "p: Couldn't sign in to remote: xfx couldn't find how to sign in to it." / xfx '! mcp: Interactive MCP authentication is unavailable here.'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: proj' / xfx '* mcp: remote'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs end.full: 4 differing rows left, 4 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs login-remote: 35 differing rows left, 18 new
+    left: fx '' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '    source     .mcp.json'
+    left: fx '' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '' / xfx '┃'
+    left: fx '      echo  Echo text through the legacy MCP fixture' / xfx '<checkout>/scripts/fxcap/'
+    left: fx '<checkout>/scripts/fxcap/' / xfx ''
+    left: fx '<checkout>/scripts/fxcap/' / xfx '* mcp: fixture'
+    left: fx "    error      it refused or never answered xfx's initialize request" / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '    next       /mcp approve proj' / xfx '    transport  http'
+    left: fx '    source     .mcp.json' / xfx '    status     retrying'
+    left: fx '    source     ~/.xfx/mcp.json' / xfx '<checkout>/scripts/fxcap/'
+    left: fx '    source     ~/.xfx/mcp.json' / xfx '    version    2025-03-26'
+    left: fx '    status     ready, 1 tool' / xfx '  remote   ~/.xfx/mcp.json  http       connecting'
+    left: fx '    status     retrying' / xfx '* mcp: proj'
+    left: fx '    status     waiting for approval' / xfx '    tools      1'
+    left: fx '    tools      1' / xfx '    transport  stdio'
+    left: fx '    transport  http' / xfx '    status     waiting for approval'
+    left: fx '    transport  stdio' / xfx ''
+    left: fx '    transport  stdio' / xfx '      echo  Echo text through the legacy MCP fixture'
+    left: fx '    url        http://127.0.0.1:9/mcp' / xfx '    transport  stdio'
+    left: fx '    version    2025-03-26' / xfx '  proj     .mcp.json        stdio      waiting for approval'
+    left: fx '  proj     .mcp.json       stdio      waiting for approval' / xfx ''
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '<banner>'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    status     ready, 1 tool'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '* mcp: remote'
+    left: fx "p: Couldn't sign in to remote: xfx couldn't find how to sign in to it." / xfx '    next       /mcp approve proj'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: fixture' / xfx '  fixture  ~/.xfx/mcp.json  stdio      ready, 1 tool'
+    left: fx '* mcp: proj' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx ''
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '! mcp: Interactive MCP authentication is unavailable here.'
+    left: fx '┃' / xfx '! mcp: fixture runs a command, so it has no login.'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx "    error      it refused or never answered xfx's initialize request" / xfx '! mcp: fixture runs a command, so it has no login.'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    source     ~/.xfx/mcp.json' / xfx ''
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '    status     waiting for approval' / xfx '    status     retrying'
+    NEW:  fx '    transport  http' / xfx '    source     .mcp.json'
+    NEW:  fx '    transport  stdio' / xfx '    transport  http'
+    NEW:  fx '    url        http://127.0.0.1:9/mcp' / xfx '    next       /mcp approve proj'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '  proj     .mcp.json       stdio      waiting for approval' / xfx '  proj     .mcp.json        stdio      waiting for approval'
+    NEW:  fx "p: Couldn't sign in to remote: xfx couldn't find how to sign in to it." / xfx '! mcp: Interactive MCP authentication is unavailable here.'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: proj' / xfx '* mcp: remote'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs login-stdio: 14 differing rows left, 14 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx ''
+    left: fx "    error      it refused or never answered xfx's initialize request" / xfx ''
+    left: fx '    source     .mcp.json' / xfx ''
+    left: fx '    status     retrying' / xfx ''
+    left: fx '    status     waiting for approval' / xfx ''
+    left: fx '    transport  http' / xfx ''
+    left: fx '    transport  stdio' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '    url        http://127.0.0.1:9/mcp' / xfx ''
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx ''
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx ''
+    left: fx '* mcp: proj' / xfx '┃'
+    left: fx '* mcp: remote' / xfx ''
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx ''
+    left: fx '┃' / xfx ''
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx "    error      it refused or never answered xfx's initialize request" / xfx '! mcp: fixture runs a command, so it has no login.'
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '    status     waiting for approval' / xfx '    status     retrying'
+    NEW:  fx '    transport  http' / xfx '    source     .mcp.json'
+    NEW:  fx '    transport  stdio' / xfx '    transport  http'
+    NEW:  fx '    url        http://127.0.0.1:9/mcp' / xfx '    next       /mcp approve proj'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: proj' / xfx '* mcp: remote'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs logout-remote: 4 differing rows left, 4 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '  scenarios/p5-mcp-stdio.ts'
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/'
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs show-proj: 2 differing rows left, 2 new
+    left: fx '<checkout>/scripts/fxcap/' / xfx ''
+    left: fx '  scenarios/p5-mcp-stdio.ts' / xfx ''
+    NEW:  fx '<checkout>/scripts/fxcap/scenarios/' / xfx ''
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx ''
+verdicts moved: 2
+    p5-mcp-menu-new approve-confirm: approved-divergence -> normalized-identical
+    p5-mcp-menu-old prompts: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 63
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-live live
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-menu-old prompts
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+xfx screens not the same in the two sweeps: 66
+    p5-mcp-direct end.full
+    p5-mcp-direct turn
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-mcp-wire-new turn
+    p5-mcp-wire-old turn
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 11
+# exit 0

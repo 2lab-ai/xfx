@@ -1,0 +1,377 @@
+commit 066a913d8eec455f963cc8bb77898ec49b1382e3
+parents a76f4e3776b85493779e7ddbf8e53e14836eafa9 e1d4016b490434da4a056b654f3317b6decc8a5a
+
+Merge feat/p5-tc-notation @ e1d4016b (TC-NOTATION + b: builtin greys spelt 38;5 at every depth; the ledger cause truecolor-grey-notation deleted) into the 2026-11-08 train 4
+
+Resolved by hand, both sides kept:
+- parity-ledger.toml, 11 hunks, path:line numbers only: train 3's
+  re-points (the code each entry is about) taken and moved by TC-NOTATION's
+  deleted lines above them (toolgroup.rs -1, shell.rs -3 / -34), each
+  checked against the code at the new line (resolve_refs.py in the train 4
+  receipt).
+- event_loop.rs: train 3's join test ran at both depths through
+  theme::Depth and shell_at, which TC-NOTATION deleted; it runs once on the
+  one palette (shell_of), its grey checks no longer gated on a depth.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/scripts/fxcap/parity-ledger.toml b/scripts/fxcap/parity-ledger.toml
+remerge CONFLICT (content): Merge conflict in scripts/fxcap/parity-ledger.toml
+index 8f227eb6..c42ba0b0 100644
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml
+@@ -374,11 +374,7 @@ reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and
+ owner = "CALLROW-SAFE"
+ resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
+ expires = "date:2026-12-04"
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:750"]
+-=======
+-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:656"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++source = ["docs/parity.md:238", "src/tui/toolgroup.rs:749"]
+ 
+ [[divergence]]
+ id = "call-row-source-cut"
+@@ -392,11 +388,7 @@ reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and sa
+ owner = "CALLROW-SAFE"
+ resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
+ expires = "date:2026-12-04"
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:798"]
+-=======
+-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:704"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++source = ["docs/parity.md:238", "src/tui/toolgroup.rs:797"]
+ 
+ [[divergence]]
+ id = "call-row-arabic-letter-mark"
+@@ -410,11 +402,7 @@ reason = "CALLROW-SAFE's decision (`call-row-raw-argument`) in the one scenario
+ owner = "CALLROW-SAFE"
+ resolution = "fx names U+061C on a command's row in a later pin, or the user takes fx's raw mark, as `call-row-raw-argument` resolves"
+ expires = "date:2026-12-04"
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:912"]
+-=======
+-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:818"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++source = ["docs/parity.md:238", "src/tui/toolgroup.rs:911"]
+ 
+ [[divergence]]
+ id = "status-notice-h1"
+@@ -516,11 +504,7 @@ owner = "user decision multi-line card preview"
+ scenarios = ["p5-transcript-submit-multi"]
+ snaps = ["frame1"]
+ rows = ["32-36"]
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12275). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+-=======
+-why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12189). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12272). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+ 
+ [[cause]]
+ id = "diffctl-xfx-reads-first"
+@@ -552,11 +536,7 @@ scenarios = ["*"]
+ snaps = ["*"]
+ fx_row = '^▪ Cancelled '
+ xfx_row = '^■ Cancelled '
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/toolgroup.rs:711"]
+-=======
+-xfx = ["src/tui/toolgroup.rs:617"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/toolgroup.rs:710"]
+ fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
+ why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
+ 
+@@ -740,11 +720,7 @@ scenarios = ["*"]
+ snaps = ["*"]
+ fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+ xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/shell.rs:37458"]
+-=======
+-xfx = ["src/tui/shell.rs:37238"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/shell.rs:37424"]
+ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
+ why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
+ 
+@@ -755,11 +731,7 @@ owner = "unowned (follows tool-schema and session-record)"
+ scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
+ snaps = ["full-*"]
+ rows = ["1-2", "35-37"]
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37458"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37238"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37424"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+ 
+@@ -771,11 +743,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
+ snaps = ["full-*"]
+ rows = ["34-37"]
+ xfx_row = '^\s*$'
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37458"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37238"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37424"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
+ 
+@@ -786,11 +754,7 @@ owner = "unowned (follows tool-schema and session-record)"
+ scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
+ snaps = ["full", "full-pgup"]
+ rows = ["1-2", "33-36"]
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37458"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37238"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37424"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
+ 
+@@ -801,11 +765,7 @@ owner = "unowned (follows tool-schema)"
+ scenarios = ["p5-call-row-safe"]
+ snaps = ["full"]
+ rows = ["1-3"]
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:750"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:656"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:749"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
+ why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
+ 
+@@ -850,11 +810,7 @@ owner = "unowned (follows session-record and tool-schema)"
+ scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+ snaps = ["*ctrl-o*", "full*"]
+ whole_snap = true
+-<<<<<<< a76f4e37 (Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4)
+-xfx = ["src/tui/shell.rs:37458", "src/tui/approval_view.rs:685"]
+-=======
+-xfx = ["src/tui/shell.rs:37238", "src/tui/approval_view.rs:685"]
+->>>>>>> e1d4016b (docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise)
++xfx = ["src/tui/shell.rs:37424", "src/tui/approval_view.rs:685"]
+ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
+ why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
+ 
+diff --git a/src/tui/event_loop.rs b/src/tui/event_loop.rs
+index 24609f1e..e003fef9 100644
+--- a/src/tui/event_loop.rs
++++ b/src/tui/event_loop.rs
+@@ -13300,112 +13300,108 @@ mod tests {
+ 
+     #[test]
+     fn a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted() {
+-        // Both reviews' join check (train 3). At both depths, dark to light
+-        // and back, each call row's switch is accepted by the check (the
+-        // debt is paid, and the band records the screen only once the
+-        // vector has landed); it leaves the row as a fresh landing in that
+-        // palette leaves it, cell for cell; and the selector units are
+-        // written as fx's frame writer writes them: `ECH 2` and a `CHA` to
+-        // the column after a two-cell one mid-row, a `CHA` after a one-cell
+-        // one, and `?7h` `ECH 2` the unit `?7l`, no anchor, at the margin.
+-        // The append that landed the rows wrote them as they stand
+-        // (`frame.rs`'s `place`, upstream's document append).
+-        use crate::tui::theme::Depth;
+-        for depth in [Depth::Ansi256, Depth::TrueColor] {
+-            let now = Instant::now();
+-            let mut failures = FrameFailures::default();
+-            let mut out = screen();
++        // Both reviews' join check (train 3). Dark to light and back, each
++        // call row's switch is accepted by the check (the debt is paid, and
++        // the band records the screen only once the vector has landed); it
++        // leaves the row as a fresh landing in that palette leaves it, cell
++        // for cell; and the selector units are written as fx's frame writer
++        // writes them: `ECH 2` and a `CHA` to the column after a two-cell one
++        // mid-row, a `CHA` after a one-cell one, and `?7h` `ECH 2` the unit
++        // `?7l`, no anchor, at the margin. The append that landed the rows
++        // wrote them as they stand (`frame.rs`'s `place`, upstream's document
++        // append).
++        //
++        // Train 3 ran this at both depths. Since TC-NOTATION the palette is a
++        // mode and nothing else, every builtin grey spelt `38;5` at every
++        // depth, and the launch reads no `COLORTERM` for it (train 4): one run
++        // is both depths', so the greys below hold with no depth to gate them.
++        let now = Instant::now();
++        let mut failures = FrameFailures::default();
++        let mut out = screen();
+ 
+-            // The group drawn fresh on a light screen: what the switch owes.
+-            let mut fresh = shell_at(24, 80, depth);
+-            let mut fresh_band = Band::new();
+-            a_turn_under_way(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+-            fresh.route_bytes(WENT_LIGHT);
+-            tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+-            three_selector_calls_then_an_answer(&mut fresh);
+-            tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
++        // The group drawn fresh on a light screen: what the switch owes.
++        let mut fresh = shell_of(24, 80);
++        let mut fresh_band = Band::new();
++        a_turn_under_way(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
++        fresh.route_bytes(WENT_LIGHT);
++        tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
++        three_selector_calls_then_an_answer(&mut fresh);
++        tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+ 
+-            let mut shell = shell_at(24, 80, depth);
+-            let mut band = Band::new();
+-            a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+-            three_selector_calls_then_an_answer(&mut shell);
+-            let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
++        let mut shell = shell_of(24, 80);
++        let mut band = Band::new();
++        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
++        three_selector_calls_then_an_answer(&mut shell);
++        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
++        assert!(
++            landed.contains("\u{26a1}\u{fe0f}") && !landed.contains("\u{1b}[2X"),
++            "the append did not write the rows as they stand: {landed:?}"
++        );
++        let dark: Vec<_> = SELECTOR_ROWS
++            .iter()
++            .map(|row| row_cells(&band, row).expect("the call row on the screen").1)
++            .collect();
++
++        let (mid, mid_width) = column_holding(&band, SELECTOR_ROWS[0], "\u{26a1}\u{fe0f}")
++            .expect("the two-cell selector glyph mid-row");
++        let (quote, quote_width) = column_holding(&band, SELECTOR_ROWS[1], "\"\u{fe0f}")
++            .expect("the quote the selector was joined to");
++        let (margin, margin_width) = column_holding(&band, SELECTOR_ROWS[2], "\u{26a1}\u{fe0f}")
++            .expect("the two-cell selector glyph at the margin");
++        assert_eq!((mid, mid_width), (13, 2));
++        assert_eq!((quote, quote_width), (14, 1));
++        assert_eq!(
++            (margin, margin_width),
++            (79, 2),
++            "the glyph does not end in the last column"
++        );
++
++        for (report, wanted) in [(WENT_LIGHT, None), (WENT_DARK, Some(&dark))] {
++            tick(&mut shell, &mut band, &mut out, &mut failures, now);
++            assert!(!shell.owes_retint(), "nothing was owed yet");
++            shell.route_bytes(report);
++            let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+             assert!(
+-                landed.contains("\u{26a1}\u{fe0f}") && !landed.contains("\u{1b}[2X"),
+-                "{depth:?}: the append did not write the rows as they stand: {landed:?}"
++                !shell.owes_retint(),
++                "the switch's vector was refused: {written:?}"
+             );
+-            let dark: Vec<_> = SELECTOR_ROWS
+-                .iter()
+-                .map(|row| row_cells(&band, row).expect("the call row on the screen").1)
+-                .collect();
+-
+-            let (mid, mid_width) = column_holding(&band, SELECTOR_ROWS[0], "\u{26a1}\u{fe0f}")
+-                .expect("the two-cell selector glyph mid-row");
+-            let (quote, quote_width) = column_holding(&band, SELECTOR_ROWS[1], "\"\u{fe0f}")
+-                .expect("the quote the selector was joined to");
+-            let (margin, margin_width) =
+-                column_holding(&band, SELECTOR_ROWS[2], "\u{26a1}\u{fe0f}")
+-                    .expect("the two-cell selector glyph at the margin");
+-            assert_eq!((mid, mid_width), (13, 2), "{depth:?}");
+-            assert_eq!((quote, quote_width), (14, 1), "{depth:?}");
+-            assert_eq!(
+-                (margin, margin_width),
+-                (79, 2),
+-                "{depth:?}: the glyph does not end in the last column"
++            assert!(
++                written.contains(&format!(
++                    "\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[{}G",
++                    mid + mid_width
++                )),
++                "the mid-row glyph is not cleared and anchored: {written:?}"
+             );
+-
+-            for (report, wanted) in [(WENT_LIGHT, None), (WENT_DARK, Some(&dark))] {
+-                tick(&mut shell, &mut band, &mut out, &mut failures, now);
+-                assert!(!shell.owes_retint(), "{depth:?}: nothing was owed yet");
+-                shell.route_bytes(report);
+-                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+-                assert!(
+-                    !shell.owes_retint(),
+-                    "{depth:?}: the switch's vector was refused: {written:?}"
+-                );
+-                assert!(
+-                    written.contains(&format!(
+-                        "\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[{}G",
+-                        mid + mid_width
+-                    )),
+-                    "{depth:?}: the mid-row glyph is not cleared and anchored: {written:?}"
+-                );
+-                assert!(
+-                    written.contains(&format!("\"\u{fe0f}\u{1b}[{}G", quote + quote_width)),
+-                    "{depth:?}: the joined one-cell unit is not anchored: {written:?}"
+-                );
+-                let bracket = "\u{1b}[?7h\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[?7l";
+-                let at = written
+-                    .find(bracket)
+-                    .unwrap_or_else(|| panic!("{depth:?}: no bracket at the margin: {written:?}"));
+-                let after = &written[at + bracket.len()..];
+-                let anchored = after.strip_prefix("\u{1b}[").is_some_and(|rest| {
+-                    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+-                    digits > 0 && rest[digits..].starts_with('G')
+-                });
++            assert!(
++                written.contains(&format!("\"\u{fe0f}\u{1b}[{}G", quote + quote_width)),
++                "the joined one-cell unit is not anchored: {written:?}"
++            );
++            let bracket = "\u{1b}[?7h\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[?7l";
++            let at = written
++                .find(bracket)
++                .unwrap_or_else(|| panic!("no bracket at the margin: {written:?}"));
++            let after = &written[at + bracket.len()..];
++            let anchored = after.strip_prefix("\u{1b}[").is_some_and(|rest| {
++                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
++                digits > 0 && rest[digits..].starts_with('G')
++            });
++            assert!(!anchored, "anchored past the margin: {written:?}");
++            for (index, row) in SELECTOR_ROWS.iter().enumerate() {
++                let (_, now_held) = row_cells(&band, row).expect("the call row");
++                let owed = match wanted {
++                    Some(dark) => dark[index].clone(),
++                    None => row_cells(&fresh_band, row).expect("the fresh row").1,
++                };
+                 assert!(
+-                    !anchored,
+-                    "{depth:?}: anchored past the margin: {written:?}"
++                    now_held == owed,
++                    "{row:?}: drawn again, not as a fresh landing:\n{now_held:?}\n{owed:?}"
+                 );
+-                for (index, row) in SELECTOR_ROWS.iter().enumerate() {
+-                    let (_, now_held) = row_cells(&band, row).expect("the call row");
+-                    let owed = match wanted {
+-                        Some(dark) => dark[index].clone(),
+-                        None => row_cells(&fresh_band, row).expect("the fresh row").1,
+-                    };
+-                    assert!(
+-                        now_held == owed,
+-                        "{depth:?} {row:?}: drawn again, not as a fresh landing:\n{now_held:?}\n{owed:?}"
+-                    );
+-                }
+-            }
+-            if depth == Depth::Ansi256 {
+-                // Back on the dark screen: the string's and the statusline's
+-                // greys, as the group's first landing had them.
+-                assert_eq!(on_screen(&band, SELECTOR_ROWS[0], "\u{26a1}"), Some(250));
+-                assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
+-                assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
+             }
+         }
++        // Back on the dark screen: the string's and the statusline's greys,
++        // as the group's first landing had them.
++        assert_eq!(on_screen(&band, SELECTOR_ROWS[0], "\u{26a1}"), Some(250));
++        assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
++        assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
+     }
+ }

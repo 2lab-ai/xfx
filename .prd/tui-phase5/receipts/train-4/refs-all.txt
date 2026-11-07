@@ -1,0 +1,73 @@
+# head a5b45e77; sides: main e6cde019, MCP-E d56ab017, TC-NOTATION e1d4016b, FLAKE-HINT4 31a6ef79
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/editor.rs:306
+    TC-NOTATION MOVED -> 311
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/editor.rs:381-394
+    TC-NOTATION MOVED -> 386-399
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    main MOVED -> 336 | MCP-E MOVED -> 339 | FLAKE-HINT4 MOVED -> 336
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: scripts/smoke-tui.sh:2203
+    main MOVED -> 2207 | MCP-E MOVED -> 2285 | TC-NOTATION MOVED -> 2281 | FLAKE-HINT4 MOVED -> 2207
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    MCP-E MOVED -> 891-925
+scripts/smoke-tui.sh: src/tui/check.rs:1084
+    MCP-E MOVED -> 1160 | TC-NOTATION MOVED -> 1160
+# 175 references in 572 files; 6 moved or changed on some side that cites them
+
+# head a5b45e77; sides: main e6cde019, MCP-E d56ab017, TC-NOTATION e1d4016b, FLAKE-HINT4 31a6ef79
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:251-308 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 247-313
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:296-306 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 301-311
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:311-318 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 316-323
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:366 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 371
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:366-368 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 371-373
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:374-376 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 379-381
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:470-476 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 475-481
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:1246 (src/tui/event_loop.rs)
+    MCP-E MOVED -> 1248
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:619-620 (src/tui/event_loop.rs)
+    MCP-E MOVED -> 621-622
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:622 (src/tui/event_loop.rs)
+    MCP-E MOVED -> 624
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:889-923 (src/tui/event_loop.rs)
+    MCP-E MOVED -> 891-925
+scripts/smoke-tui.sh: editor.rs:351 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 356
+src/tui/edit_history.rs: editor.rs:374-376 (src/tui/editor.rs)
+    TC-NOTATION MOVED -> 379-381
+src/tui/event_loop.rs: event_loop.rs:959-962 (src/tui/event_loop.rs)
+    MCP-E MOVED -> 961-964
+src/tui/event_loop.rs: frame.rs:1615-1628 (src/tui/frame.rs)
+    MCP-E MOVED -> 1633-1646 | TC-NOTATION MOVED -> 1613-1626
+src/tui/event_loop.rs: grid.rs:41 (src/tui/grid.rs)
+    MCP-E MOVED -> 46 | TC-NOTATION MOVED -> 46
+src/tui/event_loop.rs: transcript.rs:505-531 (src/tui/transcript.rs)
+    MCP-E MOVED -> 512-539
+src/tui/frame.rs: frame.rs:1063-1228 (src/tui/frame.rs)
+    MCP-E MOVED -> 1079-1244 | TC-NOTATION MOVED -> 1062-1226
+src/tui/frame.rs: frame.rs:1085 (src/tui/frame.rs)
+    MCP-E MOVED -> 1101 | TC-NOTATION MOVED -> 1083
+src/tui/frame.rs: frame.rs:1456 (src/tui/frame.rs)
+    MCP-E MOVED -> 1472 | TC-NOTATION MOVED -> 1454
+src/tui/frame.rs: frame.rs:1533-1585 (src/tui/frame.rs)
+    MCP-E MOVED -> 1551-1603 | TC-NOTATION MOVED -> 1531-1583
+src/tui/frame.rs: frame.rs:1587-1598 (src/tui/frame.rs)
+    MCP-E MOVED -> 1605-1616 | TC-NOTATION MOVED -> 1585-1596
+src/tui/frame.rs: frame.rs:1593-1616 (src/tui/frame.rs)
+    MCP-E MOVED -> 1611-1634 | TC-NOTATION MOVED -> 1591-1614
+src/tui/frame.rs: frame.rs:1617 (src/tui/frame.rs)
+    MCP-E MOVED -> 1635 | TC-NOTATION MOVED -> 1615
+src/tui/frame.rs: frame.rs:1617-1620 (src/tui/frame.rs)
+    MCP-E MOVED -> 1635-1638 | TC-NOTATION MOVED -> 1615-1618
+src/tui/frame.rs: grid.rs:240-243 (src/tui/grid.rs)
+    MCP-E MOVED -> 484-487 | TC-NOTATION MOVED -> 474-477
+src/tui/wrap.rs: check.rs:1689-1694 (src/tui/check.rs)
+    MCP-E MOVED -> 1765-1770 | TC-NOTATION MOVED -> 1765-1770
+src/tui/wrap.rs: grid.rs:210-214 (src/tui/grid.rs)
+    MCP-E MOVED -> 454-458 | TC-NOTATION MOVED -> 444-448
+# 87 short references into changed files; 28 moved or changed on some side that cites them

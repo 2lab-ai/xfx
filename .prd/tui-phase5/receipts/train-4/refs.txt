@@ -1,0 +1,134 @@
+# head e3035c92; sides: main e6cde019, MCP-E d56ab017, TC-NOTATION e1d4016b, FLAKE-HINT4 31a6ef79
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:802]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:827]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:518, scripts/fxcap/parity-ledger.toml:529]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:713]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:791]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:687]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:659]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:725]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+docs/parity.md:241	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | MCP-E* = row | TC-NOTATION* = row | FLAKE-HINT4* = row
+scripts/fxcap/capture.sh:266-268	[scripts/fxcap/parity-ledger.toml:85]
+    main -> 296-298 | MCP-E* -> 291-293 MOVED | TC-NOTATION -> 296-298 | FLAKE-HINT4 -> 271-273
+scripts/fxcap/capture.sh:430	[scripts/fxcap/parity-ledger.toml:78]
+    main -> 467 | MCP-E* -> 462 MOVED | TC-NOTATION -> 467 | FLAKE-HINT4 -> 435
+scripts/fxcap/capture.sh:794	[scripts/fxcap/parity-ledger.toml:147]
+    main -> 886 | MCP-E* -> 878 MOVED | TC-NOTATION -> 886 | FLAKE-HINT4 -> 802
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:608, docs/parity.md:237]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:687]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main changed | MCP-E* = | TC-NOTATION changed | FLAKE-HINT4 changed
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:780]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:780]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:711]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:699]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:617]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:825]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:956, docs/parity.md:176]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:527, docs/parity.md:158]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:527, docs/parity.md:158]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:782]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:837]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:711, scripts/fxcap/parity-ledger.toml:734, scripts/fxcap/parity-ledger.toml:746, scripts/fxcap/parity-ledger.toml:757, scripts/fxcap/parity-ledger.toml:768, scripts/fxcap/parity-ledger.toml:813]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/drawn_wider.rs:50-67	[scripts/fxcap/parity-ledger.toml:495]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/full_transcript.rs:492	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:860, scripts/fxcap/parity-ledger.toml:873]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:965]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:825]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/shell.rs:184	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/shell.rs:1583	[scripts/fxcap/parity-ledger.toml:849]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/shell.rs:12272	[scripts/fxcap/parity-ledger.toml:507]
+    main -> 12269 | MCP-E -> 12277 | TC-NOTATION -> 12347 | FLAKE-HINT4 -> 12269
+src/tui/shell.rs:37424	[scripts/fxcap/parity-ledger.toml:723, scripts/fxcap/parity-ledger.toml:734, scripts/fxcap/parity-ledger.toml:746, scripts/fxcap/parity-ledger.toml:757, scripts/fxcap/parity-ledger.toml:813]
+    main -> 37390 | MCP-E -> 37408 | TC-NOTATION -> 37508 | FLAKE-HINT4 -> 37390
+src/tui/toolgroup.rs:710	[scripts/fxcap/parity-ledger.toml:539]
+    main -> 709 | MCP-E -> 798 | TC-NOTATION = | FLAKE-HINT4 -> 709
+src/tui/toolgroup.rs:749	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:768]
+    main -> 748 | MCP-E -> 837 | TC-NOTATION = | FLAKE-HINT4 -> 748
+src/tui/toolgroup.rs:797	[scripts/fxcap/parity-ledger.toml:391]
+    main -> 796 | MCP-E -> 885 | TC-NOTATION = | FLAKE-HINT4 -> 796
+src/tui/toolgroup.rs:911	[scripts/fxcap/parity-ledger.toml:405]
+    main -> 910 | MCP-E -> 994 | TC-NOTATION = | FLAKE-HINT4 -> 910
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+src/tui/wrap.rs:622	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | MCP-E* = | TC-NOTATION* = | FLAKE-HINT4* =
+# 66 references; 3 (side, reference) pairs MOVED; * = the side's own text cites it

@@ -1,0 +1,70 @@
+merge a76f4e37: ours e6cde019, theirs d56ab017, base 6c93f359 -- OK
+  parity row 'MCP client runtime': changed by theirs; 846 tokens added, 91 deleted, all as expected
+  parity row 'full transcript (`C-o`)': changed by ours; 498 tokens added, 0 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by ours; 186 tokens added, 103 deleted, all as expected
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancelled-marker: changed by ours, kept so
+  ledger cause ctrl-o-diff-row-clipped: deleted by ours, kept so
+  ledger cause frame-variation-selector-anchor: deleted by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: added by ours, kept so
+  ledger cause toolgroup-retint-256: deleted by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause truecolor-grey-notation: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by theirs, kept so
+  ledger normalization run-directory: changed by theirs, kept so
+  ledger normalization tmux-dead-pane: changed by theirs, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge 066a913d: ours a76f4e37, theirs e1d4016b, base ec390074 -- OK
+  parity row '`/image`': changed by ours; 22 tokens added, 22 deleted, all as expected
+  parity row '`/paste`': changed by ours; 40 tokens added, 3 deleted, all as expected
+  parity row 'MCP server tools (`mcp_<server>_<tool>`)': changed by ours; 1 tokens added, 1 deleted, all as expected
+  parity row 'profile home `~/.xfx`': changed by ours; 225 tokens added, 10 deleted, all as expected
+  parity row 'MCP client runtime': changed by ours; 846 tokens added, 91 deleted, all as expected
+  parity row 'full transcript (`C-o`)': changed by ours; 498 tokens added, 0 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by theirs; 27 tokens added, 137 deleted, all as expected
+  ledger cause call-row-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause cancelled-marker: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause ctrl-o-diff-row-clipped: deleted by ours, kept so
+  ledger cause frame-variation-selector-anchor: deleted by ours, kept so
+  ledger cause full-transcript-shift: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause submit-multi-card-whole: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause truecolor-grey-notation: deleted by theirs, kept so
+  ledger divergence call-row-arabic-letter-mark: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence call-row-raw-argument: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence call-row-source-cut: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 0 added, 4 deleted, all as expected
+merge e3035c92: ours 066a913d, theirs 31a6ef79, base e6cde019 -- OK
+  parity row 'MCP client runtime': changed by ours; 846 tokens added, 91 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by ours; 27 tokens added, 137 deleted, all as expected
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancelled-marker: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause truecolor-grey-notation: deleted by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 0 added, 4 deleted, all as expected

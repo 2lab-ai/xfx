@@ -1,0 +1,7 @@
+commit e3035c920e9b9728fff63fe11f9185157be78f73
+parents 066a913d8eec455f963cc8bb77898ec49b1382e3 31a6ef792556c4d1f3fed1de7eb403d1fe054fbf
+
+Merge fix/p5-flake-hint4 @ 31a6ef79 (FLAKE-HINT4 r2: the `until shown|gone` verb, `absent`/`expect`, capfile.py's timer-window lint over every repo scenario, `models2 <catalog>` as a scenario line) into the 2026-11-08 train 4
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

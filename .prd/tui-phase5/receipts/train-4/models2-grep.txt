@@ -1,0 +1,5 @@
+# git grep at 3bd15c89, every tracked file outside .prd/: the old timed models2 form
+# (`models2 <catalog.json> <ms>`, FAKEGW_MODELS2_MS, capture.sh's `models2ms`)
+$ git grep -nE "MODELS2_MS|models2ms|models2 [^ ]+ [0-9]+" -- . ":!.prd"
+scripts/fxcap/test_capture.py:155:            ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
+# exit 0 -- the one line is FLAKE-HINT4's refusal case: the old form refused before launch
