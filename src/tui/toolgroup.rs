@@ -641,10 +641,10 @@ pub(crate) fn status(shown: &Shown) -> Option<String> {
 /// A command as [`spelled`] spells it, at `max` bytes -- and, with
 /// `mark_unread`, ended `...` where it was read only in part.
 ///
-/// The status phrase is fx's exactly and so says nothing of a command fx
-/// stopped reading (`formatRunCommandDetailBounded`, `tool_presentation.zig:
-/// 441-445@481104fd`, marks only what its encoder cuts): a marker there would
-/// put a `.` in the phrase fx's has not, and hide `cwd: .`.
+/// The status is fx's phrase (but for the unported `cd . &&` and workspace-root
+/// `.`, `docs/parity.md:238`): it says nothing of a command fx stopped reading
+/// (`tool_presentation.zig:441-445@481104fd` marks only what its encoder cuts),
+/// and a marker there would put in a `.` fx's has not and hide `cwd: .`.
 fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {
     let mut spelling = Spelling::new(max);
     let mut line_break = false;

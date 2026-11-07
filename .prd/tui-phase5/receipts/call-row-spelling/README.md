@@ -107,7 +107,9 @@ fall inside an escape's spelling: 116 `a`, U+202E, `z` became 116 `a`, a literal
 `\u{202e}`. A text value ending in `\` was then "shown already" and hidden.
 **Chosen:** compute the phrase from the raw value -- in `arguments`, where the
 raw call is already in hand on both the live and the resumed path, so nothing
-new has to cross the bridge and the 120-byte cut is fx's exactly (and, since
+new has to cross the bridge and the 120-byte cut is fx's exactly -- but for the
+`cd . &&` and workspace-root `.` projection xfx has never ported
+(`docs/parity.md:238`) -- (and, since
 round c, so is the absence of a source-cut marker in it); not the fallback of
 hiding no value near an escape, which would still differ from fx.
 - RED (`red-tests.txt`, on a clone of `9f93f8a5` with the round-2 test hunks and
@@ -185,7 +187,7 @@ follows, xfx's status ended `...` and fx's 120-byte one, which marks only what
 its encoder cuts (`tool_presentation.zig:441-445`), does not: a `.` was found
 in it and `cwd: .` hidden. **Fix:** `command_spelled(target, max, mark_unread)`
 (`toolgroup.rs:648`); the row passes `true` (`:610`), the status `false`
-(`:634`).
+(`:636`).
 - RED (`red-tests-c.txt`, f52e97a9's code with the test added):
   `a_command_read_only_in_part_hides_no_argument_fxs_status_would_show` -- `ls`,
   14 400 line breaks, `x`, with `cwd: "."` -- **fails**: `└ Ran ls...` is drawn
@@ -204,8 +206,9 @@ reverted) now fails the cut test; it survived round 2's suite.
 **3 -- `command-size-bound` reworded.** The 8 KiB bound is on the command once
 trimmed (`authority.rs:1145-1149`) while the row's target is the raw command
 (`src/tools/spec.rs:219`), so a command read only in part can be admitted --
-with at least 6 208 bytes of white space at its ends it passes and runs, its
-row ending `...` -- and round 2's "only on a refused row" was wrong. The bound
+with white space at its ends of at least 6 208 bytes more than its visible
+tail past byte 14 400 (so 6 209 at the fewest; 6 208 alone with an 8 192-byte
+body is read whole and not marked) it passes and runs, its row ending `...` -- and round 2's "only on a refused row" was wrong. The bound
 is a deliberate choice of fx's planning bound (`authority.rs:38-40`): the cause
 is now `kind = "unit"`, owner `CMD-SIZE`, and raising the bound is an S change.
 
@@ -248,7 +251,8 @@ Each alone on a throwaway `git clone --no-local` of `696700bb`, fourteen tests r
   as itself everywhere, and a tool's own reason raw; xfx spells them -- its
   selectors now the pattern's and the path's rows only. `call-row-source-cut`
   (divergence, `unsafe-to-copy`, `p5-call-row-long`): fx's silent source cut,
-  xfx's `...`. `command-size-bound` (cause, unowned): xfx's 8 KiB command bound.
+  xfx's `...`. `command-size-bound` (cause, kind `unit`, owner CMD-SIZE): xfx's 8 KiB
+  bound on the trimmed command, a deliberate choice; raising it is an S change.
   `call-row-page-edge` (cause): the Ctrl-O tail page's top rows.
 - `docs/parity.md:237` (full-screen TUI: each argument spelled) and `:238`
   (full transcript: the rule; the argument row's raw-value and 120-byte status
