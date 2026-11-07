@@ -9,7 +9,8 @@ reports what the interactive shell is doing to the terminal, and every restore c
 - **Base:** `origin/main` `24a6b912`.
 - **Code:** `eb90e677` (the commit every `xfx/` capture's banner names, `v0.1.0-eb90e67`): the
   unit's first commit `743c5381`, a commit of tests, comments and scenarios (`940878dd`), and a fix
-  to the work rule (`eb90e677`, below). The commits after it change this receipt only.
+  to the work rule (`eb90e677`, below). After it: `ecd4ace2`, a test case only (the stopped turn
+  whose call is still running, `## Mutants`), and the receipt commits.
 - **prev build:** `743c5381` (banner `v0.1.0-743c538`), kept for the one scenario it failed
   (`prev/`, `picker`).
 - **RED build:** the base, `24a6b912` (banner `v0.1.0-24a6b91`), from a `--no-local` clone.
