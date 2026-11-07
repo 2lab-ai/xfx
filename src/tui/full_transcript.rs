@@ -1055,8 +1055,9 @@ enum Body {
     /// Rows the document was given already laid out: what a question batch
     /// leaves behind (`super::question`'s `answered_rows`), a cancelled turn's
     /// line (`super::shell`'s `cancelled_line`) -- each with what the document
-    /// recorded it as, so a theme report recolours it here as it does there.
-    Block(Vec<(String, DocumentRow)>),
+    /// recorded it as, and the mode they were drawn in, so a theme report
+    /// recolours them here as it does there.
+    Block(Vec<(String, DocumentRow)>, Mode),
     /// Boxed: a call carries its arguments, its result and the change it made,
     /// and a record of one-line notices should not be as wide as that.
     Tool(Box<Call>),
@@ -1376,9 +1377,9 @@ impl FullTranscript {
     /// Rows laid out already -- a question batch's resolution, a cancelled
     /// turn's line -- which close the group as any other block written into
     /// the document does.
-    pub(crate) fn block(&mut self, rows: &[(String, DocumentRow)]) {
+    pub(crate) fn block(&mut self, rows: &[(String, DocumentRow)], drawn_in: Mode) {
         self.group_open = false;
-        self.push(Body::Block(rows.to_vec()));
+        self.push(Body::Block(rows.to_vec(), drawn_in));
     }
 
     /// The turn's summary under its answer.
@@ -1782,10 +1783,16 @@ impl FullTranscript {
             // on a theme switch (`retintEntriesForTheme`, `store.zig:3722-3760`,
             // `themeOwnsRawEntry` `:3802-3812`@481104fd), as a report recolours
             // the document's rows (`super::transcript`'s `recoloured`).
-            Body::Block(rows) => (
+            Body::Block(rows, drawn_in) => (
                 None,
                 rows.iter()
-                    .flat_map(|(row, kind)| run_on(&recoloured(row, *kind, palette), cols))
+                    .flat_map(|(row, kind)| {
+                        if *drawn_in == palette.mode {
+                            run_on(row, cols)
+                        } else {
+                            run_on(&recoloured(row, *kind, palette), cols)
+                        }
+                    })
                     .collect(),
             ),
         }
@@ -4416,10 +4423,13 @@ mod tests {
         // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), so no header.
         let mut record = record();
         record.prompt("ask me");
-        record.block(&[
-            ("  1) Which database?".to_string(), DocumentRow::Plain),
-            ("     SQLite".to_string(), DocumentRow::Answer),
-        ]);
+        record.block(
+            &[
+                ("  1) Which database?".to_string(), DocumentRow::Plain),
+                ("     SQLite".to_string(), DocumentRow::Answer),
+            ],
+            Mode::Dark,
+        );
         let rows = screen(&record);
         assert_eq!(
             &rows[..5],
@@ -4445,14 +4455,17 @@ mod tests {
         let question = "  1) Which of the two storage engines should the nightly import job write its staging tables into before it runs the";
         let mut record = record();
         record.prompt("pick a storage engine");
-        record.block(&[
-            (question.to_string(), DocumentRow::Plain),
-            ("     checks?".to_string(), DocumentRow::Plain),
-            (
-                format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
-                DocumentRow::Answer,
-            ),
-        ]);
+        record.block(
+            &[
+                (question.to_string(), DocumentRow::Plain),
+                ("     checks?".to_string(), DocumentRow::Plain),
+                (
+                    format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
+                    DocumentRow::Answer,
+                ),
+            ],
+            Mode::Dark,
+        );
         let rows = record_at(&record, 60);
         assert_eq!(
             &rows[3..7],

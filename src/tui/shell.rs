@@ -1931,9 +1931,9 @@ enum Mark {
     /// Rows laid out already -- wrapped at the screen they were composed for
     /// and painted in the palette's own colours -- each with what it is, as
     /// one block of the document with a blank row above and below it
-    /// ([`Shell::write_block`]). What a question batch leaves behind
-    /// ([`super::question`]).
-    Block(Vec<(String, DocumentRow)>),
+    /// ([`Shell::write_block`]), and the mode it was painted in. What a
+    /// question batch leaves behind ([`super::question`]).
+    Block(Vec<(String, DocumentRow)>, Mode),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -3558,10 +3558,10 @@ impl Shell {
         self.announce(notice::Notice::neutral("session forked", body));
         if let Ok(source) = crate::session::SessionId::parse(source) {
             let line = format!("original session xfx --resume {source}");
-            // An entry of the session's record, as upstream's raw line is one
-            // of its transcript's (`appendRaw`, a `raw_bytes` entry,
-            // `resume_projection.zig:106-128@481104fd`).
-            self.full.block(&[(line.clone(), DocumentRow::Plain)]);
+            // An entry of the record, as upstream's raw line is one of its transcript's
+            // (`appendRaw`, a `raw_bytes` entry, `resume_projection.zig:106-128@481104fd`).
+            let mode = self.palette.mode;
+            self.full.block(&[(line.clone(), DocumentRow::Plain)], mode);
             self.write_raw_rows(&line);
             self.raw_gap = true;
         }
@@ -3847,10 +3847,10 @@ impl Shell {
             // ([`cancelled_line`]), as a block so the full transcript records
             // it as upstream's replay does, and recorded as a stopped row so a
             // theme report repaints its two greys.
-            Ending::Cancelled => self.run_mark(Mark::Block(vec![(
-                cancelled_line(self.palette),
-                DocumentRow::ToolStopped,
-            )])),
+            Ending::Cancelled => self.run_mark(Mark::Block(
+                vec![(cancelled_line(self.palette), DocumentRow::ToolStopped)],
+                self.palette.mode,
+            )),
             // And for one that failed, whatever the live turn's sentence was.
             Ending::Failed => {
                 self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
@@ -4840,9 +4840,9 @@ impl Shell {
             Mark::Summary(line) => self.full.usage(line),
             // Upstream's full transcript has it as the user prompt it is.
             Mark::Amendment(text) => self.full.prompt(&card_text(text, &BadgeLinks::new())),
-            Mark::Block(rows) => {
+            Mark::Block(rows, drawn_in) => {
                 // With each row's kind, for a theme report's recolouring.
-                self.full.block(rows);
+                self.full.block(rows, *drawn_in);
             }
             Mark::ToolStart { id, shown } => self.full.tool_started(id, shown),
             Mark::ToolResult {
@@ -9189,7 +9189,7 @@ impl Shell {
                 // including asking a second batch straight away. The order
                 // [`Self::decide`] uses, for the same reason.
                 self.ask = None;
-                self.mark(Mark::Block(record));
+                self.mark(Mark::Block(record, self.palette.mode));
                 self.work
                     .control(TurnControl::QuestionAnswer { id, answers });
                 self.settled_question();
@@ -9197,10 +9197,10 @@ impl Shell {
             // Escape or Ctrl-C: the turn's own stop, and **only** it.
             question::Answered::Cancelled => {
                 self.ask = None;
-                self.mark(Mark::Block(vec![(
-                    question::cancelled_row(&self.palette),
-                    DocumentRow::Plain,
-                )]));
+                self.mark(Mark::Block(
+                    vec![(question::cancelled_row(&self.palette), DocumentRow::Plain)],
+                    self.palette.mode,
+                ));
                 self.settled_question();
                 // **The question's `▪ Cancelled` is the turn's line**, and
                 // nothing follows it: upstream's `cancelQuestionPrompt` records
@@ -9444,7 +9444,7 @@ impl Shell {
                 self.write_prose(&text);
             }
             Mark::Notice(notice) => self.write_notice(&notice),
-            Mark::Block(rows) => self.write_block(&rows),
+            Mark::Block(rows, _) => self.write_block(&rows),
             Mark::EndOfLine => self.finish_document_line(),
             Mark::ToolStart { id, shown } => {
                 self.group.start(id, shown);
@@ -12010,9 +12010,9 @@ impl Shell {
         if !self.transcript.ends_blank() {
             self.end_transcript_line();
         }
-        let line = cancelled_line(self.palette);
+        let (line, mode) = (cancelled_line(self.palette), self.palette.mode);
         self.write_transcript_as(&line, Role::Plain);
-        self.full.block(&[(line, DocumentRow::Plain)]);
+        self.full.block(&[(line, DocumentRow::Plain)], mode);
         self.end_transcript_line();
         self.end_transcript_line();
     }
@@ -44671,6 +44671,12 @@ mod tests {
             let full = fixture.screen_rows();
             assert!(full.contains(&light), "{light:?} in {full:#?}");
             assert!(!full.contains(&dark), "{full:#?}");
+            // And back: the rows as they were drawn, byte for byte.
+            fixture.route_bytes(b"\x0f");
+            fixture.route_bytes(WENT_DARK);
+            fixture.route_bytes(b"\x0f");
+            let full = fixture.screen_rows();
+            assert!(full.contains(&dark), "{dark:?} in {full:#?}");
         }
     }
 }
