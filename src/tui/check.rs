@@ -4858,10 +4858,14 @@ mod tests {
         let lead = "x".repeat(78);
         let narrow = "x".repeat(79);
         for (row, bytes) in [
-            // One cell wide.
+            // One cell wide, with no suffix and with one.
             (
                 format!("{narrow}y"),
                 format!("\x1b[10;1H{narrow}\x1b[?7hy\x1b[?7l"),
+            ),
+            (
+                format!("{narrow}e\u{301}"),
+                format!("\x1b[10;1H{narrow}\x1b[?7he\u{301}\x1b[?7l"),
             ),
             // Two cells, no suffix.
             (
