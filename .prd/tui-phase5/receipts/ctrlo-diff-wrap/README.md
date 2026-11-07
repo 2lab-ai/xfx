@@ -99,12 +99,14 @@ first three in `docs/parity.md:238` too:
 - **A row without a number runs on.** fx's walker runs such a row on; xfx
   clipped it. The xfx-only notices (`(the text of this file would not
   change)`) now run on at a narrow screen instead of losing their tail.
-- **A tab after a full row moves nothing.** fx's walker moves the column back
-  onto the last cell (`nextTabStopColumn` returns `cols` for a column at or
-  past it) for the next character to be written over it; a screen placed
-  cell by cell runs that character on instead. It needs a character after
-  that tab on the same row, which the reflow leaves there only when an
-  earlier tab's cells pushed the row to the margin; no scenario holds one.
+- **A tab after a full row moves nothing.** *Superseded by DIFF-WRAPb
+  (`../ctrlo-diff-wrap-b/`).* This described only the `col >= cols` case,
+  and both reviews found the wider one: `drawn_tabs` fixed every tab's cells
+  before `run_on` ran the row on, so a tab on a row the walker had run on
+  took none (`\t`, 108 `b`, `\tZ` at 120: `bbbbZ` where fx's is
+  `bbbb    Z`). fx's screen, captured in `p5-transcript-diffwrap2`, writes
+  the character after a tab on a full row over the row's last cell; xfx now
+  lays each row out as fx's walker does, in one pass, and copies both.
 
 ## RED
 
