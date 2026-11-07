@@ -2,7 +2,10 @@
 # submitted on a full screen (the answer of p5-transcript-submit, taller than
 # the screen). The terminal bytes are kept on both sides of Enter (`wire`) to
 # find what the frame that clears the composer shows of the prompt: fx
-# previews its last line until the card is written.
+# previews its last line until the card is written. `submit-0.15` is snapped
+# while the fake gateway holds the answer after its first chunk (`holdAt` 1 in
+# the shared turns file, `held`/`release`), no longer at 0.15 s, so both
+# binaries have read the same chunk; the wire still holds every frame.
 gateway p5-transcript-submit-turns.json
 fx: env FX_AUTO_UPGRADE=0
 wait 4
@@ -15,8 +18,10 @@ paste multi line one\nmulti line two\nmulti line three
 wait 0.5
 wire before-submit
 key Enter
-wait 0.15
+held
+wait 1
 snap submit-0.15
+release
 wait 3
 snap second
 snapfull second
