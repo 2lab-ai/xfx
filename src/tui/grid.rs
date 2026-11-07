@@ -287,8 +287,8 @@ enum Piece<'a> {
 /// row written whole that went on past a glyph with a variation selector would
 /// put what follows it where the terminal's own advance does rather than where
 /// the grid holds it -- `p5-transcript-diffwide2`'s read row on the full
-/// transcript, `x` three cells left of where upstream's `ESC[42G` puts it (the
-/// ledger's `frame-variation-selector-anchor`). A document row is not a
+/// transcript, `x` three cells left of where upstream's `ESC[42G` puts it
+/// (`.prd/tui-phase5/receipts/engine-vs-anchor`). A document row is not a
 /// frame's and is written as it stands (`super::frame`'s `place`).
 ///
 /// Cut into units by [`tokenize_row`]'s steps, so a unit is the cell a grid

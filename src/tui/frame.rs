@@ -8120,8 +8120,8 @@ mod tests {
     /// Line 2 of `p5-transcript-diffwide2`'s file as the full transcript's read
     /// row writes it: `half` U+FFA0 U+FE0E, after a U+3164 and a U+1160 that
     /// upstream and this crate count three cells more than tmux draws. fx
-    /// v0.0.16 writes `ESC[42G` after the pair (the ledger's
-    /// `frame-variation-selector-anchor`).
+    /// v0.0.16 writes `ESC[42G` after the pair
+    /// (`.prd/tui-phase5/receipts/engine-vs-anchor`).
     fn diffwide2_read_row() -> String {
         "\u{2502}\u{1b}[38;5;245m  2    fill\u{ffa0}\u{301}er hang\u{3164}\u{301}ul \
          jung\u{1160}\u{301}seong half\u{ffa0}\u{fe0e}x zwj\u{ffa0}\\u{200d}y \
