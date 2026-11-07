@@ -258,11 +258,14 @@ fn a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout() {
         assert!(Instant::now() < deadline, "never cancelled: {text}");
         std::thread::sleep(Duration::from_millis(20));
     };
-    // Not at the probe's timer: at the request's.
+    // Not at the probe's timer: at the request's. The cancelled request is
+    // the probe, the first frame the server read; where `initialize` falls
+    // around the cancel is the scheduler's.
     assert!(started.elapsed() >= Duration::from_millis(2_000));
+    let frames = wire(&log);
     assert_eq!(
-        methods(&wire(&log))[..2],
-        ["server/discover".to_string(), "initialize".to_string()],
+        (&frames[0]["method"], &frames[0]["id"]),
+        (&json!("server/discover"), &json!(1)),
         "{text}"
     );
     let open = Instant::now() + WAIT;

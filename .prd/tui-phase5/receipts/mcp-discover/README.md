@@ -20,10 +20,15 @@ not yet xfx's. Security-relevant (S). Base `58b463c8`, branch
 gate (`gates-d96603f9.txt`) and its 31 mutants (`mutants-d96603f9.txt`).
 Round 3 (MCP-Ec, below), `7c2ceeea`: the gate (`gates.txt`, `gates/`) and the
 mutants (`mutants.txt`, a `--no-local` clone checked out at it). The sweeps
-were not run again at `7c2ceeea`: what it changes in `src/`
-(`ec-src-diff-stat.txt`) is the HTTP transport's admission and the start of a
-message that waited for a slot -- reached only with 32 messages in flight,
-which no capture scenario has -- test-only hooks, tests and comments. The
+were not run again at `7c2ceeea`, so the captures (`d96603f9`) are
+historical. What it changes in `src/` (`ec-src-diff-stat.txt`): the HTTP
+transport's admission and the order waiting messages start in, whose
+saturation behaviour (32 messages in flight) no capture scenario reaches; a
+guard every caller's message passes before its POST (a passed deadline or a
+gone caller sends nothing); an answered probe no longer counted as open when
+its answer is read, on every probe; test-only hooks, tests and comments. The
+lifecycle changes are covered by the tests named in round 3 below, not by
+captures. The
 receipt's own commit changes files under `.prd/tui-phase5/receipts/mcp-discover/`
 and nothing else: `diff-stat.txt` is `git diff --stat 7c2ceeea -- src tests scripts
 docs Cargo.toml Cargo.lock`, taken just before that commit, and empty.
@@ -169,7 +174,7 @@ Code `7c2ceeea` (`git diff --stat d96603f9..7c2ceeea -- src tests docs`:
 | item | at `d96603f9` | now | evidence |
 |---|---|---|---|
 | MUST 1 silent stdio | `probes_open == 1` read after `settled`, while the probe's 60 s request timeout ran on its own | the server's `operation_timeout_ms` is an hour, past every bounded wait of the case, so the probe cannot have been cancelled when it is looked at | `a_stdio_server_that_never_answers_the_probe_is_initialized_once_the_probe_times_out` |
-| MUST 1, the stdio cancel case | needed `tools/list` answered within the 2 s it set as the request timeout | the server answers nothing (`mute`) and the start is an hour, so the connection is up, `initialize` waiting, when the cancel goes; only a lower bound and polls | `a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout` |
+| MUST 1, the stdio cancel case | needed `tools/list` answered within the 2 s it set as the request timeout | the server answers nothing (`mute`) and the start is an hour, so the connection is up, `initialize` waiting, when the cancel goes; only a lower bound, polls, and that the first frame read is the probe (MCP-Ed: no longer that `initialize` came before the cancel) | `a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout` |
 | MUST 2 abandoned HTTP probe | 100 ms caller wait and 300 ms idle started before the fixture had the POST | request timeout an hour off; the case waits for the fixture to log the POST, then fires the timeout itself (`HttpTransport::time_out_probes`, test builds only), then waits until the transport has dealt with it (`probes_timed_out`) | `an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session`; M21 |
 | SHOULD 3 | `start_once` on a 10 s start | the 30 s default | `start_once` |
 | SHOULD 4 (PLAUSIBLE → RED) | a message that waited for a slot was polled once when it started, its caller gone or not | not polled at all if its deadline has passed or its caller has gone; waiting messages start oldest first, as fx's `startWaiting` | RED (`red-waiting-job.txt`): on `d96603f9` a first version of the case saw 2 and 5 extra connections in 2 of 3 runs; the committed case with the guard taken out sees 12-20 of its 32 given-up calls begin a POST, 5 of 5 runs; `a_waiting_request_whose_caller_has_gone_never_reaches_the_server` (begun POSTs = 33, fixture connections = 33, no `tools/call` logged); M32 |
@@ -196,8 +201,9 @@ What still leans on a clock in `src/mcp/tests/discover.rs`, and how much:
   probe's 5 s timer, and the first break is at once.
 - `settled` and every barrier wait at most `WAIT` (60 s) for a state that
   correct code reaches in milliseconds.
-- Request timeouts the cases set an hour off (the silent stdio case, the
-  held HTTP transport) are past the sum of the case's own bounded waits.
+- Request timeouts and starts the cases set an hour off (the silent stdio
+  case's requests, the stdio cancel case's start, the held HTTP transport)
+  are past the sum of the case's own bounded waits.
 
 No case reads a state that a timer of its own can end before the case looks
 at it. The lower bounds stay (`took >= …`).
@@ -376,6 +382,10 @@ Both owned by unit MCP-SEAMS (dispatcher, 2026-11-07; `docs/parity.md`):
 - fx answers a 2025 server's request on a POST's event stream with a POST of
   its own (`answerServerRequest`, `server.zig:1521-1530`); xfx's HTTP
   transport never has (`58b463c8:src/mcp/transport.rs:1318-1320`).
+- A message given up on while it waits for a slot keeps its admission place
+  in xfx until a slot frees and it is dropped unsent; fx frees the place at
+  the cancel (`cancel`, `src/mcp/io/http.zig:252-263`). Opus's round-3
+  SHOULD 1, routed by the dispatcher.
 
 `p5-mcp-menu-old`'s snaps on the edge of the 10 s probe: unit MCP-HOLD
 (dispatcher, 2026-11-07).
