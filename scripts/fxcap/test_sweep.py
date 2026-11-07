@@ -707,6 +707,11 @@ class Capfile(unittest.TestCase):
         both = [("fx", "snap after"), ("xfx", "snap after")]
         self.assertEqual(self.raced("key C-c\nwait 2.5\nsnap after\n"), both)
         self.assertEqual(self.raced("key C-c\nwait 1.25\nabsent press ctrl+c again to exit\nwait 1.25\nsnap after\n"), [])
+        # Too soon to say anything: the hint may not be drawn yet.
+        self.assertEqual(self.raced("key C-c\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), both)
+        self.assertEqual(self.raced("key C-c\nwait 0.5\nabsent press ctrl+c again to exit\nwait 2\nsnap after\n"), both)
+        self.assertEqual(self.raced(self.YOLO + "wait 2\nabsent Full access\nwait 2\nsnap a\n"), [("fx", "snap a"), ("xfx", "snap a")])
+        self.assertEqual(self.raced(self.YOLO + "wait 3\nabsent Full access\nwait 1\nsnap a\n"), [])
         # Not while the row is paused: a hidden warning is not a spent one.
         menu = self.YOLO + "wait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
         self.assertEqual(self.raced(menu), [("fx", "snap a"), ("xfx", "snap a")])

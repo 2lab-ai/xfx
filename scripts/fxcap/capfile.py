@@ -129,11 +129,16 @@ class Timer:
     command menu, Ctrl-O opens the full transcript -- and its clock stops
     while it is off the row, so the moment it goes moves by however long that
     lasts. Such a line inside the window is refused as a snap is; one before
-    it stops the check's clock too (`races`)."""
+    it stops the check's clock too (`races`).
 
-    def __init__(self, name, seconds, text, xfx, fx, launch=None, keys=(), disarms=False, pauses=None):
+    `settle` is how long after arming the row is surely on the screen if it
+    was armed: an `absent` sooner than that says nothing of it, since the
+    binary may not have drawn it yet."""
+
+    def __init__(self, name, seconds, text, xfx, fx, launch=None, keys=(), disarms=False, pauses=None, settle=1.0):
         self.name, self.seconds, self.text, self.xfx, self.fx = name, seconds, text, xfx, fx
         self.launch, self.keys, self.disarms, self.pauses = launch, keys, disarms, pauses
+        self.settle = settle
 
 
 # Every timer a snap must not race, in one place.
@@ -158,6 +163,9 @@ TIMERS = (
         # and its clock runs only while it is on it (permissions.rs:409-437;
         # app_permission_runtime.zig:41-67@481104fd).
         pauses=re.compile(r"^key .*\b(?:C-c|C-o|Escape)\b|^type /"),
+        # A launch's first frame came 2.13 s after it on a binary's first run
+        # (receipts/flake-hint4/r2/launch-probe.txt).
+        settle=3.0,
     ),
     # Every Ctrl-C arms it but one over a running turn with a draft, one a
     # question answers (src/ui/input/runtime.zig:63@481104fd), and fx's in its
@@ -174,6 +182,10 @@ TIMERS = (
         "src/core/input/gesture_state.zig:3@481104fd",
         keys=("C-c",),
         disarms=True,
+        # An `until shown` right after a Ctrl-C saw the hint within 0.03 s in
+        # every round-2 head sweep (receipts/flake-hint4/r2/until-waits.txt);
+        # a second leaves room for a loaded runner.
+        settle=1.0,
     ),
 )
 
@@ -229,6 +241,8 @@ def races(reading):
     - `until gone <text>` and `absent <text>`: the row is not up, so nothing
       is armed until it is armed again -- `absent` fails the run when it is.
       Not while the row is paused (below): gone then is hidden, not spent.
+      And an `absent` only from the timer's `settle` on: right after the key
+      that arms it, the row may not be drawn yet.
 
     A line the timer `pauses` on, before its window, takes the row while it
     is surely up, for a time the .cap does not say: from there lo stops
@@ -265,7 +279,7 @@ def races(reading):
                 clock, frozen = (0.0, clock[1] if clock else since_input[1]), False
             elif clock is None:
                 pass
-            elif names and not frozen:
+            elif names and not frozen and (verb != "absent" or clock[0] >= timer.settle):
                 clock = None
             elif verb in ("wait",) or verb in SPENDS:
                 clock = _spend(clock, verb, rest, frozen)
