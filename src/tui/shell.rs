@@ -10005,15 +10005,27 @@ impl Shell {
         // cancel covered can be dropped without ever saying it started -- and
         // a cancel that landed after its turn had already concluded is
         // answered by nothing at all. Either way the place is given back, and
-        // once none is held, no cancelled work is still to start. **Its end
-        // can still be on its way**: the runtime gives a place back after it
-        // has sent the work's terminal event (`TurnEnded`, `worker.rs:3835`,
-        // then `turn_loop`'s `fetch_sub`, `:3524`), so this can run between
-        // the two, with the `TurnEnded` still in the channel. What that event
-        // reads is left for it: a turn an automatic compaction failed keeps
-        // [`Self::compaction_failed`] until its end takes it, or the turn
-        // would read as working again and its end report the error twice.
-        if self.cancelling && self.work.outstanding() == 0 {
+        // once none is held, no cancelled work is still to start.
+        //
+        // **A turn that started is not over until its end is read.** The
+        // runtime gives a place back after it has sent the work's terminal
+        // event (`TurnEnded`, `worker.rs:3835`, then `turn_loop`'s
+        // `fetch_sub`, `:3524`), so this can run between the two with a
+        // started turn's end still in the channel -- and a stopped turn's end
+        // says `the turn was cancelled`. A cancel taken here would leave that
+        // end to read as the turn's failure: an `error` report after the
+        // stop's `idle` and a `✗ system:` line under the `■ Cancelled` one --
+        // or, with a call still running, `working` again and no `■ Cancelled`
+        // line at all ([`Self::cancel_owed`]). Upstream's stopped turn is
+        // finished `.interrupted` and returns (`interruption.zig:219`,
+        // `orchestrator.zig:7233-7235@481104fd`), so its result is `idle`
+        // (`program_status.zig:62-69`) and no `request failed` follows it
+        // (`app_process_runtime.zig:157-169`). So whenever a turn has started
+        // -- `TurnStarted` begins the tally and `TurnEnded` takes it -- the
+        // cancel waits for that end; the two cases above have no turn in
+        // hand. A turn an automatic compaction failed is one of them, and its
+        // end takes [`Self::compaction_failed`] too.
+        if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
             self.cancelling = false;
             self.cancel_owed = None;
             self.cancel_covers = 0;
