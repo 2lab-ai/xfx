@@ -1,0 +1,55 @@
+# The new tests on a throwaway clone of feat/p5-tui-unsaved@83d06be6 (git clone --no-local into the short TMPDIR, never the worktree); each step resets src/ and tests/
+# r771: src/ at 771b428b (L-U3's head), tests at 83d06be6. rb0: src/ at b0a78fea (before L-U3). M*: mutants of 83d06be6
+## src@771b428b
+r771-tui exit=101 test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 170 filtered out; finished in 20.02s 
+test with_no_usable_home_a_resume_has_nothing_to_continue ... FAILED
+test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... FAILED
+r771-perm exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.80s 
+test a_relative_home_still_has_its_links_checked_where_a_child_would_find_it ... FAILED
+r771-sessions exit=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.92s 
+## src@b0a78fea
+rb0-perm exit=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.95s 
+## mutant M1: an unsaved session records into ./.xfx
+m1-tui exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 171 filtered out; finished in 21.26s 
+test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... FAILED
+## mutant M2: no home base for a relative HOME
+m2-perm exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.94s 
+test a_relative_home_still_has_its_links_checked_where_a_child_would_find_it ... FAILED
+## mutant M3: the file index reads the process HOME (HOME=a fake absolute dir)
+m3-shell exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3989 filtered out; finished in 0.01s 
+test tui::shell::tests::a_tilde_under_no_usable_home_browses_nothing ... FAILED
+## mutant M4: --no-save refused with no home
+m4-sessions exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.94s 
+test a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere ... FAILED
+## mutant M1b: the unsaved recorder appends its log to ./events.jsonl
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 171 filtered out; finished in 1.30s
+thread 'with_no_usable_home_the_session_runs_unsaved_and_writes_nothing' (267033921) panicked at tests/tui.rs:1101:9:
+assertion `left == right` failed: HOME="relative/home" wrote into the sandbox
+  left: ["home", "workspace", "workspace/events.jsonl", "workspace/relative", "workspace/relative/home"]
+ right: ["home", "workspace", "workspace/relative", "workspace/relative/home"]
+## why each failed
+-- r771-tui
+thread 'with_no_usable_home_a_resume_has_nothing_to_continue' (266866086) panicked at tests/tui.rs:1125:5:
+xfx: xfx cannot record a conversation because no home directory is set; run `xfx ask --no-save <prompt>` to ask without recording
+
+thread 'with_no_usable_home_the_session_runs_unsaved_and_writes_nothing' (266866087) panicked at tests/support/pty.rs:367:13:
+-- r771-perm
+thread 'a_relative_home_still_has_its_links_checked_where_a_child_would_find_it' (266870246) panicked at tests/permissions.rs:5030:5:
+assertion `left == right` failed: {"kind":"tool_result","call_id":"c2","tool":"write_file","ok":true,"detail":"wrote dotfiles/zshrc (15 bytes)"}
+  left: Bool(true)
+-- m1-tui
+thread 'with_no_usable_home_the_session_runs_unsaved_and_writes_nothing' (266874923) panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["none · this shell can't save sessions"] on the screen, [] off it; terminal so far:
+]11;?\x𝒇x v0.1.0-83d06be [debug] · Run
+-- m2-perm
+thread 'a_relative_home_still_has_its_links_checked_where_a_child_would_find_it' (266881451) panicked at tests/permissions.rs:5030:5:
+assertion `left == right` failed: {"kind":"tool_result","call_id":"c2","tool":"write_file","ok":true,"detail":"wrote dotfiles/zshrc (15 bytes)"}
+  left: Bool(true)
+-- m3-shell
+thread 'tui::shell::tests::a_tilde_under_no_usable_home_browses_nothing' (266886625) panicked at src/tui/shell.rs:31624:13:
+assertion `left == right` failed: HOME="relative/home"
+  left: Loading
+-- m4-sessions
+thread 'a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere' (266887912) panicked at tests/sessions.rs:1723:9:
+assertion `left == right` failed: HOME="relative/home": xfx cannot record this turn because no home directory is set; rerun with --no-save to ask without recording
+

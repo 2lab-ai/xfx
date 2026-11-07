@@ -1,0 +1,21 @@
+== ./relative/homedir/.xfx/history.jsonl
+{"schema_version":1,"timestamp_ms":1794015863744,"workspace_root":"<local-path>","text":"hello"}
+{"schema_version":1,"timestamp_ms":1794015866770,"workspace_root":"<local-path>","text":"/quit"}
+
+== ./relative/homedir/.xfx/history.lock
+
+== ./relative/homedir/.xfx/sessions/1794015860717-12c2767e8e22d218/events.jsonl
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":1,"event_id":"1b3c2ed1581ebc72eb870f1599a9756b","timestamp_ms":1794015863745,"event":{"kind":"session_started","id":"1794015860717-12c2767e8e22d218","origin_workspace_root":"<local-path>","workspace_root":"<local-path>","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":2,"event_id":"1f30c8003ff45fa0cce4ecf69935e5f5","timestamp_ms":1794015863762,"event":{"kind":"preferences_changed","model":null,"permission_mode":null,"effort":"auto","fast_mode":false,"ultrafast_mode":false}}
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":3,"event_id":"159c80b6abb1dec2ddbd7a52f76063a2","timestamp_ms":1794015863774,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":4,"event_id":"17169b5158db665812eab4bf45215ecd","timestamp_ms":1794015863788,"event":{"kind":"user_message","text":"hello"}}
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":5,"event_id":"28a0a309716707b29b986d47670dee44","timestamp_ms":1794015863852,"event":{"kind":"assistant_message","text":"Saved nowhere.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":6,"event_id":"7d23705c7c2cf7a7e28026ef51dd0c2e","timestamp_ms":1794015863865,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40}}
+{"schema_version":1,"log_generation":"fac2cc7eeea066f53c62697affc8197a","seq":7,"event_id":"3c4870f3a3d8669a0ba602be225133dc","timestamp_ms":1794015863876,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+== ./relative/homedir/.xfx/sessions/1794015860717-12c2767e8e22d218/session.json
+{"schema_version":1,"storage_format":"event_log_v1","id":"1794015860717-12c2767e8e22d218","log_generation":"fac2cc7eeea066f53c62697affc8197a","created_at_ms":1794015863745,"updated_at_ms":1794015863876,"origin_workspace_root":"<local-path>","workspace_root":"<local-path>","model":"fake/model-a","permission_mode":"auto","title":"hello","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":7,"event_log_bytes":1877,"event_log_sha256":"5d8173908091717ff62a84f3b44a6549cd8a035accbe8422492309fcecc7d414"}
+
+== ./relative/homedir/README
+The folder a relative HOME names, inside the workspace.
+

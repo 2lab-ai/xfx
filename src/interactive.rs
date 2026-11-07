@@ -1433,11 +1433,17 @@ pub(crate) fn bind_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Conversation {
-    let mut permissions = permissions
-        .with_durable_session(session.id().as_str())
-        .with_session_rules(crate::permission::session_rules::path_in(
-            &store.session_dir(session.id()),
-        ));
+    // An unsaved session ([`SessionStore::unsaved`]) is neither: an "always"
+    // ends with the process, and there is no rules file to decide with.
+    let mut permissions = if store.is_unsaved() {
+        permissions
+    } else {
+        permissions
+            .with_durable_session(session.id().as_str())
+            .with_session_rules(crate::permission::session_rules::path_in(
+                &store.session_dir(session.id()),
+            ))
+    };
     for grant in &session.state().grants {
         permissions.grant(grant.clone());
     }

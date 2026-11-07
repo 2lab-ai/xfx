@@ -1,0 +1,48 @@
+# Phase 5 lifecycle (L-U3b): the session surfaces with no usable HOME, which
+# fx v0.0.16 runs unsaved (21a55a45). The workspace holds the folder the
+# relative HOME names, so anything kept there would show in `workls`.
+work p5-relhome-made
+gateway p5-relhome-unsaved-turns.json
+env HOME=relative/homedir
+keep
+wait 3
+snap u00-launch
+type hello
+key Enter
+wait 3
+snap u01-turn
+type /status
+key Enter
+wait 1.5
+snap u02-status
+key Escape
+wait 0.5
+type /resume
+key Enter
+wait 1.5
+snap u03-resume
+key Escape
+wait 0.5
+type /fork
+key Enter
+wait 1.5
+snap u04-fork
+key Escape
+wait 0.5
+type /rename later
+key Enter
+wait 1
+snap u05-rename
+type /new
+key Enter
+wait 1
+snap u06-new
+type again
+key Enter
+wait 3
+snap u07-turn
+type /quit
+key Enter
+wait 2
+snapfull u08-quit
+workls u09

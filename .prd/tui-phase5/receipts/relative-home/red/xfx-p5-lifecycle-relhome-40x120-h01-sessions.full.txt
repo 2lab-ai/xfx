@@ -1,0 +1,42 @@
+xfx: cannot use relative<local-path> the home directory relative/home is not there, and xfx does not make one
+[sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Sat Nov  7 10:43:52 2026)

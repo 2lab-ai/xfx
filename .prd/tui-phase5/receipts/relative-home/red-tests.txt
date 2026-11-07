@@ -1,0 +1,22 @@
+# The new tests on a throwaway clone (git clone --no-local into the scratch TMPDIR, never the worktree): the mutant first, then the base
+## mutant: home_dir keeps a relative HOME (the base's rule: drop only an empty one), at 94fa1228
+## src/config.rs: `home.filter(|home| home.is_absolute())` -> `home.filter(|home| !home.as_os_str().is_empty())`
+test config::tests::only_an_absolute_home_is_a_home ... FAILED
+test config::tests::a_relative_home_gives_no_profile_and_no_path_under_the_workspace ... FAILED
+assertion `left == right` failed: HOME="relative/home" names no home
+assertion `left == right` failed: HOME="relative/home"
+test result: FAILED. 71 passed; 2 failed; 0 ignored; 0 measured; 3915 filtered out; finished in 0.22s
+test a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere ... FAILED
+assertion `left == right` failed: `xfx sessions` with HOME="relative/home" is upstream's refusal
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.93s
+test a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 78 filtered out; finished in 20.77s
+
+## base: src/ at b0a78fea, tests at 94fa1228 (the unit tests in src/config.rs are the base's, which has none of them)
+test a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere ... FAILED
+thread 'a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere' (265312567) panicked at tests/sessions.rs:1699:13:
+assertion `left == right` failed: `xfx sessions` with HOME="relative/home" is upstream's refusal
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.93s
+test a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation ... FAILED
+thread 'a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation' (265312911) panicked at tests/support/pty.rs:367:13:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 78 filtered out; finished in 20.73s

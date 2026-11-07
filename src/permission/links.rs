@@ -115,16 +115,47 @@ impl Base {
     /// place of `~/.config`, and `$ZDOTDIR`, where zsh reads its startup files
     /// in place of `~`. Each only when it is an absolute path. For a front end
     /// to hand its tools ([`crate::tools::ToolContext::with_link_bases`]).
+    ///
+    /// And a relative `HOME`, which is no profile home
+    /// (`crate::config::home_dir`) but is still what a command xfx runs is
+    /// handed (`crate::permission::authority`'s environment): its shell, its
+    /// git and the rest find their dotfiles under it, from their own folder.
+    /// So it is a home base where xfx was started -- its entries, and what
+    /// git's global configuration there includes -- as the profile home was
+    /// before a relative `HOME` stopped being one. Upstream has no such check
+    /// to copy: auto refuses by the written path's own components only
+    /// (`pathContainsComponentSequence`, `tool_admission.zig:695-716`), and
+    /// its `homeDir` gives a relative `HOME` to nobody.
+    ///
+    /// **Its limit: one folder.** The base is that `HOME` under the folder xfx
+    /// was started in. A command run elsewhere -- in a terminal `cwd` the
+    /// model names (`crate::tools::terminal`) -- finds the same `HOME` under
+    /// its own folder, and a link there is not looked at: a shell reads
+    /// `<folder>/<HOME>/.zshrc`, and a git the terminal runs there reads
+    /// `<folder>/<HOME>/.gitconfig`, which the configuration walk does not
+    /// seed (`super::gitconfig` asks git with this base's absolute `HOME`,
+    /// and seeds `.gitconfig` from it alone). Not added per command: a write is
+    /// checked before any command chooses its folder, and the folders a
+    /// later command may name are every directory in scope, so a base per
+    /// root would cover the roots and not their subdirectories while reading
+    /// as complete. What it needs is a link already planted under such a
+    /// folder's relative home, which only the person can plant: auto refuses
+    /// a write to `.zshrc` and the rest by name (`super::authority`).
     pub fn from_environment() -> Vec<Self> {
         let absolute = |name: &str| {
             std::env::var_os(name)
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
         };
+        let relative_home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| !home.as_os_str().is_empty() && home.is_relative())
+            .and_then(|home| std::env::current_dir().ok().map(|cwd| cwd.join(home)));
         absolute("XDG_CONFIG_HOME")
             .map(Self::Config)
             .into_iter()
             .chain(absolute("ZDOTDIR").map(Self::Root))
+            .chain(relative_home.map(Self::Home))
             .collect()
     }
 

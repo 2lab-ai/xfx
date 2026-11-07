@@ -758,6 +758,24 @@ impl fmt::Debug for Credential {
     }
 }
 
+/// The home directory xfx keeps its own files under, from a `HOME` value:
+/// the value when it is an absolute path, and `None` otherwise.
+///
+/// An empty or relative `HOME` counts as unset, so no profile path -- `~/.xfx`
+/// and everything under it -- is ever built relative to the current folder,
+/// which would put the profile, its sessions and its history inside whatever
+/// workspace xfx was started in. Upstream's one reader is the same rule
+/// (`homeDir`, `src/core/shared/io.zig:475-483@481104fd`, 21a55a45): a path
+/// that starts at `/` is kept as it is, `..` components and all, because it
+/// names the same directory from any folder; `../home` does not.
+///
+/// What xfx reads for itself, not what it passes on: a child it starts still
+/// inherits `HOME` unchanged (`crate::permission::authority`'s environment,
+/// `crate::mcp::transport`'s inherited names), as upstream's do.
+pub fn home_dir(home: Option<PathBuf>) -> Option<PathBuf> {
+    home.filter(|home| home.is_absolute())
+}
+
 /// The variables and home directory xfx is allowed to observe.
 ///
 /// Passing this explicitly keeps configuration a pure function of its inputs, so
@@ -769,8 +787,13 @@ pub struct Environment {
 }
 
 impl Environment {
+    /// An environment with `home` as `HOME` -- held to [`home_dir`]'s rule,
+    /// as the process's own is -- and `vars`.
     pub fn new(home: Option<PathBuf>, vars: BTreeMap<String, String>) -> Self {
-        Self { home, vars }
+        Self {
+            home: home_dir(home),
+            vars,
+        }
     }
 
     /// Reads the real process environment, taking only the variables xfx uses.
@@ -796,12 +819,7 @@ impl Environment {
                 vars.insert(key.to_string(), value);
             }
         }
-        Self {
-            home: std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .filter(|p| !p.as_os_str().is_empty()),
-            vars,
-        }
+        Self::new(std::env::var_os("HOME").map(PathBuf::from), vars)
     }
 
     pub fn home(&self) -> Option<&Path> {
@@ -3895,5 +3913,61 @@ mod tests {
         )
         .expect("load");
         assert!(bare.permission.effective().is_empty());
+    }
+
+    #[test]
+    fn only_an_absolute_home_is_a_home() {
+        // Upstream's own cases, `homeDir accepts only an absolute HOME`
+        // (`src/core/shared/io.zig:1214-1232@481104fd`), and the two ways a
+        // `..` can be spelled: inside a relative value it is still relative;
+        // after a leading `/` it names one directory from any folder, and is
+        // kept as it is, as `std.Io.Dir.path.isAbsolute` keeps it.
+        for unset in [
+            "",
+            "relative/home",
+            "./home",
+            "~",
+            "../home",
+            "a/../home",
+            "..",
+        ] {
+            assert_eq!(
+                home_dir(Some(PathBuf::from(unset))),
+                None,
+                "HOME={unset:?} names no home"
+            );
+            assert_eq!(
+                Environment::new(Some(PathBuf::from(unset)), BTreeMap::new()).home(),
+                None,
+                "an environment holds HOME={unset:?} to the same rule"
+            );
+        }
+        assert_eq!(home_dir(None), None);
+        for kept in ["/Users/example", "/tmp/../home", "/"] {
+            assert_eq!(
+                home_dir(Some(PathBuf::from(kept))).as_deref(),
+                Some(Path::new(kept)),
+                "HOME={kept:?} is kept as it is"
+            );
+        }
+    }
+
+    #[test]
+    fn a_relative_home_gives_no_profile_and_no_path_under_the_workspace() {
+        // The directory a relative `HOME` names is there, under the workspace
+        // xfx runs in: a reader that kept it would put `~/.xfx` -- the
+        // sessions, the history, the settings -- inside the project.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        fs::create_dir_all(workspace.path().join("relative/home")).expect("the home it names");
+        for home in ["relative/home", ""] {
+            let config = RuntimeConfig::load_with(
+                &Environment::new(Some(PathBuf::from(home)), BTreeMap::new()),
+                workspace.path(),
+            )
+            .expect("load");
+            assert_eq!(config.profile_dir, None, "HOME={home:?}");
+            assert_eq!(config.user_settings_path, None, "HOME={home:?}");
+            assert_eq!(config.home(), None, "HOME={home:?}");
+        }
     }
 }

@@ -289,6 +289,9 @@ const NOTHING_TO_FORK: &str = "nothing to fork yet";
 /// shows (`:2073-2076`): a warning, under `session`.
 const FORK_UNSAVED: &str = "/fork needs a saved session";
 
+/// `/rename` with no saved session to name (`app_commands.zig:3031@481104fd`).
+const RENAME_UNSAVED: &str = "no active session to rename";
+
 /// What a fork that could not be made says (`submitForkMenuSelection`,
 /// `app_input_runtime.zig:1670-1678@481104fd`): an error, under `session`.
 const FORK_FAILED: &str = "Unable to fork the session.";
@@ -1490,6 +1493,12 @@ pub(crate) struct Shell {
     /// The home directory `/image ~/…` is read under: the one the
     /// configuration found its profile in.
     home: Option<std::path::PathBuf>,
+    /// No usable `HOME`, so no profile: the session runs unsaved, as
+    /// upstream's does with no store (`initializePersistence`,
+    /// `src/core/app/app_session_runtime.zig:1438-1449@481104fd`), and the
+    /// commands that need a saved session say so (`/fork`, `/rename`,
+    /// `/resume`, `/permissions remember`).
+    unsaved: bool,
     /// The `/trace` reports still being built, written and copied on their own
     /// threads, and how each went ([`super::trace`]).
     traces: Traces,
@@ -2359,9 +2368,13 @@ impl Shell {
             dismissed: Dismissed::default(),
             file_picker: None,
             files: {
+                // `~` is the profile's home, held to `HOME`'s one rule
+                // ([`crate::config::home_dir`]): an empty or relative
+                // `HOME` is no home, so `~/` browses nothing rather than a
+                // folder under the workspace.
                 let mut files = Files::new(
                     config.workspace_root.clone(),
-                    std::env::var_os("HOME").map(std::path::PathBuf::from),
+                    config.home().map(std::path::Path::to_path_buf),
                 );
                 files.set_extra_roots(index_roots(
                     &config.workspace_root,
@@ -2464,6 +2477,7 @@ impl Shell {
                 .as_deref()
                 .and_then(std::path::Path::parent)
                 .map(std::path::Path::to_path_buf),
+            unsaved: config.profile_dir.is_none(),
             sound: Sound::new(config.notifications, settings.clone()),
             speed_saves: super::speed_save::Saves::new(settings, config.sources),
             metrics: Metrics::default(),
@@ -3488,6 +3502,20 @@ impl Shell {
             self.announce(notice::Notice::warning(
                 "permissions",
                 format!("{refusal}; fix it, then /allowlist reads it again"),
+            ));
+        }
+    }
+
+    /// With no profile, the prompt history has nowhere to be kept, and the
+    /// launch says so after its configuration notice, as upstream's does
+    /// when its history is unavailable (`app_bootstrap_runtime.zig:667-673`,
+    /// `.unavailable` with no home, `prompt_history_runtime.zig:49@481104fd`).
+    /// Lines typed are still recalled in this session; none is written.
+    pub(crate) fn history_unavailable(&mut self) {
+        if self.unsaved {
+            self.announce(notice::Notice::warning(
+                "history",
+                "durable prompt history unavailable",
             ));
         }
     }
@@ -10057,6 +10085,45 @@ impl Shell {
     /// The insertion is a boundary of the edit history rather than an entry
     /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
     /// an undo does not take an attachment back -- deleting its badge does.
+    /// `image`, a file the user named, ready to attach: in a session that
+    /// keeps no copy of its own (an unsaved one), with its temporary copy
+    /// made now beside the paste copies ([`super::clipboard_image::PasteCopies`]),
+    /// as upstream captures every attachment into its temporary folder before
+    /// it is admitted (`captureImageAttachment`,
+    /// `app_session_runtime.zig:1331-1344@481104fd`) -- on every route a file
+    /// is attached by: `/image`, a pasted or dropped path, a path typed into
+    /// the prompt. The note for an image a request leaves out names that copy,
+    /// never the file.
+    ///
+    /// A copy that cannot be written refuses the attachment, as upstream's
+    /// capture refuses it (`captureImageAttachmentForAdmission`,
+    /// `src/core/images/image_attachments.zig:328-347@481104fd`), in its
+    /// words for a file it cannot attach (`failed to attach image: <name>`,
+    /// `image_commands.zig:38`).
+    fn captured(
+        &mut self,
+        mut image: crate::image::Image,
+    ) -> Result<crate::image::Image, notice::Notice> {
+        if self.unsaved && !image.copied && image.copy.is_none() {
+            match self
+                .paste_copies
+                .write(&image.snapshot_name(), &image.bytes)
+            {
+                Ok(copy) => image.copy = Some(copy),
+                Err(err) => {
+                    return Err(notice::Notice::error(
+                        crate::image::TOPIC,
+                        format!(
+                            "failed to attach image: {}",
+                            crate::image::io_name(err.kind())
+                        ),
+                    ))
+                }
+            }
+        }
+        Ok(image)
+    }
+
     fn attach(&mut self, image: crate::image::Image) -> bool {
         let id = image.id;
         let Some(next) = id.checked_add(1) else {
@@ -10137,6 +10204,21 @@ impl Shell {
             else {
                 continue;
             };
+            // A path whose copy cannot be made stays words, and says why, as
+            // upstream's rejected capture does (`continue`,
+            // `input_paste_runtime.zig:490-493@481104fd`).
+            let image = match self.captured(crate::image::Image::new(
+                id,
+                path,
+                media_type,
+                std::sync::Arc::from(bytes),
+            )) {
+                Ok(image) => image,
+                Err(refused) => {
+                    self.announce(refused);
+                    continue;
+                }
+            };
             replacement.push_str(&text[cut..word.range.start]);
             let start = replacement.len();
             replacement.push_str(&crate::image::badge(id));
@@ -10145,12 +10227,7 @@ impl Shell {
                 end: replacement.len(),
                 kind: EntityKind::Image {
                     token: std::sync::Arc::from(crate::image::token(id)),
-                    image: std::sync::Arc::new(crate::image::Image::new(
-                        id,
-                        path,
-                        media_type,
-                        std::sync::Arc::from(bytes),
-                    )),
+                    image: std::sync::Arc::new(image),
                 },
             });
             cut = word.range.end;
@@ -10276,18 +10353,40 @@ impl Shell {
         if found.is_empty() {
             return Typed::Nothing;
         }
+        // Every image made ready before the draft is touched: a copy that
+        // cannot be made refuses the prompt, as upstream's rejected capture
+        // rejects the submission and discards the copies it made
+        // (`captureImageAttachmentsForAdmission`,
+        // `image_attachments.zig:348-367@481104fd`).
+        let mut ready = Vec::with_capacity(found.len());
+        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate() {
+            let image = crate::image::Image::new(
+                first + index as u32,
+                path,
+                media_type,
+                std::sync::Arc::from(bytes),
+            );
+            match self.captured(image) {
+                Ok(image) => ready.push((range, image)),
+                Err(refused) => {
+                    for (_, made) in &ready {
+                        let made: &crate::image::Image = made;
+                        if let Some(copy) = &made.copy {
+                            self.paste_copies.discard(copy);
+                        }
+                    }
+                    self.announce(refused);
+                    return Typed::Refused;
+                }
+            }
+        }
         let before = self.draft_before();
         // From the last to the first, so each range is still where it was.
-        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate().rev() {
-            let id = first + index as u32;
+        for (range, image) in ready.into_iter().rev() {
+            let id = image.id;
             let kind = EntityKind::Image {
                 token: std::sync::Arc::from(crate::image::token(id)),
-                image: std::sync::Arc::new(crate::image::Image::new(
-                    id,
-                    path,
-                    media_type,
-                    std::sync::Arc::from(bytes),
-                )),
+                image: std::sync::Arc::new(image),
             };
             let placed = self
                 .editor
@@ -12683,6 +12782,19 @@ impl CommandHandlers for Shell {
             self.editor.text(),
             session_picker::page_for(self.geometry.rows),
         ));
+        // No store to list: the picker says `Unable to load sessions.` when
+        // the runtime answers, and the transcript says why, as upstream's
+        // load failure does (`writeSessionPickerError`,
+        // `app_session_runtime.zig:2436-2447@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::error(
+                "session",
+                format!(
+                    "unable to list saved sessions: {}",
+                    crate::session::store::NO_STORE
+                ),
+            ));
+        }
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -12699,6 +12811,12 @@ impl CommandHandlers for Shell {
     /// ([`Self::fork_points`]) -- unless the composer was edited first, which
     /// closes it before it opens.
     fn fork(&mut self) {
+        // No store first, as upstream's `openForkMenu` asks for its session
+        // before it asks whether a turn runs (`:2073-2081@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::warning("session", FORK_UNSAVED));
+            return;
+        }
         if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
             return;
@@ -12746,6 +12864,14 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
+        // No store, no session to name -- and the window keeps its title, as
+        // upstream caches one only after it has a session
+        // (`renameActiveSession`, `app_session_runtime.zig:3141-3146@481104fd`;
+        // `NoActiveSession`, `app_commands.zig:3031@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::error("session", RENAME_UNSAVED));
+            return;
+        }
         let announced = self.work.outstanding() > 0;
         self.work.control(TurnControl::Rename {
             title: title.clone(),
@@ -12897,9 +13023,13 @@ impl CommandHandlers for Shell {
         // There is always one: this shell's next session has its id from
         // launch.
         let store = self.work.saved_rules().view();
+        // An unsaved session has no saved-session rules to manage, as
+        // upstream's has no active saved session (`activeSessionId`,
+        // `app_session_runtime.zig:2917-2921@481104fd`; the refusal,
+        // `app_commands.zig:610-617@481104fd`).
         let managed = slash::manage_with(
             &request,
-            Some(&store.at),
+            (!self.unsaved).then_some(&store.at),
             |_| store.state.clone(),
             self.rules_busy(),
             |tool, arguments| self.prepare_rule_action(tool, arguments),
@@ -13348,12 +13478,18 @@ impl CommandHandlers for Shell {
                 problem.to_string(),
             )),
             Ok((path, media_type, bytes)) => {
-                let image = crate::image::Image::new(
+                let image = match self.captured(crate::image::Image::new(
                     self.images_next,
                     path,
                     media_type,
                     std::sync::Arc::from(bytes),
-                );
+                )) {
+                    Ok(image) => image,
+                    Err(refused) => {
+                        self.announce(refused);
+                        return;
+                    }
+                };
                 let name = image.name();
                 let body = if self.attach(image) {
                     format!("attached image: {name}")
@@ -32313,6 +32449,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_tilde_under_no_usable_home_browses_nothing() {
+        // The file index's `~` is the profile's home (`config.home()`), held
+        // to `HOME`'s one rule: an empty or relative `HOME` is none, so `~/`
+        // names no folder -- not the process's own `$HOME`, which the index
+        // read for itself before, and not a folder under the workspace.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir_all(workspace.path().join("relative/home")).expect("a folder");
+        for home in ["relative/home", ""] {
+            let config = RuntimeConfig::load_with(
+                &Environment::new(Some(std::path::PathBuf::from(home)), BTreeMap::new()),
+                workspace.path(),
+            )
+            .expect("load a configuration");
+            let (work, _sent, _control) = WorkHandle::detached();
+            let mut shell = Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            );
+            assert!(shell.unsaved, "HOME={home:?}");
+            assert_eq!(
+                shell.files.lookup("~/"),
+                super::super::file_index::Lookup::Unavailable,
+                "HOME={home:?}"
+            );
+        }
+        // An absolute one is a home: `~/` is read.
+        let home = tempfile::tempdir().expect("a home");
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), workspace.path()),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work,
+        );
+        assert!(!shell.unsaved);
+        assert_ne!(
+            shell.files.lookup("~/"),
+            super::super::file_index::Lookup::Unavailable
+        );
+    }
+
     /// The research captures' `ws2` workspace, and a shell working in it.
     fn in_ws2(rows: u16, cols: u16) -> (tempfile::TempDir, Fixture) {
         let workspace = super::super::file_index::tests::seeded();
@@ -38225,6 +38407,207 @@ mod tests {
         let dir = shell.paste_copies.dir().expect("a directory").to_path_buf();
         drop(shell);
         assert!(!dir.exists(), "{dir:?} outlived the session");
+    }
+
+    #[test]
+    fn an_unsaved_sessions_attached_file_gets_a_private_temporary_copy() {
+        // Upstream captures every attachment into its process's temporary
+        // folder (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`,
+        // `createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+        // and an unsaved session's note names that copy. xfx's goes where a
+        // paste's does: owner-only, in the shell's private directory, gone
+        // with the shell. The file the user named is left as it was.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let source = workspace.path().join("shot.png");
+        std::fs::write(&source, crate::image::fixture::SHOT_PNG).expect("a picture");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(std::path::PathBuf::from("relative/home")),
+                BTreeMap::new(),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config,
+            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            PALETTE,
+            false,
+            work,
+        );
+        assert!(shell.unsaved);
+        shell.workspace = workspace.path().canonicalize().expect("canonical");
+        shell.route_bytes(b"/image shot.png\r");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert!(!image.copied);
+        assert_eq!(
+            image.name(),
+            "shot.png",
+            "the badge and the notice keep its name"
+        );
+        let copy = image.copy.clone().expect("a temporary copy");
+        assert_eq!(image.own_copy(), Some(copy.as_path()));
+        assert_ne!(copy, image.path);
+        assert_eq!(
+            Some(copy.parent().expect("a directory")),
+            shell.paste_copies.dir(),
+            "beside the paste copies"
+        );
+        assert_eq!(
+            copy.file_name().and_then(|name| name.to_str()),
+            Some(image.snapshot_name().as_str())
+        );
+        assert_eq!(
+            std::fs::read(&copy).expect("the copy"),
+            crate::image::fixture::SHOT_PNG
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).expect("mode").permissions().mode() & 0o777
+            };
+            assert_eq!(mode(&copy), 0o600);
+            assert_eq!(mode(copy.parent().expect("a directory")), 0o700);
+        }
+        assert_eq!(
+            std::fs::read(&source).expect("the source"),
+            crate::image::fixture::SHOT_PNG
+        );
+        let dir = copy.parent().expect("a directory").to_path_buf();
+        drop(shell);
+        assert!(!dir.exists(), "{dir:?} outlived the session");
+
+        // A session that saves keeps its own copy in the log, and makes none.
+        let mut saved = attaching();
+        saved.route_bytes(b"/image shot.png\r");
+        let image = saved
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert_eq!(image.copy, None);
+        assert_eq!(saved.paste_copies.dir(), None);
+    }
+
+    /// The temporary copy an unsaved session made of `image`, checked: beside
+    /// the paste copies, owner-only, the bytes the image holds, and never the
+    /// file it was attached from.
+    fn checked_copy(shell: &Fixture, image: &crate::image::Image) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let copy = image
+            .copy
+            .clone()
+            .unwrap_or_else(|| panic!("image #{} has no temporary copy", image.id));
+        assert_ne!(copy, image.path, "the source is not a copy");
+        assert_eq!(copy.parent(), shell.paste_copies.dir());
+        assert_eq!(std::fs::read(&copy).expect("the copy"), &image.bytes[..]);
+        assert_eq!(
+            std::fs::metadata(&copy).expect("mode").permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(image.own_copy(), Some(copy.as_path()));
+        copy
+    }
+
+    // Upstream captures on each route a file is attached by: the `/image`
+    // command (`insertImageAtCursor`, `src/core/images/image_commands.zig:137-140`),
+    // a pasted or dropped path (`input_paste_runtime.zig:490-493`) and a path
+    // typed into the prompt (`captureExtractedImages`,
+    // `input_submit_runtime.zig:1218-1223@481104fd`). An unsaved session's
+    // copy is made on each of them.
+
+    /// [`attaching`], in a session that keeps no copy of its own.
+    fn attaching_unsaved() -> Attaching {
+        let mut shell = attaching();
+        shell.unsaved = true;
+        shell
+    }
+
+    #[test]
+    fn an_unsaved_slash_image_makes_the_files_copy() {
+        let mut shell = attaching_unsaved();
+        shell.route_bytes(b"/image shot.png\r");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        checked_copy(&shell, &image);
+    }
+
+    #[test]
+    fn an_unsaved_pasted_or_dropped_path_makes_the_files_copy() {
+        let mut shell = attaching_unsaved();
+        pasted(&mut shell, "shot.png describe this");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        checked_copy(&shell, &image);
+    }
+
+    #[test]
+    fn an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent() {
+        let mut shell = attaching_unsaved();
+        shell.route_bytes(b"inspect shot.png,\r");
+        match shell.picks_up() {
+            TurnWork::Attached { images, .. } => {
+                assert_eq!(images.len(), 1, "{images:?}");
+                checked_copy(&shell, &images[0]);
+            }
+            other => panic!("not a prompt with an image: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route() {
+        // Upstream refuses an attachment its capture fails for
+        // (`captureImageAttachmentForAdmission`,
+        // `src/core/images/image_attachments.zig:328-347@481104fd`): `/image`
+        // says why and puts no badge in, a pasted path stays words, and a
+        // typed path stops the prompt with the draft kept.
+        let refusal = said(notice::Notice::error(
+            crate::image::TOPIC,
+            "failed to attach image: FileNotFound",
+        ));
+        let unwritable = |shell: &mut Attaching| {
+            let gone = shell.workspace.join("no-such-directory");
+            shell.paste_copies = super::super::clipboard_image::PasteCopies::at(gone);
+        };
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.document(), refusal);
+        assert_eq!(shell.editor.text(), "");
+        assert!(attached_ids(&shell).is_empty());
+
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        pasted(&mut shell, "shot.png describe this");
+        assert_eq!(shell.editor.text(), "shot.png describe this");
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.document(), refusal);
+
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        shell.route_bytes(b"inspect shot.png,\r");
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(shell.editor.text(), "inspect shot.png,");
+        assert_eq!(shell.document(), refusal);
     }
 
     #[test]

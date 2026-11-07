@@ -248,7 +248,9 @@ async fn run_streams(
             };
             // Read-only: a machine that has never run `ask` still has an empty
             // home after `xfx sessions`.
-            let store = read_only_store(&config);
+            let Some(store) = read_only_store(&config) else {
+                return refuse_without_home(stderr, "sessions");
+            };
             let listed = match store.list(&ListFilter::new(scope).with_limit(limit)) {
                 Ok(listed) => listed,
                 Err(err) => return fail_command(stderr, &err.to_string()),
@@ -262,7 +264,9 @@ async fn run_streams(
         }
         Command::Session { json, selector } => {
             let config = load_config()?;
-            let store = read_only_store(&config);
+            let Some(store) = read_only_store(&config) else {
+                return refuse_without_home(stderr, "session");
+            };
             let detail = match store.detail(&selector, &config.workspace_root) {
                 Ok(detail) => detail,
                 Err(err) => return fail_command(stderr, &err.to_string()),
@@ -837,14 +841,24 @@ fn fail_command(stderr: &mut dyn Write, message: &str) -> Result<ExitCode, AppEr
 
 /// A store that can only read, rooted at the configured profile home.
 ///
-/// A machine with no home has no store, and an unusable path is reported by the
-/// operation that needed it rather than by refusing to start.
-fn read_only_store(config: &RuntimeConfig) -> SessionStore {
-    let profile = config
-        .profile_dir
-        .clone()
-        .unwrap_or_else(|| Path::new(crate::config::PROFILE_DIR_NAME).to_path_buf());
-    SessionStore::read_only(&profile)
+/// A machine with no home -- `HOME` unset, empty or relative
+/// ([`crate::config::home_dir`]) -- has no store, rather than one rooted at
+/// a relative `.xfx`, which is the workspace's own project directory. An
+/// unusable path is reported by the operation that needed it rather than by
+/// refusing to start.
+fn read_only_store(config: &RuntimeConfig) -> Option<SessionStore> {
+    config.profile_dir.as_deref().map(SessionStore::read_only)
+}
+
+/// Why a store command did nothing: there is no home to find the store in.
+/// Upstream's words, `fx <kind>: HOME is not set`, with this product's name
+/// (`writeLookupFailure`, `src/core/cli/cli_surface.zig:2923-2927@481104fd`).
+const HOME_NOT_SET: &str = "HOME is not set";
+
+/// `xfx <kind>: HOME is not set` on stderr, and the rejected exit.
+fn refuse_without_home(stderr: &mut dyn Write, kind: &str) -> Result<ExitCode, AppError> {
+    writeln!(stderr, "xfx {kind}: {HOME_NOT_SET}")?;
+    Ok(ExitCode::from(REJECTED_EXIT_CODE))
 }
 
 /// What `status` says about the session a turn in this workspace would continue.
@@ -854,7 +868,9 @@ fn read_only_store(config: &RuntimeConfig) -> SessionStore {
 /// command. A session that exists but is damaged is visible through `doctor`'s
 /// job, not by making `status` refuse to run.
 fn session_facts(config: &RuntimeConfig) -> SessionFacts {
-    let store = read_only_store(config);
+    let Some(store) = read_only_store(config) else {
+        return SessionFacts::default();
+    };
     match store.detail(&Selector::Last, &config.workspace_root) {
         Ok(detail) => SessionFacts {
             history_turns: detail.state.turns.len() as u64,
@@ -1115,7 +1131,15 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
 /// anything. Read-only and bounded, so `doctor` stays a command that is always
 /// safe to run.
 fn sessions_check(config: &RuntimeConfig) -> DoctorCheck {
-    let store = read_only_store(config);
+    // A warning, as upstream's `state` check is one for `HomeNotSet`
+    // (`appendStateChecks`, `src/core/cli/doctor_runtime.zig:255-261@481104fd`).
+    let Some(store) = read_only_store(config) else {
+        return DoctorCheck::new(
+            "sessions",
+            CheckStatus::Warn,
+            format!("cannot read the session store: {HOME_NOT_SET}"),
+        );
+    };
     let listed = match store.list(&ListFilter::new(ListScope::AllWorkspaces).with_limit(usize::MAX))
     {
         Ok(listed) => listed,

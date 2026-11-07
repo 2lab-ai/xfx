@@ -1,0 +1,14 @@
+# GREEN: 0ebade1b's xfx (sha256 63574837...) against fx v0.0.16 (8e6cda2e...)
+# workspace listings (workls), byte for byte
+SAME p5-lifecycle-relhome-40x120-work-h02.txt
+SAME p5-lifecycle-relhome-made-40x120-work-h03.txt
+# snap pairs, scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*' (parity-ledger.toml normalizations: banner, product name, dead-pane clock)
+unresolved-defect p5-lifecycle-relhome-40x120-h00-launch: rows differing [1, 3, 5, 7, 40]; cause tui-without-home
+unresolved-defect p5-lifecycle-relhome-40x120-h01-sessions.full: rows differing [1]; cause tui-without-home-scrollback
+    row 1 fx  '<banner>'
+    row 1 xfx 'xfx: xfx cannot record a conversation because no home directory is set; run `xfx ask --no-save <prom'
+unresolved-defect p5-lifecycle-relhome-made-40x120-h00-launch: rows differing [1, 3, 5, 7, 40]; cause tui-without-home
+unresolved-defect p5-lifecycle-relhome-made-40x120-h01-turn: rows differing [1, 3, 5, 7, 9, 11, 13, 40]; cause tui-without-home, stream-position
+unresolved-defect p5-lifecycle-relhome-made-40x120-h02-sessions.full: rows differing [1]; cause tui-without-home-scrollback
+    row 1 fx  '<banner>'
+    row 1 xfx 'xfx: xfx cannot record a conversation because no home directory is set; run `xfx ask --no-save <prom'

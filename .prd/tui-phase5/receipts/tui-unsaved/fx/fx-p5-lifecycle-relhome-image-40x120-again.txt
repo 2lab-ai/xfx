@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+! history: durable prompt history unavailable
+
+* images: attached image: shot.png
+
+┃ [Image 1] what is in this image?
+
+  It is a small red square.
+
+  0s (↑9 ↓40)
+
+┃ describe it again
+
+  Still red.
+
+  0s (↑5 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

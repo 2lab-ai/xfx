@@ -144,7 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:756"]
+source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:764"]
 
 [[normalization]]
 id = "session-id"
@@ -470,7 +470,7 @@ owner = "P1 r3/r4 feat/tui-phase4-provider-session 8facfb6d"
 scenarios = ["provider*"]
 snaps = ["*"]
 xfx_row = '^! session: this session recorded reasoning on |^  (?:that )?reasoning was not carried over$'
-why = "After a switch back to the Gateway xfx says once that the llmux turn's reasoning was not carried (src/session/store.rs:992); fx drops it silently (projectProviderReplay). xfx's own rule, P1's to settle."
+why = "After a switch back to the Gateway xfx says once that the llmux turn's reasoning was not carried (src/session/store.rs:1000); fx drops it silently (projectProviderReplay). xfx's own rule, P1's to settle."
 
 # (a) awaiting a user decision: what the approved rows push.
 
@@ -576,7 +576,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:36836"]
+xfx = ["src/tui/shell.rs:37018"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -587,7 +587,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:36836"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37018"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
 
@@ -609,7 +609,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:36836", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:37018", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 
@@ -645,7 +645,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^\* stats: ansi_bytes=\d+,'
 xfx_row = '^\* stats: ansi_bytes=\d+,'
-xfx = ["src/tui/shell.rs:1584"]
+xfx = ["src/tui/shell.rs:1593"]
 fx = ["src/core/app/app_commands.zig:1014@c1db9191"]
 why = "`/stats` counts each product's own bytes to the terminal (fx 3499, xfx 2675 for the same screen): equal only if the two wrote the same bytes."
 
@@ -755,3 +755,12 @@ snaps = ["failed"]
 fx_row = '^└ Failed mcp_web_echo: MCP protocol error '
 xfx_row = '^└ Failed mcp_web_echo: \{"server":'
 why = "A failed MCP call's row ends with the tool's result, what the model is told: fx v0.0.16 sends `MCP protocol error -32603: fixture refuses`, xfx its `{server, tool, error: {kind, message}}` envelope (src/tools/mcp.rs:422-428). The row's words before the reason are the same."
+
+[[cause]]
+id = "launch-refusal-row"
+kind = "decision"
+owner = "user decision launch refusals before or after the terminal"
+scenarios = ["p5-lifecycle-relhome-resume"]
+snaps = ["r00-resume.full"]
+rows = ["2-3"]
+why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:127-133). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match."

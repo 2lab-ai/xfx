@@ -1,0 +1,30 @@
+# GREEN: d87d448b's xfx (sha256 c32f85d5...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at d87d448b
+workls SAME p5-lifecycle-relhome-40x120-work-h02.txt
+workls SAME p5-lifecycle-relhome-image-40x120-work-i00.txt
+workls SAME p5-lifecycle-relhome-made-40x120-work-h03.txt
+workls SAME p5-lifecycle-relhome-resume-40x120-work-r01.txt
+workls SAME p5-lifecycle-relhome-unsaved-40x120-work-u09.txt
+# snap pairs: scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*', 17 pairs
+normalized-identical p5-lifecycle-relhome-40x120-h00-launch
+normalized-identical p5-lifecycle-relhome-40x120-h01-sessions.full
+normalized-identical p5-lifecycle-relhome-image-40x120-sent
+normalized-identical p5-lifecycle-relhome-image-40x120-again
+normalized-identical p5-lifecycle-relhome-made-40x120-h00-launch
+normalized-identical p5-lifecycle-relhome-made-40x120-h01-turn
+normalized-identical p5-lifecycle-relhome-made-40x120-h02-sessions.full
+unresolved-defect p5-lifecycle-relhome-resume-40x120-r00-resume.full: rows [2, 3]; launch-refusal-row
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u00-launch
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u01-turn
+approved-divergence-cascade p5-lifecycle-relhome-unsaved-40x120-u02-status: rows [18, 19, 20, 21, 22, 23]; the standing /status panel divergences (status-panel-sandbox, -updates, -step-limit)
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u03-resume
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u04-fork
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u05-rename
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u06-new
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u07-turn
+normalized-identical p5-lifecycle-relhome-unsaved-40x120-u08-quit.full
+
+# p5-lifecycle-relhome-image: image parts per request (sweep5)
+fx v0.0.16 001-completion.json images=1
+fx v0.0.16 002-completion.json images=1
+xfx d87d448b 001-completion.json images=1
+xfx d87d448b 002-completion.json images=1

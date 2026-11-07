@@ -1,0 +1,49 @@
+# L-U3d. The MUST's RED: the per-route tests on 0412de84's shell (the worktree before the fix): the pasted and the typed path attach with no copy
+test tui::shell::tests::an_unsaved_pasted_or_dropped_path_makes_the_files_copy ... FAILED
+test tui::shell::tests::an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent ... FAILED
+test tui::shell::tests::an_unsaved_slash_image_makes_the_files_copy ... ok
+test tui::shell::tests::an_unsaved_sessions_attached_file_gets_a_private_temporary_copy ... ok
+image #1 has no temporary copy
+image #1 has no temporary copy
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 3992 filtered out; finished in 0.01s
+
+# On throwaway clones of 98b78a32 / d87d448b (git clone --no-local in the short TMPDIR); each step resets src/ and tests/
+## base: src/tui/clipboard_image.rs write() and src/clipboard.rs at 0412de84 (the tests stay 98b78a32's)
+base-copies exit=101 test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 3995 filtered out; finished in 0.34s 
+test tui::clipboard_image::tests::the_copies_live_under_the_real_tmp_whatever_tmpdir_says_and_never_under_a_relative_base ... FAILED
+test tui::clipboard_image::tests::a_link_planted_at_a_copys_name_is_unlinked_and_its_target_left_alone ... FAILED
+base-tmpdir exit=0 ... (this first TMPDIR test checked the tree only after the exit, when the shell had already removed its copies; d87d448b checks it while the session holds them, and the run below is RED)
+## mutant D: captured() skips the copy on the paste and typed routes (0412de84's routes)
+md-routes exit=101 test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 3994 filtered out; finished in 0.01s 
+test tui::shell::tests::an_unsaved_pasted_or_dropped_path_makes_the_files_copy ... FAILED
+test tui::shell::tests::an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent ... FAILED
+test tui::shell::tests::an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route ... FAILED
+(mutant E in that first run did not apply -- rustfmt had reflowed the line it matched -- and is replaced by the run below)
+## base root: PasteCopies under $TMPDIR as given, no absolute check (0412de84's)
+base-tmpdir exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 173 filtered out; finished in 1.62s 
+test with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir ... FAILED
+## mutant E: a failed copy still attaches (the base's .ok())
+me-refusal exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3998 filtered out; finished in 0.02s 
+test tui::shell::tests::an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route ... FAILED
+## why each failed
+-- base-copies
+thread 'tui::clipboard_image::tests::the_copies_live_under_the_real_tmp_whatever_tmpdir_says_and_never_under_a_relative_base' (271142634) panicked at src/tui/clipboard_image.rs:244:9:
+assertion `left == right` failed
+  left: Some("<local-path>")
+ right: Some("<local-path>")
+   and the link test: image-2.bin is still a link
+-- md-routes
+thread 'tui::shell::tests::an_unsaved_pasted_or_dropped_path_makes_the_files_copy' (271148693) panicked at src/tui/shell.rs:37500:32:
+image #1 has no temporary copy
+
+thread 'tui::shell::tests::an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent' (271148696) panicked at src/tui/shell.rs:37500:32:
+-- base-tmpdir
+thread 'with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir' (271296441) panicked at tests/tui.rs:1241:5:
+assertion `left == right` failed: the copy landed in the sandbox
+  left: [("home", None), ("workspace", None), ("workspace/notes.txt", Some((15, SystemTime {..}, [78, 79, 84, 69, 83, 45, 86, 65, 76, 85, 69, 45, 49, 55, 10]))), (
+ right: [("home", None), ("workspace", None), ("workspace/notes.txt", Some((15, SystemTime {..}, [78, 79, 84, 69, 83, 45, 86, 65, 76, 85, 69, 45, 49, 55, 10]))), (
+-- me-refusal
+thread 'tui::shell::tests::an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route' (271304242) panicked at src/tui/shell.rs:37586:9:
+assertion `left == right` failed
+  left: ["* images: attached image: shot.png", ""]
+ right: ["✗ images: failed to attach image: FileNotFound", ""]

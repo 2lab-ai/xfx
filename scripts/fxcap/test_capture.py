@@ -363,6 +363,15 @@ class Verbs(unittest.TestCase):
         # cat came back and echoed the line: the terminal's echo, then cat's.
         self.assertEqual(r.file("a").split("\n").count("hello"), 2)
 
+    def test_keep_holds_a_pane_whose_binary_is_gone_at_once(self):
+        # A binary that ends before the scenario reaches its `keep` -- xfx
+        # refusing a HOME it cannot use, under a scenario's opening comment
+        # lines, each a subshell -- still leaves its pane, and the server
+        # with it.
+        r = capture("# a comment\n" * 12 + "keep\nwait 0.5\nsnap a\n", binary="/bin/echo")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.file("a"), r"Pane is dead \(status 0, ")
+
     def test_a_stop_is_discarded_without_jobctl_and_a_term_ends_it(self):
         r = capture("keep\nwait 1\nsignal TSTP\nsignal SIGTERM\nwait 0.3\nsnap a\n", binary="/bin/cat")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)

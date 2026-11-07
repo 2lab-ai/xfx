@@ -1,0 +1,29 @@
+# Round 2. The MUST's RED: the new store test on round 1's src (82919cc0's store.rs, the worktree before the fix)
+thread 'session::store::tests::an_unsaved_sessions_images_are_sent_again_on_every_later_turn' (267844722) panicked at src/session/store.rs:5205:9:
+  left: 0
+ right: 2
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3990 filtered out; finished in 0.01s
+
+# The rest on a throwaway clone of feat/p5-tui-unsaved@a38a413c (git clone --no-local in the short TMPDIR); each step resets src/ and tests/
+## src at 82919cc0, tests at a38a413c: the unit tests live in src, so base-store and base-worker ran 82919cc0's own (no new test, 0 run or the old one); the three TUI tests pin behaviour 82919cc0 already had
+base-store exit=0 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3990 filtered out; finished in 0.00s 
+base-worker exit=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3989 filtered out; finished in 0.01s 
+base-tui exit=0 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 2.13s 
+## mutant T: bind_conversation binds the rules path in an unsaved session too
+mt-tui exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 172 filtered out; finished in 1.51s 
+test with_no_usable_home_a_tool_runs_under_the_session_authority_alone ... FAILED
+## mutant O: an unsaved run overwrites a seeded profile file in place (same name)
+mo-tui exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 172 filtered out; finished in 1.32s 
+test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... FAILED
+base-title (title_asker without the unsaved check, = 82919cc0's) exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3990 filtered out; finished in 0.01s
+## why each failed
+-- mt-tui
+thread 'with_no_usable_home_a_tool_runs_under_the_session_authority_alone' (268158827) panicked at tests/tui.rs:1192:9:
+HOME="relative/home": the read was not answered with the file: {"prompt":[{"role":"system","content":"Configured MCP servers visible to this model turn are listed below.\nA listed server is not a reas
+-- mo-tui
+thread 'with_no_usable_home_the_session_runs_unsaved_and_writes_nothing' (268160627) panicked at tests/tui.rs:1143:9:
+assertion `left == right` failed: HOME=None wrote into the sandbox
+  left: [("home", None), ("workspace", None), ("workspace/notes.txt", Some((15, SystemTime { tv_sec: 1794022325, tv_nsec: 874748701 }, [78, 79, 84, 69, 83, 45, 86, 65, 76, 85, 69, 45, 49, 55, 10]))), 
+-- base-title
+thread 'tui::worker::tests::a_session_with_no_home_runs_unsaved_and_says_so' (268169198) panicked at src/tui/worker.rs:8069:9:
+an unsaved session asked for a title
