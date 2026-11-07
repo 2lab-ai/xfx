@@ -1,0 +1,24 @@
+# Phase 5 transcript (WIDTH-DISPUTED round 2): p5-transcript-diffwide in the
+# cluster form -- a Hangul filler with a mark after it (U+FFA0 U+0301, ...)
+# and conjoining jamo with a filler (U+115F U+1160), short and at the
+# screen's margin. fx counts such a line one code point at a time; read
+# first on both sides, then Ctrl-O over the change.
+gateway p5-transcript-diffwide2-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+work p5-transcript-diffwide2ws
+keep
+wait 4
+type edit the file
+wait 1
+key Enter
+wait 5
+snap edited
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+snap closed
+gwlog

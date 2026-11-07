@@ -2903,7 +2903,7 @@ mod tests {
         // default-ignorable ones fx writes as themselves and tmux 3.7b draws
         // a cell wide (`approval_view`'s `default_ignorable`): those stay
         // raw here too, as fx's, and the painter counts them as fx does
-        // (`super::super::wrap`'s `drawn_cells`, WIDTH-DISPUTED).
+        // (`super::super::wrap`'s `counted_as_upstream`, WIDTH-DISPUTED).
         let points = (0u32..=0x2100)
             .chain([0xfeff, 0x061c, 0x3164, 0xffa0])
             .chain(0xfff0..=0xfff8);

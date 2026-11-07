@@ -399,6 +399,17 @@ fx = "src/ui/render_engine/transcript_blocks.zig:718-766@c1db9191"
 why = "fx reflows a Ctrl-O diff row longer than the screen onto continuation rows under its gutter (`  │ ` and spaces to the text column; `reflowDiffRow`, the same at 481104fd's `transcript_blocks.zig:720-768`); xfx's `diff_rows` clips it at the margin, so the rest of the line is not shown. `p5-transcript-diffwide` `full`: line 3 (104 `w`s, four soft hyphens, `TAIL5678`) is fx's `  │ 3   …TAIL` then `  │     5678`, and xfx's first row only -- byte-identical since WIDTH-DISPUTED, the `5678` row absent, so the window above it starts a row later on fx. A c1db919 behaviour too, so a KEEP gap rather than a 0.0.16 change. Fixed when xfx's Ctrl-O diff rows wrap as fx's do -- as its review already wraps one rather than cut it."
 
 [[cause]]
+id = "ctrl-o-drawn-wider-raw"
+kind = "defect"
+owner = "CTRLO-WIDER"
+scenarios = ["*"]
+snaps = ["*"]
+xfx_row = '^  │ +\d+ [ +-] .*[\u0605\u070f\u0890-\u0891\u08e2\u09be\u09d7\u0b3e\u0b57\u0bbe\u0bd7\u0cc0\u0cc2\u0cc7-\u0cc8\u0cca-\u0ccb\u0cd5-\u0cd6\u0d3e\u0d4e\u0d57\u0dcf\u0ddf\u1715\u1734\u1b35\u1b3b\u1b3d\u1b43-\u1b44\u1baa\u1bf2-\u1bf3\u261d\u26f9\u270c-\u270d\u2e3a-\u2e3b\u302e-\u302f\ua8fa\ua953\ua9c0\ufe0f\uff9e-\uff9f\U000111c0\U000111c2-\U000111c3\U00011235\U0001133e\U0001134d\U00011357\U000113b8\U000113c2\U000113c5\U000113c7-\U000113c9\U000113cf\U000113d1\U000114b0\U000114bd\U000115af\U000116b6\U00011930\U0001193d\U0001193f\U00011941\U00011a84-\U00011a89\U00011d46\U00011f02\U00011f41\U00016ff0-\U00016ff1\U0001d165-\U0001d166\U0001d16d-\U0001d172\U0001f1e6-\U0001f1ff\U0001f3cb-\U0001f3cc\U0001f574-\U0001f575\U0001f590\U000e0000\U000e0002-\U000e001f\U000e0080-\U000e00ff\U000e01f0-\U000e0fff]'
+xfx = "src/tui/drawn_wider.rs:50-67"
+fx = "src/core/shared/display_width.zig:275-282@c1db9191"
+why = "Ctrl-O's diff rows write as themselves, as fx v0.0.16 does, the scalars `src/tui/drawn_wider.rs` lists that fx does not name (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`; every range of the table but U+2065, which fx names) -- U+0605, U+FF9E and U+302E among them -- and the painter counts them as the width table does, fewer cells than a terminal was measured to draw them (that is the table), where fx counts each one code point at a time (`runeWidth`; U+0605 and U+FF9E one cell, U+302E two, `wide_ranges` `0x2FF0-0x303E`, `unicode_display_data.zig:42@481104fd`). A diff line with one at the margin can then run past it on that terminal, as WIDTH-DISPUTED's fillers did. No scenario holds one. The review names every one of them (`approval_view` `tamed`). Fixed when the painter counts them as fx does, or Ctrl-O names them (then a divergence from fx's bytes)."
+
+[[cause]]
 id = "submit-multi-card-whole"
 kind = "decision"
 owner = "user decision multi-line card preview"

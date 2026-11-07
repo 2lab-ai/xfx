@@ -1022,7 +1022,8 @@ enum Emoji {
 /// two and most of the rest one (`display_width.zig`, `c1db919`).
 ///
 /// The painter now counts the soft hyphen, the Hangul fillers and
-/// `U+FFF0`-`U+FFF8` as upstream does (`super::wrap`'s `drawn_cells`,
+/// `U+FFF0`-`U+FFF8` -- and any cluster holding one -- as upstream does
+/// (`super::wrap`'s `counted_as_upstream`,
 /// WIDTH-DISPUTED), so those no longer run a row past the margin. The rest are
 /// still counted as none -- `U+2065` among them, which tmux draws a cell wide
 /// -- and every one of them is still named here, so a reviewer is shown that
