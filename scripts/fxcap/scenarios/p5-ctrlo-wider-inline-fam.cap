@@ -17,34 +17,34 @@
 gateway p5-ctrlo-wider-inline-fam-turns.json
 fx: env FX_AUTO_UPGRADE=0
 keep
-wait 4
-# A debug xfx under load takes the terminal later than fx does.
-xfx: wait 3
+until shown Run /help for commands
 type go
 wait 1
 key Enter
-wait 4
+until shown END
+until gone Generating (
 snap answer
 wire answer
 type fam ☝ ⸺ 🖐 x󠀂y a️b ­️c ﾠ️d ￰️e ⁥f end
-wait 1
+until shown ┃ fam
 snap composer
 cursor composer
 wire composer
 key Enter
-wait 4
+until shown Spare.
+until gone Generating (
 snap prompt
 wire prompt
 key C-o
-wait 2
+until shown full detail
 snap ctrlo
 wire ctrlo
 key C-o
-wait 1
+until gone full detail
 type ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL
 key C-j
 type wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww☝TAIL
-wait 1
+until shown ┃ TAIL
 snap margin
 cursor margin
 wire margin
@@ -53,9 +53,9 @@ wait 2
 snap resized
 wire resized
 key C-o
-wait 2
+until shown full detail
 snap ctrlo-resized
 wire ctrlo-resized
 key C-o
-wait 1
+until gone full detail
 gwlog

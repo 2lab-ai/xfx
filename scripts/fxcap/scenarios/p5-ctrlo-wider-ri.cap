@@ -9,13 +9,12 @@
 gateway p5-ctrlo-wider-ri-turns.json
 fx: env FX_AUTO_UPGRADE=0
 keep
-wait 4
-# A debug xfx under load takes the terminal later than fx does.
-xfx: wait 3
+until shown Run /help for commands
 type go
 wait 1
 key Enter
-wait 4
+until shown 5678
+until gone Generating (
 snap answer
 wire answer
 gwlog

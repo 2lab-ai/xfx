@@ -8,23 +8,22 @@
 gateway p5-ctrlo-wider-inline-turns.json
 fx: env FX_AUTO_UPGRADE=0
 keep
-wait 4
-# A debug xfx under load takes the terminal later than fx does.
-xfx: wait 3
+until shown Run /help for commands
 type go
 wait 1
 key Enter
-wait 4
+until shown w🇦
+until gone Generating (
 snap answer
 wire answer
 type p1 ؅١ কা a〮 ｶﾞ 🇦 🇰🇷 🇦🇦 x󠀀y end
-wait 1
+until shown ┃ p1
 snap composer
 cursor composer
 wire composer
 key C-u
 type wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa〮a〮TAIL
-wait 1
+until shown ┃ TAIL
 snap margin
 cursor margin
 wire margin
