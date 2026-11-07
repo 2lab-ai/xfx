@@ -90,16 +90,31 @@ impl Errands {
     /// seam a case decides the grace with by the order of events rather than
     /// a second count: it can let a tool answer only once the end has begun,
     /// or end the grace before a tool answers.
+    ///
+    /// The threads taken are stopped and joined by [`Ending`]'s drop, so a
+    /// panic in `over` -- after they have left the errands, where the
+    /// errands' own drop would no longer find them -- still gives them up.
     fn end(&self, mut over: impl FnMut(Instant) -> bool) {
-        let running = std::mem::take(&mut *self.lock());
+        let running = Ending(std::mem::take(&mut *self.lock()));
         let began = Instant::now();
-        while running.iter().any(|(thread, _)| !thread.is_finished()) && !over(began) {
+        while running.0.iter().any(|(thread, _)| !thread.is_finished()) && !over(began) {
             std::thread::sleep(Duration::from_millis(5));
         }
-        for (_, stop) in &running {
+    }
+}
+
+/// The threads an end has taken: every one stopped, and then every one
+/// joined, when it is dropped -- at the end's own end, or on the way out of a
+/// panic. Neither step can panic (a stop handles a poisoned lock, a join's
+/// result is not looked at), so the drop never does while one unwinds.
+struct Ending(Vec<(JoinHandle<()>, Stop)>);
+
+impl Drop for Ending {
+    fn drop(&mut self) {
+        for (_, stop) in &self.0 {
             stop.stop();
         }
-        for (thread, _) in running {
+        for (thread, _) in self.0.drain(..) {
             let _ = thread.join();
         }
     }
