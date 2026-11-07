@@ -1,10 +1,12 @@
-# Phase 5 transcript (DIFF-WRAPb): a write of a new file of fourteen lines,
+# Phase 5 transcript (DIFF-WRAPb): a write of a new file of twenty lines,
 # so the line numbers take two columns, whose tabs land where fx's row
 # walker has already run a row on -- a tab on the walker's second row
 # (`\t`, 108 or 110 characters, `\t`), a tab after a row the walker filled
 # to the last column, a tab on a reflowed row under the gutter, two tabs at
 # the margin, a tab after a wide character in the last column and one
-# before a wide character -- and a two-digit line reflowed. Ctrl-O over the change:
+# before a wide character, a U+FE0F or a U+0301 after a tab, one that
+# moves nothing and one that does (DIFF-WRAPc) -- and a two-digit line
+# reflowed. Ctrl-O over the change:
 # fx reflows each line (`reflowDiffRow`, transcript_blocks.zig:720-768
 # @481104fd), then its walker places each tab from the column of the row
 # it is on (full_transcript_screen.zig:4004-4031@481104fd).

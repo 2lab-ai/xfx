@@ -2301,8 +2301,18 @@ impl WalkedCell {
 /// a column at a time from the left edge:
 ///
 /// * **A character whose cells would pass the last column** starts the next
-///   row, at its column 1 (`shouldWrapAt`, `:4019-4022`); one of no cells
-///   stays with the cell before it.
+///   row, at its column 1 (`shouldWrapAt`, `:4019-4022`).
+/// * **What takes no cells** is part of the cluster before it
+///   ([`wrap::first_cluster`]), with one exception: a control ends a
+///   grapheme cluster (UAX #29 GB5), so a mark or a selector right after a
+///   tab is a cluster of its own. fx writes it where its column is, and its
+///   screen does not draw it, whether the tab moved the column or not
+///   (`p5-transcript-diffwrap2` lines 15-19: `…k1Z`, `…meZ`, `p      q` for
+///   a U+FE0F or a U+0301 after the tab; `t́      u` for one before it);
+///   so it is dropped here too. Kept, it would stand in the row text right
+///   after the character before the tab, and the frame, which segments the
+///   row again, would measure the two as one cluster (`1` U+FE0F two cells)
+///   and cut the row's last cell.
 /// * **A tab** moves to the next stop of eight of the row it is on -- a row
 ///   run on included, counted from that row's column -- and at most to the
 ///   last column (`nextTabStopColumn`, `display_width.zig:292-300@481104fd`,
@@ -2328,6 +2338,8 @@ fn walked(row: &str, cols: u16, style: &str, reset: &str) -> Vec<String> {
     let mut cells: Vec<WalkedCell> = Vec::new();
     // fx's one-based column: where the next character goes.
     let mut column = 1u16;
+    // Whether the last cluster was a tab, with no character after it yet.
+    let mut after_tab = false;
     let mut rest = row;
     while let Some(cluster) = wrap::first_cluster(rest) {
         rest = &rest[cluster.len()..];
@@ -2342,21 +2354,23 @@ fn walked(row: &str, cols: u16, style: &str, reset: &str) -> Vec<String> {
             };
             cells.extend((column..stop).map(|_| WalkedCell::blank()));
             column = stop;
+            after_tab = true;
             continue;
         }
         let width = wrap::cluster_width(cluster);
         if width == 0 {
-            match cells.last_mut() {
-                // Joined to the cell before it, as the painter joins it.
-                Some(last) if last.styled => last.text.push_str(cluster),
-                _ => cells.push(WalkedCell {
+            // Only after a tab, or as the row's first cluster, which no row
+            // here has (it opens with the gutter).
+            if !after_tab {
+                cells.push(WalkedCell {
                     text: cluster.into(),
                     cells: 0,
                     styled: true,
-                }),
+                });
             }
             continue;
         }
+        after_tab = false;
         if u32::from(column) + u32::from(width) - 1 > u32::from(cols) {
             rows.push(std::mem::take(&mut cells));
             column = 1;
@@ -3571,6 +3585,50 @@ mod tests {
                 format!("  \u{2502} 1 + {blanks}{}", "j".repeat(104)),
                 "\u{6f22}W".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it() {
+        // fx's walker writes a unit of no cells where its column is
+        // (`full_transcript_screen.zig:4017-4034@481104fd`, `width > 0`
+        // guarding only the wrap), and one right after a tab has no
+        // character before it on fx's screen: `p5-transcript-diffwrap2`
+        // `full` lines 15-19 show neither a U+FE0F nor a U+0301 that follows
+        // a tab, whether the tab moved the column (`p      q`) or not
+        // (`…k1Z`, `…meZ`), where one before a tab stays (`t́      u`).
+        let blanks = " ".repeat(8);
+        let k102 = "k".repeat(102);
+        let rows = added(&format!("\t{k102}1\t\u{fe0f}Z"), 120);
+        // The frame keeps every cell of each row: what the walker counts is
+        // what the frame measures (`super::frame::clip`).
+        for row in &rows {
+            assert_eq!(super::super::frame::clip(row, 120), row, "{rows:?}");
+        }
+        assert_eq!(plain(&rows), [format!("  \u{2502} 1 + {blanks}{k102}1Z")]);
+        let m102 = "m".repeat(102);
+        assert_eq!(
+            plain(&added(&format!("\t{m102}e\t\u{301}Z"), 120)),
+            [format!("  \u{2502} 1 + {blanks}{m102}eZ")]
+        );
+        // After a tab on a full row: dropped, and `Z` over the `1`.
+        let l103 = "l".repeat(103);
+        assert_eq!(
+            plain(&added(&format!("\t{l103}1\t\u{fe0f}ZW"), 120)),
+            [format!("  \u{2502} 1 + {blanks}{l103}Z"), "W".to_string()]
+        );
+        // After a tab that moved the column, and before one.
+        assert_eq!(
+            plain(&added("p\t\u{301}q", 120)),
+            ["  \u{2502} 1 + p       q"]
+        );
+        assert_eq!(
+            plain(&added("r\t\u{fe0f}s", 120)),
+            ["  \u{2502} 1 + r       s"]
+        );
+        assert_eq!(
+            plain(&added("t\u{301}\tu", 120)),
+            ["  \u{2502} 1 + t\u{301}       u"]
         );
     }
 
