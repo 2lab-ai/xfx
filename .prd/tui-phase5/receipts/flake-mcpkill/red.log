@@ -1,0 +1,76 @@
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 1/10 | pass rc=0 ran=True 1.4s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 2/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 3/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 4/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 5/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 6/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 7/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 8/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 9/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | run 10/10 | pass rc=0 ran=True 0.6s |
+A-old-delay | a_request_to_a_server_that_never_reads_e | TOTAL 0/10 failed
+E-new-nomut | red_old_point_check | run 1/20 | pass rc=0 ran=True 1.3s |
+E-new-nomut | red_old_point_check | run 2/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 3/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 4/20 | FAIL rc=101 ran=True 0.5s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 5/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 6/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 7/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 8/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 9/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 10/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 11/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 12/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 13/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 14/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 15/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 16/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 17/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 18/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 19/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | run 20/20 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+E-new-nomut | red_old_point_check | TOTAL 19/20 failed
+E-new-nomut | red_new_poll | run 1/5 | pass rc=0 ran=True 0.4s |   RED-WAITED 30.037458ms
+E-new-nomut | red_new_poll | run 2/5 | pass rc=0 ran=True 0.4s |   RED-WAITED 22.000875ms
+E-new-nomut | red_new_poll | run 3/5 | pass rc=0 ran=True 0.4s |   RED-WAITED 27.108541ms
+E-new-nomut | red_new_poll | run 4/5 | pass rc=0 ran=True 0.4s |   RED-WAITED 30.034ms
+E-new-nomut | red_new_poll | run 5/5 | pass rc=0 ran=True 0.4s |   RED-WAITED 29.70775ms
+E-new-nomut | red_new_poll | TOTAL 0/5 failed
+B-new-delay | red_old_point_check | run 1/10 | FAIL rc=101 ran=True 1.2s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 2/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 3/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 4/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 5/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 6/10 | FAIL rc=101 ran=True 0.5s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 7/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 8/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 9/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | run 10/10 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1831:9: the leader was not killed, or was collected, before the close
+B-new-delay | red_old_point_check | TOTAL 10/10 failed
+B-new-delay | red_new_poll | run 1/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 183.033916ms
+B-new-delay | red_new_poll | run 2/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 167.792625ms
+B-new-delay | red_new_poll | run 3/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 178.17975ms
+B-new-delay | red_new_poll | run 4/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 169.101375ms
+B-new-delay | red_new_poll | run 5/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 163.41725ms
+B-new-delay | red_new_poll | run 6/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 162.600875ms
+B-new-delay | red_new_poll | run 7/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 166.668541ms
+B-new-delay | red_new_poll | run 8/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 164.530416ms
+B-new-delay | red_new_poll | run 9/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 184.3745ms
+B-new-delay | red_new_poll | run 10/10 | pass rc=0 ran=True 0.6s |   RED-WAITED 183.862166ms
+B-new-delay | red_new_poll | TOTAL 0/10 failed
+B-new-delay | a_request_to_a_server_that_never_reads_e | run 1/5 | pass rc=0 ran=True 0.6s |
+B-new-delay | a_request_to_a_server_that_never_reads_e | run 2/5 | pass rc=0 ran=True 0.6s |
+B-new-delay | a_request_to_a_server_that_never_reads_e | run 3/5 | pass rc=0 ran=True 0.6s |
+B-new-delay | a_request_to_a_server_that_never_reads_e | run 4/5 | pass rc=0 ran=True 0.6s |
+B-new-delay | a_request_to_a_server_that_never_reads_e | run 5/5 | pass rc=0 ran=True 0.6s |
+B-new-delay | a_request_to_a_server_that_never_reads_e | TOTAL 0/5 failed
+C-new-nokill | red_new_poll | run 1/1 | FAIL rc=101 ran=True 31.2s | src/mcp/transport.rs:1781:60: the leader, at the cut, was not killed: it had not exited 30s later
+C-new-nokill | red_new_poll | TOTAL 1/1 failed
+C-new-nokill | a_request_to_a_server_that_never_reads_e | run 1/1 | FAIL rc=101 ran=True 30.4s | src/mcp/transport.rs:1760:13: the server's grandchild, at the cut, outlived its stop
+C-new-nokill | a_request_to_a_server_that_never_reads_e | TOTAL 1/1 failed
+D-new-collect | a_request_to_a_server_that_never_reads_e | run 1/1 | FAIL rc=101 ran=True 1.2s | src/mcp/transport.rs:1793:29: the leader, at the cut, was collected before the close: No child processes (os error 10)
+D-new-collect | a_request_to_a_server_that_never_reads_e | TOTAL 1/1 failed
+D-new-collect | red_old_point_check | run 1/1 | FAIL rc=101 ran=True 0.4s | src/mcp/transport.rs:1828:9: the leader was not killed, or was collected, before the close
+D-new-collect | red_old_point_check | TOTAL 1/1 failed
+F-old-collect | a_request_to_a_server_that_never_reads_e | run 1/1 | FAIL rc=101 ran=True 1.2s | src/mcp/transport.rs:1829:9: the leader was not killed, or was collected, before the close
+F-old-collect | a_request_to_a_server_that_never_reads_e | TOTAL 1/1 failed
