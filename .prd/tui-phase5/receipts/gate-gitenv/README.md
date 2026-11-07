@@ -12,7 +12,9 @@ A claim with no log is marked *(not measured here)* with its source.
 - **Base:** `45d99f52`, the SECRETS-ARGMAX head with origin/main merged in.
 - **Round 1:** code head `5d33c5df`, receipt head `2c8fbc64`.
 - **Round 2:** the tests at `692aea34` (on `2c8fbc64`), the fixes at
-  `fff83c06`. Line numbers below are at `fff83c06`.
+  `fff83c06`. Line numbers in the round 2 sections are at `fff83c06`.
+- **Round 2b:** the tests at `582007b0` (on `d6760929`), the fixes at
+  `4a95372f`. Line numbers in the round 2b section are at `4a95372f`.
 
 **The goal:** no environment or config a caller inherits can make a CI gate
 read anything but the repository it is checking, pass a violation, or write
@@ -25,7 +27,8 @@ block `run:` steps, and which of them run git.
 
 - **Shell gates that run git:** `check-no-secrets.sh`,
   `check-xfx-identity.sh`, `check-preview-contract.sh`, and
-  `test-check-no-secrets.sh`, which builds scratch repositories.
+  `test-check-no-secrets.sh`, which builds scratch repositories. Since 2b,
+  CI runs that last one only inside `test-gate-env.sh` (below).
 - **Workflow steps that run git themselves:** ten, in `ci.yml`,
   `preview.yml`, `sweep-full.yml` and `sweep.yml` (`runs-r2-*.txt`:
   `workflow-steps` at `692aea34` lists them). `release.yml` runs none.
@@ -309,6 +312,122 @@ under a HOME config git cannot parse: without it their `init` exits 128.
 The sets were widened, with those reasons in `mutants-r2.py`, and the whole
 run repeated.
 
+## Round 2b
+
+Three items from the round 2 reviews: a vendored copy, the sparse-checkout
+remedy, and the secrets harness running twice per CI row. Plus a linked
+worktree case each for the identity scan and build.rs.
+
+### A copy inside another repository
+
+`vendored-probe.sh` puts the identity script in `vendor/xfx/scripts/` of a
+parent repository that tracks `vendor/xfx/Cargo.lock` with the residue; the
+copy has no `.git` of its own. As controls, the same files in a repository of
+their own, and in a linked worktree of that (`.git` a file). Rows from
+`runs-r2b-macos.txt` and `runs-r2b-linux.txt` (`the identity script at
+...`), the same on both:
+
+| identity script at | vendored | own repository | linked worktree |
+|---|---|---|---|
+| `45d99f52` (the unit base) | exit 1, the residue named | exit 1 | exit 1 |
+| `2c8fbc64` (round 1) | exit 1, the residue named | exit 1 | exit 1 |
+| `d6760929` (round 2) | **exit 0, `ok (3 tracked file(s) scanned)`** | exit 1 | exit 1 |
+| `4a95372f` | exit 1, `not a git checkout of its own` | exit 1 | exit 1 |
+
+Round 2's `--work-tree=.` made it: git found the parent's repository, its
+paths resolved inside `vendor/xfx`, where none exists, and `git grep`
+skipped each one. The fix (`check-xfx-identity.sh:228-239`): the first git
+call runs with `GIT_CEILING_DIRECTORIES` at the parent of the script's root,
+so git looks for a repository at the root and no higher. A `.git` directory
+or file there passes; a vendored copy is refused by name rather than
+scanned, since the gate speaks only for the checkout it is in.
+
+Cases (`test-gate-env.sh:492-510`): `identity-vendored` requires that
+refusal, and `identity-linked-worktree` requires a linked worktree still to
+be scanned and its residue named. A `[ -d .git ]` check would refuse the
+second: the mutant `identity-requires-a-git-directory` is that check.
+
+### The sparse-checkout remedy
+
+The index-bit refusal now names a remedy per bit
+(`check-xfx-identity.sh:241-276`). For skip-worktree, `git sparse-checkout
+disable` first, and `git update-index --no-skip-worktree` only for a file the
+working tree holds: on a file it lacks, clearing the bit leaves a deleted
+tracked file, which the scan skips. For assume-unchanged, `git update-index
+--no-assume-unchanged`. `identity-skip-worktree` now requires `git
+sparse-checkout disable` in the refusal, and `identity-assume-unchanged` its
+own bit's line (`test-gate-env.sh:479-491`).
+
+### build.rs in a linked worktree
+
+`build-script-linked-worktree` (`test-gate-env.sh:605-626`) adds a linked
+worktree to the scratch checkout, commits there, and runs the compiled
+build script in it under the decoy `GIT_DIR`, a `GIT_TRACE` and the HOME
+that runs programs. It requires the worktree's HEAD stamped, the decoy
+unchanged, nothing run, and `cargo:rerun-if-changed` lines for the
+worktree's own HEAD (`.git/worktrees/<name>/HEAD`) and its branch's ref in
+the main repository. That is what build.rs tells Cargo to watch; no Cargo
+rebuild was run, so a rebuild after a commit in a linked worktree is not
+measured here. The mutant `build-rs-watches-the-main-head` (HEAD taken from
+the common directory) fails it.
+
+### One full secrets-harness run per CI row
+
+`ci.yml` no longer runs `test-check-no-secrets.sh` as a step of its own
+(`ci.yml:127-144`). CI's one run of it is the nested one in
+`test-gate-env.sh` (`:630-654`). That run happens under the decoy
+`GIT_DIR`, a `GIT_TRACE` and the HOME that runs programs. It requires exit
+0, the decoy unchanged, nothing run and no trace written, and on any failure
+it now prints the whole log of the nested run. README and CONTRIBUTING list
+it under `test-gate-env.sh`.
+
+Why nothing is lost: the two runs differ only in their environment.
+`test-check-no-secrets.sh` drops every `GIT_*` first and reads no `HOME`.
+It builds each repository with no global or system config (`sg`). The one
+thing left to the caller's config is the fixture listing of
+`check-no-secrets.sh`, whose git pins `core.fsmonitor` off. So the
+standalone run differed only in reading the runner's global git config
+instead of the test's, and its config is not what that test is about. The
+behavioural assertions stay. Both secrets-harness mutants
+(`test-check-no-secrets-seven-names`, `-reads-home`) and the two no-secrets
+config mutants are still caught by the nested case (`mutants-r2b.txt`).
+
+**Time per row** (`row-time.txt`). "Before" is the two steps at
+`d6760929`, "after" is `test-gate-env.sh` alone at `4a95372f`, alternated:
+
+| where | before | after | the step removed |
+|---|---|---|---|
+| Linux container (aarch64) | 93 s, 106 s | 54 s, 62 s | 41 s, 43 s |
+| macOS (arm64), beside other sessions | 296 s, 496 s, 594 s | 288 s, 486 s, 265 s | 68 s, 85 s, 94 s |
+
+On Linux the row saves the removed step's time, and the three new cases
+cost a few seconds. The macOS totals moved with the machine's load (load
+average 6 to 9 from other work) more than with the change. What they do
+show is the step removed: 68 to 94 s. No CI runner was measured, the Intel
+one included.
+
+### RED, GREEN and mutants
+
+- `test-gate-env.sh` case counts: 5 at the unit base `45d99f52`, 45 at
+  `d6760929`, 48 at `4a95372f`, all passing on macOS and Linux
+  (`runs-r2b-*.txt`).
+- At `582007b0`, the new cases against the gates at `d6760929`: 3 problems
+  on both platforms, `3 problem(s), 45 case(s) passed`. `identity-vendored`
+  exits 0. `identity-skip-worktree` and `identity-assume-unchanged` fail by
+  message. The linked worktree cases pass there: they hold the fix to not
+  refusing a linked worktree, and build.rs already handled one.
+- `mutants-r2b.txt` (Linux, a `--no-local` clone at `4a95372f`, after a
+  control run that passed): 19 of 19 caught, each by exactly its own
+  cases. The 15 of round 2, with `build-rs-keeps-git-env` now also failing
+  `build-script-linked-worktree`, and `identity-reads-flagged-entries`
+  editing the refusal's new condition. And four new ones:
+  - `identity-walks-up-to-a-parent` (no ceiling) → `identity-vendored`;
+  - `identity-requires-a-git-directory` (`[ -d .git ]`) →
+    `identity-linked-worktree`;
+  - `identity-sparse-remedy-clears-the-bit` (the old remedy) →
+    `identity-skip-worktree`;
+  - `build-rs-watches-the-main-head` → `build-script-linked-worktree`.
+
 ## Gates
 
 `gates-code.txt` (`gates.sh`, the worktree at `fff83c06`), all exit 0:
@@ -325,11 +444,20 @@ run repeated.
 `gates-receipt.txt` runs again the gates that read the tracked tree, at the
 receipt commit, which adds only this folder.
 
+Round 2b, `gates-code-r2b.txt` (the worktree at `4a95372f`), all exit 0: the
+same list; `check-no-secrets` and `check-xfx-identity` over 12 140 files,
+`test-gate-env` 48 cases, `test-preview-contract` 24 mutants, `test-sweep.sh`
+51 and 27 tests, actionlint over five workflows. `test-check-no-secrets` is
+still run there on its own, as a local gate. `gates-receipt-r2b.txt` is the
+tree-reading gates at the 2b receipt commit.
+
 ## Files
 
 - **Tools:** `inventory.sh`, `gitenv-sweep.sh`, `hook-probe.sh`, `runs.sh`,
   `py-runs.sh`, `mutants.py`, `mutants-py.py` (round 1); `r2-probes.sh`,
-  `runs-r2.sh`, `mutants-r2.py` (round 2); `gates.sh` and `publish.py`.
+  `runs-r2.sh`, `mutants-r2.py` (round 2); `vendored-probe.sh`,
+  `runs-r2b.sh`, `mutants-r2b.py`, `row-time.sh`, `row-time-rounds.sh`
+  (round 2b); `gates.sh` and `publish.py`.
 - **Logs:** the `.txt` files. Round 2 rewrote `inventory.txt` and
   `gates-code.txt` at `fff83c06`; round 1's are in git at `2c8fbc64`.
   `r2-base-macos.txt` ran an earlier `r2-probes.sh`, before its index-bit,

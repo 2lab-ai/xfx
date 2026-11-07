@@ -61,6 +61,18 @@ files = {
     "runs-r2.sh": scratch / "tools/runs-r2.sh",
     "r2-probes.sh": scratch / "tools/r2-probes.sh",
     "mutants-r2.py": scratch / "tools/mutants-r2.py",
+    # round 2b
+    "runs-r2b-macos.txt": scratch / "r2b/runs-r2b-macos.log",
+    "runs-r2b-linux.txt": scratch / "r2b/runs-r2b-linux.log",
+    "mutants-r2b.txt": scratch / "r2b/mutants-r2b.out",
+    "row-time.txt": scratch / "r2b/row-time.log",
+    "runs-r2b.sh": scratch / "tools/runs-r2b.sh",
+    "vendored-probe.sh": scratch / "tools/vendored-probe.sh",
+    "mutants-r2b.py": scratch / "tools/mutants-r2b.py",
+    "row-time.sh": scratch / "tools/row-time.sh",
+    "row-time-rounds.sh": scratch / "tools/row-time-rounds.sh",
+    "gates-code-r2b.txt": scratch / "r2b/gates-code.log",
+    "gates-receipt-r2b.txt": scratch / "r2b/gates-receipt.log",
 }
 for name, source in files.items():
     if only and name not in only:
