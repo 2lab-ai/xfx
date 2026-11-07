@@ -470,7 +470,7 @@ scenarios = ["p5-transcript-diffwide2"]
 snaps = ["full"]
 fx_row = '(?<![\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]|^│  5678$'
 xfx_row = '(?<![\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
-reason = "fx v0.0.16 counts a skin-tone modifier (U+1F3FB-1F3FF) as no cells wherever it stands (`isZeroWidthContinuation`, `display_width.zig:409-421@481104fd`), and a terminal draws one that follows no emoji as cells of its own (tmux 3.7b: U+1160 U+1F3FD two cells, U+FFA0 U+1F3FD three, `a` U+1F3FD three, U+1F3FD alone two, where fx counts one, one, one and none; xfx three, three, three and two; .prd/tui-phase5/receipts/width-disputed/clusters.txt). So fx lays such a line out narrower than it is drawn, and its row runs past the margin: in `p5-transcript-diffwide2` `full`, line 5 is 104 `w`s, four U+1160 U+1F3FD and `TAIL5678`; fx's read row ends `\U0001f3fd\U0001f3fd\U0001f3fd L` in the screen's last cell (the fourth modifier and `TAI` lost) and its next row is `│  5678`, where xfx's ends `\U0001f3fd\U0001f3fd` and its next row holds the rest, `│  \U0001f3fd\U0001f3fdTAIL5678` (the capture keeps no cell for U+1160). xfx counts the modifier as the width table does, at least (`upstream_cells`): copying fx's count puts the line past the margin. The selector is a modifier after no `Emoji_Modifier_Base` (all of them in U+261D-270D and U+1F385-1FAF8, unicode-width 0.2.2 `is_emoji_modifier_base`), so a person emoji with its skin tone is not taken in, and fx's `│  5678`; the diff row's continuation, `  │     5678`, is `ctrl-o-diff-row-clipped`'s."
+reason = "fx v0.0.16 counts a skin-tone modifier (U+1F3FB-1F3FF) as no cells wherever it stands (`isZeroWidthContinuation`, `display_width.zig:409-421@481104fd`), and a terminal draws one that follows no emoji as cells of its own (tmux 3.7b: U+1160 U+1F3FD two cells, U+FFA0 U+1F3FD three, `a` U+1F3FD three, U+1F3FD alone two, where fx counts one, one, one and none; xfx three, three, three and two; .prd/tui-phase5/receipts/width-disputed/clusters.txt). So fx lays such a line out narrower than it is drawn, and its row runs past the margin: in `p5-transcript-diffwide2` `full`, line 5 is 104 `w`s, four U+1160 U+1F3FD and `TAIL5678`; fx's read row ends `\U0001f3fd\U0001f3fd\U0001f3fd L` in the screen's last cell (the fourth modifier and `TAI` lost) and its next row is `│  5678`, where xfx's ends `\U0001f3fd\U0001f3fd` and its next row holds the rest, `│  \U0001f3fd\U0001f3fdTAIL5678` (the capture keeps no cell for U+1160). xfx counts the modifier as the width table does, at least (`upstream_cells`): copying fx's count puts the line past the margin. The selector is a modifier after no `Emoji_Modifier_Base` (all of them in U+261D-270D and U+1F385-1FAF8, unicode-width 0.2.2 `is_emoji_modifier_base`), so a person emoji with its skin tone is not taken in, and fx's `│  5678`. The same line's Ctrl-O diff row stands apart the same way since DIFF-WRAP reflows a diff row as fx does: fx's `  │ 5   ` row ends `\U0001f3fd\U0001f3fd\U0001f3fd L` and its next is `  │     5678`, xfx's ends `\U0001f3fd\U0001f3fd` and its next is `  │     \U0001f3fd\U0001f3fdTAIL5678`, each of xfx's taken in by the xfx selector (.prd/tui-phase5/receipts/ctrlo-diff-wrap/)."
 owner = "WIDTH-DISPUTED"
 resolution = "fx counts a skin-tone modifier that follows no emoji as the terminals draw it, in a later pin, and xfx takes its count"
 expires = "date:2026-12-04"
@@ -489,17 +489,6 @@ source = ["src/tui/wrap.rs:622"]
 # (`^[▪■] Cancelled `) is a row of both, and the first cause that covers a
 # row is that row's -- so the row stays T-U4's while the marker differs, and
 # is TC-NOTATION's once T-U4 has changed it (T-U3-TCd).
-[[cause]]
-id = "ctrl-o-diff-row-clipped"
-kind = "defect"
-owner = "DIFF-WRAP"
-scenarios = ["p5-transcript-diffwide", "p5-transcript-diffwide2"]
-snaps = ["full"]
-whole_snap = true
-xfx = "src/tui/full_transcript.rs:2240"
-fx = "src/ui/render_engine/transcript_blocks.zig:718-766@c1db9191"
-why = "fx reflows a Ctrl-O diff row longer than the screen onto continuation rows under its gutter (`  │ ` and spaces to the text column; `reflowDiffRow`, the same at 481104fd's `transcript_blocks.zig:720-768`); xfx's `diff_rows` clips it at the margin, so the rest of the line is not shown. `p5-transcript-diffwide` `full`: line 3 (104 `w`s, four soft hyphens, `TAIL5678`) is fx's `  │ 3   …TAIL` then `  │     5678`, and xfx's first row only -- byte-identical since WIDTH-DISPUTED, the `5678` row absent, so the window above it starts a row later on fx. A c1db919 behaviour too, so a KEEP gap rather than a 0.0.16 change. Fixed when xfx's Ctrl-O diff rows wrap as fx's do -- as its review already wraps one rather than cut it."
-
 [[cause]]
 id = "ctrl-o-drawn-wider-raw"
 kind = "defect"
