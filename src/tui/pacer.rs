@@ -540,7 +540,11 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 /// * `48 ; 5 ; <n>` and `49` -- the one background the band paints, the `@`
 ///   file picker's marked row (`approval_button_inactive_style`,
 ///   `super::theme::Palette::selected`), `48;5` at every depth as upstream's
-///   (`theme.zig:97,140@481104fd`), and its close;
+///   (`theme.zig:97,140@481104fd`), and its close. No `48;2`, because xfx has
+///   upstream's two builtins and nothing else: upstream's named themes
+///   (`~/.fx/themes/<name>.json`) resolve hex colours to `38;2`/`48;2` on a
+///   truecolor terminal (`theme.zig:10-11`), so porting them widens this
+///   again;
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
 /// invisible and `blink` makes it move. None of them is in upstream's

@@ -11244,10 +11244,9 @@ def scenario_26b(run):
 # `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4, the
 # grey a card's rail and the welcome line's brand are in), `NOTICE` (index 2)
 # and `DIM` (index 6, a turn's summary and the welcome line's version) -- the
-# three `Palette::document_retint` moves -- in the `Ansi256` spelling every
-# trial below runs at: there is no `COLORTERM` in a trial's environment, so
-# `theme::depth_from_env` answers `Ansi256` and the sequences are the indexed
-# ones.
+# three `Palette::document_retint` moves -- spelt `38;5;N`, the one spelling
+# the palette has whatever the terminal claims (`src/tui/theme.rs` `Palette`,
+# as upstream's builtins are).
 #
 # A literal, because the question this scenario asks is *which* grey a cell
 # ended up in. A harness that built the expectation from a palette helper would
