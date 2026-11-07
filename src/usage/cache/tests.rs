@@ -560,15 +560,16 @@ fn no_absolute_home_means_no_cache() {
     assert_eq!(Home::new(None), None);
     assert!(Home::new(Some(Path::new("/an/absolute/home"))).is_some());
 
-    // And as the configuration hands it over: a relative `HOME` makes a
-    // relative profile, and still no cache.
+    // And as the configuration hands it over: a relative `HOME` is no home
+    // at all (`crate::config::home_dir`, fx's `homeDir`, 21a55a45), so no
+    // profile and still no cache.
     let workspace = tempfile::tempdir().expect("a workspace");
     let config = crate::config::RuntimeConfig::load_with(
         &crate::config::Environment::new(Some(PathBuf::from("relative-home")), Default::default()),
         workspace.path(),
     )
     .expect("a configuration");
-    assert_eq!(config.home(), Some(Path::new("relative-home")));
+    assert_eq!(config.home(), None);
     assert_eq!(Home::new(config.home()), None);
     assert!(!Path::new("relative-home").exists());
 }
