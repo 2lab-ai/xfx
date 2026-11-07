@@ -1,0 +1,165 @@
+# HINT='press ctrl+c again to exit' hint-runs.sh <fx v0.0.16> <xfx built at 24a6b912> 3 <scenario>, the base's scenarios, for each scenario the check flags for the exit hint
+##### interrupt
+count fx cc-0.3: hint shown in 3 of 3
+count fx cc-1.5: hint shown in 3 of 3
+count fx cc-3.5: hint shown in 0 of 3
+count fx end.full: hint shown in 0 of 3
+count fx esc1: hint shown in 0 of 3
+count fx esc2-later: hint shown in 0 of 3
+count fx esc2: hint shown in 0 of 3
+count fx idle-cc-expired: hint shown in 0 of 3
+count fx idle-cc: hint shown in 3 of 3
+count fx mid2: hint shown in 0 of 3
+count fx mid: hint shown in 0 of 3
+count fx next: hint shown in 0 of 3
+count xfx cc-0.3: hint shown in 3 of 3
+count xfx cc-1.5: hint shown in 3 of 3
+count xfx cc-3.5: hint shown in 0 of 3
+count xfx end.full: hint shown in 0 of 3
+count xfx esc1: hint shown in 0 of 3
+count xfx esc2-later: hint shown in 0 of 3
+count xfx esc2: hint shown in 0 of 3
+count xfx idle-cc-expired: hint shown in 0 of 3
+count xfx idle-cc: hint shown in 3 of 3
+count xfx mid2: hint shown in 0 of 3
+count xfx mid: hint shown in 0 of 3
+count xfx next: hint shown in 0 of 3
+label cc-0.3: the two binaries agree in 3 of 3 runs
+label cc-1.5: the two binaries agree in 3 of 3 runs
+label cc-3.5: the two binaries agree in 3 of 3 runs
+label end.full: the two binaries agree in 3 of 3 runs
+label esc1: the two binaries agree in 3 of 3 runs
+label esc2-later: the two binaries agree in 3 of 3 runs
+label esc2: the two binaries agree in 3 of 3 runs
+label idle-cc-expired: the two binaries agree in 3 of 3 runs
+label idle-cc: the two binaries agree in 3 of 3 runs
+label mid2: the two binaries agree in 3 of 3 runs
+label mid: the two binaries agree in 3 of 3 runs
+label next: the two binaries agree in 3 of 3 runs
+##### interrupt-cmd
+count fx cmd-cc-2: hint shown in 3 of 3
+count fx cmd-cc: hint shown in 3 of 3
+count fx cmd-done: hint shown in 0 of 3
+count fx cmd-running: hint shown in 0 of 3
+count fx end.full: hint shown in 0 of 3
+count xfx cmd-cc-2: hint shown in 3 of 3
+count xfx cmd-cc: hint shown in 3 of 3
+count xfx cmd-done: hint shown in 0 of 3
+count xfx cmd-running: hint shown in 0 of 3
+count xfx end.full: hint shown in 0 of 3
+label cmd-cc-2: the two binaries agree in 3 of 3 runs
+label cmd-cc: the two binaries agree in 3 of 3 runs
+label cmd-done: the two binaries agree in 3 of 3 runs
+label cmd-running: the two binaries agree in 3 of 3 runs
+label end.full: the two binaries agree in 3 of 3 runs
+##### approvals
+count fx after-cc-cmd-ask: hint shown in 0 of 3
+count fx after-esc.full: hint shown in 0 of 3
+count fx after-esc: hint shown in 0 of 3
+count fx cmd2-ask: hint shown in 0 of 3
+count fx edit-amend-typed: hint shown in 0 of 3
+count fx edit-ask: hint shown in 0 of 3
+count fx edit-down1: hint shown in 0 of 3
+count fx edit-down3-wrap: hint shown in 0 of 3
+count fx edit-tab-amend: hint shown in 0 of 3
+count fx work-end: hint shown in 0 of 3
+count fx write-ask: hint shown in 0 of 3
+count xfx after-cc-cmd-ask: hint shown in 0 of 3
+count xfx after-esc.full: hint shown in 0 of 3
+count xfx after-esc: hint shown in 0 of 3
+count xfx cmd2-ask: hint shown in 0 of 3
+count xfx edit-amend-typed: hint shown in 0 of 3
+count xfx edit-ask: hint shown in 0 of 3
+count xfx edit-down1: hint shown in 0 of 3
+count xfx edit-down3-wrap: hint shown in 0 of 3
+count xfx edit-tab-amend: hint shown in 0 of 3
+count xfx work-end: hint shown in 0 of 3
+count xfx write-ask: hint shown in 0 of 3
+label after-cc-cmd-ask: the two binaries agree in 3 of 3 runs
+label after-esc.full: the two binaries agree in 3 of 3 runs
+label after-esc: the two binaries agree in 3 of 3 runs
+label cmd2-ask: the two binaries agree in 3 of 3 runs
+label edit-amend-typed: the two binaries agree in 3 of 3 runs
+label edit-ask: the two binaries agree in 3 of 3 runs
+label edit-down1: the two binaries agree in 3 of 3 runs
+label edit-down3-wrap: the two binaries agree in 3 of 3 runs
+label edit-tab-amend: the two binaries agree in 3 of 3 runs
+label work-end: the two binaries agree in 3 of 3 runs
+label write-ask: the two binaries agree in 3 of 3 runs
+##### p5-effort-fork-effort-ctrlc
+count fx ctrlc-later: hint shown in 3 of 3
+count fx ctrlc: hint shown in 3 of 3
+count xfx ctrlc-later: hint shown in 3 of 3
+count xfx ctrlc: hint shown in 3 of 3
+label ctrlc-later: the two binaries agree in 3 of 3 runs
+label ctrlc: the two binaries agree in 3 of 3 runs
+##### p5-mcp-live
+count fx cancel: hint shown in 3 of 3
+count fx end: hint shown in 0 of 3
+count fx failed: hint shown in 0 of 3
+count fx full: hint shown in 0 of 3
+count fx live: hint shown in 0 of 3
+count fx turn: hint shown in 0 of 3
+count xfx cancel: hint shown in 3 of 3
+count xfx end: hint shown in 0 of 3
+count xfx failed: hint shown in 0 of 3
+count xfx full: hint shown in 0 of 3
+count xfx live: hint shown in 0 of 3
+count xfx turn: hint shown in 0 of 3
+label cancel: the two binaries agree in 3 of 3 runs
+label end: the two binaries agree in 3 of 3 runs
+label failed: the two binaries agree in 3 of 3 runs
+label full: the two binaries agree in 3 of 3 runs
+label live: the two binaries agree in 3 of 3 runs
+label turn: the two binaries agree in 3 of 3 runs
+##### p5-toolstop-retint
+count fx dark-again: hint shown in 0 of 3
+count fx dark: hint shown in 2 of 3
+count fx light: hint shown in 0 of 3
+count xfx dark-again: hint shown in 0 of 3
+count xfx dark: hint shown in 0 of 3
+count xfx light: hint shown in 0 of 3
+label dark-again: the two binaries agree in 3 of 3 runs
+label dark: the two binaries agree in 1 of 3 runs
+label light: the two binaries agree in 3 of 3 runs
+##### permissions-midturn
+count fx after-refusal: hint shown in 0 of 3
+count fx first-done: hint shown in 0 of 3
+count fx second-asks: hint shown in 0 of 3
+count fx switched: hint shown in 0 of 3
+count fx work-end: hint shown in 0 of 3
+count xfx after-refusal: hint shown in 0 of 3
+count xfx first-done: hint shown in 0 of 3
+count xfx second-asks: hint shown in 0 of 3
+count xfx switched: hint shown in 0 of 3
+count xfx work-end: hint shown in 0 of 3
+label after-refusal: the two binaries agree in 3 of 3 runs
+label first-done: the two binaries agree in 3 of 3 runs
+label second-asks: the two binaries agree in 3 of 3 runs
+label switched: the two binaries agree in 3 of 3 runs
+label work-end: the two binaries agree in 3 of 3 runs
+##### settings-collapse
+count fx after-esc: hint shown in 0 of 3
+count fx cmd-ask: hint shown in 0 of 3
+count fx collapse-on: hint shown in 0 of 3
+count fx group2: hint shown in 0 of 3
+count fx group: hint shown in 0 of 3
+count fx later: hint shown in 0 of 3
+count fx running: hint shown in 0 of 3
+count fx stopped: hint shown in 3 of 3
+count xfx after-esc: hint shown in 0 of 3
+count xfx cmd-ask: hint shown in 0 of 3
+count xfx collapse-on: hint shown in 0 of 3
+count xfx group2: hint shown in 0 of 3
+count xfx group: hint shown in 0 of 3
+count xfx later: hint shown in 0 of 3
+count xfx running: hint shown in 0 of 3
+count xfx stopped: hint shown in 3 of 3
+label after-esc: the two binaries agree in 3 of 3 runs
+label cmd-ask: the two binaries agree in 3 of 3 runs
+label collapse-on: the two binaries agree in 3 of 3 runs
+label group2: the two binaries agree in 3 of 3 runs
+label group: the two binaries agree in 3 of 3 runs
+label later: the two binaries agree in 3 of 3 runs
+label running: the two binaries agree in 3 of 3 runs
+label stopped: the two binaries agree in 3 of 3 runs

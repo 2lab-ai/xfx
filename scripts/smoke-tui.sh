@@ -172,7 +172,7 @@ What is modelled, and nothing else:
   `39`), a text attribute or its close (`1 2 3 4 7 9 22 23 24 27 29` -- the
   reverse pair is a draft's caret cell and a composer selection), one
   foreground colour (`38;5;n`, `38;2;r;g;b`), or one background and its close
-  (`48;5;n`, `48;2;r;g;b`, `49` -- the file picker's), every number a
+  (`48;5;n`, `49` -- the file picker's), every number a
   terminal reads (`0-255`). One group outside it and the whole sequence is a
   finding
 * `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
@@ -249,7 +249,7 @@ KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 # The `OSC` strings xfx is allowed to write, each with the one terminator it is
 # written with (`src/tui/check.rs`'s `operating_system_command`): the window
 # title (`src/tui/frame.rs`, `BEL`), the background query it asks the terminal
-# (`src/tui/theme.rs:66`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
+# (`src/tui/theme.rs:67`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
 # `ST`). `OSC 52` is deliberately **not** here -- a build that started writing
 # the clipboard must fail this run rather than be shrugged at.
 KNOWN_OSC = {"2": b"\x07", "11": b"\x1b\\", "8": b"\x1b\\"}
@@ -266,7 +266,7 @@ KNOWN_WINDOW_OPS = {"22;2", "23;2"}
 
 # The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
-# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:104`) is the
+# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:105`) is the
 # outright "which way round are you now?" query a launch asks once, paired
 # with the `?2031` subscription above but not itself an enable/disable pair --
 # it carries no parameter, and a report with one (`?996;1n`) is a sequence
@@ -704,7 +704,10 @@ class Grid:
                 index += 1
                 continue
             if part in ("38", "48") and index + 1 < len(parts):
-                wanted = {"5": 1, "2": 3}.get(parts[index + 1])
+                # A direct background is no shape the product writes: the
+                # file picker's bar is `48;5` at every depth.
+                shapes = {"5": 1, "2": 3} if part == "38" else {"5": 1}
+                wanted = shapes.get(parts[index + 1])
                 values = parts[index + 2 : index + 2 + (wanted or 0)]
                 if (
                     wanted is not None
@@ -1018,11 +1021,12 @@ from vt_grid import Grid  # noqa: E402
 # A three-person ZWJ family: five scalars, one cluster, two columns.
 FAMILY = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
 
-# The palette's two spellings (`src/tui/theme.rs:195-227`) and the reset that
-# ends every band row.
-PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;188;188;188m", "\x1b[0m", "\x1b[m")
+# The product's two colour spellings -- a palette grey, `38;5` at every depth
+# (`src/tui/theme.rs` `Palette`), and the Ultra mark's direct yellow
+# (`ULTRA_TRUECOLOR`) -- and the reset that ends every band row.
+PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;255;204;0m", "\x1b[0m", "\x1b[m")
 
-# The background query and the window title (`src/tui/theme.rs:66`,
+# The background query and the window title (`src/tui/theme.rs:67`,
 # `src/tui/frame.rs`), each in the one terminator the product spells it with
 # (`src/tui/check.rs`'s `operating_system_command`), and the exit's clear.
 PRODUCT_OSC = ("\x1b]11;?\x1b\\", "\x1b]2;\x07", "\x1b]2;xfx \u00b7 glm-5.2\x07")
@@ -1232,7 +1236,7 @@ def a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off():
 def an_undeclared_sgr_parameter_is_a_finding():
     for sequence in (
         "\x1b[999m", "\x1b[5m", "\x1b[8m", "\x1b[38;5;m", "\x1b[48;5;256m",
-        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m",
+        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m", "\x1b[48;2;78;78;78m",
     ):
         grid = fed(sequence)
         require(grid.unknown, "%r passed the oracle unremarked" % sequence)
@@ -1276,8 +1280,8 @@ def the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colou
 
 def reverse_video_and_a_background_are_accepted_and_kept_apart():
     """The caret cell's reverse (`7`/`27`) and the picker's background
-    (`48;5;n`, `48;2;r;g;b`, `49`), as `check.rs`'s `wire_color` admits them."""
-    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m", "\x1b[48;2;1;2;3m",
+    (`48;5;n`, `49`), as `check.rs`'s `wire_color` admits them."""
+    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m",
                      "\x1b[0;7m", "\x1b[1;38;5;255;48;5;236m"):
         require(not fed(sequence + "x").unknown, "the product's %r was rejected" % sequence)
     grid = fed("\x1b[0;7m \x1b[0mx\x1b[48;5;236;38;5;250my\x1b[49mz")
@@ -1397,7 +1401,7 @@ def a_frame_is_recorded_only_when_it_is_asked_for():
 
 
 def the_theme_subscription_mode_and_query_the_product_emits_are_accepted():
-    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:104`).
+    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:105`).
 
     The subscription mode xfx's session sets so a terminal volunteers a
     background change, and the outright query it asks at launch, both move no
@@ -11318,10 +11322,9 @@ def scenario_26b(run):
 # `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4, the
 # grey a card's rail and the welcome line's brand are in), `NOTICE` (index 2)
 # and `DIM` (index 6, a turn's summary and the welcome line's version) -- the
-# three `Palette::document_retint` moves -- in the `Ansi256` spelling every
-# trial below runs at: there is no `COLORTERM` in a trial's environment, so
-# `theme::depth_from_env` answers `Ansi256` and the sequences are the indexed
-# ones.
+# three `Palette::document_retint` moves -- spelt `38;5;N`, the one spelling
+# the palette has whatever the terminal claims (`src/tui/theme.rs` `Palette`,
+# as upstream's builtins are).
 #
 # A literal, because the question this scenario asks is *which* grey a cell
 # ended up in. A harness that built the expectation from a palette helper would
@@ -11338,7 +11341,7 @@ RETINT_DARK = (RETINT_DARK_BODY, RETINT_DARK_NOTICE, RETINT_DARK_DIM)
 RETINT_LIGHT = (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE, RETINT_LIGHT_DIM)
 
 # What a terminal that took the `?2031` subscription volunteers when its
-# background changes (`src/tui/theme.rs:108-126`). Nobody typed it, so every
+# background changes (`src/tui/theme.rs:109-127`). Nobody typed it, so every
 # assertion about a draft below is also an assertion that it stayed out of the
 # composer.
 WENT_LIGHT = b"\x1b[?997;2n"

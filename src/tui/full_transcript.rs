@@ -2752,12 +2752,7 @@ mod tests {
     use crate::tools::{read, terminal};
     use serde_json::json;
 
-    use super::super::theme::Depth;
-
-    const DARK: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const DARK: Palette = Palette { mode: Mode::Dark };
 
     /// 2026-10-06 14:43:50.620 UTC, the moment the capture's second entry is
     /// stamped with (`fx-tools-single-40x120-full`).

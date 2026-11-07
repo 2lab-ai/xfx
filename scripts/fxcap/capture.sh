@@ -53,12 +53,13 @@
 #                          read can still be on its way when the model asks
 #                          its question; with it (`0` too) the gateway log's
 #                          catalog lines say when, in ms since it started
-#   models2 <catalog.json> <ms>
-#                          that path answers <catalog.json> instead once <ms>
-#                          have passed since the gateway started, by the time
-#                          it answers (after any `modelsdelay`): a model
-#                          released while the binary runs (fakegw logs each
-#                          ask that got it as `-> second catalog`)
+#   models2 <catalog.json> from this line on, that path answers
+#                          <catalog.json> instead -- an ask answered after the
+#                          line (after any `modelsdelay`) gets it: a model
+#                          released while the binary runs, at a point in the
+#                          scenario rather than a moment on the gateway's
+#                          clock (fakegw logs each ask that got it as
+#                          `-> second catalog`)
 #   credits <credits.json> what it answers for GET /coding-agent/v1/credits
 #                          (default: 404 `not found`)
 #   titled <title.json>    what it answers a session-title request with
@@ -94,6 +95,30 @@
 #   release                lets a held stream go on, the holds in the order
 #                          they were made: a line in the file fakegw.ts reads
 #                          as FAKEGW_RELEASE
+#   until shown <text>     waits until <text> is on the pane's screen (`shown`)
+#   until gone <text>      or is not (`gone`) -- the screen a `snap` writes,
+#                          as plain text, <text> matched as it is on one row
+#                          -- for 30 s of elapsed time, and fails the run
+#                          (exit 1), with the screen it last read, if it never
+#                          is: a state of the screen, not a moment on the
+#                          clock, so a snap after it does not race a row the
+#                          binary takes away on a timer of its own (the
+#                          full-access warning's 4 s; capfile.py TIMERS lists
+#                          them, and refuses a snap inside one's window that
+#                          no `until` precedes). Prints how long it waited and
+#                          how long since the binary was launched (or last
+#                          relaunched) -- and, for a `gone` whose text no
+#                          `until` of this run has seen on the screen, `never
+#                          seen`: nothing showed it came and went.
+#   absent <text>          fails the run (exit 1), with the screen, if <text>
+#                          is on the pane's screen now: a row that must not
+#                          be there at all (the exit hint after a Ctrl-C a
+#                          question answers), checked at a moment rather
+#                          than waited away
+#   expect <label> <text>  fails the run (exit 1) unless the snap <label>
+#                          already written holds <text> on one of its rows:
+#                          the frame itself shows the row the snap is for,
+#                          not only a look taken before it
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
 #   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
@@ -220,15 +245,20 @@
 #                          unknown, 404
 #   mcphttp <mode>         starts the run's HTTP MCP server (mcphttp.ts) before
 #                          launch, on a loopback port the OS picks, in <mode>
-#                          -- `ready`, `methodnotfound`, `hang`, `fail` or
-#                          `rpcerror` (mcphttp.ts says what each answers) -- and
+#                          -- `ready`, `methodnotfound`, `hang`, `fail`,
+#                          `rpcerror`, or one of the p5-mcp-discover modes
+#                          `modern`, `notimpl`, `old2024`, `malformed`,
+#                          `hostile`, `ssehold`, `sseidless`, `ssestrid`,
+#                          `ssefail`
+#                          (mcphttp.ts says what each answers) -- and
 #                          writes its port where `@MCPPORT@` is, so a
 #                          `homefile .fx/mcp.json` naming
 #                          `http://127.0.0.1:@MCPPORT@/mcp` reaches it; each
 #                          `mcphttp` line sets the mode when the script reaches
 #                          it (a held request answers in the new one). Its log
 #                          is copied by `gwlog`, as
-#                          <bin>-<scenario>-<size>-mcphttp.log.
+#                          <bin>-<scenario>-<size>-mcphttp.log, and its port
+#                          written to <bin>-<scenario>-<size>-mcphttp.port.
 #   sockets <label>        writes the binary's internet sockets (lsof -i on its
 #                          pid) to <bin>-<scenario>-<size>-<label>.sockets, and
 #                          fails the run loudly if one is connected to any
@@ -396,6 +426,13 @@ binary_pid() {
   done
 }
 
+# The seconds since a file was last written, to the hundredth. A moment is
+# stamped with `: > <file>`, which forks nothing (bash 3.2 has no
+# EPOCHREALTIME), so stamping the launch moves no scenario's timing.
+since() {
+  /usr/bin/perl -MTime::HiRes=stat,time -e 'printf "%.2f", time - (stat $ARGV[0])[9]' "$1"
+}
+
 main() {
   local which=${1:?fx or xfx} scenario=${2:?scenario} size=${3:?rowsxcols}
   local here root out
@@ -436,7 +473,7 @@ main() {
   bin_real=$(realpath "$bin")
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
-  local models2='' models2ms='' jobctl='' clock='' usage='' mcpmode='' keep=''
+  local jobctl='' clock='' usage='' mcpmode='' keep=''
   # The directories `work` and `dir` copied into, whose files get the
   # placeholders too; and whether a line the run fills names `@MCPPORT@`.
   local copied=() names_mcpport=''
@@ -502,9 +539,7 @@ main() {
     # `usage` and `mcphttp` the first line is the one in place at launch.
     case $line in
       models2\ *)
-        read -r models2 models2ms <<< "${line#models2 }"
-        [[ -f $scenarios/$models2 && $models2ms =~ ^[0-9]+$ ]] || { echo "models2 takes <catalog.json> <ms>, not ${line#models2 }" >&2; exit 2; }
-        models2=$scenarios/$models2 ;;
+        [[ ${line#models2 } != *' '* && -f $scenarios/${line#models2 } ]] || { echo "models2 takes <catalog.json>, served from its line on, not ${line#models2 }" >&2; exit 2; } ;;
       jobctl) jobctl=1 ;;
       modelsdelay\ *)
         [[ ${line#modelsdelay } =~ ^[0-9]+$ ]] || { echo "modelsdelay takes milliseconds, not ${line#modelsdelay }" >&2; exit 2; } ;;
@@ -515,7 +550,7 @@ main() {
         [[ ${line#usage } == off || -f $scenarios/${line#usage } ]] || { echo "usage takes a file in $scenarios or off, not ${line#usage }" >&2; exit 2; }
         [[ -n $usage ]] || usage=${line#usage } ;;
       mcphttp\ *)
-        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not ${line#mcphttp }" >&2; exit 2 ;; esac
+        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror|modern|notimpl|old2024|malformed|hostile|ssehold|sseidless|ssestrid|ssefail) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not ${line#mcphttp }" >&2; exit 2 ;; esac
         [[ -n $mcpmode ]] || mcpmode=${line#mcphttp } ;;
       resize\ *)
         [[ ${line#resize } =~ ^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$ ]] || { echo "resize takes <rows>x<cols>, not ${line#resize }" >&2; exit 2; } ;;
@@ -528,7 +563,18 @@ main() {
         [[ -n $from && -f $scenarios/$from ]] || { echo "rehomefile takes <path> <file in $scenarios>, not ${line#rehomefile }" >&2; exit 2; } ;;
       jobctl\ *) echo "jobctl takes no argument, not ${line#jobctl }" >&2; exit 2 ;;
       held\ *|release\ *) echo "${line%% *} takes no argument, not ${line#* }" >&2; exit 2 ;;
-      modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets)
+      until\ *)
+        local cond=${line#until } text
+        text=${cond#* }
+        [[ ( $cond == shown\ * || $cond == gone\ * ) && $text =~ [^[:space:]] ]] || { echo "until takes shown <text> or gone <text>, not ${line#until }" >&2; exit 2; } ;;
+      absent\ *)
+        [[ ${line#absent } =~ [^[:space:]] ]] || { echo "absent takes <text>, not ${line#absent }" >&2; exit 2; } ;;
+      expect\ *)
+        local label=${line#expect } text
+        text=${label#* }
+        label=${label%% *}
+        [[ ${line#expect } == *' '* && $text =~ [^[:space:]] ]] || { echo "expect takes <label> <text>, not ${line#expect }" >&2; exit 2; } ;;
+      modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets|until|absent|expect)
         echo "$line takes an argument: see the verbs at the top of capture.sh" >&2; exit 2 ;;
     esac
   done < "$file"
@@ -541,7 +587,7 @@ main() {
   # A held stream (a turn's `holdAt`) goes on once this file has a line for
   # it: `release` writes one, `held` waits for the hold in the gateway's log.
   local holds=0
-  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$models2 FAKEGW_MODELS2_MS=$models2ms FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   gateway=$!
   sock=$run/s
   trap cleanup EXIT
@@ -566,6 +612,9 @@ main() {
       sleep 0.1
     done
     mcpport=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/mcphttp.log" | head -1)
+    # The port, for the sweep: this run's, and only it, is the same as the
+    # other side's (sweep.py `run_rules`).
+    printf '%s\n' "$mcpport" > "$out/$which-$scenario-$size-mcphttp.port"
   fi
   # The placeholders, into every seeded file under HOME that names one and
   # every `env` value; and into every text file (`-I`: one with a NUL, a sparse
@@ -698,6 +747,10 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     ${hold[@]+"${hold[@]}"} \
     new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
     pipe-pane -o -t cap "cat >> $run/wire"
+  # When the binary was launched (or last relaunched), for `until`'s line;
+  # and the texts an `until` of this run has seen on the screen.
+  : > "$run/launched"
+  : > "$run/seen"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -706,7 +759,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|models2|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       held)
         holds=$((holds + 1))
@@ -717,6 +770,45 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         done
         grep -m1 "^\[fakegw\] hold $holds after " "$run/gateway.log" ;;
       release) echo release >> "$run/gw-release" ;;
+      until)
+        local cond=${rest%% *} text=${rest#* } screen on seen='' looks=0 began=$SECONDS
+        : > "$run/until"
+        while :; do
+          screen=$(tmux -f /dev/null -S "$sock" capture-pane -p -t cap) || { echo "until $cond '$text': the pane is gone" >&2; exit 1; }
+          on=0
+          [[ $screen != *"$text"* ]] || on=1
+          (( on == 0 )) || seen=1
+          looks=$((looks + 1))
+          if [[ $cond == shown ]]; then (( on == 0 )) || break; else (( on == 1 )) || break; fi
+          # Elapsed time, whole seconds (bash's own clock: no fork per look).
+          if (( SECONDS - began >= 30 )); then
+            echo "until $cond '$text': still $( (( on )) && echo shown || echo not shown) after $(since "$run/until") s ($looks looks); the screen's rows that are not blank:" >&2
+            printf '%s\n' "$screen" | grep -v '^[[:space:]]*$' | sed 's/^/  | /' >&2 || true
+            exit 1
+          fi
+          sleep 0.05
+        done
+        if [[ -n $seen ]]; then printf '%s\n' "$text" >> "$run/seen"; elif grep -qxF -- "$text" "$run/seen"; then seen=1; fi
+        echo "until $cond '$text': after $(since "$run/until") s, $(since "$run/launched") s since launch$([[ $cond == gone && -z $seen ]] && echo '; never seen')" ;;
+      absent)
+        local screen
+        screen=$(tmux -f /dev/null -S "$sock" capture-pane -p -t cap) || { echo "absent '$rest': the pane is gone" >&2; exit 1; }
+        if [[ $screen == *"$rest"* ]]; then
+          echo "absent '$rest': it is on the screen, $(since "$run/launched") s since launch; the screen's rows that are not blank:" >&2
+          printf '%s\n' "$screen" | grep -v '^[[:space:]]*$' | sed 's/^/  | /' >&2 || true
+          exit 1
+        fi
+        echo "absent '$rest': not on the screen, $(since "$run/launched") s since launch" ;;
+      expect)
+        local label=${rest%% *} text=${rest#* } frame
+        frame=$out/$which-$scenario-$size-$label.txt
+        [[ -f $frame ]] || { echo "expect $label: no snap $label was written before it" >&2; exit 1; }
+        if ! grep -qF -- "$text" "$frame"; then
+          echo "expect $label '$text': the snap does not hold it; its rows that are not blank:" >&2
+          grep -v '^[[:space:]]*$' "$frame" | sed 's/^/  | /' >&2 || true
+          exit 1
+        fi
+        echo "expect $label '$text': the snap holds it" ;;
       type) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" send-keys -t cap -l "$filled" ;;
       paste) fill_text "$port" "$run/home" "$mcpport" "$rest"; tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$filled")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
       pastex)
@@ -814,6 +906,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       relaunch)
         fill_text "$port" "$run/home" "$mcpport" "$rest"
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
+        : > "$run/launched"
         ;;
       reseed)
         can_fill "$mcpport" "$scenarios/$rest"
@@ -864,6 +957,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         esac
         ;;
       mcphttp) printf '%s\n' "$rest" > "$run/mcphttp.tmp"; mv -f "$run/mcphttp.tmp" "$run/mcphttp.mode" ;;
+      # Renamed into place, as `usage` is: fakegw serves it while it exists.
+      models2) cp "$scenarios/$rest" "$run/models2.tmp"; mv -f "$run/models2.tmp" "$run/models2.json" ;;
       sockets)
         local name=$out/$which-$scenario-$size-$rest.sockets pid lsof=/usr/sbin/lsof
         [[ -x $lsof ]] || lsof=lsof

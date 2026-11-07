@@ -1,0 +1,16 @@
+diff --git a/src/tui/shell.rs b/src/tui/shell.rs
+index 80709145..49579106 100644
+--- a/src/tui/shell.rs
++++ b/src/tui/shell.rs
+@@ -11041,6 +11041,11 @@ impl Shell {
+             // field; to every surface below it is the arrow it always was.
+             let event = unshifted(event);
+             if self.asking() {
++                // FLAKE-HINT4 r2 injected defect: a Ctrl-C a question answers
++                // also arms the exit hint.
++                if matches!(event, Input::Action(Action::Cancel)) {
++                    let _ = self.gestures.interrupt(now, false, false);
++                }
+                 self.decide(event, now);
+                 continue;
+             }

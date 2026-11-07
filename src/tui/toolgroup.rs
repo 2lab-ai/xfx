@@ -595,8 +595,8 @@ impl ToolGroup {
         kinds
     }
 
-    /// How each row of [`Self::rows`] is drawn in each mode at `palette`'s
-    /// depth, in the same order, for the rows a theme report draws again
+    /// How each row of [`Self::rows`] is drawn in each mode, in the same
+    /// order, for the rows a theme report draws again
     /// rather than recolours ([`Redraw`]): the header and the call rows --
     /// upstream projects the group again in the theme then in force
     /// (`formatGroupBlock`, `tool_group_projection.zig:558-640@481104fd`, the
@@ -617,7 +617,6 @@ impl ToolGroup {
                 Mode::Dark => Mode::Light,
                 Mode::Light => Mode::Dark,
             },
-            ..palette
         });
         self.kinds()
             .into_iter()
@@ -1080,12 +1079,7 @@ mod tests {
     use crate::tools::{read, terminal};
     use serde_json::json;
 
-    use super::super::theme::Depth;
-
-    const DARK: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const DARK: Palette = Palette { mode: Mode::Dark };
 
     /// Upstream's grayscale greys, written out rather than read off the
     /// palette, so a palette that drifted is caught here rather than agreed
@@ -1577,10 +1571,7 @@ mod tests {
     }
 
     /// Upstream's two grayscale palettes, as a theme report moves between them.
-    const LIGHT: Palette = Palette {
-        mode: Mode::Light,
-        depth: Depth::Ansi256,
-    };
+    const LIGHT: Palette = Palette { mode: Mode::Light };
 
     /// The rows `group` is drawn as in `palette`.
     fn drawn_in(group: &mut ToolGroup, palette: Palette) -> Vec<String> {
@@ -1673,45 +1664,40 @@ mod tests {
         // (`formatGroupBlock`, `tool_group_projection.zig:558-640@481104fd`)
         // and draws a cancelled call's own line from its bytes (`:649-664`),
         // so the header and each call row carry what they are in each mode --
-        // exactly the rows the group draws in that mode, at the palette's
-        // depth -- and the blank rows and a cancelled call's line carry
-        // nothing. Collapsed, the header alone.
-        for depth in [Depth::Ansi256, Depth::TrueColor] {
-            let at = |mode| Palette { mode, depth };
-            let mut group = ToolGroup::default();
-            group.start("1".into(), command("echo \"hi\" 42 # note"));
-            assert!(group.finish("1", true, "", Outcome::Exited(0), None));
-            group.start("2".into(), command("sleep 31"));
-            group.cancel_running();
-            let dark = drawn_in(&mut group, at(Mode::Dark));
-            let light = drawn_in(&mut group, at(Mode::Light));
-            let redraws = group.redraws(at(Mode::Dark), &dark);
-            assert_eq!(redraws, group.redraws(at(Mode::Light), &light), "{depth:?}");
-            assert_eq!(redraws.len(), group.kinds().len(), "{depth:?}");
-            for (index, (redraw, kind)) in redraws.iter().zip(group.kinds()).enumerate() {
-                match redraw {
-                    Some(redraw) => {
-                        assert_eq!(kind, DocumentRow::ToolGroup, "{depth:?} row {index}");
-                        assert_eq!(redraw.drawn(Mode::Dark), dark[index], "{depth:?}");
-                        assert_eq!(redraw.drawn(Mode::Light), light[index], "{depth:?}");
-                    }
-                    None => assert_ne!(kind, DocumentRow::ToolGroup, "{depth:?} row {index}"),
+        // exactly the rows the group draws in that mode -- and the blank rows
+        // and a cancelled call's line carry nothing. Collapsed, the header
+        // alone.
+        let at = |mode| Palette { mode };
+        let mut group = ToolGroup::default();
+        group.start("1".into(), command("echo \"hi\" 42 # note"));
+        assert!(group.finish("1", true, "", Outcome::Exited(0), None));
+        group.start("2".into(), command("sleep 31"));
+        group.cancel_running();
+        let dark = drawn_in(&mut group, at(Mode::Dark));
+        let light = drawn_in(&mut group, at(Mode::Light));
+        let redraws = group.redraws(at(Mode::Dark), &dark);
+        assert_eq!(redraws, group.redraws(at(Mode::Light), &light));
+        assert_eq!(redraws.len(), group.kinds().len());
+        for (index, (redraw, kind)) in redraws.iter().zip(group.kinds()).enumerate() {
+            match redraw {
+                Some(redraw) => {
+                    assert_eq!(kind, DocumentRow::ToolGroup, "row {index}");
+                    assert_eq!(redraw.drawn(Mode::Dark), dark[index]);
+                    assert_eq!(redraw.drawn(Mode::Light), light[index]);
                 }
+                None => assert_ne!(kind, DocumentRow::ToolGroup, "row {index}"),
             }
-            assert_eq!(
-                redraws.iter().filter(|redraw| redraw.is_some()).count(),
-                3,
-                "{depth:?}: the header and two calls"
-            );
-            group.set_collapsed(true);
-            let collapsed_rows = drawn_in(&mut group, at(Mode::Dark));
-            let collapsed = group.redraws(at(Mode::Dark), &collapsed_rows);
-            assert_eq!(collapsed.len(), 2, "{depth:?}");
-            assert!(
-                collapsed[0].is_some() && collapsed[1].is_none(),
-                "{depth:?}"
-            );
         }
+        assert_eq!(
+            redraws.iter().filter(|redraw| redraw.is_some()).count(),
+            3,
+            "the header and two calls"
+        );
+        group.set_collapsed(true);
+        let collapsed_rows = drawn_in(&mut group, at(Mode::Dark));
+        let collapsed = group.redraws(at(Mode::Dark), &collapsed_rows);
+        assert_eq!(collapsed.len(), 2);
+        assert!(collapsed[0].is_some() && collapsed[1].is_none());
         assert!(ToolGroup::default().redraws(DARK, &[]).is_empty());
     }
 
@@ -1787,7 +1773,7 @@ mod tests {
     #[test]
     fn a_calls_command_is_coloured_as_a_fresh_colouring_would_and_kept_per_mode_and_grey() {
         // The colourings a call keeps are what the highlighter gives fresh,
-        // in each mode, depth and run colour, in any order of switches: a
+        // in each mode and run colour, in any order of switches: a
         // group drawn again and again is the group drawn once.
         let calls = |group: &mut ToolGroup| {
             group.start("1".into(), command("echo \"hi\" 42 | grep hi # note"));
@@ -1796,19 +1782,7 @@ mod tests {
         };
         let mut kept = ToolGroup::default();
         calls(&mut kept);
-        let tc = |mode| Palette {
-            mode,
-            depth: Depth::TrueColor,
-        };
-        for palette in [
-            DARK,
-            LIGHT,
-            DARK,
-            tc(Mode::Light),
-            LIGHT,
-            tc(Mode::Dark),
-            DARK,
-        ] {
+        for palette in [DARK, LIGHT, DARK, LIGHT, LIGHT, DARK, DARK] {
             let mut fresh = ToolGroup::default();
             calls(&mut fresh);
             let (kept_rows, fresh_rows) =
@@ -1823,7 +1797,7 @@ mod tests {
                 assert!(call.highlights.borrow().len() <= HIGHLIGHTS_KEPT);
             }
         }
-        // At one depth: each mode, under the row's grey and the stopped
+        // Each mode, under the row's grey and the stopped
         // line's -- three, since on a dark screen the two are one grey (245).
         let mut one = ToolGroup::default();
         calls(&mut one);

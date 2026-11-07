@@ -1,0 +1,10 @@
+# compare.py <flake-m2-3's own head sweep, rescored with the train's ledger> <the train head's sweep (3bd15c89)>
+pairs: reference 2, train 526, shared 2; only the reference: 0
+reference: 2 pairs, pass 1; normalized-identical 1, unresolved-defect 1
+train: 2 pairs, pass 1; normalized-identical 1, unresolved-defect 1
+verdicts moved: 0
+fx screens not the same in the two sweeps: 0
+xfx screens not the same in the two sweeps: 0
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0
+# exit 0

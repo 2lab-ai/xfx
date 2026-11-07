@@ -1403,8 +1403,8 @@ fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
 }
 
 /// `row`, painted in the other mode than `palette`'s, as a theme report would
-/// leave it once on the screen: every foreground this crate spells -- `38;5`
-/// or `38;2`, bold or not -- replaced by what
+/// leave it once on the screen: every foreground this crate spells -- `38;5`,
+/// bold or not -- replaced by what
 /// [`Palette::document_retint_in`] answers for that colour on a row of
 /// `kind`, which is the rule `super::grid::Grid::retint_document` applies
 /// cell by cell, and every other byte as it is. A colour that rule leaves is
@@ -1445,11 +1445,12 @@ fn recoloured_sequence(sequence: &str, kind: DocumentRow, palette: Palette) -> O
         None => (false, body),
     };
     let params: Vec<&str> = colour.split(';').collect();
-    let colour = match params.as_slice() {
-        ["38", "5", index] => Color::Indexed(number(index)?),
-        ["38", "2", red, green, blue] => Color::Rgb(number(red)?, number(green)?, number(blue)?),
-        _ => return None,
+    // A direct (`38;2`) foreground is none of this crate's: it spells every
+    // grey `38;5` (`super::theme::Palette`).
+    let ["38", "5", index] = params.as_slice() else {
+        return None;
     };
+    let colour = Color::Indexed(number(index)?);
     let wanted = palette.document_retint_in(kind, colour)?;
     Some(match (bold, wanted.strip_prefix("\u{1b}[")) {
         (true, Some(foreground)) => format!("\u{1b}[1;{foreground}"),
@@ -1845,7 +1846,6 @@ fn push_run(row: &mut String, text: &str, role: Role, palette: Palette) {
 #[cfg(test)]
 const DARK_256: Palette = Palette {
     mode: super::theme::Mode::Dark,
-    depth: super::theme::Depth::Ansi256,
 };
 
 #[cfg(test)]
@@ -2006,7 +2006,6 @@ mod tests {
     /// The light palette at 256 colours, for the cases about a mode switch.
     const LIGHT_256: Palette = Palette {
         mode: super::super::theme::Mode::Light,
-        depth: super::super::theme::Depth::Ansi256,
     };
 
     /// `row` with the sequences this module writes taken back off, so a case
@@ -2018,16 +2017,7 @@ mod tests {
     /// concerned and must survive every one of these cases.
     fn unpainted(row: &str) -> String {
         let mut text = row.to_string();
-        for sequence in [
-            NOTICE_DARK,
-            NOTICE_LIGHT,
-            DIM_DARK,
-            // The dark notice and the dark dim said the way a direct-colour
-            // terminal reads them.
-            "\u{1b}[38;2;188;188;188m",
-            "\u{1b}[38;2;138;138;138m",
-            RESET,
-        ] {
+        for sequence in [NOTICE_DARK, NOTICE_LIGHT, DIM_DARK, RESET] {
             text = text.replace(sequence, "");
         }
         text
@@ -2446,32 +2436,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![format!("{NOTICE_LIGHT}a notice{RESET}")],
             "the retry was painted for the palette the refusal happened in"
-        );
-    }
-
-    #[test]
-    fn a_terminal_that_takes_direct_colour_is_given_the_same_rows() {
-        // The two depths are one palette said twice
-        // (`super::super::theme::truecolor`), so the longer sequence must not
-        // move a break: the rows are measured from the text and the sequences
-        // are added to them.
-        let direct = Palette {
-            mode: super::super::theme::Mode::Dark,
-            depth: super::super::theme::Depth::TrueColor,
-        };
-        let mut transcript = Transcript::new(4);
-        let rows = transcript.push_as("abcdefgh", Role::Notice, direct).rows;
-
-        assert_eq!(
-            rows,
-            vec![
-                format!("\u{1b}[38;2;188;188;188mabcd{RESET}"),
-                format!("\u{1b}[38;2;188;188;188mefgh{RESET}"),
-            ]
-        );
-        assert_eq!(
-            rows.iter().map(|row| unpainted(row)).collect::<Vec<_>>(),
-            vec!["abcd".to_string(), "efgh".to_string()]
         );
     }
 
@@ -4045,9 +4009,9 @@ mod tests {
 
     #[test]
     fn a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it() {
-        // Each foreground this crate spells -- indexed or direct, bold or
-        // not -- goes where a theme report sends that colour on a row of the
-        // row's kind; every other byte stays, a link and a reset included.
+        // Each foreground this crate spells -- bold or not -- goes where a
+        // theme report sends that colour on a row of the row's kind; every
+        // other byte stays, a link and a reset included.
         let link = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
         let row = format!(
             "\u{1b}[38;5;252m\u{25aa}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
@@ -4061,18 +4025,16 @@ mod tests {
             ),
             "the token table's pairs, the bold kept, 243 (in no pair) left"
         );
-        let direct = Palette {
-            mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::TrueColor,
-        };
+        // A direct grey is nobody's: this crate spells every builtin grey
+        // `38;5`, as upstream's builtins are (`theme.zig:75-159@481104fd`).
         assert_eq!(
             recoloured(
                 "\u{1b}[38;2;138;138;138m  5s\u{1b}[0m",
                 DocumentRow::Plain,
-                direct
+                LIGHT_256
             ),
-            "\u{1b}[38;2;158;158;158m  5s\u{1b}[0m",
-            "a turn's summary in the direct notation it was drawn in"
+            "\u{1b}[38;2;138;138;138m  5s\u{1b}[0m",
+            "a direct grey was taken for one of this crate's"
         );
         // Text with no escape, and a stray one, come back as they were.
         assert_eq!(recoloured("plain", DocumentRow::Plain, LIGHT_256), "plain");
@@ -4087,12 +4049,12 @@ mod tests {
         // `recoloured` -- each sequence through `recoloured_sequence` -- is
         // the claim that a row written recoloured is the row a theme report
         // would leave on the screen (`Grid::retint_document`, cell by cell).
-        // Every sequence the palette spells, painted in either mode at either
-        // depth, on a row of every kind, landing in either mode at that
-        // depth: the cell the report leaves and the cell the recoloured row
-        // is written as hold the same attributes.
+        // Every sequence the palette spells, painted in either mode, on a row
+        // of every kind, landing in either mode: the cell the report leaves
+        // and the cell the recoloured row is written as hold the same
+        // attributes.
         use super::super::grid::{Cell, Grid};
-        use super::super::theme::{Depth, Mode};
+        use super::super::theme::Mode;
         let geometry = crate::tui::layout::solve(24, 80, 1).expect("a band");
         let kinds = [
             DocumentRow::Plain,
@@ -4107,60 +4069,52 @@ mod tests {
             _ => panic!("no cell where the row was placed"),
         };
         let (mut checked, mut moved) = (0, 0);
-        for depth in [Depth::Ansi256, Depth::TrueColor] {
-            for painted_in in [Mode::Dark, Mode::Light] {
-                let painted = Palette {
-                    mode: painted_in,
-                    depth,
-                };
-                let sequences = [
-                    ("divider", painted.divider().to_string()),
-                    ("hint", painted.hint().to_string()),
-                    ("notice", painted.notice().to_string()),
-                    ("activity", painted.activity().to_string()),
-                    ("statusline", painted.statusline().to_string()),
-                    ("dim", painted.dim().to_string()),
-                    ("warning", painted.warning().to_string()),
-                    ("tool_output", painted.tool_output().to_string()),
-                    ("notice_label", painted.notice_label().to_string()),
-                    ("notice_heading", painted.notice_heading().to_string()),
-                    ("diff", painted.diff().to_string()),
-                    ("answer", painted.answer().to_string()),
-                    ("danger", painted.danger().to_string()),
-                    ("strong", painted.strong().to_string()),
-                    ("reverse", painted.reverse().to_string()),
-                    ("bold", painted.bold().to_string()),
-                    ("selected", painted.selected()),
-                    ("subtitle", painted.subtitle().to_string()),
-                    ("reset", painted.reset().to_string()),
-                ];
-                for (name, sequence) in &sequences {
-                    let row = format!("{sequence}x{}", painted.reset());
-                    for kind in kinds {
-                        for landing in [Mode::Dark, Mode::Light] {
-                            let palette = Palette {
-                                mode: landing,
-                                depth,
-                            };
-                            let mut screen = Grid::blank(1, geometry.cols);
-                            screen.place_row(1, &row, &geometry);
-                            screen.set_kind(1, kind);
-                            moved += screen.retint_document(1, &palette, &geometry);
-                            let mut written = Grid::blank(1, geometry.cols);
-                            written.place_row(1, &recoloured(&row, kind, palette), &geometry);
-                            assert_eq!(
-                                attributes(&written),
-                                attributes(&screen),
-                                "{name} painted {painted_in:?} at {depth:?}, on a {kind:?} \
-                                 row, landing {landing:?}"
-                            );
-                            checked += 1;
-                        }
+        for painted_in in [Mode::Dark, Mode::Light] {
+            let painted = Palette { mode: painted_in };
+            let sequences = [
+                ("divider", painted.divider().to_string()),
+                ("hint", painted.hint().to_string()),
+                ("notice", painted.notice().to_string()),
+                ("activity", painted.activity().to_string()),
+                ("statusline", painted.statusline().to_string()),
+                ("dim", painted.dim().to_string()),
+                ("warning", painted.warning().to_string()),
+                ("tool_output", painted.tool_output().to_string()),
+                ("notice_label", painted.notice_label().to_string()),
+                ("notice_heading", painted.notice_heading().to_string()),
+                ("diff", painted.diff().to_string()),
+                ("answer", painted.answer().to_string()),
+                ("danger", painted.danger().to_string()),
+                ("strong", painted.strong().to_string()),
+                ("reverse", painted.reverse().to_string()),
+                ("bold", painted.bold().to_string()),
+                ("selected", painted.selected()),
+                ("subtitle", painted.subtitle().to_string()),
+                ("reset", painted.reset().to_string()),
+            ];
+            for (name, sequence) in &sequences {
+                let row = format!("{sequence}x{}", painted.reset());
+                for kind in kinds {
+                    for landing in [Mode::Dark, Mode::Light] {
+                        let palette = Palette { mode: landing };
+                        let mut screen = Grid::blank(1, geometry.cols);
+                        screen.place_row(1, &row, &geometry);
+                        screen.set_kind(1, kind);
+                        moved += screen.retint_document(1, &palette, &geometry);
+                        let mut written = Grid::blank(1, geometry.cols);
+                        written.place_row(1, &recoloured(&row, kind, palette), &geometry);
+                        assert_eq!(
+                            attributes(&written),
+                            attributes(&screen),
+                            "{name} painted {painted_in:?}, on a {kind:?} \
+                             row, landing {landing:?}"
+                        );
+                        checked += 1;
                     }
                 }
             }
         }
-        assert_eq!(checked, 2 * 2 * 19 * 6 * 2);
+        assert_eq!(checked, 2 * 19 * 6 * 2);
         // The rule did move cells, so the agreement is not two no-ops.
         assert!(moved > 0, "no report moved any cell");
     }

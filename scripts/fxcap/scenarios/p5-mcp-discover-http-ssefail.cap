@@ -1,0 +1,15 @@
+# p5 mcp discover: a 2026-07-28 HTTP server whose discover answer comes on an event stream
+# under HTTP 500 (mcphttp.ts `ssefail`). fx reads an event stream's answers whatever the
+# status (`readEvents`, src/mcp/io/http.zig:643-692@481104fd), where a JSON body's result
+# under an error status is no answer (`run`, :469-485): ready at 2026-07-28.
+# `gwlog` copies the server log.
+mcphttp ssefail
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+gwlog

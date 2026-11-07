@@ -1,0 +1,35 @@
+# pairs_compare.py, the 29 converted scenarios (--only each), 40x120, --jobs 2, one ledger (sha256 b1a27fb6..., unchanged by this unit).
+# base: 24a6b912's harness and scenarios, xfx built at 24a6b91. head: ba24235's, xfx built at ba24235. Order run: base 1, base 2 (interleaved with heads of earlier amends), head 1, base 3, head 2, head 3.
+
+## base 1-3 against head 1-3
+pairs: base 236, head 236; runs: base 3, head 3
+base: 272 of 708 pair runs pass; pairs passing in every run: 90 of 236
+head: 276 of 708 pair runs pass; pairs passing in every run: 92 of 236
+     interrupt-recovered/rec-0.5: base unresolved-defect,unresolved-defect,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     interrupt-recovered/rec-1.8: base unresolved-defect,unresolved-defect,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+pairs whose verdicts are not one and the same across all runs: 2; drops: 0
+
+## each sweep
+base-1: x𝒇x v0.1.0-24a6b91; wall 12m11s, load 29.3 at the start and 33.8 at the peak; Scenarios: 29 -- ran 29, failed 0, timeout 0. pass = 90 / 236 = 38.1%
+base-2: x𝒇x v0.1.0-24a6b91; wall 12m13s, load 22.1 at the start and 32.4 at the peak; Scenarios: 29 -- ran 29, failed 0, timeout 0. pass = 90 / 236 = 38.1%
+base-3: x𝒇x v0.1.0-24a6b91; wall 12m01s, load 29.2 at the start and 33.4 at the peak; Scenarios: 29 -- ran 29, failed 0, timeout 0. pass = 92 / 236 = 39.0%
+head-1: x𝒇x v0.1.0-ba24235; wall 12m47s, load 17.0 at the start and 28.7 at the peak; Scenarios: 29 -- ran 29, failed 0, timeout 0. pass = 92 / 236 = 39.0%
+head-2: x𝒇x v0.1.0-ba24235; wall 12m59s, load 17.6 at the start and 37.3 at the peak; Scenarios: 29 -- ran 29, failed 0, timeout 0. pass = 92 / 236 = 39.0%
+head-3: x𝒇x v0.1.0-ba24235; wall 13m10s, load 27.9 at the start and 46.3 at the peak; Scenarios: 29 -- ran 29, failed 0, timeout 0. pass = 92 / 236 = 39.0%
+
+## earlier amends, for the two pairs they found (not the head above)
+# 62edc9d's head (24 scenarios) against a base run of the same 24:
+base: 63 of 162 pair runs pass; pairs passing in every run: 63 of 162
+head: 63 of 162 pair runs pass; pairs passing in every run: 63 of 162
+DROP interrupt-recovered/rec-0.5: base normalized-identical -> head unresolved-defect
+DROP interrupt-recovered/rec-1.8: base normalized-identical -> head unresolved-defect
+     interrupt-steer/steer-stream: base unresolved-defect -> head normalized-identical
+     p5-transcript-resize/start: base unresolved-defect -> head normalized-identical
+pairs whose verdicts are not one and the same across all runs: 4; drops: 2
+# e2937ae's head (29 scenarios) against base 1:
+base: 90 of 236 pair runs pass; pairs passing in every run: 90 of 236
+head: 91 of 236 pair runs pass; pairs passing in every run: 91 of 236
+     interrupt-recovered/rec-0.5: base unresolved-defect -> head normalized-identical
+     interrupt-recovered/rec-1.8: base unresolved-defect -> head normalized-identical
+DROP interrupt-steer/steer-stream: base normalized-identical -> head unresolved-defect
+pairs whose verdicts are not one and the same across all runs: 3; drops: 1

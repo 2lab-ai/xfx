@@ -1,0 +1,275 @@
+## p5-mcp-discover-http-hostile -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=2 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=4 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+
+## p5-mcp-discover-http-hostile -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=2 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=4 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+
+## p5-mcp-discover-http-hostile -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=2 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=4 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+
+## p5-mcp-discover-http-hostile -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=1 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-malformed -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+GET /mcp rpc=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 405
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-malformed -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-malformed -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-malformed -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=1 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-modern -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=subscriptions/listen id=2 session=no version=2026-07-28 mcp-method=subscriptions/listen mcp-name=- -> 200
+POST /mcp rpc=tools/list id=3 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/list id=4 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/list id=5 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/call id=6 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+POST /mcp rpc=tools/call id=7 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+
+## p5-mcp-discover-http-modern -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/call id=3 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+POST /mcp rpc=tools/call id=4 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+
+## p5-mcp-discover-http-modern -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/call id=3 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+POST /mcp rpc=tools/call id=4 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+
+## p5-mcp-discover-http-modern -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-notimpl -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=subscriptions/listen id=2 session=no version=2026-07-28 mcp-method=subscriptions/listen mcp-name=- -> 200
+POST /mcp rpc=tools/list id=3 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/list id=4 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/list id=5 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/call id=6 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+POST /mcp rpc=tools/call id=7 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+
+## p5-mcp-discover-http-notimpl -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/call id=3 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+POST /mcp rpc=tools/call id=4 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+
+## p5-mcp-discover-http-notimpl -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/call id=3 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+POST /mcp rpc=tools/call id=4 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo -> 200
+
+## p5-mcp-discover-http-notimpl -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-old2024 -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=4 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=5 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=6 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=7 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=8 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-old2024 -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=4 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=5 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=6 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=7 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=8 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-old2024 -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=3 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=4 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=5 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=6 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=server/discover id=7 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=8 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-old2024 -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+DELETE /mcp rpc=- session=yes version=- mcp-method=- mcp-name=- -> 204
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+DELETE /mcp rpc=- session=yes version=- mcp-method=- mcp-name=- -> 204
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+DELETE /mcp rpc=- session=yes version=- mcp-method=- mcp-name=- -> 204
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+DELETE /mcp rpc=- session=yes version=- mcp-method=- mcp-name=- -> 204
+
+## p5-mcp-discover-http-ssefail -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 500
+POST /mcp rpc=tools/list id=3 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=subscriptions/listen id=2 session=no version=2026-07-28 mcp-method=subscriptions/listen mcp-name=- -> 200
+POST /mcp rpc=tools/list id=4 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssefail -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 500
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssefail -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 500
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssefail -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssehold -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=subscriptions/listen id=2 session=no version=2026-07-28 mcp-method=subscriptions/listen mcp-name=- -> 200
+POST /mcp rpc=tools/list id=3 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/list id=4 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssehold -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssehold -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssehold -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-sseidless -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+GET /mcp rpc=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 405
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-sseidless -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-sseidless -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=2 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+
+## p5-mcp-discover-http-sseidless -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=1 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssestrid -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=subscriptions/listen id=2 session=no version=2026-07-28 mcp-method=subscriptions/listen mcp-name=- -> 200
+POST /mcp rpc=tools/list id=3 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+POST /mcp rpc=tools/list id=4 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssestrid -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=tools/list id=2 session=no version=2026-07-28 mcp-method=tools/list mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssestrid -- xfx f3a859c (round 1)
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+POST /mcp rpc=server/discover id=2 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 200
+
+## p5-mcp-discover-http-ssestrid -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-live -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+GET /mcp rpc=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 405
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=4 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/cancelled id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/call id=5 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=6 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-live -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=4 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=5 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=6 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-live -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=1 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=2 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=4 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-rpcerror -- fx v0.0.16
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+GET /mcp rpc=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 405
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=4 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=5 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-rpcerror -- xfx head
+POST /mcp rpc=server/discover id=1 session=no version=2026-07-28 mcp-method=server/discover mcp-name=- -> 404
+POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=4 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=5 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+
+## p5-mcp-rpcerror -- xfx base
+POST /mcp rpc=initialize id=0 session=no version=- mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 202
+POST /mcp rpc=tools/list id=1 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=2 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200
+POST /mcp rpc=tools/call id=3 session=yes version=2025-11-25 mcp-method=- mcp-name=- -> 200

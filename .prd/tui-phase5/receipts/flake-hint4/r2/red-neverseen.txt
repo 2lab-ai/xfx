@@ -1,0 +1,13 @@
+# the round-2 never-seen test (test_capture.py at bf794f0d) against capture.sh at b0522162 (the line before the change)
+F
+======================================================================
+FAIL: test_until_gone_says_never_seen_when_its_text_was_not_there_at_all (__main__.Verbs.test_until_gone_says_never_seen_when_its_text_was_not_there_at_all)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<path>", line 567, in test_until_gone_says_never_seen_when_its_text_was_not_there_at_all
+    self.assertRegex(r.stdout, r"until gone 'X\[1\]\*Y': after \d+\.\d\d s, \d+\.\d\d s since launch\n")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Regex didn't match: "until gone 'X\\[1\\]\\*Y': after \\d+\\.\\d\\d s, \\d+\\.\\d\\d s since launch\\n" not found in "until shown 'X[1]*Y': after 1.07 s, 1.60 s since launch\nuntil gone 'X[1]*Y': after 0.01 s, 4.13 s since launch; never seen\nuntil gone 'not-on-this-screen': after 0.01 s, 4.15 s since launch; never seen\n<tmp> <tmp> sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories\n"
+----------------------------------------------------------------------
+Ran 1 test in 11.038s
+FAILED (failures=1)

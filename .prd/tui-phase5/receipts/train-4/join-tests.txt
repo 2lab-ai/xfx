@@ -1,0 +1,10 @@
+# The three join tests in the gate's two cargo test runs at b7d47a93 (gates.txt): every line of the two logs that names one.
+# Their first runs, at the merge and while writing them, were not logged; the README no longer describes them.
+== 04-test
+test tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted ... ok
+test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... ok
+test tui::frame::tests::a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted ... ok
+== 05-test-fault
+test tui::event_loop::tests::a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted ... ok
+test tui::frame::tests::a_tool_rows_split_selector_cell_is_drawn_again_split_anchored_and_accepted ... ok
+test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... ok

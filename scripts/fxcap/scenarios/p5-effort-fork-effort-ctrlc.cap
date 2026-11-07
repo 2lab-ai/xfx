@@ -10,7 +10,15 @@ type /effort
 key Enter
 wait 1
 key C-c
+# The hint is up for 3 s (capfile.py TIMERS): both snaps are taken while it
+# is, from when it came, and `ctrlc-later` 1.8 s in rather than 2.8 s, which
+# was 0.2 s from the moment it goes (FLAKE-HINT4).
+until shown press ctrl+c again to exit
 wait 0.3
 snap ctrlc
-wait 2.5
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect ctrlc press ctrl+c again to exit
+wait 1.5
 snap ctrlc-later
+expect ctrlc-later press ctrl+c again to exit

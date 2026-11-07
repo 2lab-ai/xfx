@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d96603f [debug] · Run /help for commands
+
+* mcp: fixture
+    status     retrying
+    transport  http
+    url        http://127.0.0.1:64532/mcp
+    source     ~/.xfx/mcp.json
+    error      it answered with an MCP version xfx doesn't support (xfx speaks 2025-03-26 and newer)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

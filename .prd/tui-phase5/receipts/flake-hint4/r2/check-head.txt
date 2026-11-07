@@ -1,0 +1,2 @@
+# capfile.races over every scenario in scripts/fxcap/scenarios at 4d264ffe (aa4f0caf changes a comment only), both binaries (the check test_sweep.py Capfile.test_no_snap_of_the_repos_scenarios_races_a_timer makes)
+races: 0 over 313 scenarios
