@@ -2104,7 +2104,7 @@ impl Runtime {
     /// saves, and with no store it has none, so no prompt excerpt goes to a
     /// title model (`activeSessionId(app) orelse return`,
     /// `maybeStartSessionTitleGeneration`,
-    /// `src/core/app/app_session_runtime.zig:3035@481104fd`).
+    /// `src/core/app/app_session_runtime.zig:3036@481104fd`).
     fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
         if self.store.is_unsaved() {
             return None;
@@ -8068,7 +8068,7 @@ mod tests {
             .expect("a conversation opens unsaved");
         assert_eq!(state.shell_session(), ShellSession::Unavailable);
         // No title model is asked: upstream titles only a saved session
-        // (`maybeStartSessionTitleGeneration`, `:3035@481104fd`).
+        // (`maybeStartSessionTitleGeneration`, `:3036@481104fd`).
         assert!(
             state.title_asker().is_none(),
             "an unsaved session asked for a title"

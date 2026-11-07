@@ -324,6 +324,14 @@ pub async fn run_turn_with_skills(
 
 /// The turn's user message: its text, then its images, each with the copy
 /// the log saved of it in `saved` when it saved one.
+///
+/// Each image is named by xfx's own copy of it: the session's, in `saved`,
+/// when the log kept one; otherwise a paste's own copy, which an attached
+/// file does not have. Never the file it was attached from, as upstream names
+/// only its own copy (`savedImagePath`, `noteAttachmentLocations`,
+/// `src/core/images/image_attachments.zig:1050-1062@481104fd`) -- and as the
+/// history names each on every later turn
+/// ([`crate::session::store::Snapshot::Loaded`]).
 fn user_message(request: &TurnRequest, saved: Option<&std::path::Path>) -> Message {
     if request.images.is_empty() {
         return Message::user(request.prompt.clone());
@@ -331,7 +339,12 @@ fn user_message(request: &TurnRequest, saved: Option<&std::path::Path>) -> Messa
     Message::user_with_images(
         request.prompt.clone(),
         request.images.iter().map(|image| {
-            image.part(saved.map(|dir| std::sync::Arc::from(dir.join(image.snapshot_name()))))
+            image.part(match saved {
+                Some(dir) => Some(std::sync::Arc::from(dir.join(image.snapshot_name()))),
+                None => image
+                    .copied
+                    .then(|| std::sync::Arc::from(image.path.as_path())),
+            })
         }),
     )
 }
@@ -2287,6 +2300,84 @@ mod tests {
         assert!(allows_step(0, u32::MAX));
         assert!(allows_step(2, 0) && allows_step(2, 1));
         assert!(!allows_step(2, 2));
+    }
+
+    #[test]
+    fn an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy() {
+        // fx names only the session's own copy of an image in the note for one
+        // a request leaves out, never the file it was attached from
+        // (`savedImagePath`, `noteAttachmentLocations`,
+        // `src/core/images/image_attachments.zig:1050-1062@481104fd`). An
+        // unsaved xfx session keeps a copy of a pasted image (the paste's own)
+        // and none of an attached file: so the paste is named by its copy and
+        // the file by nothing, on the turn that sends it and on every turn
+        // after, rebuilt from the history.
+        use crate::gateway::protocol::ContentPart;
+        use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
+        let image = |id: u32, path: &str, copied: bool| {
+            let mut image = crate::image::Image::new(
+                id,
+                std::path::PathBuf::from(path),
+                crate::image::MediaType::Png,
+                std::sync::Arc::from(crate::image::fixture::SHOT_PNG),
+            );
+            image.copied = copied;
+            image
+        };
+        let pasted = image(1, "/tmp/xfx-image-snapshots/1-abc.png", true);
+        let attached = image(2, "/w/shot.png", false);
+        let (_dir, tools) = tools();
+        let request = TurnRequest {
+            images: vec![pasted.clone(), attached.clone()],
+            model: "m".to_string(),
+            prompt: "[Image #1][Image #2] compare".to_string(),
+            history: Vec::new(),
+            max_steps: 1,
+            max_attempts: 1,
+            cancel: crate::gateway::CancelToken::new(),
+            tools,
+        };
+        let saved_of = |message: &Message| -> Vec<Option<std::path::PathBuf>> {
+            message
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Image { saved, .. } => {
+                        Some(saved.as_deref().map(std::path::Path::to_path_buf))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        // Turn 1: what an unsaved journal leaves the first request with.
+        let store = SessionStore::unsaved();
+        let session = store
+            .create(
+                SessionId::generate(),
+                NewSession {
+                    origin_workspace_root: "/w".into(),
+                    workspace_root: "/w".into(),
+                    model: "m".to_string(),
+                    permission_mode: crate::config::PermissionMode::Auto,
+                    provider: None,
+                },
+            )
+            .expect("an unsaved session");
+        let mut recorder = SessionRecorder::new(store, session);
+        recorder.commit(SessionEvent::UserMessage {
+            text: request.prompt.clone(),
+        });
+        let first = match recorder.attach_images(&request.images) {
+            Some(saved) => user_message(&request, Some(&saved)),
+            None => user_message(&request, None),
+        };
+        let expected = vec![Some(std::path::PathBuf::from(&pasted.path)), None];
+        assert_eq!(saved_of(&first), expected, "the turn that sends them");
+        // Turn 2 and after: the same images, from the history.
+        let later = recorder
+            .state()
+            .history_messages(crate::provider::Wire::VercelGateway, "m");
+        assert_eq!(saved_of(&later.messages[0]), expected, "every later turn");
     }
 
     #[test]

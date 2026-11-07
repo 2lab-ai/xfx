@@ -104,7 +104,7 @@ The fix: both unsaved branches hold the bytes they were handed, as `Snapshot::Lo
 
 ### A title is asked only for a saved session
 
-fx titles only an active, saved session (`activeSessionId(app) orelse return`, `maybeStartSessionTitleGeneration`, `src/core/app/app_session_runtime.zig:3035@481104fd`). xfx's unsaved session sent the first prompt's excerpt to the title model. `title_asker` now returns none for an unsaved store.
+fx titles only an active, saved session (`activeSessionId(app) orelse return`, `maybeStartSessionTitleGeneration`, `src/core/app/app_session_runtime.zig:3036@481104fd`). xfx's unsaved session sent the first prompt's excerpt to the title model. `title_asker` now returns none for an unsaved store.
 
 - RED: the base's `title_asker` fails `a_session_with_no_home_runs_unsaved_and_says_so`, at "an unsaved session asked for a title".
 

@@ -487,8 +487,16 @@ pub enum Snapshot {
     #[default]
     Unread,
     /// Read, and the digest it was recorded with: what a later request sends,
-    /// and the file it was read from.
-    Loaded { bytes: Arc<[u8]>, path: Arc<Path> },
+    /// and xfx's own copy of it -- the session's, or a paste's -- when it
+    /// keeps one, which is the only file a note for an image a request leaves
+    /// out names: never the file it was attached from, which can change after
+    /// it was attached, as upstream names only its own copy (`savedImagePath`,
+    /// `noteAttachmentLocations`,
+    /// `src/core/images/image_attachments.zig:1050-1062@481104fd`).
+    Loaded {
+        bytes: Arc<[u8]>,
+        path: Option<Arc<Path>>,
+    },
     /// Could not be used, for this reason: it is not sent, and the user is
     /// told so ([`DurableState::history_messages`]).
     Unusable(String),
@@ -886,7 +894,7 @@ pub fn turn_messages(
                     id: image.recorded.id,
                     media_type,
                     data: Arc::clone(bytes),
-                    saved: Some(Arc::clone(path)),
+                    saved: path.clone(),
                 });
             }
             (Snapshot::Unusable(reason), _) => notices.push(format!(
@@ -2637,7 +2645,9 @@ impl SessionRecorder {
                     for (kept, image) in turn.images.iter_mut().zip(images) {
                         kept.snapshot = Snapshot::Loaded {
                             bytes: Arc::clone(&image.bytes),
-                            path: Arc::from(image.path.as_path()),
+                            // A paste's own copy is xfx's; an attached file
+                            // is not, and is named by nothing.
+                            path: image.copied.then(|| Arc::from(image.path.as_path())),
                         };
                     }
                 }
@@ -2676,7 +2686,7 @@ impl SessionRecorder {
             for (kept, image) in turn.images.iter_mut().zip(images) {
                 kept.snapshot = Snapshot::Loaded {
                     bytes: Arc::clone(&image.bytes),
-                    path: Arc::from(folder.join(image.snapshot_name())),
+                    path: Some(Arc::from(folder.join(image.snapshot_name()))),
                 };
             }
         }
@@ -2741,7 +2751,7 @@ impl SessionRecorder {
                     for (kept, image) in kept.iter_mut().zip(images) {
                         kept.snapshot = Snapshot::Loaded {
                             bytes: Arc::clone(&image.data),
-                            path: Arc::from(Path::new(&image.path)),
+                            path: None,
                         };
                     }
                 }
@@ -2771,10 +2781,10 @@ impl SessionRecorder {
             for (kept, image) in kept.iter_mut().zip(images) {
                 kept.snapshot = Snapshot::Loaded {
                     bytes: Arc::clone(&image.data),
-                    path: Arc::from(folder.join(crate::image::snapshot_name(
+                    path: Some(Arc::from(folder.join(crate::image::snapshot_name(
                         kept.recorded.id,
                         &kept.recorded.sha256,
-                    ))),
+                    )))),
                 };
             }
         }
@@ -2899,7 +2909,7 @@ fn read_snapshots(dir: &Path, state: &mut DurableState) {
                 match read_snapshot(&path, &image.recorded.sha256, image.recorded.bytes) {
                     Ok(bytes) => Snapshot::Loaded {
                         bytes,
-                        path: Arc::from(path.as_path()),
+                        path: Some(Arc::from(path.as_path())),
                     },
                     Err(reason) => Snapshot::Unusable(reason),
                 };
@@ -5237,9 +5247,13 @@ mod tests {
             .history_messages(Wire::VercelGateway, &recorder.state().model);
         assert_eq!(images_of(&live.messages[0]), 2, "{:?}", live.messages[0]);
         assert!(live.notices.is_empty(), "{:?}", live.notices);
-        assert_eq!(
-            saved_paths(&live.messages[0])[0],
-            PathBuf::from("/w/shot.png")
+        // An attached file is xfx's to send, not to name: the note for an
+        // image left out names only a copy xfx keeps, and this session keeps
+        // none of it.
+        assert!(
+            saved_paths(&live.messages[0]).is_empty(),
+            "{:?}",
+            live.messages[0]
         );
         let carried: Vec<crate::image::ToolImage> = live
             .messages
@@ -6159,7 +6173,9 @@ mod tests {
             },
             snapshot: Snapshot::Loaded {
                 bytes: std::sync::Arc::from(&b"png"[..]),
-                path: std::sync::Arc::from(std::path::Path::new(&format!("shot{id}.png"))),
+                path: Some(std::sync::Arc::from(std::path::Path::new(&format!(
+                    "shot{id}.png"
+                )))),
             },
         };
         let step = |calls: bool, text: &str| TurnStep::Assistant {
