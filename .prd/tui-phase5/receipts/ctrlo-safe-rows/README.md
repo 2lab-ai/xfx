@@ -193,7 +193,7 @@ ASCII.
 
 ## Gates (`gates.txt`)
 
-Round 2's are in `gates.txt` at the receipt's head (below its round-1 run). Round 1, at `8ff28356`, one at a time after the idle wait: fmt, clippy with and without
+Round 2, at `0845773c` (below round 1's in `gates.txt`), one at a time after the idle wait: every step exit 0 -- both test suites 4944 and 4973 passed, 0 failed, 7 ignored each; fxcap's test-sweep 49 + 24 tests; smoke 47 checks; smoke-tui 37 scenarios, 1111 checks. Round 1, at `8ff28356`, one at a time after the idle wait: fmt, clippy with and without
 fault injection, both test suites (4941 and 4970 passed, 0 failed, 7
 ignored each), identity, stubs, secrets, fxcap's test-sweep, the release and
 faulty builds, smoke (47 checks) and smoke-tui (37 scenarios, 1111 checks):
