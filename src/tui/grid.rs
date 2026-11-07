@@ -27,11 +27,16 @@
 //!
 //! What the diff emits is `CUP`, replacement text with its attributes and its
 //! OSC 8 links (`super::hyperlink`, closed at the end of every row), and `EL`.
-//! **No `ECH`**: it
-//! is not in the subset `scripts/smoke-tui.sh`'s oracle models, and an erase to
-//! the end of a row says the same thing about a row that got shorter without
-//! adding a sequence the emulator -- and therefore the acceptance suite --
-//! would have to be widened for.
+//! An erase to the end of a row is what says a row got shorter. Around one
+//! display unit it emits three more, upstream's (`src/core/terminal/
+//! engine.zig:2557-2592@481104fd`), and so does every row written whole
+//! ([`write_row_text`]): `ECH` over the two cells of a unit whose suffix holds a
+//! variation selector, `CHA` to the column after such a unit, and `?7h`/`?7l`
+//! around a wide unit with a suffix at the right margin ([`put_unit`]).
+//! `super::check` and `scripts/smoke-tui.sh`'s oracle model all three.
+
+use std::borrow::Cow;
+use std::io::Write as _;
 
 use super::frame::cup;
 use super::layout::Geometry;
@@ -40,6 +45,14 @@ use super::theme::{DocumentRow, Palette};
 
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\u{1b}[K";
+
+/// `ECH 2`: blank the two cells from the cursor, and leave it where it is.
+const CLEAR_TWO: &str = "\u{1b}[2X";
+
+/// Autowrap on, and off again: `super::term::MODE_SET` turns it off for the
+/// whole session, so these two only ever bracket one unit ([`put_unit`]).
+const AUTOWRAP_ON: &str = "\u{1b}[?7h";
+const AUTOWRAP_OFF: &str = "\u{1b}[?7l";
 
 /// Every attribute off.
 ///
@@ -183,6 +196,154 @@ pub(crate) fn tokenize_row(
             sgr: &sgr,
         });
         column += width;
+    }
+}
+
+/// Writes one display unit -- a grid cell's grapheme, its suffix with it -- at
+/// zero-based `column`, `width` cells wide, on a screen `cols` wide; `more` is
+/// whether anything else is written on the row after it, a cell or an erase.
+///
+/// Upstream's frame writer, cell by cell (`src/core/terminal/engine.zig:
+/// 2557-2592@481104fd`), and the **one** spelling of it: [`Grid::diff_from`]
+/// writes each cell through this and [`write_row_text`] each unit of a row
+/// written whole, so a full paint and a partial one cannot disagree.
+///
+/// * **A suffix that holds U+FE0E or U+FE0F** (`hasVariationSelector`,
+///   `:3367-3369`) makes the unit's width one terminals dispute: Ghostty draws
+///   U+26A1 U+FE0E in one cell and tmux in two (`95e6c8fd`). Such a unit two
+///   cells wide has both cleared first (`ECH 2`), so a terminal that draws it
+///   one cell narrow leaves no stale second cell; and when anything follows it
+///   on the row the cursor is put on the column after it (`CHA`, one-based),
+///   so what follows lands where this grid holds it however wide the terminal
+///   drew the unit. An `EL` counts as following, which upstream's diff never
+///   writes: an erase sent from a caret the terminal advanced by its own width
+///   starts a cell early or late, and late leaves a stale cell -- the defect
+///   the anchor is for.
+/// * **A wide unit with any suffix that ends at the right margin** is written
+///   with autowrap on, and autowrap is turned off again after it
+///   (`guard_margin_suffix`): with it off, a terminal can drop the suffix of a
+///   unit whose base fills the last column. Upstream asks whether autowrap is
+///   off; it is off for the whole of a session here (`super::term::MODE_SET`),
+///   on every frame this writes. Nothing follows such a unit, so it is never
+///   anchored.
+///
+/// Upstream's order: the autowrap on, the clear, the unit, the autowrap off,
+/// the anchor. Its colour and its link are already on (the caller's), so the
+/// clear blanks the cells in the unit's own background.
+fn put_unit(
+    out: &mut Vec<u8>,
+    grapheme: &str,
+    column: usize,
+    width: usize,
+    cols: usize,
+    more: bool,
+) {
+    let mut scalars = grapheme.chars();
+    scalars.next();
+    let suffix = scalars.as_str();
+    let disputed = suffix.contains(['\u{fe0e}', '\u{fe0f}']);
+    let guarded = !suffix.is_empty() && width == 2 && column + width == cols;
+    if guarded {
+        out.extend_from_slice(AUTOWRAP_ON.as_bytes());
+    }
+    if disputed && width == 2 {
+        out.extend_from_slice(CLEAR_TWO.as_bytes());
+    }
+    out.extend_from_slice(grapheme.as_bytes());
+    if guarded {
+        out.extend_from_slice(AUTOWRAP_OFF.as_bytes());
+    }
+    let after = column + width;
+    if disputed && more && after < cols {
+        // Writing into a `Vec` cannot fail.
+        let _ = write!(out, "\u{1b}[{}G", after + 1);
+    }
+}
+
+/// One thing [`write_row_text`] finds in a row, in the order it writes them.
+enum Piece<'a> {
+    /// A sequence the row keeps (a colour, a link), written where it stands.
+    Escape(&'a str),
+    /// A cluster that takes no cell and has no unit in front of it to join,
+    /// written where it stands: [`tokenize_row`] gives it no cell either.
+    Alone(&'a str),
+    /// A unit and the zero-width clusters that join it, as [`Grid::place_row`]
+    /// puts them in one cell.
+    Unit {
+        grapheme: Cow<'a, str>,
+        column: usize,
+        width: usize,
+    },
+}
+
+/// Writes `text` from the first column, as [`Grid::diff_from`] writes cells:
+/// `text` is a row [`super::frame::row_text`] has made safe and cut to `cols`,
+/// the screen's width, and `erase_follows` is whether an `EL` is written after
+/// it.
+///
+/// What the rows written whole owe the terminal around a unit, the same as the
+/// diff's ([`put_unit`]): `place`, the alternate plane's paint and the band's
+/// whole repaints write a row's text where the diff writes its cells, and a
+/// row written whole that went on past a glyph with a variation selector would
+/// put what follows it where the terminal's own advance does rather than where
+/// the grid holds it -- `p5-transcript-diffwide2`'s read row, `x` three cells
+/// left of where upstream's `ESC[42G` puts it (the ledger's
+/// `frame-variation-selector-anchor`).
+///
+/// Cut into units by [`tokenize_row`]'s steps, so a unit is the cell a grid
+/// holds. A zero-width cluster the row put after a sequence -- a colour opened
+/// between a glyph and its selector -- is written **with its unit**, ahead of
+/// the sequence: that is the cell the grid holds and the diff writes, and a
+/// terminal joins it to the cell in front of it either way. A row of ASCII
+/// alone has no unit with a suffix, and is written as it stands.
+pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16, erase_follows: bool) {
+    if text.is_ascii() {
+        out.extend_from_slice(text.as_bytes());
+        return;
+    }
+    let mut pieces: Vec<Piece<'_>> = Vec::new();
+    let mut last_unit = None;
+    let mut column = 0usize;
+    let mut rest = text;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            pieces.push(Piece::Escape(&rest[..len]));
+            rest = &rest[len..];
+            continue;
+        }
+        let Some(cluster) = super::wrap::first_cluster(rest) else {
+            break;
+        };
+        rest = &rest[cluster.len()..];
+        let width = usize::from(super::wrap::width(cluster));
+        if width == 0 {
+            match last_unit.and_then(|at| pieces.get_mut(at)) {
+                Some(Piece::Unit { grapheme, .. }) => grapheme.to_mut().push_str(cluster),
+                _ => pieces.push(Piece::Alone(cluster)),
+            }
+            continue;
+        }
+        last_unit = Some(pieces.len());
+        pieces.push(Piece::Unit {
+            grapheme: Cow::Borrowed(cluster),
+            column,
+            width,
+        });
+        column += width;
+    }
+    let cols = usize::from(cols);
+    for (at, piece) in pieces.iter().enumerate() {
+        match piece {
+            Piece::Escape(bytes) | Piece::Alone(bytes) => out.extend_from_slice(bytes.as_bytes()),
+            Piece::Unit {
+                grapheme,
+                column,
+                width,
+            } => {
+                let more = erase_follows || last_unit.is_some_and(|last| at < last);
+                put_unit(out, grapheme, *column, *width, cols, more);
+            }
+        }
     }
 }
 
@@ -626,6 +787,9 @@ impl Grid {
     ) -> usize {
         let rows = self.rows.min(target.rows).min(geometry.rows);
         let cols = usize::from(self.cols.min(target.cols).min(geometry.cols));
+        // The terminal's right margin, which is the screen's rather than the
+        // overlap's: what [`put_unit`] guards a unit at.
+        let margin = usize::from(geometry.cols);
         let mut touched = 0usize;
         // What the terminal has switched on, as this frame left it. It starts
         // closed whatever row the run begins on, and that is what the prefix
@@ -680,8 +844,11 @@ impl Grid {
             // whole class of grid unable to crash the painter; the `EL` below
             // is what says the row, and it is already owed whenever this fires.
             let stop = stop.max(start);
+            // An erase follows the run when the row got shorter, which is
+            // something written after its last cell ([`put_unit`]'s `more`).
+            let erases = old_end > new_end;
             cup(out, line, column_of(start));
-            for cell in &new[start..stop] {
+            for (index, cell) in new.iter().enumerate().take(stop).skip(start) {
                 match cell {
                     // Carried by the lead in front of it.
                     Cell::Continuation => {}
@@ -689,13 +856,19 @@ impl Grid {
                         reopen(out, &mut open, "", None);
                         out.push(b' ');
                     }
-                    Cell::Lead { grapheme, sgr, .. } => {
+                    Cell::Lead {
+                        grapheme,
+                        width,
+                        sgr,
+                    } => {
                         reopen(out, &mut open, &sgr.attributes(), sgr.link());
-                        out.extend_from_slice(grapheme.as_bytes());
+                        let width = usize::from(*width);
+                        let more = index + width < stop || erases;
+                        put_unit(out, grapheme, index, width, margin, more);
                     }
                 }
             }
-            if old_end > new_end {
+            if erases {
                 // The row got shorter. The caret is at `new_end` -- every cell
                 // written above advanced it by exactly the columns it covered --
                 // so this erases precisely the tail that is no longer there,
@@ -1669,5 +1842,131 @@ mod tests {
         let mut inside = long.to_string();
         inside.replace_range(2..3, "X");
         assert!(!grid.row_matches(10, &inside, &geometry, &mut scratch));
+    }
+
+    // -- a variation selector, and the cells after it ------------------------
+    //
+    // Upstream's frame writer, `src/core/terminal/engine.zig:2557-2592@481104fd`
+    // (`95e6c8fd`): a display unit whose suffix holds U+FE0E or U+FE0F has both
+    // of its cells cleared first when it is two wide, and the cursor is put back
+    // on the column after it when anything else is written on the row; a
+    // two-wide unit with a suffix that ends at the right margin is written with
+    // autowrap on for its length.
+
+    /// The text-presentation lightning bolt of upstream's own test: two cells,
+    /// as upstream and this crate both count it.
+    const BOLT: &str = "\u{26a1}\u{fe0e}";
+    /// A sun with the emoji selector: two cells.
+    const SUN_EMOJI: &str = "\u{2600}\u{fe0f}";
+    /// A sun with the text selector: one cell.
+    const SUN_TEXT: &str = "\u{2600}\u{fe0e}";
+
+    #[test]
+    fn a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it() {
+        // Upstream's test, `engine.zig:4035-4064@481104fd`: `\x1b[2X` and the
+        // glyph, then `\x1b[5G` -- the column after it, one-based.
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {BOLT} b"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha \u{1b}[2X{BOLT}\u{1b}[5G b")
+        );
+    }
+
+    #[test]
+    fn a_wide_glyph_with_an_emoji_selector_is_cleared_first_and_the_cursor_put_back_after_it() {
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {SUN_EMOJI} b"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha \u{1b}[2X{SUN_EMOJI}\u{1b}[5G b")
+        );
+    }
+
+    #[test]
+    fn a_narrow_glyph_with_a_selector_clears_nothing_and_still_puts_the_cursor_back() {
+        // One cell: upstream clears only a two-cell unit, and anchors any.
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {SUN_TEXT} b"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha {SUN_TEXT}\u{1b}[4G b")
+        );
+    }
+
+    #[test]
+    fn a_glyph_without_a_selector_needs_no_anchor() {
+        let before = painted(10, "");
+        let after = painted(10, &format!("a \u{26a1} b {FAMILY} c"));
+        let text = diffed(&before, &after);
+        assert!(!text.contains('G') && !text.contains('X'), "{text:?}");
+    }
+
+    #[test]
+    fn a_selector_glyph_with_nothing_after_it_is_not_anchored() {
+        // Upstream's `col <= last`: nothing else is written on the row.
+        let before = painted(10, "");
+        let after = painted(10, &format!("a {BOLT}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1Ha \u{1b}[2X{BOLT}")
+        );
+    }
+
+    #[test]
+    fn the_erase_after_a_selector_glyph_starts_where_the_grid_puts_the_glyphs_end() {
+        // The row got shorter, so an `EL` follows the glyph. A terminal that
+        // draws it one cell wider than this grid counts would start the erase a
+        // cell late and leave a stale cell; the anchor in front of the `EL`
+        // puts it where the grid's row ends.
+        let before = painted(10, &format!("a {SUN_TEXT}bcd"));
+        let after = painted(10, &format!("a {BOLT}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;3H\u{1b}[2X{BOLT}\u{1b}[5G{ERASE_LINE}")
+        );
+    }
+
+    #[test]
+    fn a_wide_selector_glyph_at_the_margin_is_written_with_autowrap_on_and_not_anchored() {
+        // `guard_margin_suffix`: autowrap is off for the session
+        // (`super::super::term::MODE_SET`'s `?7l`), and a terminal can drop the
+        // suffix of a unit whose base ends at the margin. Upstream's order:
+        // `?7h`, the clear, the glyph and its suffix, `?7l`.
+        let geometry = geometry();
+        let lead = "x".repeat(usize::from(geometry.cols) - 2);
+        let before = painted(10, "");
+        let after = painted(10, &format!("{lead}{BOLT}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{lead}\u{1b}[?7h\u{1b}[2X{BOLT}\u{1b}[?7l")
+        );
+    }
+
+    #[test]
+    fn a_wide_unit_with_any_suffix_at_the_margin_is_written_with_autowrap_on() {
+        // Upstream asks for a suffix, not a selector: a ZWJ family too.
+        let geometry = geometry();
+        let lead = "x".repeat(usize::from(geometry.cols) - 2);
+        let before = painted(10, "");
+        let after = painted(10, &format!("{lead}{FAMILY}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{lead}\u{1b}[?7h{FAMILY}\u{1b}[?7l")
+        );
+    }
+
+    #[test]
+    fn a_wide_unit_without_a_suffix_or_short_of_the_margin_is_not_guarded() {
+        let geometry = geometry();
+        let cols = usize::from(geometry.cols);
+        let before = painted(10, "");
+        for row in [
+            format!("{}\u{d55c}", "x".repeat(cols - 2)),
+            format!("{}{FAMILY}", "x".repeat(cols - 3)),
+        ] {
+            let text = diffed(&before, &painted(10, &row));
+            assert!(!text.contains("\u{1b}[?7"), "{row:?}: {text:?}");
+        }
     }
 }

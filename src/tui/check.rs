@@ -451,6 +451,33 @@ impl Plane {
         }
     }
 
+    /// `ECH`: `count` cells from `column`, blanked, and the whole of every wide
+    /// cluster the span covers part of -- the left half of one it starts
+    /// inside, the right half of one it ends inside -- as [`write_text`] breaks
+    /// the clusters a write covers.
+    fn erase_span(&mut self, row: u16, column: u16, count: u16) {
+        if column == 0 || column > self.cols {
+            return;
+        }
+        let cols = usize::from(self.cols);
+        let Some(cells) = self.row_mut(row) else {
+            return;
+        };
+        let start = usize::from(column - 1);
+        let end = (start + usize::from(count)).min(cols);
+        let mut lead = start;
+        while lead > 0 && matches!(cells[lead], CellState::Continuation) {
+            lead -= 1;
+        }
+        let mut tail = end;
+        while tail < cols && matches!(cells[tail], CellState::Continuation) {
+            tail += 1;
+        }
+        for cell in &mut cells[lead.min(start)..tail] {
+            *cell = CellState::Empty;
+        }
+    }
+
     /// Moves every row up by one and blanks the row that frees.
     ///
     /// The top row's cells **leave the plane** -- which is what a linefeed on
@@ -654,6 +681,31 @@ pub(crate) struct TerminalModel {
     /// slot with a screen of its own. The path is declared, so the path is
     /// compared.
     moves: Vec<PlaneKind>,
+    /// A `?7h` that may open the painter's autowrap bracket around one unit
+    /// at the margin (`super::grid`'s `put_unit`), and what has come since.
+    bracket: Option<Bracket>,
+}
+
+/// What a `?7h` found, and what has been written since it, for the `?7l` that
+/// may close it as the painter's bracket.
+///
+/// The painter writes autowrap on for exactly one unit -- a wide one with a
+/// suffix that ends at the right margin -- and off again
+/// (`guard_margin_suffix`, `engine.zig:2565-2580@481104fd`): `?7h`, an optional
+/// `ECH`, the unit, `?7l`. That shape and no other gives the mode back as the
+/// `?7h` found it (when that was off or unsaid: a bracket ends with autowrap
+/// off), so a frame, which declares no mode, may carry it. Anything else inside
+/// -- a second unit, a unit short of the margin, any other sequence, a
+/// linefeed -- and the two are what they say alone: a frame that turned
+/// autowrap on and off, which is refused as a mode it did not declare.
+#[derive(Debug, Clone, Copy)]
+struct Bracket {
+    /// The mode before the `?7h`.
+    before: Option<bool>,
+    /// The units that take cells written since.
+    units: u8,
+    /// Whether the last of them ended in the last column.
+    at_margin: bool,
 }
 
 impl TerminalModel {
@@ -683,6 +735,7 @@ impl TerminalModel {
             link: None,
             effects: Vec::new(),
             moves: Vec::new(),
+            bracket: None,
         }
     }
 
@@ -2039,6 +2092,7 @@ fn apply(
         match bytes[at] {
             0x1b => at += sequence(model, bytes, at)?,
             b'\n' => {
+                model.bracket = None;
                 linefeed(model, expected.as_deref_mut(), at)?;
                 at += 1;
             }
@@ -2047,6 +2101,7 @@ fn apply(
             // declares it ([`Intent::Bell`]), and every other intent declares
             // none.
             0x07 => {
+                model.bracket = None;
                 model.bells = model.bells.saturating_add(1);
                 at += 1;
             }
@@ -2189,6 +2244,11 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             }
         }
         model.record(Did::Place, row);
+        let cols = model.screen_ref().cols;
+        if let Some(bracket) = &mut model.bracket {
+            bracket.units = bracket.units.saturating_add(1);
+            bracket.at_margin = column + width - 1 == cols;
+        }
         model.caret = Caret::Known((row, column + width));
     }
     Ok(())
@@ -2222,7 +2282,10 @@ fn clusters(text: &str) -> impl Iterator<Item = &str> {
 fn sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Result<usize, Reject> {
     match bytes.get(at + 1) {
         Some(b'[') => control_sequence(model, bytes, at),
-        Some(b']') => operating_system_command(model, bytes, at),
+        Some(b']') => {
+            model.bracket = None;
+            operating_system_command(model, bytes, at)
+        }
         _ => Err(Reject::new("an escape outside the alphabet", at)),
     }
 }
@@ -2244,6 +2307,17 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
         _ => (b' ', body),
     };
     let length = end + 1 - at;
+    // What may stand inside the painter's autowrap bracket ([`Bracket`]): the
+    // clear in front of its unit, and the `?7` that closes it (or opens
+    // another).
+    let in_bracket = match (prefix, final_byte) {
+        (b' ', b'X') => model.bracket.is_some_and(|bracket| bracket.units == 0),
+        (b'?', b'h' | b'l') => params == "7",
+        _ => false,
+    };
+    if !in_bracket {
+        model.bracket = None;
+    }
     match (prefix, final_byte) {
         (b' ', b'H') => {
             if model.link.is_some() {
@@ -2260,6 +2334,61 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
                 ));
             }
             model.caret = Caret::Known((row, column));
+        }
+        // `CHA`, the anchor the painter puts after a unit whose width
+        // terminals dispute ([`super::grid`]'s `put_unit`). **Under an open
+        // link, unlike a `CUP`**: it moves the caret along the row it is on,
+        // so what the link would take in is the next cells of that row, which
+        // the painter writes under the link they are in (`reopen` switches it
+        // before any cell that is not), and upstream writes it after the
+        // cell's link is open (`engine.zig:2557-2588@481104fd`).
+        (b' ', b'G') => {
+            let Caret::Known((row, _)) = model.caret else {
+                return Err(Reject::new(
+                    "a caret move from a caret nothing can place",
+                    at,
+                ));
+            };
+            let column = params
+                .parse::<u16>()
+                .map_err(|_| Reject::new("a caret address that is not a number", at))?;
+            if column == 0 || column > model.screen_ref().cols {
+                return Err(Reject::at_cell(
+                    "a caret placed off the screen",
+                    at,
+                    row,
+                    column,
+                ));
+            }
+            model.caret = Caret::Known((row, column));
+        }
+        // `ECH`, the clear in front of a two-cell unit whose width terminals
+        // dispute. **Under an open link, unlike `EL` and `ED`**: it blanks
+        // only the cells the unit written next covers, under its own link,
+        // and the caret does not move.
+        (b' ', b'X') => {
+            let count = match params.parse::<u16>() {
+                Ok(count) if count > 0 => count,
+                _ => {
+                    return Err(Reject::new(
+                        "a character erase this crate does not write",
+                        at,
+                    ))
+                }
+            };
+            let Caret::Known((row, column)) = model.caret else {
+                return Err(Reject::new("an erase from a caret nothing can place", at));
+            };
+            if usize::from(column) + usize::from(count) - 1 > usize::from(model.screen_ref().cols) {
+                return Err(Reject::at_cell(
+                    "an erase past the last column",
+                    at,
+                    row,
+                    column,
+                ));
+            }
+            model.screen().erase_span(row, column, count);
+            model.record(Did::Erase, row);
         }
         (b' ', b'J' | b'K') if model.link.is_some() => {
             return Err(Reject::new("an erase under an open hyperlink", at));
@@ -2438,7 +2567,26 @@ fn private_mode(
             model.cursor_visible = Some(set);
         }
         "2004" => model.modes.bracketed_paste = Some(set),
-        "7" => model.modes.autowrap = Some(set),
+        "7" if set => {
+            model.bracket = Some(Bracket {
+                before: model.modes.autowrap,
+                units: 0,
+                at_margin: false,
+            });
+            model.modes.autowrap = Some(true);
+        }
+        "7" => {
+            model.modes.autowrap = match model.bracket.take() {
+                // The painter's bracket around one unit at the margin gives the
+                // mode back as it found it.
+                Some(Bracket {
+                    before,
+                    units: 1,
+                    at_margin: true,
+                }) if before != Some(true) => before,
+                _ => Some(false),
+            };
+        }
         "2031" => model.modes.theme_notifications = Some(set),
         "1049" if model.link.is_some() => {
             return Err(Reject::new(
@@ -4519,5 +4667,156 @@ mod tests {
             model.alternate.is_some(),
             "the cleanup gave the borrowed buffer back"
         );
+    }
+
+    // -- the anchor around a variation selector ------------------------------
+    //
+    // What the painter writes around a display unit whose suffix holds U+FE0E
+    // or U+FE0F, upstream's `engine.zig:2557-2592@481104fd`: `ECH` over both of
+    // its cells, `CHA` to the column after it, and `?7h`/`?7l` around a
+    // suffixed wide unit at the margin.
+
+    const BOLT: &str = "\u{26a1}\u{fe0e}";
+
+    /// A primary frame painting `after`, from `bytes`, declared as `after`.
+    fn checked(after: &Grid, bytes: &str) -> Result<(), Reject> {
+        let declared = Declared::new(
+            Intent::Primary {
+                grid: after,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            anywhere(24, 0),
+        );
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            bytes.as_bytes(),
+            &declared,
+        )
+        .map(drop)
+    }
+
+    #[test]
+    fn a_cleared_and_reanchored_selector_glyph_is_accepted() {
+        let after = painted(10, &format!("a {BOLT} b"));
+        checked(&after, &format!("\x1b[10;1Ha \x1b[2X{BOLT}\x1b[5G b"))
+            .expect("the anchor the painter writes");
+        // And the frame the grid diff really writes for it.
+        let bytes = framed(&after);
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[5G"));
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &bytes,
+            &declared_frame(&after),
+        )
+        .expect("the diff's own frame");
+    }
+
+    #[test]
+    fn an_anchor_inside_a_link_is_accepted() {
+        // Upstream writes the clear and the anchor after the cell's link is
+        // open, and so does the painter: both stay on the row and the next
+        // cell covers what the clear blanked.
+        let after = painted(10, &format!("{DOCS_OPEN}a {BOLT} b{LINK_CLOSE} c"));
+        let bytes = framed(&after);
+        assert!(String::from_utf8_lossy(&bytes).contains("\x1b[2X"));
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &bytes,
+            &declared_frame(&after),
+        )
+        .expect("an anchor under the link the cell is in");
+    }
+
+    #[test]
+    fn the_autowrap_bracket_around_one_margin_unit_leaves_the_mode_as_it_was() {
+        let lead = "x".repeat(78);
+        for unit in [BOLT.to_string(), FAMILY.to_string()] {
+            let clear = if unit == BOLT { "\x1b[2X" } else { "" };
+            let after = painted(10, &format!("{lead}{unit}"));
+            checked(
+                &after,
+                &format!("\x1b[10;1H{lead}\x1b[?7h{clear}{unit}\x1b[?7l"),
+            )
+            .expect("the bracket the painter writes");
+        }
+    }
+
+    #[test]
+    fn an_autowrap_bracket_around_anything_else_is_a_mode_change() {
+        // Two units, a unit short of the margin, a bracket left open, a
+        // sequence inside it: each is `?7h` and `?7l` as they read alone, and a
+        // frame declares no mode.
+        let lead = "x".repeat(77);
+        let after = painted(10, &format!("{lead}y{FAMILY}"));
+        let short = painted(10, &format!("{lead}{FAMILY}"));
+        for (grid, bytes) in [
+            (&after, format!("\x1b[10;1H{lead}\x1b[?7hy{FAMILY}\x1b[?7l")),
+            (&short, format!("\x1b[10;1H{lead}\x1b[?7h{FAMILY}\x1b[?7l")),
+            (&after, format!("\x1b[10;1H{lead}y\x1b[?7h{FAMILY}")),
+            (
+                &after,
+                format!("\x1b[10;1H{lead}y\x1b[?7h\x1b[38;5;250m\x1b[0m{FAMILY}\x1b[?7l"),
+            ),
+        ] {
+            let reject = checked(grid, &bytes).expect_err("a mode change");
+            assert_eq!(
+                reject.shape(),
+                "a terminal mode this vector did not declare",
+                "{bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_anchor_off_the_screen_or_from_nowhere_is_refused() {
+        let after = painted(10, "a");
+        let reject = checked(&after, "\x1b[10;1Ha\x1b[81G").expect_err("column 81");
+        assert_eq!(reject.shape(), "a caret placed off the screen");
+        let reject = checked(&after, "\x1b[10;1Ha\x1b[0G").expect_err("column 0");
+        assert_eq!(reject.shape(), "a caret placed off the screen");
+        let reject = checked(&after, "\x1b[2G\x1b[10;1Ha").expect_err("no caret");
+        assert_eq!(
+            reject.shape(),
+            "a caret move from a caret nothing can place"
+        );
+    }
+
+    #[test]
+    fn a_clear_past_the_margin_or_from_nowhere_is_refused() {
+        let after = painted(10, "a");
+        let reject = checked(&after, "\x1b[10;80H\x1b[2X\x1b[10;1Ha").expect_err("past the margin");
+        assert_eq!(reject.shape(), "an erase past the last column");
+        let reject = checked(&after, "\x1b[10;1H\x1b[0Xa").expect_err("an empty clear");
+        assert_eq!(
+            reject.shape(),
+            "a character erase this crate does not write"
+        );
+        let reject = checked(&after, "\x1b[2X\x1b[10;1Ha").expect_err("no caret");
+        assert_eq!(reject.shape(), "an erase from a caret nothing can place");
+    }
+
+    #[test]
+    fn a_clear_takes_the_whole_of_a_wide_cluster_it_covers_half_of() {
+        // Both edges: the clear starts on a continuation, and ends on a lead.
+        let mut model = TerminalModel::seed_modes(24, 80, ModeSet::fresh(), 0, PlaneKind::Primary);
+        apply_for_tests(
+            &mut model,
+            "\x1b[10;1H\u{d55c}b\u{d55c}\x1b[10;2H\x1b[3X".as_bytes(),
+        )
+        .expect("a clear");
+        let plane = model.screen_ref();
+        // Five columns written and cleared; the sixth, never written, is still
+        // the foreign cell the seed holds.
+        let row: Vec<bool> = (1..=6)
+            .map(|column| {
+                plane
+                    .index(10, column)
+                    .is_some_and(|index| matches!(plane.cells[index], CellState::Empty))
+            })
+            .collect();
+        assert_eq!(row, [true, true, true, true, true, false], "{row:?}");
+        assert!(matches!(model.caret, Caret::Known((10, 2))));
     }
 }

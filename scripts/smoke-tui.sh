@@ -157,6 +157,13 @@ What is modelled, and nothing else:
 
 * `CUP` (`CSI row ; col H`, both numbers, on the screen), `ED`
   (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
+* `CHA` (`CSI col G`, a column on the screen) and `ECH` (`CSI n X`, one cell
+  or more, none past the last column, the caret left where it is): what the
+  painter writes around a glyph whose suffix holds a variation selector
+  (`src/tui/grid.rs`'s `put_unit`, upstream's `engine.zig:2557-2592`) -- the
+  clear in front of it and the column after it. Both stay on the caret's row,
+  so `check.rs` takes them under an open link where it refuses `CUP`, `ED`
+  and `EL`, and so does this
 * `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on --
   the foreground colour in `attrs`, the background in `backgrounds`, and the
   text attributes (bold, dim, italic, underline, reverse, strike) beside them in
@@ -538,6 +545,12 @@ class Grid:
         if private:
             self._private(private, params, final, match)
             return match.end()
+        if final == "G":
+            self._column(params, match)
+            return match.end()
+        if final == "X":
+            self._erase_characters(params, match)
+            return match.end()
         if final in "HJK" and self.link:
             # A caret move or an erase under an open link would make what it
             # moves to, or what it blanks, part of the link (`check.rs`).
@@ -584,6 +597,39 @@ class Grid:
             self.unknown.append(match.group(0))
         self.row = min(max(row - 1, 0), self.rows - 1)
         self.col = min(max(col - 1, 0), self.cols - 1)
+
+    def _column(self, params, match):
+        """`CHA`: a column on the screen (`check.rs`'s `CSI G` arm), the row kept.
+
+        A `0`, an empty parameter or a column past the last is a finding rather
+        than a clamp, as an address off the screen is for `CUP`.
+        """
+        if not params.isdigit() or not 1 <= int(params) <= self.cols:
+            self.unknown.append(match.group(0))
+            return
+        self.col = int(params) - 1
+
+    def _erase_characters(self, params, match):
+        """`ECH`: `n` cells from the caret blanked, the caret left where it is.
+
+        The whole of a wide cluster the span covers half of goes with it, as
+        `check.rs`'s `erase_span` has it: the lead of a continuation it starts
+        on, the continuation of a lead it ends on.
+        """
+        if not params.isdigit() or int(params) == 0 or self.col + int(params) > self.cols:
+            self.unknown.append(match.group(0))
+            return
+        start, end = self.col, self.col + int(params)
+        while start > 0 and self.cells[self.row][start] == "":
+            start -= 1
+        while end < self.cols and self.cells[self.row][end] == "":
+            end += 1
+        for col in range(start, end):
+            self.cells[self.row][col] = " "
+            self.attrs[self.row][col] = ""
+            self.styles[self.row][col] = ""
+            self.backgrounds[self.row][col] = ""
+            self.links[self.row][col] = ""
 
     def _osc(self, match):
         """An `OSC` string: no cell moves, but the string has to be one of ours."""
@@ -1145,6 +1191,36 @@ def a_caret_placed_off_the_screen_or_half_addressed_is_a_finding():
         require(not fed(sequence).unknown, "%r was rejected" % sequence)
 
 
+def the_anchor_around_a_selector_glyph_is_accepted_and_places_what_follows():
+    """`src/tui/grid.rs`'s `put_unit`: `ECH 2`, the glyph, `CHA` past it.
+
+    The column is the painter's to say, whatever the glyph's width here: an
+    emulator that moved the caret relative to where the glyph left it would
+    agree with a terminal that drew it at another width, which is the defect
+    the anchor is for.
+    """
+    bolt = "\u26a1\ufe0e"
+    grid = fed("a \x1b[2X" + bolt + "\x1b[5G b")
+    require(not grid.unknown, "the painter's anchor was rejected: %r" % (grid.unknown,))
+    require(grid.row_text(0) == "a " + bolt + " b", "the anchor misplaced a cell: %r" % grid.row_text(0))
+    gap = fed("a" + bolt + "\x1b[7Gb")
+    require(gap.cells[0][6] == "b" and gap.cells[0][3] == " ", "the anchor did not set the column")
+    linked = fed("\x1b]8;;https://a\x1b\\a\x1b[2X" + bolt + "\x1b[4Gb\x1b]8;;\x1b\\")
+    require(not linked.unknown, "an anchor under the cell's link was rejected: %r" % (linked.unknown,))
+    cleared = fed("\ud55cb\ud55c\x1b[1;2H\x1b[3X")
+    require(cleared.row_text(0) == "", "a clear left half a cluster: %r" % cleared.row_text(0))
+    require(cleared.col == 1, "a clear moved the caret to column %d" % (cleared.col + 1))
+    margin = fed("\x1b[?7l" + "x" * 18 + "\x1b[?7h\x1b[2X" + bolt + "\x1b[?7l")
+    require(not margin.unknown and not margin.autowrap, "the margin bracket: %r" % (margin.unknown,))
+
+
+def an_anchor_or_a_clear_off_the_screen_is_a_finding():
+    for sequence in ("\x1b[0G", "\x1b[21G", "\x1b[G", "\x1b[1;20H\x1b[2X", "\x1b[0X", "\x1b[X"):
+        require(fed(sequence).unknown, "%r passed the oracle unremarked" % sequence)
+    for sequence in ("\x1b[1G", "\x1b[20G", "\x1b[1;19H\x1b[2X"):
+        require(not fed(sequence).unknown, "%r was rejected" % sequence)
+
+
 def a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off():
     """`?7l` is what xfx runs under, and there a terminal clips the write."""
     require(fed("\x1b[?7l" + "x" * 21).unknown, "a clipped write passed the oracle unremarked")
@@ -1426,6 +1502,8 @@ TESTS = (
     a_bell_moves_nothing_and_is_counted,
     a_caret_placed_off_the_screen_or_half_addressed_is_a_finding,
     a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off,
+    the_anchor_around_a_selector_glyph_is_accepted_and_places_what_follows,
+    an_anchor_or_a_clear_off_the_screen_is_a_finding,
     an_undeclared_sgr_parameter_is_a_finding,
     the_sgr_the_product_emits_is_accepted,
     the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colour,
