@@ -950,6 +950,71 @@ mod tests {
             }
         }
 
+        /// Waits, up to a minute, for a copy's thread to be over, and fails
+        /// naming the tool still running -- by `pid`, so a run that failed
+        /// here can be cleaned up after.
+        fn over_or_name(copying: &std::thread::JoinHandle<bool>, tool: Option<i32>, what: &str) {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while !copying.is_finished() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{what} (tool pid {tool:?})"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+
+        #[test]
+        fn a_gate_nobody_opens_gives_up_and_says_so() {
+            // A case whose tool waits at a gate the case never opens -- a start
+            // that waits for its tool, an end that never kills it -- is over
+            // when the gate gives up, and says why, rather than hanging
+            // (FLAKE-COPYEND r2).
+            let tool = FakeTool::running(&format!(
+                "cat >/dev/null\necho $$ > \"${{0%/*}}/hung\"\n{}",
+                FakeTool::gate_after(3)
+            ));
+            let copying = {
+                let clipboard = tool.clipboard();
+                std::thread::spawn(move || clipboard.copy("reply"))
+            };
+            until(|| tool.hung().is_some());
+            over_or_name(&copying, tool.hung(), "the gate never gave up");
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a tool whose gate gave up was a success"
+            );
+            assert!(tool.gave_up(), "the gate gave up without saying so");
+        }
+
+        #[test]
+        fn a_tool_at_its_gate_ends_itself_once_its_case_is_gone() {
+            // A case that fails before it opens its tool's gate drops the
+            // tool's directory on the way out; a tool still waiting there ends
+            // rather than polling for ever (FLAKE-COPYEND r2).
+            let tool = FakeTool::running(&format!(
+                "cat >/dev/null\necho $$ > \"${{0%/*}}/hung\"\n{}",
+                FakeTool::gate()
+            ));
+            let copying = {
+                let clipboard = tool.clipboard();
+                std::thread::spawn(move || clipboard.copy("reply"))
+            };
+            until(|| tool.hung().is_some());
+            let pid = tool.hung().expect("the tool started");
+            drop(tool);
+            over_or_name(
+                &copying,
+                Some(pid),
+                "the tool kept waiting at a gate whose case was gone",
+            );
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a tool that left its gate was a success"
+            );
+            assert!(!FakeTool::alive(pid), "the tool outlived its case");
+        }
+
         #[test]
         fn a_copy_given_up_from_another_thread_kills_its_tool_and_fails() {
             // What a session that is ending does with a copy still waiting on a
@@ -1322,10 +1387,24 @@ pub(crate) mod fake {
         /// A line of a tool's body that waits, polling, until [`Self::open`]
         /// is called: what comes after it runs at a point in the case's order
         /// of events rather than after a second count.
-        pub(crate) const GATE: &'static str =
-            "while [ ! -f \"${0%/*}/open\" ]; do sleep 0.01; done\n";
+        pub(crate) fn gate() -> String {
+            Self::gate_after(Self::GATE_LOOKS)
+        }
 
-        /// Lets every tool waiting at [`Self::GATE`] go on.
+        /// How many times a tool looks for its gate before it gives up.
+        pub(crate) const GATE_LOOKS: u32 = 12_000;
+
+        /// [`Self::gate`], giving up after `looks` looks.
+        pub(crate) fn gate_after(_looks: u32) -> String {
+            "while [ ! -f \"${0%/*}/open\" ]; do sleep 0.01; done\n".to_owned()
+        }
+
+        /// Whether a tool gave up waiting at its gate.
+        pub(crate) fn gave_up(&self) -> bool {
+            self.path("gave-up").exists()
+        }
+
+        /// Lets every tool waiting at [`Self::gate`] go on.
         pub(crate) fn open(&self) {
             std::fs::write(self.path("open"), "").expect("open the gate");
         }

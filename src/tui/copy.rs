@@ -249,11 +249,11 @@ mod tests {
     }
 
     /// A tool that keeps what it is fed once its gate is open
-    /// ([`FakeTool::GATE`]), and says who it is before it waits there.
+    /// ([`FakeTool::gate`]), and says who it is before it waits there.
     fn gated() -> FakeTool {
         FakeTool::running(&format!(
             "echo $$ > \"${{0%/*}}/hung\"\n{}cat > \"${{0%/*}}/copied\"",
-            FakeTool::GATE
+            FakeTool::gate()
         ))
     }
 
@@ -311,7 +311,7 @@ mod tests {
         // start fails the case rather than hanging it.
         let tool = Arc::new(FakeTool::running(&format!(
             "cat >/dev/null\n{}",
-            FakeTool::GATE
+            FakeTool::gate()
         )));
         let copies = Copies::new(tool.clipboard());
         let (cancel, cancelled) = mpsc::channel::<()>();
