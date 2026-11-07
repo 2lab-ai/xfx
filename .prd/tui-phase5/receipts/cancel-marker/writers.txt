@@ -1,0 +1,11 @@
+# Every line of src outside a #[cfg(test)] module and outside a comment that names U+25AA or CANCELLED_MARK, at 95669160
+# (git grep -n -I -i -E '▪|25aa|CANCELLED_MARK' -- src). Three writers, the constant, and the width table's emoji
+# variation-base range (unicode_display_data.rs:276, U+25AA-25AB) -- no reader: nothing parses the mark back.
+src/markdown/unicode_display_data.rs:276  Range { first: 0x25AA, last: 0x25AB },
+src/tui/question.rs:88  use super::theme::{DocumentRow, Palette, CANCELLED_MARK};
+src/tui/question.rs:1027  "{}{CANCELLED_MARK}{} {CANCELLED}",
+src/tui/shell.rs:126  use super::theme::{DocumentRow, Mode, Palette, CANCELLED_MARK};
+src/tui/shell.rs:155  "{}{CANCELLED_MARK}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
+src/tui/theme.rs:195  pub(crate) const CANCELLED_MARK: &str = "\u{25aa}";
+src/tui/toolgroup.rs:49  use super::theme::{DocumentRow, Mode, Palette, Redraw, CANCELLED_MARK};
+src/tui/toolgroup.rs:732  "{}{CANCELLED_MARK}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",

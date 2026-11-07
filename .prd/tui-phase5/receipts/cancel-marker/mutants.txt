@@ -1,0 +1,126 @@
+KILLED the mark itself back to U+25A0 (src/tui/theme.rs): 25 failed
+    tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen
+    tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set
+    tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set
+    tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set
+    tui::question::tests::a_refused_batch_leaves_one_row
+    tui::shell::tests::a_call_its_turn_ended_under_is_shown_cancelled
+    tui::shell::tests::a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile
+    tui::shell::tests::a_ctrl_c_over_a_running_turn_takes_the_draft_first_and_nothing_else
+    tui::shell::tests::a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so
+    tui::shell::tests::a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between
+    tui::shell::tests::a_retry_goes_with_the_turn_and_never_outlives_a_cancel
+    tui::shell::tests::a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed
+    tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too
+    tui::shell::tests::an_interrupt_says_that_the_queue_goes_with_the_turn
+    tui::shell::tests::an_interrupt_with_nothing_waiting_does_not_say_a_queue_was_dropped
+    tui::shell::tests::escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document
+    tui::shell::tests::escape_at_a_question_is_the_interrupt_that_cancels_the_turn
+    tui::shell::tests::stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about
+    tui::shell::tests::stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke
+    tui::shell::tests::stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result
+    tui::shell::tests::the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys
+    tui::toolgroup::tests::a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone
+    tui::toolgroup::tests::a_hostile_tool_name_is_written_out_on_every_row_it_reaches
+    tui::toolgroup::tests::a_stopped_turn_cancels_what_was_running_and_says_so_under_the_group
+    tui::toolgroup::tests::the_groups_kinds_name_each_row_it_draws
+    test result: FAILED. 2698 passed; 25 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 25.07s
+KILLED a refused question batch's row writes U+25A0 (src/tui/question.rs): 2 failed
+    tui::question::tests::a_refused_batch_leaves_one_row
+    tui::shell::tests::escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document
+    test result: FAILED. 2721 passed; 2 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 18.28s
+KILLED a cancelled call's own line writes U+25A0 (src/tui/toolgroup.rs): 11 failed
+    tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen
+    tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set
+    tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set
+    tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set
+    tui::shell::tests::a_call_its_turn_ended_under_is_shown_cancelled
+    tui::shell::tests::stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about
+    tui::shell::tests::stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke
+    tui::toolgroup::tests::a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone
+    tui::toolgroup::tests::a_hostile_tool_name_is_written_out_on_every_row_it_reaches
+    tui::toolgroup::tests::a_stopped_turn_cancels_what_was_running_and_says_so_under_the_group
+    tui::toolgroup::tests::the_groups_kinds_name_each_row_it_draws
+    test result: FAILED. 2712 passed; 11 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 18.52s
+KILLED a cancelled turn's line writes U+25A0 (src/tui/shell.rs): 12 failed
+    tui::shell::tests::a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile
+    tui::shell::tests::a_ctrl_c_over_a_running_turn_takes_the_draft_first_and_nothing_else
+    tui::shell::tests::a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so
+    tui::shell::tests::a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between
+    tui::shell::tests::a_retry_goes_with_the_turn_and_never_outlives_a_cancel
+    tui::shell::tests::a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed
+    tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too
+    tui::shell::tests::an_interrupt_says_that_the_queue_goes_with_the_turn
+    tui::shell::tests::an_interrupt_with_nothing_waiting_does_not_say_a_queue_was_dropped
+    tui::shell::tests::escape_at_a_question_is_the_interrupt_that_cancels_the_turn
+    tui::shell::tests::stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result
+    tui::shell::tests::the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys
+    test result: FAILED. 2711 passed; 12 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 19.19s
+KILLED the table's `subagent` keeps its singular (src/tui/toolgroup.rs): 1 failed
+    tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table
+    test result: FAILED. 2722 passed; 1 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 22.25s
+KILLED the table's `MCP call` keeps its singular (src/tui/toolgroup.rs): 2 failed
+    tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table
+    tui::toolgroup::tests::several_mcp_calls_are_mcp_calls_and_their_rows_stay_in_the_rows_grey
+    test result: FAILED. 2721 passed; 2 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 23.33s
+KILLED the table's `command` keeps its singular (src/tui/toolgroup.rs): 6 failed
+    tui::shell::tests::an_amendment_is_the_same_card_live_and_resumed_and_a_prompt_in_the_full_transcript
+    tui::shell::tests::what_the_user_said_at_an_approval_does_not_split_the_group
+    tui::toolgroup::tests::a_command_xfx_stopped_or_a_signal_killed_says_so
+    tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table
+    tui::toolgroup::tests::a_refused_file_change_is_named_by_the_tools_word_and_a_refused_command_by_itself
+    tui::toolgroup::tests::lines_written_under_an_open_group_are_its_last_rows_and_it_grows_above_them
+    test result: FAILED. 2717 passed; 6 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 23.96s
+KILLED a count of 1 takes the plural too (src/tui/toolgroup.rs): 22 failed
+    tui::full_transcript::tests::a_call_still_running_when_its_turn_ends_is_cancelled_like_the_groups
+    tui::full_transcript::tests::a_calls_row_is_the_groups_in_the_default_foreground_with_its_command_words_coloured
+    tui::full_transcript::tests::a_group_shows_its_header_over_its_first_call_and_each_call_under_its_own_header
+    tui::shell::tests::a_line_written_while_a_call_runs_stays_under_the_group_its_result_updates
+    tui::shell::tests::a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts
+    tui::shell::tests::a_running_command_is_the_groups_last_row_until_its_result_rewrites_it
+    tui::shell::tests::a_tool_group_spans_the_turns_steps_and_is_closed_by_its_text
+    tui::shell::tests::collapse_tool_calls_draws_the_open_group_as_its_header_and_the_next_one_too
+    tui::shell::tests::ctrl_c_at_an_approval_leaves_the_calls_row_to_its_refusal
+    tui::shell::tests::stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke
+    tui::shell::tests::the_full_transcript_shows_what_a_command_printed_and_the_document_does_not
+    tui::toolgroup::tests::a_closed_group_keeps_only_the_calls_still_waiting_for_their_results
+    tui::toolgroup::tests::a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone
+    tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table
+    tui::toolgroup::tests::a_running_command_is_the_last_row_and_is_already_counted
+    tui::toolgroup::tests::a_running_mcp_call_is_counted_and_an_mcp_call_comes_last_in_a_tie
+    tui::toolgroup::tests::a_settled_group_counts_by_kind_most_first_and_names_its_changes
+    tui::toolgroup::tests::a_stopped_turn_cancels_what_was_running_and_says_so_under_the_group
+    tui::toolgroup::tests::collapsed_the_block_is_its_header_and_a_blank_row_and_still_counts_every_call
+    tui::toolgroup::tests::each_way_a_call_goes_wrong_has_its_own_row_and_its_own_count
+    tui::toolgroup::tests::one_mcp_call_is_counted_as_an_mcp_call
+    tui::toolgroup::tests::the_header_and_every_row_carry_upstreams_colours
+    test result: FAILED. 2701 passed; 22 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 22.75s
+KILLED every label takes an `s` past 1 (the old rule widened) (src/tui/toolgroup.rs): 9 failed
+    tui::full_transcript::tests::a_group_shows_its_header_over_its_first_call_and_each_call_under_its_own_header
+    tui::full_transcript::tests::answer_text_breaks_a_group_and_a_notice_does_not
+    tui::shell::tests::a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts
+    tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table
+    tui::toolgroup::tests::a_running_command_is_the_last_row_and_is_already_counted
+    tui::toolgroup::tests::a_settled_group_counts_by_kind_most_first_and_names_its_changes
+    tui::toolgroup::tests::collapsed_the_block_is_its_header_and_a_blank_row_and_still_counts_every_call
+    tui::toolgroup::tests::each_way_a_call_goes_wrong_has_its_own_row_and_its_own_count
+    tui::toolgroup::tests::the_header_and_every_row_carry_upstreams_colours
+    test result: FAILED. 2714 passed; 9 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 24.14s
+KILLED every argument but a command at a file change's bound (the base's rule) (src/tui/toolgroup.rs): 2 failed
+    tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it
+    tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape
+    test result: FAILED. 2721 passed; 2 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 26.76s
+KILLED a file change's path unbounded (src/tui/toolgroup.rs): 2 failed
+    tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it
+    tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape
+    test result: FAILED. 2721 passed; 2 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 24.00s
+KILLED edit_file's path unbounded (write_file's alone kept) (src/tui/toolgroup.rs): 1 failed
+    tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it
+    test result: FAILED. 2722 passed; 1 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 28.21s
+KILLED a live cancel's line is not recorded for Ctrl-O (the base's rule) (src/tui/shell.rs): 1 failed
+    tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too
+    test result: FAILED. 2722 passed; 1 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 27.64s
+KILLED /trace names a block `questions` again (src/tui/full_transcript.rs): 1 failed
+    tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too
+    test result: FAILED. 2722 passed; 1 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 23.12s
+clone after: clean

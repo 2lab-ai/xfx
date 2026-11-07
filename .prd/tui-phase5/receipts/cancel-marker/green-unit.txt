@@ -1,0 +1,10 @@
+# GREEN, unit: the tests above pass at the code's last commit, 95669160, in the gates' full runs (gates.txt:
+# `cargo test --locked` 5229 passed, 0 failed; with fault injection 5266 / 0), among them:
+#   tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table
+#   tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it
+#   tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape
+#   tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too
+#   tui::shell::tests::a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed
+#   every test red-unit.txt lists as FAILED
+#   tests/tui.rs: escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does,
+#                 an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it
