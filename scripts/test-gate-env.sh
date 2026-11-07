@@ -64,6 +64,9 @@
 # own checkout reached the first and last ways, which must still be scanned.
 # And an index entry with both bits.
 #
+# GATE-GITENV-F adds: a tracked file replaced by a directory or a symlink,
+# and the rule that the script tests run on a macOS row and a Linux row.
+#
 # Round 2d adds: a vendored copy whose root `.git` (a file, or a symlink)
 # names the parent's repository, a tracked file missing from the working
 # tree, and a submodule; the reason git gives when the root's `.git` cannot
@@ -512,7 +515,8 @@ done
 # Both bits on one entry (`ls-files -v` tags it `s`): `git sparse-checkout
 # disable` leaves the assume-unchanged one, so the refusal names both
 # remedies, each of which the case requires. One update-index call with
-# both options set only the last (discovery-probe.sh, in the receipt).
+# `--skip-worktree --assume-unchanged` set only assume-unchanged, tag `h`
+# (discovery-probe.sh, in the receipt; that order only).
 new_ilock
 sg -C "$ilock" update-index --skip-worktree Cargo.lock
 sg -C "$ilock" update-index --assume-unchanged Cargo.lock
@@ -525,14 +529,29 @@ rm -f "$ilock/Cargo.lock"
 also=("Cargo.lock")
 refuses identity-deleted-file "tracked files missing from the working tree" "$ilock/scripts/check-xfx-identity.sh"
 new_ilock
-# A tracked file under a directory the scan cannot search: `ls-files -d`
-# lists it as missing after `cannot lstat` on its standard error, and that
-# is a listing that failed, not a missing file.
+# A tracked file replaced by a directory, or by a symlink to a file with the
+# residue: `lstat` finds an entry, so `ls-files -d` lists nothing, and `git
+# grep` passes over an entry that is not a regular file without a word.
+rm -f "$ilock/Cargo.lock"
+mkdir "$ilock/Cargo.lock"
+also=("Cargo.lock")
+refuses identity-file-became-dir "tracked files missing from the working tree" "$ilock/scripts/check-xfx-identity.sh"
+new_ilock
+printf 'name = "%s-core"\n' "$retired" >"$work/elsewhere.lock"
+rm -f "$ilock/Cargo.lock"
+ln -s "$work/elsewhere.lock" "$ilock/Cargo.lock"
+also=("Cargo.lock")
+refuses identity-file-became-symlink "tracked files missing from the working tree" "$ilock/scripts/check-xfx-identity.sh"
+new_ilock
+# A tracked file under a directory the scan cannot search: git says
+# `Permission denied` on its standard error (and `ls-files -d` lists the
+# file as missing too), and that is a listing that failed, not a missing
+# file.
 mkdir -p "$ilock/locked"
 printf 'clean\n' >"$ilock/locked/notes.txt"
 sg -C "$ilock" add locked/notes.txt
 chmod 600 "$ilock/locked"
-also=("cannot lstat")
+also=("Permission denied")
 refuses identity-unsearchable-dir "could not list the tracked files missing" "$ilock/scripts/check-xfx-identity.sh"
 chmod 755 "$ilock/locked"
 new_ilock
@@ -654,6 +673,47 @@ elif grep -q '^MISSING' "$work/workflow-steps"; then
 	grep '^MISSING' "$work/workflow-steps" | cut -f2 >&2
 else
 	printf 'test-gate-env: ok %-30s %s\n' workflow-steps "all $steps steps that run git drop GIT_* first"
+	passed=$((passed + 1))
+fi
+
+# The script tests -- these scripts' own harnesses -- run once per OS, not
+# once per build target: what they exercise is the OS's bash, grep, git and
+# getconf, not the binary. They must still reach a macOS row (BSD grep, bash
+# 3.2) and a Linux row (GNU grep), each of them, with test-check-no-secrets.sh
+# reached through test-gate-env.sh's nested run if it has no step of its own.
+ruby -ryaml -e '
+	doc = YAML.safe_load(File.read(".github/workflows/ci.yml"), aliases: true)
+	job = doc["jobs"]["gate"] or abort "ci.yml has no gate job"
+	rows = job.dig("strategy", "matrix", "include") or abort "the gate job has no matrix rows"
+	runs_on = lambda do |step|
+		cond = step["if"].to_s.strip.sub(/\A\$\{\{\s*/, "").sub(/\s*\}\}\z/, "")
+		next rows if cond.empty?
+		key = cond[/\Amatrix\.([A-Za-z0-9_]+)\z/, 1] or abort "a step condition this check cannot read: #{step["if"]}"
+		rows.select { |row| row[key] }
+	end
+	reached = Hash.new { |h, k| h[k] = [] }
+	job["steps"].each do |step|
+		run = step["run"].to_s
+		%w[test-gate-env test-preview-contract test-check-no-secrets].each do |script|
+			next unless run.include?("./scripts/#{script}.sh")
+			reached[script] |= runs_on.(step).map { |row| row["runner"] }
+			reached["test-check-no-secrets"] |= runs_on.(step).map { |row| row["runner"] } if script == "test-gate-env"
+		end
+	end
+	%w[test-gate-env test-preview-contract test-check-no-secrets].each do |script|
+		runners = reached[script]
+		state = runners.any? { |r| r.start_with?("macos") } && runners.any? { |r| r.start_with?("ubuntu") } ? "covers" : "MISSING"
+		puts "#{state}\t#{script}: #{runners.sort.join(", ")}"
+	end
+' >"$work/script-tests" 2>&1 || true
+if grep -q -v -E '^(covers|MISSING)	' "$work/script-tests" || ! grep -q '^covers' "$work/script-tests"; then
+	problem "ci-script-tests-per-os: ci.yml could not be read as expected:"
+	cut -c 1-200 "$work/script-tests" >&2
+elif grep -q '^MISSING' "$work/script-tests"; then
+	problem "ci-script-tests-per-os: a script test reaches no macOS row or no Linux row:"
+	grep '^MISSING' "$work/script-tests" | cut -f2 >&2
+else
+	printf 'test-gate-env: ok %-30s %s\n' ci-script-tests-per-os "$(cut -f2 "$work/script-tests" | cut -d: -f1 | tr '\n' ' ')on macOS and Linux rows"
 	passed=$((passed + 1))
 fi
 
