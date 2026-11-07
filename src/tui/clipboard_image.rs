@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn the_copies_live_under_the_real_tmp_whatever_tmpdir_says_and_never_under_a_relative_base() {
         // Upstream's root (`createTempSnapshotDir`, `realpath("/tmp")`,
-        // `image_attachments.zig:246-273@481104fd`), read without `$TMPDIR`.
+        // `image_attachments.zig:248-275@481104fd`), read without `$TMPDIR`.
         let root = crate::clipboard::snapshot_root().expect("a root");
         assert!(root.is_absolute());
         assert_eq!(root, std::fs::canonicalize("/tmp").expect("/tmp"));

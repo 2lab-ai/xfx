@@ -9751,16 +9751,30 @@ impl Shell {
                     );
                     // Named, and linked, by the copy written now, as upstream
                     // names and links a clipboard badge by the copy it captures
-                    // at the paste (`image_commands.zig:138-147`): the source
+                    // at the paste (`image_commands.zig:140-148`): the source
                     // was a temporary file and is gone. A copy that cannot be
-                    // written leaves the badge its name and no link.
+                    // written puts no badge in: upstream never inserts a
+                    // clipboard image without its snapshot (`snapshot_path
+                    // orelse return error.MissingImageSnapshot`, `:144-145@481104fd`),
+                    // and passes the failure up; the notice is xfx's, in
+                    // upstream's words for a paste that failed
+                    // (`failed to paste clipboard image: <name>`, `:92`).
                     let name = image.snapshot_name();
                     match self.paste_copies.write(&name, &image.bytes) {
                         Ok(path) => {
                             image.path = path;
                             image.copied = true;
                         }
-                        Err(_) => image.path = std::path::PathBuf::from(name),
+                        Err(err) => {
+                            self.announce(notice::Notice::error(
+                                crate::image::TOPIC,
+                                format!(
+                                    "failed to paste clipboard image: {}",
+                                    crate::image::io_name(err.kind())
+                                ),
+                            ));
+                            continue;
+                        }
                     }
                     if !self.attach(image) {
                         self.announce(notice::Notice::neutral(
@@ -9786,28 +9800,24 @@ impl Shell {
         }
     }
 
-    /// Puts `image`'s badge into the draft at the caret, the image behind it,
-    /// and spends its number. `false` when the composer has no room for the
-    /// badge, which spends nothing.
-    ///
-    /// The insertion is a boundary of the edit history rather than an entry
-    /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
-    /// an undo does not take an attachment back -- deleting its badge does.
     /// `image`, a file the user named, ready to attach: in a session that
     /// keeps no copy of its own (an unsaved one), with its temporary copy
     /// made now beside the paste copies ([`super::clipboard_image::PasteCopies`]),
     /// as upstream captures every attachment into its temporary folder before
     /// it is admitted (`captureImageAttachment`,
-    /// `app_session_runtime.zig:1331-1344@481104fd`) -- on every route a file
+    /// `app_session_runtime.zig:1332-1345@481104fd`) -- on every route a file
     /// is attached by: `/image`, a pasted or dropped path, a path typed into
     /// the prompt. The note for an image a request leaves out names that copy,
     /// never the file.
     ///
-    /// A copy that cannot be written refuses the attachment, as upstream's
-    /// capture refuses it (`captureImageAttachmentForAdmission`,
-    /// `src/core/images/image_attachments.zig:328-347@481104fd`), in its
-    /// words for a file it cannot attach (`failed to attach image: <name>`,
-    /// `image_commands.zig:38`).
+    /// A copy that cannot be written attaches nothing. Upstream passes the
+    /// write error up out of the command -- its capture turns only
+    /// `ImageTooLarge` and `ImagePreparationFailed` into its own notice and
+    /// `.rejected` (`captureRejectionNotice`, `captureImageAttachmentForAdmission`,
+    /// `src/core/images/image_attachments.zig:323-347@481104fd`) -- so it
+    /// attaches nothing either; the notice is xfx's, in the words upstream
+    /// uses for a file it cannot attach (`failed to attach image: <name>`,
+    /// `image_commands.zig:39`).
     fn captured(
         &mut self,
         mut image: crate::image::Image,
@@ -9832,6 +9842,13 @@ impl Shell {
         Ok(image)
     }
 
+    /// Puts `image`'s badge into the draft at the caret, the image behind it,
+    /// and spends its number. `false` when the composer has no room for the
+    /// badge, which spends nothing.
+    ///
+    /// The insertion is a boundary of the edit history rather than an entry
+    /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
+    /// an undo does not take an attachment back -- deleting its badge does.
     fn attach(&mut self, image: crate::image::Image) -> bool {
         let id = image.id;
         let Some(next) = id.checked_add(1) else {
@@ -9912,9 +9929,11 @@ impl Shell {
             else {
                 continue;
             };
-            // A path whose copy cannot be made stays words, and says why, as
-            // upstream's rejected capture does (`continue`,
-            // `input_paste_runtime.zig:490-493@481104fd`).
+            // A path whose copy cannot be made is not attached: upstream's
+            // paste passes the write error up (only a capture's own notices
+            // take its `.rejected => continue`,
+            // `input_paste_runtime.zig:491-494@481104fd`). Leaving the path as
+            // words, and the notice, are xfx's.
             let image = match self.captured(crate::image::Image::new(
                 id,
                 path,
@@ -10062,10 +10081,12 @@ impl Shell {
             return Typed::Nothing;
         }
         // Every image made ready before the draft is touched: a copy that
-        // cannot be made refuses the prompt, as upstream's rejected capture
-        // rejects the submission and discards the copies it made
-        // (`captureImageAttachmentsForAdmission`,
-        // `image_attachments.zig:348-367@481104fd`).
+        // cannot be made stops the prompt, and the copies already made for it
+        // are removed, as upstream's submission takes none of its images when
+        // a capture fails and discards the snapshots it made
+        // (`captureImageAttachmentsForAdmission`, its `errdefer` and its
+        // `.rejected` arm, `image_attachments.zig:349-369@481104fd`). The
+        // notice and the draft kept are xfx's.
         let mut ready = Vec::with_capacity(found.len());
         for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate() {
             let image = crate::image::Image::new(
@@ -10089,6 +10110,10 @@ impl Shell {
             }
         }
         let before = self.draft_before();
+        let made: Vec<std::path::PathBuf> = ready
+            .iter()
+            .filter_map(|(_, image)| image.copy.clone())
+            .collect();
         // From the last to the first, so each range is still where it was.
         for (range, image) in ready.into_iter().rev() {
             let id = image.id;
@@ -10101,7 +10126,11 @@ impl Shell {
                 .replace(range.start, range.end, "", range.start)
                 .and_then(|_| self.editor.insert_entity(&crate::image::badge(id), kind));
             if placed.is_none() {
-                // No room for the badge: the draft as it was, the paths words.
+                // No room for the badge: the draft as it was, the paths words,
+                // and no copy left behind for an image that was not attached.
+                for copy in &made {
+                    self.paste_copies.discard(copy);
+                }
                 self.restore_draft(before);
                 return Typed::Nothing;
             }
@@ -37403,8 +37432,8 @@ mod tests {
     #[test]
     fn an_unsaved_sessions_attached_file_gets_a_private_temporary_copy() {
         // Upstream captures every attachment into its process's temporary
-        // folder (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`,
-        // `createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+        // folder (`captureImageAttachment`, `app_session_runtime.zig:1332-1345`,
+        // `createTempSnapshotDir`, `image_attachments.zig:248-275@481104fd`),
         // and an unsaved session's note names that copy. xfx's goes where a
         // paste's does: owner-only, in the shell's private directory, gone
         // with the shell. The file the user named is left as it was.
@@ -37510,10 +37539,10 @@ mod tests {
     }
 
     // Upstream captures on each route a file is attached by: the `/image`
-    // command (`insertImageAtCursor`, `src/core/images/image_commands.zig:137-140`),
-    // a pasted or dropped path (`input_paste_runtime.zig:490-493`) and a path
+    // command (`insertImageAtCursor`, `src/core/images/image_commands.zig:140-143`),
+    // a pasted or dropped path (`input_paste_runtime.zig:491-494`) and a path
     // typed into the prompt (`captureExtractedImages`,
-    // `input_submit_runtime.zig:1218-1223@481104fd`). An unsaved session's
+    // `input_submit_runtime.zig:1219-1224@481104fd`). An unsaved session's
     // copy is made on each of them.
 
     /// [`attaching`], in a session that keeps no copy of its own.
@@ -37566,11 +37595,14 @@ mod tests {
 
     #[test]
     fn an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route() {
-        // Upstream refuses an attachment its capture fails for
+        // Upstream attaches nothing when its capture cannot write the copy:
+        // the error is passed up out of the command
         // (`captureImageAttachmentForAdmission`,
-        // `src/core/images/image_attachments.zig:328-347@481104fd`): `/image`
-        // says why and puts no badge in, a pasted path stays words, and a
-        // typed path stops the prompt with the draft kept.
+        // `src/core/images/image_attachments.zig:331-347@481104fd`). The rest is
+        // xfx's, in upstream's words for a file it cannot attach
+        // (`image_commands.zig:39`): `/image` says why and puts no badge in,
+        // a pasted path stays words, and a typed path stops the prompt with
+        // the draft kept.
         let refusal = said(notice::Notice::error(
             crate::image::TOPIC,
             "failed to attach image: FileNotFound",
@@ -37599,6 +37631,67 @@ mod tests {
         assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
         assert_eq!(shell.editor.text(), "inspect shot.png,");
         assert_eq!(shell.document(), refusal);
+    }
+
+    #[test]
+    fn a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in() {
+        // Upstream never inserts a clipboard image without the copy it links
+        // (`snapshot_path orelse return error.MissingImageSnapshot`,
+        // `image_commands.zig:144-145@481104fd`), and spends no number on it.
+        // The notice is xfx's, in upstream's words for a paste that failed
+        // (`:92`).
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        for keys in [&b"/paste\r"[..], b"\x16"] {
+            let mut shell = attaching();
+            shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+            let gone = shell.workspace.join("no-such-directory");
+            shell.paste_copies = super::super::clipboard_image::PasteCopies::at(gone);
+            let next = shell.images_next;
+            shell.route_bytes(keys);
+            assert_eq!(
+                read_settled(&mut shell),
+                said(notice::Notice::error(
+                    "images",
+                    "failed to paste clipboard image: FileNotFound"
+                )),
+                "{keys:?}"
+            );
+            assert!(
+                shell.editor.is_empty(),
+                "{keys:?}: {:?}",
+                shell.editor.text()
+            );
+            assert!(attached_ids(&shell).is_empty(), "{keys:?}");
+            assert_eq!(shell.images_next, next, "{keys:?} spent a number");
+        }
+    }
+
+    #[test]
+    fn an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy() {
+        // The prompt goes as words, as it would in a session that saves; the
+        // copy made for the image that did not fit is removed then, not at
+        // exit.
+        let mut shell = attaching_unsaved();
+        let room = "[Image 1]".len();
+        let draft = format!("{} shot.png", "x".repeat(editor::MAX_COMPOSER_BYTES - room));
+        assert_eq!(draft.len(), editor::MAX_COMPOSER_BYTES);
+        assert!(shell.editor.insert(&draft).is_some());
+        shell.route_bytes(b"\r");
+        match shell.picks_up() {
+            TurnWork::Submit(text) => assert_eq!(text, draft),
+            other => panic!("not the prompt as words: {other:?}"),
+        }
+        let left: Vec<_> = shell
+            .paste_copies
+            .dir()
+            .map(|dir| {
+                std::fs::read_dir(dir)
+                    .expect("the copies' directory")
+                    .map(|entry| entry.expect("an entry").path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(left.is_empty(), "{left:?}");
     }
 
     #[test]

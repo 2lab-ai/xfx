@@ -2309,7 +2309,7 @@ mod tests {
         // (`savedImagePath`, `noteAttachmentLocations`,
         // `src/core/images/image_attachments.zig:1050-1062@481104fd`), and
         // in an unsaved session that copy is its temporary one
-        // (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`). An
+        // (`captureImageAttachment`, `app_session_runtime.zig:1332-1345`). An
         // unsaved xfx session keeps a pasted image's paste copy and an
         // attached file's temporary copy (`crate::tui::shell`'s `attach`):
         // each is named by that copy, on the turn that sends it and on every

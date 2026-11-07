@@ -173,8 +173,9 @@ pub struct Image {
     /// private temporary directory a paste's copy goes to -- for a session
     /// that keeps no copy of its own (an unsaved one), as upstream captures
     /// every attachment into its process's temporary folder
-    /// (`captureImageAttachment`, `src/core/app/app_session_runtime.zig:1331-1344@481104fd`).
-    /// `None` otherwise, and when the copy could not be written.
+    /// (`captureImageAttachment`, `src/core/app/app_session_runtime.zig:1332-1345@481104fd`).
+    /// `None` otherwise: a session that saves keeps its own, and an image
+    /// whose copy could not be written is not attached at all.
     pub copy: Option<PathBuf>,
 }
 
