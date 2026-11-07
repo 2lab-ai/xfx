@@ -1,0 +1,34 @@
+# One measured batch (batch.sh in scratch: the loops started and stopped by the batch itself): 54 busy loops, taskpolicy -b, 6 runs each, on a quiet machine.
+# batch: 54 busy loops, taskpolicy -b, 6 runs each; start 23:11:28, load { 5.33 14.77 28.19 }
+## RED: base binary (e51685d6), an_ending_session_lets_a_copy_that_answers_land
+run 1 pass load=10.98
+run 2 pass load=16.59
+run 3 pass load=16.59
+run 4 pass load=16.59
+run 5 pass load=21.67
+run 6 pass load=21.67
+total: 6 passed, 0 failed of 6
+## GREEN: head binary (042908ae), the same test
+run 1 pass load=21.67
+run 2 pass load=21.67
+run 3 pass load=21.67
+run 4 pass load=21.67
+run 5 pass load=29.86
+run 6 pass load=29.86
+total: 6 passed, 0 failed of 6
+## GREEN: head binary, the two other converted tests
+run 1 pass load=29.86
+run 2 pass load=29.86
+run 3 pass load=29.86
+run 4 pass load=29.86
+run 5 pass load=29.86
+run 6 pass load=29.86
+total: 6 passed, 0 failed of 6
+run 1 pass load=29.86
+run 2 pass load=34.60
+run 3 pass load=34.60
+run 4 pass load=34.60
+run 5 pass load=34.60
+run 6 pass load=34.60
+total: 6 passed, 0 failed of 6
+# end 23:11:54, load { 34.60 20.82 29.98 }

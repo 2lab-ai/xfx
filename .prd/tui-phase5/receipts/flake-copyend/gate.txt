@@ -1,0 +1,21 @@
+# gate at 042908ae, load { 5.78 12.26 23.82 }, 23:16:00
+fmt: exit 0 -- 
+clippy: exit 0 -- 
+clippy-fault-injection: exit 0 -- 
+test: exit 0 -- 15 suites: 5165 passed, 0 failed, 7 ignored
+test-fault-injection: exit 0 -- 15 suites: 5202 passed, 0 failed, 7 ignored
+check-no-secrets: exit 0 -- check-no-secrets: ok (12090 tracked file(s) scanned) 
+check-no-stubs: exit 0 -- check-no-stubs: ok 
+check-preview-contract: exit 0 -- check-preview-contract: ok (.github/workflows/preview.yml) 
+check-tui-preflight-cost: exit 0 -- check-tui-preflight-cost: ok 
+check-usage-clock: exit 0 -- check-usage-clock: ok 
+check-xfx-identity: exit 0 -- check-xfx-identity: ok (12090 tracked file(s) scanned) 
+test-sweep: exit 0 -- OK Ran 26 tests in 40.317s OK 
+build-release: exit 0 -- 
+smoke: exit 0 --   ok    doctor checks the session store   ok    doctor checks the permission mode evidence: <scratch>/smoke 
+build-faulty: exit 0 -- 
+smoke-tui: exit 0 --   evidence: <scratch>/smoke-tui smoke-tui: 37 scenarios + the oracle, 1111 checks, 0 failures evidence: <scratch>
+# done 23:25:54, load { 4.55 6.89 15.11 }
+# test-sweep: Ran 50 tests in 4.974s OK Ran 26 tests in 40.317s OK 
+# smoke: 47 check(s), 0 failure(s)
+# smoke-tui: smoke-tui: 37 scenarios + the oracle, 1111 checks, 0 failures

@@ -1,0 +1,3 @@
+# GREEN, the end that panics: the case at b26101f3 (the threads in Ending)
+test tui::copy::tests::an_end_whose_look_at_the_grace_panics_still_stops_and_joins_every_copy ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 0.71s
