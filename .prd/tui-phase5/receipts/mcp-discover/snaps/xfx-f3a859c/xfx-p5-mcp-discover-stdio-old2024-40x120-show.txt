@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f3a859c [debug] · Run /help for commands
+
+* mcp: fixture
+    status     retrying
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts old2024
+    source     ~/.xfx/mcp.json
+    error      it answered with an MCP version xfx doesn't support (xfx speaks 2025-03-26 and newer)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

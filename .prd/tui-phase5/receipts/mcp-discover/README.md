@@ -1,293 +1,327 @@
 ---
-title: MCP-E receipt -- fx v0.0.16's version detection (server/discover, 2026-07-28, no 2024-11-05)
+title: MCP-E receipt -- fx v0.0.16's version detection (server/discover, 2026-07-28, no 2024-11-05), round 2
 type: receipt
 tags: [xfx, tui, phase5, fx-0.0.16, mcp, security, receipt]
 ---
 
-# MCP-E receipt -- `server/discover` first, the 2026 era, 2024-11-05 refused
+# MCP-E receipt -- `server/discover` first, read as fx reads it
 
-Unit MCP-E of the 0.0.16 delta (`research/tui-phase5:.prd/tui-phase5/research/mcp.md`
-E3/E4, the open question MCP-W left in `docs/parity.md`). **The user's
-decision** (2026-11-07): the MCP handshake follows fx fully. Security-relevant
-(S): it changes the protocol and what crosses the network. Base `58b463c8`
-(train 2's head), branch `feat/p5-mcp-discover`. Oracle fx v0.0.16 (`481104fd`,
-executable sha256 `8e6cda2efddb…`, checked by capture.sh around every fx run).
-xfx: the base built from a `--no-local` clone at `58b463c8`
-(`v0.1.0-58b463c`), and the head build at `d4183be1` (`v0.1.0-d4183be`; the
-two later commits change comments, the parity row and a harness test only:
-`a8de6c57`, `f16ae62c`). Every
-capture is `scripts/fxcap/capture.sh <bin> <scenario> 40x120`, redacted
-(`scripts/fxcap/redact.py`: `<scenarios>`, `<bun>`, `<repo>`, `<local-path>`).
+Unit MCP-E of the 0.0.16 delta. **The user's decision** (2026-11-07): the MCP
+handshake follows fx fully. The dispatcher's (2026-11-07, reversible): fx's
+post-ready 2026 behaviour -- `subscriptions/listen`, a re-list before each
+call, `input_required` rounds, an operation's -32022 version switch,
+`Mcp-Param-*` headers -- is unit **MCP-E2**'s, named in `docs/parity.md` as
+not yet xfx's. Security-relevant (S). Base `58b463c8`, branch
+`feat/p5-mcp-discover`. Round 2 answers both reviews of `f3a859c8`
+(`MCP-E/reviews/gpt6.md`, `opus.md` in the dispatcher's tree).
+
+**Every piece of evidence here comes from one commit, `d96603f9`**
+(`v0.1.0-d96603f`): the gate logs, the mutants (a `--no-local` clone checked
+out at it), and the head side of every capture and sweep. The receipt's own
+commit changes files under `.prd/tui-phase5/receipts/mcp-discover/` and
+nothing else: `diff-stat.txt` is `git diff --stat d96603f9 -- src tests scripts docs
+Cargo.toml Cargo.lock`, taken just before that commit, and empty.
+Oracle: fx v0.0.16 (`481104fd`), executable sha256 `8e6cda2efddb…`, checked
+by capture.sh around every fx run. Base: `58b463c8` built in the clone
+(`v0.1.0-58b463c`). Round 1's head: `f3a859c8` built in the clone
+(`v0.1.0-f3a859c`), the RED for what round 2 changes.
+`src-diff-stat.txt` is `git diff --stat 58b463c8..d96603f9 -- src tests`.
 
 ## What fx v0.0.16 does (read at `481104fd`)
 
-The core is `src/mcp/core/era.zig`, pure: events in, effects out
-(`Detector.step`, `:189-308`); `src/mcp/server.zig` drives it.
+Round 1's reading (`src/mcp/core/era.zig`'s detector, driven by
+`src/mcp/server.zig`) stands: every start sends `server/discover` first with
+`2026-07-28` and the 2026 `_meta`; a result listing it is that era with no
+`initialize`; anything else, or silence until the 10 s probe timer (cut to
+what is left of the start, `startLeft`, `server.zig:966-971`), is a 2025
+server, which gets `initialize` -- `2025-11-25`, `2025-06-18` or `2025-03-26`
+accepted, `2024-11-05` refused. Round 2 read what round 1 had not:
 
-- **Message order.** Every start -- each new stdio process (`processUp`,
-  `server.zig:824-831`), each HTTP detection run (`detect`, `:395-399`) --
-  sends `server/discover` first, with the first preferred version and the
-  2026 `_meta`: `progressToken` (= the id), `io.modelcontextprotocol/protocolVersion`,
-  `clientCapabilities`, `clientInfo` (`writeDiscover`, `era.zig:476-479`;
-  `meta`, `:459-474`). Over HTTP the probe POST carries `Accept`,
-  `MCP-Protocol-Version: 2026-07-28` and `Mcp-Method: server/discover`, no
-  session (`requestHeaders`, `src/mcp/protocol/http_headers.zig:289-307`).
-  - a result listing a preferred version: ready in that era, **no
-    `initialize`**; every later request carries the 2026 `_meta` (and over
-    HTTP the version, `Mcp-Method`, `Mcp-Name` for a call, no session);
-  - a result listing only a legacy version, any other error, an error
-    without an id, a stdio reply that is not valid JSON-RPC (it fails the
-    request with -32600, `onRefusedLine`, `server.zig:769-790`), an HTTP body
-    with no JSON-RPC answer whatever its status (`run`, `src/mcp/io/http.zig:417-487`;
-    `endAttempt`, `server.zig:1242-1257`), or silence until the probe timer:
-    a 2025 server -- `initialize` (`_meta.progressToken` only, `2025-11-25`
-    asked; over HTTP `Accept` alone, `sendInitialize`, `:1472-1486`), then
-    `notifications/initialized` with `"params":{}` (`writeInitialized`,
-    `era.zig:493-496`);
-  - -32022: another listed preferred version, else initialize if a legacy one
-    is listed, else `no_shared_version`; -32020/-32021: `rejected`; over HTTP
-    404 with -32601: a 2026 server without discovery, served at the probe's
-    version (`classifyDiscover`, `classifyDiscoverHttp`, `era.zig:386-415`).
-- **Versions.** Offered: `2026-07-28`; `initialize` asks `2025-11-25` and
-  accepts `2025-11-25`, `2025-06-18`, `2025-03-26` -- not `2024-11-05`
-  (`Config`, `era.zig:19-26`; `classifyInitialize`, `:417-444`).
-- **Fallbacks and failures.** A modern server that falls silent and listed no
-  legacy version: `went_quiet` (`legacyAnswer`, `:348-352`); an `initialize`
-  error that hints at a modern server probes once more (`:252-262`); words
-  (`describeFailure`, `src/core/mcp_host/runtime.zig:2290-2297`):
-  `it supports no MCP version fx speaks`, `it refused fx's MCP version`,
-  `it stopped answering while starting`,
-  `it answered with an MCP version fx doesn't support (fx speaks 2025-03-26 and newer)`,
-  `it refused or never answered fx's initialize request`. Each is retried as
-  any start is (`.era => … .down`, `src/mcp/engine.zig:430-445`).
-- **Timeouts.** The probe: 10 s (`probe_timeout_ms`, `era.zig:25`), cut to
-  what is left of the start (`startLeft`, `server.zig:966-971`); the start is
-  the server's `startup_timeout_ms` (`start_ms`, `src/mcp/core/request.zig:68-70`;
-  `src/core/mcp_host/config.zig:150`); `initialize` gets what is left. A broken
-  HTTP probe is posted once more (`max_attempts = 2`,
-  `src/mcp/core/http_modern.zig:21-24`) and then waits out the timer. Ids come
-  from one request table per server, so a new process's ids follow the last
-  one's (`table`, `server.zig:264`).
+- **The decoder.** fx reads every message raw (`src/mcp/protocol/wire.zig`):
+  a field is found by its key as written, and a wanted one named twice is an
+  error (`objectFields`, `:142-174`); a version is compared as written, so
+  one spelled with an escape is another version (`arrayHasString`,
+  `:248-257`; `plainString`, `:274-279`; `era.zig:370-377`, `:425`); an id is
+  the client's only as plain decimal digits, bare or quoted (`ownId`,
+  `decimal`, `:305-326`); nesting stops at the scanner's 512-byte stack
+  (`scan_stack_bytes`, `:100-101`) -- 2584 levels in all, found by
+  `p5-mcp-discover-stdio-depth`'s four servers (`fx/…depth…list.txt`:
+  126 and 2582 nested arrays list no version, `retrying`; 2583 and 4000 are
+  no answer, the probe waits out its 10 s, `ready`).
+- **A refused stdio line** (`onRefusedLine`, `server.zig:772-790`): one that
+  names a request in flight (`responseId`, `wire.zig:135-140`) fails it with
+  -32600 and `invalid reply (<why>): <the line's first 80 bytes>` (control
+  bytes `?`, never a cut character, `...` when cut: `excerptOf`,
+  `server.zig:60-66`; `maskedPrefix`, `src/mcp/io/process.zig:170-177`); any
+  other -- a banner, a line too deep to find its id in -- is kept aside
+  (`keepStray`, `server.zig:441-443`) and disturbs nothing. So a too-deep
+  answer is no answer: the probe waits out its timer (opus's review read
+  "fx falls back at once"; the depth capture and `responseId`'s `catch
+  return null` say otherwise).
+- **A server's requests** are answered only in a 2025 session (`.request =>
+  if (r.legacyEra())`, `server.zig:1154`), which on stdio is the detector in
+  `initializing` or `legacy` (`legacyEra`, `:888-891`): a `ping` while the
+  probe waits is dropped, one while `initialize` waits is answered
+  (`p5-mcp-discover-stdio-asks`'s wire).
+- **HTTP.** Each request is a task of its own, at most 32 running and 32
+  more waiting, oldest first, then refused (`max_in_flight`,
+  `waiting_room`, `claim`, `src/mcp/io/http.zig:26`, `:106-108`,
+  `:218-226`). An event stream is read event by event and each event is
+  handed on as it comes (`readEvents`, `:643-692`); the first that answers
+  the POST -- naming its id, or none: `if (resp.id) |id| if (id != key)
+  return;`, `server.zig:1155-1158` -- is the answer, whatever the status. A
+  JSON body's result under an error status is no answer (`run`,
+  `http.zig:469-474`); redirects are not followed (`.redirect_behavior =
+  .unhandled`, `:424`).
+- **A probe given up on** stays in the request table (`stdioDelivered`
+  closes nothing for `.discover`, `server.zig:871-872`) until its request
+  times out: `idle_ms` = the server's `operation_timeout_ms`, 60 s by default
+  (`src/core/mcp_host/config.zig:151`; `src/mcp/core/request.zig:64-66`).
+  Then, on stdio, `notifications/cancelled` with its id (`timerFired`,
+  `request.zig:311-318`; `send_cancel`, `server.zig:1986-1995`); over HTTP
+  its stream is closed only if no 2025 session has begun -- in one the
+  cancel goes to the session, which does not know the probe (`.timed_out =>
+  if (r.legacy == null) … stepExchange(l, .cancel)`, `server.zig:1997-2000`;
+  `http_legacy.zig:288-289`), so the POST stays open until the server ends
+  it or the connection closes. `initialize` is never cancelled
+  (`timerFired`'s `slot.kind != .initialize`, `request.zig:317`).
 
-## What changed in xfx
+## What changed in xfx (round 2)
 
-`src/mcp/era.rs` is `era.zig` ported whole -- the detector, the classifiers,
-`meta` -- with fx's own tests: every answer sequence to depth 7 and 2,000
-random long runs against the model's invariants (ProbesBounded,
-NoFallbackAfterModern, EraSticky, ChosenSupported, LegacyOrder, ReachesEra),
-then fx's cases one by one. `runtime.rs`'s handshake drives it one blocking
-exchange at a time; `transport.rs` puts `_meta` first in every request, gives
-both transports a `detect` that returns a reply as it came (status and
-frame) and an era (`set_era`) that sets a request's `_meta` and HTTP headers,
-starts ids at 1 from a counter the server's every try shares, drops a 2026
-stdio server's own requests, routes an error without an id to the probe in
-flight, takes an `initialize`'s session id only once its answer is accepted,
-and ends every HTTP exchange at its caller's deadline.
+- `src/mcp/wire.rs` (new): `wire.zig`'s decoder, ported with fx's own
+  decoder tests (`src/mcp/wire/tests.rs`) -- non-recursive, so no input can
+  exhaust the stack, and cut at fx's 2584 levels. Detection reads every
+  answer through it, raw: `era.rs`'s classifiers take `wire::Body`, the
+  runtime keeps capabilities and instructions from the raw result (a field
+  named twice says neither, as `keepInstructions`'s `catch {}` does).
+- `src/mcp/era.rs` is the detection core ported; its operation events
+  (`OperationSent`, `OperationVersionRejected`,
+  `classify_operation_rejection`) are ported and tested but driven by
+  nothing: MCP-E2's (round 1's README said "ported whole").
+- stdio (`transport.rs`): a line routes by fx's decoder -- a response to its
+  waiter, an error without an id to the probe in flight, a refused line that
+  names a request to that request as fx's -32600, anything else to no one; a
+  server's request answered only from `initialize` on; a probe given up on
+  cancelled at `operation_timeout_ms` with fx's frame
+  (`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":N}}`).
+- HTTP (`transport.rs`): every message a task on the connection's thread,
+  32 running and 32 waiting; an event stream parsed as bytes come, held to
+  16 MiB a line and an event; a probe given up on kept as fx keeps it; a
+  request whose caller stops waiting has its POST dropped, as fx closes a
+  timed-out request's stream outside a session.
+- `runtime.rs`: the era each detection message goes out in (`Detecting`
+  before a probe, `Initializing` before `initialize`, as fx's
+  `send_discover`/`startSession` set `r.legacy`), the transports' request
+  timeout from `operation_timeout_ms`, and the probe's wait as a pure
+  function (`probe_wait`).
+- Tests (`src/mcp/tests/discover.rs`): no upper bound on a clock. A wrong
+  path that would wait is made to hang -- a ten-minute probe timer, cut to
+  the start -- so it ends in other words or in `settled`'s minute; what is
+  asynchronous is waited for by state (the fixture's connections ended, a
+  cancel frame logged, `probes_open`) within `WAIT`; lower bounds stay.
+- fxcap: `capture.sh` writes `<bin>-<scenario>-<size>-mcphttp.port`, and
+  `sweep.py` (`run_rules`) rewrites only that run's port after
+  `127.0.0.1:`; the ledger's global `mcphttp-port` rule is gone
+  (`test_sweep.py` `McpPort`: a fixed port, the other side's port, longer
+  digits, another host and the digits elsewhere stay different). New
+  fixture modes: `ssehold`, `sseidless`, `ssestrid`, `ssefail` (mcphttp.ts),
+  `banner`, `asks`, `escaped`, `doubled`, `deep:<n>` (the stdio servers),
+  with self-tests in `test_capture.py`.
 
-## Pairs
+## The reviews, item by item
 
-`pairs.py` (this directory): cell by cell, row 1 (the banner) left out, raw
-and after the ledger's normalizations -- each product's name and the HTTP
-fixture's port (`mcphttp-port`, new in `scripts/fxcap/parity-ledger.toml`:
-capture.sh picks a loopback port per run). `head-pairs.txt`, `red-pairs.txt`.
-
-| scenario | snap | base vs fx (normalized rows) | head vs fx |
+| item | what was wrong at `f3a859c8` | now | evidence |
 |---|---|---|---|
-| `p5-mcp-discover-stdio-modern` | `show` | 10: `retrying`, `it refused or never answered xfx's initialize request` | **0**: `ready, 1 tool`, `version 2026-07-28` |
-| | `turn` | 20 | **0**: the search and both calls |
-| `p5-mcp-discover-stdio-silent` | `probing` (4 s) | 11: base answered `/mcp show` at once | **0**: both still probing |
-| | `show` (14 s) | 0 | **0** |
-| `p5-mcp-discover-stdio-old2024` | `show` | 10: `ready`, `version 2024-11-05` | **0**: `retrying`, fx's words |
-| `p5-mcp-discover-stdio-malformed` | `show` | 0 | **0** |
-| `p5-mcp-discover-stdio-hostile` | `show` | 10: `ready` | **0**: `it supports no MCP version xfx speaks` |
-| `p5-mcp-discover-http-modern` | `show` | 9 | **0** |
-| | `turn` | 19 | **0** |
-| `p5-mcp-discover-http-notimpl` | `show` | 9 | **0** |
-| | `turn` | 19 | **0** |
-| `p5-mcp-discover-http-old2024` | `show` | 1: the words without fx's parenthesis | **0** |
-| `p5-mcp-discover-http-malformed` | `show` | 0 | **0** |
-| `p5-mcp-discover-http-hostile` | `show` | 9: `ready` | **0** |
+| MUST 1 SSE | an event stream read to its end before any event was looked at; only `id == N` taken | parsed as bytes come; the first event that answers the POST taken -- its id, its id as digits in a string, or none -- under any status; 16 MiB a line and an event | `a_probe_answered_on_an_event_stream_is_read_as_its_events_come` (`ssehold`, `ssestrid`, `ssefail`, `sseidless`); `transport.rs` `a_stream_answer_…_as_it_comes`, `a_stream_event_answers_its_post_…`; M15-M18; `p5-mcp-discover-http-sse*` |
+| MUST 2 HTTP exchange at the caller's deadline | the probe's POST closed when the caller stopped waiting | kept as fx keeps it (above), its own task, beside the requests after it | `an_http_probe_the_server_holds_open_stays_open_beside_the_requests_after_it`, `an_abandoned_http_probe_ends_at_its_request_timeout_only_outside_a_session`, `a_request_whose_caller_stops_waiting_has_its_post_closed`; M3, M3b, M20, M21 |
+| MUST 3 stdio probe never cancelled | `cancel_on_wire = !probing` | `notifications/cancelled` at `operation_timeout_ms`, fx's frame | `a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout`; the silent test's `probes_open == 1`; M19 |
+| MUST 4 escapes, duplicate keys | serde's reading | fx's decoder | `escaped`, `doubled` rows; `era::tests::an_escaped_version_is_another_version_and_a_doubled_field_no_answer`; `p5-mcp-discover-stdio-escaped`; M22, M23 |
+| MUST 5 too deep | serde's 128 levels | fx's 2584; deeper is no answer and the probe waits, as fx's does | `deep:2582`, `deep:2583`, `deep` rows; `wire::tests` depth boundary; `p5-mcp-discover-stdio-depth`; M24, M25 |
+| MUST 6 `mcphttp-port` global | one ledger regex over every scenario | the run's own port only (`sweep.py` `run_rules`), the ledger rule gone | `test_sweep.py` `McpPort` (4 cases); the sweeps below |
+| MUST 7 wall clock | upper bounds and once-after-sleep checks | lower bounds only; a ten-minute probe for the paths that must not wait; state barriers within `WAIT`; `probe_wait` pure; one more call after the 2026 call instead of a 500 ms sleep | `src/mcp/tests/discover.rs`: every `took`/`elapsed()` comparison left is `>=`, but one `while started.elapsed() < idle * 3` that waits past a timeout before a barrier request; every `sleep` is a 10-20 ms step of a poll bounded by `WAIT`; M2, M4, M5, M14 killed below |
+| MUST 8 receipt | claims without files | every number below names its file; one commit | this file |
+| SHOULD 9 excerpt | from the re-serialized frame | from the raw line, 80 bytes, `?` for control bytes | `wire::tests::a_refused_reply_fails_with_why_and_the_start_of_the_line_as_it_came`; M30 |
+| SHOULD 10 3xx | doc said a redirect's body is no answer | doc says what the code does; a 307's target is never asked | `a_probe_redirected_elsewhere_is_not_followed` |
+| SHOULD 11 banner (PLAUSIBLE) | RED: see `p5-mcp-discover-stdio-banner` below | kept aside | `a_2026_server_that_writes_a_banner_before_its_answer_is_still_read`; M26 |
+| SHOULD 12 requests while detecting (PLAUSIBLE) | RED: see `p5-mcp-discover-stdio-asks` below | answered only from `initialize` on | `a_servers_request_is_answered_only_once_initialize_has_begun_a_2025_session`; M27, M28 |
+| wording | README "ported whole"; "requests a server sends are answered" | the operation events named MCP-E2's; "a 2025 server's requests on stdio" | `docs/parity.md` MCP client runtime row |
 
-Raw, the head differs only where the ledger says it may: `fx`/`xfx` in the
-words (`stdio-old2024`, `stdio-hostile`, `http-old2024`, `http-hostile`) and
-the port in an HTTP server's `url` row.
+One pre-existing test changed: `transport::tests::a_server_that_asks_and_never_reads_the_answers_cannot_hold_close`
+now sets a 2025 era and sends one line before its server floods `ping`s --
+fx answers a server's request only in a 2025 session, so without it nothing
+would be answered and the flood would test nothing.
 
-Where base and fx already look alike on screen (`malformed`, `silent`'s
-`show`), the wire is the RED.
+## RED: round 1's head against round 2's cases
+
+`sweeps/red-120-*` (`v0.1.0-f3a859c`, the 18 discover scenarios and
+`p5-mcp-wire-new`, round 2's scenarios and ledger), the f3a859c sections of
+`wire.txt` and `http.txt`, and `snaps/xfx-f3a859c/`:
+
+| scenario | fx v0.0.16 (`snaps/fx/`) | round 1 (`f3a859c`) | head (`d96603f`) |
+|---|---|---|---|
+| `http-ssehold` | ready at 2026-07-28 | `/mcp show` not answered by the snap; one discover POST, nothing after it (`http.txt`) | ready, discover then `tools/list` |
+| `http-sseidless` | ready at 2025-11-25 | discover sent twice, no `initialize` | ready at 2025-11-25 |
+| `http-ssestrid` | ready at 2026-07-28 | discover sent twice | ready at 2026-07-28 |
+| `stdio-banner` | ready at 2026-07-28 | nothing by the snap | ready at 2026-07-28 |
+| `stdio-asks` | `q1` unanswered, `q2` answered (`wire.txt`) | answers `q1` during the probe: DIFFERS | IDENTICAL |
+| `stdio-depth` | d126, d2582 `retrying`; d2583, d4000 `ready` | all four `ready` | as fx |
+| `stdio-escaped` | `escaped` `retrying`, `doubled` `ready` | the other way round | as fx |
+| `http-ssefail` | ready | ready (round 1 never looked at a stream's status) | ready |
+
+`flips-red-head-120.txt`: 4 pairs pass on the head only, none on round 1's
+only. `stdio-depth` and `stdio-escaped` count as unresolved on both, for one
+row each: the `/mcp list` header, whose SOURCE column is a cell wider in xfx
+because `~/.xfx/mcp.json` is a character longer than `~/.fx/mcp.json` -- the
+same row `p5-mcp-config`'s `list` differs in, not this unit's; every status
+row is the same as fx's (`snaps/`).
+
+Unit RED for what is not on screen: the mutants below that put round 1's
+behaviour back (M15 stream read at its end, M19 no stdio cancel, M20 HTTP
+probe closed at once, M26 banner, M27/M28 requests while detecting), each
+killed by the test written for it.
+
+## Pairs and the MCP sweep
+
+`sweep.sh --jobs 2`, fx v0.0.16, this commit's ledger and scenarios, one
+sweep after another (`sweeps/*-scoreboard.md`, `*-summary.md`: the sweep's
+own redaction). 40x120: `--only 'p5-mcp-*' --only p5-input-mcp`; 40x60:
+`--only p5-mcp-menu-new`. Counts are pass / approved / total.
+
+| | base `58b463c` | round 1 `f3a859c` | head `d96603f` |
+|---|---|---|---|
+| the 20 `p5-mcp-*` of epic 2, 40x120 | 85 / 1 / 146 | -- | **102 / 1 / 146** |
+| `p5-mcp-discover-*` (18), 40x120 | 5 / 0 / 22 | 16 / 0 / 22 | **20 / 0 / 22** |
+| `p5-input-mcp`, 40x120 | 9 / 0 / 9 | -- | **9 / 0 / 9** |
+| `p5-mcp-menu-new`, 40x60 | 22 / 1 / 34 | -- | **33 / 1 / 34** |
+
+- The two discover pairs the head does not pass are `stdio-depth/list` and
+  `stdio-escaped/list`, the header row above.
+- `flips-base-head-120.txt`: 33 pairs pass on the head only; **one passes on
+  the base only**, `p5-mcp-menu-old/prompts`: its `remote` (a profile server
+  at `127.0.0.1:9`, which refuses) reads `retrying` on the head where fx
+  reads `connecting`. Run three more times on each build (`sweeps/menu-old-reruns.txt`), the head passes `prompts` in runs 1 and 3 and fails it in run 2 (with `resources`); the base passes `prompts` every time and fails `resources` and `servers` every time. The three snaps fall in the second around the end of the 10 s probe, where fx's try and xfx's may each be on either side of it: the head flips with fx's timing, the base matches at `prompts` only by its own retry cadence. Round 1's receipt noted the same spread on this server.
+- `flips-base-head-60.txt`: 11 pairs pass on the head only, none on the
+  base only.
+- The approved pair is `p5-mcp-menu-new/approve-confirm`
+  (`mcp-approval-wrap-led`), on every build.
 
 ## The wire
 
-`wire.txt` (`wire_compare.py`, this directory: stdio frames in order, compact
-JSON, `clientInfo`/`clientCapabilities` -- M1's two approved differences --
-masked, everything else compared) and `http.txt` (the HTTP fixture's log, its
-times stripped: method, id, session, `MCP-Protocol-Version`, `Mcp-Method`,
-`Mcp-Name`, status).
+`wire.txt` (`wire_compare.py`: a stdio fixture's frames in order, compact
+JSON, `clientInfo`/`clientCapabilities` masked -- MCP-W's two approved
+differences -- everything else compared) and `http.txt` (the HTTP fixture's
+log, times stripped), fx against each build, every `p5-mcp-*` scenario that
+logs one.
 
-| scenario | base vs fx | head vs fx |
-|---|---|---|
-| `p5-mcp-wire-new` (MCP-W's) | differs: no discover, ids from 0, no `_meta` on `initialize`/`tools/list`, no `params` on `initialized` | **identical**, 6 of 6 |
-| `stdio-silent` | differs | **identical**, 4 of 4 (discover, then initialize at 10 s) |
-| `stdio-old2024` | differs | **identical**, 6 of 6 (three tries; ids 1-6 run on) |
-| `stdio-malformed` | differs | **identical**, 4 of 4 |
-| `stdio-hostile` | differs | **identical**, 3 of 3 (three probes, no initialize) |
-| `stdio-modern` | differs | discover and every request's `_meta` identical; fx adds `subscriptions/listen` and two more `tools/list` (below) |
-| `http-old2024` | differs, and base `DELETE`s a session after each refused try | **identical**: 4 x (discover 404, initialize), no `DELETE` |
-| `http-hostile` | differs | **identical**: 4 probes |
-| `http-malformed` | differs | identical but fx's listening `GET` (405) after `initialized` -- a 2025 session's listen, which xfx has never opened (not this unit's) |
-| `http-modern`, `http-notimpl` | differs | discover and every request's headers identical, no session; fx adds `subscriptions/listen` and two more `tools/list` |
-
-## RED
-
-- Unit: `red-unit.txt` -- this branch's `src/mcp/tests/discover.rs` (the
-  `set_probe_timeout` lines taken out, which base does not have) and
-  `tests/support/mcp_discover_fixture.sh` on a `--no-local` clone at
-  `58b463c8`: **13 of 13 fail**, each on its first assertion (wire frames,
-  `Ready` where fx fails, `Failed` where fx is ready, the words without fx's
-  parenthesis, no `Connecting` while the probe waits).
-- Captures: the base column above, and the base side of `wire.txt` and
-  `http.txt`.
-
-## GREEN
-
-- The 14 pairs above: 0 rows after normalization at `d4183be1`.
-- `cargo test --lib mcp::` 207 passed (13 new in `mcp::tests::discover`, 15 in
-  `mcp::era::tests`); the wire test of `a_profile_server_is_started_initialized_listed_and_called`
-  and the HTTP fixture test now hold fx's frames.
-
-## Security
-
-- **No new network target.** The probe goes to the configured URL and
-  nowhere else; a redirect is a status without an answer and is never
-  followed; the proxy rules are the existing ones (`bearer_rules`).
-- **Bounded.** The probe waits at most 10 s, cut to what is left of the start;
-  `initialize` gets what is left; every HTTP exchange is dropped at its
-  caller's deadline (new: a probe a server holds open cannot hold up the
-  `initialize` behind it); an HTTP body is read up to 16 MiB, a stdio line up to
-  16 MiB, and JSON nesting stops at serde_json's 128 levels.
-- **A hostile answer** cannot crash, hang or reach the screen:
-  a version list is only compared with xfx's own strings (`listed_in`, a mask,
-  never kept); a failure is fx's fixed words; the version shown is xfx's
-  own string. `a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen`
-  runs nine answers -- a non-object result of escapes, near-miss versions with
-  escape instructions, a raw escape line that is not JSON, an error without
-  an id, 4,096 levels of nesting, -32021 with an escape in its message,
-  -32022 listing only a legacy version, a modern server that falls silent,
-  2024-11-05 -- and holds each to fx's end state and words, to its time (the
-  probes it waits out, plus at most 2.5 s), and to a view and a `/mcp show`
-  with no control character and nothing of the server's text. The
-  `p5-mcp-discover-*-malformed` and `-hostile` captures show it on screen.
-- A 2026 stdio server's own requests are not answered (fx drops them); an
-  error without an id answers only the probe in flight.
+- Head IDENTICAL to fx: `stdio-asks`, `-hostile`, `-malformed`, `-old2024`,
+  `-silent`, `p5-mcp-wire-new`, `p5-mcp-wire-old`.
+- Head DIFFERS only by what MCP-E2 owns: `stdio-modern` and `stdio-banner`
+  (fx's `subscriptions/listen` and its re-lists before each call); over HTTP
+  the same for `-modern`, `-notimpl`, `-ssehold`, `-ssestrid`, `-ssefail`;
+  and a 2025 session's listening `GET`, which xfx has never opened
+  (`-sseidless`, `-malformed`, `p5-mcp-live`).
 
 ## Mutants
 
-`mutants.txt`: each on a `git clone --no-local` of the branch at `d4183be1`
-in the scratchpad, never on the worktree, one at a time, with the tests that
-should catch it.
+`mutants.py` (this directory) on a `git clone --no-local` checked out at
+`d96603f9`, in the scratchpad, never the worktree: one at a time, applied,
+the named test run, reverted (`git checkout`). `mutants.txt`: **31 of 31
+killed**, the clone clean after each. Round 1's 14 on the code as it is now
+(M1-M14, M3 split into the request's wait and the probe's), M2, M3, M4,
+M5 and M14 among them; and 16 new:
 
-| mutant | file | caught by | verdict |
-|---|---|---|---|
-| M1 `initialize` accepts a version not its own (2024-11-05) | `era.rs` | `a_stdio_server_that_speaks_only_2024_11_05_…` | killed |
-| M2 the probe is not cut to what is left of the start | `runtime.rs` | `the_probe_and_initialize_share_the_start_…` | killed |
-| M3 an HTTP exchange is not bounded by its caller's deadline | `transport.rs` | `an_http_probe_the_server_holds_open_…` | killed |
-| M4 an error without an id does not answer the probe | `transport.rs` | `a_hostile_discover_answer_…` (`idless` waits) | killed |
-| M5 a 2026 stdio server's own request is answered | `transport.rs` | `a_2026_stdio_server_is_served_…` | killed |
-| M6 a request with no params carries no `_meta` | `transport.rs` | `a_stdio_server_is_asked_server_discover_first_…` | killed |
-| M7 each try's ids start again at 1 | `runtime.rs` | `a_stdio_server_that_speaks_only_2024_11_05_…` | killed |
-| M8 a 2026 HTTP POST carries no `Mcp-Method` | `transport.rs` | `a_2026_http_server_is_probed_…` | killed |
-| M9 a stdio reply fx refuses is read as a version list | `runtime.rs` | `a_hostile_discover_answer_…` (`malformed`) | killed |
-| M10 a modern server that falls quiet is initialized anyway | `era.rs` | `a_hostile_discover_answer_…` (`quiet`) | killed |
-| M11 a 404 with -32601 is a legacy answer | `era.rs` | `a_404_with_method_not_found_…` | killed (applied by hand: rustfmt had wrapped the line the script looked for) |
-| M12 the unsupported-version words lose fx's parenthesis | `era.rs` | `a_stdio_server_that_speaks_only_2024_11_05_…` | killed |
-| M13 a version list matches a string that only contains a version | `era.rs` | `a_hostile_discover_answer_…` (`hostile`) | killed |
-| M14 an HTTP body that is no JSON-RPC is a broken stream | `transport.rs` | `an_http_body_that_is_no_json_rpc_…` | killed |
+| mutant | caught by |
+|---|---|
+| M15 an event stream read only once it ends (round 1) | `a_probe_answered_on_an_event_stream_…` (`ssehold` hangs into `settled`) |
+| M16 an answer without an id does not answer its POST | the same (`sseidless`) |
+| M17 a string id is never the client's own | `transport::tests::a_stream_event_answers_its_post_…` (`"8"`) |
+| M18 a stream's answer under an error status refused | `a_probe_answered_on_an_event_stream_…` (`ssefail`) |
+| M19 a stdio probe given up on never cancelled (round 1) | `a_stdio_probe_given_up_on_is_cancelled_…` |
+| M20 an HTTP probe given up on closed at once (round 1) | `an_http_probe_the_server_holds_open_…` (`probes_open`) |
+| M21 an HTTP probe given up on outlives its timeout outside a session | `an_abandoned_http_probe_…` |
+| M22 a version written with an escape matches | `a_hostile_discover_answer_…` (`escaped`) |
+| M23 a field named twice taken | the same (`doubled`) |
+| M24 / M25 the decoder reads deeper / less deep than fx's | the same (`deep:2583` / `deep:2582`) |
+| M26 a line naming no request fails the probe (banner) | `a_2026_server_that_writes_a_banner_…` |
+| M27 a server's request answered while detection runs | `a_servers_request_is_answered_only_once_initialize_…` |
+| M28 no `Initializing` era before `initialize` | the same |
+| M29 no waiting room past 32 in flight | `past_32_exchanges_in_flight_…` |
+| M30 a refused line's excerpt cut at 40 bytes | `wire::tests::a_refused_reply_fails_with_why_…` |
 
-14 of 14 killed; the clone's tree was clean after each.
+## Security
 
-## The MCP sweep
-
-`sweep.sh --jobs 2 --only 'p5-mcp-*' --only p5-input-mcp` at 40x120, and
-`--size 40x60 --only p5-mcp-menu-new`, fx v0.0.16, this branch's ledger (one
-normalization added: `mcphttp-port`). Head: `f16ae62c` (`v0.1.0-f16ae62`,
-whose `src/` is `d4183be1`'s but for comments). Base: `58b463c8` from the
-clone, swept the same hour with the same ledger. Counts are
-identical-or-normalized / approved / total, as epic 2's receipts count them.
-
-| | train-2 receipt (`5f2d0b88`, its ledger) | base `58b463c8`, this run | head |
-|---|---|---|---|
-| `p5-mcp-*`, the 20 of epic 2, 40x120 | 87 / 0 / 146 | 84 / 1 / 146 | **103 / 1 / 146** |
-| `p5-mcp-discover-*` (10, new), 40x120 | -- | 3 / 0 / 14 | **14 / 0 / 14** |
-| `p5-input-mcp`, 40x120 | 9 / 0 / 9 | 9 / 0 / 9 | **9 / 0 / 9** |
-| `p5-mcp-menu-new`, 40x60 | 22 / 1 / 34 | 22 / 1 / 34 | **33 / 1 / 34** |
-
-- Pair by pair (`flips.py`, `flips-120.txt`, `flips-60.txt`): **no pair
-  passes on the base and fails on the head**, at either size. 30 pairs pass
-  on the head only at 40x120 and 11 at 40x60: the 11 new discover pairs, and
-  19 of `p5-mcp-menu-new` / `p5-mcp-menu-old` whose `remote` (a profile
-  server at `127.0.0.1:9`, which refuses) fx shows as `connecting` while
-  xfx's base showed `retrying` with `it refused or never answered xfx's
-  initialize request`. Each try now waits out its probe as fx's does, so the
-  two read the same -- the parity row's "an HTTP try against a port that
-  refuses ends at once" divergence is gone.
-- This run's base reads 84, not train 2's 87: `menu-old` 8 and `menu-new` 22
-  (+1 approved) where train 2 read 10 and 23 -- the first-run spread train
-  2's receipt already notes for those two (8 and 3 on a first run of the
-  epic-2 preview), from the same `remote` racing its first try. Every
-  other scenario reads train 2's count on the base, and the head's count or
-  more on the head.
-- The one approved pair (`p5-mcp-menu-new/approve-confirm`,
-  `mcp-approval-wrap-led`) is approved on both builds.
-
-`sweep-head-120.md`, `sweep-head-60.md`, `sweep-base-120.md`,
-`sweep-base-60.md`: the scoreboards (the sweep's own redaction).
+- **No new network target.** The probe and `initialize` go to the configured
+  URL only; a redirect is a status, its `Location` never asked
+  (`a_probe_redirected_elsewhere_is_not_followed`: a 307 to a second
+  listener, which then has nothing in its backlog); the proxy rules are the
+  existing ones (`bearer_rules`, `Policy::none`).
+- **Bounded.** A probe's wait is its 10 s timer cut to what is left of the
+  start (`probe_wait`, `probe_wait_is_its_timer_cut_to_what_is_left_of_the_start`);
+  `initialize` gets what is left. A probe given up on lives at most the
+  server's `operation_timeout_ms` on stdio and outside a 2025 session over
+  HTTP; inside one it lives until the server ends it or the connection
+  closes, as fx's does -- one per try, counted (`probes_open`), and ended
+  with the connection (`an_abandoned_http_probe_…`: the close ends it). At
+  most 32 HTTP exchanges run and 32 wait; the 65th message is refused
+  (`past_32_exchanges_in_flight_…`). An event stream's line and event, an
+  HTTP body and a stdio line are each held to 16 MiB
+  (`a_stream_event_or_line_longer_than_a_frame_is_too_large`). The decoder
+  is iterative and stops at 2584 open containers, so no line can exhaust a
+  thread's stack (`src/mcp/wire/tests.rs`: depth boundary and fuzz).
+- **A hostile answer** cannot crash, hang or reach the screen:
+  `a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen`
+  runs fourteen -- a non-object result of escapes, near-miss versions with
+  escape instructions, an error without an id, 2584 levels, -32021 with an
+  escape in its message, -32022 listing only a legacy version, 2024-11-05, a
+  server that asks `ping`, versions written with escapes, a field named
+  twice; and, each waiting out one probe and no less, a raw escape line,
+  2585 and 4098 levels, a modern server that falls silent -- and holds each to
+  fx's end state and words and to a view and a `/mcp show` with no control
+  character and nothing of the server's text. A version list only becomes a
+  bit mask; the version shown is xfx's own string; a refused line's excerpt
+  (`invalid_reply`) is only ever scanned for a preferred version and never
+  shown.
+- A server's request is answered only in a 2025 session; a 2026 server's,
+  and any while detection runs, are dropped (`a_servers_request_is_answered_only_once_initialize_has_begun_a_2025_session`,
+  `a_2026_stdio_server_is_served_in_its_era_with_no_initialize`).
 
 ## Gates
 
-At `a8de6c57` (`TMPDIR=/private/tmp/claude-501/p5md-gate`), one step after
-another; `test-capture.sh` then failed one case of its own (the on-cue
-`mcphttp` regexes did not know the log's new `mcp-method=`/`mcp-name=`
-fields), fixed in `f16ae62c` and re-run alone: 51 of 51.
+`gates.txt`: at `d96603f9`, one step after another, `TMPDIR=<tmp>`, the tree
+clean before and after; each step's log under `gates/` (the two test suites
+as their per-binary result lines, `gates/test-results.txt`,
+`gates/test-fi-results.txt`).
 
-| step | result |
+| step | result (file) |
 |---|---|
-| `cargo fmt --check` | ok |
-| `cargo clippy --locked --all-targets -- -D warnings` | ok |
-| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | ok: 5,186 passed, 0 failed, 7 ignored (15 binaries) |
-| `cargo test --locked --features fault-injection --no-fail-fast` | ok: 5,223 passed, 0 failed, 7 ignored |
-| `scripts/check-xfx-identity.sh` | ok |
-| `scripts/check-no-stubs.sh` | ok |
-| `scripts/check-no-secrets.sh` | ok |
-| `scripts/fxcap/test-sweep.sh` | ok |
-| `scripts/fxcap/test-capture.sh` | ok at `f16ae62c` (51 tests) |
-
-Since `d4183be1`, the build the pairs come from, `src/` changed in comments
-only (`a8de6c57`: fx line ranges re-read).
-
-## `docs/parity.md`
-
-The MCP client runtime row: the legacy-only handshake and the open question
-are replaced by fx's detection as above; the divergence "an HTTP try against
-a port that refuses ends at once" is gone (each try now waits out its probe,
-as fx's do). What of the 2026 era xfx does not do yet is listed there:
-`subscriptions/listen` and the re-lists before each call (the
-`-modern`/`-notimpl` wires), `input_required` rounds (`McpInputRequired`),
-an operation's -32022 version switch, `Mcp-Param-*` headers, fx's stricter
-decoder for escaped version strings and duplicate keys, a stdio answer nested
-past serde's 128 levels (a line that is not JSON to xfx, so the probe waits
-out its timer; fx falls back at once -- the same end, later), and the 60 s cancel
-of an abandoned probe (xfx sends none on stdio and closes it over HTTP).
+| `cargo build --locked` | exit 0 (`gates.txt`) |
+| `cargo fmt --check` | exit 0 (`gates/fmt.log`) |
+| `cargo clippy --locked --all-targets -- -D warnings` | exit 0 (`gates/clippy.log`) |
+| the same with `--features fault-injection` | exit 0 (`gates/clippy-fi.log`) |
+| `cargo test --locked --no-fail-fast` | exit 0: 5,210 passed, 0 failed, 7 ignored, 15 binaries (`gates/test-results.txt`) |
+| the same with `--features fault-injection` | exit 0: 5,247 passed, 0 failed, 7 ignored (`gates/test-fi-results.txt`) |
+| `scripts/check-xfx-identity.sh` | exit 0 (`gates/identity.log`) |
+| `scripts/check-no-stubs.sh` | exit 0 (`gates/no-stubs.log`) |
+| `scripts/check-no-secrets.sh` | exit 0 (`gates/no-secrets.log`) |
+| `scripts/fxcap/test-sweep.sh` | exit 0: 54 + 26 tests (`gates/test-sweep.log`) |
+| `scripts/fxcap/test-capture.sh` | exit 0: 53 tests (`gates/test-capture.log`) |
 
 ## Observed, not this unit's
 
-fx answers `/mcp show` of a retrying stdio server only once its next try is
-over; xfx answers at once. The stdio `old2024`/`hostile` scenarios give it
-4 s, so both are on screen.
+- In a 2025 HTTP session fx posts `notifications/cancelled` when a call is
+  cancelled (`p5-mcp-live`'s fx log); xfx's head and base do not.
+- fx answers a 2025 server's request on a POST's event stream with a POST of
+  its own (`answerServerRequest`, `server.zig:1521-1530`); xfx's HTTP
+  transport never has (`58b463c8:src/mcp/transport.rs:1318-1320`). Named in
+  the parity row, with no unit owning it yet.
 
 ## Files
 
-- `README.md`, `pairs.py`, `wire_compare.py`, `flips.py` (the receipt's own
-  comparison scripts; `python3 -I` each).
-- `fx/`, `xfx-base/`, `xfx-head/`: the 14 snaps' text.
-- `head-pairs.txt`, `red-pairs.txt`, `wire.txt`, `http.txt`, `red-unit.txt`,
-  `mutants.txt`, `sweep-*.md`, `flips.py`, `flips-*.txt`.
+- `README.md`; `wire_compare.py`, `flips.py`, `mutants.py` (`python3 -I`
+  each). Round 1's `pairs.py` is gone: the sweep compares every pair
+  (`sweeps/`).
+- `snaps/fx/`, `snaps/xfx-head/`, `snaps/xfx-f3a859c/`, `snaps/xfx-base/`:
+  every discover snap and `p5-mcp-wire-new`'s, as text.
+- `wire.txt`, `http.txt`, `mutants.txt`, `gates.txt`, `gates/`, `sweeps/`,
+  `diff-stat.txt`, `src-diff-stat.txt`.
+
