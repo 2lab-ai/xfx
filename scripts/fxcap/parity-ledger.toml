@@ -384,11 +384,11 @@ scenarios = ["p5-call-row-long"]
 snaps = ["end"]
 fx_row = '^└ Ran echo shown$'
 xfx_row = '^└ Failed echo shown\.\.\.$'
-reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and says nothing of the rest (`projectRunCommandActivitySource`, `src/core/tooling/tool_presentation.zig:256-311@481104fd`, `source_limit` at `:268`; the only marker is `encodeTerminalSafe`'s, `:445`, when what it read is too long to write): a command whose first 14 400 bytes are mostly line breaks shows its head alone -- `p5-call-row-long`'s `Ran echo shown`, its `echo hidden` hidden without a word, in the transcript and on Ctrl-O. A row that hides its own tail is not safe to copy -- fx under `full-access` runs the command with no approval showing it first -- so xfx ends it `...` when anything the row would show is left unread (a tail of spaces, tabs and line breaks alone is not). Only the marker is this divergence: that xfx's row says `Failed` and its header `1 failed` is `command-size-bound`'s."
+reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and says nothing of the rest (`projectRunCommandActivitySource`, `src/core/tooling/tool_presentation.zig:256-311@481104fd`, `source_limit` at `:268`; the only marker is `encodeTerminalSafe`'s, `:445`, when what it read is too long to write): a command whose first 14 400 bytes are mostly line breaks shows its head alone -- `p5-call-row-long`'s `Ran echo shown`, its `echo hidden` hidden without a word, in the transcript and on Ctrl-O. A row that hides its own tail is not safe to copy -- fx under `full-access` runs the command with no approval showing it first -- so xfx ends it `...` when anything the row would show is left unread (a tail of spaces, tabs and line breaks alone is not). Only the marker is this divergence: that xfx's row says `Failed` and its header `1 failed` is `command-size-bound`'s. The marker is the row's alone: the 120-byte status phrase Ctrl-O looks in for an argument the heading already shows is fx's exactly and carries none (`formatRunCommandDetailBounded`, `tool_presentation.zig:441-445@481104fd`, marks only what its encoder cuts; `src/tui/toolgroup.rs` `status`), so the marker hides no argument fx shows -- `cwd: .` beside `ls`, 14 400 line breaks and `x` keeps its row."
 owner = "CALLROW-SAFE"
 resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:640"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:648"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -643,15 +643,15 @@ why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command
 
 [[cause]]
 id = "command-size-bound"
-kind = "defect"
-owner = "unowned (the terminal tool's bound, src/permission/authority.rs MAX_COMMAND_BYTES)"
+kind = "unit"
+owner = "CMD-SIZE (after train 2; raising the bound is an S change)"
 scenarios = ["p5-call-row-long"]
 snaps = ["end"]
 fx_row = '^● 1 tool call · 1 command$|^└ Ran echo shown$'
 xfx_row = ' · 1 failed$|^└ Failed echo shown\.\.\.$'
-xfx = ["src/permission/authority.rs:41", "src/permission/authority.rs:1149"]
+xfx = ["src/permission/authority.rs:38-41", "src/permission/authority.rs:1145-1149"]
 fx = ["src/core/terminal/contracts.zig:8@c1db9191", "src/core/shell_command/command_effect.zig:4@c1db9191"]
-why = "xfx refuses a command past 8 KiB outright (`terminal exec refuses a command of N bytes; the bound is 8192`), taking fx's planning bound (`command_effect.zig`'s, past which fx asks rather than classifies) for the tool's; fx runs one up to 64 KiB, so `p5-call-row-long`'s 14 421-byte command ran on fx (`Ran`, `1 tool call · 1 command`) and failed on xfx (`Failed`, `· 1 failed`), and xfx's row names no reason for it. The row's `...` is `call-row-source-cut`'s."
+why = "xfx refuses a command whose text, once trimmed, passes 8 KiB (`terminal exec refuses a command of N bytes; the bound is 8192`, `authority.rs:1145-1149`) -- a deliberate choice of fx's planning bound for the tool's (`authority.rs:38-40`; `command_effect.zig`'s, past which fx asks rather than classifies) -- where fx runs one up to 64 KiB. `p5-call-row-long`'s command, 14 421 bytes with no white space at either end, ran on fx (`Ran`, `1 tool call · 1 command`) and was refused on xfx (`Failed`, `· 1 failed`), and xfx's row names no reason for it. The row's target is the raw command (`src/tools/spec.rs:219`), not the trimmed one, so a command that is read only in part can still be admitted: with at least 6 208 bytes of white space at its ends (14 400 - 8 192, more by its tail's length) it passes the bound and runs, its row ending `...` (`call-row-source-cut`). Raising the bound is an S change (unit CMD-SIZE)."
 
 [[cause]]
 id = "subagent-tool"
