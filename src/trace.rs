@@ -418,8 +418,9 @@ pub enum Session<'a> {
 pub struct Entry {
     pub at_ms: i64,
     /// What kind of entry it is, in upstream's timeline words where xfx has
-    /// one of the same kind: `user`, `assistant`, `semantic notice`, `raw`,
-    /// and xfx's `tool` and `questions`.
+    /// one of the same kind: `user`, `assistant`, `semantic notice`, `raw` (a
+    /// turn's summary, a question's resolution, a cancelled turn's line), and
+    /// xfx's `tool`.
     pub kind: &'static str,
     pub rows: Vec<String>,
     /// Whether it says something went wrong: an error notice, or a provider

@@ -2,10 +2,13 @@
 # prose (the turn's own cancelled line), the next turn answered, then Escape
 # twice over a running `sleep 30` (the call's cancelled row in its group).
 # The cancelled marker is the change (c29d5bfc: U+25A0 -> U+25AA). Ctrl-O shows
-# both cancelled entries.
-gateway p5-transcript-cancel-turns.json
+# both cancelled entries. Each product runs its own shell tool (fx's `shell`,
+# xfx's `terminal`) in its no-questions mode, as p5-toolstop-retint does.
+fx: gateway p5-transcript-cancel-turns.json
+xfx: gateway p5-transcript-cancel-xfx.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
 wait 4
 type stream please
 wait 1

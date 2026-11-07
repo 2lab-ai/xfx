@@ -11998,11 +11998,10 @@ impl Shell {
         self.close_prose();
     }
 
-    /// Upstream's line for a cancelled turn (`writeTurnCancellation` and
-    /// `lifecycleTerminalLine`, `transcript/runtime.zig:633-680`, `:9951-9966`):
-    /// `▪` in the warning grey, `Cancelled` in the hint grey, and the question
-    /// after it in the terminal's own colour -- with a blank row above and
-    /// below, as `fx-interrupt-40x120-cc-0.3` lays it out.
+    /// Upstream's line for a cancelled turn (`writeTurnCancellation`,
+    /// `lifecycleTerminalLine`, `transcript/runtime.zig:633-680`, `:9951-9966`),
+    /// a blank row above and below as `fx-interrupt-40x120-cc-0.3` lays it out,
+    /// and on Ctrl-O as upstream's entry is, the resumed turn's too ([`Self::hydrate`]).
     fn write_cancelled(&mut self) {
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::None) {
@@ -12013,6 +12012,7 @@ impl Shell {
         }
         let line = cancelled_line(self.palette);
         self.write_transcript_as(&line, Role::Plain);
+        self.full.block(&[line]);
         self.end_transcript_line();
         self.end_transcript_line();
     }
@@ -44568,5 +44568,65 @@ mod tests {
         let _ = shell.controlled();
         shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
         assert!(shell.fork_menu.is_none());
+    }
+
+    #[test]
+    fn a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too() {
+        // fx v0.0.16 appends the turn's lifecycle line to the transcript it
+        // replays and Ctrl-O lays out (`writeTurnCancellation`,
+        // `transcript/runtime.zig:9951-9966`), so its full transcript shows it
+        // under the prompt it stopped, with no heading of its own:
+        // `p5-transcript-cancel` `full`, rows 15-17 (receipts/cancel-marker).
+        // A resumed turn's line already reached it ([`Shell::hydrate`]); the
+        // live one did not.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"stream something\r");
+        let _taken = shell.picks_up();
+        let _ = shell.take_pending();
+        shell.route_bytes(&[0x03]);
+        let _ = shell.take_pending();
+
+        shell.route_bytes(b"\x0f");
+        let full: Vec<String> = shell
+            .screen_rows()
+            .iter()
+            .map(|row| colourless(row))
+            .collect();
+        let card = full
+            .iter()
+            .position(|row| row == "\u{2503} stream something")
+            .expect("the prompt is recorded");
+        assert_eq!(
+            full[card + 1..card + 4],
+            [
+                "",
+                "\u{25aa} Cancelled \u{b7} What can xfx do differently?",
+                ""
+            ],
+            "{full:#?}"
+        );
+        // Once: the document's line is not a second entry.
+        assert_eq!(
+            full.iter()
+                .filter(|row| row.starts_with("\u{25aa} Cancelled"))
+                .count(),
+            1,
+            "{full:#?}"
+        );
+        // And `/trace`'s timeline has it as upstream's raw entry
+        // (`writeTranscriptTimeline`, `app_commands.zig:2681-2689`).
+        let (timeline, _) = shell.full.traced(TRACE_COLS, PALETTE);
+        let line: Vec<_> = timeline
+            .iter()
+            .filter(|entry| entry.rows.iter().any(|row| row.contains("Cancelled")))
+            .map(|entry| (entry.kind, entry.rows.clone()))
+            .collect();
+        assert_eq!(
+            line,
+            [(
+                "raw",
+                vec!["\u{25aa} Cancelled \u{b7} What can xfx do differently?".to_string()]
+            )]
+        );
     }
 }

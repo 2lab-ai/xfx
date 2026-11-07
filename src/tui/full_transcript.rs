@@ -1053,7 +1053,8 @@ enum Body {
     Notice(Notice),
     Usage(String),
     /// Rows the document was given already laid out: what a question batch
-    /// leaves behind (`super::question`'s `answered_rows`).
+    /// leaves behind (`super::question`'s `answered_rows`), a cancelled turn's
+    /// line (`super::shell`'s `cancelled_line`).
     Block(Vec<String>),
     /// Boxed: a call carries its arguments, its result and the change it made,
     /// and a record of one-line notices should not be as wide as that.
@@ -1371,8 +1372,9 @@ impl FullTranscript {
         self.push(Body::Notice(notice.clone()));
     }
 
-    /// Rows laid out already -- a question batch's resolution -- which close
-    /// the group as any other block written into the document does.
+    /// Rows laid out already -- a question batch's resolution, a cancelled
+    /// turn's line -- which close the group as any other block written into
+    /// the document does.
     pub(crate) fn block(&mut self, rows: &[String]) {
         self.group_open = false;
         self.push(Body::Block(rows.to_vec()));
@@ -1808,7 +1810,10 @@ impl FullTranscript {
                         Body::Notice(_) => "semantic notice",
                         Body::Usage(_) => "raw",
                         Body::Tool(_) => "tool",
-                        _ => "questions",
+                        // A block: a question's resolution or a cancelled
+                        // turn's line, raw entries upstream
+                        // (`.question_resolution`, `.turn_cancellation`).
+                        _ => "raw",
                     };
                     let (_, rows) = self.content(entry, cols, palette);
                     (kind, rows.iter().map(|row| unpainted(row)).collect())
