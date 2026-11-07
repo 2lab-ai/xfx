@@ -605,20 +605,18 @@ const NO_ULTRA_MODE: &str = "Ultra mode is unavailable for this model and may in
 /// (`handleUltrafast`, `session_commands.zig:704-723`): an error with no topic.
 const ULTRAFAST_USAGE: &str = "usage: /ultrafast [on|off|status]";
 
-/// `/fast`, or `/ultrafast` with a word it knows: the command as given,
-/// before the catalog row it is judged against is known
-/// ([`Shell::held_speed`]).
 /// Whether this tick's frame shows what this session's own input asked for
 /// ([`Shell::take_status_moved_by_input`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Keyed {
     /// Nothing typed moved the status: the report goes where it always does.
     No,
-    /// The keys moved it, and this tick's frame shows what they did: the
-    /// report follows the frame.
+    /// The keys moved it, and this tick's frame shows what they did -- or a
+    /// held prompt's turn has started, and this tick's frame is the first to
+    /// show it: the report follows the frame.
     AfterFrame,
-    /// A prompt was sent and the runtime has not started it, so no frame
-    /// shows its `Thinking` yet: no report this tick.
+    /// The status is work only because a prompt waits for its turn, so no
+    /// frame shows its `Thinking` yet: no report this tick.
     NotYet,
 }
 
@@ -631,6 +629,9 @@ enum StatusActivity {
     Settled,
 }
 
+/// `/fast`, or `/ultrafast` with a word it knows: the command as given,
+/// before the catalog row it is judged against is known
+/// ([`Shell::held_speed`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpeedCommand {
     /// `/fast`: a toggle.
@@ -1016,7 +1017,11 @@ pub(crate) struct Shell {
     /// already the turn's result.
     ///
     /// It rides with [`Self::cancelling`], which keeps the turn's conclusion
-    /// silent (the row has said why). Upstream finishes such a turn `.failed`
+    /// silent (the row has said why), and outlives it: the band clears
+    /// `cancelling` once no place is held, which can be before the turn's end
+    /// is read ([`Self::settle_band`]), and the status reads the turn as
+    /// settled until `TurnEnded` takes this (or a new turn clears it).
+    /// Upstream finishes such a turn `.failed`
     /// -- the compaction's error leaves the turn
     /// (`orchestrator.zig:7864-7865@481104fd`) and the turn is finished
     /// `.failed` (`:5615-5618`) -- which is `error` (`program_status.zig:62-65`,
@@ -1029,10 +1034,17 @@ pub(crate) struct Shell {
     /// This session's own input moved the program status to work or to a
     /// question since the last tick ([`Self::take_status_moved_by_input`]).
     status_moved_by_input: bool,
+    /// The status is work only because a prompt waits for its turn, and no
+    /// report of it has gone yet: the tick whose frame first shows the turn
+    /// writes it after that frame ([`Self::take_status_moved_by_input`]).
+    status_held: bool,
     /// A stop's restore cleared the terminal's program status record, and
     /// the resume's tick owes it again after its frame
     /// ([`Self::owe_program_status_resume`]).
     status_resume_owed: bool,
+    /// The launch's report, taken before the keys typed ahead of the session
+    /// were read and owed to the first tick ([`Self::hold_launch_status`]).
+    launch_status: Option<program_status::Report>,
     /// The turn's `■ Cancelled` line, while it waits for a running call to
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
@@ -2392,7 +2404,9 @@ impl Shell {
             cancelling: false,
             compaction_failed: false,
             status_moved_by_input: false,
+            status_held: false,
             status_resume_owed: false,
+            launch_status: None,
             cancel_owed: None,
             cancel_covers: 0,
             retry: None,
@@ -9977,16 +9991,22 @@ impl Shell {
         self.settle_info_panel();
         // And how a `/fast` or `/ultrafast` save went.
         self.settle_speed_saves();
-        // **Nothing in hand is nothing that can still answer a cancel.** The
-        // runtime reads a cancellation at the top of its loop before it takes
-        // the next item (`super::worker`'s `turn_loop`, `biased`), so a prompt
-        // the cancel covered can be dropped without ever saying it started --
-        // and a cancel that landed after its turn had already concluded is
+        // **Nothing in hand is nothing that can still start.** The runtime
+        // reads a cancellation at the top of its loop before it takes the next
+        // item (`super::worker`'s `turn_loop`, `biased`), so a prompt the
+        // cancel covered can be dropped without ever saying it started -- and
+        // a cancel that landed after its turn had already concluded is
         // answered by nothing at all. Either way the place is given back, and
-        // once none is held, no event about the cancelled work is coming.
+        // once none is held, no cancelled work is still to start. **Its end
+        // can still be on its way**: the runtime gives a place back after it
+        // has sent the work's terminal event (`TurnEnded`, `worker.rs:3835`,
+        // then `turn_loop`'s `fetch_sub`, `:3524`), so this can run between
+        // the two, with the `TurnEnded` still in the channel. What that event
+        // reads is left for it: a turn an automatic compaction failed keeps
+        // [`Self::compaction_failed`] until its end takes it, or the turn
+        // would read as working again and its end report the error twice.
         if self.cancelling && self.work.outstanding() == 0 {
             self.cancelling = false;
-            self.compaction_failed = false;
             self.cancel_owed = None;
             self.cancel_covers = 0;
         }
@@ -10081,7 +10101,13 @@ impl Shell {
     /// the next instruction (`cancellation_stops_turn`). A turn an automatic
     /// compaction failed has its result already: `error`
     /// ([`Self::compaction_failed`]).
+    ///
+    /// The launch's own report comes first when one was taken before the keys
+    /// typed ahead of the session were read ([`Self::hold_launch_status`]).
     pub(crate) fn take_program_status(&mut self) -> Option<program_status::Report> {
+        if let Some(report) = self.launch_status.take() {
+            return Some(report);
+        }
         let activity = self.status_activity();
         self.program_status.update(match &activity {
             StatusActivity::Blocked(kind, message) => program_status::Activity::Blocked {
@@ -10118,6 +10144,7 @@ impl Shell {
                 ask.question().to_string(),
             )
         } else if !self.cancelling
+            && !self.compaction_failed
             && (self.activity.working()
                 || !self.prompts.is_empty()
                 || self
@@ -10151,21 +10178,37 @@ impl Shell {
     /// xfx's band shows it once the turn has started (`TurnStarted`), so the
     /// report waits for the tick whose frame first shows it
     /// ([`Keyed::NotYet`]) -- whichever tick the runtime's word lands in.
+    ///
+    /// **Nor is one that waits for anything else**, typed or not: work that
+    /// is only a prompt waiting is held the same way ([`Self::status_held`]),
+    /// and the tick whose frame first shows its turn writes the report after
+    /// that frame. A prompt typed after a stop, before the stopped turn has
+    /// ended, is one: the stop keeps the status settled across the keystroke,
+    /// so nothing above marks it as typed, and the stopped turn's end would
+    /// otherwise report `working` ahead of every frame that shows the prompt's
+    /// turn. Upstream's stop stays requested until the worker takes the next
+    /// item (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`;
+    /// `finishProcessing` leaves it, `:1541-1563`) and nothing is busy while it
+    /// is (`app_worker_runtime.zig:785-788`), while the prompt's keystroke
+    /// frame shows its activity (`pendingPromptActivityVisible`,
+    /// `app_render_runtime.zig:286-290`): the `Thinking` frame, then `working`.
+    /// A hold that ends without its turn -- the prompt stopped, reset or
+    /// replaced before it started -- owes no frame anything: what is reported
+    /// then goes where it would have.
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
-        if !self.status_moved_by_input {
-            return Keyed::No;
-        }
         let compacting = self
             .compaction
             .as_ref()
             .is_some_and(|compaction| compaction.active() && !compaction.stopped());
-        if self.status_activity() == StatusActivity::Working
-            && !self.activity.working()
-            && !compacting
-        {
+        let working = self.status_activity() == StatusActivity::Working;
+        if working && !self.activity.working() && !compacting {
+            self.status_held = true;
             return Keyed::NotYet;
         }
-        self.status_moved_by_input = false;
+        let started = std::mem::take(&mut self.status_held) && working;
+        if !std::mem::take(&mut self.status_moved_by_input) && !started {
+            return Keyed::No;
+        }
         Keyed::AfterFrame
     }
 
@@ -10194,6 +10237,24 @@ impl Shell {
         }
         self.program_status_resumed();
         true
+    }
+
+    /// Takes the launch's report **now**, before the keys typed ahead of the
+    /// session are read, for the first tick to write. Upstream's loop
+    /// reports before it handles a key (`src/ui/event_loop.zig:78-117@481104fd`),
+    /// so its launch reports `idle` whatever was typed while it started, and
+    /// what the keys did is reported by the pass after the one that shows it.
+    /// The launch probe's leftovers are routed before the first tick here
+    /// (`super::event_loop`'s `session`), and a status read after them would
+    /// skip the launch's report.
+    pub(crate) fn hold_launch_status(&mut self) {
+        self.launch_status = self.take_program_status();
+    }
+
+    /// Whether the launch's report is still to be written
+    /// ([`Self::hold_launch_status`]).
+    pub(crate) fn owes_launch_status(&self) -> bool {
+        self.launch_status.is_some()
     }
 
     /// The terminal bells the session owes, taken by the loop that writes them

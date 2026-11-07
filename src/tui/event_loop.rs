@@ -326,10 +326,16 @@ fn session(
 /// to the band here, the title is one the band already owes when that tick
 /// begins, and the tick's report follows it ([`commit_tick`]); the band is
 /// still the title's only writer, and it writes it with its first frame.
+///
+/// And takes the launch's report with it, before [`session`] routes the keys
+/// typed ahead of the session ([`Shell::hold_launch_status`]): upstream's
+/// first pass reports before it handles a key, so its launch is `idle`
+/// whatever was typed while it started.
 fn launch_title(shell: &mut Shell, band: &mut Band) {
     if let Some(title) = shell.take_title() {
         band.set_title(title);
     }
+    shell.hold_launch_status();
 }
 
 /// Takes what the runtime has produced, in order, and shows it.
@@ -1103,9 +1109,13 @@ fn commit_counted(
 ///   ([`Shell::take_status_moved_by_input`]): upstream handles the keys after
 ///   it reports, so what they did is on that pass's frame and reported by the
 ///   next (`osc/w02-done`: the prompt's `Thinking`, then `working`). A stop
-///   is not one, and a prompt the runtime has not started is reported on the
-///   tick whose frame first shows its `Thinking`
-///   ([`Shell::take_status_moved_by_input`] says why).
+///   is not one, and a prompt the runtime has not started -- typed or not, a
+///   prompt typed after a stop included -- is reported on the tick whose
+///   frame first shows its `Thinking`, after that frame
+///   ([`Shell::take_status_moved_by_input`] says why). The launch's report
+///   is taken before the keys typed ahead of the session are read
+///   ([`launch_title`]), so the first tick writes it, as above, whatever
+///   those keys did.
 /// * **After the frame of a resume.** Upstream repaints inside
 ///   `suspendToJobControl` and invalidates its reporter on the way out
 ///   (`defer`, `main.zig:1050-1055`), so the record the stop's restore
@@ -1130,8 +1140,11 @@ fn commit_tick(
     let keyed = shell.take_status_moved_by_input();
     let after_frame = resumed || keyed == super::shell::Keyed::AfterFrame;
     let held = !resumed && keyed == super::shell::Keyed::NotYet;
+    // The launch's report is the first tick's whatever the keys typed ahead
+    // of the session did ([`launch_title`]), and ahead of its frame.
+    let launch = shell.owes_launch_status();
     let mut lead = None;
-    if !after_frame && !held {
+    if launch || (!after_frame && !held) {
         if let Some(report) = take_checked_status(shell, failures, now)? {
             let rides = band.title_owed().is_some()
                 && !shell.owes_title()
