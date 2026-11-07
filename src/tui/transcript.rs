@@ -1410,7 +1410,7 @@ fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
 /// cell by cell, and every other byte as it is. A colour that rule leaves is
 /// left here. So a stopped call's argument drawn dark is light's 247, as
 /// upstream's token table makes it, not the 245 a fresh light drawing has.
-fn recoloured(row: &str, kind: DocumentRow, palette: Palette) -> String {
+pub(crate) fn recoloured(row: &str, kind: DocumentRow, palette: Palette) -> String {
     let mut out = String::with_capacity(row.len());
     let mut rest = row;
     while !rest.is_empty() {

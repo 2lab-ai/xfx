@@ -3561,7 +3561,7 @@ impl Shell {
             // An entry of the session's record, as upstream's raw line is one
             // of its transcript's (`appendRaw`, a `raw_bytes` entry,
             // `resume_projection.zig:106-128@481104fd`).
-            self.full.block(std::slice::from_ref(&line));
+            self.full.block(&[(line.clone(), DocumentRow::Plain)]);
             self.write_raw_rows(&line);
             self.raw_gap = true;
         }
@@ -4841,8 +4841,8 @@ impl Shell {
             // Upstream's full transcript has it as the user prompt it is.
             Mark::Amendment(text) => self.full.prompt(&card_text(text, &BadgeLinks::new())),
             Mark::Block(rows) => {
-                let rows: Vec<String> = rows.iter().map(|(row, _)| row.clone()).collect();
-                self.full.block(&rows);
+                // With each row's kind, for a theme report's recolouring.
+                self.full.block(rows);
             }
             Mark::ToolStart { id, shown } => self.full.tool_started(id, shown),
             Mark::ToolResult {
@@ -12012,7 +12012,7 @@ impl Shell {
         }
         let line = cancelled_line(self.palette);
         self.write_transcript_as(&line, Role::Plain);
-        self.full.block(&[line]);
+        self.full.block(&[(line, DocumentRow::Plain)]);
         self.end_transcript_line();
         self.end_transcript_line();
     }

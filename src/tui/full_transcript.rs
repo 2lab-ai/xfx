@@ -99,9 +99,9 @@ use super::bridge::{self, UiEvent};
 use super::frame::clip;
 use super::input::Action;
 use super::notice::{Notice, Tone};
-use super::theme::{Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
-use super::transcript::{ellipsized, Gutter, Landed, Role, Transcript};
+use super::transcript::{ellipsized, recoloured, Gutter, Landed, Role, Transcript};
 use super::wrap;
 
 mod position;
@@ -1054,8 +1054,9 @@ enum Body {
     Usage(String),
     /// Rows the document was given already laid out: what a question batch
     /// leaves behind (`super::question`'s `answered_rows`), a cancelled turn's
-    /// line (`super::shell`'s `cancelled_line`).
-    Block(Vec<String>),
+    /// line (`super::shell`'s `cancelled_line`) -- each with what the document
+    /// recorded it as, so a theme report recolours it here as it does there.
+    Block(Vec<(String, DocumentRow)>),
     /// Boxed: a call carries its arguments, its result and the change it made,
     /// and a record of one-line notices should not be as wide as that.
     Tool(Box<Call>),
@@ -1375,7 +1376,7 @@ impl FullTranscript {
     /// Rows laid out already -- a question batch's resolution, a cancelled
     /// turn's line -- which close the group as any other block written into
     /// the document does.
-    pub(crate) fn block(&mut self, rows: &[String]) {
+    pub(crate) fn block(&mut self, rows: &[(String, DocumentRow)]) {
         self.group_open = false;
         self.push(Body::Block(rows.to_vec()));
     }
@@ -1775,10 +1776,17 @@ impl FullTranscript {
             // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
             // question's resolution is not one of them. Its rows are the ones
             // written at the width of the moment; one wider than this screen
-            // runs on to the next row, as upstream's row walker lets it.
+            // runs on to the next row, as upstream's row walker lets it. In
+            // the palette now in force: upstream rewrites a question's
+            // resolution and a cancelled turn's line through its token table
+            // on a theme switch (`retintEntriesForTheme`, `store.zig:3722-3760`,
+            // `themeOwnsRawEntry` `:3802-3812`@481104fd), as a report recolours
+            // the document's rows (`super::transcript`'s `recoloured`).
             Body::Block(rows) => (
                 None,
-                rows.iter().flat_map(|row| run_on(row, cols)).collect(),
+                rows.iter()
+                    .flat_map(|(row, kind)| run_on(&recoloured(row, *kind, palette), cols))
+                    .collect(),
             ),
         }
     }
@@ -4409,8 +4417,8 @@ mod tests {
         let mut record = record();
         record.prompt("ask me");
         record.block(&[
-            "  1) Which database?".to_string(),
-            "     SQLite".to_string(),
+            ("  1) Which database?".to_string(), DocumentRow::Plain),
+            ("     SQLite".to_string(), DocumentRow::Answer),
         ]);
         let rows = screen(&record);
         assert_eq!(
@@ -4438,9 +4446,12 @@ mod tests {
         let mut record = record();
         record.prompt("pick a storage engine");
         record.block(&[
-            question.to_string(),
-            "     checks?".to_string(),
-            format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
+            (question.to_string(), DocumentRow::Plain),
+            ("     checks?".to_string(), DocumentRow::Plain),
+            (
+                format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
+                DocumentRow::Answer,
+            ),
         ]);
         let rows = record_at(&record, 60);
         assert_eq!(
