@@ -92,6 +92,53 @@ const REASON_BYTES: usize = 256;
 /// (`encodeTerminalSafe`'s marker, `text_utils.zig:358@481104fd`).
 const CUT: &str = "...";
 
+/// How many columns of a call's argument the transcript's own row keeps: one
+/// more than the widest screen there is (a screen's width is a `u16`), so the
+/// row is still wider than any screen and is cut there with its ellipsis,
+/// cell for cell what the whole argument would show (`super::transcript`'s
+/// `ellipsized`). Ctrl-O's heading keeps the whole argument, as fx's expanded
+/// row is never clipped (`formatExpandedChild`,
+/// `tool_group_projection.zig:786-787@481104fd`).
+///
+/// A read's, a list's or a pattern's argument is the model's at any length,
+/// up to the stream's 8 MiB (`crate::gateway::sse::MAX_COMPLETION_BYTES`) and
+/// four times that spelled, and the group's block is drawn again whole, in
+/// both modes, on every change: kept whole, a redraw took 0.46 s for 8 MiB of
+/// `a` and 1.8 s for 4 Mi U+009B, the session 1.25 GiB at its peak
+/// (`.prd/tui-phase5/receipts/cancel-marker/round2/`).
+const INLINE_CELLS: usize = u16::MAX as usize + 1;
+
+/// The bytes it keeps: four a column, which every single character and
+/// every spelling stays within. Only text that averages more -- emoji joined
+/// by U+200D, combining marks stacked on one letter -- is cut before the
+/// 65 536th column (a run of family emoji near the 21 000th), and then the
+/// row says so with [`CUT`].
+const INLINE_BYTES: usize = 4 * INLINE_CELLS;
+
+/// `target`, spelled as [`spelled`] spells an argument that is not a command,
+/// as the transcript's own row keeps it ([`INLINE_CELLS`], [`INLINE_BYTES`])
+/// and ended [`CUT`], or `None` when it keeps the whole. Spells no more than
+/// [`INLINE_BYTES`] of it; spelling an already spelled argument -- the
+/// channel's (`super::bridge`'s `spelled_shown`) -- changes nothing.
+fn inline_cut(target: &str) -> Option<String> {
+    let mut spelling = Spelling::new(INLINE_BYTES);
+    for character in target.chars() {
+        if !spelling.push(character) {
+            break;
+        }
+    }
+    let bytes_cut = spelling.cut;
+    let head = spelling.finish();
+    let mut cells = 0usize;
+    for painted in super::wrap::painting(&head) {
+        cells += usize::from(super::wrap::cluster_width(painted.cluster));
+        if cells > INLINE_CELLS {
+            return Some(format!("{}{CUT}", &head[..painted.start]));
+        }
+    }
+    bytes_cut.then_some(head)
+}
+
 /// The kinds of work a header counts, in the order upstream breaks a tie in
 /// (`tool_group_projection.zig:140-150`: read, list, write, edit, open,
 /// command, ...). `open`, `subagent` and `browser` are upstream tools xfx does
@@ -130,6 +177,10 @@ pub(crate) struct ToolGroup {
 struct Call {
     id: String,
     shown: Shown,
+    /// The argument as the transcript's own row keeps it, when that is not
+    /// the whole of it ([`inline_cut`]); Ctrl-O's heading reads
+    /// [`Self::shown`].
+    inline: Option<String>,
     state: State,
     /// The command as the highlighter last coloured it, per mode and run
     /// colour ([`Call::highlighted`]).
@@ -223,11 +274,18 @@ impl Call {
     /// `Cancelled mcp_web_echo`, and `-failed`, `Failed mcp_web_echo: …`).
     /// The name is a server's tool's, so it is spelled as every name a server
     /// supplies is ([`crate::mcp::terminal_safe`]).
-    fn target(&self) -> String {
+    ///
+    /// `whole`: Ctrl-O's heading, which shows all of it; otherwise the
+    /// transcript's row, which keeps what a screen can show ([`inline_cut`]).
+    fn target(&self, whole: bool) -> String {
         let default = self.shown.presentation.default_target;
         let refused = matches!(self.state, State::Denied | State::Cancelled);
         let ran = matches!(self.state, State::Running | State::Done(_));
-        match &self.shown.target {
+        let argument = match &self.inline {
+            Some(inline) if !whole => Some(inline),
+            _ => self.shown.target.as_ref(),
+        };
+        match argument {
             Some(target) if self.calls_mcp() => {
                 let named = if ran {
                     target.as_str()
@@ -266,8 +324,8 @@ impl Call {
     }
 
     /// The row after its connector, plain: what [`Self::row`] paints.
-    fn phrase(&self) -> String {
-        let mut phrase = format!("{} {}", self.label(), self.target());
+    fn phrase(&self, whole: bool) -> String {
+        let mut phrase = format!("{} {}", self.label(), self.target(whole));
         match &self.state {
             // A reason with nothing left once it is spelled is no reason, as
             // fx's is none (`failureStatusDetail`, `src/core/agent/runtime/
@@ -304,9 +362,9 @@ impl Call {
     /// The row, after its connector, in the row's colour -- with a command's
     /// words re-coloured by the shell highlighter inside it
     /// (`highlightCommandPhrase`, `:728`).
-    fn painted(&self, base: &str, palette: Palette) -> String {
+    fn painted(&self, base: &str, palette: Palette, whole: bool) -> String {
         if !self.runs_a_command() {
-            return self.phrase();
+            return self.phrase(whole);
         }
         format!("{} {}", self.label(), self.highlighted(base, palette))
     }
@@ -320,7 +378,8 @@ impl Call {
     /// every group. The highlighter is a function of exactly those three
     /// things, so what it gave once is what it gives again.
     fn highlighted(&self, base: &str, palette: Palette) -> String {
-        let command = self.target();
+        // A command is held to its own bound, under the row's.
+        let command = self.target(true);
         let light = palette.mode == Mode::Light;
         if let Some(kept) = self
             .highlights
@@ -374,9 +433,17 @@ impl ToolGroup {
         if shown.presentation.activity == Activity::Ask {
             return;
         }
+        // A command and a file change have bounds of their own, under this one.
+        let inline = shown
+            .target
+            .as_deref()
+            .filter(|_| shown.presentation.activity != Activity::Command)
+            .filter(|_| !names_a_changed_file(shown.presentation))
+            .and_then(inline_cut);
         self.calls.push(Call {
             id,
             shown,
+            inline,
             state: State::Running,
             highlights: std::cell::RefCell::default(),
         });
@@ -574,7 +641,7 @@ impl ToolGroup {
     /// activity row under it, and between the group and whatever closes it.
     fn rows(&self, palette: Palette) -> Vec<String> {
         let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
-        let mut rows = self.header_and_calls(palette, palette.statusline());
+        let mut rows = self.header_and_calls(palette, palette.statusline(), false);
         if rows.is_empty() {
             return rows;
         }
@@ -598,11 +665,13 @@ impl ToolGroup {
     /// against `-end.ansi`), and nothing under them -- the blank row and a
     /// cancelled call's own line are the inline block's.
     pub(crate) fn expanded(&self, palette: Palette) -> Vec<String> {
-        self.header_and_calls(palette, "")
+        self.header_and_calls(palette, "", true)
     }
 
-    /// The header, then each visible call's row with `text` around it.
-    fn header_and_calls(&self, palette: Palette, text: &str) -> Vec<String> {
+    /// The header, then each visible call's row with `text` around it: the
+    /// whole argument for Ctrl-O, the transcript's own row's otherwise
+    /// ([`Call::target`]).
+    fn header_and_calls(&self, palette: Palette, text: &str, whole: bool) -> Vec<String> {
         let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
         let Some(last) = shown.len().checked_sub(1) else {
             return Vec::new();
@@ -623,7 +692,7 @@ impl ToolGroup {
             };
             rows.push(format!(
                 "{text}{connector} {}{reset}",
-                call.painted(text, palette)
+                call.painted(text, palette, whole)
             ));
         }
         rows
@@ -726,7 +795,7 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     let target = if call.runs_a_command() {
         call.highlighted(base, palette)
     } else {
-        call.target()
+        call.target(false)
     };
     format!(
         "{}{CANCELLED_MARK}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",
@@ -776,10 +845,7 @@ pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
     if presentation.activity == Activity::Command {
         return command_spelled(target, COMMAND_TARGET_BYTES, true);
     }
-    let file_change = [mutate::WRITE_FILE, mutate::EDIT_FILE]
-        .iter()
-        .any(|spec| spec.presentation() == presentation);
-    let mut spelling = Spelling::new(if file_change {
+    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {
         TARGET_BYTES
     } else {
         usize::MAX
@@ -790,6 +856,15 @@ pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
         }
     }
     spelling.finish()
+}
+
+/// Whether `presentation` is `write_file`'s or `edit_file`'s, whose path fx
+/// spells at a file change's bound ([`TARGET_BYTES`]; `file_mutation_contract.
+/// isToolName`, `src/core/tooling/file_mutation_contract.zig:487-490@481104fd`).
+fn names_a_changed_file(presentation: Presentation) -> bool {
+    [mutate::WRITE_FILE, mutate::EDIT_FILE]
+        .iter()
+        .any(|spec| spec.presentation() == presentation)
 }
 
 /// fx's status phrase for a call with this argument as the model wrote it,
@@ -2415,7 +2490,9 @@ mod tests {
             assert!(heading == format!("\u{2514} Matching {spelled_whole}"));
             // What a screen of any width shows of the transcript's row is
             // what it showed of the whole one -- unless a cut fell inside it.
-            for cols in [40, 120, 1000, u16::MAX] {
+            // (At `u16::MAX` columns `wrap::width`, saturated, calls either
+            // row narrow enough, and the painter's own clip cuts both alike.)
+            for cols in [40, 120, 1000, u16::MAX - 1] {
                 let cut = super::super::transcript::ellipsized(&rows[1], cols);
                 let all = super::super::transcript::ellipsized(&whole, cols);
                 match beyond {

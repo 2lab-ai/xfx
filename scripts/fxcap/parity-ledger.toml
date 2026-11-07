@@ -370,11 +370,11 @@ scenarios = ["p5-call-row-safe"]
 snaps = ["*"]
 fx_row = '[\u061c\u202e\u2066\u009b]|t\\x0du|\}s\\x0dt\.txt'
 xfx_row = 'n\\u\{202e\}o|o\\u\{061c\}p|p\\u\{061c\}q|q\\x1b7r|s\\u\{009b\}t|t\\x0du|u\*\.md|m\\u\{202e\}n|p\\x1b\[2Jq|r\\u\{009b\}s|s\\x0dt|t\.txt|Path not found|^[├└] (?:Matched|Failed)$'
-reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); like fx's raw rows they have no bound (only `write_file`'s and `edit_file`'s path is cut, at 4 096 bytes, as fx cuts it; T-U4). The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
+reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); on Ctrl-O, like fx's raw rows, they have no bound (only `write_file`'s and `edit_file`'s path is cut, at 4 096 bytes, as fx cuts it), and the transcript's own row keeps 65 536 columns of them, more than any screen shows (T-U4). The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
 owner = "CALLROW-SAFE"
 resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:775"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:844"]
 
 [[divergence]]
 id = "call-row-source-cut"
@@ -388,7 +388,7 @@ reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and sa
 owner = "CALLROW-SAFE"
 resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:830"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:905"]
 
 [[divergence]]
 id = "call-row-arabic-letter-mark"
@@ -402,7 +402,7 @@ reason = "CALLROW-SAFE's decision (`call-row-raw-argument`) in the one scenario 
 owner = "CALLROW-SAFE"
 resolution = "fx names U+061C on a command's row in a later pin, or the user takes fx's raw mark, as `call-row-raw-argument` resolves"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:944"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:1019"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -807,7 +807,7 @@ owner = "unowned (follows tool-schema)"
 scenarios = ["p5-call-row-safe"]
 snaps = ["full"]
 rows = ["1-3"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:775"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:844"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
 why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
 
