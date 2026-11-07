@@ -217,10 +217,12 @@ throwaway of the train branch, each mutant one exact replacement in
 
 ## Gates
 
-At `b4e0d06e` (the receipt directory untracked beside it), one at a time,
-`TMPDIR` a short scratch directory; `gates.txt` is the run as it printed,
-with the totals read from the full logs. The machine was shared (other
-sessions' builds and sweeps; load 25-35).
+Two runs, each gate one at a time, `TMPDIR` a short scratch directory;
+`gates.txt` holds both as they printed, with the totals read from the full
+logs. The machine was shared (other sessions' builds and sweeps).
+
+**Run 2, the head: `e1e839cd`** (merge 4 in, the receipt committed, the
+worktree clean), with `main`'s two new gate tests:
 
 | gate | result |
 |---|---|
@@ -229,31 +231,40 @@ sessions' builds and sweeps; load 25-35).
 | the same `--features fault-injection` | ok |
 | `cargo test --locked --no-fail-fast` | 5226 passed, 0 failed, 7 ignored (15 binaries) |
 | `cargo test --locked --features fault-injection --no-fail-fast` | 5263 passed, 0 failed, 7 ignored |
-| `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` | ok (12495 tracked files) / ok |
+| `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` | ok (12549 tracked files) / ok |
 | `scripts/check-preview-contract.sh` / `test-preview-contract.sh` | ok / ok (24 mutants caught) |
-| `scripts/check-no-secrets.sh` | **fails closed: `/usr/bin/grep: Argument list too long`, once per pattern (9)** -- below |
+| `scripts/check-no-secrets.sh` | ok (12549 tracked files) |
+| `scripts/test-check-no-secrets.sh` (new, #78) | ok (13 cases; 3473 tracked names past ARG_MAX) |
+| `scripts/test-gate-env.sh` (new, #78) | ok (5 cases) |
 | `scripts/fxcap/test-sweep.sh` / `test-capture.sh` | 50 + 26 OK / 42 OK |
-| `scripts/check-tui-preflight-cost.sh` / `check-usage-clock.sh` | ok (200x300 full 1.37 ms, update 1.01 ms; budget 32 ms) / ok |
+| `scripts/check-tui-preflight-cost.sh` / `check-usage-clock.sh` | ok (200x300 full 1.00 ms, update 0.65 ms; budget 32 ms) / ok |
 | `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
 | `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1127 checks, 0 failures |
 
-**`check-no-secrets.sh` and ARG_MAX: the known risk, hit.** It hands every
-tracked file, as `./<name>`, to one `grep` per pattern
-(`scripts/check-no-secrets.sh:205`, the operands built in `scan`), and the
-three units' receipts carry the listing past `ARG_MAX` (1048576 here).
-Measured as each name plus `./`, its NUL and an 8-byte pointer: `main`
-`e51685d6`, 12090 files, leaves 27991 bytes; the train at `b4e0d06e`, 12495
-files, is 15230 bytes over, before the environment and `grep`'s own
-arguments. The script is not edited here and no receipt file was removed:
-SECRETS-ARGMAX is landing on `main`, and the dispatcher merges `main` into
-the train after it. The check's name rules (`.env` files, bytecode) found
-nothing (its 9 problems are the 9 `grep` failures).
+With this README and `gates.txt` in their final form staged on top of
+`e1e839cd` (the last receipt commit changes only those two files):
+`cargo fmt --check` ok, `check-xfx-identity.sh` ok (12549 tracked files),
+`check-no-stubs.sh` ok, `check-no-secrets.sh` ok (12549 tracked files).
 
-As a supplement, not the gate: `secrets-batched.txt` runs the script's own
-nine patterns (read from its text) over every tracked file in batches of
-2000 names, each pattern first finding a sample of its own shape -- 9
-controls found, 0 hits.
+**Run 1, `b4e0d06e`, before merge 4** (the receipt directory untracked
+beside it): every gate above passed too (`cargo test` 5226 and 5263 again;
+12495 tracked files), but for the two new tests (not on the branch yet) and
+`check-no-secrets.sh`, which **failed closed**:
+`/usr/bin/grep: Argument list too long`, once per pattern (9). That
+script then handed every tracked file, as `./<name>`, to one `grep` per
+pattern (`scripts/check-no-secrets.sh:205` at `b4e0d06e`), and the three
+units' receipts carried the listing past `ARG_MAX` (1048576 here). Measured
+as each name plus `./`, its NUL and an 8-byte pointer: `main` `e51685d6`,
+12090 files, left 27991 bytes; the train at `b4e0d06e`, 12495 files, was
+15230 bytes over, before the environment and `grep`'s own arguments. The
+script was not edited here and no receipt file was removed; merge 4 brings
+SECRETS-ARGMAX's batched check, and run 2 passes. Its name rules (`.env`
+files, bytecode) found nothing in run 1 (its 9 problems were the 9 `grep`
+failures). The supplement run then (`secrets_batched.py`,
+`secrets-batched.txt`: the script's own nine patterns over every tracked
+file in batches of 2000 names, each pattern first finding a sample of its
+own shape) found 9 controls and 0 hits.
 
 ## Sweep
 
