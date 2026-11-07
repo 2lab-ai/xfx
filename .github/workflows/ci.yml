@@ -124,19 +124,23 @@ jobs:
       - name: No credentials in tracked files
         run: ./scripts/check-no-secrets.sh
 
-      # The secrets check hands the tracked names to `grep` in batches that
-      # fit under ARG_MAX; the tree outgrew one command line on macOS. This
-      # builds a scratch tree that does not fit on one, proves it does not,
-      # and requires the check to read all of it: a key in the first, the
-      # last and every file reported, a file it cannot read a failure.
-      - name: The secrets check reads a tree past ARG_MAX
-        run: ./scripts/test-check-no-secrets.sh
-
       # BSD grep, on the macOS rows, puts GREP_OPTIONS in front of every
       # argument list, so a gate that decides by grep would decide by that
-      # variable. Each gate unsets it; this plants one violation per gate and
-      # requires it refused under the value that used to hide it.
-      - name: No gate takes its grep options from the environment
+      # variable; and git takes its repository, index and config from GIT_*
+      # and from config the gates do not own. Each gate drops them; this
+      # plants one violation per gate and requires it refused under the
+      # value that used to hide it.
+      #
+      # It is also this job's one run of scripts/test-check-no-secrets.sh,
+      # whole, under a decoy GIT_DIR, a GIT_TRACE and a HOME whose config
+      # runs programs: the secrets check hands the tracked names to `grep`
+      # in batches that fit under ARG_MAX, and that test builds a scratch
+      # tree past one command line and requires the check to read all of
+      # it -- a key in the first, the last and every file reported, a file
+      # it cannot read a failure. It used to run on its own as well, a
+      # second full run per row; the two differed only in the environment,
+      # and the run under the decoys is the one that tests it.
+      - name: No gate takes its options, repository or config from the environment
         run: ./scripts/test-gate-env.sh
 
       - name: One product name in tracked files

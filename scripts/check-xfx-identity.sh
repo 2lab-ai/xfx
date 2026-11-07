@@ -225,35 +225,53 @@ fi
 
 # --- the scan itself ---------------------------------------------------------
 
-if ! scan_git . rev-parse --git-dir >/dev/null 2>"$control_root/errors"; then
-	fail 'not a git checkout, or git cannot open it; this check can only speak about tracked files:'
+# The checkout is this directory's own: its `.git`, a directory, or a file in
+# a linked worktree or a submodule. A copy of xfx inside another repository
+# (a vendored subtree) has none, and git would walk up to the parent's; with
+# `--work-tree=.` the parent's paths then resolved inside this directory,
+# where none exists, and `git grep` skipped every one without a word. A
+# ceiling at the parent directory stops that walk here.
+if ! GIT_CEILING_DIRECTORIES="$(dirname "$repo_root")" scan_git . rev-parse --git-dir \
+	>/dev/null 2>"$control_root/errors"; then
+	fail 'not a git checkout of its own, or git cannot open it; this check can only speak about the tracked files of the checkout it is in:'
 	cat "$control_root/errors" >&2
 	exit 1
 fi
 
 # `-v` tags each entry: `H` for a plain one, `S` for skip-worktree, lower
-# case for assume-unchanged. Either bit makes the content scan's answer about
-# something other than the file: `git grep` passes over a skip-worktree entry
-# (a sparse checkout's file outside its cone) without a word, and reads an
-# assume-unchanged one from the index while the probe reads the working tree,
-# so a working copy with a NUL hid an index text that carried the name. Only
-# local index state sets either; a CI checkout has neither.
+# case for assume-unchanged (`s` for both). Either bit makes the content
+# scan's answer about something other than the file: `git grep` passes over a
+# skip-worktree entry (a sparse checkout's file outside its cone) without a
+# word, and reads an assume-unchanged one from the index while the probe reads
+# the working tree, so a working copy with a NUL hid an index text that
+# carried the name. Only local index state sets either; a CI checkout has
+# neither. Each refusal names a remedy that ends in a scan of the file:
+# clearing skip-worktree on a file the working tree lacks would leave a
+# deleted file, which the scan skips, so a sparse checkout is to be undone.
 if ! scan_git . ls-files -v -z >"$control_root/tracked" 2>"$control_root/errors" || [ -s "$control_root/errors" ]; then
 	fail 'git ls-files could not list this checkout:'
 	cat "$control_root/errors" >&2
 	exit 1
 fi
 tracked_count=0
-flagged=()
+skipped=()
+assumed=()
 while IFS= read -r -d '' entry; do
 	tracked_count=$((tracked_count + 1))
 	case "$entry" in
-	S\ * | [[:lower:]]\ *) flagged+=("${entry#??}") ;;
+	S\ * | s\ *) skipped+=("${entry#??}") ;;
+	[[:lower:]]\ *) assumed+=("${entry#??}") ;;
 	esac
 done <"$control_root/tracked"
-if [ "${#flagged[@]}" -ne 0 ]; then
-	fail 'tracked files marked skip-worktree or assume-unchanged, whose content this scan cannot vouch for; clear the bits (git update-index --no-skip-worktree, --no-assume-unchanged):'
-	printf '%s\n' "${flagged[@]}" >&2
+if [ "${#skipped[@]}" -ne 0 ] || [ "${#assumed[@]}" -ne 0 ]; then
+	if [ "${#skipped[@]}" -ne 0 ]; then
+		fail 'tracked files marked skip-worktree, which git grep passes over; restore them first: in a sparse checkout, git sparse-checkout disable; for a file the working tree holds, git update-index --no-skip-worktree -- <file>:'
+		printf '%s\n' "${skipped[@]}" >&2
+	fi
+	if [ "${#assumed[@]}" -ne 0 ]; then
+		fail 'tracked files marked assume-unchanged, which git grep reads from the index rather than the working tree; clear the bit: git update-index --no-assume-unchanged -- <file>:'
+		printf '%s\n' "${assumed[@]}" >&2
+	fi
 	exit 1
 fi
 if [ "$tracked_count" -eq 0 ]; then

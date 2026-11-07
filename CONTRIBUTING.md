@@ -52,8 +52,7 @@ cargo build --locked --release
 cargo build --locked --release --features fault-injection --target-dir target/faulty
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
-./scripts/test-check-no-secrets.sh
-./scripts/test-gate-env.sh
+./scripts/test-gate-env.sh   # runs ./scripts/test-check-no-secrets.sh too
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
 ./scripts/test-preview-contract.sh
