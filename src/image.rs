@@ -155,7 +155,8 @@ pub struct Image {
     pub id: u32,
     /// The file it was read from, resolved -- or, for a clipboard image, the
     /// copy written when it was pasted, named [`Self::snapshot_name`], which
-    /// is what upstream names and links one by (`image_commands.zig:138-147`).
+    /// is what upstream names and links one by
+    /// (`image_commands.zig:140-148@481104fd`).
     pub path: PathBuf,
     pub media_type: MediaType,
     /// What was read when it was attached, and nothing read since.

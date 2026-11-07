@@ -65,18 +65,18 @@ impl ClipboardReads {
 
 /// Where a clipboard image is copied the moment it is pasted, so its badge
 /// links a file that is there (`writeImageBadge`,
-/// `image_attachments.zig:1336-1340`).
+/// `src/core/images/image_attachments.zig:1544-1548@481104fd`).
 ///
-/// Upstream captures a pasted clipboard image into its session's `images/`
-/// before the badge goes in, and names and links the image by that copy
-/// (`insertImageAtCursor`, `image_commands.zig:138-147`); with no session to
-/// hold it, the copy goes to a private temporary directory removed when the
-/// session ends (`imageSnapshotStorageDir`, `session_store.zig:102-118`;
-/// `createTempSnapshotDir`, `image_attachments.zig:240-262`; removed at
-/// `app_session_runtime.zig:1378-1381`). xfx opens its session with the first
-/// prompt, on another thread, so a paste always has no session to write into:
-/// the copy is that temporary one, and the session keeps its own when the
-/// prompt is recorded.
+/// Upstream captures a pasted clipboard image before the badge goes in, and
+/// names and links the image by that copy (`insertImageAtCursor`,
+/// `image_commands.zig:140-148@481104fd`). At the pin every capture goes to
+/// the process's temporary folder (`imageSnapshotStorageDir`,
+/// `app_session_runtime.zig:1347-1351`; `imageSnapshotTempDir`,
+/// `session_store.zig:44-51`), a private directory under the real `/tmp`
+/// (`createTempSnapshotDir`, `image_attachments.zig:248-275`), removed when
+/// the session's persistence is torn down (`app_session_runtime.zig:1274-1277`).
+/// xfx's copy is that temporary one too, and a session that saves keeps its
+/// own when the prompt is recorded.
 ///
 /// The same directory holds an unsaved session's copy of a file the user
 /// attached (`super::shell`'s `captured`). Its root is upstream's: the real

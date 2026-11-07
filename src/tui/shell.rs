@@ -9743,6 +9743,15 @@ impl Shell {
             match read {
                 Ok((media_type, bytes)) => {
                     let id = self.images_next;
+                    // Room first, so an image with none makes no copy
+                    // ([`Self::badge_fits`]).
+                    if !self.badge_fits(id) {
+                        self.announce(notice::Notice::neutral(
+                            crate::image::TOPIC,
+                            crate::image::INPUT_FULL,
+                        ));
+                        continue;
+                    }
                     let mut image = crate::image::Image::new(
                         id,
                         std::path::PathBuf::new(),
@@ -9873,6 +9882,17 @@ impl Shell {
         self.edit_history.boundary();
         self.amended(None);
         true
+    }
+
+    /// Whether image `id`'s badge fits at the caret now. Asked before the
+    /// image's copy is made, on the routes that put one badge at the caret
+    /// (`/image`, a clipboard image), as upstream asks `canInsert` before it
+    /// captures (`insertImageAtCursor`, `image_commands.zig:128-130@481104fd`,
+    /// before `:140`): with no room, `input is full; image not attached`,
+    /// and no copy is made or tried -- a copy that could not be written is
+    /// then never the reason given.
+    fn badge_fits(&self, id: u32) -> bool {
+        self.editor.can_insert(crate::image::badge(id).len())
     }
 
     /// Removes the copy xfx made for `image` ([`crate::image::Image::own_copy`])
@@ -13221,6 +13241,15 @@ impl CommandHandlers for Shell {
                 problem.to_string(),
             )),
             Ok((path, media_type, bytes)) => {
+                // Room first, so an image with none makes no copy
+                // ([`Self::badge_fits`]).
+                if !self.badge_fits(self.images_next) {
+                    self.announce(notice::Notice::neutral(
+                        crate::image::TOPIC,
+                        crate::image::INPUT_FULL,
+                    ));
+                    return;
+                }
                 let image = match self.captured(crate::image::Image::new(
                     self.images_next,
                     path,
@@ -37404,7 +37433,7 @@ mod tests {
 
     #[test]
     fn a_clipboard_image_is_copied_at_the_paste_and_its_badge_links_the_copy() {
-        // `insertImageAtCursor` (`image_commands.zig:138-147`) and
+        // `insertImageAtCursor` (`image_commands.zig:140-148@481104fd`) and
         // `fx-image-paste-40x120-paste.ansi`: the badge links the copy written
         // at the paste, in the composer and on the card.
         let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
@@ -37780,11 +37809,13 @@ mod tests {
 
     #[test]
     fn an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route() {
-        // Upstream checks for room before it captures (`canInsert`,
-        // `image_commands.zig:128-130@481104fd`) and discards an attachment
-        // it does not insert, its snapshot with it (`:114`): no copy outlives
-        // an image that was not attached. xfx makes the copy first, so it
-        // removes it there.
+        // Upstream discards an attachment it does not insert, its snapshot
+        // with it (`image_commands.zig:114@481104fd`): no copy outlives an
+        // image that was not attached. A clipboard image and `/image` ask for
+        // room before any copy is made (the test after this one); a pasted
+        // path is copied first, as upstream's paste captures first, and so is
+        // whatever reaches `attach` with a copy -- those copies are removed
+        // when the badge does not go in.
         fn copies(shell: &Attaching) -> Vec<std::path::PathBuf> {
             shell
                 .paste_copies
@@ -37803,7 +37834,7 @@ mod tests {
                 .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
                 .is_some());
         }
-        // A clipboard image, whose copy is made as it arrives.
+        // A clipboard image: no copy is made.
         let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
         let mut shell = attaching();
         shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
@@ -37827,8 +37858,8 @@ mod tests {
         assert!(shell.paste_copies.dir().is_some(), "no copy was made");
         assert!(copies(&shell).is_empty(), "{:?}", copies(&shell));
 
-        // `/image`'s two steps in an unsaved session, the copy made and the
-        // badge refused.
+        // `attach` given an image whose copy was made, in an unsaved session:
+        // the badge refused, the copy removed.
         let mut shell = attaching_unsaved();
         let shot = shell.workspace.join("shot.png");
         let image = shell
@@ -37843,6 +37874,64 @@ mod tests {
         fill(&mut shell, "[Image 1]".len() - 1);
         assert!(!shell.attach(image));
         assert!(copies(&shell).is_empty(), "{:?}", copies(&shell));
+    }
+
+    #[test]
+    fn with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy() {
+        // Upstream asks for room before it captures (`canInsert`,
+        // `image_commands.zig:128-130@481104fd`, before `:140`): with no room
+        // the answer is `input is full; image not attached`, whatever the copy
+        // would have done, and no copy is made at all.
+        let full = said(notice::Notice::neutral(
+            "images",
+            "input is full; image not attached",
+        ));
+        fn fill(shell: &mut Attaching) {
+            let room = "[Image 1]".len() - 1;
+            assert!(shell
+                .editor
+                .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
+                .is_some());
+        }
+        let unwritable = |shell: &mut Attaching| {
+            let gone = shell.workspace.join("no-such-directory");
+            shell.paste_copies = super::super::clipboard_image::PasteCopies::at(gone);
+        };
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+
+        // A clipboard image whose copy could not be written.
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        unwritable(&mut shell);
+        fill(&mut shell);
+        shell.route_bytes(b"\x16");
+        assert_eq!(read_settled(&mut shell), full);
+        assert!(attached_ids(&shell).is_empty());
+
+        // `/image` in an unsaved session, whose copy could not be written.
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        fill(&mut shell);
+        shell.image("shot.png");
+        assert_eq!(shell.document(), full);
+        assert!(attached_ids(&shell).is_empty());
+
+        // With copies that could be written, none is made on either route.
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        fill(&mut shell);
+        shell.route_bytes(b"\x16");
+        assert_eq!(read_settled(&mut shell), full);
+        assert_eq!(
+            shell.paste_copies.dir(),
+            None,
+            "the clipboard image was copied"
+        );
+        let mut shell = attaching_unsaved();
+        fill(&mut shell);
+        shell.image("shot.png");
+        assert_eq!(shell.document(), full);
+        assert_eq!(shell.paste_copies.dir(), None, "the file was copied");
     }
 
     #[test]

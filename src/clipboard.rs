@@ -378,25 +378,35 @@ pub enum ImageReadError {
 /// the clipboard as PNG, written to `path`. The clipboard converts whatever
 /// image it holds on the way out, so what comes back is always a PNG.
 ///
-/// `path` goes into the script as an AppleScript string, with its `\` and
-/// `"` escaped, so no path can end that string and become script. Upstream's
-/// goes in as it is; it is always under the real `/tmp` and named by upstream
-/// itself, as xfx's is ([`snapshot_root`]). `None` for a path the string
-/// cannot hold as it is: one that is not UTF-8, which would name another
-/// file, or one with a control character in it.
+/// `path` goes into the script as one AppleScript string
+/// ([`applescript_string`]), so no path can end that string and become
+/// script. Upstream's goes in as it is; it is always under the real `/tmp`
+/// and named by upstream itself, as xfx's is ([`snapshot_root`]). `None` for
+/// a path the string cannot hold as it is.
 fn clipboard_script(path: &std::path::Path) -> Option<String> {
-    let path = path.to_str()?;
-    if path.chars().any(char::is_control) {
-        return None;
-    }
-    let path = path.replace('\\', "\\\\").replace('"', "\\\"");
+    let path = applescript_string(path)?;
     Some(format!(
-        "set outFile to POSIX file \"{path}\"\n\
+        "set outFile to POSIX file {path}\n\
          set pngData to the clipboard as \u{ab}class PNGf\u{bb}\n\
          set fileRef to open for access outFile with write permission\n\
          set eof fileRef to 0\n\
          write pngData to fileRef\n\
          close access fileRef\n"
+    ))
+}
+
+/// `path` as an AppleScript string literal, quotes and all: its `\` and `"`
+/// escaped, the backslashes first, so neither can end the string. `None`
+/// for a path that is not UTF-8, which would name another file, or one with
+/// a control character in it.
+fn applescript_string(path: &std::path::Path) -> Option<String> {
+    let path = path.to_str()?;
+    if path.chars().any(char::is_control) {
+        return None;
+    }
+    Some(format!(
+        "\"{}\"",
+        path.replace('\\', "\\\\").replace('"', "\\\"")
     ))
 }
 
@@ -705,6 +715,85 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         let not_utf8 = std::ffi::OsStr::from_bytes(b"/tmp/\xff/clipboard.png");
         assert_eq!(clipboard_script(std::path::Path::new(not_utf8)), None);
+    }
+
+    /// Runs `script` through the real `/usr/bin/osascript`, given a minute,
+    /// and gives back whether it exited 0 and what it printed; `None` when
+    /// this system has no such program.
+    #[cfg(target_os = "macos")]
+    fn real_osascript(script: &str) -> Option<(bool, String)> {
+        use std::io::Read;
+        let program = std::path::Path::new("/usr/bin/osascript");
+        if !program.exists() {
+            return None;
+        }
+        let mut command = crate::process::command(program);
+        command
+            .arg("-e")
+            .arg(script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        let mut child = crate::process::spawn(&mut command).expect("start osascript");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("wait for osascript") {
+                break status;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("osascript ran past a minute");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let mut printed = String::new();
+        child
+            .stdout
+            .take()
+            .expect("its output")
+            .read_to_string(&mut printed)
+            .expect("read its output");
+        Some((status.success(), printed))
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_hostile_path_is_one_string_to_the_real_applescript_interpreter() {
+        // The escaping, through the interpreter rather than by its text: a
+        // path holding `\`, `"`, `\"` and `" & (do shell script "touch …") & "`
+        // comes back from AppleScript exactly as it went in, the clipboard
+        // script with its clipboard read swapped for a constant writes to
+        // exactly that file, and the shell command never runs.
+        let dir = tempfile::tempdir().expect("a directory");
+        let root = dir.path().canonicalize().expect("its real path");
+        let canary = root.join("canary");
+        let hostile = format!(
+            "x\" & (do shell script \"touch {}\") & \"y\\\\z\\\"w",
+            canary.display()
+        );
+        let path = root.join(&hostile).join("clipboard.png");
+        let text = path.to_str().expect("UTF-8");
+        assert!(text.contains('"') && text.contains('\\'), "{text:?}");
+
+        let literal = applescript_string(&path).expect("a literal");
+        let Some((ok, printed)) = real_osascript(&format!("return {literal}")) else {
+            eprintln!("skipped: no /usr/bin/osascript");
+            return;
+        };
+        assert!(ok, "osascript refused {literal:?}");
+        assert_eq!(printed.strip_suffix('\n'), Some(text));
+        assert!(!canary.exists(), "the path ran a shell command");
+
+        let read = "set pngData to the clipboard as \u{ab}class PNGf\u{bb}";
+        let script = clipboard_script(&path).expect("a script");
+        assert!(script.contains(read), "{script:?}");
+        let script = script.replace(read, "set pngData to \"probe\"");
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("its folder");
+        let (ok, _) = real_osascript(&script).expect("osascript");
+        assert!(ok, "osascript refused {script:?}");
+        assert_eq!(std::fs::read(&path).expect("the file it named"), b"probe");
+        assert!(!canary.exists(), "the script ran a shell command");
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
